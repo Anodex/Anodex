@@ -3,6 +3,7 @@ import { IpcChannel, type AnodexApi } from '@shared/ipc'
 import type { EngineState, ModelDownloadProgress } from '@shared/model.types'
 import type { ChatStreamChunk } from '@shared/chat.types'
 import type { ToolActivityEvent, ToolConfirmRequest } from '@shared/tools.types'
+import type { UpdateStatus } from '@shared/update.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -88,6 +89,14 @@ const api: AnodexApi = {
   toast: {
     show: (content) => ipcRenderer.invoke(IpcChannel.Toast.show, content),
     focusMain: () => ipcRenderer.invoke(IpcChannel.Toast.focusMain)
+  },
+  updates: {
+    getStatus: () => ipcRenderer.invoke(IpcChannel.Updates.getStatus),
+    check: () => ipcRenderer.invoke(IpcChannel.Updates.check),
+    download: () => ipcRenderer.invoke(IpcChannel.Updates.download),
+    installAndRestart: () => ipcRenderer.invoke(IpcChannel.Updates.installAndRestart),
+    onStatusChanged: (listener) =>
+      subscribe<UpdateStatus>(IpcChannel.Updates.statusChanged, listener)
   }
 }
 

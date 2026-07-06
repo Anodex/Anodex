@@ -1,15 +1,24 @@
 import { useEffect, useState } from 'react'
 import type { SystemInfo } from '@shared/system.types'
+import type { UpdateStatus } from '@shared/update.types'
 import { anodex } from '../../../../lib/anodex'
 import { AnodexLogo } from '../../../../components/AnodexLogo'
 import { Icon } from '../../../../components/Icon'
+import { Button } from '../../../../components/ui/Button'
+import { updateStatusText } from './updateStatusText'
 import styles from './AboutSettings.module.css'
 
 export function AboutSettings(): JSX.Element {
   const [info, setInfo] = useState<SystemInfo | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' })
 
   useEffect(() => {
     void anodex.system.getInfo().then(setInfo)
+  }, [])
+
+  useEffect(() => {
+    void anodex.updates.getStatus().then(setUpdateStatus)
+    return anodex.updates.onStatusChanged(setUpdateStatus)
   }, [])
 
   return (
@@ -50,6 +59,35 @@ export function AboutSettings(): JSX.Element {
             <Icon name="web" size={14} />
             node-llama-cpp
           </a>
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Updates</h2>
+        <p className={styles.sectionDesc}>{updateStatusText(updateStatus)}</p>
+        <div className={styles.updateAction}>
+          {updateStatus.state === 'downloaded' ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void anodex.updates.installAndRestart()}
+            >
+              Restart & install
+            </Button>
+          ) : updateStatus.state === 'available' ? (
+            <Button variant="primary" size="sm" onClick={() => void anodex.updates.download()}>
+              Download update
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={updateStatus.state === 'checking' || updateStatus.state === 'downloading'}
+              onClick={() => void anodex.updates.check()}
+            >
+              {updateStatus.state === 'checking' ? 'Checking…' : 'Check for updates'}
+            </Button>
+          )}
         </div>
       </section>
 

@@ -12,6 +12,7 @@ import { registerWindowHandlers } from './window.handlers'
 import { registerWorkspaceHandlers } from './workspace.handlers'
 import { registerToastHandlers } from './toast.handlers'
 import { registerAttachmentHandlers } from './attachments.handlers'
+import { registerUpdateHandlers } from './update.handlers'
 
 /**
  * Register every IPC handler and wire engine state broadcasts.
@@ -29,6 +30,7 @@ export function registerIpcHandlers(): void {
   registerWorkspaceHandlers()
   registerToastHandlers()
   registerAttachmentHandlers()
+  registerUpdateHandlers()
 
   // Push engine state changes to every open renderer window.
   llamaService.on('state', (state) => {

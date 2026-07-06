@@ -110,3 +110,7 @@
   line-height: 1.6;
   color: var(--text-muted);
 }
+
+.updateAction {
+  margin-top: var(--space-3);
+}

@@ -6,9 +6,15 @@ import { projectStore } from './projects/ProjectStore'
 import { projectMemoryStore } from './projects/ProjectMemoryStore'
 import { conversationStore } from './conversations/ConversationStore'
 import { modelReliabilityStore } from './models/ModelReliabilityStore'
+import { updateService } from './updates/UpdateService'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('main')
+
+/** Give startup (model auto-load, window paint) a moment before an update
+ *  check adds its own network activity — same reasoning as the model
+ *  auto-load delay, just for a much lighter request. */
+const STARTUP_UPDATE_CHECK_DELAY_MS = 5000
 
 // Windows derives taskbar grouping/jump-list identity from this — without it
 // (notably in an unpackaged dev run, which has no Start Menu shortcut to
@@ -35,8 +41,10 @@ if (!app.requestSingleInstanceLock()) {
       projectMemoryStore.init()
       conversationStore.init()
       modelReliabilityStore.init()
+      updateService.init()
       registerIpcHandlers()
       createMainWindow()
+      setTimeout(() => void updateService.check(), STARTUP_UPDATE_CHECK_DELAY_MS)
 
       // macOS: re-create a window when the dock icon is clicked with none open.
       app.on('activate', () => {

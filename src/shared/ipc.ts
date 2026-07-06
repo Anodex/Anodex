@@ -29,6 +29,7 @@ import type { HardwareInfo, SystemInfo } from './system.types'
 import type { ToolActivityEvent, ToolConfirmRequest, ToolConfirmResponse } from './tools.types'
 import type { WorkspaceTreeNode } from './workspaceFiles.types'
 import type { ToastContent } from './toast.types'
+import type { UpdateStatus } from './update.types'
 
 export const IpcChannel = {
   Models: {
@@ -112,6 +113,14 @@ export const IpcChannel = {
     show: 'toast:show',
     /** From a toast window: bring the main window to the foreground. */
     focusMain: 'toast:focus-main'
+  },
+  Updates: {
+    getStatus: 'updates:get-status',
+    check: 'updates:check',
+    download: 'updates:download',
+    installAndRestart: 'updates:install-and-restart',
+    /** main → renderer broadcast whenever the update state changes. */
+    statusChanged: 'updates:status-changed'
   }
 } as const
 
@@ -215,5 +224,15 @@ export interface AnodexApi {
     show(content: ToastContent): Promise<void>
     /** Bring the main window to the foreground — called when a toast is clicked. */
     focusMain(): Promise<void>
+  }
+  updates: {
+    getStatus(): Promise<UpdateStatus>
+    /** No-op in an unpackaged dev build. */
+    check(): Promise<void>
+    /** Only meaningful once status is `available`. */
+    download(): Promise<void>
+    /** Only meaningful once status is `downloaded` — quits and installs. */
+    installAndRestart(): Promise<void>
+    onStatusChanged(listener: (status: UpdateStatus) => void): () => void
   }
 }
