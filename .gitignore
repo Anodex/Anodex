@@ -27,3 +27,6 @@ Thumbs.db
 
 # Local Claude Code session state, not project source
 .claude/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
