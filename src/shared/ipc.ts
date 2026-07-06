@@ -37,6 +37,7 @@ import type { WorkspaceTreeNode } from './workspaceFiles.types'
 import type { WorkspaceFileContent } from './workspaceFileContent.types'
 import type { ToastContent } from './toast.types'
 import type { UpdateStatus } from './update.types'
+import type { UsageProfile } from './stats.types'
 
 export const IpcChannel = {
   Models: {
@@ -132,6 +133,9 @@ export const IpcChannel = {
     installAndRestart: 'updates:install-and-restart',
     /** main → renderer broadcast whenever the update state changes. */
     statusChanged: 'updates:status-changed'
+  },
+  Stats: {
+    getUsageProfile: 'stats:get-usage-profile'
   }
 } as const
 
@@ -251,5 +255,9 @@ export interface AnodexApi {
     /** Only meaningful once status is `downloaded` — quits and installs. */
     installAndRestart(): Promise<void>
     onStatusChanged(listener: (status: UpdateStatus) => void): () => void
+  }
+  stats: {
+    /** All-time token-generation activity, independent of individual conversations. */
+    getUsageProfile(): Promise<Result<UsageProfile>>
   }
 }

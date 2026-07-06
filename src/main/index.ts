@@ -6,6 +6,7 @@ import { projectStore } from './projects/ProjectStore'
 import { projectMemoryStore } from './projects/ProjectMemoryStore'
 import { conversationStore } from './conversations/ConversationStore'
 import { modelReliabilityStore } from './models/ModelReliabilityStore'
+import { tokenActivityStore } from './stats/TokenActivityStore'
 import { updateService } from './updates/UpdateService'
 import { createLogger } from './utils/logger'
 
@@ -41,6 +42,7 @@ if (!app.requestSingleInstanceLock()) {
       projectMemoryStore.init()
       conversationStore.init()
       modelReliabilityStore.init()
+      tokenActivityStore.init()
       updateService.init()
       registerIpcHandlers()
       createMainWindow()

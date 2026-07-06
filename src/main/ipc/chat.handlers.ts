@@ -9,6 +9,7 @@ import { llamaService } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
+import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { buildWorkspaceContext } from '../tools/workspaceContext'
 import { requestToolConfirmation } from './tools.handlers'
 import { createLogger } from '../utils/logger'
@@ -33,6 +34,7 @@ export function registerChatHandlers(): void {
     const projects = projectStore.getState()
     const workspaceRoot = projects.activeProjectId ? settings.workspace.root : null
     let hadToolActivity = false
+    const toolNamesThisTurn: string[] = []
     const tools = settings.tools.enabled
       ? {
           workspaceRoot,
@@ -42,6 +44,14 @@ export function registerChatHandlers(): void {
           plan: request.plan ?? null,
           onActivity: (call: ToolCall) => {
             hadToolActivity = true
+            // `onActivity` fires once per status transition for the same call
+            // id ('running', then a terminal status) — only tally on the
+            // terminal, actually-executed ones, matching the same guard
+            // `LlamaService.generate()` already uses before recording to
+            // `modelReliabilityStore`.
+            if (call.status === 'success' || call.status === 'error') {
+              toolNamesThisTurn.push(call.name)
+            }
             if (event.sender.isDestroyed()) return
             event.sender.send(IpcChannel.Tools.activity, {
               conversationId: request.conversationId,
@@ -99,6 +109,15 @@ export function registerChatHandlers(): void {
           request.conversationId,
           outcome.content
         )
+      }
+
+      // Recorded regardless of `stopped` — real tokens were generated either way.
+      if (outcome.stats.tokens > 0) {
+        tokenActivityStore.recordGeneration({
+          tokens: outcome.stats.tokens,
+          durationMs: outcome.stats.durationMs,
+          toolNames: toolNamesThisTurn
+        })
       }
 
       return ok({

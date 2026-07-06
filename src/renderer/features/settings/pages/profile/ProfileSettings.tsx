@@ -2,6 +2,7 @@ import { useRef, type ChangeEvent } from 'react'
 import type { AppSettings } from '@shared/settings.types'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, TextControl, ToggleControl } from '../../controls'
+import { UsageActivitySection } from './UsageActivitySection'
 import styles from './ProfileSettings.module.css'
 
 interface ProfileSettingsProps {
@@ -135,6 +136,8 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
           }
         />
       </section>
+
+      <UsageActivitySection />
     </div>
   )
 }
