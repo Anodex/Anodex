@@ -1,0 +1,102 @@
+.shell {
+  display: grid;
+  grid-template-rows: var(--titlebar-height) 1fr;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+
+.shellDockOpen {
+  grid-template-rows: var(--titlebar-height) 1fr;
+  grid-template-columns: var(--sidebar-width) 1fr var(--dock-width, 380px);
+}
+
+.titleBar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.sidebar {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  grid-row: 2 / -1;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.dockWrap {
+  position: relative;
+  /* Grid items default to `min-height: auto`, meaning their track can grow
+     to fit unbounded content (e.g. a long Files tree) instead of respecting
+     the `1fr` row — that's what let a big file list push past the window
+     and, since this row is shared with `.main`, made the chat area's
+     visible portion disappear along with it. `min-height: 0` + `overflow:
+     hidden` here force it to the actual track size, so the real scrolling
+     happens inside WorkspaceDock's own `overflow-y: auto` body instead. */
+  min-height: 0;
+  overflow: hidden;
+  grid-row: 2 / -1;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  -webkit-app-region: no-drag;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 1px;
+  height: 100%;
+  background: var(--border);
+  transition: background var(--transition-fast);
+}
+
+.resizeHandle:hover::after {
+  width: 2px;
+  background: var(--accent);
+}
+
+.dockHandle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  -webkit-app-region: no-drag;
+}
+
+.dockHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 2px;
+  width: 1px;
+  height: 100%;
+  background: var(--border);
+  transition: background var(--transition-fast);
+}
+
+.dockHandle:hover::after {
+  width: 2px;
+  background: var(--accent);
+}

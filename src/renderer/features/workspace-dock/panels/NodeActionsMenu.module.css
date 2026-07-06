@@ -1,0 +1,62 @@
+.trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.trigger:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+.menu {
+  composes: surface from '../../../components/ui/PopoverSurface.module.css';
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  padding: var(--space-1);
+}
+
+.item {
+  padding: 6px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--bg-surface-2);
+}
+
+.danger {
+  color: var(--danger);
+}
+
+.danger:hover {
+  background: var(--danger-soft);
+}
+
+.divider {
+  height: 1px;
+  margin: var(--space-1) 2px;
+  background: var(--border);
+}
+
+.info {
+  padding: 4px var(--space-2) 2px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}

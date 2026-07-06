@@ -1,0 +1,150 @@
+/** Global resets and base element styling. Component-specific styles live in
+ *  CSS Modules alongside each component. */
+
+@import './theme.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--text);
+  background-color: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+::selection {
+  background: rgba(79, 140, 255, 0.3);
+}
+
+/* Scrollbars — minimal */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-sm);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+  background-clip: padding-box;
+}
+
+/* Light theme overrides. Presets/custom colours only style dark mode (see
+   `useTheme.ts`) — light mode is always this single, fixed, accessible
+   palette, so it can't end up with a dark-mode-tuned colour that reads
+   poorly against a light surface. */
+[data-theme-mode='light'] {
+  --bg-base: #f5f5f7;
+  --bg-app: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #f2f2f5;
+  --bg-elevated: #e8e8ec;
+  --bg-input: #ffffff;
+  --border: #e2e2e6;
+  --border-strong: #d4d4d8;
+  --border-focus: #4f8cff;
+  --text: #111111;
+  --text-muted: #6b6b6b;
+  --text-faint: #a0a0a0;
+  --text-on-accent: #ffffff;
+  /* The dark-mode pastel blue reads as near-invisible on a light surface. */
+  --code-inline-text: #1a56db;
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme-mode='system'] {
+    --bg-base: #f5f5f7;
+    --bg-app: #ffffff;
+    --bg-surface: #ffffff;
+    --bg-surface-2: #f2f2f5;
+    --bg-elevated: #e8e8ec;
+    --bg-input: #ffffff;
+    --border: #e2e2e6;
+    --border-strong: #d4d4d8;
+    --border-focus: #4f8cff;
+    --text: #111111;
+    --text-muted: #6b6b6b;
+    --text-faint: #a0a0a0;
+    --text-on-accent: #ffffff;
+    --code-inline-text: #1a56db;
+  }
+}
+
+/* Reduced motion preference from settings. */
+[data-reduced-motion='true'] *,
+[data-reduced-motion='true'] *::before,
+[data-reduced-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* Respect the OS reduced-motion preference as a fallback. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Compact mode from settings — shrinks the sidebar and header bars. */
+[data-compact-mode='true'] {
+  --sidebar-width: 200px;
+  --topbar-height: 44px;
+  --titlebar-height: 34px;
+}
+
+/* The desktop-toast window (`ToastWindow.tsx`) is transparent so only its own
+   rounded card — not a rectangular window — is visible on screen. */
+body[data-window='toast'] {
+  background-color: transparent;
+}

@@ -1,0 +1,71 @@
+.unified,
+.sideBySide {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.sideBySide {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.column {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.column:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.line {
+  display: flex;
+  gap: var(--space-2);
+  padding: 1px var(--space-2);
+  white-space: pre;
+}
+
+.marker {
+  flex-shrink: 0;
+  width: 1ch;
+  color: var(--text-faint);
+}
+
+.lineText {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-muted);
+}
+
+.added {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.added .marker {
+  color: var(--success);
+}
+
+.added .lineText {
+  color: var(--text);
+}
+
+.removed {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.removed .marker {
+  color: var(--danger);
+}
+
+.removed .lineText {
+  color: var(--text);
+}
+
+.blank {
+  background: var(--bg-surface);
+}

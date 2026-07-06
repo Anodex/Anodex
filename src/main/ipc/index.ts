@@ -1,0 +1,39 @@
+import { BrowserWindow } from 'electron'
+import { IpcChannel } from '@shared/ipc'
+import { llamaService } from '../llama/LlamaService'
+import { registerChatHandlers } from './chat.handlers'
+import { registerModelHandlers } from './model.handlers'
+import { registerConversationHandlers } from './conversation.handlers'
+import { registerProjectHandlers } from './project.handlers'
+import { registerSettingsHandlers } from './settings.handlers'
+import { registerSystemHandlers } from './system.handlers'
+import { registerToolHandlers } from './tools.handlers'
+import { registerWindowHandlers } from './window.handlers'
+import { registerWorkspaceHandlers } from './workspace.handlers'
+import { registerToastHandlers } from './toast.handlers'
+import { registerAttachmentHandlers } from './attachments.handlers'
+
+/**
+ * Register every IPC handler and wire engine state broadcasts.
+ * Call once, after the app is ready.
+ */
+export function registerIpcHandlers(): void {
+  registerModelHandlers()
+  registerChatHandlers()
+  registerSettingsHandlers()
+  registerProjectHandlers()
+  registerConversationHandlers()
+  registerSystemHandlers()
+  registerToolHandlers()
+  registerWindowHandlers()
+  registerWorkspaceHandlers()
+  registerToastHandlers()
+  registerAttachmentHandlers()
+
+  // Push engine state changes to every open renderer window.
+  llamaService.on('state', (state) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Models.stateChanged, state)
+    }
+  })
+}

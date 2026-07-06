@@ -1,0 +1,34 @@
+# Packaging configuration for `npm run dist`.
+# Kept intentionally minimal for the foundation — expand per-platform targets,
+# code signing, and auto-update as the product matures.
+appId: com.anodex.app
+productName: Anodex
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - package.json
+# node-llama-cpp ships prebuilt binaries; keep them unpacked so they load at runtime.
+asarUnpack:
+  - node_modules/node-llama-cpp/**/*
+  - node_modules/@node-llama-cpp/**/*
+# Generated from src/renderer/assets/app-icon.png via scripts/generate-icons.mjs —
+# re-run that script (not a manual edit) if the brand mark ever changes.
+win:
+  target: nsis
+  icon: build/icon.ico
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+linux:
+  target: AppImage
+  category: Development
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

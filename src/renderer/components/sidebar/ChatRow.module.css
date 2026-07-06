@@ -1,0 +1,74 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: 1px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.row:hover {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.active {
+  color: var(--text);
+  background: var(--bg-surface-2);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.time {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  transition: visibility var(--transition-fast);
+}
+
+.row:hover .time,
+.active .time {
+  color: var(--text-muted);
+}
+
+.hasAction:hover .time {
+  visibility: hidden;
+}
+
+.action {
+  position: absolute;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.hasAction:hover .action {
+  opacity: 1;
+}

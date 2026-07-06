@@ -1,0 +1,78 @@
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.count {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.stepIcon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  color: var(--text-faint);
+}
+
+.stepTitle {
+  min-width: 0;
+  overflow-wrap: break-word;
+  font-size: var(--text-xs);
+  color: var(--text);
+}
+
+.pending .stepTitle {
+  color: var(--text-muted);
+}
+
+.in_progress .stepIcon {
+  color: var(--accent);
+}
+
+.in_progress .stepTitle {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.completed .stepIcon {
+  color: var(--success);
+}
+
+.completed .stepTitle {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}

@@ -1,0 +1,109 @@
+/**
+ * Anodex design tokens.
+ *
+ * The palette is taken from the Anodex logo: a near-black navy field, a
+ * cyan → blue → violet gradient for the "A" mark, and cool blue glows on the
+ * hexagon edges. Everything visual references these variables so the identity
+ * stays consistent and a future light theme is a matter of overriding tokens.
+ */
+
+:root {
+  /* Surfaces — neutral dark greys, flatter and more professional */
+  --bg-base: #080808;
+  --bg-app: #0c0c0c;
+  --bg-surface: #111111;
+  --bg-surface-2: #161616;
+  --bg-elevated: #1c1c1c;
+  --bg-input: #0f0f0f;
+
+  /* Borders & dividers */
+  --border: #1f1f1f;
+  --border-strong: #2a2a2a;
+  --border-focus: #4f8cff;
+
+  /* Text */
+  --text: #f0f0f0;
+  --text-muted: #a0a0a0;
+  --text-faint: #606060;
+  --text-on-accent: #ffffff;
+
+  /* Brand accents — single muted blue, no rainbow gradients */
+  --accent-cyan: #4f8cff;
+  --accent-blue: #4f8cff;
+  --accent-violet: #7c5cff;
+  --accent: #4f8cff;
+  --accent-hover: #3d7be8;
+  --accent-soft: rgba(79, 140, 255, 0.12);
+  --accent-gradient: #4f8cff;
+  --accent-gradient-soft: rgba(79, 140, 255, 0.12);
+
+  /* Status */
+  --success: #3ccf7a;
+  --warn: #f5a623;
+  --danger: #f05a5a;
+  --danger-hover: #d64d4d;
+  --danger-soft: rgba(240, 90, 90, 0.12);
+  --info: #4f8cff;
+  --info-soft: rgba(79, 140, 255, 0.12);
+
+  /* Inline `<code>` text in chat markdown — needs its own token since it must
+     stay readable against `--bg-base` in both light and dark mode. */
+  --code-inline-text: #a5d6ff;
+
+  /* Glows & shadows — minimal, no neon glows */
+  --glow-accent: none;
+  --glow-violet: none;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+  /* Radii — less rounded, more professional */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+
+  /* Spacing scale — slightly tighter */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Typography */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', ui-monospace, Consolas,
+    'Liberation Mono', monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 120ms var(--ease);
+  --transition: 180ms var(--ease);
+
+  /* Layout */
+  --sidebar-width: 248px;
+  --topbar-height: 52px;
+  --titlebar-height: 38px;
+
+  /* Popup stacking — two tiers, not one hand-picked number per component.
+     Tier 1 (blocking overlays: Settings, delete confirmation) sits below
+     Tier 2 (non-blocking floating surfaces: menus, popovers, toasts) so the
+     latter can always render above an open overlay — e.g. a popover
+     triggered from inside Settings. */
+  --z-overlay: 900;
+  --z-popover: 1000;
+}

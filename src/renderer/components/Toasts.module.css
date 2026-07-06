@@ -1,0 +1,65 @@
+.stack {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 360px;
+}
+
+.toast {
+  composes: surface from './ui/PopoverSurface.module.css';
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.icon {
+  display: flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.info .icon {
+  color: var(--accent);
+}
+.success .icon {
+  color: var(--success);
+}
+.error .icon {
+  color: var(--danger);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+
+.message {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.close {
+  display: flex;
+  flex-shrink: 0;
+  padding: 2px;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.close:hover {
+  color: var(--text);
+}

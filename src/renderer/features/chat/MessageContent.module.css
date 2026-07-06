@@ -1,0 +1,25 @@
+.content {
+  font-size: var(--text-md);
+  line-height: 1.65;
+  color: var(--text);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.paragraph {
+  margin: 0 0 var(--space-3);
+}
+
+.paragraph:last-child {
+  margin-bottom: 0;
+}
+
+.inlineCode {
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--code-inline-text);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}

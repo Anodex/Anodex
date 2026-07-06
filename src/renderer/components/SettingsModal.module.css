@@ -1,0 +1,49 @@
+.overlay {
+  composes: overlay from './ui/Overlay.module.css';
+}
+
+.card {
+  composes: card from './ui/Overlay.module.css';
+  display: flex;
+  flex-direction: column;
+  width: min(1160px, 94vw);
+  height: min(820px, 90vh);
+}
+
+.close {
+  position: absolute;
+  /* Vertically centers within the 40px PageHeader this sits above. */
+  top: 5px;
+  right: var(--space-5);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--text-faint);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.close:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+@media (max-width: 820px) {
+  .card {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .overlay {
+    padding: 0;
+  }
+}

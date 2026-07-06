@@ -1,0 +1,86 @@
+/**
+ * highlight.js token colors, mapped onto Anodex's own design tokens (theme.css)
+ * instead of a stock hljs theme, so code blocks match the app's palette rather
+ * than clashing with it.
+ */
+
+.hljs {
+  color: var(--text);
+  background: transparent;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst,
+.hljs-doctag {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-section,
+.hljs-selector-id {
+  color: var(--accent-violet);
+  font-weight: 600;
+}
+
+.hljs-type,
+.hljs-class,
+.hljs-tag,
+.hljs-name {
+  color: var(--accent-violet);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: var(--success);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attr,
+.hljs-attribute {
+  color: var(--warn);
+}
+
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--info);
+}
+
+.hljs-meta {
+  color: var(--text-muted);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
+
+.hljs-deletion {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.hljs-addition {
+  color: var(--success);
+  background: rgba(60, 207, 122, 0.12);
+}

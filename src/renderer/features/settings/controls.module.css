@@ -1,0 +1,107 @@
+.range {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 220px;
+}
+
+.slider {
+  flex: 1;
+  height: 5px;
+  appearance: none;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--fill),
+    var(--bg-elevated) var(--fill),
+    var(--bg-elevated) 100%
+  );
+  outline: none;
+}
+
+.slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-on-accent);
+  border: 2px solid var(--accent);
+  cursor: pointer;
+}
+
+.value {
+  min-width: 44px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text);
+  text-align: right;
+}
+
+.select {
+  width: 180px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.select:focus {
+  border-color: var(--border-focus);
+}
+
+.toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.toggleOn {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-on-accent);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast);
+}
+
+.toggleOn .knob {
+  transform: translateX(20px);
+}
+
+.text {
+  width: 100%;
+  max-width: 360px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.text:focus {
+  border-color: var(--border-focus);
+}

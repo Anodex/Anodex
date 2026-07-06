@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+
+# Local model files (never commit large GGUF weights)
+*.gguf
+models/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment / local overrides
+.env
+.env.local
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Local Claude Code session state, not project source
+.claude/

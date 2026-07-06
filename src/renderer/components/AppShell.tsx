@@ -1,0 +1,153 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useUiStore } from '../stores/uiStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { useProjectStore } from '../stores/projectStore'
+import { useChatStore } from '../stores/chatStore'
+import { useWorkspaceDock } from '../features/workspace-dock/useWorkspaceDock'
+import { useTheme } from '../hooks/useTheme'
+import { Sidebar } from './Sidebar'
+import { TitleBar } from './TitleBar'
+import { Toasts } from './Toasts'
+import { ChatView } from '../features/chat/ChatView'
+import { SettingsModal } from './SettingsModal'
+import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
+import styles from './AppShell.module.css'
+
+const MIN_SIDEBAR = 200
+const MAX_SIDEBAR = 400
+const MIN_DOCK = 280
+const MAX_DOCK = 500
+const SIDEBAR_KEY = 'anodex:sidebarWidth'
+const DOCK_KEY = 'anodex:dockWidth'
+
+export function AppShell(): JSX.Element {
+  const view = useUiStore((s) => s.view)
+  const appearance = useSettingsStore((s) => s.settings?.appearance)
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const conversations = useChatStore((s) => s.conversations)
+  const chatsLoaded = useChatStore((s) => s.loaded)
+  const newConversation = useChatStore((s) => s.newConversation)
+  const dockOpen = useWorkspaceDock((s) => s.open)
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      return Number(localStorage.getItem(SIDEBAR_KEY)) || 248
+    } catch {
+      return 248
+    }
+  })
+  const [dockWidth, setDockWidth] = useState(() => {
+    try {
+      return Number(localStorage.getItem(DOCK_KEY)) || 380
+    } catch {
+      return 380
+    }
+  })
+  const resizing = useRef<'sidebar' | 'dock' | null>(null)
+  const startX = useRef(0)
+  const startWidth = useRef(0)
+  useTheme({ appearance })
+
+  useEffect(() => {
+    if (!activeProjectId || !chatsLoaded) return
+    const hasChats = conversations.some((c) => c.projectId === activeProjectId)
+    if (!hasChats) newConversation(activeProjectId)
+  }, [activeProjectId, chatsLoaded, conversations, newConversation])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, String(sidebarWidth))
+    } catch {
+      /* noop */
+    }
+  }, [sidebarWidth])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DOCK_KEY, String(dockWidth))
+    } catch {
+      /* noop */
+    }
+  }, [dockWidth])
+
+  const handleSidebarDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault()
+      resizing.current = 'sidebar'
+      startX.current = e.clientX
+      startWidth.current = sidebarWidth
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    },
+    [sidebarWidth]
+  )
+
+  const handleDockDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault()
+      resizing.current = 'dock'
+      startX.current = e.clientX
+      startWidth.current = dockWidth
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    },
+    [dockWidth]
+  )
+
+  useEffect(() => {
+    const handleMove = (e: PointerEvent) => {
+      const edge = resizing.current
+      if (!edge) return
+      const delta = e.clientX - startX.current
+      if (edge === 'sidebar') {
+        const w = Math.min(MAX_SIDEBAR, Math.max(MIN_SIDEBAR, startWidth.current + delta))
+        setSidebarWidth(w)
+      } else {
+        const w = Math.min(MAX_DOCK, Math.max(MIN_DOCK, startWidth.current - delta))
+        setDockWidth(w)
+      }
+    }
+    const handleUp = () => {
+      if (!resizing.current) return
+      resizing.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('pointermove', handleMove)
+    document.addEventListener('pointerup', handleUp)
+    return () => {
+      document.removeEventListener('pointermove', handleMove)
+      document.removeEventListener('pointerup', handleUp)
+    }
+  }, [])
+
+  return (
+    <div
+      className={`${styles.shell} ${dockOpen ? styles.shellDockOpen : ''}`}
+      style={
+        {
+          '--sidebar-width': `${sidebarWidth}px`,
+          '--dock-width': `${dockWidth}px`
+        } as React.CSSProperties
+      }
+    >
+      <div className={styles.titleBar}>
+        <TitleBar />
+      </div>
+      <div className={styles.sidebar}>
+        <Sidebar />
+        <div className={styles.resizeHandle} onPointerDown={handleSidebarDown} />
+      </div>
+      <main className={styles.main}>
+        <ChatView />
+      </main>
+      {dockOpen && (
+        <div className={styles.dockWrap}>
+          <div className={styles.dockHandle} onPointerDown={handleDockDown} />
+          <WorkspaceDock />
+        </div>
+      )}
+      <Toasts />
+      {view === 'settings' && <SettingsModal />}
+    </div>
+  )
+}

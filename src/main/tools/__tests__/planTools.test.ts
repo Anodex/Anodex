@@ -1,0 +1,107 @@
+import { describe, expect, it } from 'vitest'
+import { writePlanTool, updatePlanStepTool } from '../planTools'
+import type { ToolRuntimeContext } from '../types'
+import { createMockContext, createMockDefine } from './test-helpers'
+
+type WritePlanHandler = (args: { title: string; steps: string[] }) => Promise<string>
+type UpdateStepHandler = (args: {
+  stepNumber: number
+  status: 'in_progress' | 'completed'
+}) => Promise<string>
+
+function context(): ToolRuntimeContext {
+  return createMockContext('/tmp/workspace')
+}
+
+describe('AI plan tools', () => {
+  describe('write_plan', () => {
+    it('creates a plan and stores it on the shared context', async () => {
+      const ctx = context()
+      const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+
+      const result = await tool.handler({
+        title: 'Fix the bug',
+        steps: ['Read the file', 'Edit it']
+      })
+
+      expect(result).toContain('2 step(s)')
+      expect(ctx.plan.current).not.toBeNull()
+      expect(ctx.plan.current?.title).toBe('Fix the bug')
+      expect(ctx.plan.current?.steps).toHaveLength(2)
+      expect(ctx.plan.current?.steps.every((step) => step.status === 'pending')).toBe(true)
+      expect(ctx.plan.current?.steps[0].title).toBe('Read the file')
+    })
+
+    it('caps the number of steps', async () => {
+      const ctx = context()
+      const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+
+      const steps = Array.from({ length: 50 }, (_, i) => `Step ${i}`)
+      await tool.handler({ title: 'Big plan', steps })
+
+      expect(ctx.plan.current?.steps.length).toBeLessThanOrEqual(30)
+    })
+
+    it('replaces an existing plan on a second call', async () => {
+      const ctx = context()
+      const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+
+      await tool.handler({ title: 'First', steps: ['A', 'B'] })
+      await tool.handler({ title: 'Second', steps: ['C'] })
+
+      expect(ctx.plan.current?.title).toBe('Second')
+      expect(ctx.plan.current?.steps).toHaveLength(1)
+    })
+  })
+
+  describe('update_plan_step', () => {
+    it('marks a step by its 1-based position', async () => {
+      const ctx = context()
+      const write = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+      const update = updatePlanStepTool(createMockDefine(), ctx) as unknown as {
+        handler: UpdateStepHandler
+      }
+
+      await write.handler({ title: 'Plan', steps: ['First', 'Second'] })
+      const result = await update.handler({ stepNumber: 2, status: 'completed' })
+
+      expect(result).toContain('completed')
+      expect(ctx.plan.current?.steps[0].status).toBe('pending')
+      expect(ctx.plan.current?.steps[1].status).toBe('completed')
+    })
+
+    it('reports an error to the model when no plan exists yet', async () => {
+      const ctx = context()
+      const update = updatePlanStepTool(createMockDefine(), ctx) as unknown as {
+        handler: UpdateStepHandler
+      }
+
+      const result = await update.handler({ stepNumber: 1, status: 'in_progress' })
+
+      expect(result).toContain('No plan exists yet')
+    })
+
+    it('reports an error to the model for an out-of-range step number', async () => {
+      const ctx = context()
+      const write = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+      const update = updatePlanStepTool(createMockDefine(), ctx) as unknown as {
+        handler: UpdateStepHandler
+      }
+
+      await write.handler({ title: 'Plan', steps: ['Only step'] })
+      const result = await update.handler({ stepNumber: 5, status: 'completed' })
+
+      expect(result).toContain('No step 5')
+    })
+  })
+})

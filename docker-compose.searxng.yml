@@ -1,0 +1,23 @@
+# Self-hosted SearXNG instance for Anodex web search.
+#
+# Start with:
+#   docker compose -f docker-compose.searxng.yml up -d
+#
+# Then set Settings → Web Search → Provider to "SearXNG (self-hosted)".
+# The default base URL is http://localhost:8080.
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: anodex-searxng
+    ports:
+      - '8080:8080'
+    volumes:
+      - searxng-data:/etc/searxng
+    environment:
+      - BASE_URL=http://localhost:8080
+      - INSTANCE_NAME=AnodexSearch
+    restart: unless-stopped
+
+volumes:
+  searxng-data:
