@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { Icon } from '../../components/Icon'
 import { IconButton } from '../../components/ui/IconButton'
+import { useFileViewer } from '../file-viewer/useFileViewer'
+import { FileViewerPanel } from '../file-viewer/FileViewerPanel'
 import { useWorkspaceDock } from './useWorkspaceDock'
 import { DOCK_PANELS } from './workspaceDockTypes'
 import { PlanPanel } from './panels/PlanPanel'
@@ -21,6 +23,7 @@ export function WorkspaceDock(): JSX.Element | null {
   const open = useWorkspaceDock((s) => s.open)
   const setOpen = useWorkspaceDock((s) => s.setOpen)
   const enabledPanels = useWorkspaceDock((s) => s.enabledPanels)
+  const openFile = useFileViewer((s) => s.node)
 
   useEffect(() => {
     if (!open) return
@@ -47,7 +50,9 @@ export function WorkspaceDock(): JSX.Element | null {
         />
       </div>
       <div className={styles.body}>
-        {visiblePanels.length === 0 ? (
+        {openFile ? (
+          <FileViewerPanel />
+        ) : visiblePanels.length === 0 ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyTitle}>No dock panels selected.</div>
             <div className={styles.emptyHint}>Use the Dock menu to choose what appears here.</div>

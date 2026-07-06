@@ -8,6 +8,8 @@ import { FileTypeIcon } from '../../../components/FileTypeIcon'
 import { Icon } from '../../../components/Icon'
 import { ANODEX_FILE_DRAG_TYPE } from '../../../lib/attachments'
 import { formatRelativeTime } from '../../../lib/time'
+import { useFileViewer } from '../../file-viewer/useFileViewer'
+import { useWorkspaceDock } from '../useWorkspaceDock'
 import { NodeActionsMenu } from './NodeActionsMenu'
 import styles from './FilesPanel.module.css'
 
@@ -95,13 +97,20 @@ function FileRow({
   depth: number
   onRefresh: () => void
 }): JSX.Element {
+  const openFile = useFileViewer((s) => s.open)
+  const setDockOpen = useWorkspaceDock((s) => s.setOpen)
+
   return (
     <li>
       <div
         className={styles.row}
-        style={{ paddingLeft: depth * INDENT_PX }}
+        style={{ paddingLeft: depth * INDENT_PX, cursor: 'pointer' }}
         title={node.path}
         draggable
+        onClick={() => {
+          setDockOpen(true)
+          openFile(node)
+        }}
         onDragStart={(event) => {
           event.dataTransfer.setData(
             ANODEX_FILE_DRAG_TYPE,

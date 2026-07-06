@@ -16,7 +16,7 @@ import styles from './AppShell.module.css'
 const MIN_SIDEBAR = 200
 const MAX_SIDEBAR = 400
 const MIN_DOCK = 280
-const MAX_DOCK = 500
+const MAX_DOCK = 800
 const SIDEBAR_KEY = 'anodex:sidebarWidth'
 const DOCK_KEY = 'anodex:dockWidth'
 

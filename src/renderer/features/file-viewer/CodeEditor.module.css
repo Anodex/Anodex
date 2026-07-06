@@ -1,0 +1,57 @@
+.wrap {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.gutter {
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--space-3);
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  user-select: none;
+}
+
+.lineNumber {
+  color: var(--text-faint);
+}
+
+.codeArea {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.highlightLayer,
+.textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre;
+  box-sizing: border-box;
+}
+
+.highlightLayer {
+  color: var(--text);
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+}
+
+.textarea {
+  overflow: auto;
+  color: transparent;
+  background: transparent;
+  caret-color: var(--text);
+  border: none;
+  outline: none;
+  resize: none;
+}

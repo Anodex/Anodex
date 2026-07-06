@@ -1,0 +1,27 @@
+.wrap {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background-color: var(--bg-surface);
+  background-image:
+    linear-gradient(45deg, var(--bg-elevated) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--bg-elevated) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--bg-elevated) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--bg-elevated) 75%);
+  background-size: 20px 20px;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0px;
+}
+
+.image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: var(--shadow-md);
+}

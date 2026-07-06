@@ -42,6 +42,7 @@ export type IconName =
   | 'image'
   | 'circle'
   | 'paperclip'
+  | 'save'
 
 const GLYPHS: Record<IconName, ReactNode> = {
   chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
@@ -244,6 +245,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
   circle: <circle cx="12" cy="12" r="9" />,
   paperclip: (
     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  ),
+  save: (
+    <>
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+      <path d="M17 21v-8H7v8" />
+      <path d="M7 3v5h8" />
+    </>
   )
 }
 

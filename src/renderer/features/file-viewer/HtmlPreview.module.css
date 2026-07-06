@@ -1,0 +1,11 @@
+.frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  /* Letterboxing color if the previewed HTML doc has no background of its
+     own — the document's own styles (or the browser UA default) render on
+     top of this once loaded, so this only shows through in the transparent
+     case. Uses a theme token rather than a hardcoded white per this
+     project's theming rule. */
+  background: var(--bg-elevated);
+}

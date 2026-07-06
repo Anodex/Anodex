@@ -7,6 +7,8 @@ import { positionPopover } from '../../../lib/positionPopover'
 import { Icon } from '../../../components/Icon'
 import { notifyError } from '../../../stores/uiStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
+import { useFileViewer } from '../../file-viewer/useFileViewer'
+import { useWorkspaceDock } from '../useWorkspaceDock'
 import { DeleteConfirmDialog } from './DeleteConfirmDialog'
 import styles from './NodeActionsMenu.module.css'
 
@@ -28,6 +30,8 @@ interface NodeActionsMenuProps {
  */
 export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.Element {
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
+  const openInEditor = useFileViewer((s) => s.open)
+  const setDockOpen = useWorkspaceDock((s) => s.setOpen)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -94,6 +98,14 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
     if (!result.ok) notifyError('Could not open that', result.error.message)
   }
 
+  const openEditor = (event: React.MouseEvent): void => {
+    event.stopPropagation()
+    setOpen(false)
+    if (node.type !== 'file') return
+    setDockOpen(true)
+    openInEditor(node)
+  }
+
   const confirmDelete = (event: React.MouseEvent): void => {
     event.stopPropagation()
     setOpen(false)
@@ -144,6 +156,11 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
             <button type="button" className={styles.item} onClick={runAction(reveal)}>
               Reveal in file explorer
             </button>
+            {node.type === 'file' && (
+              <button type="button" className={styles.item} onClick={openEditor}>
+                Open in editor
+              </button>
+            )}
             <button type="button" className={styles.item} onClick={runAction(openDefault)}>
               {node.type === 'folder' ? 'Open folder' : 'Open with default app'}
             </button>

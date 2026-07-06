@@ -1,3 +1,5 @@
+import { extname } from 'node:path'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { ipcMain, shell } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
@@ -5,6 +7,28 @@ import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
 import { listWorkspaceFiles } from '../workspace/listWorkspaceFiles'
 import { resolveInWorkspace } from '../tools/workspace'
+import { isImagePath, isLikelyBinary } from './attachments.handlers'
+
+/** Files larger than this aren't loaded into the in-app viewer/editor — generous for real
+ *  source files, protects textarea/highlight performance against something huge. */
+const MAX_EDITABLE_BYTES = 5 * 1024 * 1024
+
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.tiff': 'image/tiff',
+  '.avif': 'image/avif',
+  '.svg': 'image/svg+xml'
+}
+
+function imageMimeType(path: string): string {
+  return IMAGE_MIME_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
+}
 
 /** IPC handlers for the Files dock panel. */
 export function registerWorkspaceHandlers(): void {
@@ -75,4 +99,40 @@ export function registerWorkspaceHandlers(): void {
       return err('workspace.delete-failed', 'Could not delete that item.', toErrorMessage(error))
     }
   })
+
+  ipcMain.handle(IpcChannel.Workspace.readFileContent, async (_event, relativePath: string) => {
+    const root = settingsStore.get().workspace.root
+    if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
+    try {
+      const file = resolveInWorkspace(root, relativePath)
+      const info = await stat(file)
+      if (info.size > MAX_EDITABLE_BYTES) {
+        return ok({ kind: 'too-large', sizeBytes: info.size } as const)
+      }
+      const buffer = await readFile(file)
+      if (isImagePath(file)) {
+        const dataUrl = `data:${imageMimeType(file)};base64,${buffer.toString('base64')}`
+        return ok({ kind: 'image', dataUrl } as const)
+      }
+      if (isLikelyBinary(buffer)) return ok({ kind: 'binary' } as const)
+      return ok({ kind: 'text', content: buffer.toString('utf-8') } as const)
+    } catch (error) {
+      return err('workspace.read-content-failed', 'Could not read that file.', toErrorMessage(error))
+    }
+  })
+
+  ipcMain.handle(
+    IpcChannel.Workspace.writeFileContent,
+    async (_event, relativePath: string, content: string) => {
+      const root = settingsStore.get().workspace.root
+      if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
+      try {
+        const file = resolveInWorkspace(root, relativePath)
+        await writeFile(file, content, 'utf-8')
+        return ok(undefined)
+      } catch (error) {
+        return err('workspace.write-content-failed', 'Could not save that file.', toErrorMessage(error))
+      }
+    }
+  )
 }

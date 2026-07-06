@@ -127,6 +127,13 @@ export function highlightCode(code: string, language?: string): HighlightResult 
   return { html: escapeHtml(code), language: null }
 }
 
+/** Best-effort language hint for `highlightCode`, from a file's extension. */
+export function languageForFileName(fileName: string): string | undefined {
+  const dot = fileName.lastIndexOf('.')
+  if (dot <= 0) return undefined
+  return fileName.slice(dot + 1).toLowerCase()
+}
+
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }

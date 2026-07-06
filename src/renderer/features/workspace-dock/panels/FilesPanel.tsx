@@ -5,6 +5,7 @@ import { Icon } from '../../../components/Icon'
 import { Spinner } from '../../../components/ui/Spinner'
 import { filterFileTree } from '../../../lib/fileTreeSearch'
 import { useProjectStore } from '../../../stores/projectStore'
+import { useFileViewer } from '../../file-viewer/useFileViewer'
 import { WorkspaceDockPanel } from '../WorkspaceDockPanel'
 import { FileTreeRow } from './FileTreeRow'
 import styles from './FilesPanel.module.css'
@@ -17,6 +18,10 @@ export function FilesPanel(): JSX.Element {
   // currently active; re-running the effect when it changes keeps this panel
   // in sync instead of leaving the previous project's files on screen.
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  // Bumped by the file-viewer/editor on every successful manual save, so this
+  // panel's size/time/edited-by columns stay current the same way they
+  // already do after an AI write.
+  const saveVersion = useFileViewer((s) => s.saveVersion)
 
   const refresh = useCallback(async () => {
     const result = await anodex.workspace.listFiles()
@@ -34,6 +39,12 @@ export function FilesPanel(): JSX.Element {
       if (event.call.kind === 'write' && event.call.status === 'success') void refresh()
     })
   }, [refresh, activeProjectId])
+
+  // A manual save from the file-viewer/editor doesn't go through `tools:activity`
+  // (it's a direct user action, not an AI tool call) — refresh separately for it.
+  useEffect(() => {
+    if (saveVersion > 0) void refresh()
+  }, [refresh, saveVersion])
 
   const visibleNodes = useMemo(() => (nodes ? filterFileTree(nodes, query) : null), [nodes, query])
   const isSearching = query.trim().length > 0
