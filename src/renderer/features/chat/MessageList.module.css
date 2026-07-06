@@ -1,3 +1,11 @@
+.scrollWrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .scroll {
   flex: 1;
   min-height: 0;
@@ -8,4 +16,40 @@
   max-width: 820px;
   margin: 0 auto;
   padding: var(--space-4) var(--space-6) var(--space-8);
+}
+
+.jumpButton {
+  composes: surface from '../../components/ui/PopoverSurface.module.css';
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: var(--bg-surface-2);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.jumpButton:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+.jumpDot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-app);
 }
