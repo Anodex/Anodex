@@ -16,7 +16,13 @@ import type {
 } from './model.types'
 import type { ModelReliabilityRecord } from './modelReliability.types'
 import type { RecommendedModel } from './recommendedModels'
-import type { AttachmentContent, ChatRequest, ChatResult, ChatStreamChunk } from './chat.types'
+import type {
+  AttachmentContent,
+  ChatRequest,
+  ChatResult,
+  ChatStreamChunk,
+  HistoryCompactionEvent
+} from './chat.types'
 import type { AppSettings, DeepPartial } from './settings.types'
 import type {
   CreateProjectRequest,
@@ -28,6 +34,7 @@ import type { Conversation, ConversationState } from './conversation.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
 import type { ToolActivityEvent, ToolConfirmRequest, ToolConfirmResponse } from './tools.types'
 import type { WorkspaceTreeNode } from './workspaceFiles.types'
+import type { WorkspaceFileContent } from './workspaceFileContent.types'
 import type { ToastContent } from './toast.types'
 import type { UpdateStatus } from './update.types'
 
@@ -57,7 +64,9 @@ export const IpcChannel = {
     /** main → renderer streamed tokens. */
     stream: 'chat:stream',
     /** A short local-model summary of a finished reply, for a desktop toast's title. */
-    summarize: 'chat:summarize'
+    summarize: 'chat:summarize',
+    /** main → renderer broadcast when older conversation turns were summarized to fit context. */
+    historyCompacted: 'chat:history-compacted'
   },
   Settings: {
     get: 'settings:get',
@@ -103,7 +112,9 @@ export const IpcChannel = {
     getAbsolutePath: 'workspace:get-absolute-path',
     revealInFileExplorer: 'workspace:reveal-in-explorer',
     openPath: 'workspace:open-path',
-    deletePath: 'workspace:delete-path'
+    deletePath: 'workspace:delete-path',
+    readFileContent: 'workspace:read-file-content',
+    writeFileContent: 'workspace:write-file-content'
   },
   Attachments: {
     readFile: 'attachments:read-file'
@@ -160,6 +171,8 @@ export interface AnodexApi {
     onStream(listener: (chunk: ChatStreamChunk) => void): () => void
     /** Best-effort local summary of `text` in `maxWords` words or fewer; `null` if it failed. */
     summarize(text: string, maxWords: number): Promise<string | null>
+    /** Fires when older conversation turns were summarized to fit the model's context window. */
+    onHistoryCompacted(listener: (event: HistoryCompactionEvent) => void): () => void
   }
   settings: {
     get(): Promise<AppSettings>
@@ -206,6 +219,10 @@ export interface AnodexApi {
     openPath(relativePath: string): Promise<Result<void>>
     /** Move a file or folder to the OS Recycle Bin/Trash (recoverable). */
     deletePath(relativePath: string): Promise<Result<void>>
+    /** Read a workspace file's contents for the in-app viewer/editor. */
+    readFileContent(relativePath: string): Promise<Result<WorkspaceFileContent>>
+    /** Save new contents to a workspace file from the in-app editor (direct user action, not AI-gated). */
+    writeFileContent(relativePath: string, content: string): Promise<Result<void>>
   }
   attachments: {
     /** Read a file dropped/dragged into the composer, by absolute path. Not workspace-sandboxed —

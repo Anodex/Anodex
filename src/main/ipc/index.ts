@@ -38,4 +38,11 @@ export function registerIpcHandlers(): void {
       if (!win.isDestroyed()) win.webContents.send(IpcChannel.Models.stateChanged, state)
     }
   })
+
+  // Push context-compaction notices to every open renderer window.
+  llamaService.on('historyCompacted', (event) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Chat.historyCompacted, event)
+    }
+  })
 }

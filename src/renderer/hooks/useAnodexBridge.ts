@@ -82,6 +82,16 @@ export function useAnodexBridge(): void {
         notifyDesktop('Approval needed', request.title)
       }
     })
+    const offHistoryCompacted = anodex.chat.onHistoryCompacted(({ removedTurns, summarized }) => {
+      const turnWord = `${removedTurns} earlier turn${removedTurns === 1 ? '' : 's'}`
+      useUiStore.getState().notify({
+        kind: 'info',
+        title: 'Conversation compacted',
+        message: summarized
+          ? `Summarized ${turnWord} to stay within the model's context window.`
+          : `Dropped ${turnWord} to stay within the model's context window.`
+      })
+    })
 
     return () => {
       cancelled = true
@@ -91,6 +101,7 @@ export function useAnodexBridge(): void {
       offDownloadProgress()
       offToolActivity()
       offConfirm()
+      offHistoryCompacted()
     }
   }, [])
 }

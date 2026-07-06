@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IpcChannel, type AnodexApi } from '@shared/ipc'
 import type { EngineState, ModelDownloadProgress } from '@shared/model.types'
-import type { ChatStreamChunk } from '@shared/chat.types'
+import type { ChatStreamChunk, HistoryCompactionEvent } from '@shared/chat.types'
 import type { ToolActivityEvent, ToolConfirmRequest } from '@shared/tools.types'
 import type { UpdateStatus } from '@shared/update.types'
 
@@ -32,7 +32,9 @@ const api: AnodexApi = {
     send: (request) => ipcRenderer.invoke(IpcChannel.Chat.send, request),
     stop: (conversationId) => ipcRenderer.invoke(IpcChannel.Chat.stop, conversationId),
     onStream: (listener) => subscribe<ChatStreamChunk>(IpcChannel.Chat.stream, listener),
-    summarize: (text, maxWords) => ipcRenderer.invoke(IpcChannel.Chat.summarize, text, maxWords)
+    summarize: (text, maxWords) => ipcRenderer.invoke(IpcChannel.Chat.summarize, text, maxWords),
+    onHistoryCompacted: (listener) =>
+      subscribe<HistoryCompactionEvent>(IpcChannel.Chat.historyCompacted, listener)
   },
   settings: {
     get: () => ipcRenderer.invoke(IpcChannel.Settings.get),
@@ -81,7 +83,11 @@ const api: AnodexApi = {
     revealInFileExplorer: (relativePath) =>
       ipcRenderer.invoke(IpcChannel.Workspace.revealInFileExplorer, relativePath),
     openPath: (relativePath) => ipcRenderer.invoke(IpcChannel.Workspace.openPath, relativePath),
-    deletePath: (relativePath) => ipcRenderer.invoke(IpcChannel.Workspace.deletePath, relativePath)
+    deletePath: (relativePath) => ipcRenderer.invoke(IpcChannel.Workspace.deletePath, relativePath),
+    readFileContent: (relativePath) =>
+      ipcRenderer.invoke(IpcChannel.Workspace.readFileContent, relativePath),
+    writeFileContent: (relativePath, content) =>
+      ipcRenderer.invoke(IpcChannel.Workspace.writeFileContent, relativePath, content)
   },
   attachments: {
     readFile: (absolutePath) => ipcRenderer.invoke(IpcChannel.Attachments.readFile, absolutePath)

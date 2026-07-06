@@ -94,6 +94,15 @@ export interface ChatStreamChunk {
   token: string
 }
 
+/** Emitted when older conversation turns were summarized to fit the model's context window. */
+export interface HistoryCompactionEvent {
+  conversationId: string
+  removedTurns: number
+  reason: 'onLoad' | 'proactive' | 'reactive'
+  /** Whether the removed turns were actually condensed into a summary, vs. just dropped. */
+  summarized: boolean
+}
+
 /** Throughput metrics reported when a generation finishes. */
 export interface GenerationStats {
   tokens: number
