@@ -37,7 +37,7 @@ import type { WorkspaceTreeNode } from './workspaceFiles.types'
 import type { WorkspaceFileContent } from './workspaceFileContent.types'
 import type { ToastContent } from './toast.types'
 import type { UpdateStatus } from './update.types'
-import type { UsageProfile } from './stats.types'
+import type { ChartGranularity, ChartRange, UsageBreakdown, UsageProfile } from './stats.types'
 
 export const IpcChannel = {
   Models: {
@@ -135,7 +135,8 @@ export const IpcChannel = {
     statusChanged: 'updates:status-changed'
   },
   Stats: {
-    getUsageProfile: 'stats:get-usage-profile'
+    getUsageProfile: 'stats:get-usage-profile',
+    getUsageBreakdown: 'stats:get-usage-breakdown'
   }
 } as const
 
@@ -259,5 +260,7 @@ export interface AnodexApi {
   stats: {
     /** All-time token-generation activity, independent of individual conversations. */
     getUsageProfile(): Promise<Result<UsageProfile>>
+    /** Per-model token breakdown + a chart-ready series for a given time range/granularity. */
+    getUsageBreakdown(range: ChartRange, granularity: ChartGranularity): Promise<Result<UsageBreakdown>>
   }
 }

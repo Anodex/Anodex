@@ -2,42 +2,11 @@ import type { UsageInsight } from '@shared/stats.types'
 import { Icon, type IconName } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
 import { Spinner } from '../../../../components/ui/Spinner'
+import { formatCompactNumber, formatDay, formatDuration, formatHourRange } from './formatters'
+import { TokenActivityChartSection } from './TokenActivityChartSection'
 import { UsageHeatmap } from './UsageHeatmap'
 import { useUsageProfile } from './useUsageProfile'
 import styles from './UsageActivitySection.module.css'
-
-const compactNumberFormatter = new Intl.NumberFormat(undefined, {
-  notation: 'compact',
-  maximumFractionDigits: 1
-})
-
-function formatCompactNumber(value: number): string {
-  return compactNumberFormatter.format(value)
-}
-
-function formatDuration(durationMs: number): string {
-  const totalSeconds = Math.round(durationMs / 1000)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  if (hours > 0) return `${hours}h ${minutes}m`
-  if (minutes > 0) return `${minutes}m ${seconds}s`
-  return `${seconds}s`
-}
-
-/**
- * `dateString` is a plain `YYYY-MM-DD` local calendar day, not a UTC
- * instant — parse its parts directly instead of `new Date(dateString)`,
- * which reads bare date strings as UTC midnight and can print the wrong day
- * for users west of UTC.
- */
-function formatDay(dateString: string): string {
-  const [year, month, day] = dateString.split('-').map(Number)
-  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric'
-  })
-}
 
 function describeInsight(insight: UsageInsight): string {
   switch (insight.kind) {
@@ -49,6 +18,8 @@ function describeInsight(insight: UsageInsight): string {
       return `Favorite tool: ${insight.name} (used ${insight.count.toLocaleString()} times)`
     case 'longestTask':
       return `Longest task: ${formatDuration(insight.durationMs)}`
+    case 'referenceBook':
+      return `You've used about ${insight.multiplier}x more tokens than ${insight.bookTitle}`
   }
 }
 
@@ -127,11 +98,34 @@ export function UsageActivitySection(): JSX.Element {
                   : '—'
               }
             />
+            <StatCard icon="layers" label="Sessions" value={profile.sessionCount.toLocaleString()} />
+            <StatCard
+              icon="chat"
+              label="Messages"
+              value={(profile.lifetimeGenerations * 2).toLocaleString()}
+            />
+            <StatCard
+              icon="activity"
+              label="Active days"
+              value={profile.dailyActivity.length.toLocaleString()}
+            />
+            <StatCard
+              icon="clock"
+              label="Peak hour"
+              value={profile.peakHour !== null ? formatHourRange(profile.peakHour) : '—'}
+            />
+            <StatCard
+              icon="cpu"
+              label="Favorite model"
+              value={profile.favoriteModel?.modelName ?? '—'}
+            />
           </div>
 
           <div className={styles.heatmapPanel}>
             <UsageHeatmap dailyActivity={profile.dailyActivity} />
           </div>
+
+          <TokenActivityChartSection />
 
           <div className={styles.lowerGrid}>
             <div className={styles.panel}>

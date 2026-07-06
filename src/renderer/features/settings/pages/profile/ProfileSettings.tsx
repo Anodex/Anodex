@@ -33,44 +33,46 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
 
   return (
     <div className={styles.page}>
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Profile</h2>
-        <p className={styles.sectionDesc}>How Anodex identifies you in the workspace.</p>
-
-        <div className={styles.avatarRow}>
+      <div className={styles.hero}>
+        <button
+          type="button"
+          className={styles.heroAvatar}
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Change avatar"
+        >
+          {profile.avatarBase64 ? (
+            <img src={profile.avatarBase64} alt="" className={styles.avatarImage} />
+          ) : (
+            <span className={styles.avatarInitials}>{initials(profile.displayName)}</span>
+          )}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className={styles.fileInput}
+          onChange={handleAvatarChange}
+        />
+        {profile.avatarBase64 && (
           <button
             type="button"
-            className={styles.avatar}
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Change avatar"
+            className={styles.removeAvatar}
+            onClick={() => update({ avatarBase64: null })}
           >
-            {profile.avatarBase64 ? (
-              <img src={profile.avatarBase64} alt="" className={styles.avatarImage} />
-            ) : (
-              <span className={styles.avatarInitials}>{initials(profile.displayName)}</span>
-            )}
+            Remove photo
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className={styles.fileInput}
-            onChange={handleAvatarChange}
-          />
-          <div className={styles.avatarText}>
-            <div className={styles.avatarLabel}>Avatar</div>
-            <div className={styles.avatarHint}>Click to upload a photo. Stored locally.</div>
-            {profile.avatarBase64 && (
-              <button
-                type="button"
-                className={styles.removeAvatar}
-                onClick={() => update({ avatarBase64: null })}
-              >
-                Remove
-              </button>
-            )}
-          </div>
-        </div>
+        )}
+        <h2 className={styles.heroName}>{profile.displayName || 'Anonymous'}</h2>
+        <p className={styles.heroMeta}>
+          {profile.email || 'No email set'} · {planLabel(profile.planTier)}
+        </p>
+      </div>
+
+      <UsageActivitySection />
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Edit profile</h2>
+        <p className={styles.sectionDesc}>How Anodex identifies you in the workspace.</p>
 
         <SettingRow
           label="Display name"
@@ -136,8 +138,6 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
           }
         />
       </section>
-
-      <UsageActivitySection />
     </div>
   )
 }
@@ -149,6 +149,10 @@ function initials(name: string): string {
     .slice(0, 2)
     .join('')
     .toUpperCase()
+}
+
+function planLabel(tier: AppSettings['profile']['planTier']): string {
+  return PLAN_OPTIONS.find((option) => option.value === tier)?.label ?? tier
 }
 
 function syncDescription(status: AppSettings['profile']['syncStatus']): string {

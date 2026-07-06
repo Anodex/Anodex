@@ -105,7 +105,9 @@ const api: AnodexApi = {
       subscribe<UpdateStatus>(IpcChannel.Updates.statusChanged, listener)
   },
   stats: {
-    getUsageProfile: () => ipcRenderer.invoke(IpcChannel.Stats.getUsageProfile)
+    getUsageProfile: () => ipcRenderer.invoke(IpcChannel.Stats.getUsageProfile),
+    getUsageBreakdown: (range, granularity) =>
+      ipcRenderer.invoke(IpcChannel.Stats.getUsageBreakdown, range, granularity)
   }
 }
 

@@ -1,0 +1,52 @@
+/* Total height must equal the JS `CHART_HEIGHT_PX` constant plus this file's own
+   padding-top (space-2 = 8px) and label row (16px height + space-1 = 4px margin),
+   so the tallest possible bar never overflows its column. */
+.chart {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 188px;
+  overflow-x: auto;
+  padding-top: var(--space-2);
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 4px;
+}
+
+.barArea {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+}
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 2px 2px 0 0;
+}
+
+.segment {
+  width: 100%;
+}
+
+.label {
+  height: 16px;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.emptyHint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}

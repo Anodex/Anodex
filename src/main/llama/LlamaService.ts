@@ -179,6 +179,19 @@ class LlamaService extends EventEmitter {
     }
   }
 
+  /**
+   * Approximate "input tokens" for a turn — tokenizes only the new prompt
+   * text, not the full conversation history/system prompt. Anodex's local
+   * engine reuses the KV cache turn-over-turn rather than rebilling the full
+   * context like a cloud API, so there's no equivalent of a real "prompt
+   * tokens" figure; this is a pragmatic proxy for how much new text the user
+   * contributed this turn, used only for the token-activity usage stats.
+   */
+  countPromptTokens(prompt: string): number {
+    if (!this.model) return 0
+    return this.model.tokenize(prompt).length
+  }
+
   /** Load a model into the engine, replacing any currently loaded one. */
   async loadModel(options: ModelLoadOptions, info: ModelInfo): Promise<EngineState> {
     if (this.loadingModel) {

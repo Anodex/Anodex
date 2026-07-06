@@ -112,11 +112,16 @@ export function registerChatHandlers(): void {
       }
 
       // Recorded regardless of `stopped` — real tokens were generated either way.
-      if (outcome.stats.tokens > 0) {
+      const modelState = llamaService.getState()
+      if (outcome.stats.tokens > 0 && modelState.model) {
         tokenActivityStore.recordGeneration({
           tokens: outcome.stats.tokens,
+          inputTokens: llamaService.countPromptTokens(request.prompt),
           durationMs: outcome.stats.durationMs,
-          toolNames: toolNamesThisTurn
+          toolNames: toolNamesThisTurn,
+          conversationId: request.conversationId,
+          modelId: modelState.model.id,
+          modelName: modelState.model.name
         })
       }
 

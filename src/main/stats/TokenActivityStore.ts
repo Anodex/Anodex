@@ -1,9 +1,15 @@
 import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import type { UsageProfile } from '@shared/stats.types'
+import type { ChartGranularity, ChartRange, UsageBreakdown, UsageProfile } from '@shared/stats.types'
 import { createLogger } from '../utils/logger'
-import { buildUsageProfile, emptyTokenActivityRecord, type TokenActivityRecord } from './tokenActivityMath'
+import {
+  buildChartBuckets,
+  buildModelBreakdown,
+  buildUsageProfile,
+  emptyTokenActivityRecord,
+  type TokenActivityRecord
+} from './tokenActivityMath'
 
 const log = createLogger('token-activity')
 
@@ -16,9 +22,15 @@ function localDateString(date: Date): string {
 }
 
 export interface RecordGenerationInput {
+  /** Output (generated) tokens. */
   tokens: number
+  /** Approximate input tokens for this turn — see `LlamaService.countPromptTokens`. */
+  inputTokens: number
   durationMs: number
   toolNames: string[]
+  conversationId: string
+  modelId: string
+  modelName: string
 }
 
 /**
@@ -41,12 +53,34 @@ class TokenActivityStore {
   }
 
   /** Record one completed generation's contribution to today's activity. */
-  recordGeneration({ tokens, durationMs, toolNames }: RecordGenerationInput): void {
+  recordGeneration({
+    tokens,
+    inputTokens,
+    durationMs,
+    toolNames,
+    conversationId,
+    modelId,
+    modelName
+  }: RecordGenerationInput): void {
     const today = localDateString(new Date())
-    const bucket = this.record.daily[today] ?? { tokens: 0, generations: 0 }
+    const bucket = this.record.daily[today] ?? { tokens: 0, generations: 0, models: {} }
     bucket.tokens += tokens
     bucket.generations += 1
+
+    const modelBucket = bucket.models[modelId] ?? { modelName, inputTokens: 0, outputTokens: 0 }
+    modelBucket.inputTokens += inputTokens
+    modelBucket.outputTokens += tokens
+    modelBucket.modelName = modelName // keep the display name fresh if a model file gets renamed
+    bucket.models[modelId] = modelBucket
+
     this.record.daily[today] = bucket
+
+    const hour = String(new Date().getHours())
+    this.record.hourly[hour] = (this.record.hourly[hour] ?? 0) + 1
+
+    if (!this.record.sessionIds.includes(conversationId)) {
+      this.record.sessionIds.push(conversationId)
+    }
 
     for (const name of toolNames) {
       this.record.toolUsage[name] = (this.record.toolUsage[name] ?? 0) + 1
@@ -64,10 +98,39 @@ class TokenActivityStore {
     return buildUsageProfile(this.record, localDateString(new Date()))
   }
 
+  getUsageBreakdown(range: ChartRange, granularity: ChartGranularity): UsageBreakdown {
+    return {
+      models: buildModelBreakdown(this.record),
+      chart: buildChartBuckets(this.record, range, granularity, localDateString(new Date()))
+    }
+  }
+
+  /**
+   * Tolerates on-disk files written before `models`/`hourly`/`sessionIds`
+   * existed — a plain defaulting merge, not a versioned migration, since
+   * every new field is purely additive and safely defaultable.
+   */
   private load(): TokenActivityRecord {
     if (!existsSync(this.filePath)) return emptyTokenActivityRecord()
     try {
-      return JSON.parse(readFileSync(this.filePath, 'utf-8')) as TokenActivityRecord
+      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<TokenActivityRecord>
+      return {
+        daily: Object.fromEntries(
+          Object.entries(raw.daily ?? {}).map(([date, bucket]) => [
+            date,
+            {
+              tokens: bucket.tokens ?? 0,
+              generations: bucket.generations ?? 0,
+              models: bucket.models ?? {}
+            }
+          ])
+        ),
+        toolUsage: raw.toolUsage ?? {},
+        longestGenerationDurationMs: raw.longestGenerationDurationMs ?? 0,
+        longestGenerationDate: raw.longestGenerationDate ?? null,
+        hourly: raw.hourly ?? {},
+        sessionIds: raw.sessionIds ?? []
+      }
     } catch (error) {
       log.warn('Failed to parse token activity data, starting fresh:', error)
       return emptyTokenActivityRecord()
