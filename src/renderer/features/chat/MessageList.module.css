@@ -25,7 +25,7 @@
   bottom: 0;
   left: var(--space-2);
   z-index: 3;
-  width: 20px;
+  width: 28px;
   pointer-events: none;
 }
 
@@ -48,8 +48,8 @@
 .userRailMarker {
   position: absolute;
   left: 5px;
-  width: 6px;
-  height: 3px;
+  width: 12px;
+  height: 5px;
   padding: 0;
   transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.22);
@@ -69,8 +69,8 @@
 
 .userRailMarker:hover,
 .userRailMarker:focus-visible {
-  width: 16px;
-  height: 3px;
+  width: 22px;
+  height: 5px;
   background: rgba(255, 255, 255, 0.55);
   opacity: 1;
   outline: none;
@@ -78,15 +78,15 @@
 }
 
 .userRailMarkerActive {
-  width: 18px;
-  height: 3px;
+  width: 22px;
+  height: 5px;
   background: linear-gradient(90deg, var(--accent-violet), rgba(124, 92, 255, 0.2));
   box-shadow: 0 0 10px rgba(124, 92, 255, 0.45);
 }
 
 .userRailPreview {
   position: absolute;
-  left: 28px;
+  left: 32px;
   width: 260px;
   max-width: min(260px, calc(100vw - var(--sidebar-width, 248px) - 80px));
   padding: var(--space-3);
