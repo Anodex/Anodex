@@ -1,20 +1,58 @@
-/* Total height must equal the JS `CHART_HEIGHT_PX` constant plus this file's own
-   padding-top (space-2 = 8px) and label row (16px height + space-1 = 4px margin),
-   so the tallest possible bar never overflows its column. */
+.chartWrap {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+/* Sits outside the horizontally-scrolling area so it stays fixed while bars scroll under it. */
+.yAxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex-shrink: 0;
+  /* Matches .chart's own height budget: 160px bar area + 8px padding-top + 20px label row. */
+  height: 188px;
+  padding-top: var(--space-2);
+  padding-bottom: 20px;
+  text-align: right;
+}
+
+.tickLabel {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  transform: translateY(-50%);
+}
+
+.tickLabel:first-child {
+  transform: none;
+}
+
+.tickLabel:last-child {
+  transform: translateY(-100%);
+}
+
+.scrollArea {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+/* Bars are fixed-width and never stretch — more days just extend the scrollable width instead
+   of every bar growing to fill the available space. */
 .chart {
   display: flex;
   align-items: stretch;
-  gap: 2px;
+  gap: 6px;
+  width: fit-content;
   height: 188px;
-  overflow-x: auto;
   padding-top: var(--space-2);
 }
 
 .column {
   display: flex;
   flex-direction: column;
-  flex: 1 1 0;
-  min-width: 4px;
+  flex: 0 0 auto;
+  width: 28px;
 }
 
 .barArea {
