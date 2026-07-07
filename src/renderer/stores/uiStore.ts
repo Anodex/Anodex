@@ -24,6 +24,7 @@ interface UiState {
   pendingConfirmation: ToolConfirmRequest | null
   setView: (view: AppView) => void
   markConversationRead: (conversationId: string, updatedAt: number) => void
+  markConversationUnread: (conversationId: string, updatedAt: number) => void
   notify: (toast: Omit<Toast, 'id'>) => void
   dismissToast: (id: string) => void
   setPendingConfirmation: (request: ToolConfirmRequest | null) => void
@@ -65,6 +66,17 @@ export const useUiStore = create<UiState>((set, get) => ({
   markConversationRead: (conversationId, updatedAt) => {
     set((state) => {
       const readConversationAt = { ...state.readConversationAt, [conversationId]: updatedAt }
+      saveReadMarkers(readConversationAt)
+      return { readConversationAt }
+    })
+  },
+
+  markConversationUnread: (conversationId, updatedAt) => {
+    set((state) => {
+      const readConversationAt = {
+        ...state.readConversationAt,
+        [conversationId]: Math.max(1, updatedAt - 1)
+      }
       saveReadMarkers(readConversationAt)
       return { readConversationAt }
     })

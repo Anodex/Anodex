@@ -43,6 +43,7 @@ export function Sidebar(): JSX.Element {
   const view = useUiStore((s) => s.view)
   const setView = useUiStore((s) => s.setView)
   const readConversationAt = useUiStore((s) => s.readConversationAt)
+  const markConversationUnread = useUiStore((s) => s.markConversationUnread)
   const engine = useModelStore((s) => s.engine)
 
   const conversations = useChatStore((s) => s.conversations)
@@ -300,6 +301,9 @@ export function Sidebar(): JSX.Element {
                     onNewChat={handleNewChat}
                     onSelectConversation={handleSelectConversation}
                     onRenameConversation={(id, title) => void renameConversation(id, title)}
+                    onMarkConversationUnread={(id, updatedAt) =>
+                      markConversationUnread(id, updatedAt)
+                    }
                     onDeleteConversation={handleDeleteConversation}
                     onOpenProjectFolder={(id) => void openProjectFolder(id)}
                     onRename={handleRenameProject}
@@ -356,6 +360,9 @@ export function Sidebar(): JSX.Element {
                     unread={isConversationUnread(conversation)}
                     onClick={() => void handleSelectConversation(conversation.id)}
                     onRename={(title) => void renameConversation(conversation.id, title)}
+                    onMarkUnread={() =>
+                      markConversationUnread(conversation.id, conversation.updatedAt)
+                    }
                     onDelete={() => handleDeleteConversation(conversation.id)}
                   />
                 ))

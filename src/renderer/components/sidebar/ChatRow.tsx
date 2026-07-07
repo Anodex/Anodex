@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Conversation } from '../../stores/chatStore'
 import { formatRelativeTime } from '../../lib/time'
+import { notifyError } from '../../stores/uiStore'
 import { Icon } from '../Icon'
+import { TextPromptDialog } from '../ui/TextPromptDialog'
 import styles from './ChatRow.module.css'
 
 interface ChatRowProps {
@@ -13,6 +15,7 @@ interface ChatRowProps {
   projectName?: string
   projectPath?: string
   onRename?: (title: string) => void
+  onMarkUnread?: () => void
   onOpenProjectFolder?: () => void
   running?: boolean
   unread?: boolean
@@ -27,6 +30,7 @@ export function ChatRow({
   projectName,
   projectPath,
   onRename,
+  onMarkUnread,
   onOpenProjectFolder,
   running = false,
   unread = false
@@ -34,6 +38,8 @@ export function ChatRow({
   const rowRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<number | null>(null)
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null)
+  const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null)
+  const [renaming, setRenaming] = useState(false)
   const time = formatRelativeTime(conversation.updatedAt)
   const showingStatus = running || unread
 
@@ -42,6 +48,24 @@ export function ChatRow({
       if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!menuPoint) return
+
+    const closeMenu = (): void => setMenuPoint(null)
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeMenu()
+    }
+
+    window.addEventListener('mousedown', closeMenu)
+    window.addEventListener('contextmenu', closeMenu)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('mousedown', closeMenu)
+      window.removeEventListener('contextmenu', closeMenu)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [menuPoint])
 
   const cancelClose = (): void => {
     if (closeTimer.current !== null) {
@@ -67,6 +91,13 @@ export function ChatRow({
       className={`${styles.row} ${active ? styles.active : ''} ${onDelete ? styles.hasAction : ''}`}
       onMouseEnter={showDetails}
       onMouseLeave={hideDetails}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        cancelClose()
+        setHoverRect(null)
+        setMenuPoint({ x: event.clientX, y: event.clientY })
+      }}
       onFocus={showDetails}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) hideDetails()
@@ -120,7 +151,133 @@ export function ChatRow({
           />,
           document.body
         )}
+      {menuPoint &&
+        createPortal(
+          <ChatContextMenu
+            point={menuPoint}
+            conversation={conversation}
+            projectPath={projectPath}
+            onRename={onRename ? () => setRenaming(true) : undefined}
+            onArchive={onDelete}
+            onMarkUnread={onMarkUnread}
+            onOpenProjectFolder={onOpenProjectFolder}
+            onClose={() => setMenuPoint(null)}
+          />,
+          document.body
+        )}
+      {renaming && (
+        <TextPromptDialog
+          title="Rename chat"
+          label="Chat name"
+          initialValue={conversation.title}
+          confirmLabel="Rename"
+          icon="chat"
+          onCancel={() => setRenaming(false)}
+          onConfirm={(title) => {
+            setRenaming(false)
+            onRename?.(title)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+interface ChatContextMenuProps {
+  point: { x: number; y: number }
+  conversation: Conversation
+  projectPath?: string
+  onRename?: () => void
+  onArchive?: () => void
+  onMarkUnread?: () => void
+  onOpenProjectFolder?: () => void
+  onClose: () => void
+}
+
+function ChatContextMenu({
+  point,
+  conversation,
+  projectPath,
+  onRename,
+  onArchive,
+  onMarkUnread,
+  onOpenProjectFolder,
+  onClose
+}: ChatContextMenuProps): JSX.Element {
+  const menuWidth = 190
+  const menuHeight = 290
+  const left = Math.max(8, Math.min(point.x, window.innerWidth - menuWidth - 8))
+  const top = Math.max(8, Math.min(point.y, window.innerHeight - menuHeight - 8))
+
+  const run =
+    (action?: () => void | Promise<void>) =>
+    (event: MouseEvent<HTMLButtonElement>): void => {
+      event.stopPropagation()
+      if (!action) return
+      onClose()
+      void action()
+    }
+
+  const copyText = async (label: string, value?: string): Promise<void> => {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+    } catch (error) {
+      notifyError(`Could not copy ${label}`, error instanceof Error ? error.message : undefined)
+    }
+  }
+
+  return (
+    <div
+      className={styles.contextMenu}
+      style={{ top, left }}
+      role="menu"
+      onMouseDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.stopPropagation()}
+    >
+      <MenuItem label="Pin chat" disabled />
+      <MenuItem label="Rename chat" onClick={run(onRename)} disabled={!onRename} />
+      <MenuItem label="Archive chat" onClick={run(onArchive)} disabled={!onArchive} />
+      <MenuItem label="Mark as unread" onClick={run(onMarkUnread)} disabled={!onMarkUnread} />
+      <div className={styles.contextSeparator} />
+      <MenuItem
+        label="Open in Explorer"
+        onClick={run(onOpenProjectFolder)}
+        disabled={!onOpenProjectFolder}
+      />
+      <MenuItem
+        label="Copy working directory"
+        onClick={run(() => copyText('working directory', projectPath))}
+        disabled={!projectPath}
+      />
+      <MenuItem label="Copy chat ID" onClick={run(() => copyText('chat ID', conversation.id))} />
+      <MenuItem
+        label="Copy deeplink"
+        onClick={run(() => copyText('deeplink', `anodex://chat/${conversation.id}`))}
+      />
+      <div className={styles.contextSeparator} />
+      <MenuItem label="Open in new window" disabled />
+    </div>
+  )
+}
+
+interface MenuItemProps {
+  label: string
+  disabled?: boolean
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void
+}
+
+function MenuItem({ label, disabled = false, onClick }: MenuItemProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      className={styles.contextItem}
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {label}
+    </button>
   )
 }
 

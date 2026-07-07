@@ -19,6 +19,7 @@ interface ProjectRowProps {
   onNewChat: (projectId: string) => void
   onSelectConversation: (conversationId: string) => void
   onRenameConversation: (conversationId: string, title: string) => void
+  onMarkConversationUnread: (conversationId: string, updatedAt: number) => void
   onDeleteConversation: (conversationId: string) => void
   onOpenProjectFolder: (projectId: string) => void
   onRename: (project: Project, name: string) => void
@@ -39,6 +40,7 @@ export function ProjectRow({
   onNewChat,
   onSelectConversation,
   onRenameConversation,
+  onMarkConversationUnread,
   onDeleteConversation,
   onOpenProjectFolder,
   onRename,
@@ -115,6 +117,9 @@ export function ProjectRow({
                 unread={isConversationUnread(conversation)}
                 onClick={() => void onSelectConversation(conversation.id)}
                 onRename={(title) => void onRenameConversation(conversation.id, title)}
+                onMarkUnread={() =>
+                  void onMarkConversationUnread(conversation.id, conversation.updatedAt)
+                }
                 onOpenProjectFolder={() => void onOpenProjectFolder(project.id)}
                 onDelete={() => void onDeleteConversation(conversation.id)}
               />
