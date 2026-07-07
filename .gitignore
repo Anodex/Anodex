@@ -30,3 +30,7 @@ Thumbs.db
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Ad-hoc local notes/audits and packaging artifacts dropped in the repo root
+/CC/
+/*.zip
