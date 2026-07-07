@@ -41,12 +41,14 @@ interface FilteredProject {
 export function Sidebar(): JSX.Element {
   const view = useUiStore((s) => s.view)
   const setView = useUiStore((s) => s.setView)
+  const readConversationAt = useUiStore((s) => s.readConversationAt)
   const engine = useModelStore((s) => s.engine)
 
   const conversations = useChatStore((s) => s.conversations)
   const activeConversationId = useChatStore((s) => s.activeId)
   const newConversation = useChatStore((s) => s.newConversation)
   const selectConversation = useChatStore((s) => s.selectConversation)
+  const renameConversation = useChatStore((s) => s.renameConversation)
   const deleteConversation = useChatStore((s) => s.deleteConversation)
 
   const projects = useProjectStore((s) => s.projects)
@@ -54,6 +56,7 @@ export function Sidebar(): JSX.Element {
   const createProject = useProjectStore((s) => s.create)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const updateProject = useProjectStore((s) => s.update)
+  const openProjectFolder = useProjectStore((s) => s.openFolder)
   const deleteProject = useProjectStore((s) => s.delete)
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
 
@@ -142,6 +145,15 @@ export function Sidebar(): JSX.Element {
 
   const handleDeleteConversation = (id: string): void => {
     void deleteConversation(id)
+  }
+
+  const isConversationRunning = (conversation: Conversation): boolean =>
+    conversation.messages.some((message) => message.streaming)
+
+  const isConversationUnread = (conversation: Conversation): boolean => {
+    if (conversation.id === activeConversationId) return false
+    const readAt = readConversationAt[conversation.id]
+    return Boolean(readAt && conversation.updatedAt > readAt)
   }
 
   const handleCreateProject = async (): Promise<void> => {
@@ -259,10 +271,15 @@ export function Sidebar(): JSX.Element {
                     active={project.id === activeProjectId}
                     expanded={isProjectExpanded(project.id)}
                     activeConversationId={activeConversationId}
+                    running={projectConversations.some(isConversationRunning)}
+                    unread={projectConversations.some(isConversationUnread)}
+                    readConversationAt={readConversationAt}
                     onToggle={() => toggleProject(project.id)}
                     onNewChat={handleNewChat}
                     onSelectConversation={handleSelectConversation}
+                    onRenameConversation={(id, title) => void renameConversation(id, title)}
                     onDeleteConversation={handleDeleteConversation}
+                    onOpenProjectFolder={(id) => void openProjectFolder(id)}
                     onRename={handleRenameProject}
                     onDelete={handleDeleteProject}
                   />
@@ -297,21 +314,11 @@ export function Sidebar(): JSX.Element {
                     key={conversation.id}
                     conversation={conversation}
                     active={conversation.id === activeConversationId}
+                    running={isConversationRunning(conversation)}
+                    unread={isConversationUnread(conversation)}
                     onClick={() => void handleSelectConversation(conversation.id)}
-                    action={
-                      <button
-                        type="button"
-                        className={styles.chatDelete}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleDeleteConversation(conversation.id)
-                        }}
-                        aria-label="Delete chat"
-                        title="Delete chat"
-                      >
-                        <Icon name="trash" size={12} />
-                      </button>
-                    }
+                    onRename={(title) => void renameConversation(conversation.id, title)}
+                    onDelete={() => handleDeleteConversation(conversation.id)}
                   />
                 ))
               )}

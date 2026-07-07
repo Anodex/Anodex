@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type { CreateProjectRequest, UpdateProjectRequest } from '@shared/project.types'
 import { projectStore } from '../projects/ProjectStore'
@@ -46,6 +46,18 @@ export function registerProjectHandlers(): void {
     } catch (error) {
       log.error('Failed to set active project:', id, error)
       throw new Error('Could not set active project.')
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Projects.openFolder, async (_event, id: string) => {
+    try {
+      const project = projectStore.getState().projects.find((p) => p.id === id)
+      if (!project) throw new Error(`Project not found: ${id}`)
+      const failure = await shell.openPath(project.folderPath)
+      if (failure) throw new Error(failure)
+    } catch (error) {
+      log.error('Failed to open project folder:', id, error)
+      throw new Error('Could not open project folder.')
     }
   })
 }

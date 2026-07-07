@@ -17,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
  * - Both projects reference their respective tsconfig files for typed rules.
  */
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'node_modules/**', 'dev.cmd'] },
+  { ignores: ['out/**', 'dist/**', 'node_modules/**', '.claude/**', 'dev.cmd'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {

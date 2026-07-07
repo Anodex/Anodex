@@ -4,7 +4,7 @@ import type { Conversation } from '@shared/conversation.types'
 import type { ToolActivityEvent } from '@shared/tools.types'
 import { anodex } from '../lib/anodex'
 import { createId } from '../lib/id'
-import { notifyError } from './uiStore'
+import { notifyError, useUiStore } from './uiStore'
 import { useSettingsStore } from './settingsStore'
 import { useModelStore } from './modelStore'
 import { playChime } from '../lib/sound'
@@ -27,6 +27,7 @@ interface ChatState {
    */
   newConversation: (projectId?: string | null) => string
   selectConversation: (id: string) => Promise<void>
+  renameConversation: (id: string, title: string) => Promise<void>
   deleteConversation: (id: string) => Promise<void>
   /** Delete every conversation (all projects and general chats). */
   deleteAllConversations: () => Promise<void>
@@ -63,6 +64,8 @@ export const useChatStore = create<ChatState>()(
         activeId: state.activeConversationId,
         loaded: true
       })
+      const active = conversations.find((c) => c.id === state.activeConversationId)
+      if (active) useUiStore.getState().markConversationRead(active.id, active.updatedAt)
     },
 
     newConversation: (projectId = null) => {
@@ -80,14 +83,33 @@ export const useChatStore = create<ChatState>()(
         state.conversations.unshift(conversation)
         state.activeId = id
       })
+      useUiStore.getState().markConversationRead(id, now)
       void persistConversation(conversation)
       void persistActiveState(id)
       return id
     },
 
     selectConversation: async (id) => {
+      const conversation = get().conversations.find((c) => c.id === id)
       set({ activeId: id })
+      if (conversation) useUiStore.getState().markConversationRead(id, conversation.updatedAt)
       await persistActiveState(id)
+    },
+
+    renameConversation: async (id, title) => {
+      const nextTitle = title.trim()
+      if (!nextTitle) return
+      set((state) => {
+        const conversation = state.conversations.find((c) => c.id === id)
+        if (!conversation) return
+        conversation.title = nextTitle
+        conversation.updatedAt = Date.now()
+      })
+      const nextConversation = get().conversations.find((c) => c.id === id)
+      if (nextConversation) {
+        useUiStore.getState().markConversationRead(id, nextConversation.updatedAt)
+      }
+      if (nextConversation) await persistConversation(nextConversation)
     },
 
     deleteConversation: async (id) => {
@@ -184,6 +206,9 @@ export const useChatStore = create<ChatState>()(
       })
 
       const finalConvo = get().conversations.find((c) => c.id === conversationId)
+      if (finalConvo && get().activeId === conversationId) {
+        useUiStore.getState().markConversationRead(conversationId, finalConvo.updatedAt)
+      }
       if (finalConvo) void persistConversation(finalConvo)
 
       if (!result.ok) {

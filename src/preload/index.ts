@@ -59,7 +59,8 @@ const api: AnodexApi = {
     create: (request) => ipcRenderer.invoke(IpcChannel.Projects.create, request),
     update: (id, request) => ipcRenderer.invoke(IpcChannel.Projects.update, id, request),
     delete: (id) => ipcRenderer.invoke(IpcChannel.Projects.delete, id),
-    setActive: (id) => ipcRenderer.invoke(IpcChannel.Projects.setActive, id)
+    setActive: (id) => ipcRenderer.invoke(IpcChannel.Projects.setActive, id),
+    openFolder: (id) => ipcRenderer.invoke(IpcChannel.Projects.openFolder, id)
   },
   conversations: {
     list: () => ipcRenderer.invoke(IpcChannel.Conversations.list),
@@ -122,7 +123,8 @@ const api: AnodexApi = {
     resize: (sessionId, cols, rows) =>
       ipcRenderer.invoke(IpcChannel.Terminal.resize, sessionId, cols, rows),
     kill: (sessionId) => ipcRenderer.invoke(IpcChannel.Terminal.kill, sessionId),
-    onData: (listener) => subscribe<{ sessionId: string; data: string }>(IpcChannel.Terminal.data, listener),
+    onData: (listener) =>
+      subscribe<{ sessionId: string; data: string }>(IpcChannel.Terminal.data, listener),
     onExit: (listener) => subscribe<{ sessionId: string }>(IpcChannel.Terminal.exit, listener)
   }
 }

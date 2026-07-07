@@ -16,6 +16,7 @@ interface ProjectState extends ProjectsState {
   update: (id: string, request: UpdateProjectRequest) => Promise<void>
   delete: (id: string) => Promise<void>
   setActive: (id: string | null) => Promise<void>
+  openFolder: (id: string) => Promise<void>
 }
 
 /** Mirrors the persisted project list from the main process. */
@@ -65,6 +66,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
       await refreshWorkspaceSettings()
     } catch (error) {
       notifyError('Could not switch project', error instanceof Error ? error.message : undefined)
+    }
+  },
+
+  openFolder: async (id) => {
+    try {
+      await anodex.projects.openFolder(id)
+    } catch (error) {
+      notifyError(
+        'Could not open project folder',
+        error instanceof Error ? error.message : undefined
+      )
     }
   }
 }))

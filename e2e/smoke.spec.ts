@@ -18,3 +18,17 @@ test('app launches and shows the main window', async () => {
     await app.close()
   }
 })
+
+test('app shell does not render nested buttons', async () => {
+  const app = await electron.launch({
+    args: ['out/main/index.js']
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await expect(window).toHaveTitle(/Anodex/)
+    await expect(window.locator('button button')).toHaveCount(0)
+  } finally {
+    await app.close()
+  }
+})

@@ -1,23 +1,35 @@
 .row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
   margin-bottom: 1px;
-  font-size: var(--text-sm);
   color: var(--text-muted);
-  text-align: left;
   background: transparent;
-  border: none;
   border-radius: var(--radius-md);
-  cursor: pointer;
   transition:
     color var(--transition-fast),
     background var(--transition-fast);
 }
 
-.row:hover {
+.select {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.row:hover,
+.row:focus-within {
   color: var(--text);
   background: var(--bg-surface-2);
 }
@@ -37,14 +49,42 @@
 }
 
 .meta {
-  position: relative;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  width: 34px;
   flex-shrink: 0;
   margin-left: auto;
 }
 
+.status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--text-muted);
+  border-radius: 50%;
+  animation: spin 850ms linear infinite;
+}
+
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .time {
+  flex-shrink: 0;
   font-size: var(--text-xs);
   color: var(--text-faint);
   transition: visibility var(--transition-fast);
@@ -55,7 +95,8 @@
   color: var(--text-muted);
 }
 
-.hasAction:hover .time {
+.hasAction:hover .time,
+.hasAction:focus-within .time {
   visibility: hidden;
 }
 
@@ -65,10 +106,150 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+.hasAction:hover .action,
+.hasAction:focus-within .action {
+  opacity: 1;
+}
+
+.action:hover,
+.action:focus-visible {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.detailCard {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: 330px;
+  padding: var(--space-3);
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.renameButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: none;
+}
+
+.renameButton strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.renameButton svg {
+  flex-shrink: 0;
+  color: var(--text-faint);
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
 
-.hasAction:hover .action {
+.renameButton:hover svg,
+.renameButton:focus-visible svg {
   opacity: 1;
+}
+
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  padding: 3px var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.detailHeader span {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.detailLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.folderButton {
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.folderButton:hover {
+  color: var(--text);
+}
+
+.detailLine span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailStatusDot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.detailStatusDot.ready {
+  background: var(--success);
+}
+
+.detailStatusDot.running {
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--text-muted);
+  animation: spin 850ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

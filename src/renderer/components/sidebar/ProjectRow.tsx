@@ -4,7 +4,6 @@ import type { Conversation } from '@shared/conversation.types'
 import { Icon } from '../Icon'
 import { ChatRow } from './ChatRow'
 import { ProjectActionsMenu } from './ProjectActionsMenu'
-import sidebarStyles from '../Sidebar.module.css'
 import styles from './ProjectRow.module.css'
 
 interface ProjectRowProps {
@@ -13,10 +12,15 @@ interface ProjectRowProps {
   active: boolean
   expanded: boolean
   activeConversationId: string | null
+  running: boolean
+  unread: boolean
+  readConversationAt: Record<string, number>
   onToggle: () => void
   onNewChat: (projectId: string) => void
   onSelectConversation: (conversationId: string) => void
+  onRenameConversation: (conversationId: string, title: string) => void
   onDeleteConversation: (conversationId: string) => void
+  onOpenProjectFolder: (projectId: string) => void
   onRename: (project: Project, name: string) => void
   onDelete: (project: Project) => void
 }
@@ -28,14 +32,29 @@ export function ProjectRow({
   active,
   expanded,
   activeConversationId,
+  running,
+  unread,
+  readConversationAt,
   onToggle,
   onNewChat,
   onSelectConversation,
+  onRenameConversation,
   onDeleteConversation,
+  onOpenProjectFolder,
   onRename,
   onDelete
 }: ProjectRowProps): JSX.Element {
   const [hovered, setHovered] = useState(false)
+  const showProjectStatus = !expanded && (running || unread)
+
+  const isConversationRunning = (conversation: Conversation): boolean =>
+    conversation.messages.some((message) => message.streaming)
+
+  const isConversationUnread = (conversation: Conversation): boolean => {
+    if (conversation.id === activeConversationId) return false
+    const readAt = readConversationAt[conversation.id]
+    return Boolean(readAt && conversation.updatedAt > readAt)
+  }
 
   return (
     <div
@@ -51,6 +70,15 @@ export function ProjectRow({
             className={`${styles.chevron} ${expanded ? '' : styles.chevronCollapsed}`}
           />
           <span className={styles.name}>{project.name}</span>
+          {showProjectStatus && (
+            <span className={`${styles.status} ${running ? styles.running : styles.unread}`}>
+              {running ? (
+                <span className={styles.spinner} aria-hidden="true" />
+              ) : (
+                <span className={styles.unreadDot} aria-hidden="true" />
+              )}
+            </span>
+          )}
         </button>
         <div className={`${styles.actions} ${hovered ? styles.actionsVisible : ''}`}>
           <button
@@ -76,21 +104,14 @@ export function ProjectRow({
                 key={conversation.id}
                 conversation={conversation}
                 active={conversation.id === activeConversationId}
+                projectName={project.name}
+                projectPath={project.folderPath}
+                running={isConversationRunning(conversation)}
+                unread={isConversationUnread(conversation)}
                 onClick={() => void onSelectConversation(conversation.id)}
-                action={
-                  <button
-                    type="button"
-                    className={sidebarStyles.chatDelete}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void onDeleteConversation(conversation.id)
-                    }}
-                    aria-label="Delete chat"
-                    title="Delete chat"
-                  >
-                    <Icon name="trash" size={12} />
-                  </button>
-                }
+                onRename={(title) => void onRenameConversation(conversation.id, title)}
+                onOpenProjectFolder={() => void onOpenProjectFolder(project.id)}
+                onDelete={() => void onDeleteConversation(conversation.id)}
               />
             ))
           )}

@@ -62,25 +62,6 @@
   color: var(--text-faint);
 }
 
-.chatDelete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  color: var(--text-faint);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: color var(--transition-fast);
-}
-
-.chatDelete:hover {
-  color: var(--danger);
-}
-
 .searchEmpty {
   display: flex;
   flex-direction: column;

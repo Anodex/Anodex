@@ -1,0 +1,97 @@
+.modal {
+  composes: card from './Overlay.module.css';
+  width: 100%;
+  max-width: 440px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+}
+
+.title {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.label {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.body {
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-3);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.input:focus {
+  border-color: var(--border-focus);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.cancel,
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 var(--space-3);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+}
+
+.cancel {
+  color: var(--text);
+  background: var(--bg-surface-2);
+  border-color: var(--border);
+}
+
+.cancel:hover {
+  background: var(--bg-elevated);
+}
+
+.confirm {
+  color: var(--text-on-accent);
+  background: var(--accent);
+}
+
+.confirm:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -19,22 +19,56 @@ export interface Toast {
 interface UiState {
   view: AppView
   toasts: Toast[]
+  readConversationAt: Record<string, number>
   /** A write/command approval awaiting the user's decision, if any. */
   pendingConfirmation: ToolConfirmRequest | null
   setView: (view: AppView) => void
+  markConversationRead: (conversationId: string, updatedAt: number) => void
   notify: (toast: Omit<Toast, 'id'>) => void
   dismissToast: (id: string) => void
   setPendingConfirmation: (request: ToolConfirmRequest | null) => void
   resolveConfirmation: (response: ToolConfirmResponse) => void
 }
 
+const READ_MARKERS_KEY = 'anodex:readConversationAt'
+
+function loadReadMarkers(): Record<string, number> {
+  try {
+    if (typeof localStorage === 'undefined') return {}
+    const raw = localStorage.getItem(READ_MARKERS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, number>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveReadMarkers(markers: Record<string, number>): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(READ_MARKERS_KEY, JSON.stringify(markers))
+  } catch {
+    /* noop */
+  }
+}
+
 /** Global, ephemeral UI state: the active view, toasts, and tool approvals. */
 export const useUiStore = create<UiState>((set, get) => ({
   view: 'chat',
   toasts: [],
+  readConversationAt: loadReadMarkers(),
   pendingConfirmation: null,
 
   setView: (view) => set({ view }),
+
+  markConversationRead: (conversationId, updatedAt) => {
+    set((state) => {
+      const readConversationAt = { ...state.readConversationAt, [conversationId]: updatedAt }
+      saveReadMarkers(readConversationAt)
+      return { readConversationAt }
+    })
+  },
 
   setPendingConfirmation: (request) => set({ pendingConfirmation: request }),
 

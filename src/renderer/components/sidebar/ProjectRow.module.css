@@ -53,6 +53,34 @@
   transform: rotate(-90deg);
 }
 
+.status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-faint);
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--text-muted);
+  border-radius: 50%;
+  animation: spin 850ms linear infinite;
+}
+
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .name {
   min-width: 0;
   overflow: hidden;
@@ -105,4 +133,10 @@
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-xs);
   color: var(--text-faint);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -94,7 +94,8 @@ export const IpcChannel = {
     create: 'projects:create',
     update: 'projects:update',
     delete: 'projects:delete',
-    setActive: 'projects:set-active'
+    setActive: 'projects:set-active',
+    openFolder: 'projects:open-folder'
   },
   Conversations: {
     list: 'conversations:list',
@@ -219,6 +220,7 @@ export interface AnodexApi {
     update(id: string, request: UpdateProjectRequest): Promise<Project>
     delete(id: string): Promise<void>
     setActive(id: string | null): Promise<ProjectsState>
+    openFolder(id: string): Promise<void>
   }
   conversations: {
     list(): Promise<Conversation[]>
@@ -284,7 +286,10 @@ export interface AnodexApi {
     /** All-time token-generation activity, independent of individual conversations. */
     getUsageProfile(): Promise<Result<UsageProfile>>
     /** Per-model token breakdown + a chart-ready series for a given time range/granularity. */
-    getUsageBreakdown(range: ChartRange, granularity: ChartGranularity): Promise<Result<UsageBreakdown>>
+    getUsageBreakdown(
+      range: ChartRange,
+      granularity: ChartGranularity
+    ): Promise<Result<UsageBreakdown>>
   }
   memory: {
     /** Every memory visible for `projectId` — its own project-scoped entries plus every global one. */

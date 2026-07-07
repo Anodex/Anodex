@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Project } from '@shared/project.types'
 import { Icon } from '../Icon'
+import { TextPromptDialog } from '../ui/TextPromptDialog'
 import styles from './ProjectActionsMenu.module.css'
 
 interface ProjectActionsMenuProps {
@@ -16,6 +17,7 @@ export function ProjectActionsMenu({
   onDelete
 }: ProjectActionsMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -30,8 +32,7 @@ export function ProjectActionsMenu({
 
   const handleRename = (): void => {
     setOpen(false)
-    const name = window.prompt('Rename project', project.name)
-    if (name?.trim()) onRename(project, name.trim())
+    setRenaming(true)
   }
 
   const handleDelete = (): void => {
@@ -63,6 +64,19 @@ export function ProjectActionsMenu({
             Delete
           </button>
         </div>
+      )}
+      {renaming && (
+        <TextPromptDialog
+          title="Rename project"
+          label="Project name"
+          initialValue={project.name}
+          confirmLabel="Rename"
+          onCancel={() => setRenaming(false)}
+          onConfirm={(name) => {
+            setRenaming(false)
+            onRename(project, name)
+          }}
+        />
       )}
     </div>
   )
