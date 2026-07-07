@@ -78,6 +78,11 @@
   box-shadow: 0 0 10px rgba(124, 92, 255, 0.45);
 }
 
+.userRailMarkerHovered {
+  background: linear-gradient(90deg, var(--accent-green, #74f0a8), rgba(116, 240, 168, 0.2));
+  box-shadow: 0 0 10px rgba(116, 240, 168, 0.45);
+}
+
 .userRailPreview {
   position: absolute;
   left: 32px;

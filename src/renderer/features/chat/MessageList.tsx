@@ -191,10 +191,16 @@ function UserScrollRail({
         const distance = mouseY !== null ? Math.abs(marker.top - mouseY) : RAIL_MOUSE_RADIUS
         const t = Math.max(0, 1 - distance / RAIL_MOUSE_RADIUS)
         const width = RAIL_MIN_WIDTH + t * (RAIL_MAX_WIDTH - RAIL_MIN_WIDTH)
+        const isHovered = hoveredMarker?.message.id === marker.message.id
+        const markerClass = [
+          styles.userRailMarker,
+          marker.active ? styles.userRailMarkerActive : '',
+          isHovered && !marker.active ? styles.userRailMarkerHovered : ''
+        ].filter(Boolean).join(' ')
         return (
           <div
             key={marker.message.id}
-            className={`${styles.userRailMarker} ${marker.active ? styles.userRailMarkerActive : ''}`}
+            className={markerClass}
             style={{ top: marker.top, width }}
             aria-hidden="true"
           />
