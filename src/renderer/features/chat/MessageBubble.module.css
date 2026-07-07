@@ -72,6 +72,10 @@
   margin-bottom: var(--space-3);
 }
 
+.memoryUsed {
+  margin-bottom: var(--space-3);
+}
+
 .attachment {
   display: flex;
   align-items: center;

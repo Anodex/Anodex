@@ -3,6 +3,7 @@ import { AnodexLogo } from '../../components/AnodexLogo'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatBytes, formatClock } from '../../lib/format'
+import { MemoryUsedCard } from './MemoryUsedCard'
 import { MessageContent } from './MessageContent'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ToolCallCard } from './ToolCallCard'
@@ -38,6 +39,11 @@ export function MessageBubble({ message }: { message: ChatMessage }): JSX.Elemen
                   <span className={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</span>
                 </span>
               ))}
+            </div>
+          )}
+          {!isUser && message.memoryUsed && message.memoryUsed.length > 0 && (
+            <div className={styles.memoryUsed}>
+              <MemoryUsedCard entries={message.memoryUsed} />
             </div>
           )}
           {showThinking ? (
