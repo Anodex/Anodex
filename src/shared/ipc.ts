@@ -94,6 +94,7 @@ export const IpcChannel = {
     list: 'conversations:list',
     save: 'conversations:save',
     delete: 'conversations:delete',
+    deleteAll: 'conversations:delete-all',
     getState: 'conversations:get-state',
     setState: 'conversations:set-state'
   },
@@ -203,6 +204,8 @@ export interface AnodexApi {
     list(): Promise<Conversation[]>
     save(conversation: Conversation): Promise<void>
     delete(id: string): Promise<void>
+    /** Delete every persisted conversation (all projects and general chats). */
+    deleteAll(): Promise<void>
     getState(): Promise<ConversationState>
     setState(state: ConversationState): Promise<void>
   }

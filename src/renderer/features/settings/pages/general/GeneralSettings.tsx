@@ -1,4 +1,8 @@
+import { useState } from 'react'
 import type { AppSettings } from '@shared/settings.types'
+import { useChatStore } from '../../../../stores/chatStore'
+import { Button } from '../../../../components/ui/Button'
+import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, TextControl, ToggleControl } from '../../controls'
 import styles from './GeneralSettings.module.css'
@@ -21,6 +25,9 @@ const STARTUP_OPTIONS = [
 
 export function GeneralSettings({ settings, update }: GeneralSettingsProps): JSX.Element {
   const { general } = settings
+  const conversationCount = useChatStore((s) => s.conversations.length)
+  const deleteAllConversations = useChatStore((s) => s.deleteAllConversations)
+  const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false)
 
   return (
     <div className={styles.page}>
@@ -119,6 +126,43 @@ export function GeneralSettings({ settings, update }: GeneralSettingsProps): JSX
           }
         />
       </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Data</h2>
+        <p className={styles.sectionDesc}>Bulk actions on your local chat history.</p>
+        <SettingRow
+          label="Delete all chats"
+          description={
+            conversationCount > 0
+              ? `Permanently remove all ${conversationCount} conversation${conversationCount === 1 ? '' : 's'} — general and project chats.`
+              : 'No conversations to delete.'
+          }
+          control={
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={conversationCount === 0}
+              onClick={() => setConfirmingDeleteAll(true)}
+            >
+              Delete all
+            </Button>
+          }
+        />
+      </section>
+
+      {confirmingDeleteAll && (
+        <ConfirmDialog
+          title="Delete all chats?"
+          message="This permanently removes every conversation — general and project chats. This can't be undone."
+          detail={`${conversationCount} conversation${conversationCount === 1 ? '' : 's'}`}
+          confirmLabel="Delete all"
+          onCancel={() => setConfirmingDeleteAll(false)}
+          onConfirm={() => {
+            setConfirmingDeleteAll(false)
+            void deleteAllConversations()
+          }}
+        />
+      )}
     </div>
   )
 }

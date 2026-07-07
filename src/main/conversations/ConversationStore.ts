@@ -85,6 +85,16 @@ class ConversationStore {
     this.ensureCache().delete(id)
   }
 
+  /** Delete every persisted conversation (all projects and general chats) and clear active state. */
+  deleteAll(): void {
+    const cache = this.ensureCache()
+    for (const entry of cache.values()) {
+      this.removeFile(entry.filePath)
+    }
+    cache.clear()
+    this.setState({ activeConversationId: null })
+  }
+
   /** Delete all conversations belonging to a project. */
   deleteByProject(projectId: string): void {
     assertSafeId(projectId, 'project id')

@@ -15,6 +15,14 @@ export function registerConversationHandlers(): void {
     conversationStore.delete(id)
   )
 
+  ipcMain.handle(IpcChannel.Conversations.deleteAll, () => {
+    try {
+      conversationStore.deleteAll()
+    } catch {
+      throw new Error('Could not delete all conversations.')
+    }
+  })
+
   ipcMain.handle(IpcChannel.Conversations.getState, () => conversationStore.getState())
 
   ipcMain.handle(IpcChannel.Conversations.setState, (_event, state: ConversationState) =>
