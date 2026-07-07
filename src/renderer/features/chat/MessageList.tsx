@@ -9,11 +9,15 @@ import styles from './MessageList.module.css'
 const STICK_THRESHOLD = 120
 const RAIL_TOP_OFFSET = 24
 const RAIL_GAP = 14
+const RAIL_MAX_WIDTH = 22
+const RAIL_MIN_WIDTH = 4
+const RAIL_STEP = 4
 
 interface UserMarker {
   message: ChatMessage
   top: number
   active: boolean
+  distanceFromActive: number
 }
 
 /** Scrollable transcript that follows streaming output unless the user scrolls up. */
@@ -38,16 +42,20 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
       offsetTop: messageRefs.current[message.id]?.offsetTop ?? 0
     }))
     let activeId = entries[0]?.message.id
-    for (const entry of entries) {
-      if (entry.offsetTop <= currentAnchor) activeId = entry.message.id
-      else break
+    let activeIndex = 0
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].offsetTop <= currentAnchor) {
+        activeId = entries[i].message.id
+        activeIndex = i
+      } else break
     }
 
     setUserMarkers(
       entries.map(({ message }, index) => ({
         message,
         top: RAIL_TOP_OFFSET + index * RAIL_GAP,
-        active: message.id === activeId
+        active: message.id === activeId,
+        distanceFromActive: Math.abs(index - activeIndex)
       }))
     )
   }, [messages])
@@ -163,20 +171,24 @@ function UserScrollRail({
   return (
     <div className={styles.userRail} aria-label="User message quick scroll">
       <div className={styles.userRailTrack} />
-      {markers.map((marker) => (
-        <button
-          key={marker.message.id}
-          type="button"
-          className={`${styles.userRailMarker} ${marker.active ? styles.userRailMarkerActive : ''}`}
-          style={{ top: marker.top }}
-          onClick={() => onSelect(marker.message.id)}
-          onMouseEnter={() => onHover(marker.message.id)}
-          onMouseLeave={() => onHover(null)}
-          onFocus={() => onHover(marker.message.id)}
-          onBlur={() => onHover(null)}
-          aria-label={`Scroll to your message from ${formatClock(marker.message.createdAt)}`}
-        />
-      ))}
+      {markers.map((marker) => {
+        const taper = RAIL_MAX_WIDTH - marker.distanceFromActive * RAIL_STEP
+        const width = marker.active ? RAIL_MAX_WIDTH : Math.max(RAIL_MIN_WIDTH, taper)
+        return (
+          <button
+            key={marker.message.id}
+            type="button"
+            className={`${styles.userRailMarker} ${marker.active ? styles.userRailMarkerActive : ''}`}
+            style={{ top: marker.top, width }}
+            onClick={() => onSelect(marker.message.id)}
+            onMouseEnter={() => onHover(marker.message.id)}
+            onMouseLeave={() => onHover(null)}
+            onFocus={() => onHover(marker.message.id)}
+            onBlur={() => onHover(null)}
+            aria-label={`Scroll to your message from ${formatClock(marker.message.createdAt)}`}
+          />
+        )
+      })}
       {hoveredMarker && (
         <div className={styles.userRailPreview} style={{ top: hoveredMarker.top }}>
           <strong>{previewText(hoveredMarker.message)}</strong>

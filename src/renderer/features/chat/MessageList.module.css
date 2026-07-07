@@ -48,7 +48,6 @@
 .userRailMarker {
   position: absolute;
   left: 5px;
-  width: 12px;
   height: 5px;
   padding: 0;
   transform: translateY(-50%);
@@ -69,8 +68,6 @@
 
 .userRailMarker:hover,
 .userRailMarker:focus-visible {
-  width: 22px;
-  height: 5px;
   background: rgba(255, 255, 255, 0.55);
   opacity: 1;
   outline: none;
@@ -78,8 +75,6 @@
 }
 
 .userRailMarkerActive {
-  width: 22px;
-  height: 5px;
   background: linear-gradient(90deg, var(--accent-violet), rgba(124, 92, 255, 0.2));
   box-shadow: 0 0 10px rgba(124, 92, 255, 0.45);
 }
