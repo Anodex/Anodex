@@ -48,7 +48,7 @@
 .userRailMarker {
   position: absolute;
   left: 5px;
-  height: 5px;
+  height: 3px;
   padding: 0;
   transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.22);
@@ -58,12 +58,11 @@
   cursor: pointer;
   pointer-events: auto;
   transition:
-    width var(--transition-fast),
-    height var(--transition-fast),
-    background var(--transition-fast),
-    opacity var(--transition-fast),
-    box-shadow var(--transition-fast),
-    transform var(--transition-fast);
+    width 120ms ease,
+    background 120ms ease,
+    opacity 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
 }
 
 .userRailMarker:hover,
