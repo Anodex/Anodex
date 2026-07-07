@@ -25,7 +25,7 @@
   bottom: 0;
   left: var(--space-2);
   z-index: 3;
-  width: 20px;
+  width: 24px;
   pointer-events: none;
 }
 
@@ -47,9 +47,9 @@
 
 .userRailMarker {
   position: absolute;
-  left: 6px;
-  width: 4px;
-  height: 2px;
+  left: 5px;
+  width: 10px;
+  height: 4px;
   padding: 0;
   transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.22);
@@ -69,8 +69,8 @@
 
 .userRailMarker:hover,
 .userRailMarker:focus-visible {
-  width: 12px;
-  height: 2px;
+  width: 18px;
+  height: 4px;
   background: rgba(255, 255, 255, 0.55);
   opacity: 1;
   outline: none;
