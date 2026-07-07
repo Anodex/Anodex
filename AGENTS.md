@@ -98,12 +98,20 @@ The catalog shown in Settings is `TOOL_CATALOG` in `src/shared/tools.types.ts`.
 
 #### Tool approval
 
-- Read tools: never ask.
+- Read tools (`runReadTool`): never ask.
 - Web tools (`fetch_url`): never ask.
-- `web_search`: asks when `ctx.webSearch.requireApproval` is true.
-- Write/command tools: ask when `ctx.requireApproval` is true.
-- `skipApproval: true` in `runGuardedTool` lets a specific mutation bypass the
-  prompt (used by `create_directory`).
+- `web_search`: asks when `ctx.webSearch.requireApproval` is true (passed as
+  `forceConfirm` to `runGuardedTool`).
+- Write/command tools (`runGuardedTool`): confirmation is decided by
+  `resolvePermission(ctx.permissionMode, spec.risk)` in
+  `src/main/tools/permissions.ts`, not a plain boolean:
+  - `risk: 'trivial'` always auto-runs, regardless of `permissionMode` (used
+    by `create_directory`).
+  - `permissionMode: 'ask'` always confirms (except `'trivial'` above).
+  - `risk: 'destructive'` always confirms, regardless of `permissionMode`.
+  - `permissionMode: 'full'` + `risk: 'sensitive'` confirms; every other
+    combination auto-runs.
+  - `spec.forceConfirm` overrides the above and always asks when `true`.
 
 #### Adding a web search provider
 

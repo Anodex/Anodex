@@ -11,6 +11,7 @@ import { projectStore } from '../projects/ProjectStore'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { buildWorkspaceContext } from '../tools/workspaceContext'
+import { buildMemoryContext } from '../memory/MemoryRetriever'
 import { requestToolConfirmation } from './tools.handlers'
 import { createLogger } from '../utils/logger'
 
@@ -19,6 +20,12 @@ const log = createLogger('ipc:chat')
 /** Abort controllers for in-flight generations, keyed by conversation. */
 const inflight = new Map<string, AbortController>()
 
+/** Abort every in-flight chat generation — called on app quit. */
+export function abortAllChatGenerations(): void {
+  for (const controller of inflight.values()) controller.abort()
+  inflight.clear()
+}
+
 /** IPC handlers for streaming chat generation and stopping it. */
 export function registerChatHandlers(): void {
   ipcMain.handle(IpcChannel.Chat.send, async (event, request: ChatRequest) => {
@@ -26,21 +33,28 @@ export function registerChatHandlers(): void {
     inflight.set(request.conversationId, controller)
 
     // Enable tools whenever the feature is on. Workspace (file/command) tools
-    // require an open project; web tools work regardless. `workspaceRoot` is
-    // forced to null without one — belt-and-suspenders on top of there being no
-    // UI path to set `settings.workspace.root` outside a project anymore, so a
-    // stray/legacy value there can never leak file access into a plain chat.
+    // must be scoped to the conversation's own project, not the process-wide
+    // activeProjectId. The renderer can briefly lag while switching chats, and
+    // general chats intentionally clear the active project; deriving the root
+    // from request.projectId keeps project chats writable and plain chats safe.
     const settings = settingsStore.get()
     const projects = projectStore.getState()
-    const workspaceRoot = projects.activeProjectId ? settings.workspace.root : null
+    const requestProjectId =
+      'projectId' in request ? request.projectId ?? null : projects.activeProjectId
+    const activeProject = projects.projects.find((p) => p.id === requestProjectId) ?? null
+    const workspaceRoot = activeProject?.folderPath ?? null
     let hadToolActivity = false
     const toolNamesThisTurn: string[] = []
     const tools = settings.tools.enabled
       ? {
           workspaceRoot,
           permissionMode: settings.general.permissionMode,
-          projectId: projects.activeProjectId,
+          projectId: activeProject?.id ?? null,
           webSearch: settings.webSearch,
+          memory: {
+            crossChatEnabled: settings.memory.crossChatEnabled,
+            personalEnabled: settings.memory.personalEnabled
+          },
           plan: request.plan ?? null,
           onActivity: (call: ToolCall) => {
             hadToolActivity = true
@@ -69,14 +83,18 @@ export function registerChatHandlers(): void {
     // remembered from past conversations in this project), the active project's
     // own rules, and the user's free-form guidance.
     const hasWorkspaceTools = settings.tools.enabled && Boolean(workspaceRoot)
-    const activeProject = projects.projects.find((p) => p.id === projects.activeProjectId)
+    const memory = buildMemoryContext(activeProject?.id ?? null, request.prompt, {
+      crossChatEnabled: settings.memory.crossChatEnabled,
+      personalEnabled: settings.memory.personalEnabled
+    })
     const systemPrompt = composeSystemPrompt({
       hasWorkspaceTools,
-      hasProject: Boolean(projects.activeProjectId),
+      hasProject: Boolean(activeProject),
       workspaceContext:
         hasWorkspaceTools && workspaceRoot
-          ? buildWorkspaceContext(workspaceRoot, projects.activeProjectId)
+          ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null)
           : null,
+      memoryContext: memory?.text ?? null,
       projectRules: activeProject?.instructions ?? null,
       userInstructions: settings.ui.systemPrompt
     })
@@ -103,12 +121,8 @@ export function registerChatHandlers(): void {
 
       // Remember this turn in project memory so a future conversation in the
       // same project has ambient context, not just this one's chat history.
-      if (hadToolActivity && !outcome.stopped && projects.activeProjectId && outcome.content) {
-        projectMemoryStore.recordSummary(
-          projects.activeProjectId,
-          request.conversationId,
-          outcome.content
-        )
+      if (hadToolActivity && !outcome.stopped && activeProject && outcome.content) {
+        projectMemoryStore.recordSummary(activeProject.id, request.conversationId, outcome.content)
       }
 
       // Recorded regardless of `stopped` — real tokens were generated either way.
@@ -130,7 +144,8 @@ export function registerChatHandlers(): void {
         messageId: request.messageId,
         content: outcome.content,
         stats: outcome.stats,
-        stopped: outcome.stopped
+        stopped: outcome.stopped,
+        memoryUsed: memory?.entries
       })
     } catch (error) {
       const message = toErrorMessage(error)

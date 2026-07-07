@@ -1,5 +1,9 @@
 import { BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
+import { IpcChannel } from '@shared/ipc'
+import { createLogger } from './utils/logger'
+
+const log = createLogger('window')
 
 /** Background colour matches the app shell so there is no white flash on launch. */
 const BACKGROUND_COLOR = '#0A0E1A'
@@ -52,16 +56,30 @@ export function createMainWindow(): BrowserWindow {
   // Avoid a flash of unstyled/empty content: show only once rendered.
   window.once('ready-to-show', () => window.show())
 
+  // Broadcast maximize/unmaximize changes so the TitleBar can show the
+  // correct icon — registered here, where the window reference already
+  // exists, rather than waiting on a renderer-sent handshake.
+  window.on('maximize', () => {
+    if (!window.isDestroyed()) window.webContents.send(IpcChannel.Window.maximizedChanged, true)
+  })
+  window.on('unmaximize', () => {
+    if (!window.isDestroyed()) window.webContents.send(IpcChannel.Window.maximizedChanged, false)
+  })
+
   // Open external links in the user's default browser, never inside the app.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    shell.openExternal(url).catch((error) => log.error('Failed to open external URL:', url, error))
     return { action: 'deny' }
   })
 
   if (devServerUrl) {
-    void window.loadURL(devServerUrl)
+    window.loadURL(devServerUrl).catch((error) => {
+      log.error('Failed to load dev server URL:', devServerUrl, error)
+    })
   } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'))
+    window.loadFile(join(__dirname, '../renderer/index.html')).catch((error) => {
+      log.error('Failed to load renderer index.html:', error)
+    })
   }
 
   mainWindow = window

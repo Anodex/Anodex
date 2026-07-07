@@ -37,16 +37,28 @@ class SettingsStore {
 
   /** Deep-merge a partial patch, persist, and return the new settings. */
   update(patch: DeepPartial<AppSettings>): AppSettings {
-    const next = deepMerge(this.get(), patch)
+    validatePatch(patch)
+    const previous = this.get()
+    const next = deepMerge(previous, patch)
     this.cache = next
-    this.persist(next)
+    try {
+      this.persist(next)
+    } catch (error) {
+      this.cache = previous
+      log.error('Failed to persist settings, reverted in-memory cache:', error)
+      throw error
+    }
     return next
   }
 
   private load(): AppSettings {
     const defaults = createDefaultSettings(this.modelsDirectory)
     if (!existsSync(this.filePath)) {
-      this.persist(defaults)
+      try {
+        this.persist(defaults)
+      } catch (error) {
+        log.error('Failed to write default settings:', error)
+      }
       return defaults
     }
     try {
@@ -60,12 +72,8 @@ class SettingsStore {
   }
 
   private persist(settings: AppSettings): void {
-    try {
-      this.ensureDir(app.getPath('userData'))
-      writeFileSync(this.filePath, JSON.stringify(settings, null, 2), 'utf-8')
-    } catch (error) {
-      log.error('Failed to persist settings:', error)
-    }
+    this.ensureDir(app.getPath('userData'))
+    writeFileSync(this.filePath, JSON.stringify(settings, null, 2), 'utf-8')
   }
 
   private ensureDir(dir: string): void {
@@ -94,6 +102,69 @@ function deepMerge<T>(base: T, patch: DeepPartial<T>): T {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+/**
+ * Rejects malformed patches before they reach `deepMerge`. This is the only
+ * runtime check on data crossing the IPC boundary — TypeScript's compile-time
+ * types don't survive `ipcMain.handle`, so a bad value here (e.g. `NaN`
+ * temperature, a negative context size) would otherwise flow straight into
+ * `node-llama-cpp` and fail there with a much less useful error.
+ */
+function validatePatch(patch: DeepPartial<AppSettings>): void {
+  const generation = patch.generation
+  if (generation?.temperature !== undefined) {
+    if (!isFiniteNumber(generation.temperature) || generation.temperature < 0) {
+      throw new Error('generation.temperature must be a non-negative finite number')
+    }
+  }
+  if (generation?.topP !== undefined) {
+    if (!isFiniteNumber(generation.topP) || generation.topP < 0 || generation.topP > 1) {
+      throw new Error('generation.topP must be a finite number between 0 and 1')
+    }
+  }
+  if (generation?.maxTokens !== undefined) {
+    if (!isFiniteNumber(generation.maxTokens) || generation.maxTokens < 0) {
+      throw new Error('generation.maxTokens must be a non-negative finite number')
+    }
+  }
+
+  const model = patch.model
+  if (model?.contextSize !== undefined) {
+    if (!isFiniteNumber(model.contextSize) || model.contextSize < 0) {
+      throw new Error('model.contextSize must be a non-negative finite number')
+    }
+  }
+  if (model?.gpuLayers !== undefined) {
+    if (
+      model.gpuLayers !== 'auto' &&
+      (!isFiniteNumber(model.gpuLayers) || model.gpuLayers < 0)
+    ) {
+      throw new Error('model.gpuLayers must be "auto" or a non-negative finite number')
+    }
+  }
+
+  if (patch.modelsDirectory !== undefined) {
+    if (typeof patch.modelsDirectory !== 'string' || patch.modelsDirectory.trim() === '') {
+      throw new Error('modelsDirectory must be a non-empty string')
+    }
+  }
+
+  if (patch.workspace?.root !== undefined && patch.workspace.root !== null) {
+    if (typeof patch.workspace.root !== 'string') {
+      throw new Error('workspace.root must be a string or null')
+    }
+  }
+
+  if (patch.webSearch?.resultCount !== undefined) {
+    if (!isFiniteNumber(patch.webSearch.resultCount) || patch.webSearch.resultCount < 0) {
+      throw new Error('webSearch.resultCount must be a non-negative finite number')
+    }
+  }
 }
 
 export const settingsStore = new SettingsStore()

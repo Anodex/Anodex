@@ -105,6 +105,8 @@ export interface GenerateParams {
     projectId: string | null
     permissionMode: PermissionMode
     webSearch: WebSearchSettings
+    /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
+    memory: { crossChatEnabled: boolean; personalEnabled: boolean }
     /** The conversation's current plan, if any, so plan tools can continue it across turns. */
     plan: Plan | null
     onActivity: (call: ToolCall) => void
@@ -431,9 +433,10 @@ class LlamaService extends EventEmitter {
         // toolCallFallback.ts). Detect and run it manually so the turn still
         // does real work instead of silently doing nothing.
         const activeFunctions = functions
+        const fallbackSource = [roundContent, roundSegment].filter(Boolean).join('\n')
         const fallback =
           activeFunctions && round < MAX_FALLBACK_ROUNDS
-            ? detectFallbackToolCall(roundContent, new Set(Object.keys(activeFunctions)))
+            ? detectFallbackToolCall(fallbackSource, new Set(Object.keys(activeFunctions)))
             : null
 
         if (!fallback || !activeFunctions) {
@@ -763,6 +766,7 @@ class LlamaService extends EventEmitter {
       projectId: params.tools.projectId,
       permissionMode: params.tools.permissionMode,
       webSearch: params.tools.webSearch,
+      memory: params.tools.memory,
       // A mutable box, not the plan value itself — shared by every tool call
       // in this generation so `update_plan_step` sees `write_plan`'s result
       // within the same turn (see `ToolRuntimeContext.plan`'s doc comment).

@@ -1,13 +1,18 @@
 import { app, BrowserWindow } from 'electron'
 import { createMainWindow } from './window'
+import { closeToast } from './toastWindow'
 import { registerIpcHandlers } from './ipc'
+import { abortAllChatGenerations } from './ipc/chat.handlers'
 import { settingsStore } from './settings/SettingsStore'
 import { projectStore } from './projects/ProjectStore'
 import { projectMemoryStore } from './projects/ProjectMemoryStore'
+import { memoryStore } from './memory/MemoryStore'
 import { conversationStore } from './conversations/ConversationStore'
 import { modelReliabilityStore } from './models/ModelReliabilityStore'
 import { tokenActivityStore } from './stats/TokenActivityStore'
 import { updateService } from './updates/UpdateService'
+import { llamaService } from './llama/LlamaService'
+import { cancelAllDownloads } from './llama/modelDownloader'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('main')
@@ -40,6 +45,7 @@ if (!app.requestSingleInstanceLock()) {
       settingsStore.init()
       projectStore.init()
       projectMemoryStore.init()
+      memoryStore.init()
       conversationStore.init()
       modelReliabilityStore.init()
       tokenActivityStore.init()
@@ -61,5 +67,17 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => {
     // On macOS apps typically stay active until explicitly quit.
     if (process.platform !== 'darwin') app.quit()
+  })
+
+  // Release GPU/model resources and stop background work before the process
+  // exits — otherwise a loaded model, an in-flight download, or a running
+  // generation is just killed mid-operation instead of shut down cleanly.
+  app.on('will-quit', () => {
+    abortAllChatGenerations()
+    cancelAllDownloads()
+    closeToast()
+    llamaService.unload().catch((error) => {
+      log.error('Error unloading model on quit:', error)
+    })
   })
 }

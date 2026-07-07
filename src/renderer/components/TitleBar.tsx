@@ -22,6 +22,10 @@ export function TitleBar(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    // The `maximize`/`unmaximize` subscription only fires on the next state
+    // *change* — query the current state up front too, since the window may
+    // already be maximized when this component mounts (e.g. after a reload).
+    void anodex.windowControls.isMaximized().then(setMaximized)
     const unsub = anodex.windowControls.onMaximizedChanged((m) => setMaximized(m))
     return unsub
   }, [])
@@ -94,7 +98,7 @@ export function TitleBar(): JSX.Element {
               onClick={() => void anodex.windowControls.maximize()}
               aria-label={maximized ? 'Restore' : 'Maximize'}
             >
-              <Icon name="maximize" size={12} />
+              <Icon name={maximized ? 'restore' : 'maximize'} size={12} />
             </button>
             <button
               type="button"

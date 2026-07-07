@@ -2,6 +2,9 @@ import { BrowserWindow, screen } from 'electron'
 import { join } from 'node:path'
 import type { ToastContent } from '@shared/toast.types'
 import { getMainWindow } from './window'
+import { createLogger } from './utils/logger'
+
+const log = createLogger('toast-window')
 
 /**
  * Desktop toast rendered as a real, app-controlled window rather than the OS's
@@ -33,6 +36,11 @@ const FALLBACK_CLOSE_MS = 7000
 /** Only one toast at a time — a new one replaces whatever is still showing. */
 let activeToast: BrowserWindow | null = null
 
+/** Close the active toast, if any — called on app quit. */
+export function closeToast(): void {
+  if (activeToast && !activeToast.isDestroyed()) activeToast.close()
+}
+
 export function showToastWindow(content: ToastContent): void {
   if (activeToast && !activeToast.isDestroyed()) activeToast.close()
 
@@ -63,9 +71,13 @@ export function showToastWindow(content: ToastContent): void {
   const query = { mode: 'toast', title: content.title, body: content.body }
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
   if (devServerUrl) {
-    void toast.loadURL(`${devServerUrl}?${new URLSearchParams(query).toString()}`)
+    toast
+      .loadURL(`${devServerUrl}?${new URLSearchParams(query).toString()}`)
+      .catch((error) => log.error('Failed to load toast dev server URL:', error))
   } else {
-    void toast.loadFile(join(__dirname, '../renderer/index.html'), { query })
+    toast
+      .loadFile(join(__dirname, '../renderer/index.html'), { query })
+      .catch((error) => log.error('Failed to load toast index.html:', error))
   }
 
   let fallbackTimer: ReturnType<typeof setTimeout> | undefined

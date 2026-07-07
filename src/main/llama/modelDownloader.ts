@@ -17,6 +17,12 @@ export function cancelDownload(modelId: string): void {
   activeDownloads.get(modelId)?.abort()
 }
 
+/** Abort every in-progress download — called on app quit. */
+export function cancelAllDownloads(): void {
+  for (const controller of activeDownloads.values()) controller.abort()
+  activeDownloads.clear()
+}
+
 /**
  * Download a recommended model's GGUF into `targetDir`, reporting progress as
  * bytes arrive. If a file with the expected name already exists there, the

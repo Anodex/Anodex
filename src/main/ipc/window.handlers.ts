@@ -27,16 +27,4 @@ export function registerWindowHandlers(): void {
     const win = BrowserWindow.fromWebContents(event.sender)
     return win ? win.isMaximized() : false
   })
-
-  // Broadcast maximize/unmaximize changes to the renderer.
-  ipcMain.on('window-created', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-    win.on('maximize', () => {
-      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Window.maximizedChanged, true)
-    })
-    win.on('unmaximize', () => {
-      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Window.maximizedChanged, false)
-    })
-  })
 }
