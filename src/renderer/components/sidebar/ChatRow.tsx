@@ -74,7 +74,9 @@ export function ChatRow({
     >
       <button type="button" className={styles.select} onClick={onClick} title={conversation.title}>
         <span className={styles.title}>{conversation.title}</span>
-        <span className={styles.meta}>
+      </button>
+      <span className={styles.meta}>
+        <span className={styles.defaultMeta}>
           {showingStatus ? (
             <span
               className={`${styles.status} ${running ? styles.running : styles.unread}`}
@@ -90,18 +92,18 @@ export function ChatRow({
             <span className={styles.time}>{time}</span>
           )}
         </span>
-      </button>
-      {onDelete && (
-        <button
-          type="button"
-          className={styles.action}
-          onClick={onDelete}
-          aria-label="Delete chat"
-          title="Delete chat"
-        >
-          <Icon name="trash" size={12} />
-        </button>
-      )}
+        {onDelete && (
+          <button
+            type="button"
+            className={styles.action}
+            onClick={onDelete}
+            aria-label="Delete chat"
+            title="Delete chat"
+          >
+            <Icon name="trash" size={12} />
+          </button>
+        )}
+      </span>
       {hoverRect &&
         createPortal(
           <ChatDetailCard

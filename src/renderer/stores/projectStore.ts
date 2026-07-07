@@ -71,6 +71,10 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   openFolder: async (id) => {
     try {
+      if (typeof anodex.projects.openFolder !== 'function') {
+        notifyError('Restart required', 'Restart Anodex once to enable project folder shortcuts.')
+        return
+      }
       await anodex.projects.openFolder(id)
     } catch (error) {
       notifyError(

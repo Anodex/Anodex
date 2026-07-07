@@ -16,9 +16,10 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  width: 100%;
+  flex: 1;
   min-width: 0;
   padding: var(--space-2) var(--space-3);
+  padding-right: var(--space-1);
   font-size: var(--text-sm);
   color: inherit;
   text-align: left;
@@ -49,12 +50,22 @@
 }
 
 .meta {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   width: 34px;
+  height: 28px;
   flex-shrink: 0;
-  margin-left: auto;
+  margin-right: var(--space-1);
+}
+
+.defaultMeta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  transition: opacity var(--transition-fast);
 }
 
 .status {
@@ -95,19 +106,22 @@
   color: var(--text-muted);
 }
 
-.hasAction:hover .time,
-.hasAction:focus-within .time {
-  visibility: hidden;
+.hasAction:hover .defaultMeta,
+.hasAction:focus-within .defaultMeta {
+  opacity: 0;
 }
 
 .action {
   position: absolute;
   right: 0;
+  top: 50%;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
+  transform: translateY(-50%);
   color: var(--text-faint);
   background: transparent;
   border: none;
