@@ -21,14 +21,11 @@ interface UiState {
   toasts: Toast[]
   /** A write/command approval awaiting the user's decision, if any. */
   pendingConfirmation: ToolConfirmRequest | null
-  /** Tool names approved with "always allow" for the rest of this app session. Not persisted. */
-  rememberedTools: Set<string>
   setView: (view: AppView) => void
   notify: (toast: Omit<Toast, 'id'>) => void
   dismissToast: (id: string) => void
   setPendingConfirmation: (request: ToolConfirmRequest | null) => void
   resolveConfirmation: (response: ToolConfirmResponse) => void
-  rememberTool: (toolName: string) => void
 }
 
 /** Global, ephemeral UI state: the active view, toasts, and tool approvals. */
@@ -36,7 +33,6 @@ export const useUiStore = create<UiState>((set, get) => ({
   view: 'chat',
   toasts: [],
   pendingConfirmation: null,
-  rememberedTools: new Set(),
 
   setView: (view) => set({ view }),
 
@@ -46,12 +42,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     const pending = get().pendingConfirmation
     if (!pending) return
     void anodex.tools.respondConfirmation(pending.id, response)
-    if (response.approved && response.remember) get().rememberTool(pending.toolName)
     set({ pendingConfirmation: null })
   },
-
-  rememberTool: (toolName) =>
-    set((state) => ({ rememberedTools: new Set(state.rememberedTools).add(toolName) })),
 
   notify: (toast) => {
     const id = createId('toast')

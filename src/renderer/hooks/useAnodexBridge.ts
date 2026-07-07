@@ -72,10 +72,6 @@ export function useAnodexBridge(): void {
       useChatStore.getState().applyToolActivity(event)
     )
     const offConfirm = anodex.tools.onConfirmRequest((request) => {
-      if (useUiStore.getState().rememberedTools.has(request.toolName)) {
-        void anodex.tools.respondConfirmation(request.id, { approved: true })
-        return
-      }
       useUiStore.getState().setPendingConfirmation(request)
       if (shouldShowDesktopToast()) {
         playChime('attention')

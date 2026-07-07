@@ -291,11 +291,21 @@ class LlamaService extends EventEmitter {
       throw new Error('A response is already being generated.')
     }
 
-    let session = await this.ensureSession(
-      params.conversationId,
-      params.systemPrompt,
-      params.history
-    )
+    // Take the lock before any awaited setup touches the shared context/session.
+    // `ensureSession()` can clear and rebuild the native KV cache, so this
+    // pre-generation work must be covered by the same single-generation guard
+    // as the decode loop itself.
+    this.generating = true
+    this.emitState()
+
+    let session: LlamaChatSession
+    try {
+      session = await this.ensureSession(params.conversationId, params.systemPrompt, params.history)
+    } catch (error) {
+      this.generating = false
+      this.emitState()
+      throw error
+    }
 
     // Proactive compaction: if this ongoing session's native KV cache is
     // already near the context limit, rebuild it (through the same
@@ -309,11 +319,14 @@ class LlamaService extends EventEmitter {
       : 0
     if (usageRatio > COMPACTION_TRIGGER_RATIO) {
       log.info(`Context usage at ${Math.round(usageRatio * 100)}% — compacting before this turn.`)
-      session = await this.recompactSession(params, 'proactive')
+      try {
+        session = await this.recompactSession(params, 'proactive')
+      } catch (error) {
+        this.generating = false
+        this.emitState()
+        throw error
+      }
     }
-
-    this.generating = true
-    this.emitState()
 
     let hadSuccessfulWrite = false
     // Any tool activity at all this turn (attempted, denied, errored, or
@@ -322,22 +335,29 @@ class LlamaService extends EventEmitter {
     // interaction actually happened this turn.
     let hadAnyToolAttempt = false
     const currentModel = this.currentModel
-    const functions = await this.buildToolFunctions(params, (call) => {
-      hadAnyToolAttempt = true
-      if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
-      // Denied calls are excluded — that's a user decision, not a signal
-      // about the model's own reliability.
-      if (currentModel && (call.status === 'success' || call.status === 'error')) {
-        modelReliabilityStore.recordToolCall(
-          currentModel.id,
-          currentModel.name,
-          call.name,
-          call.status,
-          basename(currentModel.path)
-        )
-      }
-      params.tools?.onActivity(call)
-    })
+    let functions: Record<string, ToolFunction> | undefined
+    try {
+      functions = await this.buildToolFunctions(params, (call) => {
+        hadAnyToolAttempt = true
+        if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
+        // Denied calls are excluded — that's a user decision, not a signal
+        // about the model's own reliability.
+        if (currentModel && (call.status === 'success' || call.status === 'error')) {
+          modelReliabilityStore.recordToolCall(
+            currentModel.id,
+            currentModel.name,
+            call.name,
+            call.status,
+            basename(currentModel.path)
+          )
+        }
+        params.tools?.onActivity(call)
+      })
+    } catch (error) {
+      this.generating = false
+      this.emitState()
+      throw error
+    }
     const startedAt = Date.now()
     let visibleContent = ''
     let tokenCount = 0
@@ -396,8 +416,14 @@ class LlamaService extends EventEmitter {
           meta = await session.promptWithMeta(prompt, promptOptions)
         } catch (error) {
           const isContextShiftFailure =
-            error instanceof Error && error.message.includes(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT)
-          if (!isContextShiftFailure || round > 0 || roundContent.length > 0 || roundSegment.length > 0) {
+            error instanceof Error &&
+            error.message.includes(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT)
+          if (
+            !isContextShiftFailure ||
+            round > 0 ||
+            roundContent.length > 0 ||
+            roundSegment.length > 0
+          ) {
             throw error
           }
           log.warn('Context shift failed mid-generation; compacting and retrying this round once.')
@@ -670,7 +696,9 @@ class LlamaService extends EventEmitter {
 
     const countTokens = (text: string): number => this.model!.tokenize(text).length
     const budget =
-      this.contextSize - countTokens(systemPrompt ?? '') - reservedNonHistoryTokens(this.contextSize)
+      this.contextSize -
+      countTokens(systemPrompt ?? '') -
+      reservedNonHistoryTokens(this.contextSize)
     const { recent, older } = splitHistoryByTokenBudget(history, Math.max(0, budget), countTokens)
 
     if (older.length === 0) {
@@ -747,7 +775,10 @@ class LlamaService extends EventEmitter {
    * Used both proactively (context usage nearing the limit) and reactively
    * (node-llama-cpp's own context-shift already failed).
    */
-  private async recompactSession(params: GenerateParams, reason: 'proactive' | 'reactive'): Promise<LlamaChatSession> {
+  private async recompactSession(
+    params: GenerateParams,
+    reason: 'proactive' | 'reactive'
+  ): Promise<LlamaChatSession> {
     this.disposeSession()
     return this.ensureSession(params.conversationId, params.systemPrompt, params.history, reason)
   }

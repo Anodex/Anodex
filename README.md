@@ -49,7 +49,7 @@ folder.
   instructions, and its own chat history.
 - **Persistent project memory**: Anodex keeps a running ledger of recently
   touched files and task summaries per project (`ProjectMemoryStore`), so a
-  *new* conversation in the same project still has ambient context about
+  _new_ conversation in the same project still has ambient context about
   prior work — not just its own chat history.
 - The assistant can also record durable notes into a project's own
   `ANODEX.md` file via the `update_project_notes` tool, when you approve it.
@@ -75,6 +75,19 @@ folder (path traversal outside it is blocked):
   list the model can create and check off as it works.
 - **Project notes:** `update_project_notes` (writes to the project's
   `ANODEX.md`).
+
+### Workspace security model
+
+File and directory tools resolve paths through the workspace boundary and check
+real filesystem targets, including symlink/junction ancestors, before reading or
+writing. A link inside the project that points outside the project is blocked.
+
+Shell execution is different: `run_command` and the Workspace Dock terminal
+start in the workspace directory, but they are real local shells, not OS
+sandboxes. They can access anything the current user account can access. Anodex
+protects those paths with risk classification, confirmation prompts, and a
+destructive-command backstop rather than pretending shell commands are path
+confined like file tools.
 
 **Permission modes** (`ask` / `full` / `untethered`) control how much
 mutating tools confirm with you before running; risk-classified per call

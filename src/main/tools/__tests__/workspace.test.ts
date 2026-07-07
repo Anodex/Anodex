@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { resolveInWorkspace, toWorkspaceRelative } from '../workspace'
 
 describe('workspace path safety', () => {
@@ -29,6 +32,40 @@ describe('workspace path safety', () => {
       expect(() => resolveInWorkspace(root, 'C:\\Windows\\system32\\notepad.exe')).toThrow(
         /outside the workspace/
       )
+    })
+
+    it('blocks paths that escape through a symlink or junction', () => {
+      const parent = mkdtempSync(join(tmpdir(), 'anodex-workspace-'))
+      const workspace = join(parent, 'workspace')
+      const outside = join(parent, 'outside')
+      mkdirSync(workspace)
+      mkdirSync(outside)
+      writeFileSync(join(outside, 'secret.txt'), 'secret')
+
+      try {
+        const link = join(workspace, 'linked-outside')
+        symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir')
+
+        expect(() => resolveInWorkspace(workspace, 'linked-outside/secret.txt')).toThrow(
+          /outside the workspace/
+        )
+      } finally {
+        rmSync(parent, { recursive: true, force: true })
+      }
+    })
+
+    it('allows a new nested path when its nearest existing parent is inside the workspace', () => {
+      const parent = mkdtempSync(join(tmpdir(), 'anodex-workspace-'))
+      const workspace = join(parent, 'workspace')
+      mkdirSync(workspace)
+
+      try {
+        expect(resolveInWorkspace(workspace, 'new/nested/file.txt')).toBe(
+          join(workspace, 'new', 'nested', 'file.txt')
+        )
+      } finally {
+        rmSync(parent, { recursive: true, force: true })
+      }
     })
   })
 

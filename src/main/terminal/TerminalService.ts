@@ -15,6 +15,10 @@ interface Session {
 /**
  * Runs real shell sessions for the Workspace Dock's Terminal panel.
  *
+ * Trust model: this terminal is an explicit user-operated local shell, not a
+ * sandbox. The cwd is the active workspace when one is selected, but the child
+ * process has the same filesystem and network access as the Anodex app/user.
+ *
  * Uses `child_process.spawn` over plain pipes rather than `node-pty` — this
  * avoids `node-pty`'s native compilation step (a real cost for an
  * Electron app's install/build story) at the expense of not being a true

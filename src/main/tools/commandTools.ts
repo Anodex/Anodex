@@ -6,6 +6,12 @@ import { classifyCommandRisk } from './permissions'
 const COMMAND_TIMEOUT_MS = 60_000
 const MAX_OUTPUT_BYTES = 1024 * 1024
 
+/**
+ * Command execution is approval-gated, but not OS-sandboxed: the shell starts
+ * in the workspace directory, yet can access anything the user's account can
+ * access. File tools enforce path confinement separately; command safety comes
+ * from risk classification plus user approval.
+ */
 interface ShellResult {
   stdout: string
   stderr: string

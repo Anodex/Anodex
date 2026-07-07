@@ -1,8 +1,16 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fetchUrlTool } from '../webTools'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchUrlTool, setResolveHostForTests } from '../webTools'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 describe('AI web tools', () => {
+  beforeEach(() => {
+    setResolveHostForTests(() => Promise.resolve(['93.184.216.34']))
+  })
+
+  afterEach(() => {
+    setResolveHostForTests(null)
+  })
+
   describe('fetch_url', () => {
     it('fetches a URL and returns readable text', async () => {
       const html = '<html><body><h1>Hello</h1><p>World</p></body></html>'
@@ -88,6 +96,23 @@ describe('AI web tools', () => {
         const result = await tool.handler({ url })
         expect(result.toLowerCase()).toContain('local or private')
       }
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('refuses public-looking hostnames that resolve to private addresses', async () => {
+      const fetchSpy = vi.fn()
+      globalThis.fetch = fetchSpy
+      setResolveHostForTests(() => Promise.resolve(['127.0.0.1']))
+
+      const tool = fetchUrlTool(
+        createMockDefine(),
+        createMockContext('/tmp/workspace')
+      ) as unknown as {
+        handler: (args: { url: string }) => Promise<string>
+      }
+      const result = await tool.handler({ url: 'https://docs.example.test/page' })
+
+      expect(result.toLowerCase()).toContain('local or private')
       expect(fetchSpy).not.toHaveBeenCalled()
     })
 

@@ -1,8 +1,14 @@
+import { lookup } from 'node:dns/promises'
 import { convert } from 'html-to-text'
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
 
 const FETCH_TIMEOUT_MS = 30_000
+
+let resolveHost = async (hostname: string): Promise<string[]> => {
+  const records = await lookup(hostname, { all: true, verbatim: true })
+  return records.map((record) => record.address)
+}
 
 /**
  * fetch_url — read a public web page and return its text content.
@@ -63,6 +69,7 @@ export const fetchUrlTool: ToolFactory = (define, ctx) =>
  */
 async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<string> {
   const start = assertPublicUrl(rawUrl)
+  await assertPublicDns(start)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   const onAbort = (): void => controller.abort()
@@ -76,7 +83,10 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<string> {
     })
 
     // Guard against redirects that land on a private/loopback host.
-    if (response.url) assertPublicUrl(response.url)
+    if (response.url) {
+      const finalUrl = assertPublicUrl(response.url)
+      await assertPublicDns(finalUrl)
+    }
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
@@ -90,6 +100,17 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<string> {
     clearTimeout(timeout)
     signal?.removeEventListener('abort', onAbort)
   }
+}
+
+export function setResolveHostForTests(
+  resolver: ((hostname: string) => Promise<string[]>) | null
+): void {
+  resolveHost = resolver
+    ? resolver
+    : async (hostname: string): Promise<string[]> => {
+        const records = await lookup(hostname, { all: true, verbatim: true })
+        return records.map((record) => record.address)
+      }
 }
 
 /** Parse a URL and reject non-http(s) schemes and private/loopback hosts. */
@@ -109,6 +130,14 @@ function assertPublicUrl(raw: string): URL {
   return url
 }
 
+/** Resolve public-looking hostnames and reject DNS answers that point inward. */
+async function assertPublicDns(url: URL): Promise<void> {
+  const addresses = await resolveHost(url.hostname)
+  if (addresses.some(isPrivateAddress)) {
+    throw new Error(`Refusing to fetch a local or private address (${url.hostname}).`)
+  }
+}
+
 /** True for loopback, link-local, and private-range hosts. */
 function isPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
@@ -126,6 +155,10 @@ function isPrivateHost(hostname: string): boolean {
     if (a === 192 && b === 168) return true // private
   }
   return false
+}
+
+function isPrivateAddress(address: string): boolean {
+  return isPrivateHost(address)
 }
 
 function truncate(text: string, max: number): string {

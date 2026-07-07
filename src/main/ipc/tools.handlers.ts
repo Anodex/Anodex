@@ -8,6 +8,14 @@ import { settingsStore } from '../settings/SettingsStore'
 const pendingConfirmations = new Map<string, (response: ToolConfirmResponse) => void>()
 
 /**
+ * Session-only allowlist for the "Always allow this tool" approval action.
+ * Kept in the main process, rather than the renderer, so the same permission
+ * policy that decided a prompt was needed also decides whether it can be
+ * skipped later. Destructive calls are intentionally never remembered.
+ */
+const rememberedToolApprovals = new Set<string>()
+
+/**
  * Ask the renderer to approve a write/command and wait for the user's decision.
  * Resolves to a denial if the window is gone or the generation is aborted while
  * the prompt is open, so a stalled approval never hangs the model.
@@ -17,6 +25,10 @@ export function requestToolConfirmation(
   request: ToolConfirmRequest,
   signal?: AbortSignal
 ): Promise<ToolConfirmResponse> {
+  if (request.risk !== 'destructive' && rememberedToolApprovals.has(request.toolName)) {
+    return Promise.resolve({ approved: true })
+  }
+
   return new Promise((resolve) => {
     if (sender.isDestroyed()) {
       resolve({ approved: false })
@@ -25,6 +37,9 @@ export function requestToolConfirmation(
     const settle = (response: ToolConfirmResponse): void => {
       if (!pendingConfirmations.has(request.id)) return
       pendingConfirmations.delete(request.id)
+      if (response.approved && response.remember && request.risk !== 'destructive') {
+        rememberedToolApprovals.add(request.toolName)
+      }
       resolve(response)
     }
     pendingConfirmations.set(request.id, settle)
@@ -35,6 +50,18 @@ export function requestToolConfirmation(
     )
     sender.send(IpcChannel.Tools.confirmRequest, request)
   })
+}
+
+export function resolvePendingConfirmationForTests(
+  id: string,
+  response: ToolConfirmResponse
+): void {
+  pendingConfirmations.get(id)?.(response)
+}
+
+export function resetToolApprovalStateForTests(): void {
+  pendingConfirmations.clear()
+  rememberedToolApprovals.clear()
 }
 
 /** IPC handlers for linking a project folder and approval responses. */
