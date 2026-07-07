@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IpcChannel, type AnodexApi } from '@shared/ipc'
+import { IpcChannel, type AnodexApi, type ContextMenuRequest } from '@shared/ipc'
 import type { EngineState, ModelDownloadProgress } from '@shared/model.types'
 import type { ChatStreamChunk, HistoryCompactionEvent } from '@shared/chat.types'
 import type { ToolActivityEvent, ToolConfirmRequest } from '@shared/tools.types'
@@ -84,6 +84,10 @@ const api: AnodexApi = {
     isMaximized: () => ipcRenderer.invoke(IpcChannel.Window.isMaximized),
     onMaximizedChanged: (listener) =>
       subscribe<boolean>(IpcChannel.Window.maximizedChanged, listener)
+  },
+  contextMenu: {
+    onShow: (listener) => subscribe<ContextMenuRequest>(IpcChannel.ContextMenu.show, listener),
+    runAction: (id) => ipcRenderer.invoke(IpcChannel.ContextMenu.runAction, id)
   },
   workspace: {
     listFiles: () => ipcRenderer.invoke(IpcChannel.Workspace.listFiles),

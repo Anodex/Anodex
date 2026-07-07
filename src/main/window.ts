@@ -1,6 +1,7 @@
 import { BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
 import { IpcChannel } from '@shared/ipc'
+import { installContextMenu } from './contextMenu'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('window')
@@ -71,6 +72,8 @@ export function createMainWindow(): BrowserWindow {
     shell.openExternal(url).catch((error) => log.error('Failed to open external URL:', url, error))
     return { action: 'deny' }
   })
+
+  installContextMenu(window)
 
   if (devServerUrl) {
     window.loadURL(devServerUrl).catch((error) => {

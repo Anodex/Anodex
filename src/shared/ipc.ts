@@ -123,6 +123,12 @@ export const IpcChannel = {
     isMaximized: 'window:is-maximized',
     maximizedChanged: 'window:maximized-changed'
   },
+  ContextMenu: {
+    /** main -> renderer: show a themed context menu at the given renderer coordinates. */
+    show: 'context-menu:show',
+    /** renderer -> main: run one of the generated actions from the latest context menu. */
+    runAction: 'context-menu:run-action'
+  },
   Workspace: {
     listFiles: 'workspace:list-files',
     getAbsolutePath: 'workspace:get-absolute-path',
@@ -168,6 +174,19 @@ export const IpcChannel = {
     exit: 'terminal:exit'
   }
 } as const
+
+export interface ContextMenuItem {
+  id: string
+  label: string
+  enabled: boolean
+  type?: 'separator'
+}
+
+export interface ContextMenuRequest {
+  x: number
+  y: number
+  items: ContextMenuItem[]
+}
 
 /**
  * The typed API exposed to the renderer as `window.anodex`.
@@ -251,6 +270,10 @@ export interface AnodexApi {
     close(): Promise<void>
     isMaximized(): Promise<boolean>
     onMaximizedChanged(listener: (maximized: boolean) => void): () => void
+  }
+  contextMenu: {
+    onShow(listener: (request: ContextMenuRequest) => void): () => void
+    runAction(id: string): Promise<void>
   }
   workspace: {
     /** Files in the active workspace, each attributed to the user or the AI. */

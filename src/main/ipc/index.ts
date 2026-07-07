@@ -16,6 +16,7 @@ import { registerUpdateHandlers } from './update.handlers'
 import { registerStatsHandlers } from './stats.handlers'
 import { registerMemoryHandlers } from './memory.handlers'
 import { registerTerminalHandlers } from './terminal.handlers'
+import { registerContextMenuHandlers } from '../contextMenu'
 
 /**
  * Register every IPC handler and wire engine state broadcasts.
@@ -37,6 +38,7 @@ export function registerIpcHandlers(): void {
   registerStatsHandlers()
   registerMemoryHandlers()
   registerTerminalHandlers()
+  registerContextMenuHandlers()
 
   // Push engine state changes to every open renderer window.
   llamaService.on('state', (state) => {

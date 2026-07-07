@@ -166,6 +166,7 @@ export function ChatComposer(): JSX.Element {
           value={text}
           rows={1}
           disabled={!ready}
+          spellCheck={true}
           placeholder={
             dragActive
               ? 'Drop to attach…'

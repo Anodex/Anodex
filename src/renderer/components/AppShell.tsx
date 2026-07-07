@@ -11,6 +11,7 @@ import { Toasts } from './Toasts'
 import { ChatView } from '../features/chat/ChatView'
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
+import { ContextMenu } from './ContextMenu'
 import styles from './AppShell.module.css'
 
 const MIN_SIDEBAR = 200
@@ -179,6 +180,7 @@ export function AppShell(): JSX.Element {
         </div>
       )}
       <Toasts />
+      <ContextMenu />
       {view === 'settings' && <SettingsModal />}
     </div>
   )
