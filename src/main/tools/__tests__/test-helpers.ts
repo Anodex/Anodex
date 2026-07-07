@@ -18,6 +18,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     projectId: null,
     workspaceRoot,
     permissionMode: 'ask',
+    commandShell: undefined,
     webSearch: {
       provider: 'none',
       apiKey: '',

@@ -98,6 +98,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   { name: 'read_multiple_files', kind: 'read', description: 'Read several files in one call.' },
   { name: 'get_file_info', kind: 'read', description: 'Get metadata about a file or directory.' },
   { name: 'search_files', kind: 'read', description: 'Search the workspace for text.' },
+  { name: 'find_files', kind: 'read', description: 'Find files and folders by path or name.' },
   { name: 'git_status', kind: 'read', description: 'Show git status of the workspace.' },
   { name: 'git_diff', kind: 'read', description: 'Show git diff of the workspace.' },
   {
@@ -119,6 +120,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'edit_file',
     kind: 'write',
     description: 'Replace text within a file (asks for approval). Requires an open project.'
+  },
+  {
+    name: 'patch_file',
+    kind: 'write',
+    description:
+      'Apply multiple exact replacements in one file (asks for approval). Requires an open project.'
   },
   {
     name: 'delete_file',
@@ -161,5 +168,11 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'write',
     description:
       'Record a durable note about this project into ANODEX.md (asks for approval). Requires an open project.'
+  },
+  {
+    name: 'remember_fact',
+    kind: 'write',
+    description:
+      'Save a durable global or project memory when memory is enabled (asks for approval).'
   }
 ]

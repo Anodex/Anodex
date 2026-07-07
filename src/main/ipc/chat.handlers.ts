@@ -40,7 +40,7 @@ export function registerChatHandlers(): void {
     const settings = settingsStore.get()
     const projects = projectStore.getState()
     const requestProjectId =
-      'projectId' in request ? request.projectId ?? null : projects.activeProjectId
+      'projectId' in request ? (request.projectId ?? null) : projects.activeProjectId
     const activeProject = projects.projects.find((p) => p.id === requestProjectId) ?? null
     const workspaceRoot = activeProject?.folderPath ?? null
     let hadToolActivity = false
@@ -49,6 +49,7 @@ export function registerChatHandlers(): void {
       ? {
           workspaceRoot,
           permissionMode: settings.general.permissionMode,
+          commandShell: settings.general.defaultShell.trim() || undefined,
           projectId: activeProject?.id ?? null,
           webSearch: settings.webSearch,
           memory: {

@@ -7,6 +7,7 @@ import { createDirectoryTool, deleteDirectoryTool } from '../directoryTools'
 import { deleteFileTool, moveFileTool } from '../mutationTools'
 import {
   getFileInfoTool,
+  findFilesTool,
   listDirectoryTool,
   readFileTool,
   readFileRangeTool,
@@ -209,6 +210,38 @@ describe('AI file tools', () => {
       const result = await tool.handler({ query: 'needle' })
 
       expect(result).toContain('50 more matches')
+    })
+  })
+
+  describe('find_files', () => {
+    it('finds paths by substring without reading file contents', async () => {
+      await mkdir(join(workspace, 'src'))
+      await writeFile(join(workspace, 'src', 'SettingsView.tsx'), 'needle in content')
+      await writeFile(join(workspace, 'src', 'Other.tsx'), 'SettingsView only in content')
+      const ctx = createMockContext(workspace)
+      const tool = findFilesTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { query: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ query: 'Settings' })
+
+      expect(result).toContain('src/SettingsView.tsx')
+      expect(result).not.toContain('Other.tsx')
+    })
+
+    it('supports simple wildcard path matching', async () => {
+      await mkdir(join(workspace, 'src'))
+      await writeFile(join(workspace, 'src', 'a.test.ts'), 'test')
+      await writeFile(join(workspace, 'src', 'a.ts'), 'source')
+      const ctx = createMockContext(workspace)
+      const tool = findFilesTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { query: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ query: 'src/*.test.ts' })
+
+      expect(result).toContain('src/a.test.ts')
+      expect(result).not.toContain('src/a.ts')
     })
   })
 

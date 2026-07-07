@@ -63,9 +63,9 @@ folder (path traversal outside it is blocked):
 
 - **Read (never need approval):** `list_directory`, `read_file`,
   `read_file_range`, `read_multiple_files`, `get_file_info`, `search_files`,
-  `git_status`, `git_diff`.
+  `find_files`, `git_status`, `git_diff`.
 - **Write/mutate (approval depends on permission mode):** `write_file`,
-  `edit_file`, `delete_file`, `move_file`, `delete_directory`,
+  `edit_file`, `patch_file`, `delete_file`, `move_file`, `delete_directory`,
   `create_directory` (always low-risk, never confirms), `run_command`.
 - **Web (workspace-independent, available in general chat too):**
   `fetch_url` (read a public URL), `web_search` (via a provider you choose in
@@ -75,6 +75,8 @@ folder (path traversal outside it is blocked):
   list the model can create and check off as it works.
 - **Project notes:** `update_project_notes` (writes to the project's
   `ANODEX.md`).
+- **Memory:** `remember_fact` saves approved global or project-scoped facts
+  when memory is enabled.
 
 ### Workspace security model
 

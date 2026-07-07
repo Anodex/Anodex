@@ -106,6 +106,26 @@ describe('run_command', () => {
     expect(result).toContain('denied')
   })
 
+  it('shows the configured shell and requested timeout in the approval path', async () => {
+    const requests: ToolConfirmRequest[] = []
+    const ctx = {
+      ...createMockContext(workspace),
+      commandShell: 'custom-shell',
+      confirm: (request: ToolConfirmRequest) => {
+        requests.push(request)
+        return Promise.resolve({ approved: false })
+      }
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string; timeoutMs?: number }) => Promise<string>
+    }
+
+    await tool.handler({ command: 'echo hello', timeoutMs: 120_000 })
+
+    expect(requests[0]?.detail).toContain('Shell: custom-shell')
+    expect(requests[0]?.detail).toContain('Timeout: 120000 ms')
+  })
+
   it('classifies an obviously destructive command with the destructive risk badge', async () => {
     const requests: ToolConfirmRequest[] = []
     const ctx = {

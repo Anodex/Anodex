@@ -96,6 +96,10 @@ The catalog shown in Settings is `TOOL_CATALOG` in `src/shared/tools.types.ts`.
 7. Add a catalog entry to `TOOL_CATALOG`.
 8. Add unit tests in `src/main/tools/__tests__/`.
 
+Keep `registry.ts`, `TOOL_CATALOG`, `README.md`, and the tool tests in sync.
+`registry.test.ts` has a catalog parity check so hidden runtime tools do not
+drift away from the Settings/docs surface.
+
 #### Tool approval
 
 - Read tools (`runReadTool`): never ask.

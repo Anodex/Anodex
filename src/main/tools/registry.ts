@@ -10,11 +10,18 @@ import {
   listDirectoryTool,
   readFileTool,
   searchFilesTool,
+  findFilesTool,
   getFileInfoTool,
   readFileRangeTool,
   readMultipleFilesTool
 } from './fileTools'
-import { editFileTool, writeFileTool, deleteFileTool, moveFileTool } from './mutationTools'
+import {
+  editFileTool,
+  writeFileTool,
+  patchFileTool,
+  deleteFileTool,
+  moveFileTool
+} from './mutationTools'
 import { runCommandTool } from './commandTools'
 import { createDirectoryTool, deleteDirectoryTool } from './directoryTools'
 import { gitStatusTool, gitDiffTool } from './gitTools'
@@ -33,6 +40,7 @@ const READ_ONLY_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   list_directory: listDirectoryTool,
   read_file: readFileTool,
   search_files: searchFilesTool,
+  find_files: findFilesTool,
   get_file_info: getFileInfoTool,
   read_file_range: readFileRangeTool,
   read_multiple_files: readMultipleFilesTool,
@@ -49,6 +57,7 @@ const READ_ONLY_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
 const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   write_file: writeFileTool,
   edit_file: editFileTool,
+  patch_file: patchFileTool,
   delete_file: deleteFileTool,
   move_file: moveFileTool,
   create_directory: createDirectoryTool,

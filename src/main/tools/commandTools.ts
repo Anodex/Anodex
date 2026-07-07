@@ -4,6 +4,7 @@ import { runGuardedTool } from './helpers'
 import { classifyCommandRisk } from './permissions'
 
 const COMMAND_TIMEOUT_MS = 60_000
+const MAX_COMMAND_TIMEOUT_MS = 5 * 60_000
 const MAX_OUTPUT_BYTES = 1024 * 1024
 
 /**
@@ -26,21 +27,28 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
     params: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'The command line to execute.' }
+        command: { type: 'string', description: 'The command line to execute.' },
+        timeoutMs: {
+          type: 'number',
+          description: `Optional timeout in milliseconds. Defaults to ${COMMAND_TIMEOUT_MS}; capped at ${MAX_COMMAND_TIMEOUT_MS}.`
+        }
       },
       required: ['command']
     } as const,
-    handler: (args: { command: string }) =>
+    handler: (args: { command: string; timeoutMs?: number }) =>
       runGuardedTool(ctx, {
         name: 'run_command',
         kind: 'command',
         title: `Run: ${args.command}`,
-        confirmDetail: args.command,
+        confirmDetail: describeCommand(args.command, ctx.commandShell, args.timeoutMs),
         risk: classifyCommandRisk(args.command),
         async run() {
+          const timeoutMs = normalizeTimeout(args.timeoutMs)
           const { stdout, stderr, code } = await runShell(
             args.command,
             ctx.workspaceRoot,
+            timeoutMs,
+            ctx.commandShell,
             ctx.signal
           )
           const combined =
@@ -61,11 +69,17 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
   })
 
 /** Run a command, always resolving with output + exit code (never rejecting). */
-function runShell(command: string, cwd: string, signal?: AbortSignal): Promise<ShellResult> {
+function runShell(
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  shell?: string,
+  signal?: AbortSignal
+): Promise<ShellResult> {
   return new Promise((resolve) => {
     exec(
       command,
-      { cwd, timeout: COMMAND_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true, signal },
+      { cwd, timeout: timeoutMs, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true, shell, signal },
       (error, stdout, stderr) => {
         const code =
           error && typeof (error as NodeJS.ErrnoException).code !== 'undefined'
@@ -77,4 +91,16 @@ function runShell(command: string, cwd: string, signal?: AbortSignal): Promise<S
       }
     )
   })
+}
+
+function normalizeTimeout(timeoutMs?: number): number {
+  if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) return COMMAND_TIMEOUT_MS
+  return Math.max(1_000, Math.min(Math.floor(timeoutMs), MAX_COMMAND_TIMEOUT_MS))
+}
+
+function describeCommand(command: string, shell?: string, timeoutMs?: number): string {
+  const details = [command]
+  if (shell) details.push(`Shell: ${shell}`)
+  if (timeoutMs !== undefined) details.push(`Timeout: ${normalizeTimeout(timeoutMs)} ms`)
+  return details.join('\n\n')
 }

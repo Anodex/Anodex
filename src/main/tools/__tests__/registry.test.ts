@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { TOOL_CATALOG } from '@shared/tools.types'
 import { buildTools } from '../registry'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 const PROJECT_WORKSPACE_TOOLS = [
   'write_file',
   'edit_file',
+  'patch_file',
   'delete_file',
   'move_file',
   'create_directory',
@@ -17,11 +19,20 @@ const READ_ONLY_WORKSPACE_TOOLS = [
   'list_directory',
   'read_file',
   'search_files',
+  'find_files',
   'get_file_info',
   'read_file_range',
   'read_multiple_files',
   'git_status',
   'git_diff'
+]
+
+const GLOBAL_OR_CONDITIONAL_TOOLS = [
+  'fetch_url',
+  'web_search',
+  'write_plan',
+  'update_plan_step',
+  'remember_fact'
 ]
 
 describe('buildTools', () => {
@@ -92,5 +103,17 @@ describe('buildTools', () => {
 
     expect(tools).not.toHaveProperty('remember_fact')
     expect(tools).toHaveProperty('update_project_notes')
+  })
+
+  it('keeps the Settings tool catalog in sync with registered tool names', () => {
+    const catalogNames = new Set(TOOL_CATALOG.map((tool) => tool.name))
+
+    for (const name of [
+      ...READ_ONLY_WORKSPACE_TOOLS,
+      ...PROJECT_WORKSPACE_TOOLS,
+      ...GLOBAL_OR_CONDITIONAL_TOOLS
+    ]) {
+      expect(catalogNames).toContain(name)
+    }
   })
 })

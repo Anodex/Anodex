@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ToolCall, ToolConfirmRequest } from '@shared/tools.types'
-import { editFileTool, writeFileTool } from '../mutationTools'
+import { editFileTool, patchFileTool, writeFileTool } from '../mutationTools'
 import {
   captureCalls,
   captureConfirmations,
@@ -229,5 +229,77 @@ describe('write_file diff capture', () => {
 
     const success = capture.calls.find((c) => c.status === 'success')
     expect(success?.diff).toBeUndefined()
+  })
+})
+
+describe('patch_file', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-patch-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  it('applies several replacements to one file', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'alpha beta gamma')
+    const ctx = createMockContext(workspace)
+    const tool = patchFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: {
+        path: string
+        replacements: Array<{ oldText: string; newText: string }>
+      }) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      path: 'a.txt',
+      replacements: [
+        { oldText: 'alpha', newText: 'one' },
+        { oldText: 'gamma', newText: 'three' }
+      ]
+    })
+
+    expect(result).toContain('2 replacement')
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one beta three')
+  })
+
+  it('can target a specific occurrence when text repeats', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'item\nitem\nitem')
+    const ctx = createMockContext(workspace)
+    const tool = patchFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: {
+        path: string
+        replacements: Array<{ oldText: string; newText: string; occurrence?: number }>
+      }) => Promise<string>
+    }
+
+    await tool.handler({
+      path: 'a.txt',
+      replacements: [{ oldText: 'item', newText: 'chosen', occurrence: 2 }]
+    })
+
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('item\nchosen\nitem')
+  })
+
+  it('requires occurrence or replaceAll when text repeats', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'item item')
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(workspace), confirm }
+    const tool = patchFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: {
+        path: string
+        replacements: Array<{ oldText: string; newText: string }>
+      }) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      path: 'a.txt',
+      replacements: [{ oldText: 'item', newText: 'chosen' }]
+    })
+
+    expect(result).toContain('provide occurrence or replaceAll')
+    expect(requests).toHaveLength(0)
   })
 })

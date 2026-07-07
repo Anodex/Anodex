@@ -104,6 +104,8 @@ export interface GenerateParams {
     /** Id of the active project, or null in a general (non-project) chat. */
     projectId: string | null
     permissionMode: PermissionMode
+    /** Shell executable used by run_command, if configured. */
+    commandShell?: string
     webSearch: WebSearchSettings
     /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
     memory: { crossChatEnabled: boolean; personalEnabled: boolean }
@@ -796,6 +798,7 @@ class LlamaService extends EventEmitter {
       workspaceRoot: params.tools.workspaceRoot,
       projectId: params.tools.projectId,
       permissionMode: params.tools.permissionMode,
+      commandShell: params.tools.commandShell,
       webSearch: params.tools.webSearch,
       memory: params.tools.memory,
       // A mutable box, not the plan value itself — shared by every tool call

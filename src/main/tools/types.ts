@@ -29,6 +29,8 @@ export interface ToolRuntimeContext {
   workspaceRoot: string | null
   /** Master permission mode; decides which risk levels auto-run vs. need confirmation. */
   permissionMode: PermissionMode
+  /** Shell executable used by run_command, if the user configured one. */
+  commandShell?: string
   /** Web search configuration used by the web_search tool. */
   webSearch: WebSearchSettings
   /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */

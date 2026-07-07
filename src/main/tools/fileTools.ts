@@ -6,6 +6,7 @@ import { runReadTool } from './helpers'
 
 const MAX_FILE_BYTES = 60 * 1024
 const MAX_LIST_ENTRIES = 300
+const MAX_FIND_RESULTS = 200
 const MAX_SEARCH_RESULTS = 100
 const SEARCH_HARD_CAP = 200
 const MAX_RANGE_LINES = 200
@@ -147,7 +148,61 @@ export const searchFilesTool: WorkspaceToolFactory = (define, ctx) =>
       })
   })
 
-/** get_file_info — metadata about a file or directory in the workspace. */
+/** find_files - find files or folders by path/name without reading contents. */
+export const findFilesTool: WorkspaceToolFactory = (define, ctx) =>
+  define({
+    description:
+      'Find files and folders by path or filename in the workspace. Supports plain substring queries and simple * / ? wildcards.',
+    params: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Filename/path substring or wildcard pattern, e.g. "*.test.ts" or "Settings".'
+        },
+        path: { type: 'string', description: 'Optional subdirectory to search within.' },
+        includeDirectories: {
+          type: 'boolean',
+          description: 'Include matching directories in the results. Defaults to true.'
+        }
+      },
+      required: ['query']
+    } as const,
+    handler: (args: { query: string; path?: string; includeDirectories?: boolean }) =>
+      runReadTool(ctx, {
+        name: 'find_files',
+        kind: 'read',
+        title: `Find "${args.query}"`,
+        async run() {
+          const query = args.query.trim()
+          if (!query) throw new Error('query was empty.')
+
+          const start = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
+          const results: string[] = []
+          const matcher = createPathMatcher(query)
+          await walkNames(
+            start,
+            ctx.workspaceRoot,
+            matcher,
+            args.includeDirectories !== false,
+            results
+          )
+
+          const shown = results.slice(0, MAX_FIND_RESULTS)
+          const overflow =
+            results.length > MAX_FIND_RESULTS
+              ? `\n... ${results.length - MAX_FIND_RESULTS} more matches`
+              : ''
+          return {
+            modelResult: (shown.length ? shown.join('\n') : 'No matching paths found.') + overflow,
+            detail: `${results.length} matches`
+          }
+        }
+      })
+  })
+
+/** get_file_info - metadata about a file or directory in the workspace. */
 export const getFileInfoTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
@@ -338,6 +393,52 @@ async function walk(dir: string, root: string, needle: string, results: string[]
       /* Unreadable file — skip. */
     }
   }
+}
+
+async function walkNames(
+  dir: string,
+  root: string,
+  matches: (path: string) => boolean,
+  includeDirectories: boolean,
+  results: string[]
+): Promise<void> {
+  if (results.length >= MAX_FIND_RESULTS * 2) return
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return
+  }
+
+  for (const entry of entries) {
+    if (results.length >= MAX_FIND_RESULTS * 2) return
+    const full = join(dir, entry.name)
+    const relativePath = toWorkspaceRelative(root, full)
+    if (entry.isDirectory()) {
+      if (includeDirectories && matches(relativePath)) results.push(`${relativePath}/`)
+      if (!SKIP_DIRS.has(entry.name))
+        await walkNames(full, root, matches, includeDirectories, results)
+      continue
+    }
+    if (matches(relativePath)) results.push(relativePath)
+  }
+}
+
+function createPathMatcher(query: string): (path: string) => boolean {
+  const normalizedQuery = query.replace(/\\/g, '/').toLowerCase()
+  if (!/[*?]/.test(normalizedQuery)) {
+    return (path) => path.toLowerCase().includes(normalizedQuery)
+  }
+
+  const regex = new RegExp(
+    `^${escapeRegex(normalizedQuery).replace(/\\\*/g, '.*').replace(/\\\?/g, '.')}$`,
+    'i'
+  )
+  return (path) => regex.test(path.replace(/\\/g, '/'))
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')
 }
 
 function countLines(text: string): number {

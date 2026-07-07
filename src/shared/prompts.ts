@@ -24,6 +24,9 @@ Workflow for any coding task:
 7. End with a short summary of what you changed and how you verified it.
 
 Rules:
+- Use find_files when you need to locate files by name or path before reading them.
+- Use patch_file when edit_file is too narrow: repeated snippets, several replacements in one file, or replace-all edits.
+- If a build or test can take longer than a minute, pass a larger timeoutMs to run_command.
 - Use tools, not text. Never describe what a tool call would do — actually call the tool.
 - Prefer tools over assumptions. When unsure, read or search before acting.
 - Match the existing code's style, naming, and conventions.
@@ -39,6 +42,8 @@ export const NO_WORKSPACE_NOTE = `No workspace folder is selected, so file and c
 
 /** Appended when a workspace is set but no project is open (read-only access). */
 export const READ_ONLY_WORKSPACE_NOTE = `A workspace folder is selected but no project is open, so you have read-only access this turn: list_directory, read_file, read_file_range, read_multiple_files, search_files, get_file_info, git_status, and git_diff all work. write_file, edit_file, delete_file, move_file, create_directory, delete_directory, run_command, and update_project_notes are unavailable here on purpose — editing only happens inside a project. You can look at code, explain it, and suggest changes in chat, but if the user wants you to actually make them, tell them to open this folder as a Project first.`
+
+export const TOOLING_UPDATE_NOTE = `Additional tool guidance: find_files is available whenever read-only workspace tools are available. patch_file is available only in project chats, alongside write_file and edit_file.`
 
 export interface SystemPromptParts {
   /** Whether file/command tools are available (a workspace is set). */
@@ -61,6 +66,7 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
 
   if (!parts.hasWorkspaceTools) sections.push(NO_WORKSPACE_NOTE)
   else if (!parts.hasProject) sections.push(READ_ONLY_WORKSPACE_NOTE)
+  if (parts.hasWorkspaceTools) sections.push(TOOLING_UPDATE_NOTE)
   if (parts.workspaceContext?.trim()) {
     sections.push(`# Workspace\n${parts.workspaceContext.trim()}`)
   }

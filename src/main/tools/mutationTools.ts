@@ -6,6 +6,7 @@ import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runGuardedTool, runGuardedToolWithPrepare } from './helpers'
 
 const PREVIEW_CHARS = 400
+const MAX_PATCH_REPLACEMENTS = 20
 /**
  * Files larger than this don't get a stored diff — a full before/after copy of
  * a huge file would bloat persisted conversation JSON indefinitely for a diff
@@ -141,7 +142,88 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
       )
   })
 
-/** delete_file — remove a file from the workspace (requires approval). */
+interface PatchReplacement {
+  oldText: string
+  newText: string
+  /** 1-based match number to replace when oldText appears more than once. */
+  occurrence?: number
+  /** Replace every occurrence of oldText. Takes precedence over occurrence. */
+  replaceAll?: boolean
+}
+
+/** patch_file - apply one or more exact text replacements to a single file. */
+export const patchFileTool: WorkspaceToolFactory = (define, ctx) =>
+  define({
+    description:
+      'Apply one or more exact text replacements to a file. Use when edit_file is too narrow: repeated snippets, several related replacements in one file, or replace-all edits.',
+    params: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path relative to the workspace root.' },
+        replacements: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              oldText: { type: 'string', description: 'Exact text to replace.' },
+              newText: { type: 'string', description: 'Replacement text.' },
+              occurrence: {
+                type: 'number',
+                description:
+                  'Optional 1-based occurrence to replace when oldText appears multiple times.'
+              },
+              replaceAll: {
+                type: 'boolean',
+                description: 'Set true to replace every occurrence of oldText.'
+              }
+            },
+            required: ['oldText', 'newText']
+          },
+          description: `Up to ${MAX_PATCH_REPLACEMENTS} replacements, applied in order.`
+        }
+      },
+      required: ['path', 'replacements']
+    } as const,
+    handler: (args: { path: string; replacements: PatchReplacement[] }) =>
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'patch_file',
+          kind: 'write',
+          title: `Patch ${args.path}`,
+          risk: 'safe',
+          touch: { path: args.path, action: 'write' }
+        },
+        async () => {
+          const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
+          const original = await readFile(file, 'utf-8')
+          const replacements = args.replacements.slice(0, MAX_PATCH_REPLACEMENTS)
+          const patched = applyTextPatch(original, replacements)
+          return {
+            confirmDetail: `Apply ${patched.count} replacement(s) to ${args.path}:\n\n${describePatch(replacements)}`,
+            confirmDiff: diffOrUndefined(relativePath, original, patched.text),
+            data: { file, relativePath, original, updated: patched.text, count: patched.count }
+          }
+        },
+        async ({ file, relativePath, original, updated, count }) => {
+          const current = await readFile(file, 'utf-8').catch(() => null)
+          if (current !== original) {
+            throw new Error(
+              'The file changed since this patch was proposed - read it again and retry.'
+            )
+          }
+          await writeFile(file, updated, 'utf-8')
+          return {
+            modelResult: `Patched ${relativePath} with ${count} replacement(s).`,
+            detail: `${count} replacement(s)`,
+            diff: diffOrUndefined(relativePath, original, updated)
+          }
+        }
+      )
+  })
+
+/** delete_file - remove a file from the workspace (requires approval). */
 export const deleteFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description: 'Delete a file inside the workspace.',
@@ -215,4 +297,92 @@ function preview(text: string): string {
 /** Like `preview`, but flags an empty oldText instead of showing a blank line. */
 function describeOldText(oldText: string): string {
   return oldText ? preview(oldText) : '(empty — this call will be rejected)'
+}
+function applyTextPatch(
+  original: string,
+  replacements: PatchReplacement[]
+): { text: string; count: number } {
+  if (replacements.length === 0) throw new Error('replacements was empty.')
+
+  let text = original
+  let total = 0
+  for (const [index, replacement] of replacements.entries()) {
+    if (!replacement.oldText) {
+      throw new Error(`Replacement ${index + 1} had an empty oldText.`)
+    }
+    const result = applyOneReplacement(text, replacement, index + 1)
+    text = result.text
+    total += result.count
+  }
+
+  if (text === original) throw new Error('Patch did not change the file.')
+  return { text, count: total }
+}
+
+function applyOneReplacement(
+  text: string,
+  replacement: PatchReplacement,
+  index: number
+): { text: string; count: number } {
+  const matches = countOccurrences(text, replacement.oldText)
+  if (matches === 0) throw new Error(`Replacement ${index}: oldText was not found.`)
+
+  if (replacement.replaceAll) {
+    return {
+      text: text.split(replacement.oldText).join(replacement.newText),
+      count: matches
+    }
+  }
+
+  if (replacement.occurrence !== undefined) {
+    const occurrence = Math.floor(replacement.occurrence)
+    if (occurrence < 1) throw new Error(`Replacement ${index}: occurrence must be 1 or greater.`)
+    if (occurrence > matches) {
+      throw new Error(
+        `Replacement ${index}: occurrence ${occurrence} was requested but only ${matches} match(es) exist.`
+      )
+    }
+    const start = nthIndexOf(text, replacement.oldText, occurrence)
+    return {
+      text:
+        text.slice(0, start) + replacement.newText + text.slice(start + replacement.oldText.length),
+      count: 1
+    }
+  }
+
+  if (matches > 1) {
+    throw new Error(
+      `Replacement ${index}: oldText appears ${matches} times; provide occurrence or replaceAll.`
+    )
+  }
+
+  return { text: text.replace(replacement.oldText, replacement.newText), count: 1 }
+}
+
+function countOccurrences(text: string, needle: string): number {
+  return text.split(needle).length - 1
+}
+
+function nthIndexOf(text: string, needle: string, occurrence: number): number {
+  let from = 0
+  for (let seen = 1; ; seen++) {
+    const index = text.indexOf(needle, from)
+    if (index === -1) return -1
+    if (seen === occurrence) return index
+    from = index + needle.length
+  }
+}
+
+function describePatch(replacements: PatchReplacement[]): string {
+  return replacements
+    .slice(0, MAX_PATCH_REPLACEMENTS)
+    .map((replacement, index) => {
+      const target = replacement.replaceAll
+        ? 'all occurrences'
+        : replacement.occurrence
+          ? `occurrence ${replacement.occurrence}`
+          : 'unique occurrence'
+      return `${index + 1}. Replace ${target}:\n${preview(replacement.oldText)}\n\nwith:\n${preview(replacement.newText)}`
+    })
+    .join('\n\n')
 }
