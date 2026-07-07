@@ -29,8 +29,11 @@ interface ChatState {
   selectConversation: (id: string) => Promise<void>
   renameConversation: (id: string, title: string) => Promise<void>
   deleteConversation: (id: string) => Promise<void>
-  /** Delete every conversation (all projects and general chats). */
+  restoreConversation: (id: string) => Promise<void>
+  deleteConversationPermanent: (id: string) => Promise<void>
+  /** Archive every active conversation (all projects and general chats). */
   deleteAllConversations: () => Promise<void>
+  refreshConversations: () => Promise<void>
   sendMessage: (text: string, attachments?: ComposerAttachment[]) => Promise<void>
   stopGeneration: () => Promise<void>
   /** Called by the IPC bridge for each streamed token. */
@@ -121,9 +124,26 @@ export const useChatStore = create<ChatState>()(
       await persistActiveState(get().activeId)
     },
 
+    restoreConversation: async (id) => {
+      await anodex.conversations.restore(id)
+      const conversations = await anodex.conversations.list()
+      set({ conversations })
+    },
+
+    deleteConversationPermanent: async (id) => {
+      await anodex.conversations.deletePermanent(id)
+      const conversations = await anodex.conversations.list()
+      set({ conversations })
+    },
+
     deleteAllConversations: async () => {
       set({ conversations: [], activeId: null })
       await anodex.conversations.deleteAll()
+    },
+
+    refreshConversations: async () => {
+      const conversations = await anodex.conversations.list()
+      set({ conversations })
     },
 
     sendMessage: async (text, attachments = []) => {

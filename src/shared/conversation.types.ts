@@ -10,6 +10,9 @@ export interface Conversation {
   messages: ChatMessage[]
   createdAt: number
   updatedAt: number
+  /** Archived chats are hidden from the sidebar until restored from Settings. */
+  archived?: boolean
+  archivedAt?: number
   /** The assistant's current self-tracked task plan for this conversation, if any. */
   plan?: Plan | null
 }

@@ -8,6 +8,7 @@ import type {
 import { anodex } from '../lib/anodex'
 import { notifyError } from './uiStore'
 import { useSettingsStore } from './settingsStore'
+import { useChatStore } from './chatStore'
 
 interface ProjectState extends ProjectsState {
   loaded: boolean
@@ -15,6 +16,8 @@ interface ProjectState extends ProjectsState {
   create: (request: CreateProjectRequest) => Promise<void>
   update: (id: string, request: UpdateProjectRequest) => Promise<void>
   delete: (id: string) => Promise<void>
+  restore: (id: string) => Promise<void>
+  deletePermanent: (id: string) => Promise<void>
   setActive: (id: string | null) => Promise<void>
   openFolder: (id: string) => Promise<void>
 }
@@ -43,6 +46,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const state = await anodex.projects.list()
       set({ ...state })
       await refreshWorkspaceSettings()
+      await useChatStore.getState().refreshConversations()
     } catch (error) {
       notifyError('Could not update project', error instanceof Error ? error.message : undefined)
     }
@@ -51,6 +55,30 @@ export const useProjectStore = create<ProjectState>((set) => ({
   delete: async (id) => {
     try {
       await anodex.projects.delete(id)
+      const state = await anodex.projects.list()
+      set({ ...state })
+      await refreshWorkspaceSettings()
+      await useChatStore.getState().refreshConversations()
+    } catch (error) {
+      notifyError('Could not delete project', error instanceof Error ? error.message : undefined)
+    }
+  },
+
+  restore: async (id) => {
+    try {
+      await anodex.projects.restore(id)
+      const state = await anodex.projects.list()
+      set({ ...state })
+      await refreshWorkspaceSettings()
+      await useChatStore.getState().refreshConversations()
+    } catch (error) {
+      notifyError('Could not restore project', error instanceof Error ? error.message : undefined)
+    }
+  },
+
+  deletePermanent: async (id) => {
+    try {
+      await anodex.projects.deletePermanent(id)
       const state = await anodex.projects.list()
       set({ ...state })
       await refreshWorkspaceSettings()

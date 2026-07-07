@@ -90,7 +90,12 @@ export function ProjectRow({
           >
             <Icon name="plus" size={12} />
           </button>
-          <ProjectActionsMenu project={project} onRename={onRename} onDelete={onDelete} />
+          <ProjectActionsMenu
+            project={project}
+            onOpenProjectFolder={onOpenProjectFolder}
+            onRename={onRename}
+            onDelete={onDelete}
+          />
         </div>
       </div>
 

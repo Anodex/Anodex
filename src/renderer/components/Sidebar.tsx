@@ -342,10 +342,11 @@ export function Sidebar(): JSX.Element {
 
       {deletingProject && (
         <ConfirmDialog
-          title="Delete project?"
-          message="Its chats will also be deleted."
+          title="Archive project?"
+          message="Its chats will move to Settings → Archive with the project."
           detail={deletingProject.name}
-          confirmLabel="Delete"
+          confirmLabel="Archive"
+          icon="archive"
           onCancel={() => setDeletingProject(null)}
           onConfirm={() => {
             void deleteProject(deletingProject.id)

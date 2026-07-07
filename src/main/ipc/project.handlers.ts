@@ -10,6 +10,8 @@ const log = createLogger('ipc:projects')
 export function registerProjectHandlers(): void {
   ipcMain.handle(IpcChannel.Projects.list, () => projectStore.getState())
 
+  ipcMain.handle(IpcChannel.Projects.listArchived, () => projectStore.listArchived())
+
   ipcMain.handle(IpcChannel.Projects.create, (_event, request: CreateProjectRequest) => {
     try {
       return projectStore.create(request)
@@ -37,6 +39,24 @@ export function registerProjectHandlers(): void {
     } catch (error) {
       log.error('Failed to delete project:', id, error)
       throw new Error('Could not delete project.')
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Projects.restore, (_event, id: string) => {
+    try {
+      projectStore.restore(id)
+    } catch (error) {
+      log.error('Failed to restore project:', id, error)
+      throw new Error('Could not restore project.')
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Projects.deletePermanent, (_event, id: string) => {
+    try {
+      projectStore.deletePermanent(id)
+    } catch (error) {
+      log.error('Failed to permanently delete project:', id, error)
+      throw new Error('Could not permanently delete project.')
     }
   })
 

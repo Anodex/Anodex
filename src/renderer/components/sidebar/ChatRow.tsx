@@ -97,10 +97,10 @@ export function ChatRow({
             type="button"
             className={styles.action}
             onClick={onDelete}
-            aria-label="Delete chat"
-            title="Delete chat"
+            aria-label="Archive chat"
+            title="Archive chat"
           >
-            <Icon name="trash" size={12} />
+            <Icon name="archive" size={12} />
           </button>
         )}
       </span>

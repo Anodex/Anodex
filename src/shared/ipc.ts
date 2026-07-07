@@ -91,17 +91,24 @@ export const IpcChannel = {
   },
   Projects: {
     list: 'projects:list',
+    listArchived: 'projects:list-archived',
     create: 'projects:create',
     update: 'projects:update',
     delete: 'projects:delete',
+    restore: 'projects:restore',
+    deletePermanent: 'projects:delete-permanent',
     setActive: 'projects:set-active',
     openFolder: 'projects:open-folder'
   },
   Conversations: {
     list: 'conversations:list',
+    listArchived: 'conversations:list-archived',
     save: 'conversations:save',
     delete: 'conversations:delete',
+    restore: 'conversations:restore',
+    deletePermanent: 'conversations:delete-permanent',
     deleteAll: 'conversations:delete-all',
+    deleteArchived: 'conversations:delete-archived',
     getState: 'conversations:get-state',
     setState: 'conversations:set-state'
   },
@@ -216,18 +223,25 @@ export interface AnodexApi {
   }
   projects: {
     list(): Promise<ProjectsState>
+    listArchived(): Promise<Project[]>
     create(request: CreateProjectRequest): Promise<Project>
     update(id: string, request: UpdateProjectRequest): Promise<Project>
     delete(id: string): Promise<void>
+    restore(id: string): Promise<void>
+    deletePermanent(id: string): Promise<void>
     setActive(id: string | null): Promise<ProjectsState>
     openFolder(id: string): Promise<void>
   }
   conversations: {
     list(): Promise<Conversation[]>
+    listArchived(): Promise<Conversation[]>
     save(conversation: Conversation): Promise<void>
     delete(id: string): Promise<void>
-    /** Delete every persisted conversation (all projects and general chats). */
+    restore(id: string): Promise<void>
+    deletePermanent(id: string): Promise<void>
+    /** Archive every active conversation (all projects and general chats). */
     deleteAll(): Promise<void>
+    deleteArchived(ids: string[]): Promise<void>
     getState(): Promise<ConversationState>
     setState(state: ConversationState): Promise<void>
   }

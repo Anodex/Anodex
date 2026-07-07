@@ -17,6 +17,7 @@ import { DiagnosticsSettings } from './pages/diagnostics/DiagnosticsSettings'
 import { AboutSettings } from './pages/about/AboutSettings'
 import { ProjectsSettings } from './pages/projects/ProjectsSettings'
 import { MemorySettings } from './pages/memory/MemorySettings'
+import { ArchiveSettings } from './pages/archive/ArchiveSettings'
 import styles from './SettingsView.module.css'
 
 type SettingsSection =
@@ -24,6 +25,7 @@ type SettingsSection =
   | 'appearance'
   | 'general'
   | 'projects'
+  | 'archive'
   | 'memory'
   | 'ai-models'
   | 'diagnostics'
@@ -40,6 +42,7 @@ const NAV: NavItem[] = [
   { id: 'appearance', label: 'Appearance', icon: <Icon name="palette" size={18} /> },
   { id: 'general', label: 'General', icon: <Icon name="sliders" size={18} /> },
   { id: 'projects', label: 'Projects', icon: <Icon name="folder" size={18} /> },
+  { id: 'archive', label: 'Archive', icon: <Icon name="archive" size={18} /> },
   { id: 'memory', label: 'Memory', icon: <Icon name="layers" size={18} /> },
   { id: 'ai-models', label: 'AI & Models', icon: <Icon name="cpu" size={18} /> },
   { id: 'diagnostics', label: 'Diagnostics', icon: <Icon name="activity" size={18} /> },
@@ -140,6 +143,7 @@ export function SettingsView(): JSX.Element {
               )}
               {section === 'about' && <AboutSettings />}
               {section === 'projects' && <ProjectsSettings />}
+              {section === 'archive' && <ArchiveSettings />}
               {section === 'memory' && <MemorySettings />}
               {section === 'general' && <GeneralToolsSection settings={settings} update={update} />}
             </div>
@@ -164,7 +168,9 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
   // running, not just the aspirational setting, so this can't let a reply
   // budget be set larger than the context that's actually available to fit it in.
   const effectiveContextSize =
-    engine.status === 'ready' && engine.contextSize ? engine.contextSize : settings.model.contextSize
+    engine.status === 'ready' && engine.contextSize
+      ? engine.contextSize
+      : settings.model.contextSize
 
   return (
     <section className={styles.section}>

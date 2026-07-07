@@ -11,6 +11,9 @@ export interface Project {
   instructions?: string
   createdAt: number
   updatedAt: number
+  /** Archived projects are hidden from the sidebar until restored from Settings. */
+  archived?: boolean
+  archivedAt?: number
 }
 
 /** Persisted project collection. */

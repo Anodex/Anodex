@@ -56,17 +56,24 @@ const api: AnodexApi = {
   },
   projects: {
     list: () => ipcRenderer.invoke(IpcChannel.Projects.list),
+    listArchived: () => ipcRenderer.invoke(IpcChannel.Projects.listArchived),
     create: (request) => ipcRenderer.invoke(IpcChannel.Projects.create, request),
     update: (id, request) => ipcRenderer.invoke(IpcChannel.Projects.update, id, request),
     delete: (id) => ipcRenderer.invoke(IpcChannel.Projects.delete, id),
+    restore: (id) => ipcRenderer.invoke(IpcChannel.Projects.restore, id),
+    deletePermanent: (id) => ipcRenderer.invoke(IpcChannel.Projects.deletePermanent, id),
     setActive: (id) => ipcRenderer.invoke(IpcChannel.Projects.setActive, id),
     openFolder: (id) => ipcRenderer.invoke(IpcChannel.Projects.openFolder, id)
   },
   conversations: {
     list: () => ipcRenderer.invoke(IpcChannel.Conversations.list),
+    listArchived: () => ipcRenderer.invoke(IpcChannel.Conversations.listArchived),
     save: (conversation) => ipcRenderer.invoke(IpcChannel.Conversations.save, conversation),
     delete: (id) => ipcRenderer.invoke(IpcChannel.Conversations.delete, id),
+    restore: (id) => ipcRenderer.invoke(IpcChannel.Conversations.restore, id),
+    deletePermanent: (id) => ipcRenderer.invoke(IpcChannel.Conversations.deletePermanent, id),
     deleteAll: () => ipcRenderer.invoke(IpcChannel.Conversations.deleteAll),
+    deleteArchived: (ids) => ipcRenderer.invoke(IpcChannel.Conversations.deleteArchived, ids),
     getState: () => ipcRenderer.invoke(IpcChannel.Conversations.getState),
     setState: (state) => ipcRenderer.invoke(IpcChannel.Conversations.setState, state)
   },

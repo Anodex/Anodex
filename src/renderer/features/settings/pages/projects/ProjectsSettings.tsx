@@ -124,13 +124,8 @@ export function ProjectsSettings(): JSX.Element {
                   <Button variant="ghost" size="sm" onClick={() => startEdit(project)}>
                     Rename
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(project)}
-                    disabled={projects.length === 1}
-                  >
-                    Delete
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(project)}>
+                    Archive
                   </Button>
                 </div>
               </li>
@@ -182,10 +177,11 @@ export function ProjectsSettings(): JSX.Element {
 
       {deletingProject && (
         <ConfirmDialog
-          title="Delete project?"
-          message="Chats for this project will be removed from the current session."
+          title="Archive project?"
+          message="The project and its chats will move to Settings → Archive."
           detail={deletingProject.name}
-          confirmLabel="Delete"
+          confirmLabel="Archive"
+          icon="archive"
           onCancel={() => setDeletingProject(null)}
           onConfirm={() => {
             void remove(deletingProject.id)

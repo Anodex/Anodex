@@ -50,6 +50,7 @@ export type IconName =
   | 'layers'
   | 'globe'
   | 'wand'
+  | 'archive'
 
 const GLYPHS: Record<IconName, ReactNode> = {
   chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
@@ -303,6 +304,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="m15 3 3 3" />
       <path d="M9 15l-6 6" />
       <path d="M21 9l-6 6" />
+    </>
+  ),
+  archive: (
+    <>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+      <path d="M10 12h4" />
     </>
   )
 }

@@ -6,6 +6,7 @@ import styles from './ProjectActionsMenu.module.css'
 
 interface ProjectActionsMenuProps {
   project: Project
+  onOpenProjectFolder: (projectId: string) => void
   onRename: (project: Project, name: string) => void
   onDelete: (project: Project) => void
 }
@@ -13,6 +14,7 @@ interface ProjectActionsMenuProps {
 /** Small dropdown menu for project-level actions. */
 export function ProjectActionsMenu({
   project,
+  onOpenProjectFolder,
   onRename,
   onDelete
 }: ProjectActionsMenuProps): JSX.Element {
@@ -35,6 +37,11 @@ export function ProjectActionsMenu({
     setRenaming(true)
   }
 
+  const handleOpenProjectFolder = (): void => {
+    setOpen(false)
+    onOpenProjectFolder(project.id)
+  }
+
   const handleDelete = (): void => {
     setOpen(false)
     onDelete(project)
@@ -53,15 +60,25 @@ export function ProjectActionsMenu({
       </button>
       {open && (
         <div className={styles.dropdown}>
+          <div className={styles.header}>
+            <Icon name="folder" size={14} />
+            <span>{project.name}</span>
+          </div>
+          <button type="button" className={styles.item} onClick={handleOpenProjectFolder}>
+            <Icon name="folder" size={14} />
+            <span>Open in Explorer</span>
+          </button>
           <button type="button" className={styles.item} onClick={handleRename}>
-            Rename
+            <Icon name="pencil" size={14} />
+            <span>Rename project</span>
           </button>
           <button
             type="button"
             className={`${styles.item} ${styles.danger}`}
             onClick={handleDelete}
           >
-            Delete
+            <Icon name="archive" size={14} />
+            <span>Archive project</span>
           </button>
         </div>
       )}

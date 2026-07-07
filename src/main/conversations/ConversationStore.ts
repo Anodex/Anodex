@@ -46,6 +46,18 @@ class ConversationStore {
 
   /** Return every persisted conversation, sorted by updatedAt descending. */
   list(): Conversation[] {
+    return this.listAll().filter((conversation) => !conversation.archived)
+  }
+
+  /** Return archived conversations, sorted by archivedAt/updatedAt descending. */
+  listArchived(): Conversation[] {
+    return this.listAll()
+      .filter((conversation) => conversation.archived)
+      .sort((a, b) => (b.archivedAt ?? b.updatedAt) - (a.archivedAt ?? a.updatedAt))
+  }
+
+  /** Return every persisted conversation, sorted by updatedAt descending. */
+  listAll(): Conversation[] {
     return [...this.ensureCache().values()]
       .map((entry) => entry.conversation)
       .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -76,27 +88,106 @@ class ConversationStore {
     }
   }
 
-  /** Delete a single conversation. */
+  /** Archive a single conversation so it can be restored later. */
   delete(id: string): void {
+    this.archive(id)
+  }
+
+  archive(id: string): void {
+    assertSafeId(id, 'conversation id')
+    const entry = this.ensureCache().get(id)
+    if (!entry) return
+    this.save({
+      ...entry.conversation,
+      archived: true,
+      archivedAt: Date.now(),
+      updatedAt: Date.now()
+    })
+    const state = this.getState()
+    if (state.activeConversationId === id) this.setState({ activeConversationId: null })
+  }
+
+  restore(id: string): void {
+    assertSafeId(id, 'conversation id')
+    const entry = this.ensureCache().get(id)
+    if (!entry) return
+    this.save({
+      ...entry.conversation,
+      archived: false,
+      archivedAt: undefined,
+      updatedAt: Date.now()
+    })
+  }
+
+  /** Permanently delete a single conversation. */
+  deletePermanent(id: string): void {
     assertSafeId(id, 'conversation id')
     const entry = this.ensureCache().get(id)
     if (!entry) return
     this.removeFile(entry.filePath)
     this.ensureCache().delete(id)
+    const state = this.getState()
+    if (state.activeConversationId === id) this.setState({ activeConversationId: null })
   }
 
-  /** Delete every persisted conversation (all projects and general chats) and clear active state. */
+  /** Archive every active conversation (all projects and general chats) and clear active state. */
   deleteAll(): void {
-    const cache = this.ensureCache()
-    for (const entry of cache.values()) {
-      this.removeFile(entry.filePath)
+    for (const entry of this.ensureCache().values()) {
+      if (entry.conversation.archived) continue
+      this.save({
+        ...entry.conversation,
+        archived: true,
+        archivedAt: Date.now(),
+        updatedAt: Date.now()
+      })
     }
-    cache.clear()
     this.setState({ activeConversationId: null })
   }
 
-  /** Delete all conversations belonging to a project. */
+  deleteArchived(ids: string[]): void {
+    for (const id of ids) {
+      this.deletePermanent(id)
+    }
+  }
+
+  /** Archive all conversations belonging to a project. */
   deleteByProject(projectId: string): void {
+    this.archiveByProject(projectId)
+  }
+
+  archiveByProject(projectId: string): void {
+    assertSafeId(projectId, 'project id')
+    for (const entry of this.ensureCache().values()) {
+      if (entry.conversation.projectId !== projectId || entry.conversation.archived) continue
+      this.save({
+        ...entry.conversation,
+        archived: true,
+        archivedAt: Date.now(),
+        updatedAt: Date.now()
+      })
+    }
+    const state = this.getState()
+    const active = state.activeConversationId
+    if (active && this.ensureCache().get(active)?.conversation.projectId === projectId) {
+      this.setState({ activeConversationId: null })
+    }
+  }
+
+  restoreByProject(projectId: string): void {
+    assertSafeId(projectId, 'project id')
+    for (const entry of this.ensureCache().values()) {
+      if (entry.conversation.projectId !== projectId || !entry.conversation.archived) continue
+      this.save({
+        ...entry.conversation,
+        archived: false,
+        archivedAt: undefined,
+        updatedAt: Date.now()
+      })
+    }
+  }
+
+  /** Permanently delete all conversations belonging to a project. */
+  deleteByProjectPermanent(projectId: string): void {
     assertSafeId(projectId, 'project id')
     const dir = this.dirForProject(projectId)
     if (existsSync(dir)) {
@@ -166,7 +257,11 @@ class ConversationStore {
 
   private readFile(filePath: string): Conversation | null {
     try {
-      return JSON.parse(readFileSync(filePath, 'utf-8')) as Conversation
+      const conversation = JSON.parse(readFileSync(filePath, 'utf-8')) as Conversation
+      return {
+        ...conversation,
+        archived: conversation.archived ?? false
+      }
     } catch {
       return null
     }

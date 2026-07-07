@@ -42,11 +42,26 @@ class ProjectStore {
 
   getState(): ProjectsState {
     if (!this.cache) this.cache = this.load()
+    return {
+      projects: this.cache.projects.filter((project) => !project.archived),
+      activeProjectId: this.cache.activeProjectId
+    }
+  }
+
+  listArchived(): Project[] {
+    if (!this.cache) this.cache = this.load()
+    return this.cache.projects
+      .filter((project) => project.archived)
+      .sort((a, b) => (b.archivedAt ?? b.updatedAt) - (a.archivedAt ?? a.updatedAt))
+  }
+
+  private getAllState(): ProjectsState {
+    if (!this.cache) this.cache = this.load()
     return this.cache
   }
 
   create(request: CreateProjectRequest): Project {
-    const state = this.getState()
+    const state = this.getAllState()
     const project: Project = {
       id: generateId(),
       name: request.name.trim(),
@@ -61,7 +76,7 @@ class ProjectStore {
   }
 
   update(id: string, request: UpdateProjectRequest): Project {
-    const state = this.getState()
+    const state = this.getAllState()
     const index = state.projects.findIndex((p) => p.id === id)
     if (index === -1) throw new Error(`Project not found: ${id}`)
     const project = state.projects[index]
@@ -84,21 +99,53 @@ class ProjectStore {
   }
 
   delete(id: string): void {
-    const state = this.getState()
-    state.projects = state.projects.filter((p) => p.id !== id)
+    this.archive(id)
+  }
+
+  archive(id: string): void {
+    const state = this.getAllState()
+    const project = state.projects.find((p) => p.id === id)
+    if (!project) return
+    project.archived = true
+    project.archivedAt = Date.now()
+    project.updatedAt = Date.now()
     if (state.activeProjectId === id) {
-      state.activeProjectId = state.projects[0]?.id ?? null
-      settingsStore.update({ workspace: { root: state.projects[0]?.folderPath ?? null } })
+      const nextProject = state.projects.find((p) => !p.archived)
+      state.activeProjectId = nextProject?.id ?? null
+      settingsStore.update({ workspace: { root: nextProject?.folderPath ?? null } })
     }
     conversationStore.deleteByProject(id)
+    this.persist(state)
+  }
+
+  restore(id: string): void {
+    const state = this.getAllState()
+    const project = state.projects.find((p) => p.id === id)
+    if (!project) return
+    project.archived = false
+    project.archivedAt = undefined
+    project.updatedAt = Date.now()
+    conversationStore.restoreByProject(id)
+    this.persist(state)
+  }
+
+  deletePermanent(id: string): void {
+    const state = this.getAllState()
+    state.projects = state.projects.filter((p) => p.id !== id)
+    if (state.activeProjectId === id) {
+      const nextProject = state.projects.find((p) => !p.archived)
+      state.activeProjectId = nextProject?.id ?? null
+      settingsStore.update({ workspace: { root: nextProject?.folderPath ?? null } })
+    }
+    conversationStore.deleteByProjectPermanent(id)
     projectMemoryStore.delete(id)
     memoryStore.deleteAllForProject(id)
     this.persist(state)
   }
 
   setActive(id: string | null): ProjectsState {
-    const state = this.getState()
-    if (id !== null && !state.projects.some((p) => p.id === id)) {
+    const state = this.getAllState()
+    if (id !== null && !state.projects.some((p) => p.id === id && !p.archived)) {
       throw new Error(`Project not found: ${id}`)
     }
     state.activeProjectId = id
@@ -106,7 +153,7 @@ class ProjectStore {
       workspace: { root: state.projects.find((p) => p.id === id)?.folderPath ?? null }
     })
     this.persist(state)
-    return state
+    return this.getState()
   }
 
   private load(): ProjectsState {
@@ -116,9 +163,17 @@ class ProjectStore {
     }
     try {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as ProjectsState
+      const projects = (raw.projects ?? []).map((project) => ({
+        ...project,
+        archived: project.archived ?? false
+      }))
+      const activeProjectId =
+        raw.activeProjectId && projects.some((p) => p.id === raw.activeProjectId && !p.archived)
+          ? raw.activeProjectId
+          : null
       return {
-        projects: raw.projects ?? [],
-        activeProjectId: raw.activeProjectId ?? null
+        projects,
+        activeProjectId
       }
     } catch (error) {
       log.warn('Failed to parse projects, falling back to defaults:', error)
@@ -139,7 +194,7 @@ class ProjectStore {
 
   /** One-time migration: if the user has a legacy workspace.root, turn it into the first project. */
   private migrateFromWorkspace(): void {
-    const state = this.getState()
+    const state = this.getAllState()
     if (state.projects.length > 0) return
     const workspaceRoot = settingsStore.get().workspace.root
     if (!workspaceRoot) return

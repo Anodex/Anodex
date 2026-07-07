@@ -26,8 +26,8 @@ const STARTUP_OPTIONS = [
 export function GeneralSettings({ settings, update }: GeneralSettingsProps): JSX.Element {
   const { general } = settings
   const conversationCount = useChatStore((s) => s.conversations.length)
-  const deleteAllConversations = useChatStore((s) => s.deleteAllConversations)
-  const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false)
+  const archiveAllConversations = useChatStore((s) => s.deleteAllConversations)
+  const [confirmingArchiveAll, setConfirmingArchiveAll] = useState(false)
 
   return (
     <div className={styles.page}>
@@ -131,35 +131,36 @@ export function GeneralSettings({ settings, update }: GeneralSettingsProps): JSX
         <h2 className={styles.sectionTitle}>Data</h2>
         <p className={styles.sectionDesc}>Bulk actions on your local chat history.</p>
         <SettingRow
-          label="Delete all chats"
+          label="Archive all chats"
           description={
             conversationCount > 0
-              ? `Permanently remove all ${conversationCount} conversation${conversationCount === 1 ? '' : 's'} — general and project chats.`
-              : 'No conversations to delete.'
+              ? `Move all ${conversationCount} conversation${conversationCount === 1 ? '' : 's'} to Settings → Archive.`
+              : 'No conversations to archive.'
           }
           control={
             <Button
-              variant="danger"
+              variant="secondary"
               size="sm"
               disabled={conversationCount === 0}
-              onClick={() => setConfirmingDeleteAll(true)}
+              onClick={() => setConfirmingArchiveAll(true)}
             >
-              Delete all
+              Archive all
             </Button>
           }
         />
       </section>
 
-      {confirmingDeleteAll && (
+      {confirmingArchiveAll && (
         <ConfirmDialog
-          title="Delete all chats?"
-          message="This permanently removes every conversation — general and project chats. This can't be undone."
+          title="Archive all chats?"
+          message="This moves every conversation to Settings → Archive, where you can restore or permanently delete them."
           detail={`${conversationCount} conversation${conversationCount === 1 ? '' : 's'}`}
-          confirmLabel="Delete all"
-          onCancel={() => setConfirmingDeleteAll(false)}
+          confirmLabel="Archive all"
+          icon="archive"
+          onCancel={() => setConfirmingArchiveAll(false)}
           onConfirm={() => {
-            setConfirmingDeleteAll(false)
-            void deleteAllConversations()
+            setConfirmingArchiveAll(false)
+            void archiveAllConversations()
           }}
         />
       )}
