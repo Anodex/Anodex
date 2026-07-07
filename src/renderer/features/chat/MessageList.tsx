@@ -7,8 +7,8 @@ import styles from './MessageList.module.css'
 
 /** Distance (px) from the bottom within which we keep auto-scrolling. */
 const STICK_THRESHOLD = 120
-const RAIL_TOP_OFFSET = 32
-const RAIL_BOTTOM_OFFSET = 64
+const RAIL_TOP_OFFSET = 24
+const RAIL_GAP = 10
 
 interface UserMarker {
   message: ChatMessage
@@ -31,8 +31,6 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
     const el = containerRef.current
     if (!el) return
 
-    const railHeight = Math.max(1, el.clientHeight - RAIL_TOP_OFFSET - RAIL_BOTTOM_OFFSET)
-    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight)
     const currentAnchor = el.scrollTop + el.clientHeight * 0.28
     const users = messages.filter((message) => message.role === 'user')
     const entries = users.map((message) => ({
@@ -46,15 +44,11 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
     }
 
     setUserMarkers(
-      entries.map(({ message, offsetTop }) => {
-        return {
-          message,
-          top:
-            RAIL_TOP_OFFSET +
-            Math.min(railHeight, Math.max(0, (offsetTop / maxScroll) * railHeight)),
-          active: message.id === activeId
-        }
-      })
+      entries.map(({ message }, index) => ({
+        message,
+        top: RAIL_TOP_OFFSET + index * RAIL_GAP,
+        active: message.id === activeId
+      }))
     )
   }, [messages])
 

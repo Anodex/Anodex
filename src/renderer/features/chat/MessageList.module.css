@@ -31,18 +31,18 @@
 
 .userRailTrack {
   position: absolute;
-  top: 32px;
-  bottom: 64px;
+  top: 0;
+  bottom: 0;
   left: 8px;
   width: 1px;
   background: linear-gradient(
     180deg,
-    transparent,
-    var(--border-strong) 10%,
-    var(--border-strong) 90%,
-    transparent
+    transparent 8px,
+    var(--border-strong) 8px,
+    var(--border-strong) calc(100% - 8px),
+    transparent calc(100% - 8px)
   );
-  opacity: 0.25;
+  opacity: 0.18;
 }
 
 .userRailMarker {
