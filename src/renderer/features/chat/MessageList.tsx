@@ -11,7 +11,7 @@ const RAIL_TOP_OFFSET = 24
 const RAIL_GAP = 14
 const RAIL_MAX_WIDTH = 18
 const RAIL_MIN_WIDTH = 4
-const RAIL_MOUSE_RADIUS = 80
+const RAIL_MOUSE_RADIUS = 100
 
 interface UserMarker {
   message: ChatMessage
@@ -28,7 +28,6 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
   const [showJumpButton, setShowJumpButton] = useState(false)
   const [hasNewContent, setHasNewContent] = useState(false)
   const [userMarkers, setUserMarkers] = useState<UserMarker[]>([])
-  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null)
 
   const updateMarkers = useCallback((): void => {
     const el = containerRef.current
@@ -127,8 +126,6 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
       {userMarkers.length > 0 && (
         <UserScrollRail
           markers={userMarkers}
-          hoveredMarkerId={hoveredMarkerId}
-          onHover={setHoveredMarkerId}
           onSelect={scrollToMessage}
         />
       )}
@@ -150,36 +147,44 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
 
 interface UserScrollRailProps {
   markers: UserMarker[]
-  hoveredMarkerId: string | null
-  onHover: (messageId: string | null) => void
   onSelect: (messageId: string) => void
 }
 
 function UserScrollRail({
   markers,
-  hoveredMarkerId,
-  onHover,
   onSelect
 }: UserScrollRailProps): JSX.Element {
   const [mouseY, setMouseY] = useState<number | null>(null)
-  const hoveredMarker = markers.find((marker) => marker.message.id === hoveredMarkerId) ?? null
+  const previewRef = useRef<HTMLDivElement>(null)
+  const hoveredMarker = mouseY !== null
+    ? markers.reduce((closest, marker) => {
+        if (!closest) return marker
+        return Math.abs(marker.top - mouseY) < Math.abs(closest.top - mouseY) ? marker : closest
+      }, null as UserMarker | null)
+    : null
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>): void => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
     const rect = e.currentTarget.getBoundingClientRect()
     setMouseY(e.clientY - rect.top)
   }
 
-  const handleMouseLeave = (): void => {
+  const handlePointerLeave = (): void => {
     setMouseY(null)
-    onHover(null)
+  }
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (!hoveredMarker) return
+    e.preventDefault()
+    onSelect(hoveredMarker.message.id)
   }
 
   return (
     <div
       className={styles.userRail}
       aria-label="User message quick scroll"
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
+      onClick={handleClick}
     >
       <div className={styles.userRailTrack} />
       {markers.map((marker) => {
@@ -187,21 +192,20 @@ function UserScrollRail({
         const t = Math.max(0, 1 - distance / RAIL_MOUSE_RADIUS)
         const width = RAIL_MIN_WIDTH + t * (RAIL_MAX_WIDTH - RAIL_MIN_WIDTH)
         return (
-          <button
+          <div
             key={marker.message.id}
-            type="button"
             className={`${styles.userRailMarker} ${marker.active ? styles.userRailMarkerActive : ''}`}
             style={{ top: marker.top, width }}
-            onClick={() => onSelect(marker.message.id)}
-            onMouseEnter={() => onHover(marker.message.id)}
-            onFocus={() => onHover(marker.message.id)}
-            onBlur={() => onHover(null)}
-            aria-label={`Scroll to your message from ${formatClock(marker.message.createdAt)}`}
+            aria-hidden="true"
           />
         )
       })}
       {hoveredMarker && (
-        <div className={styles.userRailPreview} style={{ top: hoveredMarker.top }}>
+        <div
+          ref={previewRef}
+          className={styles.userRailPreview}
+          style={{ top: hoveredMarker.top }}
+        >
           <strong>{previewText(hoveredMarker.message)}</strong>
           <span>{formatClock(hoveredMarker.message.createdAt)}</span>
         </div>
