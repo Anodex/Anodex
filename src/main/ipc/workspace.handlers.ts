@@ -26,7 +26,7 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml'
 }
 
-function imageMimeType(path: string): string {
+export function imageMimeType(path: string): string {
   return IMAGE_MIME_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
 }
 
