@@ -7,8 +7,8 @@ import styles from './MessageList.module.css'
 
 /** Distance (px) from the bottom within which we keep auto-scrolling. */
 const STICK_THRESHOLD = 120
-const RAIL_TOP_OFFSET = 48
-const RAIL_BOTTOM_OFFSET = 96
+const RAIL_TOP_OFFSET = 32
+const RAIL_BOTTOM_OFFSET = 64
 
 interface UserMarker {
   message: ChatMessage
