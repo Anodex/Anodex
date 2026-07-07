@@ -4,6 +4,7 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  container-type: inline-size;
 }
 
 .scroll {
@@ -16,6 +17,105 @@
   max-width: 820px;
   margin: 0 auto;
   padding: var(--space-4) var(--space-6) var(--space-8);
+}
+
+.userRail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--space-4);
+  z-index: 3;
+  width: 34px;
+  pointer-events: none;
+}
+
+.userRailTrack {
+  position: absolute;
+  top: 48px;
+  bottom: 96px;
+  left: 16px;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--border-strong) 12%,
+    var(--border-strong) 88%,
+    transparent
+  );
+  opacity: 0.72;
+}
+
+.userRailMarker {
+  position: absolute;
+  left: 9px;
+  width: 15px;
+  height: 4px;
+  padding: 0;
+  transform: translateY(-50%);
+  background: var(--text-faint);
+  border: none;
+  border-radius: 999px;
+  opacity: 0.72;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    width var(--transition-fast),
+    height var(--transition-fast),
+    background var(--transition-fast),
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.userRailMarker:hover,
+.userRailMarker:focus-visible {
+  width: 24px;
+  height: 5px;
+  background: var(--accent);
+  opacity: 1;
+  outline: none;
+  transform: translateY(-50%) translateX(1px);
+}
+
+.userRailMarkerActive {
+  background: var(--text-muted);
+  opacity: 0.9;
+}
+
+.userRailPreview {
+  position: absolute;
+  left: 38px;
+  width: 280px;
+  max-width: min(280px, calc(100vw - var(--sidebar-width, 248px) - 80px));
+  padding: var(--space-3);
+  transform: translateY(-50%);
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+
+.userRailPreview strong {
+  display: block;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userRailPreview span {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+@container (max-width: 700px) {
+  .userRail {
+    display: none;
+  }
 }
 
 .jumpButton {
