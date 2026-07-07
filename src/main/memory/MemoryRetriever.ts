@@ -33,7 +33,10 @@ export function buildMemoryContext(
   const entries = gatherEntries(projectId, options)
   if (entries.length === 0) return null
 
-  const ranked = scoreEntries(entries, userPrompt).slice(0, MAX_ENTRIES)
+  const promptWords = wordSet(userPrompt)
+  const ranked = scoreEntries(entries, userPrompt)
+    .filter((entry) => shouldRetrieve(entry, promptWords))
+    .slice(0, MAX_ENTRIES)
   if (ranked.length === 0) return null
 
   const lines: string[] = []
@@ -41,7 +44,14 @@ export function buildMemoryContext(
   let usedChars = 0
   for (const entry of ranked) {
     const line = `- [${entry.kind}] ${entry.text} (${scopeLabel(entry)})`
-    if (usedChars + line.length > MAX_CHARS && lines.length > 0) break
+    const remaining = MAX_CHARS - usedChars
+    if (line.length > remaining) {
+      if (lines.length === 0) {
+        lines.push(`${line.slice(0, Math.max(0, MAX_CHARS - 1))}…`)
+        used.push(entry)
+      }
+      break
+    }
     lines.push(line)
     used.push(entry)
     usedChars += line.length
@@ -52,9 +62,7 @@ export function buildMemoryContext(
 
 function gatherEntries(projectId: string | null, options: MemoryRetrievalOptions): MemoryEntry[] {
   const project =
-    options.crossChatEnabled && projectId
-      ? memoryStore.list({ type: 'project', projectId })
-      : []
+    options.crossChatEnabled && projectId ? memoryStore.list({ type: 'project', projectId }) : []
   const global = options.personalEnabled ? memoryStore.list({ type: 'global' }) : []
   return [...project, ...global]
 }
@@ -87,6 +95,11 @@ function overlapScore(text: string, promptWords: Set<string>): number {
     if (promptWords.has(word)) score++
   }
   return score
+}
+
+function shouldRetrieve(entry: MemoryEntry, promptWords: Set<string>): boolean {
+  if (entry.pinned || entry.kind === 'identity') return true
+  return overlapScore(entry.text, promptWords) > 0
 }
 
 function scopeLabel(entry: MemoryEntry): string {

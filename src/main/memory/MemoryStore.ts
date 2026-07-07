@@ -15,7 +15,16 @@ import { jaccardSimilarity } from './textSimilarity'
 const log = createLogger('memory-store')
 
 const MAX_ENTRIES_PER_SCOPE = 200
+export const MAX_MEMORY_TEXT_CHARS = 400
 const GLOBAL_KEY = 'global'
+const SAFE_SCOPE_KEY = /^[A-Za-z0-9_-]+$/
+const MEMORY_KINDS = new Set<MemoryKind>([
+  'identity',
+  'convention',
+  'gotcha',
+  'preference',
+  'open_task'
+])
 /** How similar (Jaccard, same kind) a new fact must be to an existing one to update it in place instead of creating a duplicate. */
 const DEDUP_SIMILARITY_THRESHOLD = 0.5
 
@@ -66,17 +75,20 @@ class MemoryStore {
    * otherwise pile up near-duplicate entries rather than keeping one current one.
    */
   create(request: CreateMemoryRequest): MemoryEntry {
+    const kind = validateMemoryKind(request.kind)
+    const text = normalizeMemoryText(request.text)
+    if (!text) throw new Error('Memory text was empty.')
     const key = scopeKey(request.scope)
     const entries = this.load(key)
 
-    const existing = findSimilarEntry(entries, request.kind, request.text)
-    if (existing) return this.update(request.scope, existing.id, { text: request.text })
+    const existing = findSimilarEntry(entries, kind, text)
+    if (existing) return this.update(request.scope, existing.id, { text })
 
     const now = Date.now()
     const entry: MemoryEntry = {
       id: randomUUID(),
-      kind: request.kind,
-      text: request.text,
+      kind,
+      text,
       scope: request.scope,
       source: request.source,
       createdAt: now,
@@ -93,10 +105,14 @@ class MemoryStore {
     const entries = this.load(key)
     const index = entries.findIndex((e) => e.id === id)
     if (index === -1) throw new Error(`Memory entry not found: ${id}`)
+    const text =
+      patch.text !== undefined
+        ? normalizeMemoryText(patch.text) || entries[index].text
+        : entries[index].text
     const next: MemoryEntry = {
       ...entries[index],
-      text: patch.text?.trim() || entries[index].text,
-      kind: patch.kind ?? entries[index].kind,
+      text,
+      kind: patch.kind !== undefined ? validateMemoryKind(patch.kind) : entries[index].kind,
       pinned: patch.pinned ?? entries[index].pinned,
       archived: patch.archived ?? entries[index].archived,
       updatedAt: Date.now()
@@ -162,7 +178,35 @@ class MemoryStore {
 }
 
 function scopeKey(scope: MemoryScope): string {
+  validateMemoryScope(scope)
   return scope.type === 'global' ? GLOBAL_KEY : scope.projectId
+}
+
+/**
+ * Runtime guard for renderer-provided memory scopes. Project ids become file
+ * names, so they must stay to a simple safe alphabet.
+ */
+export function validateMemoryScope(scope: MemoryScope): void {
+  if (scope?.type === 'global') return
+  if (
+    scope?.type === 'project' &&
+    typeof scope.projectId === 'string' &&
+    SAFE_SCOPE_KEY.test(scope.projectId)
+  ) {
+    return
+  }
+  throw new Error('Invalid memory scope.')
+}
+
+export function normalizeMemoryText(text: string): string {
+  return String(text ?? '')
+    .trim()
+    .slice(0, MAX_MEMORY_TEXT_CHARS)
+}
+
+function validateMemoryKind(kind: MemoryKind): MemoryKind {
+  if (MEMORY_KINDS.has(kind)) return kind
+  throw new Error('Invalid memory kind.')
 }
 
 /**
@@ -177,7 +221,9 @@ export function findSimilarEntry(
 ): MemoryEntry | undefined {
   return entries.find(
     (e) =>
-      !e.archived && e.kind === kind && jaccardSimilarity(e.text, text) >= DEDUP_SIMILARITY_THRESHOLD
+      !e.archived &&
+      e.kind === kind &&
+      jaccardSimilarity(e.text, text) >= DEDUP_SIMILARITY_THRESHOLD
   )
 }
 

@@ -89,7 +89,7 @@ describe('buildMemoryContext', () => {
   it('formats entries as a bullet list with kind and scope, and returns the entries used', () => {
     const g1 = entry({ id: 'g1', text: 'Prefers pnpm.', kind: 'preference' })
     listMock.mockImplementation((scope) => (scope.type === 'global' ? [g1] : []))
-    const result = buildMemoryContext(null, 'anything', {
+    const result = buildMemoryContext(null, 'pnpm preference', {
       crossChatEnabled: true,
       personalEnabled: true
     })
@@ -107,11 +107,43 @@ describe('buildMemoryContext', () => {
   it('caps the number of entries returned', () => {
     const many = Array.from({ length: 20 }, (_, i) => entry({ id: `${i}`, text: `fact ${i}` }))
     listMock.mockImplementation((scope) => (scope.type === 'global' ? many : []))
-    const result = buildMemoryContext(null, 'anything', {
+    const result = buildMemoryContext(null, 'fact anything', {
       crossChatEnabled: true,
       personalEnabled: true
     })
     expect(result?.text.split('\n')).toHaveLength(8)
     expect(result?.entries).toHaveLength(8)
+  })
+
+  it('omits ordinary memories with no prompt overlap', () => {
+    const unrelated = entry({ id: 'unrelated', text: 'Uses vite for frontend builds.' })
+    listMock.mockImplementation((scope) => (scope.type === 'global' ? [unrelated] : []))
+    const result = buildMemoryContext(null, 'what is my name', {
+      crossChatEnabled: true,
+      personalEnabled: true
+    })
+    expect(result).toBeNull()
+  })
+
+  it('still retrieves identity and pinned memories without prompt overlap', () => {
+    const identity = entry({ id: 'identity', kind: 'identity', text: "The user's name is Gabe." })
+    const pinned = entry({ id: 'pinned', text: 'Uses pnpm.', pinned: true })
+    listMock.mockImplementation((scope) => (scope.type === 'global' ? [pinned, identity] : []))
+    const result = buildMemoryContext(null, 'anything unrelated', {
+      crossChatEnabled: true,
+      personalEnabled: true
+    })
+    expect(result?.entries.map((e) => e.id)).toEqual(['pinned', 'identity'])
+  })
+
+  it('truncates a single oversized legacy entry to the memory section cap', () => {
+    const long = entry({ id: 'long', kind: 'identity', text: 'x'.repeat(2_000) })
+    listMock.mockImplementation((scope) => (scope.type === 'global' ? [long] : []))
+    const result = buildMemoryContext(null, 'anything', {
+      crossChatEnabled: true,
+      personalEnabled: true
+    })
+    expect(result?.text.length).toBeLessThanOrEqual(1500)
+    expect(result?.entries).toEqual([long])
   })
 })

@@ -9,6 +9,7 @@ const log = createLogger('project-memory')
 const MAX_FILES_TOUCHED = 60
 const MAX_SUMMARIES = 10
 const MAX_SUMMARY_CHARS = 220
+const SAFE_PROJECT_ID = /^[A-Za-z0-9_-]+$/
 
 /**
  * Persists a small per-project activity ledger — recently touched files and
@@ -30,6 +31,7 @@ class ProjectMemoryStore {
   }
 
   recordTouch(projectId: string, path: string, action: FileTouchAction): void {
+    assertSafeProjectId(projectId)
     const memory = this.load(projectId)
     memory.filesTouched = [
       { path, action, at: Date.now() },
@@ -39,6 +41,7 @@ class ProjectMemoryStore {
   }
 
   recordSummary(projectId: string, conversationId: string, summary: string): void {
+    assertSafeProjectId(projectId)
     const cleaned = cleanSummaryText(summary)
     if (!cleaned) return
     const memory = this.load(projectId)
@@ -53,11 +56,13 @@ class ProjectMemoryStore {
   }
 
   get(projectId: string): ProjectMemory {
+    assertSafeProjectId(projectId)
     return this.load(projectId)
   }
 
   /** Remove a project's memory entirely (called when the project itself is deleted). */
   delete(projectId: string): void {
+    assertSafeProjectId(projectId)
     this.cache.delete(projectId)
     try {
       rmSync(join(this.dir, projectId), { recursive: true, force: true })
@@ -67,6 +72,7 @@ class ProjectMemoryStore {
   }
 
   private load(projectId: string): ProjectMemory {
+    assertSafeProjectId(projectId)
     const cached = this.cache.get(projectId)
     if (cached) return cached
 
@@ -103,7 +109,14 @@ class ProjectMemoryStore {
   }
 
   private filePath(projectId: string): string {
+    assertSafeProjectId(projectId)
     return join(this.dir, projectId, 'memory.json')
+  }
+}
+
+function assertSafeProjectId(projectId: string): void {
+  if (typeof projectId !== 'string' || !SAFE_PROJECT_ID.test(projectId)) {
+    throw new Error(`Unsafe project id: "${projectId}"`)
   }
 }
 

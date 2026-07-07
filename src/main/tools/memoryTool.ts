@@ -1,9 +1,7 @@
 import type { MemoryEntry, MemoryKind, MemoryScope } from '@shared/memory.types'
 import type { ToolFactory, ToolRuntimeContext } from './types'
 import { runGuardedTool } from './helpers'
-import { memoryStore } from '../memory/MemoryStore'
-
-const MAX_FACT_CHARS = 400
+import { MAX_MEMORY_TEXT_CHARS, memoryStore, normalizeMemoryText } from '../memory/MemoryStore'
 
 /**
  * Resolve which scope a `remember_fact` call actually lands in, honoring the
@@ -48,10 +46,10 @@ export const rememberFactTool: ToolFactory = (define, ctx) =>
   define({
     description:
       "Record one short, durable fact worth recalling later — the user's name, a preference, how " +
-      "they like things done, a project convention or gotcha, or an open task — into structured " +
-      `memory (max ${MAX_FACT_CHARS} characters). Use scope 'global' for anything about the user ` +
+      'they like things done, a project convention or gotcha, or an open task — into structured ' +
+      `memory (max ${MAX_MEMORY_TEXT_CHARS} characters). Use scope 'global' for anything about the user ` +
       "personally (recalled in every chat); use 'project' for something specific to this codebase " +
-      "(recalled across chats in this project only, requires a project to be open). State identity " +
+      '(recalled across chats in this project only, requires a project to be open). State identity ' +
       'facts (kind identity) literally and directly, e.g. "The user\'s name is X.", so a later direct ' +
       'question about it matches. Use sparingly, only for things worth persisting, not routine ' +
       'narration of what you just did.',
@@ -60,12 +58,12 @@ export const rememberFactTool: ToolFactory = (define, ctx) =>
       properties: {
         text: {
           type: 'string',
-          description: `A single atomic fact, one sentence if possible (max ${MAX_FACT_CHARS} characters).`
+          description: `A single atomic fact, one sentence if possible (max ${MAX_MEMORY_TEXT_CHARS} characters).`
         },
         kind: {
           enum: ['identity', 'convention', 'gotcha', 'preference', 'open_task'],
           description:
-            "identity: a fact about who the user is (their name or similar). convention: a coding/style rule to follow. gotcha: a pitfall to avoid. preference: how the user likes things done. open_task: something still left to do."
+            'identity: a fact about who the user is (their name or similar). convention: a coding/style rule to follow. gotcha: a pitfall to avoid. preference: how the user likes things done. open_task: something still left to do.'
         },
         scope: {
           enum: ['global', 'project'],
@@ -83,7 +81,7 @@ export const rememberFactTool: ToolFactory = (define, ctx) =>
         confirmDetail: `Remember (${args.kind}, ${args.scope}): ${args.text}`,
         risk: 'safe',
         run() {
-          const text = args.text.trim().slice(0, MAX_FACT_CHARS)
+          const text = normalizeMemoryText(args.text)
           if (!text) throw new Error('text was empty.')
 
           const scope = resolveMemoryScope(args.scope, ctx)
@@ -102,7 +100,8 @@ export const rememberFactTool: ToolFactory = (define, ctx) =>
               : ''
           // A dedup update-in-place keeps the original createdAt but bumps
           // updatedAt; a fresh create sets both to the same instant.
-          const updateNote = entry.createdAt !== entry.updatedAt ? ' Updated an existing memory.' : ''
+          const updateNote =
+            entry.createdAt !== entry.updatedAt ? ' Updated an existing memory.' : ''
 
           return Promise.resolve({
             modelResult: `Remembered${scopeNote}.${updateNote}`,

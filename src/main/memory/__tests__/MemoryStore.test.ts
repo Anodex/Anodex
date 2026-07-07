@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { capEntries, findSimilarEntry } from '../MemoryStore'
-import type { MemoryEntry } from '@shared/memory.types'
+import {
+  MAX_MEMORY_TEXT_CHARS,
+  capEntries,
+  findSimilarEntry,
+  normalizeMemoryText,
+  validateMemoryScope
+} from '../MemoryStore'
+import type { MemoryEntry, MemoryScope } from '@shared/memory.types'
 
 function entry(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   return {
@@ -70,5 +76,26 @@ describe('findSimilarEntry', () => {
     })
     const found = findSimilarEntry([existing], 'identity', 'The user is named Gabe.')
     expect(found).toBeUndefined()
+  })
+})
+
+describe('validateMemoryScope', () => {
+  it('accepts global and safe project scopes', () => {
+    expect(() => validateMemoryScope({ type: 'global' })).not.toThrow()
+    expect(() =>
+      validateMemoryScope({ type: 'project', projectId: 'p_lz6abc_12345' })
+    ).not.toThrow()
+  })
+
+  it('rejects path traversal project ids', () => {
+    const scope = { type: 'project', projectId: '../settings' } as MemoryScope
+    expect(() => validateMemoryScope(scope)).toThrow('Invalid memory scope.')
+  })
+})
+
+describe('normalizeMemoryText', () => {
+  it('trims and caps memory text', () => {
+    const text = `  ${'a'.repeat(MAX_MEMORY_TEXT_CHARS + 20)}  `
+    expect(normalizeMemoryText(text)).toHaveLength(MAX_MEMORY_TEXT_CHARS)
   })
 })

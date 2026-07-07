@@ -13,6 +13,8 @@ const createMock = vi.fn<(request: CreateMemoryRequest) => MemoryEntry>()
 // Hoisted above the import of `memoryTool`, so it picks up this mock instead
 // of touching disk through the real singleton (uninitialized in tests).
 vi.mock('../../memory/MemoryStore', () => ({
+  MAX_MEMORY_TEXT_CHARS: 400,
+  normalizeMemoryText: (text: string) => text.trim().slice(0, 400),
   memoryStore: { create: (request: CreateMemoryRequest) => createMock(request) }
 }))
 
@@ -124,7 +126,11 @@ describe('remember_fact tool', () => {
       handler: (args: { text: string; kind: string; scope: string }) => Promise<string>
     }
 
-    const result = await tool.handler({ text: 'My name is Gabe.', kind: 'preference', scope: 'global' })
+    const result = await tool.handler({
+      text: 'My name is Gabe.',
+      kind: 'preference',
+      scope: 'global'
+    })
 
     expect(result).toBe('Remembered.')
     expect(createMock).toHaveBeenCalledWith(
