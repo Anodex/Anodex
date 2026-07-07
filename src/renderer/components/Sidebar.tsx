@@ -14,6 +14,7 @@ import { SidebarSearch } from './sidebar/SidebarSearch'
 import { SidebarSection } from './sidebar/SidebarSection'
 import { ProjectRow } from './sidebar/ProjectRow'
 import { ChatRow } from './sidebar/ChatRow'
+import { ChatsActionsMenu, type ChatSortMode } from './sidebar/ChatsActionsMenu'
 import { AgentPanel } from './sidebar/AgentPanel'
 import { CriticalThinkingPanel } from './sidebar/CriticalThinkingPanel'
 import { SchedulerPanel } from './sidebar/SchedulerPanel'
@@ -70,8 +71,10 @@ export function Sidebar(): JSX.Element {
   const [criticalThinkingExpanded, setCriticalThinkingExpanded] = useState(false)
   const [projectsExpanded, setProjectsExpanded] = useState(true)
   const [chatsExpanded, setChatsExpanded] = useState(true)
+  const [chatSortMode, setChatSortMode] = useState<ChatSortMode>('recent')
   const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({})
   const [deletingProject, setDeletingProject] = useState<Project | null>(null)
+  const [confirmingArchiveChats, setConfirmingArchiveChats] = useState(false)
 
   const searching = searchQuery.trim().length > 0
 
@@ -110,14 +113,19 @@ export function Sidebar(): JSX.Element {
       return bTime - aTime
     })
 
-    general.sort((a, b) => b.updatedAt - a.updatedAt)
+    general.sort((a, b) => {
+      if (chatSortMode === 'title') {
+        return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+      }
+      return b.updatedAt - a.updatedAt
+    })
 
     return {
       filteredProjects: filtered,
       generalChats: general,
       searchEmpty: query.length > 0 && filtered.length === 0 && general.length === 0
     }
-  }, [conversations, projects, searchQuery])
+  }, [chatSortMode, conversations, projects, searchQuery])
 
   const isProjectExpanded = (projectId: string): boolean =>
     searching || expandedProjectIds[projectId] !== false
@@ -145,6 +153,15 @@ export function Sidebar(): JSX.Element {
 
   const handleDeleteConversation = (id: string): void => {
     void deleteConversation(id)
+  }
+
+  const archiveAllGeneralChats = async (): Promise<void> => {
+    const generalConversationIds = conversations
+      .filter((conversation) => conversation.projectId === null)
+      .map((conversation) => conversation.id)
+    for (const id of generalConversationIds) {
+      await deleteConversation(id)
+    }
   }
 
   const isConversationRunning = (conversation: Conversation): boolean =>
@@ -183,6 +200,11 @@ export function Sidebar(): JSX.Element {
 
   const handleCollapseAllProjects = (): void => {
     setExpandedProjectIds(Object.fromEntries(filteredProjects.map((p) => [p.project.id, false])))
+  }
+
+  const handleExpandAllProjects = (): void => {
+    setProjectsExpanded(true)
+    setExpandedProjectIds(Object.fromEntries(filteredProjects.map((p) => [p.project.id, true])))
   }
 
   const hasExpandedProjects = filteredProjects.some((p) => isProjectExpanded(p.project.id))
@@ -293,15 +315,31 @@ export function Sidebar(): JSX.Element {
               expanded={searching || chatsExpanded}
               onToggle={() => setChatsExpanded((v) => !v)}
               actions={
-                <button
-                  type="button"
-                  className={styles.headerIcon}
-                  onClick={() => handleNewChat()}
-                  aria-label="New chat"
-                  title="New chat"
-                >
-                  <Icon name="plus" size={14} />
-                </button>
+                <div className={styles.headerActions}>
+                  <ChatsActionsMenu
+                    chatCount={generalChats.length}
+                    sortMode={chatSortMode}
+                    onSortModeChange={setChatSortMode}
+                    onArchiveAll={() => {
+                      if (!confirmDestructive) {
+                        void archiveAllGeneralChats()
+                        return
+                      }
+                      setConfirmingArchiveChats(true)
+                    }}
+                    onExpandProjects={handleExpandAllProjects}
+                    onCollapseProjects={handleCollapseAllProjects}
+                  />
+                  <button
+                    type="button"
+                    className={styles.headerIcon}
+                    onClick={() => handleNewChat()}
+                    aria-label="New chat"
+                    title="New chat"
+                  >
+                    <Icon name="plus" size={14} />
+                  </button>
+                </div>
               }
             >
               {generalChats.length === 0 ? (
@@ -351,6 +389,25 @@ export function Sidebar(): JSX.Element {
           onConfirm={() => {
             void deleteProject(deletingProject.id)
             setDeletingProject(null)
+          }}
+        />
+      )}
+
+      {confirmingArchiveChats && (
+        <ConfirmDialog
+          title="Archive all general chats?"
+          message="These chats will move to Settings → Archive, where you can restore or permanently delete them."
+          detail={`${conversations.filter((conversation) => conversation.projectId === null).length} chat${
+            conversations.filter((conversation) => conversation.projectId === null).length === 1
+              ? ''
+              : 's'
+          }`}
+          confirmLabel="Archive all"
+          icon="archive"
+          onCancel={() => setConfirmingArchiveChats(false)}
+          onConfirm={() => {
+            setConfirmingArchiveChats(false)
+            void archiveAllGeneralChats()
           }}
         />
       )}

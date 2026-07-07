@@ -52,14 +52,17 @@ export function ProjectActionsMenu({
       <button
         type="button"
         className={styles.trigger}
-        onClick={() => setOpen((v) => !v)}
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen((v) => !v)
+        }}
         aria-label="Project actions"
         title="Project actions"
       >
         <Icon name="more-vertical" size={14} />
       </button>
       {open && (
-        <div className={styles.dropdown}>
+        <div className={styles.dropdown} onClick={(event) => event.stopPropagation()}>
           <div className={styles.header}>
             <Icon name="folder" size={14} />
             <span>{project.name}</span>
