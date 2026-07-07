@@ -11,7 +11,11 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
-    exclude: ['node_modules', 'e2e', 'dist', 'out']
+    // `.claude` can contain isolated agent worktrees (see the Agent tool's
+    // `isolation: "worktree"` mode) — a full nested checkout of this same
+    // repo, including its own test files. Without excluding it, a stray
+    // worktree gets swept into every test run here by Vitest's default glob.
+    exclude: ['node_modules', 'e2e', 'dist', 'out', '.claude']
   },
   resolve: {
     alias: {

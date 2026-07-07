@@ -15,6 +15,9 @@ export function useDockKeyboardShortcuts(): void {
       } else if (key === 'P') {
         event.preventDefault()
         togglePanel('plan')
+      } else if (key === 'T') {
+        event.preventDefault()
+        togglePanel('terminal')
       }
     }
     window.addEventListener('keydown', handleKey)

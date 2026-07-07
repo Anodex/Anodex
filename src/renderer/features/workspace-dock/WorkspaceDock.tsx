@@ -9,13 +9,15 @@ import { PlanPanel } from './panels/PlanPanel'
 import { FilesPanel } from './panels/FilesPanel'
 import { ActivityPanel } from './panels/ActivityPanel'
 import { OutputsPanel } from './panels/OutputsPanel'
+import { TerminalPanel } from './panels/TerminalPanel'
 import styles from './WorkspaceDock.module.css'
 
 const PANEL_COMPONENTS = {
   plan: PlanPanel,
   files: FilesPanel,
   activity: ActivityPanel,
-  outputs: OutputsPanel
+  outputs: OutputsPanel,
+  terminal: TerminalPanel
 } as const
 
 /** Right-side workspace dock that shows selected panels. */

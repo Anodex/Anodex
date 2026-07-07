@@ -14,7 +14,11 @@ import { SidebarSearch } from './sidebar/SidebarSearch'
 import { SidebarSection } from './sidebar/SidebarSection'
 import { ProjectRow } from './sidebar/ProjectRow'
 import { ChatRow } from './sidebar/ChatRow'
+import { AgentPanel } from './sidebar/AgentPanel'
+import { CriticalThinkingPanel } from './sidebar/CriticalThinkingPanel'
+import { SchedulerPanel } from './sidebar/SchedulerPanel'
 import { SidebarProfile } from './sidebar/SidebarProfile'
+import { ConfirmDialog } from './ui/ConfirmDialog'
 import styles from './Sidebar.module.css'
 
 function statusTone(status: EngineState['status']): string {
@@ -54,9 +58,17 @@ export function Sidebar(): JSX.Element {
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
 
   const [searchQuery, setSearchQuery] = useState('')
+  // These three are all "coming soon" placeholders with no working backend yet
+  // (see AgentPanel/SchedulerPanel/CriticalThinkingPanel) — collapsed by
+  // default so they don't permanently occupy sidebar space for features that
+  // don't do anything yet.
+  const [agentExpanded, setAgentExpanded] = useState(false)
+  const [schedulerExpanded, setSchedulerExpanded] = useState(false)
+  const [criticalThinkingExpanded, setCriticalThinkingExpanded] = useState(false)
   const [projectsExpanded, setProjectsExpanded] = useState(true)
   const [chatsExpanded, setChatsExpanded] = useState(true)
   const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({})
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null)
 
   const searching = searchQuery.trim().length > 0
 
@@ -150,12 +162,11 @@ export function Sidebar(): JSX.Element {
   }
 
   const handleDeleteProject = (project: Project): void => {
-    if (
-      !confirmDestructive ||
-      confirm(`Delete project "${project.name}"? Its chats will also be deleted.`)
-    ) {
+    if (!confirmDestructive) {
       void deleteProject(project.id)
+      return
     }
+    setDeletingProject(project)
   }
 
   const handleCollapseAllProjects = (): void => {
@@ -167,10 +178,6 @@ export function Sidebar(): JSX.Element {
   return (
     <aside className={styles.sidebar}>
       <div className={styles.actions}>
-        <button type="button" className={styles.newChat} onClick={() => handleNewChat()}>
-          <Icon name="plus" size={15} />
-          New chat
-        </button>
         <SidebarSearch value={searchQuery} onChange={setSearchQuery} />
       </div>
 
@@ -182,6 +189,33 @@ export function Sidebar(): JSX.Element {
           </div>
         ) : (
           <>
+            <SidebarSection
+              title="Scheduler"
+              icon="clock"
+              expanded={schedulerExpanded}
+              onToggle={() => setSchedulerExpanded((v) => !v)}
+            >
+              <SchedulerPanel />
+            </SidebarSection>
+
+            <SidebarSection
+              title="Agent"
+              icon="wand"
+              expanded={agentExpanded}
+              onToggle={() => setAgentExpanded((v) => !v)}
+            >
+              <AgentPanel />
+            </SidebarSection>
+
+            <SidebarSection
+              title="Critical Thinking"
+              icon="globe"
+              expanded={criticalThinkingExpanded}
+              onToggle={() => setCriticalThinkingExpanded((v) => !v)}
+            >
+              <CriticalThinkingPanel />
+            </SidebarSection>
+
             <SidebarSection
               title="Projects"
               icon="folder"
@@ -215,13 +249,6 @@ export function Sidebar(): JSX.Element {
               {filteredProjects.length === 0 ? (
                 <div className={styles.sectionEmpty}>
                   <p>No projects yet</p>
-                  <button
-                    type="button"
-                    className={styles.emptyLink}
-                    onClick={() => void handleCreateProject()}
-                  >
-                    Link a folder
-                  </button>
                 </div>
               ) : (
                 filteredProjects.map(({ project, conversations: projectConversations }) => (
@@ -305,6 +332,20 @@ export function Sidebar(): JSX.Element {
         </button>
         <SidebarProfile active={view === 'settings'} onClick={() => setView('settings')} />
       </footer>
+
+      {deletingProject && (
+        <ConfirmDialog
+          title="Delete project?"
+          message="Its chats will also be deleted."
+          detail={deletingProject.name}
+          confirmLabel="Delete"
+          onCancel={() => setDeletingProject(null)}
+          onConfirm={() => {
+            void deleteProject(deletingProject.id)
+            setDeletingProject(null)
+          }}
+        />
+      )}
     </aside>
   )
 }

@@ -16,24 +16,6 @@
   margin-bottom: var(--space-3);
 }
 
-.newChat {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  height: 36px;
-  font-weight: 500;
-  color: var(--text-on-accent);
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius-md);
-  transition: opacity var(--transition-fast);
-}
-
-.newChat:hover {
-  opacity: 0.92;
-}
-
 .scroll {
   flex: 1;
   min-height: 0;
@@ -78,21 +60,6 @@
   padding: var(--space-3) var(--space-2);
   font-size: var(--text-sm);
   color: var(--text-faint);
-}
-
-.emptyLink {
-  align-self: flex-start;
-  padding: 0;
-  font-size: var(--text-sm);
-  color: var(--accent);
-  text-decoration: none;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.emptyLink:hover {
-  text-decoration: underline;
 }
 
 .chatDelete {
