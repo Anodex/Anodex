@@ -4,200 +4,175 @@
 
 **A local-first AI assistant for coding help and general chat.**
 
-Runs open models on your own machine — private, fast, and offline-capable.
+Runs open-weight models on your own machine — private, fast, and offline-capable.
 
 </div>
 
 ---
 
-## Overview
+## What Anodex is
 
-Anodex is a desktop application built on **Electron + React + TypeScript**, with a
-first-class local model engine powered by **[`node-llama-cpp`](https://github.com/withcatai/node-llama-cpp)**
-(llama.cpp under the hood). It is designed as a solid product foundation: clean
-architecture, small single-purpose files, and clear extension points for the
-features that come next (coding workflows, agents, remote providers, in-app model
-downloads).
+Anodex is a desktop app (Windows/macOS/Linux, built on Electron) that runs a
+local LLM directly on your machine via `node-llama-cpp` (llama.cpp bindings).
+There is no cloud round-trip and no account required for the core experience —
+model weights, conversations, projects, and settings all live in local files
+on disk. It's built for two overlapping use cases: a general-purpose chat
+assistant, and a coding assistant with real, sandboxed access to a project
+folder.
 
-The local model system is a core part of the app, not an add-on — the main
-process owns the engine, and the entire UI is built around loading a model,
-seeing its status, and chatting with it.
+## Chat
+
+- Streaming responses, rendered with syntax-highlighted code blocks (a curated
+  `highlight.js` subset, themed to match the app rather than a stock look).
+- Two kinds of conversation: **general chat** (no file/workspace access) and
+  **project chat** (scoped to a selected folder, with file/command tools
+  enabled).
+- A visible **task-phase indicator** (Inspecting / Editing / Verifying /
+  Responding) derived from a message's own tool-call sequence, so you can see
+  at a glance what a turn is actually doing.
+- **Context compaction**: long conversations don't crash when they outgrow the
+  model's context window. Older turns are summarized by the model itself
+  (on a separate, isolated context — never the active conversation's) and
+  folded into the system prompt, triggered proactively before the limit is
+  hit, with a reactive safety net as a last resort. You get a toast telling
+  you it happened.
+- **Attachments**: drag a file into the composer to attach it to your next
+  message (not sandboxed to a project — you chose the file explicitly).
+- Desktop notifications and a short AI-generated toast summary when a reply
+  finishes while the window isn't focused.
+- A "jump to latest" button appears when you've scrolled up during a long or
+  streaming reply.
+
+## Projects
+
+- A project is a selected folder plus a name, optional per-project
+  instructions, and its own chat history.
+- **Persistent project memory**: Anodex keeps a running ledger of recently
+  touched files and task summaries per project (`ProjectMemoryStore`), so a
+  *new* conversation in the same project still has ambient context about
+  prior work — not just its own chat history.
+- The assistant can also record durable notes into a project's own
+  `ANODEX.md` file via the `update_project_notes` tool, when you approve it.
+- Switching between a project chat and a general chat correctly resets
+  workspace/tool scoping — nothing about one leaks into the other.
+
+## AI workspace tools
+
+When a project is open, the assistant gets a set of tools confined to that
+folder (path traversal outside it is blocked):
+
+- **Read (never need approval):** `list_directory`, `read_file`,
+  `read_file_range`, `read_multiple_files`, `get_file_info`, `search_files`,
+  `git_status`, `git_diff`.
+- **Write/mutate (approval depends on permission mode):** `write_file`,
+  `edit_file`, `delete_file`, `move_file`, `delete_directory`,
+  `create_directory` (always low-risk, never confirms), `run_command`.
+- **Web (workspace-independent, available in general chat too):**
+  `fetch_url` (read a public URL), `web_search` (via a provider you choose in
+  Settings — SearXNG self-hosted, Brave, Tavily, or Google Programmable
+  Search; the tool doesn't exist at all when no provider is configured).
+- **Plan:** `write_plan` / `update_plan_step` — a visible, structured task
+  list the model can create and check off as it works.
+- **Project notes:** `update_project_notes` (writes to the project's
+  `ANODEX.md`).
+
+**Permission modes** (`ask` / `full` / `untethered`) control how much
+mutating tools confirm with you before running; risk-classified per call
+(`trivial` / `safe` / `sensitive` / `destructive`) so a `run_command` that
+looks like `rm -rf` or a force-push always confirms regardless of mode.
+
+## Workspace Dock
+
+A side panel with four tabs alongside the chat:
+
+- **Plan** — the model's current task list for the conversation, live.
+- **Files** — every file in the project, each attributed to you or the AI
+  (by matching recent tool-write activity against file mtimes), with an
+  in-app **code editor** (syntax-highlighted, live-edit-vs-your-own-edit
+  banner so you never silently lose unsaved changes), an **image viewer**,
+  and a sandboxed **HTML preview** with a code/preview toggle.
+- **Activity** — a live feed of tool calls as they happen.
+- **Outputs** — anything the model has produced worth surfacing outside the
+  chat transcript.
+
+## Local model engine
+
+- Point Anodex at any local `.gguf` file, or use the built-in catalog to
+  **download a model in-app** with a real progress bar and cancel support.
+- **Hardware-aware recommendations**: detects your RAM/VRAM/GPU and scores
+  every catalog model against your actual machine (a 0-100 fit score), with
+  "Best Overall / Best Coding / Fastest / Low RAM / Large Context" picks.
+- **Per-model reliability scoring**: tracks real tool-call success/error
+  rates and fabrication incidents per model, surfaced as a score with a
+  per-tool breakdown, so you can see when a smaller/weaker model is actually
+  struggling instead of just trusting its own confident-sounding replies.
+- Auto-configures context size/GPU layers/max tokens from your hardware on
+  first launch; adjustable anytime in AI & Models settings.
+- A safety pre-flight check refuses to load a model that won't fit in
+  available RAM, with a clear message instead of risking a native crash.
+
+## Token activity (usage page)
+
+Settings → Profile shows all-time usage stats, independent of individual
+conversations (so deleting a conversation never loses your history):
+lifetime tokens, sessions, messages, active days, peak day/hour, current and
+longest streaks, longest single task, and a favorite-model pick — plus a
+GitHub-style activity heatmap and a tokens-over-time chart (All/30d/7d range,
+Daily/Weekly/Cumulative view) broken down and colored per model, with an
+input/output split per model underneath.
+
+## Settings
+
+- **Profile** — your name/avatar/email/plan-tier display, the token-activity
+  usage page, and local-only account status.
+- **Appearance** — Dark/Light/System theme, curated dark-mode color presets
+  (a full custom palette editor too), font family/size, density, diff-view
+  style (unified vs. side-by-side), sound effects, reduced motion, compact
+  mode.
+- **General** — permission mode, other global behavior toggles.
+- **Projects** — manage saved projects and their instructions.
+- **AI & Models** — the local engine control center: load/unload, hardware
+  panel, recommended-model strip, installed-models table with fit + reliability
+  scores, in-catalog search/download.
+- **Diagnostics** — surfaces real errors/warnings for troubleshooting.
+- **About** — version info, hardware spec summary, and update status.
+
+## Auto-update
+
+Built on `electron-updater` against GitHub Releases (check → download →
+restart-and-install, each an explicit step, never silent). Currently
+disclosed-limited: the source repo is private, and a packaged build has no
+way to check a private repo's releases without embedding a token in every
+distributed copy — which Anodex deliberately does not do. Update checks fail
+closed (a caught, logged message, not a crash) until that's resolved (a
+public releases mirror, a small relay service, or making the repo public).
+
+## Privacy
+
+Local-first by design: model inference, conversations, projects, and
+settings all stay on your machine. The only network calls are ones you
+explicitly opt into (web search, fetching a URL the model was asked to read,
+downloading a model, or checking for app updates).
 
 ## Tech stack
 
-| Concern            | Choice                      | Why                                                            |
-| ------------------ | --------------------------- | -------------------------------------------------------------- |
-| Shell              | Electron                    | Native desktop, direct filesystem + Node access for the engine |
-| Build              | electron-vite + Vite        | Fast HMR, clean main/preload/renderer separation               |
-| UI                 | React 18 + TypeScript       | Familiar, typed, componentised                                 |
-| State              | Zustand (+ Immer)           | Minimal, ergonomic, no boilerplate                             |
-| Local model engine | node-llama-cpp              | Prebuilt N-API binaries → runs in Electron with no rebuild     |
-| Styling            | CSS Modules + design tokens | No framework dependency, full control over the visual identity |
+Electron + electron-vite, React 18 + TypeScript, Zustand for state,
+`node-llama-cpp` as the local inference engine, CSS Modules with a
+design-token theme (no CSS framework), Vitest + Playwright for testing.
 
 ## Getting started
 
 ```bash
-npm install       # installs deps (Electron + node-llama-cpp binaries)
-npm run dev        # launches Anodex with hot reload
+npm install   # installs deps, including node-llama-cpp's native binaries
+npm run dev   # launches Anodex with hot reload
 ```
 
-Other scripts:
+Load a model: **AI & Models → Recommended** to download one, or **Add
+model** to point at a `.gguf` file you already have. Once it shows "ready",
+start chatting.
 
-```bash
-npm run build         # type-check + production build into out/
-npm run typecheck     # type-check main + renderer without emitting
-npm run dist          # build + package installers via electron-builder
-npm run lint          # run ESLint on the whole project
-npm run lint:fix      # run ESLint and auto-fix issues
-npm run format        # format everything with Prettier
-npm run format:check  # check Prettier formatting without writing
-npm run test          # run Vitest unit tests
-npm run test:watch    # run Vitest in watch mode
-npm run test:e2e      # run Playwright E2E smoke tests (requires npm run build first)
-```
-
-### Development workflow
-
-Anodex uses ESLint + Prettier for code quality, Vitest for unit tests, and
-Playwright for E2E smoke tests. Husky + lint-staged run linting and formatting
-on every commit once the repo is initialised with `git init`.
-
-A GitHub Actions workflow in `.github/workflows/ci.yml` runs typecheck, lint,
-format checks, unit tests, and a production build on every push and PR.
-
-### Loading a model
-
-1. Obtain a `.gguf` model file (see the **Recommended** list in the Models tab for
-   good starting points, e.g. Qwen2.5 Coder 3B).
-2. Either use **Models → Add model** to pick the file, or drop it into the models
-   folder (**Models → Open models folder**) and press **Refresh**.
-3. Click **Load model**. Once the status badge turns green, start chatting.
-
-Models and settings are stored under Electron's `userData` directory
-(`Models → Open models folder`).
-
-## Architecture
-
-```
-src/
-├── main/                 # Electron main process (Node side)
-│   ├── index.ts          # App lifecycle & single-instance lock
-│   ├── window.ts         # BrowserWindow creation & security posture
-│   ├── llama/            # ★ The local model engine (first-class)
-│   │   ├── LlamaService.ts   # Model load/unload, sessions, streaming generation
-│   │   └── modelScanner.ts   # Discover .gguf files on disk
-│   ├── ipc/              # Typed IPC handlers, one file per domain
-│   ├── settings/         # Persisted settings (JSON in userData)
-│   ├── tools/            # AI assistant workspace tools
-│   │   ├── fileTools.ts      # read, search, info, range, batch reads
-│   │   ├── mutationTools.ts  # write, edit, delete, move
-│   │   ├── directoryTools.ts # create / delete directories
-│   │   ├── commandTools.ts   # run shell commands
-│   │   ├── gitTools.ts       # git status / diff
-│   │   ├── registry.ts       # builds the complete tool set
-│   │   ├── workspace.ts      # path confinement safety boundary
-│   │   └── helpers.ts        # activity emit + approval flow
-│   └── utils/            # Logger, helpers
-│
-├── preload/index.ts      # contextBridge → exposes typed `window.anodex`
-│
-├── shared/               # Types & contracts shared by both sides
-│   ├── ipc.ts            # Channel names + AnodexApi surface (source of truth)
-│   ├── result.ts         # Result<T> for errors that cross IPC
-│   ├── *.types.ts        # Model / chat / settings / system types
-│   └── recommendedModels.ts
-│
-└── renderer/             # React UI (browser side)
-    ├── components/        # Shared UI: shell, sidebar, logo, primitives
-    ├── features/          # Self-contained features
-    │   ├── chat/          # Transcript, composer, streaming, markdown-lite
-    │   ├── models/        # Catalogue, load/unload, recommendations
-    │   └── settings/      # Assistant, model, generation, storage, about
-    ├── stores/            # Zustand stores (chat, model, settings, ui)
-    ├── hooks/             # useAnodexBridge — wires IPC events to stores
-    ├── lib/               # anodex API accessor, formatting, ids
-    └── styles/            # theme.css (design tokens) + global.css
-```
-
-### Design principles
-
-- **The engine lives in the main process.** Heavy, Node-only work (llama.cpp)
-  never touches the renderer. The UI only ever talks through the typed bridge.
-- **One typed contract.** `src/shared/ipc.ts` defines every channel and the
-  `AnodexApi` shape. Main handlers and the preload bridge both conform to it, so
-  they can't drift.
-- **Errors don't throw across IPC.** Handlers return `Result<T>`; the renderer
-  branches on `ok`/`error` and surfaces friendly toasts.
-- **Features are self-contained.** Each feature folder owns its components and
-  styles, so the app grows by adding folders, not editing god-files.
-
-### AI workspace tools
-
-When a workspace folder is selected, the assistant gets a set of filesystem tools
-that are confined to that folder (`src/main/tools/workspace.ts` blocks any path
-that escapes it). Read-only tools (`list_directory`, `read_file`, `search_files`,
-`get_file_info`, `read_file_range`, `read_multiple_files`, `git_status`,
-`git_diff`) never require approval. The `fetch_url` web tool lets the assistant read public URLs it already knows
-about. The `web_search` tool turns a query into result titles, URLs, and
-snippets using a provider chosen in Settings:
-
-- **SearXNG** — self-hosted, unlimited, no API key.
-- **Brave Search** — 2,000 queries/month free.
-- **Tavily** — 1,000 API calls/month free.
-- **Google Programmable Search** — 100 queries/day free.
-
-When the provider is "none", `web_search` is not registered and cannot be called.
-Mutating tools (`write_file`, `edit_file`, `delete_file`, `move_file`,
-`delete_directory`, `run_command`) ask for approval when the "Require approval"
-setting is on. `create_directory` is a mutation but is treated as low-risk and
-does not require approval.
-
-#### Self-hosted SearXNG
-
-To use the free SearXNG provider, start the bundled Docker Compose file:
-
-```bash
-docker compose -f docker-compose.searxng.yml up -d
-```
-
-Then choose **SearXNG (self-hosted)** in Settings → Web Search. The default URL
-is `http://localhost:8080`.
-
-### How the local Llama system works
-
-1. **Lazy engine init.** `node-llama-cpp` is ESM-only and heavy, so
-   `LlamaService` imports it via dynamic `import()` on first use — the app starts
-   instantly and the main process stays CommonJS-compatible.
-2. **Load.** `LlamaService.loadModel()` calls `getLlama()` → `loadModel()` →
-   `createContext()`, replacing any previously loaded model and emitting state.
-3. **Chat.** For each turn, a `LlamaChatSession` is (re)used per conversation.
-   Prior turns are replayed on conversation switch so context is preserved.
-   Tokens stream back to the renderer over the `chat:stream` channel and the
-   invoke resolves with final stats.
-4. **Stop.** Each generation runs under an `AbortController`; the Stop button
-   aborts it and returns the partial text already produced.
-5. **State broadcast.** Any engine state change (`loading → ready → generating`)
-   is pushed to every window and reflected in the status badge instantly.
-
-## Where future features go
-
-| Feature                             | Where to build it                                                                                                                                                    |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **In-app model downloads**          | Add a `ModelDownloader` in `src/main/llama/`, consume `shared/recommendedModels.ts`, expose `models:download` in `shared/ipc.ts`, add progress events, then re-scan. |
-| **Conversation persistence**        | Add a `ConversationStore` in `src/main/` (JSON or SQLite); hydrate `chatStore` on launch. The store shape is already persistence-ready.                              |
-| **Remote providers** (OpenAI, etc.) | Introduce a `providers/` layer in main behind the same chat IPC; `ModelInfo.source` is already an enum for this.                                                     |
-| **Agents / tools**                  | Layer on top of `LlamaService` (node-llama-cpp supports function calling); add an `agents/` feature folder in the renderer.                                          |
-| **Coding workflows**                | New feature folder under `renderer/features/` (e.g. `workspace/`) reusing the chat engine.                                                                           |
-| **Light theme**                     | Override the tokens in `styles/theme.css`; the UI already references variables only.                                                                                 |
-
-## What to build next
-
-1. **In-app model downloads** with progress — turns the Recommended list into
-   one-click setup (the highest-leverage next step for "easy setup").
-2. **Conversation persistence** so chats survive restarts.
-3. **Syntax highlighting** in code blocks (drop a highlighter into `CodeBlock`).
-4. **Packaging & auto-update** via the existing `electron-builder.yml`.
+See `AGENTS.md` for architecture, conventions, and contribution details.
 
 ## License
 
-UNLICENSED — private project foundation.
+UNLICENSED — private project.
