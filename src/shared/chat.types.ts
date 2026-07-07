@@ -2,6 +2,7 @@
 
 import type { ToolCall } from './tools.types'
 import type { Plan } from './plan.types'
+import type { MemoryEntry } from './memory.types'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 
@@ -51,6 +52,8 @@ export interface ChatMessage {
   blocks?: MessageBlock[]
   /** Files the user dropped into the composer for this turn, for display only. */
   attachments?: ChatAttachment[]
+  /** Memory entries that were retrieved and injected into context for this turn, if any. */
+  memoryUsed?: MemoryEntry[]
 }
 
 /** Sampling parameters for a single generation. */
@@ -79,6 +82,8 @@ export interface ChatRequest {
   conversationId: string
   /** Assistant message id that streamed tokens should be routed to. */
   messageId: string
+  /** The project this generation belongs to, or null for a general chat. */
+  projectId?: string | null
   systemPrompt?: string
   history: ChatHistoryTurn[]
   prompt: string
@@ -118,4 +123,6 @@ export interface ChatResult {
   stats: GenerationStats
   /** True if the generation was stopped by the user before finishing. */
   stopped: boolean
+  /** Memory entries that were retrieved and injected into context for this turn, if any. */
+  memoryUsed?: MemoryEntry[]
 }

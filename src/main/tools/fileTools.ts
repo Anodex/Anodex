@@ -210,6 +210,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'read_file_range',
         kind: 'read',
         title: `Read ${args.path} lines ${args.startLine}-${args.endLine ?? '…'}`,
+        touch: { path: args.path, action: 'read' },
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const info = await stat(file)
@@ -252,11 +253,15 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
       },
       required: ['paths']
     } as const,
-    handler: (args: { paths: string[] }) =>
-      runReadTool(ctx, {
+    handler: (args: { paths: string[] }) => {
+      // Populated during run() and read afterward by runReadTool — only paths
+      // actually read successfully get recorded, not the whole requested batch.
+      const readTouches: { path: string; action: 'read' }[] = []
+      return runReadTool(ctx, {
         name: 'read_multiple_files',
         kind: 'read',
         title: `Read ${args.paths.length} file(s)`,
+        touch: readTouches,
         async run() {
           const paths = args.paths.slice(0, MAX_FILES_BATCH)
           const results: string[] = []
@@ -284,6 +289,7 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
               const content = await readFile(file, 'utf-8')
               totalBytes += content.length
               results.push(`--- ${relativePath} ---\n${content}`)
+              readTouches.push({ path: relativePath, action: 'read' })
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error)
               results.push(`--- ${relativePath} ---\nError: ${message}`)
@@ -295,6 +301,7 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
           }
         }
       })
+    }
   })
 
 /** Recursively scan text files, collecting matching lines (bounded). */

@@ -30,7 +30,9 @@ Rules:
 - Make one logical change at a time so mistakes are easy to trace.
 - If a tool call fails or a command errors, read the message and adapt — do not repeat the same failing action.
 - Be concise in chat; put the detail into the code and the final summary.
-- If you learn something durable about this project — a convention, a gotcha, a decision — call update_project_notes so a future session remembers it. Use it sparingly, not for routine narration.`
+- If you learn something durable about this project — a convention, a gotcha, a decision — call update_project_notes so a future session remembers it. Use it sparingly, not for routine narration.
+- If the user tells you something worth recalling in a later conversation — their name, a preference, how they like things communicated, a project convention or gotcha, an open task — call remember_fact right away, in that same turn. This applies outside coding tasks too: a plain "my name is X" or "I prefer Y" is exactly the kind of fact to save. If the user shares several distinct facts in one message (e.g. their name AND a preference), call remember_fact once per fact — do not fold multiple facts into one entry's text. Use kind 'identity' for who the user is, stated explicitly and literally, e.g. "The user's name is X.", not folded into an unrelated sentence, so a later direct question like "what's my name?" matches it. Use scope 'global' for anything about the user personally (recalled in every chat, with or without a project open); use scope 'project' only for something specific to this codebase. Use it sparingly — one clear fact per call, not routine narration — but do not skip it when the user has actually shared something durable.
+- Before saying you don't have persistent memory, access to personal information, or can't recall something about the user, check the Memory section below (if present) first — it lists facts you were explicitly told to remember, including things like the user's name. Only say you don't know if it's genuinely not listed there.`
 
 /** Appended when no workspace folder is selected (file/command tools are off). */
 export const NO_WORKSPACE_NOTE = `No workspace folder is selected, so file and command tools are unavailable this turn. You can still answer questions and use web tools. If the user wants you to read or change code, ask them to open a Project / select a workspace folder first.`
@@ -45,6 +47,8 @@ export interface SystemPromptParts {
   hasProject: boolean
   /** Auto-generated workspace summary (Phase 3), if any. */
   workspaceContext?: string | null
+  /** Retrieved structured-memory entries (project + global), if any and enabled. */
+  memoryContext?: string | null
   /** Per-project instructions (Phase 5), if any. */
   projectRules?: string | null
   /** Free-form user instructions from Settings → Assistant. */
@@ -59,6 +63,11 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
   else if (!parts.hasProject) sections.push(READ_ONLY_WORKSPACE_NOTE)
   if (parts.workspaceContext?.trim()) {
     sections.push(`# Workspace\n${parts.workspaceContext.trim()}`)
+  }
+  if (parts.memoryContext?.trim()) {
+    sections.push(
+      `# Memory\nFacts you were explicitly told to remember, selected as relevant to the current request — treat these as true and already known, including the user's name if listed. Use them directly to answer; do not claim you lack persistent memory or personal information about the user when the answer is right here.\n\n${parts.memoryContext.trim()}`
+    )
   }
   if (parts.projectRules?.trim()) {
     sections.push(`# Project instructions\n${parts.projectRules.trim()}`)

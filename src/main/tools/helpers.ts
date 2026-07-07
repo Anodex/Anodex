@@ -5,6 +5,7 @@ import type { Plan } from '@shared/plan.types'
 import type { ToolRuntimeContext } from './types'
 import { resolvePermission } from './permissions'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
+import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 
 /** Truncated tool output retained for cross-session memory. */
 const MAX_REMEMBERED_RESULT = 2000
@@ -60,8 +61,8 @@ interface ReadToolSpec {
   name: string
   kind: ToolKind
   title: string
-  /** When set and a project is active, records this path in project memory on success. */
-  touch?: FileTouch
+  /** When set and a project is active, records this (or these) path(s) in project memory on success. */
+  touch?: FileTouch | FileTouch[]
   run: () => Promise<ToolOutcome>
 }
 
@@ -118,10 +119,29 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   }
 }
 
-/** Record a file touch in project memory, if a project is active. */
-function recordTouch(ctx: ToolRuntimeContext, touch: FileTouch | undefined): void {
+/**
+ * Record a file touch (or several) in project memory, if a project is active.
+ * Normalizes the path against the workspace root first — the model can supply
+ * equivalent spellings of the same path (`./foo.ts`, `foo.ts`), which would
+ * otherwise create separate ledger entries for the same file.
+ */
+function recordTouch(ctx: ToolRuntimeContext, touch: FileTouch | FileTouch[] | undefined): void {
   if (!touch || !ctx.projectId) return
-  projectMemoryStore.recordTouch(ctx.projectId, touch.path, touch.action)
+  const projectId = ctx.projectId
+  const touches = Array.isArray(touch) ? touch : [touch]
+  for (const t of touches) {
+    projectMemoryStore.recordTouch(projectId, normalizeTouchPath(ctx, t.path), t.action)
+  }
+}
+
+/** Best-effort normalization; falls back to the raw path if it can't be resolved. */
+function normalizeTouchPath(ctx: ToolRuntimeContext, path: string): string {
+  if (!ctx.workspaceRoot) return path
+  try {
+    return toWorkspaceRelative(ctx.workspaceRoot, resolveInWorkspace(ctx.workspaceRoot, path))
+  } catch {
+    return path
+  }
 }
 
 /**

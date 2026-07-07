@@ -117,6 +117,7 @@ export const useChatStore = create<ChatState>()(
       const conversationId = get().activeId ?? get().newConversation()
       if (!conversationId) return
       const existing = get().conversations.find((c) => c.id === conversationId)
+      const projectId = existing?.projectId ?? null
       const history = (existing?.messages ?? []).map((m) => ({
         role: m.role,
         content: m.content,
@@ -153,6 +154,7 @@ export const useChatStore = create<ChatState>()(
       const result = await anodex.chat.send({
         conversationId,
         messageId: assistantId,
+        projectId,
         systemPrompt: settings?.ui.systemPrompt,
         history,
         prompt: buildPromptWithAttachments(trimmed, attachments),
@@ -174,6 +176,7 @@ export const useChatStore = create<ChatState>()(
         if (result.ok) {
           message.content = result.value.content
           message.stats = result.value.stats
+          if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
         } else {
           message.error = result.error.message
         }

@@ -11,6 +11,7 @@ import { createLogger } from '../utils/logger'
 import { settingsStore } from '../settings/SettingsStore'
 import { conversationStore } from '../conversations/ConversationStore'
 import { projectMemoryStore } from './ProjectMemoryStore'
+import { memoryStore } from '../memory/MemoryStore'
 
 const log = createLogger('projects')
 
@@ -91,6 +92,7 @@ class ProjectStore {
     }
     conversationStore.deleteByProject(id)
     projectMemoryStore.delete(id)
+    memoryStore.deleteAllForProject(id)
     this.persist(state)
   }
 

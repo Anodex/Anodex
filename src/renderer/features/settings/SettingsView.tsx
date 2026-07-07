@@ -16,10 +16,18 @@ import { AiModelsSettings } from './pages/ai-models/AiModelsSettings'
 import { DiagnosticsSettings } from './pages/diagnostics/DiagnosticsSettings'
 import { AboutSettings } from './pages/about/AboutSettings'
 import { ProjectsSettings } from './pages/projects/ProjectsSettings'
+import { MemorySettings } from './pages/memory/MemorySettings'
 import styles from './SettingsView.module.css'
 
 type SettingsSection =
-  'profile' | 'appearance' | 'general' | 'projects' | 'ai-models' | 'diagnostics' | 'about'
+  | 'profile'
+  | 'appearance'
+  | 'general'
+  | 'projects'
+  | 'memory'
+  | 'ai-models'
+  | 'diagnostics'
+  | 'about'
 
 interface NavItem {
   id: SettingsSection
@@ -32,6 +40,7 @@ const NAV: NavItem[] = [
   { id: 'appearance', label: 'Appearance', icon: <Icon name="palette" size={18} /> },
   { id: 'general', label: 'General', icon: <Icon name="sliders" size={18} /> },
   { id: 'projects', label: 'Projects', icon: <Icon name="folder" size={18} /> },
+  { id: 'memory', label: 'Memory', icon: <Icon name="layers" size={18} /> },
   { id: 'ai-models', label: 'AI & Models', icon: <Icon name="cpu" size={18} /> },
   { id: 'diagnostics', label: 'Diagnostics', icon: <Icon name="activity" size={18} /> },
   { id: 'about', label: 'About', icon: <Icon name="info" size={18} /> }
@@ -131,6 +140,7 @@ export function SettingsView(): JSX.Element {
               )}
               {section === 'about' && <AboutSettings />}
               {section === 'projects' && <ProjectsSettings />}
+              {section === 'memory' && <MemorySettings />}
               {section === 'general' && <GeneralToolsSection settings={settings} update={update} />}
             </div>
           </div>

@@ -1,7 +1,8 @@
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FileTouchAction } from '@shared/projectMemory.types'
 import { createDirectoryTool, deleteDirectoryTool } from '../directoryTools'
 import { deleteFileTool, moveFileTool } from '../mutationTools'
 import {
@@ -19,11 +20,21 @@ import {
   createMockDefine
 } from './test-helpers'
 
+const recordTouchMock = vi.fn<(projectId: string, path: string, action: FileTouchAction) => void>()
+
+vi.mock('../../projects/ProjectMemoryStore', () => ({
+  projectMemoryStore: {
+    recordTouch: (projectId: string, path: string, action: FileTouchAction) =>
+      recordTouchMock(projectId, path, action)
+  }
+}))
+
 describe('AI file tools', () => {
   let workspace: string
 
   beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), 'anodex-tools-'))
+    recordTouchMock.mockReset()
   })
 
   afterEach(async () => {
@@ -322,6 +333,18 @@ describe('AI file tools', () => {
       expect(returnedLines[0]).toBe('line 300')
       expect(returnedLines[199]).toBe('line 499')
     })
+
+    it('records a read touch in project memory', async () => {
+      await writeFile(join(workspace, 'lines.txt'), 'a\nb\nc')
+      const ctx = { ...createMockContext(workspace), projectId: 'project-1' }
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number }) => Promise<string>
+      }
+
+      await tool.handler({ path: 'lines.txt', startLine: 1 })
+
+      expect(recordTouchMock).toHaveBeenCalledWith('project-1', 'lines.txt', 'read')
+    })
   })
 
   describe('read_multiple_files', () => {
@@ -338,6 +361,21 @@ describe('AI file tools', () => {
       expect(result).toContain('first')
       expect(result).toContain('second')
       expect(result).toContain('Error:')
+    })
+
+    it('records a touch for each successfully-read path, but not for a missing one', async () => {
+      await writeFile(join(workspace, 'one.txt'), 'first')
+      await writeFile(join(workspace, 'two.txt'), 'second')
+      const ctx = { ...createMockContext(workspace), projectId: 'project-1' }
+      const tool = readMultipleFilesTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { paths: string[] }) => Promise<string>
+      }
+
+      await tool.handler({ paths: ['one.txt', 'missing.txt', 'two.txt'] })
+
+      expect(recordTouchMock).toHaveBeenCalledTimes(2)
+      expect(recordTouchMock).toHaveBeenCalledWith('project-1', 'one.txt', 'read')
+      expect(recordTouchMock).toHaveBeenCalledWith('project-1', 'two.txt', 'read')
     })
   })
 })

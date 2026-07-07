@@ -22,6 +22,7 @@ import { fetchUrlTool } from './webTools'
 import { webSearchTool } from './webSearchTools'
 import { writePlanTool, updatePlanStepTool } from './planTools'
 import { updateProjectNotesTool } from './projectNotesTool'
+import { rememberFactTool } from './memoryTool'
 
 /**
  * Read-only workspace tools — available whenever a workspace folder is
@@ -55,6 +56,15 @@ const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   run_command: runCommandTool,
   update_project_notes: updateProjectNotesTool
 }
+
+/**
+ * A general (non-project) chat has no workspace or project to scope a fact
+ * to, but the user can still share something worth remembering globally (e.g.
+ * their name) — so `remember_fact` is NOT gated behind `ctx.workspaceRoot`/
+ * `ctx.projectId` like the tools above. It resolves its own scope at call
+ * time (see `resolveMemoryScope` in `memoryTool.ts`), honoring whichever
+ * memory toggle(s) are on.
+ */
 
 /** Tools that need no workspace (always available when tools are enabled). */
 const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
@@ -99,6 +109,13 @@ export function buildTools(
 
   if (ctx.webSearch.provider !== 'none') {
     tools.web_search = webSearchTool(define, ctx)
+  }
+
+  // Available in every chat, project or not — see the comment on
+  // `PROJECT_WORKSPACE_FACTORIES` above. Disappears entirely only when both
+  // memory scopes are turned off.
+  if (ctx.memory.crossChatEnabled || ctx.memory.personalEnabled) {
+    tools.remember_fact = rememberFactTool(define, ctx)
   }
 
   return tools

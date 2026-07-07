@@ -31,6 +31,8 @@ export interface ToolRuntimeContext {
   permissionMode: PermissionMode
   /** Web search configuration used by the web_search tool. */
   webSearch: WebSearchSettings
+  /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
+  memory: { crossChatEnabled: boolean; personalEnabled: boolean }
   /**
    * Mutable holder for the conversation's current plan, shared by every tool
    * call in this generation — `write_plan` sets it, `update_plan_step` reads

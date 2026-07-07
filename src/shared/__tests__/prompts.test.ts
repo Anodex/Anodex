@@ -19,4 +19,23 @@ describe('composeSystemPrompt', () => {
     expect(prompt).not.toContain(READ_ONLY_WORKSPACE_NOTE)
     expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
   })
+
+  it('omits the Memory section when there is no retrieved memory context', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
+    expect(prompt).not.toContain('# Memory')
+  })
+
+  it('includes retrieved memory context under its own section, between Workspace and Project instructions', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      workspaceContext: 'Name: anodex',
+      memoryContext: '- [convention] Uses pnpm, not npm. (project)',
+      projectRules: 'Run pnpm test after changes.'
+    })
+    expect(prompt).toContain('# Memory')
+    expect(prompt).toContain('Uses pnpm, not npm.')
+    expect(prompt.indexOf('# Workspace')).toBeLessThan(prompt.indexOf('# Memory'))
+    expect(prompt.indexOf('# Memory')).toBeLessThan(prompt.indexOf('# Project instructions'))
+  })
 })

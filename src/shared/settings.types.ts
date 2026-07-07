@@ -144,6 +144,22 @@ export interface DiagnosticSettings {
   verbose: boolean
 }
 
+export interface MemorySettings {
+  /**
+   * "Cross-chat memory" — recall/write project-scoped memories (conventions,
+   * gotchas, open tasks) so they carry over between separate conversations in
+   * the same project. Turning this off stops both retrieval and the
+   * `remember_fact` tool for project scope; existing entries are kept, not deleted.
+   */
+  crossChatEnabled: boolean
+  /**
+   * "Personal memory" — recall/write global memories (user preferences) that
+   * follow across every project. Turning this off stops retrieval of global
+   * entries; existing entries are kept, not deleted.
+   */
+  personalEnabled: boolean
+}
+
 export interface AppSettings {
   /** Directory scanned for `.gguf` model files. */
   modelsDirectory: string
@@ -161,6 +177,7 @@ export interface AppSettings {
   tools: ToolSettings
   webSearch: WebSearchSettings
   diagnostics: DiagnosticSettings
+  memory: MemorySettings
 }
 
 /** Recursive partial used for settings patches over IPC. */

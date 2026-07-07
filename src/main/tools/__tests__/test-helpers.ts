@@ -26,6 +26,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
       resultCount: 5,
       requireApproval: false
     },
+    memory: { crossChatEnabled: true, personalEnabled: true },
     plan: { current: null },
     emit: () => {},
     confirm: () => Promise.resolve({ approved: true })

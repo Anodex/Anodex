@@ -5,6 +5,7 @@ import { useSettingsStore } from '../../../../stores/settingsStore'
 import { anodex } from '../../../../lib/anodex'
 import { Icon } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
+import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { TextControl } from '../../controls'
 import styles from './ProjectsSettings.module.css'
 
@@ -21,6 +22,7 @@ export function ProjectsSettings(): JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [instructionsDraft, setInstructionsDraft] = useState('')
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null)
 
   useEffect(() => {
     setInstructionsDraft(activeProject?.instructions ?? '')
@@ -46,15 +48,12 @@ export function ProjectsSettings(): JSX.Element {
     setEditingId(null)
   }
 
-  const handleDelete = async (id: string): Promise<void> => {
-    if (
-      !confirmDestructive ||
-      confirm(
-        'Delete this project? Chats for this project will be removed from the current session.'
-      )
-    ) {
-      await remove(id)
+  const handleDelete = (project: Project): void => {
+    if (!confirmDestructive) {
+      void remove(project.id)
+      return
     }
+    setDeletingProject(project)
   }
 
   return (
@@ -128,7 +127,7 @@ export function ProjectsSettings(): JSX.Element {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => void handleDelete(project.id)}
+                    onClick={() => handleDelete(project)}
                     disabled={projects.length === 1}
                   >
                     Delete
@@ -179,6 +178,20 @@ export function ProjectsSettings(): JSX.Element {
             </div>
           </div>
         </section>
+      )}
+
+      {deletingProject && (
+        <ConfirmDialog
+          title="Delete project?"
+          message="Chats for this project will be removed from the current session."
+          detail={deletingProject.name}
+          confirmLabel="Delete"
+          onCancel={() => setDeletingProject(null)}
+          onConfirm={() => {
+            void remove(deletingProject.id)
+            setDeletingProject(null)
+          }}
+        />
       )}
     </div>
   )

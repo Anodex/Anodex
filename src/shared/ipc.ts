@@ -38,6 +38,12 @@ import type { WorkspaceFileContent } from './workspaceFileContent.types'
 import type { ToastContent } from './toast.types'
 import type { UpdateStatus } from './update.types'
 import type { ChartGranularity, ChartRange, UsageBreakdown, UsageProfile } from './stats.types'
+import type {
+  CreateMemoryRequest,
+  MemoryEntry,
+  MemoryScope,
+  UpdateMemoryRequest
+} from './memory.types'
 
 export const IpcChannel = {
   Models: {
@@ -138,6 +144,20 @@ export const IpcChannel = {
   Stats: {
     getUsageProfile: 'stats:get-usage-profile',
     getUsageBreakdown: 'stats:get-usage-breakdown'
+  },
+  Memory: {
+    list: 'memory:list',
+    create: 'memory:create',
+    update: 'memory:update',
+    delete: 'memory:delete'
+  },
+  Terminal: {
+    create: 'terminal:create',
+    write: 'terminal:write',
+    resize: 'terminal:resize',
+    kill: 'terminal:kill',
+    data: 'terminal:data',
+    exit: 'terminal:exit'
   }
 } as const
 
@@ -265,5 +285,26 @@ export interface AnodexApi {
     getUsageProfile(): Promise<Result<UsageProfile>>
     /** Per-model token breakdown + a chart-ready series for a given time range/granularity. */
     getUsageBreakdown(range: ChartRange, granularity: ChartGranularity): Promise<Result<UsageBreakdown>>
+  }
+  memory: {
+    /** Every memory visible for `projectId` — its own project-scoped entries plus every global one. */
+    list(projectId: string | null): Promise<Result<MemoryEntry[]>>
+    create(request: CreateMemoryRequest): Promise<Result<MemoryEntry>>
+    update(scope: MemoryScope, id: string, patch: UpdateMemoryRequest): Promise<Result<MemoryEntry>>
+    delete(scope: MemoryScope, id: string): Promise<Result<void>>
+  }
+  terminal: {
+    /** Start a new shell session; returns the session ID. */
+    create(): Promise<Result<string>>
+    /** Write data to a shell session's stdin. */
+    write(sessionId: string, data: string): Promise<void>
+    /** Resize the pseudo-terminal. */
+    resize(sessionId: string, cols: number, rows: number): Promise<void>
+    /** Kill a shell session. */
+    kill(sessionId: string): Promise<void>
+    /** Listen for output from a terminal session. */
+    onData(listener: (payload: { sessionId: string; data: string }) => void): () => void
+    /** Listen for a terminal session exiting. */
+    onExit(listener: (payload: { sessionId: string }) => void): () => void
   }
 }

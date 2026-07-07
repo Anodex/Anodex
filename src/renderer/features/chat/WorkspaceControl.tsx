@@ -1,4 +1,7 @@
+import { useMemo } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useChatStore } from '../../stores/chatStore'
+import { useProjectStore } from '../../stores/projectStore'
 import { Icon } from '../../components/Icon'
 import styles from './WorkspaceControl.module.css'
 
@@ -18,8 +21,16 @@ function baseName(path: string): string {
  * → Projects), not a chat one, so editing always happens somewhere organized.
  */
 export function WorkspaceControl(): JSX.Element | null {
-  const root = useSettingsStore((s) => s.settings?.workspace.root ?? null)
   const toolsEnabled = useSettingsStore((s) => s.settings?.tools.enabled ?? true)
+  const activeConversationId = useChatStore((s) => s.activeId)
+  const conversations = useChatStore((s) => s.conversations)
+  const projects = useProjectStore((s) => s.projects)
+
+  const root = useMemo(() => {
+    const conversation = conversations.find((c) => c.id === activeConversationId)
+    if (!conversation?.projectId) return null
+    return projects.find((p) => p.id === conversation.projectId)?.folderPath ?? null
+  }, [activeConversationId, conversations, projects])
 
   if (!toolsEnabled || !root) return null
 

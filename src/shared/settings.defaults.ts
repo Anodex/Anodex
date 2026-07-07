@@ -88,6 +88,10 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       maxEntries: 250,
       clearOnRestart: true,
       verbose: false
+    },
+    memory: {
+      crossChatEnabled: true,
+      personalEnabled: true
     }
   }
 }

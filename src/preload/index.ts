@@ -109,6 +109,21 @@ const api: AnodexApi = {
     getUsageProfile: () => ipcRenderer.invoke(IpcChannel.Stats.getUsageProfile),
     getUsageBreakdown: (range, granularity) =>
       ipcRenderer.invoke(IpcChannel.Stats.getUsageBreakdown, range, granularity)
+  },
+  memory: {
+    list: (projectId) => ipcRenderer.invoke(IpcChannel.Memory.list, projectId),
+    create: (request) => ipcRenderer.invoke(IpcChannel.Memory.create, request),
+    update: (scope, id, patch) => ipcRenderer.invoke(IpcChannel.Memory.update, scope, id, patch),
+    delete: (scope, id) => ipcRenderer.invoke(IpcChannel.Memory.delete, scope, id)
+  },
+  terminal: {
+    create: () => ipcRenderer.invoke(IpcChannel.Terminal.create),
+    write: (sessionId, data) => ipcRenderer.invoke(IpcChannel.Terminal.write, sessionId, data),
+    resize: (sessionId, cols, rows) =>
+      ipcRenderer.invoke(IpcChannel.Terminal.resize, sessionId, cols, rows),
+    kill: (sessionId) => ipcRenderer.invoke(IpcChannel.Terminal.kill, sessionId),
+    onData: (listener) => subscribe<{ sessionId: string; data: string }>(IpcChannel.Terminal.data, listener),
+    onExit: (listener) => subscribe<{ sessionId: string }>(IpcChannel.Terminal.exit, listener)
   }
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildTools } from '../registry'
 import { createMockContext, createMockDefine } from './test-helpers'
 
-const MUTATING_TOOLS = [
+const PROJECT_WORKSPACE_TOOLS = [
   'write_file',
   'edit_file',
   'delete_file',
@@ -30,23 +30,67 @@ describe('buildTools', () => {
     const tools = buildTools(createMockDefine(), ctx)
 
     for (const name of READ_ONLY_WORKSPACE_TOOLS) expect(tools).toHaveProperty(name)
-    for (const name of MUTATING_TOOLS) expect(tools).not.toHaveProperty(name)
+    for (const name of PROJECT_WORKSPACE_TOOLS) expect(tools).not.toHaveProperty(name)
   })
 
-  it('registers mutating tools too once a project is open', () => {
+  it('registers project-workspace tools too once a project is open', () => {
     const ctx = { ...createMockContext('/workspace'), projectId: 'project-1' }
     const tools = buildTools(createMockDefine(), ctx)
 
     for (const name of READ_ONLY_WORKSPACE_TOOLS) expect(tools).toHaveProperty(name)
-    for (const name of MUTATING_TOOLS) expect(tools).toHaveProperty(name)
+    for (const name of PROJECT_WORKSPACE_TOOLS) expect(tools).toHaveProperty(name)
   })
 
   it('registers no workspace tools at all without a workspace root, project or not', () => {
     const ctx = { ...createMockContext('/workspace'), workspaceRoot: null, projectId: 'project-1' }
     const tools = buildTools(createMockDefine(), ctx)
 
-    for (const name of [...READ_ONLY_WORKSPACE_TOOLS, ...MUTATING_TOOLS]) {
+    for (const name of [...READ_ONLY_WORKSPACE_TOOLS, ...PROJECT_WORKSPACE_TOOLS]) {
       expect(tools).not.toHaveProperty(name)
     }
+  })
+
+  it('registers remember_fact even in a plain general chat with no workspace or project', () => {
+    // The bug this guards against: remember_fact used to require an open
+    // project, so a casual "my name is X" in a general chat had nowhere to
+    // go. It must be available regardless of workspace/project state.
+    const ctx = { ...createMockContext('/workspace'), workspaceRoot: null, projectId: null }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('remember_fact')
+  })
+
+  it('keeps remember_fact when only cross-chat memory is on', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      memory: { crossChatEnabled: true, personalEnabled: false }
+    }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('remember_fact')
+  })
+
+  it('keeps remember_fact when only personal memory is on', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: null,
+      memory: { crossChatEnabled: false, personalEnabled: true }
+    }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('remember_fact')
+  })
+
+  it('omits remember_fact only when both memory scopes are off, keeping other project tools', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      memory: { crossChatEnabled: false, personalEnabled: false }
+    }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).not.toHaveProperty('remember_fact')
+    expect(tools).toHaveProperty('update_project_notes')
   })
 })
