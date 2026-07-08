@@ -43,17 +43,6 @@ export function MessageBubble({ message }: { message: ChatMessage }): JSX.Elemen
         </div>
 
         <div className={styles.bubble}>
-          {showCopy && (
-            <button
-              type="button"
-              className={styles.copyButton}
-              onClick={() => void handleCopy()}
-              aria-label="Copy message"
-            >
-              <Icon name={copied ? 'check' : 'copy'} size={13} />
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          )}
           {message.attachments && message.attachments.length > 0 && (
             <div className={styles.attachments}>
               {message.attachments.map((attachment) => (
@@ -98,11 +87,26 @@ export function MessageBubble({ message }: { message: ChatMessage }): JSX.Elemen
           )}
         </div>
 
-        {message.stats && !message.streaming && (
-          <div className={styles.stats}>
-            {message.stats.tokens} tokens · {message.stats.tokensPerSecond} tok/s
+        {(message.stats && !message.streaming) || showCopy ? (
+          <div className={styles.footer}>
+            {message.stats && !message.streaming && (
+              <span className={styles.stats}>
+                {message.stats.tokens} tokens · {message.stats.tokensPerSecond} tok/s
+              </span>
+            )}
+            {showCopy && (
+              <button
+                type="button"
+                className={styles.copyButton}
+                onClick={() => void handleCopy()}
+                aria-label="Copy message"
+              >
+                <Icon name={copied ? 'check' : 'copy'} size={12} />
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            )}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )
