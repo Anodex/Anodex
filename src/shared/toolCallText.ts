@@ -60,8 +60,52 @@ function extractCandidates(text: string): Candidate[] {
       candidates.push({ matchedText: trimmedLine, jsonText: trimmedLine })
     }
   }
+  const trailingJson = extractTrailingJsonObject(text)
+  if (trailingJson) candidates.push(trailingJson)
 
   return candidates
+}
+
+function extractTrailingJsonObject(text: string): Candidate | null {
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] !== '{') continue
+    const end = balancedJsonObjectEnd(text, index)
+    if (end === -1 || text.slice(end).trim()) continue
+    const matchedText = text.slice(index, end)
+    return { matchedText, jsonText: matchedText }
+  }
+  return null
+}
+
+function balancedJsonObjectEnd(text: string, start: number): number {
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = start; index < text.length; index++) {
+    const char = text[index]
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+    } else if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) return index + 1
+    }
+  }
+
+  return -1
 }
 
 function tryParseToolCallJson(

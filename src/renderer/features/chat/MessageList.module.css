@@ -56,7 +56,8 @@
   border: none;
   border-radius: 999px;
   opacity: 1;
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
   transition:
     width 120ms ease,
     background 120ms ease,
@@ -86,8 +87,9 @@
 .userRailPreview {
   position: absolute;
   left: 32px;
-  width: 260px;
-  max-width: min(260px, calc(100vw - var(--sidebar-width, 248px) - 80px));
+  width: 318px;
+  max-width: min(318px, calc(100vw - var(--sidebar-width, 248px) - 80px));
+  min-height: 128px;
   padding: var(--space-3);
   transform: translateY(-50%);
   color: var(--text);
@@ -102,16 +104,65 @@
   display: block;
   overflow: hidden;
   font-size: var(--text-sm);
+  font-weight: 700;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.userRailPreview span {
-  display: block;
+.userRailResponse {
+  display: -webkit-box;
   margin-top: var(--space-1);
+  margin-bottom: 0;
+  overflow: hidden;
   font-size: var(--text-xs);
+  line-height: 1.5;
   color: var(--text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.userRailMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.userRailMeta > span {
+  flex-shrink: 0;
+}
+
+.userRailFiles {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.userRailFile {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 112px;
+  color: var(--text-muted);
+}
+
+.userRailFile span {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userRailMore {
+  flex-shrink: 0;
+  color: var(--text-faint);
 }
 
 @container (max-width: 700px) {

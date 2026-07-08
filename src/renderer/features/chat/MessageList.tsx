@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
 import { MessageBubble } from './MessageBubble'
+import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
 import styles from './MessageList.module.css'
@@ -12,11 +13,14 @@ const RAIL_GAP = 14
 const RAIL_MAX_WIDTH = 18
 const RAIL_MIN_WIDTH = 4
 const RAIL_MOUSE_RADIUS = 100
+const PREVIEW_HEIGHT = 154
 
 interface UserMarker {
   message: ChatMessage
   top: number
   active: boolean
+  responsePreview: string
+  editedFiles: string[]
 }
 
 /** Scrollable transcript that follows streaming output unless the user scrolls up. */
@@ -39,6 +43,8 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
       message,
       offsetTop: messageRefs.current[message.id]?.offsetTop ?? 0
     }))
+    const railHeight = Math.max(1, el.clientHeight - RAIL_TOP_OFFSET * 2)
+    const markerGap = entries.length > 1 ? Math.min(RAIL_GAP, railHeight / (entries.length - 1)) : 0
     let activeId = entries[0]?.message.id
     for (const entry of entries) {
       if (entry.offsetTop <= currentAnchor) activeId = entry.message.id
@@ -48,8 +54,9 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
     setUserMarkers(
       entries.map(({ message }, index) => ({
         message,
-        top: RAIL_TOP_OFFSET + index * RAIL_GAP,
-        active: message.id === activeId
+        top: RAIL_TOP_OFFSET + index * markerGap,
+        active: message.id === activeId,
+        ...previewContextForMessage(messages, message)
       }))
     )
   }, [messages])
@@ -124,10 +131,7 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
         </div>
       </div>
       {userMarkers.length > 0 && (
-        <UserScrollRail
-          markers={userMarkers}
-          onSelect={scrollToMessage}
-        />
+        <UserScrollRail markers={userMarkers} onSelect={scrollToMessage} />
       )}
       {showJumpButton && (
         <button
@@ -150,18 +154,26 @@ interface UserScrollRailProps {
   onSelect: (messageId: string) => void
 }
 
-function UserScrollRail({
-  markers,
-  onSelect
-}: UserScrollRailProps): JSX.Element {
+function UserScrollRail({ markers, onSelect }: UserScrollRailProps): JSX.Element {
+  const railRef = useRef<HTMLDivElement>(null)
   const [mouseY, setMouseY] = useState<number | null>(null)
-  const previewRef = useRef<HTMLDivElement>(null)
-  const hoveredMarker = mouseY !== null
-    ? markers.reduce((closest, marker) => {
-        if (!closest) return marker
-        return Math.abs(marker.top - mouseY) < Math.abs(closest.top - mouseY) ? marker : closest
-      }, null as UserMarker | null)
-    : null
+  const hoveredMarker =
+    mouseY !== null
+      ? markers.reduce(
+          (closest, marker) => {
+            if (!closest) return marker
+            return Math.abs(marker.top - mouseY) < Math.abs(closest.top - mouseY) ? marker : closest
+          },
+          null as UserMarker | null
+        )
+      : null
+  const railHeight = railRef.current?.clientHeight ?? window.innerHeight
+  const previewTop = hoveredMarker
+    ? Math.max(
+        PREVIEW_HEIGHT / 2 + 8,
+        Math.min(hoveredMarker.top, railHeight - PREVIEW_HEIGHT / 2 - 8)
+      )
+    : 0
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -178,8 +190,14 @@ function UserScrollRail({
     onSelect(hoveredMarker.message.id)
   }
 
+  const selectMarker = (messageId: string): void => {
+    onSelect(messageId)
+    setMouseY(null)
+  }
+
   return (
     <div
+      ref={railRef}
       className={styles.userRail}
       aria-label="User message quick scroll"
       onPointerMove={handlePointerMove}
@@ -196,35 +214,100 @@ function UserScrollRail({
           styles.userRailMarker,
           marker.active ? styles.userRailMarkerActive : '',
           isHovered && !marker.active ? styles.userRailMarkerHovered : ''
-        ].filter(Boolean).join(' ')
+        ]
+          .filter(Boolean)
+          .join(' ')
         return (
-          <div
+          <button
             key={marker.message.id}
+            type="button"
             className={markerClass}
             style={{ top: marker.top, width }}
-            aria-hidden="true"
+            onClick={(event) => {
+              event.stopPropagation()
+              selectMarker(marker.message.id)
+            }}
+            onFocus={() => setMouseY(marker.top)}
+            onBlur={() => setMouseY(null)}
+            aria-label={`Scroll to your message from ${formatClock(marker.message.createdAt)}`}
           />
         )
       })}
       {hoveredMarker && (
-        <div
-          ref={previewRef}
-          className={styles.userRailPreview}
-          style={{ top: hoveredMarker.top }}
-        >
-          <strong>{previewText(hoveredMarker.message)}</strong>
-          <span>{formatClock(hoveredMarker.message.createdAt)}</span>
+        <div className={styles.userRailPreview} style={{ top: previewTop }}>
+          <strong>{previewText(hoveredMarker.message, 84)}</strong>
+          {hoveredMarker.responsePreview && (
+            <p className={styles.userRailResponse}>{hoveredMarker.responsePreview}</p>
+          )}
+          <div className={styles.userRailMeta}>
+            <span>{formatClock(hoveredMarker.message.createdAt)}</span>
+            {hoveredMarker.editedFiles.length > 0 && (
+              <div className={styles.userRailFiles} aria-label="Edited files">
+                {hoveredMarker.editedFiles.slice(0, 2).map((file) => (
+                  <span key={file} className={styles.userRailFile} title={file}>
+                    <FileTypeIcon fileName={file} size={13} />
+                    <span>{fileName(file)}</span>
+                  </span>
+                ))}
+                {hoveredMarker.editedFiles.length > 2 && (
+                  <span className={styles.userRailMore}>
+                    +{hoveredMarker.editedFiles.length - 2}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-function previewText(message: ChatMessage): string {
+function previewContextForMessage(
+  messages: ChatMessage[],
+  userMessage: ChatMessage
+): Pick<UserMarker, 'responsePreview' | 'editedFiles'> {
+  const startIndex = messages.findIndex((message) => message.id === userMessage.id)
+  const following = startIndex >= 0 ? messages.slice(startIndex + 1) : []
+  const replyMessages = []
+  for (const message of following) {
+    if (message.role === 'user') break
+    if (message.role === 'assistant') replyMessages.push(message)
+  }
+
+  const responsePreview = previewText(
+    replyMessages.find((message) => message.content)?.content ?? '',
+    128
+  )
+  const editedFiles = Array.from(
+    new Set(
+      replyMessages.flatMap((message) =>
+        (message.toolCalls ?? [])
+          .map((call) => call.diff?.path)
+          .filter((path): path is string => Boolean(path))
+      )
+    )
+  )
+
+  return { responsePreview, editedFiles }
+}
+
+function previewText(messageOrText: ChatMessage | string, maxLength = 72): string {
+  if (typeof messageOrText === 'string') {
+    const content = messageOrText.replace(/\s+/g, ' ').trim()
+    if (!content) return ''
+    return content.length > maxLength ? `${content.slice(0, maxLength)}...` : content
+  }
+
+  const message = messageOrText
   const content = message.content.replace(/\s+/g, ' ').trim()
-  if (content) return content.length > 72 ? `${content.slice(0, 72)}...` : content
+  if (content) return content.length > maxLength ? `${content.slice(0, maxLength)}...` : content
   const attachmentCount = message.attachments?.length ?? 0
   if (attachmentCount === 1) return `Attached ${message.attachments?.[0]?.name ?? 'a file'}`
   if (attachmentCount > 1) return `Attached ${attachmentCount} files`
   return 'Empty message'
+}
+
+function fileName(path: string): string {
+  return path.split(/[/\\]/).pop() ?? path
 }

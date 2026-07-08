@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { Conversation } from '@shared/conversation.types'
-import type { ToolActivityEvent } from '@shared/tools.types'
+import { TOOL_CATALOG, type ToolActivityEvent } from '@shared/tools.types'
+import { stripToolCallText } from '@shared/toolCallText'
 import { anodex } from '../lib/anodex'
 import { createId } from '../lib/id'
 import { notifyError, useUiStore } from './uiStore'
@@ -229,6 +230,14 @@ export const useChatStore = create<ChatState>()(
           )
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
         } else {
+          const toolNames = TOOL_CATALOG.map((tool) => tool.name)
+          message.content = stripToolCallText(message.content, new Set(toolNames))
+          message.blocks = reconcileMessageBlocks(
+            message.blocks,
+            message.content,
+            message.toolCalls,
+            toolNames
+          )
           message.error = result.error.message
         }
         convo.updatedAt = Date.now()

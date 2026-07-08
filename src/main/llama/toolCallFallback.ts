@@ -84,8 +84,52 @@ function extractCandidates(text: string): Candidate[] {
       candidates.push({ matchedText: trimmedLine, jsonText: trimmedLine })
     }
   }
+  const trailingJson = extractTrailingJsonObject(text)
+  if (trailingJson) candidates.push(trailingJson)
 
   return candidates
+}
+
+function extractTrailingJsonObject(text: string): Candidate | null {
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] !== '{') continue
+    const end = balancedJsonObjectEnd(text, index)
+    if (end === -1 || text.slice(end).trim()) continue
+    const matchedText = text.slice(index, end)
+    return { matchedText, jsonText: matchedText }
+  }
+  return null
+}
+
+function balancedJsonObjectEnd(text: string, start: number): number {
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = start; index < text.length; index++) {
+    const char = text[index]
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+    } else if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) return index + 1
+    }
+  }
+
+  return -1
 }
 
 /** Strictly parse `{"name": string, "arguments": object}`; anything else is not a tool call. */
@@ -126,6 +170,33 @@ function parseJsonLoosely(text: string): unknown {
 /** Remove a detected fallback call from the response, leaving only the model's natural-language commentary. */
 export function stripFallbackCall(text: string, call: FallbackToolCall): string {
   return text.replace(call.matchedText, '').trim()
+}
+
+/**
+ * Earliest point where streamed assistant text might be starting a raw tool
+ * payload. The caller can stream everything before this point and hold the
+ * rest until fallback detection has the complete response.
+ */
+export function findPotentialToolCallTextStart(text: string): number {
+  const starts = [
+    text.indexOf('<tool_call'),
+    text.indexOf('```json'),
+    text.indexOf('```\n{'),
+    text.indexOf('``` \n{'),
+    findToolishJsonStart(text)
+  ].filter((index) => index >= 0)
+
+  return starts.length > 0 ? Math.min(...starts) : -1
+}
+
+function findToolishJsonStart(text: string): number {
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] !== '{') continue
+    const previous = index === 0 ? '' : text[index - 1]
+    if (previous && !/\s/.test(previous)) continue
+    return index
+  }
+  return -1
 }
 
 /** Language claiming a file change was made, checked only near the end of a reply. */

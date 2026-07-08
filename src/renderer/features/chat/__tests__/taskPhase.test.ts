@@ -143,7 +143,18 @@ describe('messageBlocks', () => {
 
   it('returns the live blocks when present', () => {
     const blocks: MessageBlock[] = [textBlock('hi')]
-    expect(messageBlocks(message({ blocks, content: 'hi' }))).toBe(blocks)
+    expect(messageBlocks(message({ blocks, content: 'hi' }))).toEqual(blocks)
+  })
+
+  it('strips raw tool-call payloads from persisted text blocks', () => {
+    const blocks: MessageBlock[] = [
+      textBlock(
+        'I will patch this now. {"name": "patch_file", "arguments": {"path": "app.css", "replacements": []}}'
+      )
+    ]
+    expect(messageBlocks(message({ blocks }))).toEqual([
+      { type: 'text', text: 'I will patch this now.' }
+    ])
   })
 
   it('falls back to tools-then-text for messages persisted before blocks existed', () => {

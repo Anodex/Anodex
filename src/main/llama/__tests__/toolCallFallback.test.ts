@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   detectFallbackToolCall,
+  findPotentialToolCallTextStart,
   looksLikeFabricatedOutcome,
   looksLikeUnactedIntent,
   stripFallbackCall
@@ -54,6 +55,15 @@ describe('detectFallbackToolCall', () => {
     expect(call?.name).toBe('list_directory')
   })
 
+  it('detects a trailing embedded JSON call after prose', () => {
+    const text =
+      'Let me patch that now. {"name": "write_file", "arguments": {"path": "a.txt", "content": "hi"}}'
+    const call = detectFallbackToolCall(text, TOOLS)
+    expect(call?.name).toBe('write_file')
+    expect(call?.arguments).toEqual({ path: 'a.txt', content: 'hi' })
+    expect(stripFallbackCall(text, call!)).toBe('Let me patch that now.')
+  })
+
   it('ignores a call to a tool name that is not registered', () => {
     const text = '<tool_call>{"name": "delete_everything", "arguments": {}}</tool_call>'
     expect(detectFallbackToolCall(text, TOOLS)).toBeNull()
@@ -81,6 +91,17 @@ describe('detectFallbackToolCall', () => {
     const text = '<tool_call>{"name": "list_directory"}</tool_call>'
     const call = detectFallbackToolCall(text, TOOLS)
     expect(call?.arguments).toEqual({})
+  })
+})
+
+describe('findPotentialToolCallTextStart', () => {
+  it('returns the beginning of trailing raw JSON so streaming can hold it', () => {
+    const text = 'I will update the CSS now. {"name": "write_file"'
+    expect(findPotentialToolCallTextStart(text)).toBe('I will update the CSS now. '.length)
+  })
+
+  it('returns -1 for ordinary prose', () => {
+    expect(findPotentialToolCallTextStart('I will update the CSS now.')).toBe(-1)
   })
 })
 

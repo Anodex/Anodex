@@ -11,13 +11,17 @@ import { stripToolCallText } from '@shared/toolCallText'
 export function reconcileMessageBlocks(
   blocks: MessageBlock[] | undefined,
   finalContent: string,
-  toolCalls: ToolCall[] | undefined
+  toolCalls: ToolCall[] | undefined,
+  extraToolNames: readonly string[] = []
 ): MessageBlock[] | undefined {
   if (!blocks?.length) {
     return finalContent ? [{ type: 'text', text: finalContent }] : undefined
   }
 
-  const toolNames = new Set(toolCalls?.map((call) => call.name) ?? [])
+  const toolNames = new Set([
+    ...(toolCalls?.map((call) => call.name) ?? []),
+    ...extraToolNames
+  ])
   if (toolNames.size === 0) {
     return finalContent ? [{ type: 'text', text: finalContent }] : undefined
   }

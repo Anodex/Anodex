@@ -68,4 +68,19 @@ describe('reconcileMessageBlocks', () => {
       { type: 'text', text: 'Done.' }
     ])
   })
+
+  it('can strip known tool payloads even when the call did not complete', () => {
+    const blocks: MessageBlock[] = [
+      {
+        type: 'text',
+        text:
+          'Let me verify that.\n\n```json\n' +
+          '{"name": "read_file", "arguments": {"path": "src/App.tsx"}}\n```'
+      }
+    ]
+
+    expect(reconcileMessageBlocks(blocks, 'Let me verify that.', undefined, ['read_file'])).toEqual([
+      { type: 'text', text: 'Let me verify that.' }
+    ])
+  })
 })

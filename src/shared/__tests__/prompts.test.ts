@@ -20,6 +20,19 @@ describe('composeSystemPrompt', () => {
     expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
   })
 
+  it('instructs the assistant to acknowledge before using tools', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
+    expect(prompt).toContain('Before the first tool call')
+    expect(prompt).toContain('exactly one short user-facing sentence')
+  })
+
+  it('forbids fake web assets and placeholder image URLs', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
+    expect(prompt).toContain('Never claim you fetched web content unless a web tool succeeded')
+    expect(prompt).toContain('Never write fake binary assets as text files')
+    expect(prompt).toContain('example.com image URLs')
+  })
+
   it('omits the Memory section when there is no retrieved memory context', () => {
     const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
     expect(prompt).not.toContain('# Memory')
