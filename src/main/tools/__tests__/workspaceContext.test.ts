@@ -9,7 +9,8 @@ vi.mock('../../projects/ProjectMemoryStore', () => ({
   projectMemoryStore: { get: getMock }
 }))
 
-const { buildWorkspaceContext } = await import('../workspaceContext')
+const { buildWorkspaceContext, rankTaskSummaries, rankTouchedFiles } =
+  await import('../workspaceContext')
 
 describe('buildWorkspaceContext', () => {
   let workspace: string
@@ -71,7 +72,7 @@ describe('buildWorkspaceContext', () => {
     expect(getMock).not.toHaveBeenCalled()
   })
 
-  it('appends recent activity from project memory when a project is active', () => {
+  it('appends retrieved project recall from project memory when a project is active', () => {
     const memory: ProjectMemory = {
       projectId: 'p1',
       filesTouched: [{ path: 'src/index.ts', action: 'write', at: Date.now() }],
@@ -81,9 +82,26 @@ describe('buildWorkspaceContext', () => {
 
     const context = buildWorkspaceContext(workspace, 'p1')
 
-    expect(context).toContain('Recent activity')
+    expect(context).toContain('project recall')
     expect(context).toContain('write: src/index.ts')
     expect(context).toContain('Fixed the login bug.')
+  })
+
+  it('retrieves relevant older summaries ahead of newer unrelated summaries', () => {
+    const memory: ProjectMemory = {
+      projectId: 'p1',
+      filesTouched: [],
+      recentSummaries: [
+        { conversationId: 'c-new', summary: 'Updated button colors and spacing.', at: 30 },
+        { conversationId: 'c-old', summary: 'Fixed login redirect after authentication.', at: 10 }
+      ]
+    }
+    getMock.mockReturnValue(memory)
+
+    const context = buildWorkspaceContext(workspace, 'p1', 'login authentication still fails')
+
+    expect(context).toContain('Fixed login redirect')
+    expect(context).not.toContain('Updated button colors')
   })
 
   it('omits the activity section when project memory is empty', () => {
@@ -105,5 +123,33 @@ describe('buildWorkspaceContext', () => {
   it('omits the notes section when ANODEX.md does not exist', () => {
     const context = buildWorkspaceContext(workspace, null)
     expect(context).not.toContain('ANODEX.md')
+  })
+})
+
+describe('project-memory retrieval ranking', () => {
+  it('ranks touched files by path relevance before recency', () => {
+    const memory: ProjectMemory = {
+      projectId: 'p1',
+      filesTouched: [
+        { path: 'src/theme/colors.css', action: 'write', at: 30 },
+        { path: 'src/auth/login.ts', action: 'read', at: 10 }
+      ],
+      recentSummaries: []
+    }
+
+    expect(rankTouchedFiles(memory, 'login auth bug')[0].path).toBe('src/auth/login.ts')
+  })
+
+  it('falls back to recency when the query has no overlap', () => {
+    const memory: ProjectMemory = {
+      projectId: 'p1',
+      filesTouched: [],
+      recentSummaries: [
+        { conversationId: 'old', summary: 'Older unrelated task.', at: 10 },
+        { conversationId: 'new', summary: 'Newer unrelated task.', at: 30 }
+      ]
+    }
+
+    expect(rankTaskSummaries(memory, 'zqxv')[0].conversationId).toBe('new')
   })
 })

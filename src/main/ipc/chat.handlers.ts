@@ -94,7 +94,7 @@ export function registerChatHandlers(): void {
       hasProject: Boolean(activeProject),
       workspaceContext:
         hasWorkspaceTools && workspaceRoot
-          ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null)
+          ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null, request.prompt)
           : null,
       memoryContext: memory?.text ?? null,
       projectRules: activeProject?.instructions ?? null,
