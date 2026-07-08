@@ -3,6 +3,7 @@ import {
   detectFallbackToolCall,
   findPotentialToolCallTextStart,
   looksLikeFabricatedOutcome,
+  looksLikeToolBypass,
   looksLikeUnactedIntent,
   stripFallbackCall
 } from '../toolCallFallback'
@@ -179,5 +180,76 @@ describe('looksLikeFabricatedOutcome', () => {
   it('only checks near the end, not a claim buried far before the tail', () => {
     const text = 'The user denied the change.\n\n' + 'x'.repeat(700)
     expect(looksLikeFabricatedOutcome(text)).toBe(false)
+  })
+})
+
+describe('looksLikeToolBypass', () => {
+  it('detects a tic-tac-toe reply that dumps CSS instead of editing the file', () => {
+    const reply = `
+Sure, let's improve the game styling.
+
+### Step 1: Update \`tic-tac-toe.css\`
+Add the following CSS to make the board more polished.
+
+\`\`\`css
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.cell {
+  transition: transform 0.2s ease, background-color 0.2s ease;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+}
+\`\`\`
+`
+
+    expect(looksLikeToolBypass(reply, 'keep improving it')).toBe(true)
+  })
+
+  it('detects a JavaScript patch suggestion when the user asked for a change', () => {
+    const reply = `
+Update \`tic-tac-toe.js\` with this logic for the win overlay:
+
+\`\`\`js
+function showWinScreen(winner) {
+  const overlay = document.querySelector('#result-overlay');
+  overlay.classList.add('visible');
+  overlay.querySelector('.title').textContent = winner === playerSymbol ? 'You won!' : 'You lost';
+}
+\`\`\`
+`
+
+    expect(looksLikeToolBypass(reply, 'make a you lose screen and confetti you won screen')).toBe(
+      true
+    )
+  })
+
+  it('does not flag explicit requests to show code in chat', () => {
+    const reply = `
+Here is the win animation code:
+
+\`\`\`css
+@keyframes winPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+.winning-cell {
+  animation: winPulse 0.7s ease-in-out infinite;
+}
+\`\`\`
+`
+
+    expect(looksLikeToolBypass(reply, 'can you show me the win animation in chat')).toBe(false)
+  })
+
+  it('does not flag a small illustrative snippet without file-edit instructions', () => {
+    expect(looksLikeToolBypass('A hover transition can use `transition: 0.2s`.', 'why?')).toBe(
+      false
+    )
   })
 })

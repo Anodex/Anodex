@@ -44,6 +44,7 @@ import {
 import {
   detectFallbackToolCall,
   looksLikeFabricatedOutcome,
+  looksLikeToolBypass,
   looksLikeUnactedIntent,
   stripFallbackCall,
   type FallbackToolCall
@@ -90,6 +91,12 @@ const INTENT_NUDGE_PROMPT =
   'actually happen this turn; no tool was called. If you intend to make the change, ' +
   "call write_file or edit_file now with the exact content. If you can't or the task " +
   "is blocked, say so plainly instead of describing something that didn't happen."
+
+const TOOL_BYPASS_NUDGE_PROMPT =
+  'You provided code or file-edit instructions in chat instead of applying the change. ' +
+  'In this project chat, do not hand the user code to copy. Read the relevant file if ' +
+  'needed, then call write_file, edit_file, or patch_file to make the change for real. ' +
+  "If you cannot make the change, say exactly what's blocking you."
 
 /** The dynamically-imported `node-llama-cpp` module (ESM-only). */
 type LlamaModule = typeof import('node-llama-cpp')
@@ -380,6 +387,7 @@ class LlamaService extends EventEmitter {
     let tokenCount = 0
     let stopped = false
     let usedIntentNudge = false
+    const originalPrompt = params.prompt
     let prompt = params.prompt
 
     try {
@@ -483,21 +491,24 @@ class LlamaService extends EventEmitter {
             : null
 
         if (!fallback || !activeFunctions) {
-          visibleContent = appendContent(visibleContent, roundContent)
-
           // The reply describes an outcome that didn't actually happen this turn:
           // either a claimed file change with no successful write anywhere this
-          // turn, or a fabricated approval/denial/test-result when no tool was
-          // called at all this turn.
-          const isFabricatedOutcome =
+          // turn, a code-dump bypass of available edit tools, or a fabricated
+          // approval/denial/test-result when no tool was called at all this turn.
+          const isToolBypass =
             Boolean(activeFunctions) &&
-            ((!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
+            !hadSuccessfulWrite &&
+            looksLikeToolBypass(roundContent, originalPrompt)
+          const needsActionNudge =
+            Boolean(activeFunctions) &&
+            (isToolBypass ||
+              (!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
               (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent)))
 
-          // Record this independently of whether a nudge fires below — the
-          // model still fabricated an outcome even on a round where the
-          // one-nudge-per-turn budget was already spent.
-          if (isFabricatedOutcome && currentModel) {
+          // Record this independently of whether a nudge fires below: a bypass
+          // or fabricated outcome still tells us the model needs more steering,
+          // even when the one-nudge-per-turn budget was already spent.
+          if (needsActionNudge && currentModel) {
             modelReliabilityStore.recordFabrication(
               currentModel.id,
               currentModel.name,
@@ -506,11 +517,12 @@ class LlamaService extends EventEmitter {
           }
 
           // Give it one chance to actually act.
-          if (isFabricatedOutcome && !usedIntentNudge) {
+          if (needsActionNudge && !usedIntentNudge) {
             usedIntentNudge = true
-            prompt = INTENT_NUDGE_PROMPT
+            prompt = isToolBypass ? TOOL_BYPASS_NUDGE_PROMPT : INTENT_NUDGE_PROMPT
             continue
           }
+          visibleContent = appendContent(visibleContent, roundContent)
           break
         }
 

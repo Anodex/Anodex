@@ -15,12 +15,12 @@
  * wrapping shapes, parse strictly, and only accept a match whose `name` is an
  * actually-registered tool — never guess.
  *
- * Also handles a related but distinct failure, one level worse than a malformed
- * call: the model doesn't attempt a tool call at all, it just *narrates* a file
- * change in prose ("Now let's add X to file.js: ```...```") and later claims the
- * change was made. There's no call artifact to recover here, so
- * `looksLikeUnactedIntent` instead flags the claim so the caller can nudge the
- * model to actually act (see `LlamaService.generate()`'s intent-nudge step).
+ * Also handles related but distinct failures one level worse than a malformed
+ * call: the model doesn't attempt a tool call at all, it narrates a file change
+ * in prose ("Now let's add X to file.js: ```...```") or later claims the change
+ * was made. There's no call artifact to recover here, so the detectors below
+ * flag the reply so the caller can nudge the model to actually act (see
+ * `LlamaService.generate()`'s intent-nudge step).
  */
 
 export interface FallbackToolCall {
@@ -250,4 +250,50 @@ export function looksLikeFabricatedOutcome(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
   return FABRICATED_OUTCOME_RE.test(trimmed.slice(-INTENT_CHECK_WINDOW))
+}
+
+const CODE_FENCE_RE = /```([a-zA-Z0-9_-]*)\s*\n?([\s\S]*?)```/g
+const CODE_FENCE_MIN_CHARS = 80
+const CODE_LANGS = new Set([
+  '',
+  'css',
+  'html',
+  'javascript',
+  'js',
+  'jsx',
+  'json',
+  'ts',
+  'tsx',
+  'typescript'
+])
+const CODE_LIKE_RE =
+  /[{};]|\b(?:body|class|const|display|document|export|function|import|let|querySelector)\b/i
+const FILE_ACTION_RE =
+  /\b(?:add|create|edit|include|insert|modify|patch|put|replace|update|write)\b/i
+const FILE_TARGET_RE =
+  /`?[\w./-]+\.(?:css|html|js|jsx|json|md|ts|tsx)`?|\b(?:css|html|javascript|js|file)\b/i
+const CODE_ONLY_REQUEST_RE =
+  /\b(?:show|display|provide|give|send|explain|describe)\b[\s\S]{0,100}\b(?:animation|code|css|example|html|javascript|js|snippet)\b|\bin chat\b/i
+
+/**
+ * True when a project-chat reply appears to give the user file-edit code in
+ * chat instead of applying it through write/edit tools. Kept conservative:
+ * require a substantial code fence plus edit/action language, and suppress the
+ * warning when the user's prompt explicitly asks to see code in chat.
+ */
+export function looksLikeToolBypass(reply: string, userPrompt: string): boolean {
+  const trimmedReply = reply.trim()
+  if (!trimmedReply || CODE_ONLY_REQUEST_RE.test(userPrompt)) return false
+  if (!FILE_ACTION_RE.test(trimmedReply) || !FILE_TARGET_RE.test(trimmedReply)) return false
+  return hasSubstantialCodeFence(trimmedReply)
+}
+
+function hasSubstantialCodeFence(text: string): boolean {
+  for (const match of text.matchAll(CODE_FENCE_RE)) {
+    const lang = match[1].toLowerCase()
+    const body = match[2].trim()
+    if (body.length < CODE_FENCE_MIN_CHARS) continue
+    if (CODE_LANGS.has(lang) || CODE_LIKE_RE.test(body)) return true
+  }
+  return false
 }
