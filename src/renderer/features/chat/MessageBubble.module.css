@@ -49,41 +49,10 @@
 }
 
 .bubble {
-  position: relative;
   padding: var(--space-3) var(--space-4);
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-}
-
-.copyButton {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 3px var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  opacity: 0;
-  cursor: pointer;
-  transition:
-    opacity var(--transition-fast),
-    color var(--transition-fast),
-    background var(--transition-fast);
-}
-
-.bubble:hover .copyButton {
-  opacity: 1;
-}
-
-.copyButton:hover {
-  color: var(--text);
-  background: var(--bg-surface-2);
 }
 
 .user .bubble {
