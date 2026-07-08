@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildHistoryItems } from '../LlamaService'
 import type { ChatHistoryTurn } from '@shared/chat.types'
+import { MAX_MODEL_TOOL_RESULT_CHARS } from '../contextAssembler'
 
 describe('buildHistoryItems', () => {
   it('prepends the system prompt', () => {
@@ -49,6 +50,46 @@ describe('buildHistoryItems', () => {
       result: 'Read src/index.ts\nexport const x = 1'
     })
     expect(response[1]).toBe('Done.')
+  })
+
+  it('bounds replayed tool results so rebuilt sessions do not overflow with old output', () => {
+    const history: ChatHistoryTurn[] = [
+      {
+        role: 'assistant',
+        content: 'Read it.',
+        toolCalls: [
+          {
+            id: 't1',
+            name: 'read_file',
+            kind: 'read',
+            title: 'Read huge.log',
+            status: 'success',
+            result: 'x'.repeat(MAX_MODEL_TOOL_RESULT_CHARS + 500)
+          }
+        ]
+      }
+    ]
+
+    const [modelItem] = buildHistoryItems(undefined, history)
+    const response = (modelItem as { response: Array<{ result?: string } | string> }).response
+    expect(typeof response[0]).toBe('object')
+    expect((response[0] as { result: string }).result).toContain('Anodex truncated')
+    expect((response[0] as { result: string }).result.length).toBeLessThan(
+      MAX_MODEL_TOOL_RESULT_CHARS + 500
+    )
+  })
+
+  it('strips raw tool payloads from assistant text before replay', () => {
+    const history: ChatHistoryTurn[] = [
+      {
+        role: 'assistant',
+        content: 'I will patch it now.\n{"name": "patch_file", "arguments": {"path": "app.css"}}'
+      }
+    ]
+
+    const [modelItem] = buildHistoryItems(undefined, history)
+    const response = (modelItem as { response: Array<unknown> }).response
+    expect(response).toEqual(['I will patch it now.'])
   })
 
   it('skips in-progress tool calls', () => {

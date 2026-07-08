@@ -24,13 +24,20 @@ import type {
   GenerationStats,
   HistoryCompactionEvent
 } from '@shared/chat.types'
+import type { ConversationContext } from '@shared/context.types'
 import type { PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
+import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
+import {
+  assembleModelContext,
+  rememberToolCallForModel,
+  seedContextFromSnapshot
+} from './contextAssembler'
 import {
   detectFallbackToolCall,
   looksLikeFabricatedOutcome,
@@ -41,15 +48,10 @@ import {
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
-  buildCompactionSystemPrompt,
   COMPACTION_TRIGGER_RATIO,
   MAX_COMPACTION_SUMMARY_WORDS,
-  MIN_CHARS_TO_SUMMARIZE,
   MIN_SUMMARY_CHARS,
-  NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT,
-  renderTurnsForSummary,
-  reservedNonHistoryTokens,
-  splitHistoryByTokenBudget
+  NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT
 } from './compaction'
 
 const log = createLogger('llama')
@@ -92,6 +94,8 @@ export interface GenerateParams {
   /** Assistant message id, used to route tool activity to the right turn. */
   messageId: string
   systemPrompt?: string
+  /** Persisted context snapshot for older turns, when one exists. */
+  context?: ConversationContext | null
   history: ChatHistoryTurn[]
   prompt: string
   options?: GenerationOptions
@@ -303,7 +307,12 @@ class LlamaService extends EventEmitter {
 
     let session: LlamaChatSession
     try {
-      session = await this.ensureSession(params.conversationId, params.systemPrompt, params.history)
+      session = await this.ensureSession(
+        params.conversationId,
+        params.systemPrompt,
+        params.history,
+        params.context
+      )
     } catch (error) {
       this.generating = false
       this.emitState()
@@ -662,6 +671,7 @@ class LlamaService extends EventEmitter {
     conversationId: string,
     systemPrompt: string | undefined,
     history: ChatHistoryTurn[],
+    context: ConversationContext | null | undefined,
     compactionReason: HistoryCompactionEvent['reason'] = 'onLoad'
   ): Promise<LlamaChatSession> {
     if (this.session && this.activeConversationId === conversationId) {
@@ -676,13 +686,16 @@ class LlamaService extends EventEmitter {
       log.warn('Failed to clear context sequence history:', error)
     }
 
-    const compacted = await this.compactHistoryForSession(systemPrompt, history)
+    const compacted = await this.compactHistoryForSession(systemPrompt, history, context)
     if (compacted.removedTurns > 0) {
       this.emit('historyCompacted', {
         conversationId,
         removedTurns: compacted.removedTurns,
         reason: compactionReason,
-        summarized: compacted.summarized
+        summarized: compacted.summarized,
+        summary: compacted.summary,
+        compactedThroughMessageId: compacted.compactedThroughMessageId,
+        createdAt: Date.now()
       } satisfies HistoryCompactionEvent)
     }
 
@@ -709,45 +722,58 @@ class LlamaService extends EventEmitter {
    */
   private async compactHistoryForSession(
     systemPrompt: string | undefined,
-    history: ChatHistoryTurn[]
+    history: ChatHistoryTurn[],
+    context: ConversationContext | null | undefined
   ): Promise<{
     systemPrompt: string | undefined
     history: ChatHistoryTurn[]
     removedTurns: number
     summarized: boolean
+    summary?: string
+    compactedThroughMessageId?: string | null
   }> {
-    if (history.length <= 1 || !this.contextSize || !this.model) {
-      return { systemPrompt, history, removedTurns: 0, summarized: false }
+    const seeded = seedContextFromSnapshot(systemPrompt, history, context)
+    if (!this.contextSize || !this.model) {
+      return {
+        systemPrompt: seeded.systemPrompt,
+        history: seeded.history,
+        removedTurns: 0,
+        summarized: false
+      }
     }
 
     const countTokens = (text: string): number => this.model!.tokenize(text).length
-    const budget =
-      this.contextSize -
-      countTokens(systemPrompt ?? '') -
-      reservedNonHistoryTokens(this.contextSize)
-    const { recent, older } = splitHistoryByTokenBudget(history, Math.max(0, budget), countTokens)
+    const assembled = await assembleModelContext({
+      systemPrompt: seeded.systemPrompt,
+      history: seeded.history,
+      contextSize: this.contextSize,
+      countTokens,
+      summarizeOlderTurns: (transcript) => this.summarizeHistoryForCompaction(transcript)
+    })
 
-    if (older.length === 0) {
-      return { systemPrompt, history: recent, removedTurns: 0, summarized: false }
+    if (assembled.removedTurns === 0) {
+      return {
+        systemPrompt: assembled.systemPrompt,
+        history: assembled.history,
+        removedTurns: 0,
+        summarized: false
+      }
     }
 
-    const transcript = renderTurnsForSummary(older)
-    let summary: string | null = null
-    if (transcript.length >= MIN_CHARS_TO_SUMMARIZE) {
-      summary = await this.summarizeHistoryForCompaction(transcript)
-    }
-
-    const augmentedSystemPrompt = summary
-      ? buildCompactionSystemPrompt(systemPrompt, summary)
-      : systemPrompt
     log.info(
-      `Compacted ${older.length} older turn(s) ${summary ? 'via summary' : 'by dropping (too small/failed to summarize)'}`
+      `Compacted ${assembled.removedTurns} older turn(s) ${
+        assembled.summarized ? 'via summary' : 'by dropping (too small/failed to summarize)'
+      }`,
+      assembled.report
     )
     return {
-      systemPrompt: augmentedSystemPrompt,
-      history: recent,
-      removedTurns: older.length,
-      summarized: summary !== null
+      systemPrompt: assembled.systemPrompt,
+      history: assembled.history,
+      removedTurns: assembled.removedTurns,
+      summarized: assembled.summarized,
+      summary: mergeContextSummaries(seeded.summary, assembled.summary),
+      compactedThroughMessageId:
+        assembled.compactedThroughMessageId ?? seeded.throughMessageId ?? null
     }
   }
 
@@ -806,7 +832,13 @@ class LlamaService extends EventEmitter {
     reason: 'proactive' | 'reactive'
   ): Promise<LlamaChatSession> {
     this.disposeSession()
-    return this.ensureSession(params.conversationId, params.systemPrompt, params.history, reason)
+    return this.ensureSession(
+      params.conversationId,
+      params.systemPrompt,
+      params.history,
+      params.context,
+      reason
+    )
   }
 
   /** Build the workspace tool set for a generation, or `undefined` if disabled. */
@@ -994,7 +1026,8 @@ export function buildHistoryItems(
   const items: ChatHistoryItem[] = []
   if (systemPrompt) items.push({ type: 'system', text: systemPrompt })
 
-  for (const turn of history) {
+  for (const rawTurn of history) {
+    const turn = sanitizeHistoryTurn(rawTurn)
     if (turn.role === 'user') {
       items.push({ type: 'user', text: turn.content })
       continue
@@ -1008,7 +1041,7 @@ export function buildHistoryItems(
         type: 'functionCall',
         name: call.name,
         params: {},
-        result: rememberedToolResult(call)
+        result: rememberToolCallForModel(call)
       })
     }
     response.push(turn.content)
@@ -1016,12 +1049,6 @@ export function buildHistoryItems(
   }
 
   return items
-}
-
-/** A compact, self-describing record of a past tool call for replay. */
-function rememberedToolResult(call: ToolCall): string {
-  const body = call.result ?? call.detail ?? ''
-  return body ? `${call.title}\n${body}` : call.title
 }
 
 /**
@@ -1105,6 +1132,16 @@ function appendContent(existing: string, next: string): string {
   const trimmed = next.trim()
   if (!trimmed) return existing
   return existing ? `${existing}\n\n${trimmed}` : trimmed
+}
+
+/** Combine the prior context epoch summary with a newly compacted chunk. */
+function mergeContextSummaries(
+  previous: string | undefined,
+  next: string | undefined
+): string | undefined {
+  if (!previous) return next
+  if (!next) return previous
+  return `${previous}\n\nAdditional compacted context:\n${next}`
 }
 
 /**

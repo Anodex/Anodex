@@ -1,6 +1,6 @@
 import type { ChatMessage, MessageBlock } from '@shared/chat.types'
-import { TOOL_CATALOG, type ToolCall } from '@shared/tools.types'
-import { stripToolCallText } from '@shared/toolCallText'
+import type { ToolCall } from '@shared/tools.types'
+import { sanitizeMessageTranscript } from '@shared/chatSanitizer'
 
 /** A coarse label for what the assistant is doing during a coding turn. */
 export type TaskPhase = 'inspecting' | 'editing' | 'verifying' | 'responding'
@@ -109,31 +109,14 @@ export function buildRenderSegments(blocks: MessageBlock[]): RenderSegment[] {
  * one-time compatibility path for old conversation history, not the norm.
  */
 export function messageBlocks(message: ChatMessage): MessageBlock[] {
-  const shouldCleanRawToolText = message.role === 'assistant' && Boolean(message.toolCalls?.length)
-  if (message.blocks && message.blocks.length > 0) {
-    return shouldCleanRawToolText ? stripRawToolTextBlocks(message.blocks) : message.blocks
-  }
+  const normalized = sanitizeMessageTranscript(message).message
+  if (normalized.blocks && normalized.blocks.length > 0) return normalized.blocks
   const fallback: MessageBlock[] = (message.toolCalls ?? []).map((call) => ({
     type: 'tool',
     call
   }))
-  if (message.content) fallback.push({ type: 'text', text: message.content })
-  return shouldCleanRawToolText ? stripRawToolTextBlocks(fallback) : fallback
-}
-
-const KNOWN_TOOL_NAMES = new Set(TOOL_CATALOG.map((tool) => tool.name))
-
-function stripRawToolTextBlocks(blocks: MessageBlock[]): MessageBlock[] {
-  const cleaned: MessageBlock[] = []
-  for (const block of blocks) {
-    if (block.type === 'tool') {
-      cleaned.push(block)
-      continue
-    }
-    const text = stripToolCallText(block.text, KNOWN_TOOL_NAMES)
-    if (text) cleaned.push({ type: 'text', text })
-  }
-  return cleaned
+  if (normalized.content) fallback.push({ type: 'text', text: normalized.content })
+  return fallback
 }
 
 /**

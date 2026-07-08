@@ -1,4 +1,5 @@
 import type { ChatMessage } from './chat.types'
+import type { ConversationContext } from './context.types'
 import type { Plan } from './plan.types'
 
 /** A persisted conversation, either inside a project or general (projectId null). */
@@ -15,6 +16,8 @@ export interface Conversation {
   archivedAt?: number
   /** The assistant's current self-tracked task plan for this conversation, if any. */
   plan?: Plan | null
+  /** Durable model-context snapshot for older turns; the UI transcript stays complete. */
+  context?: ConversationContext | null
 }
 
 /** Persisted UI state for the conversation list. */

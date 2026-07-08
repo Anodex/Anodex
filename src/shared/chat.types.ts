@@ -3,6 +3,7 @@
 import type { ToolCall } from './tools.types'
 import type { Plan } from './plan.types'
 import type { MemoryEntry } from './memory.types'
+import type { ConversationContext } from './context.types'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 
@@ -65,6 +66,8 @@ export interface GenerationOptions {
 
 /** A prior conversation turn replayed into a rebuilt chat session. */
 export interface ChatHistoryTurn {
+  /** Optional persisted message id, used by context snapshots to mark compaction boundaries. */
+  id?: string
   role: ChatRole
   content: string
   /** Tool calls made during this (assistant) turn, retained for memory. */
@@ -85,6 +88,8 @@ export interface ChatRequest {
   /** The project this generation belongs to, or null for a general chat. */
   projectId?: string | null
   systemPrompt?: string
+  /** Durable context snapshot for older turns, if this conversation has been compacted before. */
+  context?: ConversationContext | null
   history: ChatHistoryTurn[]
   prompt: string
   options?: GenerationOptions
@@ -114,6 +119,11 @@ export interface HistoryCompactionEvent {
   reason: 'onLoad' | 'proactive' | 'reactive'
   /** Whether the removed turns were actually condensed into a summary, vs. just dropped. */
   summarized: boolean
+  /** Persistable summary of the removed turns when `summarized` is true. */
+  summary?: string
+  /** Last original message represented by `summary`, if known. */
+  compactedThroughMessageId?: string | null
+  createdAt: number
 }
 
 /** Throughput metrics reported when a generation finishes. */

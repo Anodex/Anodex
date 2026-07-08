@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
+import type { HistoryCompactionEvent } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import { TOOL_CATALOG, type ToolActivityEvent } from '@shared/tools.types'
 import { stripToolCallText } from '@shared/toolCallText'
+import { messageToHistoryTurn, sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { anodex } from '../lib/anodex'
 import { createId } from '../lib/id'
 import { notifyError, useUiStore } from './uiStore'
@@ -43,6 +45,8 @@ interface ChatState {
   appendToken: (conversationId: string, messageId: string, token: string) => void
   /** Called by the IPC bridge as the assistant's tool calls progress. */
   applyToolActivity: (event: ToolActivityEvent) => void
+  /** Persist a durable context snapshot after the main process compacts history. */
+  applyHistoryCompaction: (event: HistoryCompactionEvent) => void
 }
 
 const DEFAULT_TITLE = 'New chat'
@@ -164,11 +168,7 @@ export const useChatStore = create<ChatState>()(
       if (!conversationId) return
       const existing = get().conversations.find((c) => c.id === conversationId)
       const projectId = existing?.projectId ?? null
-      const history = (existing?.messages ?? []).map((m) => ({
-        role: m.role,
-        content: m.content,
-        toolCalls: m.toolCalls
-      }))
+      const history = (existing?.messages ?? []).map(messageToHistoryTurn)
 
       const titleSource = trimmed || attachments[0]?.name || DEFAULT_TITLE
       const fallbackTitle = deriveTitle(titleSource)
@@ -205,6 +205,7 @@ export const useChatStore = create<ChatState>()(
         messageId: assistantId,
         projectId,
         systemPrompt: settings?.ui.systemPrompt,
+        context: existing?.context ?? null,
         history,
         prompt: buildPromptWithAttachments(trimmed, attachments),
         plan: existing?.plan ?? null,
@@ -224,13 +225,10 @@ export const useChatStore = create<ChatState>()(
         pendingToolPayloadByMessage.delete(assistantId)
         message.streaming = false
         if (result.ok) {
-          message.content = result.value.content
+          const content = sanitizeAssistantContent(result.value.content)
+          message.content = content
           message.stats = result.value.stats
-          message.blocks = reconcileMessageBlocks(
-            message.blocks,
-            result.value.content,
-            message.toolCalls
-          )
+          message.blocks = reconcileMessageBlocks(message.blocks, content, message.toolCalls)
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
         } else {
           if (message.toolCalls?.length) {
@@ -347,6 +345,31 @@ export const useChatStore = create<ChatState>()(
         convo.updatedAt = Date.now()
       })
       // Persisted when the generation completes in `sendMessage`.
+    },
+
+    applyHistoryCompaction: (event) => {
+      if (!event.summarized || !event.summary || !event.compactedThroughMessageId) return
+      const summary = event.summary
+      const throughMessageId = event.compactedThroughMessageId
+
+      set((state) => {
+        const convo = state.conversations.find((c) => c.id === event.conversationId)
+        if (!convo) return
+        convo.context = {
+          activeSnapshot: {
+            id: createId('ctx'),
+            createdAt: event.createdAt,
+            reason: event.reason,
+            throughMessageId,
+            removedTurns: event.removedTurns,
+            summary
+          }
+        }
+        convo.updatedAt = Date.now()
+      })
+
+      const conversation = get().conversations.find((c) => c.id === event.conversationId)
+      if (conversation) void persistConversation(conversation)
     }
   }))
 )

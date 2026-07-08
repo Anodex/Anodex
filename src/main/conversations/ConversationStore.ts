@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { Conversation, ConversationState } from '@shared/conversation.types'
+import { sanitizeConversationTranscript } from '@shared/chatSanitizer'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('conversations')
@@ -70,18 +71,19 @@ class ConversationStore {
 
   /** Persist a single conversation, keeping the cache in sync. */
   save(conversation: Conversation): void {
-    assertSafeId(conversation.id, 'conversation id')
-    const dir = this.dirForProject(conversation.projectId)
+    const normalized = sanitizeConversationTranscript(conversation).conversation
+    assertSafeId(normalized.id, 'conversation id')
+    const dir = this.dirForProject(normalized.projectId)
     this.ensureDir(dir)
-    const filePath = join(dir, `${conversation.id}.json`)
+    const filePath = join(dir, `${normalized.id}.json`)
 
     // If the conversation moved between projects, remove the stale file.
-    const existing = this.ensureCache().get(conversation.id)
+    const existing = this.ensureCache().get(normalized.id)
     if (existing && existing.filePath !== filePath) this.removeFile(existing.filePath)
 
     try {
-      writeFileSync(filePath, JSON.stringify(conversation, null, 2), 'utf-8')
-      this.ensureCache().set(conversation.id, { conversation, filePath })
+      writeFileSync(filePath, JSON.stringify(normalized, null, 2), 'utf-8')
+      this.ensureCache().set(normalized.id, { conversation: normalized, filePath })
     } catch (error) {
       log.error('Failed to save conversation:', filePath, error)
       throw error
@@ -258,10 +260,19 @@ class ConversationStore {
   private readFile(filePath: string): Conversation | null {
     try {
       const conversation = JSON.parse(readFileSync(filePath, 'utf-8')) as Conversation
-      return {
+      const withDefaults = {
         ...conversation,
         archived: conversation.archived ?? false
       }
+      const normalized = sanitizeConversationTranscript(withDefaults)
+      if (normalized.changed) {
+        try {
+          writeFileSync(filePath, JSON.stringify(normalized.conversation, null, 2), 'utf-8')
+        } catch (error) {
+          log.warn('Failed to rewrite sanitized conversation:', filePath, error)
+        }
+      }
+      return normalized.conversation
     } catch {
       return null
     }

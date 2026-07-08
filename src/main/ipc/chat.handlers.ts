@@ -4,6 +4,7 @@ import { ok, err, toErrorMessage } from '@shared/result'
 import type { ChatRequest, ChatTitleRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { composeSystemPrompt } from '@shared/prompts'
+import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
@@ -120,10 +121,12 @@ export function registerChatHandlers(): void {
         }
       })
 
+      const content = sanitizeAssistantContent(outcome.content)
+
       // Remember this turn in project memory so a future conversation in the
       // same project has ambient context, not just this one's chat history.
-      if (hadToolActivity && !outcome.stopped && activeProject && outcome.content) {
-        projectMemoryStore.recordSummary(activeProject.id, request.conversationId, outcome.content)
+      if (hadToolActivity && !outcome.stopped && activeProject && content) {
+        projectMemoryStore.recordSummary(activeProject.id, request.conversationId, content)
       }
 
       // Recorded regardless of `stopped` — real tokens were generated either way.
@@ -143,7 +146,7 @@ export function registerChatHandlers(): void {
       return ok({
         conversationId: request.conversationId,
         messageId: request.messageId,
-        content: outcome.content,
+        content,
         stats: outcome.stats,
         stopped: outcome.stopped,
         memoryUsed: memory?.entries

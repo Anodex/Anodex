@@ -1,4 +1,5 @@
 import type { ChatHistoryTurn } from '@shared/chat.types'
+import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 
 /**
  * Fraction of the context window reserved for the system prompt's tool
@@ -22,7 +23,10 @@ export const MAX_RESERVED_NON_HISTORY_TOKENS = 8192
 export function reservedNonHistoryTokens(contextSize: number): number {
   return Math.min(
     MAX_RESERVED_NON_HISTORY_TOKENS,
-    Math.max(MIN_RESERVED_NON_HISTORY_TOKENS, Math.round(contextSize * RESERVED_NON_HISTORY_FRACTION))
+    Math.max(
+      MIN_RESERVED_NON_HISTORY_TOKENS,
+      Math.round(contextSize * RESERVED_NON_HISTORY_FRACTION)
+    )
   )
 }
 
@@ -78,8 +82,9 @@ export interface HistorySplit {
 
 /** Token cost of a single turn: its content plus any tool-call results. */
 function turnTokenCost(turn: ChatHistoryTurn, countTokens: (text: string) => number): number {
-  let cost = countTokens(turn.content)
-  for (const call of turn.toolCalls ?? []) {
+  const sanitized = sanitizeHistoryTurn(turn)
+  let cost = countTokens(sanitized.content)
+  for (const call of sanitized.toolCalls ?? []) {
     cost += countTokens(call.result ?? call.detail ?? '')
   }
   return cost
@@ -126,8 +131,9 @@ const TOOL_RESULT_PREVIEW_CHARS = 300
 export function renderTurnsForSummary(turns: ChatHistoryTurn[]): string {
   return turns
     .map((turn) => {
-      if (turn.role === 'user') return `User: ${turn.content}`
-      const calls = (turn.toolCalls ?? [])
+      const sanitized = sanitizeHistoryTurn(turn)
+      if (sanitized.role === 'user') return `User: ${sanitized.content}`
+      const calls = (sanitized.toolCalls ?? [])
         .map((call) => {
           // Same fallback chain as `turnTokenCost` — otherwise the
           // transcript summarized here can omit the actual tool output
@@ -141,13 +147,16 @@ export function renderTurnsForSummary(turns: ChatHistoryTurn[]): string {
           return ` [called ${call.name} → ${preview}]`
         })
         .join('')
-      return `Assistant: ${turn.content}${calls}`
+      return `Assistant: ${sanitized.content}${calls}`
     })
     .join('\n')
 }
 
 /** Append a compaction summary to the system prompt as its own clearly-labeled block. */
-export function buildCompactionSystemPrompt(systemPrompt: string | undefined, summary: string): string {
+export function buildCompactionSystemPrompt(
+  systemPrompt: string | undefined,
+  summary: string
+): string {
   const base = systemPrompt ?? ''
   const block = `Summary of earlier conversation (compacted to fit the context window):\n${summary}`
   return base ? `${base}\n\n---\n${block}` : block

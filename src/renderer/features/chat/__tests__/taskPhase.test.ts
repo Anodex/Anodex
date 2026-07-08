@@ -158,10 +158,17 @@ describe('messageBlocks', () => {
     ])
   })
 
-  it('keeps raw tool-like text when no real tool call exists', () => {
+  it('strips raw tool payloads even when no tool call was recorded', () => {
     const blocks: MessageBlock[] = [
-      textBlock('Example: {"name": "read_file", "arguments": {"path": "app.ts"}}')
+      textBlock('I will inspect that. {"name": "read_file", "arguments": {"path": "app.ts"}}')
     ]
+    expect(messageBlocks(message({ blocks }))).toEqual([
+      { type: 'text', text: 'I will inspect that.' }
+    ])
+  })
+
+  it('keeps ordinary JSON text', () => {
+    const blocks: MessageBlock[] = [textBlock('Example: {"value": 1, "label": "demo"}')]
     expect(messageBlocks(message({ blocks }))).toEqual(blocks)
   })
 

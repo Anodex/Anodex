@@ -1,0 +1,115 @@
+import { describe, expect, it } from 'vitest'
+import type { Conversation } from '../conversation.types'
+import {
+  messageToHistoryTurn,
+  sanitizeAssistantContent,
+  sanitizeConversationTranscript,
+  sanitizeMessageTranscript
+} from '../chatSanitizer'
+
+describe('sanitizeAssistantContent', () => {
+  it('removes known raw tool payloads from assistant text', () => {
+    expect(
+      sanitizeAssistantContent(
+        'I will patch it now. {"name": "patch_file", "arguments": {"path": "app.css"}}'
+      )
+    ).toBe('I will patch it now.')
+  })
+
+  it('leaves ordinary JSON text alone', () => {
+    const text = 'Use this data: {"value": 1, "label": "demo"}'
+    expect(sanitizeAssistantContent(text)).toBe(text)
+  })
+})
+
+describe('messageToHistoryTurn', () => {
+  it('sanitizes assistant content before model replay', () => {
+    expect(
+      messageToHistoryTurn({
+        id: 'm1',
+        role: 'assistant',
+        content:
+          'Let me inspect.\n```json\n{"name": "read_file", "arguments": {"path": "app.ts"}}\n```',
+        createdAt: 1
+      })
+    ).toEqual({
+      id: 'm1',
+      role: 'assistant',
+      content: 'Let me inspect.',
+      toolCalls: undefined
+    })
+  })
+
+  it('does not alter user content', () => {
+    const content = 'Why did the assistant print {"name": "read_file"}?'
+    expect(
+      messageToHistoryTurn({
+        id: 'm1',
+        role: 'user',
+        content,
+        createdAt: 1
+      })
+    ).toEqual({ id: 'm1', role: 'user', content, toolCalls: undefined })
+  })
+})
+
+describe('sanitizeMessageTranscript', () => {
+  it('cleans assistant text blocks and preserves tool blocks', () => {
+    const result = sanitizeMessageTranscript({
+      id: 'm1',
+      role: 'assistant',
+      content: 'Done. {"name": "patch_file", "arguments": {"path": "app.css"}}',
+      createdAt: 1,
+      blocks: [
+        {
+          type: 'text',
+          text: 'Done. {"name": "patch_file", "arguments": {"path": "app.css"}}'
+        },
+        {
+          type: 'tool',
+          call: {
+            id: 't1',
+            name: 'patch_file',
+            kind: 'write',
+            title: 'Patch app.css',
+            status: 'success'
+          }
+        }
+      ]
+    })
+
+    expect(result.changed).toBe(true)
+    expect(result.message.content).toBe('Done.')
+    expect(result.message.blocks).toEqual([
+      { type: 'text', text: 'Done.' },
+      {
+        type: 'tool',
+        call: {
+          id: 't1',
+          name: 'patch_file',
+          kind: 'write',
+          title: 'Patch app.css',
+          status: 'success'
+        }
+      }
+    ])
+  })
+})
+
+describe('sanitizeConversationTranscript', () => {
+  it('returns an unchanged conversation by reference when nothing needs cleanup', () => {
+    const conversation: Conversation = {
+      id: 'c1',
+      projectId: null,
+      title: 'Clean',
+      messages: [{ id: 'm1', role: 'assistant', content: 'All good.', createdAt: 1 }],
+      createdAt: 1,
+      updatedAt: 1
+    }
+
+    expect(sanitizeConversationTranscript(conversation)).toEqual({
+      conversation,
+      changed: false
+    })
+  })
+})

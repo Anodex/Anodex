@@ -67,7 +67,7 @@ describe('splitHistoryByTokenBudget', () => {
     expect(result.older).toEqual([history[0]])
   })
 
-  it('counts tool-call results toward a turn\'s token cost', () => {
+  it("counts tool-call results toward a turn's token cost", () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'do it' },
       {
@@ -90,6 +90,22 @@ describe('splitHistoryByTokenBudget', () => {
     expect(result.recent).toEqual([history[1]])
     expect(result.older).toEqual([history[0]])
   })
+
+  it('does not count raw tool payload text once assistant content is sanitized', () => {
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'do it' },
+      {
+        role: 'assistant',
+        content:
+          'Done.\n{"name": "patch_file", "arguments": {"path": "app.css", "replacements": []}}'
+      }
+    ]
+
+    expect(splitHistoryByTokenBudget(history, 15, countTokens)).toEqual({
+      recent: history,
+      older: []
+    })
+  })
 })
 
 describe('renderTurnsForSummary', () => {
@@ -107,11 +123,31 @@ describe('renderTurnsForSummary', () => {
         role: 'assistant',
         content: 'Read the file.',
         toolCalls: [
-          { id: 't1', name: 'read_file', kind: 'read', title: 'Read x', status: 'success', detail: '42 lines' }
+          {
+            id: 't1',
+            name: 'read_file',
+            kind: 'read',
+            title: 'Read x',
+            status: 'success',
+            detail: '42 lines'
+          }
         ]
       }
     ]
-    expect(renderTurnsForSummary(history)).toBe('Assistant: Read the file. [called read_file → 42 lines]')
+    expect(renderTurnsForSummary(history)).toBe(
+      'Assistant: Read the file. [called read_file → 42 lines]'
+    )
+  })
+
+  it('strips raw tool payloads from assistant summary text', () => {
+    const history: ChatHistoryTurn[] = [
+      {
+        role: 'assistant',
+        content: 'I will patch it now.\n{"name": "patch_file", "arguments": {"path": "app.css"}}'
+      }
+    ]
+
+    expect(renderTurnsForSummary(history)).toBe('Assistant: I will patch it now.')
   })
 
   it('prefers the tool call result over its detail, truncated to a preview', () => {
@@ -149,10 +185,7 @@ describe('NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT', () => {
     // immediately, instead of the reactive compaction safety net silently
     // going dark in production.
     const source = readFileSync(
-      join(
-        process.cwd(),
-        'node_modules/node-llama-cpp/dist/evaluator/LlamaChat/LlamaChat.js'
-      ),
+      join(process.cwd(), 'node_modules/node-llama-cpp/dist/evaluator/LlamaChat/LlamaChat.js'),
       'utf-8'
     )
     expect(source).toContain(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT)
