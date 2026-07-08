@@ -3,7 +3,7 @@
 import type { ToolCall } from './tools.types'
 import type { Plan } from './plan.types'
 import type { MemoryEntry } from './memory.types'
-import type { ConversationContext } from './context.types'
+import type { ConversationContext, ConversationContextSnapshot } from './context.types'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 
@@ -95,6 +95,22 @@ export interface ChatRequest {
   options?: GenerationOptions
   /** The conversation's current plan, if any, so plan tools can continue it across turns. */
   plan?: Plan | null
+}
+
+/** Request to manually compact a conversation into a durable context snapshot. */
+export interface ChatCompactRequest {
+  conversationId: string
+  /** Current durable context snapshot, if any, so compaction can extend it instead of replacing it. */
+  context?: ConversationContext | null
+  history: ChatHistoryTurn[]
+}
+
+/** Result of manual compaction; the renderer supplies the persisted snapshot id. */
+export interface ChatCompactResult {
+  conversationId: string
+  snapshot: Omit<ConversationContextSnapshot, 'id'>
+  /** Number of exact turns newly folded into the returned snapshot. */
+  compactedTurns: number
 }
 
 /** Input for best-effort local chat title generation after the first turn completes. */

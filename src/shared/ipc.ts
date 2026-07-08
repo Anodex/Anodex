@@ -18,6 +18,8 @@ import type { ModelReliabilityRecord } from './modelReliability.types'
 import type { RecommendedModel } from './recommendedModels'
 import type {
   AttachmentContent,
+  ChatCompactRequest,
+  ChatCompactResult,
   ChatRequest,
   ChatResult,
   ChatStreamChunk,
@@ -69,6 +71,7 @@ export const IpcChannel = {
   Chat: {
     send: 'chat:send',
     stop: 'chat:stop',
+    compact: 'chat:compact',
     /** main → renderer streamed tokens. */
     stream: 'chat:stream',
     /** A short local-model summary of a finished reply, for a desktop toast's title. */
@@ -224,6 +227,7 @@ export interface AnodexApi {
   chat: {
     send(request: ChatRequest): Promise<Result<ChatResult>>
     stop(conversationId: string): Promise<void>
+    compact(request: ChatCompactRequest): Promise<Result<ChatCompactResult | null>>
     onStream(listener: (chunk: ChatStreamChunk) => void): () => void
     /** Best-effort local summary of `text` in `maxWords` words or fewer; `null` if it failed. */
     summarize(text: string, maxWords: number): Promise<string | null>

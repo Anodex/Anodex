@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Conversation } from '../conversation.types'
 import { MAX_MODEL_TOOL_RESULT_CHARS } from '../contextBudget'
-import { estimateProjectedContextUsage } from '../contextProjection'
+import { estimateProjectedContextUsage, planManualContextCompaction } from '../contextProjection'
 
 function conversation(messages: Conversation['messages']): Conversation {
   return {
@@ -145,5 +145,67 @@ describe('estimateProjectedContextUsage', () => {
     expect(hugeUsage.historyTokens - shortUsage.historyTokens).toBeLessThan(
       MAX_MODEL_TOOL_RESULT_CHARS
     )
+  })
+})
+
+describe('planManualContextCompaction', () => {
+  it('keeps the newest turns exact and compacts older turns', () => {
+    const history = [
+      { id: 'm1', role: 'user' as const, content: 'old one' },
+      { id: 'm2', role: 'assistant' as const, content: 'old two' },
+      { id: 'm3', role: 'user' as const, content: 'recent one' },
+      { id: 'm4', role: 'assistant' as const, content: 'recent two' }
+    ]
+
+    const plan = planManualContextCompaction(history, null, 2)
+
+    expect(plan?.older).toEqual([history[0], history[1]])
+    expect(plan?.recent).toEqual([history[2], history[3]])
+    expect(plan?.compactedThroughMessageId).toBe('m2')
+    expect(plan?.compactedTurns).toBe(2)
+    expect(plan?.previousRemovedTurns).toBe(0)
+  })
+
+  it('extends an existing snapshot instead of re-summarizing turns it already covers', () => {
+    const history = [
+      { id: 'm1', role: 'user' as const, content: 'already compacted' },
+      { id: 'm2', role: 'assistant' as const, content: 'snapshot boundary' },
+      { id: 'm3', role: 'user' as const, content: 'new old turn' },
+      { id: 'm4', role: 'assistant' as const, content: 'keep exact' }
+    ]
+
+    const plan = planManualContextCompaction(
+      history,
+      {
+        activeSnapshot: {
+          id: 'ctx1',
+          createdAt: 1,
+          reason: 'manual',
+          throughMessageId: 'm2',
+          removedTurns: 2,
+          summary: 'Prior compacted context.'
+        }
+      },
+      1
+    )
+
+    expect(plan?.older).toEqual([history[2]])
+    expect(plan?.recent).toEqual([history[3]])
+    expect(plan?.previousSummary).toBe('Prior compacted context.')
+    expect(plan?.previousRemovedTurns).toBe(2)
+    expect(plan?.compactedThroughMessageId).toBe('m3')
+  })
+
+  it('returns null when there are not enough exact turns to compact', () => {
+    const plan = planManualContextCompaction(
+      [
+        { id: 'm1', role: 'user', content: 'one' },
+        { id: 'm2', role: 'assistant', content: 'two' }
+      ],
+      null,
+      6
+    )
+
+    expect(plan).toBeNull()
   })
 })

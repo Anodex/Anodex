@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
-import type { ChatRequest, ChatTitleRequest } from '@shared/chat.types'
+import type { ChatCompactRequest, ChatRequest, ChatTitleRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
@@ -173,6 +173,16 @@ export function registerChatHandlers(): void {
 
   ipcMain.handle(IpcChannel.Chat.stop, (_event, conversationId: string) => {
     inflight.get(conversationId)?.abort()
+  })
+
+  ipcMain.handle(IpcChannel.Chat.compact, async (_event, request: ChatCompactRequest) => {
+    try {
+      return ok(await llamaService.compactConversationContext(request))
+    } catch (error) {
+      const message = toErrorMessage(error)
+      log.error('Manual context compaction failed:', error)
+      return err('chat.compaction-failed', message)
+    }
   })
 
   // Deliberately calls `llamaService` directly rather than `getActiveProvider()` —

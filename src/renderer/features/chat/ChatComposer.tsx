@@ -1,4 +1,5 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
+import { MANUAL_COMPACTION_RECENT_TURNS } from '@shared/contextBudget'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { notifyError } from '../../stores/uiStore'
@@ -21,16 +22,24 @@ export function ChatComposer(): JSX.Element {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [dragActive, setDragActive] = useState(false)
+  const [compacting, setCompacting] = useState(false)
   const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  const activeConversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const sendMessage = useChatStore((s) => s.sendMessage)
   const stopGeneration = useChatStore((s) => s.stopGeneration)
+  const compactConversation = useChatStore((s) => s.compactConversation)
   const engine = useModelStore((s) => s.engine)
 
   const ready = engine.status === 'ready'
   const generating = engine.generating
   const canSend = ready && !generating && (text.trim().length > 0 || attachments.length > 0)
+  const canCompact =
+    ready &&
+    !generating &&
+    !compacting &&
+    (activeConversation?.messages.length ?? 0) > MANUAL_COMPACTION_RECENT_TURNS
 
   const resetHeight = (): void => {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -51,6 +60,16 @@ export function ChatComposer(): JSX.Element {
     setAttachments([])
     resetHeight()
     void sendMessage(value, pendingAttachments)
+  }
+
+  const compact = async (): Promise<void> => {
+    if (!canCompact) return
+    setCompacting(true)
+    try {
+      await compactConversation()
+    } finally {
+      setCompacting(false)
+    }
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -202,7 +221,19 @@ export function ChatComposer(): JSX.Element {
           </button>
         )}
       </div>
-      <ContextMeter />
+      <div className={styles.contextRow}>
+        <button
+          type="button"
+          className={styles.compactAction}
+          onClick={() => void compact()}
+          disabled={!canCompact}
+          title="Compact chat context"
+          aria-label="Compact chat context"
+        >
+          <Icon name={compacting ? 'refresh' : 'archive'} size={13} />
+        </button>
+        <ContextMeter />
+      </div>
       <div className={styles.hint}>
         Enter to send · Shift+Enter for a new line · Drag a file in to attach it · Responses are
         generated locally

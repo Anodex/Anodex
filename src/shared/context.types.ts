@@ -6,10 +6,12 @@
  * replaying old turns verbatim while still preserving the facts, decisions,
  * files, and open tasks the model needs for future turns.
  */
+export type ContextSnapshotReason = 'onLoad' | 'proactive' | 'reactive' | 'manual'
+
 export interface ConversationContextSnapshot {
   id: string
   createdAt: number
-  reason: 'onLoad' | 'proactive' | 'reactive'
+  reason: ContextSnapshotReason
   /** Last chat message represented by this snapshot, or null for legacy/unknown history. */
   throughMessageId: string | null
   /** Number of original turns folded into the snapshot. */

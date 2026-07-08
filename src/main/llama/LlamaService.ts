@@ -18,6 +18,8 @@ import type {
   ModelSettingsRecommendation
 } from '@shared/model.types'
 import type {
+  ChatCompactRequest,
+  ChatCompactResult,
   ChatHistoryTurn,
   ChatTitleRequest,
   GenerationOptions,
@@ -31,6 +33,7 @@ import type { Plan } from '@shared/plan.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
+import { planManualContextCompaction } from '@shared/contextProjection'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import {
@@ -50,8 +53,10 @@ import { createLogger } from '../utils/logger'
 import {
   COMPACTION_TRIGGER_RATIO,
   MAX_COMPACTION_SUMMARY_WORDS,
+  MIN_CHARS_TO_SUMMARIZE,
   MIN_SUMMARY_CHARS,
-  NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT
+  NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT,
+  renderTurnsForSummary
 } from './compaction'
 
 const log = createLogger('llama')
@@ -594,6 +599,41 @@ class LlamaService extends EventEmitter {
     } catch (error) {
       log.warn('Chat title generation failed:', error)
       return null
+    }
+  }
+
+  /**
+   * Manually compact a conversation into a durable context snapshot.
+   *
+   * This is an explicit user action, not a pressure-triggered safety net. It
+   * keeps the newest turns verbatim and summarizes older exact turns into the
+   * active context epoch. The full chat transcript remains untouched for UI
+   * and audit history.
+   */
+  async compactConversationContext(request: ChatCompactRequest): Promise<ChatCompactResult | null> {
+    if (this.status !== 'ready' || !this.model) {
+      throw new Error('No model is loaded. Load a model before compacting chat context.')
+    }
+
+    const plan = planManualContextCompaction(request.history, request.context)
+    if (!plan) return null
+
+    const transcript = renderTurnsForSummary(plan.older)
+    if (transcript.length < MIN_CHARS_TO_SUMMARIZE) return null
+
+    const summary = await this.summarizeHistoryForCompaction(transcript)
+    if (!summary) return null
+
+    return {
+      conversationId: request.conversationId,
+      compactedTurns: plan.compactedTurns,
+      snapshot: {
+        createdAt: Date.now(),
+        reason: 'manual',
+        throughMessageId: plan.compactedThroughMessageId,
+        removedTurns: plan.previousRemovedTurns + plan.compactedTurns,
+        summary: mergeContextSummaries(plan.previousSummary, summary) ?? summary
+      }
     }
   }
 

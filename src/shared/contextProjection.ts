@@ -1,6 +1,11 @@
 import type { ChatHistoryTurn } from './chat.types'
+import type { ConversationContext } from './context.types'
 import type { Conversation } from './conversation.types'
-import { MAX_MODEL_TOOL_RESULT_CHARS, reservedNonHistoryTokens } from './contextBudget'
+import {
+  MANUAL_COMPACTION_RECENT_TURNS,
+  MAX_MODEL_TOOL_RESULT_CHARS,
+  reservedNonHistoryTokens
+} from './contextBudget'
 import { buildCompactionSystemPrompt } from './contextPrompt'
 import { messageToHistoryTurn } from './chatSanitizer'
 
@@ -26,6 +31,21 @@ export interface ProjectedContextUsage {
   snapshotTurns: number
   totalTurns: number
   snapshotApplied: boolean
+}
+
+export interface ManualContextCompactionPlan {
+  /** Exact turns to summarize into the next durable snapshot. */
+  older: ChatHistoryTurn[]
+  /** Exact turns intentionally kept verbatim after the new snapshot boundary. */
+  recent: ChatHistoryTurn[]
+  /** Summary already stored in the active snapshot, if one was applied. */
+  previousSummary?: string
+  /** Number of turns represented by the active snapshot before this manual compaction. */
+  previousRemovedTurns: number
+  /** Last original message represented by the new summary. */
+  compactedThroughMessageId: string
+  /** Number of exact turns newly folded into the snapshot. */
+  compactedTurns: number
 }
 
 /** Estimate what the next model turn will see for the active conversation. */
@@ -62,6 +82,30 @@ export function estimateProjectedContextUsage({
   }
 }
 
+/** Plan a manual compaction while keeping the newest turns exact. */
+export function planManualContextCompaction(
+  history: ChatHistoryTurn[],
+  context: ConversationContext | null | undefined,
+  recentTurnCount = MANUAL_COMPACTION_RECENT_TURNS
+): ManualContextCompactionPlan | null {
+  const seeded = seedHistoryFromContext(history, context)
+  const splitIndex = Math.max(0, seeded.history.length - recentTurnCount)
+  const older = seeded.history.slice(0, splitIndex)
+  if (older.length === 0) return null
+
+  const compactedThroughMessageId = lastTurnId(older)
+  if (!compactedThroughMessageId) return null
+
+  return {
+    older,
+    recent: seeded.history.slice(splitIndex),
+    previousSummary: seeded.summary,
+    previousRemovedTurns: seeded.removedTurns,
+    compactedThroughMessageId,
+    compactedTurns: older.length
+  }
+}
+
 function seedProjectedHistory(
   systemPrompt: string | undefined,
   conversation: Conversation
@@ -73,34 +117,50 @@ function seedProjectedHistory(
   snapshotApplied: boolean
 } {
   const history = conversation.messages.map(messageToHistoryTurn)
-  const snapshot = conversation.context?.activeSnapshot
+  const seeded = seedHistoryFromContext(history, conversation.context)
+  return {
+    systemPrompt: seeded.summary
+      ? buildCompactionSystemPrompt(systemPrompt, seeded.summary)
+      : systemPrompt,
+    history: seeded.history,
+    snapshotTokens: seeded.summary ? estimateTokens(seeded.summary) : 0,
+    snapshotTurns: seeded.removedTurns,
+    snapshotApplied: seeded.applied
+  }
+}
+
+function seedHistoryFromContext(
+  history: ChatHistoryTurn[],
+  context: ConversationContext | null | undefined
+): {
+  history: ChatHistoryTurn[]
+  summary?: string
+  removedTurns: number
+  applied: boolean
+} {
+  const snapshot = context?.activeSnapshot
   if (!snapshot?.summary || !snapshot.throughMessageId) {
     return {
-      systemPrompt,
       history,
-      snapshotTokens: 0,
-      snapshotTurns: 0,
-      snapshotApplied: false
+      removedTurns: 0,
+      applied: false
     }
   }
 
   const boundaryIndex = history.findIndex((turn) => turn.id === snapshot.throughMessageId)
   if (boundaryIndex < 0) {
     return {
-      systemPrompt,
       history,
-      snapshotTokens: 0,
-      snapshotTurns: 0,
-      snapshotApplied: false
+      removedTurns: 0,
+      applied: false
     }
   }
 
   return {
-    systemPrompt: buildCompactionSystemPrompt(systemPrompt, snapshot.summary),
     history: history.slice(boundaryIndex + 1),
-    snapshotTokens: estimateTokens(snapshot.summary),
-    snapshotTurns: snapshot.removedTurns,
-    snapshotApplied: true
+    summary: snapshot.summary,
+    removedTurns: snapshot.removedTurns,
+    applied: true
   }
 }
 
@@ -143,4 +203,12 @@ function compactToolText(text: string): string {
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN)
+}
+
+function lastTurnId(turns: ChatHistoryTurn[]): string | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const id = turns[i]?.id
+    if (id) return id
+  }
+  return null
 }

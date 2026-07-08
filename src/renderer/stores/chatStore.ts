@@ -41,6 +41,8 @@ interface ChatState {
   refreshConversations: () => Promise<void>
   sendMessage: (text: string, attachments?: ComposerAttachment[]) => Promise<void>
   stopGeneration: () => Promise<void>
+  /** Manually summarize older turns into the conversation's durable context snapshot. */
+  compactConversation: () => Promise<void>
   /** Called by the IPC bridge for each streamed token. */
   appendToken: (conversationId: string, messageId: string, token: string) => void
   /** Called by the IPC bridge as the assistant's tool calls progress. */
@@ -282,6 +284,58 @@ export const useChatStore = create<ChatState>()(
     stopGeneration: async () => {
       const activeId = get().activeId
       if (activeId) await anodex.chat.stop(activeId)
+    },
+
+    compactConversation: async () => {
+      const activeId = get().activeId
+      const conversation = get().conversations.find((c) => c.id === activeId)
+      if (!conversation) return
+      if (useModelStore.getState().engine.status !== 'ready') {
+        notifyError('No model loaded', 'Load a model before compacting chat context.')
+        return
+      }
+
+      const result = await anodex.chat.compact({
+        conversationId: conversation.id,
+        context: conversation.context ?? null,
+        history: conversation.messages.map(messageToHistoryTurn)
+      })
+
+      if (!result.ok) {
+        notifyError('Could not compact chat', result.error.message)
+        return
+      }
+      if (!result.value) {
+        useUiStore.getState().notify({
+          kind: 'info',
+          title: 'Nothing to compact',
+          message: 'This chat does not have enough older context to summarize yet.'
+        })
+        return
+      }
+      const compacted = result.value
+
+      set((state) => {
+        const convo = state.conversations.find((c) => c.id === compacted.conversationId)
+        if (!convo) return
+        convo.context = {
+          activeSnapshot: {
+            id: createId('ctx'),
+            ...compacted.snapshot
+          }
+        }
+        convo.updatedAt = Date.now()
+      })
+      const updated = get().conversations.find((c) => c.id === compacted.conversationId)
+      if (updated) void persistConversation(updated)
+
+      useUiStore.getState().notify({
+        kind: 'success',
+        title: 'Chat context compacted',
+        message: `Summarized ${compacted.compactedTurns} older turn${
+          compacted.compactedTurns === 1 ? '' : 's'
+        } into the active context snapshot.`
+      })
     },
 
     appendToken: (conversationId, messageId, token) => {
