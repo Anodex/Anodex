@@ -1,4 +1,10 @@
 import type { ChatHistoryTurn } from '@shared/chat.types'
+import {
+  MAX_RESERVED_NON_HISTORY_TOKENS,
+  MIN_RESERVED_NON_HISTORY_TOKENS,
+  RESERVED_NON_HISTORY_FRACTION,
+  reservedNonHistoryTokens
+} from '@shared/contextBudget'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 
 /**
@@ -11,23 +17,11 @@ import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
  * context leaves almost no history budget at all) or waste a large one (2048
  * out of 128K is needlessly stingy for a big context's own response).
  */
-export const RESERVED_NON_HISTORY_FRACTION = 0.2
-
-/** Floor so even a tiny context still leaves some room for a real response. */
-export const MIN_RESERVED_NON_HISTORY_TOKENS = 512
-
-/** Ceiling so a huge context doesn't reserve a proportionally huge, wasteful chunk. */
-export const MAX_RESERVED_NON_HISTORY_TOKENS = 8192
-
-/** Non-history token reservation for a given context size — see `RESERVED_NON_HISTORY_FRACTION`. */
-export function reservedNonHistoryTokens(contextSize: number): number {
-  return Math.min(
-    MAX_RESERVED_NON_HISTORY_TOKENS,
-    Math.max(
-      MIN_RESERVED_NON_HISTORY_TOKENS,
-      Math.round(contextSize * RESERVED_NON_HISTORY_FRACTION)
-    )
-  )
+export {
+  MAX_RESERVED_NON_HISTORY_TOKENS,
+  MIN_RESERVED_NON_HISTORY_TOKENS,
+  RESERVED_NON_HISTORY_FRACTION,
+  reservedNonHistoryTokens
 }
 
 /**
@@ -152,12 +146,4 @@ export function renderTurnsForSummary(turns: ChatHistoryTurn[]): string {
     .join('\n')
 }
 
-/** Append a compaction summary to the system prompt as its own clearly-labeled block. */
-export function buildCompactionSystemPrompt(
-  systemPrompt: string | undefined,
-  summary: string
-): string {
-  const base = systemPrompt ?? ''
-  const block = `Summary of earlier conversation (compacted to fit the context window):\n${summary}`
-  return base ? `${base}\n\n---\n${block}` : block
-}
+export { buildCompactionSystemPrompt } from '@shared/contextPrompt'

@@ -2,6 +2,7 @@ import type { ChatHistoryTurn } from '@shared/chat.types'
 import type { ConversationContext } from '@shared/context.types'
 import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
+import { MAX_MODEL_TOOL_RESULT_CHARS } from '@shared/contextBudget'
 import {
   buildCompactionSystemPrompt,
   MIN_CHARS_TO_SUMMARIZE,
@@ -19,7 +20,7 @@ import {
  * concise and self-describing; the model can ask to read the file/rerun the
  * command when it truly needs the omitted detail.
  */
-export const MAX_MODEL_TOOL_RESULT_CHARS = 1_200
+export { MAX_MODEL_TOOL_RESULT_CHARS } from '@shared/contextBudget'
 
 const TOOL_RESULT_TRUNCATION_NOTICE =
   '\n\n[Anodex truncated this older tool result for context. Re-read or rerun it if exact detail is needed.]'
