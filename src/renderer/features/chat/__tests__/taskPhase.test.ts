@@ -147,14 +147,22 @@ describe('messageBlocks', () => {
   })
 
   it('strips raw tool-call payloads from persisted text blocks', () => {
+    const toolCalls = [call({ name: 'patch_file', kind: 'write' })]
     const blocks: MessageBlock[] = [
       textBlock(
         'I will patch this now. {"name": "patch_file", "arguments": {"path": "app.css", "replacements": []}}'
       )
     ]
-    expect(messageBlocks(message({ blocks }))).toEqual([
+    expect(messageBlocks(message({ blocks, toolCalls }))).toEqual([
       { type: 'text', text: 'I will patch this now.' }
     ])
+  })
+
+  it('keeps raw tool-like text when no real tool call exists', () => {
+    const blocks: MessageBlock[] = [
+      textBlock('Example: {"name": "read_file", "arguments": {"path": "app.ts"}}')
+    ]
+    expect(messageBlocks(message({ blocks }))).toEqual(blocks)
   })
 
   it('falls back to tools-then-text for messages persisted before blocks existed', () => {

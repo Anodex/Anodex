@@ -33,7 +33,6 @@ import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import {
   detectFallbackToolCall,
-  findPotentialToolCallTextStart,
   looksLikeFabricatedOutcome,
   looksLikeUnactedIntent,
   stripFallbackCall,
@@ -373,49 +372,6 @@ class LlamaService extends EventEmitter {
       for (let round = 0; ; round++) {
         let roundContent = ''
         let roundSegment = ''
-        let streamedRoundText = ''
-        let heldRoundText = ''
-        let holdingPossibleToolText = false
-        let emittedRoundText = false
-        const deferToolText = functions != null
-        const emitRoundText = (text: string): void => {
-          if (!text) return
-          const separator = !emittedRoundText && visibleContent ? '\n\n' : ''
-          params.onToken(`${separator}${text}`)
-          streamedRoundText += text
-          emittedRoundText = true
-        }
-        const emitUnstreamedRoundText = (finalRoundText: string): void => {
-          if (!deferToolText) return
-          const remaining = finalRoundText.startsWith(streamedRoundText)
-            ? finalRoundText.slice(streamedRoundText.length)
-            : finalRoundText
-          emitRoundText(remaining)
-        }
-        const handleVisibleChunk = (text: string): void => {
-          roundContent += text
-          if (!deferToolText) {
-            params.onToken(text)
-            return
-          }
-
-          const pending = heldRoundText + text
-          if (holdingPossibleToolText) {
-            heldRoundText = pending
-            return
-          }
-
-          const holdAt = findPotentialToolCallTextStart(pending)
-          if (holdAt === -1) {
-            heldRoundText = ''
-            emitRoundText(pending)
-            return
-          }
-
-          emitRoundText(pending.slice(0, holdAt))
-          heldRoundText = pending.slice(holdAt)
-          holdingPossibleToolText = true
-        }
         const promptOptions = {
           temperature: params.options?.temperature,
           topP: params.options?.topP,
@@ -433,7 +389,8 @@ class LlamaService extends EventEmitter {
               roundSegment += chunk.text
               return
             }
-            handleVisibleChunk(chunk.text)
+            roundContent += chunk.text
+            params.onToken(chunk.text)
           }
         }
 
@@ -495,8 +452,7 @@ class LlamaService extends EventEmitter {
         })
 
         if (meta.stopReason === 'abort') {
-          const abortContent = deferToolText ? streamedRoundText : roundContent
-          visibleContent = appendContent(visibleContent, abortContent)
+          visibleContent = appendContent(visibleContent, roundContent)
           stopped = true
           break
         }
@@ -513,7 +469,6 @@ class LlamaService extends EventEmitter {
             : null
 
         if (!fallback || !activeFunctions) {
-          emitUnstreamedRoundText(roundContent)
           visibleContent = appendContent(visibleContent, roundContent)
 
           // The reply describes an outcome that didn't actually happen this turn:
@@ -549,7 +504,6 @@ class LlamaService extends EventEmitter {
         // ("I'll check the file first...") and drop the raw call text itself —
         // the resulting tool card stands in for it in the UI.
         const cleanedRoundContent = stripFallbackCall(roundContent, fallback)
-        emitUnstreamedRoundText(cleanedRoundContent)
         visibleContent = appendContent(visibleContent, cleanedRoundContent)
 
         const resultText = await runFallbackToolCall(activeFunctions, fallback)

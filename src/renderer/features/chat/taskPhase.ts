@@ -109,13 +109,16 @@ export function buildRenderSegments(blocks: MessageBlock[]): RenderSegment[] {
  * one-time compatibility path for old conversation history, not the norm.
  */
 export function messageBlocks(message: ChatMessage): MessageBlock[] {
-  if (message.blocks && message.blocks.length > 0) return stripRawToolTextBlocks(message.blocks)
+  const shouldCleanRawToolText = message.role === 'assistant' && Boolean(message.toolCalls?.length)
+  if (message.blocks && message.blocks.length > 0) {
+    return shouldCleanRawToolText ? stripRawToolTextBlocks(message.blocks) : message.blocks
+  }
   const fallback: MessageBlock[] = (message.toolCalls ?? []).map((call) => ({
     type: 'tool',
     call
   }))
   if (message.content) fallback.push({ type: 'text', text: message.content })
-  return stripRawToolTextBlocks(fallback)
+  return shouldCleanRawToolText ? stripRawToolTextBlocks(fallback) : fallback
 }
 
 const KNOWN_TOOL_NAMES = new Set(TOOL_CATALOG.map((tool) => tool.name))

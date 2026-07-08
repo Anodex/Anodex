@@ -40,6 +40,23 @@ export function stripToolCallText(text: string, availableToolNames: ReadonlySet<
   }
 }
 
+/**
+ * Earliest point where streamed assistant text may be starting a raw tool
+ * payload. This is intentionally a little broader than full parsing so the UI
+ * can quarantine partial JSON before it becomes a noisy visible blob.
+ */
+export function findPotentialToolCallTextStart(text: string): number {
+  const starts = [
+    text.indexOf('<tool_call'),
+    text.indexOf('```json'),
+    text.indexOf('```\n{'),
+    text.indexOf('``` \n{'),
+    findToolishJsonStart(text)
+  ].filter((index) => index >= 0)
+
+  return starts.length > 0 ? Math.min(...starts) : -1
+}
+
 function extractCandidates(text: string): Candidate[] {
   const candidates: Candidate[] = []
 
@@ -75,6 +92,18 @@ function extractTrailingJsonObject(text: string): Candidate | null {
     return { matchedText, jsonText: matchedText }
   }
   return null
+}
+
+function findToolishJsonStart(text: string): number {
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] !== '{') continue
+    const previous = index === 0 ? '' : text[index - 1]
+    if (previous && !/\s/.test(previous)) continue
+    const tail = text.slice(index + 1).trimStart()
+    if (tail === '') return index
+    if ('"name"'.startsWith(tail) || tail.startsWith('"name"')) return index
+  }
+  return -1
 }
 
 function balancedJsonObjectEnd(text: string, start: number): number {

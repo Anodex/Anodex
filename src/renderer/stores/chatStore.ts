@@ -12,6 +12,7 @@ import { playChime } from '../lib/sound'
 import { notifyDesktop, shouldShowDesktopToast } from '../lib/notifications'
 import { buildPromptWithAttachments, type ComposerAttachment } from '../lib/attachments'
 import { reconcileMessageBlocks } from '../features/chat/reconcileMessageBlocks'
+import { quarantineStreamingToolPayload } from '../features/chat/streamingToolPayload'
 
 export type { Conversation }
 
@@ -45,6 +46,7 @@ interface ChatState {
 }
 
 const DEFAULT_TITLE = 'New chat'
+const pendingToolPayloadByMessage = new Map<string, string>()
 
 async function persistConversation(conversation: Conversation): Promise<void> {
   await anodex.conversations.save(conversation)
@@ -219,6 +221,7 @@ export const useChatStore = create<ChatState>()(
         const convo = state.conversations.find((c) => c.id === conversationId)
         const message = convo?.messages.find((m) => m.id === assistantId)
         if (!convo || !message) return
+        pendingToolPayloadByMessage.delete(assistantId)
         message.streaming = false
         if (result.ok) {
           message.content = result.value.content
@@ -230,14 +233,16 @@ export const useChatStore = create<ChatState>()(
           )
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
         } else {
-          const toolNames = TOOL_CATALOG.map((tool) => tool.name)
-          message.content = stripToolCallText(message.content, new Set(toolNames))
-          message.blocks = reconcileMessageBlocks(
-            message.blocks,
-            message.content,
-            message.toolCalls,
-            toolNames
-          )
+          if (message.toolCalls?.length) {
+            const toolNames = TOOL_CATALOG.map((tool) => tool.name)
+            message.content = stripToolCallText(message.content, new Set(toolNames))
+            message.blocks = reconcileMessageBlocks(
+              message.blocks,
+              message.content,
+              message.toolCalls,
+              toolNames
+            )
+          }
           message.error = result.error.message
         }
         convo.updatedAt = Date.now()
@@ -286,7 +291,16 @@ export const useChatStore = create<ChatState>()(
         const convo = state.conversations.find((c) => c.id === conversationId)
         const message = convo?.messages.find((m) => m.id === messageId)
         if (message && convo) {
-          message.content += token
+          const visibleToken = quarantineStreamingToolPayload(
+            message,
+            token,
+            pendingToolPayloadByMessage
+          )
+          if (!visibleToken) {
+            convo.updatedAt = Date.now()
+            return
+          }
+          message.content += visibleToken
           // Tokens and tool-activity events both arrive over IPC in the exact
           // order they happened during generation, so appending each to a
           // shared timeline (instead of the separate content/toolCalls
@@ -295,8 +309,8 @@ export const useChatStore = create<ChatState>()(
           // tool call.
           if (!message.blocks) message.blocks = []
           const last = message.blocks[message.blocks.length - 1]
-          if (last && last.type === 'text') last.text += token
-          else message.blocks.push({ type: 'text', text: token })
+          if (last && last.type === 'text') last.text += visibleToken
+          else message.blocks.push({ type: 'text', text: visibleToken })
           convo.updatedAt = Date.now()
         }
       })
@@ -305,6 +319,7 @@ export const useChatStore = create<ChatState>()(
     },
 
     applyToolActivity: ({ conversationId, messageId, call }) => {
+      pendingToolPayloadByMessage.delete(messageId)
       set((state) => {
         const convo = state.conversations.find((c) => c.id === conversationId)
         const message = convo?.messages.find((m) => m.id === messageId)

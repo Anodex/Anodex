@@ -26,6 +26,13 @@ describe('composeSystemPrompt', () => {
     expect(prompt).toContain('exactly one short user-facing sentence')
   })
 
+  it('keeps internal tool-call syntax allowed for the runtime', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
+    expect(prompt).toContain('Tool-call payloads are internal syntax for the runtime')
+    expect(prompt).toContain('emit them only as actual tool calls')
+    expect(prompt).not.toContain('Never write tool-call JSON in the chat')
+  })
+
   it('forbids fake web assets and placeholder image URLs', () => {
     const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
     expect(prompt).toContain('Never claim you fetched web content unless a web tool succeeded')
