@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
 import { AnodexLogo } from '../../components/AnodexLogo'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
@@ -13,6 +14,18 @@ import styles from './MessageBubble.module.css'
 /** A single chat turn: avatar, author/time meta, content, and optional stats. */
 export function MessageBubble({ message }: { message: ChatMessage }): JSX.Element {
   const isUser = message.role === 'user'
+  const [copied, setCopied] = useState(false)
+  const showCopy = !message.streaming && message.content.length > 0
+
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(message.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* Clipboard unavailable — silently ignore. */
+    }
+  }
   const segments = buildRenderSegments(messageBlocks(message))
   const showThinking = message.streaming && segments.length === 0
   const lastSegment = segments[segments.length - 1]
@@ -30,6 +43,17 @@ export function MessageBubble({ message }: { message: ChatMessage }): JSX.Elemen
         </div>
 
         <div className={styles.bubble}>
+          {showCopy && (
+            <button
+              type="button"
+              className={styles.copyButton}
+              onClick={() => void handleCopy()}
+              aria-label="Copy message"
+            >
+              <Icon name={copied ? 'check' : 'copy'} size={13} />
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          )}
           {message.attachments && message.attachments.length > 0 && (
             <div className={styles.attachments}>
               {message.attachments.map((attachment) => (
