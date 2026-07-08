@@ -92,6 +92,14 @@ export interface ChatRequest {
   plan?: Plan | null
 }
 
+/** Input for best-effort local chat title generation after the first turn completes. */
+export interface ChatTitleRequest {
+  userPrompt: string
+  assistantReply: string
+  attachmentNames?: string[]
+  editedFiles?: string[]
+}
+
 /** A single streamed token (or token group) for an in-flight assistant reply. */
 export interface ChatStreamChunk {
   conversationId: string

@@ -19,6 +19,7 @@ import type {
 } from '@shared/model.types'
 import type {
   ChatHistoryTurn,
+  ChatTitleRequest,
   GenerationOptions,
   GenerationStats,
   HistoryCompactionEvent
@@ -564,6 +565,28 @@ class LlamaService extends EventEmitter {
     }
   }
 
+  /** Best-effort short title for a new conversation, based on the first completed turn. */
+  async generateChatTitle(request: ChatTitleRequest): Promise<string | null> {
+    if (this.status !== 'ready' || !this.model) return null
+
+    try {
+      const sequence = await this.ensureSummarySequence(1536)
+      const context = renderTitleContext(request)
+      const finalText = await this.runSummaryPrompt(
+        sequence,
+        'Create a concise title for this AI assistant conversation. The title should describe ' +
+          'the actual task or topic, not copy the first words verbatim. Use 3 to 6 words, ' +
+          'Title Case, no quotes, no trailing punctuation, no preamble. Prefer an action plus ' +
+          `object, such as "Fix Sidebar Hover Preview" or "Plan Garden Layout".\n\n${context}`,
+        { maxTokens: 64, temperature: 0.15 }
+      )
+      return cleanChatTitle(finalText)
+    } catch (error) {
+      log.warn('Chat title generation failed:', error)
+      return null
+    }
+  }
+
   /**
    * Return the dedicated `summaryContext`/`summarySequence` used by both
    * `summarizeForToast` and `summarizeHistoryForCompaction` — never the
@@ -1021,6 +1044,50 @@ function cleanToastSummary(raw: string, maxWords: number): string | null {
     .join(' ')
     .replace(/[,;:]+$/, '')
   return `${trimmedWords}…`
+}
+
+function renderTitleContext(request: ChatTitleRequest): string {
+  const userPrompt = truncateForTitlePrompt(
+    request.userPrompt || request.attachmentNames?.join(', ') || ''
+  )
+  const assistantReply = truncateForTitlePrompt(request.assistantReply)
+  const attachments = request.attachmentNames?.length
+    ? `\nAttachments: ${request.attachmentNames.slice(0, 4).join(', ')}`
+    : ''
+  const editedFiles = request.editedFiles?.length
+    ? `\nEdited files: ${request.editedFiles.slice(0, 6).join(', ')}`
+    : ''
+
+  return `<conversation>\nUser: ${userPrompt}\nAssistant: ${assistantReply}${attachments}${editedFiles}\n</conversation>`
+}
+
+function truncateForTitlePrompt(text: string): string {
+  const cleaned = text.replace(/\s+/g, ' ').trim()
+  return cleaned.length > 900 ? `${cleaned.slice(0, 900)}...` : cleaned
+}
+
+function cleanChatTitle(raw: string): string | null {
+  const firstLine = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean)
+  if (!firstLine) return null
+
+  const cleaned = firstLine
+    .replace(/^title\s*:\s*/i, '')
+    .replace(/^["'\s]+|["'.!?:;\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned || cleaned.length < 3) return null
+  const words = cleaned.split(' ').slice(0, 7)
+  return (
+    words
+      .join(' ')
+      .slice(0, 60)
+      .replace(/[,;:]+$/, '')
+      .trim() || null
+  )
 }
 
 function buildStats(tokens: number, startedAt: number): GenerationStats {

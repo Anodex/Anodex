@@ -33,6 +33,7 @@ const api: AnodexApi = {
     stop: (conversationId) => ipcRenderer.invoke(IpcChannel.Chat.stop, conversationId),
     onStream: (listener) => subscribe<ChatStreamChunk>(IpcChannel.Chat.stream, listener),
     summarize: (text, maxWords) => ipcRenderer.invoke(IpcChannel.Chat.summarize, text, maxWords),
+    title: (request) => ipcRenderer.invoke(IpcChannel.Chat.title, request),
     onHistoryCompacted: (listener) =>
       subscribe<HistoryCompactionEvent>(IpcChannel.Chat.historyCompacted, listener)
   },

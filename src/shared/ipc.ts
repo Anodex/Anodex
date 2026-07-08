@@ -21,6 +21,7 @@ import type {
   ChatRequest,
   ChatResult,
   ChatStreamChunk,
+  ChatTitleRequest,
   HistoryCompactionEvent
 } from './chat.types'
 import type { AppSettings, DeepPartial } from './settings.types'
@@ -72,6 +73,8 @@ export const IpcChannel = {
     stream: 'chat:stream',
     /** A short local-model summary of a finished reply, for a desktop toast's title. */
     summarize: 'chat:summarize',
+    /** A short generated title for a conversation's first user/assistant turn. */
+    title: 'chat:title',
     /** main → renderer broadcast when older conversation turns were summarized to fit context. */
     historyCompacted: 'chat:history-compacted'
   },
@@ -224,6 +227,8 @@ export interface AnodexApi {
     onStream(listener: (chunk: ChatStreamChunk) => void): () => void
     /** Best-effort local summary of `text` in `maxWords` words or fewer; `null` if it failed. */
     summarize(text: string, maxWords: number): Promise<string | null>
+    /** Best-effort local title for a finished first turn; `null` if it failed. */
+    title(request: ChatTitleRequest): Promise<string | null>
     /** Fires when older conversation turns were summarized to fit the model's context window. */
     onHistoryCompacted(listener: (event: HistoryCompactionEvent) => void): () => void
   }

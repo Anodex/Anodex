@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
-import type { ChatRequest } from '@shared/chat.types'
+import type { ChatRequest, ChatTitleRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { composeSystemPrompt } from '@shared/prompts'
 import { getActiveProvider } from '../llm/ProviderRegistry'
@@ -178,5 +178,9 @@ export function registerChatHandlers(): void {
   // provider a future cloud-provider setting might have made "active" for real replies.
   ipcMain.handle(IpcChannel.Chat.summarize, (_event, text: string, maxWords: number) =>
     llamaService.summarizeForToast(text, maxWords)
+  )
+
+  ipcMain.handle(IpcChannel.Chat.title, (_event, request: ChatTitleRequest) =>
+    llamaService.generateChatTitle(request)
   )
 }

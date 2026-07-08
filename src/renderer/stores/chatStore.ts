@@ -168,6 +168,9 @@ export const useChatStore = create<ChatState>()(
       }))
 
       const titleSource = trimmed || attachments[0]?.name || DEFAULT_TITLE
+      const fallbackTitle = deriveTitle(titleSource)
+      const shouldGenerateTitle =
+        existing?.title === DEFAULT_TITLE && existing.messages.length === 0
       const assistantId = createId('m')
       set((state) => {
         const convo = state.conversations.find((c) => c.id === conversationId)
@@ -189,7 +192,7 @@ export const useChatStore = create<ChatState>()(
           createdAt: now,
           streaming: true
         })
-        if (convo.title === DEFAULT_TITLE) convo.title = deriveTitle(titleSource)
+        if (convo.title === DEFAULT_TITLE) convo.title = fallbackTitle
         convo.updatedAt = now
       })
 
@@ -250,6 +253,17 @@ export const useChatStore = create<ChatState>()(
           const summary = await anodex.chat.summarize(result.value.content, 8).catch(() => null)
           notifyDesktop(summary ?? 'Reply ready', `In "${conversationTitle}"`)
         }
+      }
+
+      if (result.ok && !result.value.stopped && finalConvo && shouldGenerateTitle) {
+        void generateConversationTitle({
+          conversationId,
+          expectedTitle: fallbackTitle,
+          userPrompt: trimmed,
+          assistantReply: result.value.content,
+          attachmentNames: attachments.map((attachment) => attachment.name),
+          editedFiles: editedFilesForAssistantMessage(finalConvo, assistantId)
+        })
       }
     },
 
@@ -312,6 +326,52 @@ export const useChatStore = create<ChatState>()(
     }
   }))
 )
+
+async function generateConversationTitle({
+  conversationId,
+  expectedTitle,
+  userPrompt,
+  assistantReply,
+  attachmentNames,
+  editedFiles
+}: {
+  conversationId: string
+  expectedTitle: string
+  userPrompt: string
+  assistantReply: string
+  attachmentNames: string[]
+  editedFiles: string[]
+}): Promise<void> {
+  const title = await anodex.chat
+    .title({ userPrompt, assistantReply, attachmentNames, editedFiles })
+    .catch(() => null)
+  const nextTitle = title?.trim()
+  if (!nextTitle) return
+
+  const current = useChatStore.getState().conversations.find((c) => c.id === conversationId)
+  if (!current || current.title !== expectedTitle) return
+
+  useChatStore.setState((state) => {
+    const conversation = state.conversations.find((c) => c.id === conversationId)
+    if (conversation && conversation.title === expectedTitle) conversation.title = nextTitle
+  })
+
+  const nextConversation = useChatStore
+    .getState()
+    .conversations.find((c) => c.id === conversationId)
+  if (nextConversation) await persistConversation(nextConversation)
+}
+
+function editedFilesForAssistantMessage(conversation: Conversation, messageId: string): string[] {
+  const message = conversation.messages.find((item) => item.id === messageId)
+  return Array.from(
+    new Set(
+      (message?.toolCalls ?? [])
+        .map((call) => call.diff?.path)
+        .filter((path): path is string => Boolean(path))
+    )
+  )
+}
 
 function deriveTitle(text: string): string {
   const firstLine = text.split('\n')[0].trim()
