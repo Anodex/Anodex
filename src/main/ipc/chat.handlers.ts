@@ -106,6 +106,7 @@ export function registerChatHandlers(): void {
         conversationId: request.conversationId,
         messageId: request.messageId,
         systemPrompt,
+        context: request.context,
         history: request.history,
         prompt: request.prompt,
         options: request.options,
