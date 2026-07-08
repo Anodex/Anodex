@@ -78,15 +78,9 @@
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  opacity: 0;
   transition:
-    opacity var(--transition-fast),
     color var(--transition-fast),
     background var(--transition-fast);
-}
-
-.row:hover .copyButton {
-  opacity: 1;
 }
 
 .copyButton:hover {
