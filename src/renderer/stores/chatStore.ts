@@ -10,6 +10,7 @@ import { useModelStore } from './modelStore'
 import { playChime } from '../lib/sound'
 import { notifyDesktop, shouldShowDesktopToast } from '../lib/notifications'
 import { buildPromptWithAttachments, type ComposerAttachment } from '../lib/attachments'
+import { reconcileMessageBlocks } from '../features/chat/reconcileMessageBlocks'
 
 export type { Conversation }
 
@@ -218,6 +219,11 @@ export const useChatStore = create<ChatState>()(
         if (result.ok) {
           message.content = result.value.content
           message.stats = result.value.stats
+          message.blocks = reconcileMessageBlocks(
+            message.blocks,
+            result.value.content,
+            message.toolCalls
+          )
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
         } else {
           message.error = result.error.message
