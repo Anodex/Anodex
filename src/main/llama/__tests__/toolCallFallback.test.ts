@@ -227,9 +227,9 @@ function showWinScreen(winner) {
     )
   })
 
-  it('does not flag explicit requests to show code in chat', () => {
+  it('flags animation preview requests when the reply still dumps file-edit code', () => {
     const reply = `
-Here is the win animation code:
+Update \`tic-tac-toe.css\` with this win animation:
 
 \`\`\`css
 @keyframes winPulse {
@@ -244,7 +244,29 @@ Here is the win animation code:
 \`\`\`
 `
 
-    expect(looksLikeToolBypass(reply, 'can you show me the win animation in chat')).toBe(false)
+    expect(looksLikeToolBypass(reply, 'can you show me the win animation in chat')).toBe(true)
+  })
+
+  it('does not flag explicit requests to show code in chat', () => {
+    const reply = `
+Here is the requested code example:
+
+\`\`\`css
+@keyframes winPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+.winning-cell {
+  animation: winPulse 0.7s ease-in-out infinite;
+}
+\`\`\`
+`
+
+    expect(looksLikeToolBypass(reply, 'can you show me the CSS code for the win animation')).toBe(
+      false
+    )
   })
 
   it('does not flag a small illustrative snippet without file-edit instructions', () => {

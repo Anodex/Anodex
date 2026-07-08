@@ -14,6 +14,7 @@ import {
   readMultipleFilesTool,
   searchFilesTool
 } from '../fileTools'
+import { previewHtmlTool } from '../previewTools'
 import {
   captureCalls,
   captureConfirmations,
@@ -156,6 +157,48 @@ describe('AI file tools', () => {
       const result = await tool.handler({ path: 'adir' })
 
       expect(result).toContain('not a file')
+    })
+  })
+
+  describe('preview_html', () => {
+    it('emits an inline preview with local CSS and JS inlined', async () => {
+      await writeFile(
+        join(workspace, 'game.html'),
+        '<!doctype html><html><head><link rel="stylesheet" href="game.css"></head><body><button id="win">Win</button><script src="game.js"></script></body></html>'
+      )
+      await writeFile(join(workspace, 'game.css'), '#win { animation: pulse 1s infinite; }')
+      await writeFile(join(workspace, 'game.js'), 'document.body.dataset.ready = "true";')
+      const capture = captureCalls()
+      const ctx = { ...createMockContext(workspace), emit: capture.emit }
+      const tool = previewHtmlTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; title?: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'game.html', title: 'Win animation' })
+
+      expect(result).toContain('Rendered an inline chat preview')
+      const success = capture.calls.find((call) => call.status === 'success')
+      expect(success?.preview).toMatchObject({
+        kind: 'html',
+        title: 'Win animation',
+        path: 'game.html'
+      })
+      expect(success?.preview?.content).toContain('<style')
+      expect(success?.preview?.content).toContain('animation: pulse')
+      expect(success?.preview?.content).toContain('<script')
+      expect(success?.preview?.content).toContain('dataset.ready')
+    })
+
+    it('rejects non-HTML files', async () => {
+      await writeFile(join(workspace, 'game.css'), 'body { color: red; }')
+      const ctx = createMockContext(workspace)
+      const tool = previewHtmlTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'game.css' })
+
+      expect(result).toContain('preview_html requires an HTML file')
     })
   })
 

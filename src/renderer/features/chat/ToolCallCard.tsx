@@ -4,6 +4,7 @@ import { Icon, type IconName } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { diffStats } from '../../lib/diffRows'
+import { ChatHtmlPreview } from './ChatHtmlPreview'
 import { DiffView } from './DiffView'
 import styles from './ToolCallCard.module.css'
 
@@ -24,17 +25,19 @@ function statusIcon(call: ToolCall): IconName {
 
 /** Compact inline card representing one tool invocation in the transcript. */
 export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(Boolean(call.preview))
   const diffView = useSettingsStore((s) => s.settings?.appearance.diffView ?? 'unified')
   const hasDiff = Boolean(call.diff)
+  const hasPreview = Boolean(call.preview)
+  const canExpand = hasDiff || hasPreview
 
   return (
     <div className={`${styles.card} ${styles[call.status]}`}>
       <button
         type="button"
         className={styles.row}
-        onClick={() => hasDiff && setExpanded((value) => !value)}
-        disabled={!hasDiff}
+        onClick={() => canExpand && setExpanded((value) => !value)}
+        disabled={!canExpand}
       >
         <span className={styles.icon}>
           {call.status === 'running' ? (
@@ -46,7 +49,7 @@ export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
         <span className={styles.title}>{call.title}</span>
         {hasDiff && call.diff && <DiffStat before={call.diff.before} after={call.diff.after} />}
         {call.detail && <span className={styles.detail}>{call.detail}</span>}
-        {hasDiff && (
+        {canExpand && (
           <Icon
             name={expanded ? 'chevron-down' : 'chevron-right'}
             size={13}
@@ -59,6 +62,7 @@ export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
           <DiffView before={call.diff.before} after={call.diff.after} mode={diffView} />
         </div>
       )}
+      {expanded && call.preview?.kind === 'html' && <ChatHtmlPreview preview={call.preview} />}
     </div>
   )
 }

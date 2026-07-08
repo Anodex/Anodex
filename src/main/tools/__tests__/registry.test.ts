@@ -23,6 +23,7 @@ const READ_ONLY_WORKSPACE_TOOLS = [
   'get_file_info',
   'read_file_range',
   'read_multiple_files',
+  'preview_html',
   'git_status',
   'git_diff'
 ]

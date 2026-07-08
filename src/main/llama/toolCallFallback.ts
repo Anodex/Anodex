@@ -273,7 +273,7 @@ const FILE_ACTION_RE =
 const FILE_TARGET_RE =
   /`?[\w./-]+\.(?:css|html|js|jsx|json|md|ts|tsx)`?|\b(?:css|html|javascript|js|file)\b/i
 const CODE_ONLY_REQUEST_RE =
-  /\b(?:show|display|provide|give|send|explain|describe)\b[\s\S]{0,100}\b(?:animation|code|css|example|html|javascript|js|snippet)\b|\bin chat\b/i
+  /\b(?:show|display|provide|give|send|explain|describe)\b[\s\S]{0,100}\b(?:code|css|example|html|javascript|js|snippet)\b/i
 
 /**
  * True when a project-chat reply appears to give the user file-edit code in

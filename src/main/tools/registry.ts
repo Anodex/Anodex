@@ -15,6 +15,7 @@ import {
   readFileRangeTool,
   readMultipleFilesTool
 } from './fileTools'
+import { previewHtmlTool } from './previewTools'
 import {
   editFileTool,
   writeFileTool,
@@ -44,6 +45,7 @@ const READ_ONLY_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   get_file_info: getFileInfoTool,
   read_file_range: readFileRangeTool,
   read_multiple_files: readMultipleFilesTool,
+  preview_html: previewHtmlTool,
   git_status: gitStatusTool,
   git_diff: gitDiffTool
 }

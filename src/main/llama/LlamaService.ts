@@ -96,6 +96,7 @@ const TOOL_BYPASS_NUDGE_PROMPT =
   'You provided code or file-edit instructions in chat instead of applying the change. ' +
   'In this project chat, do not hand the user code to copy. Read the relevant file if ' +
   'needed, then call write_file, edit_file, or patch_file to make the change for real. ' +
+  'If the user asked to see the result in chat, call preview_html on the relevant HTML file. ' +
   "If you cannot make the change, say exactly what's blocking you."
 
 /** The dynamically-imported `node-llama-cpp` module (ESM-only). */

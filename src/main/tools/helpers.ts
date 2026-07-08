@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { ToolCallDiff, ToolKind, ToolRisk } from '@shared/tools.types'
+import type { ToolCallDiff, ToolCallPreview, ToolKind, ToolRisk } from '@shared/tools.types'
 import type { FileTouchAction } from '@shared/projectMemory.types'
 import type { Plan } from '@shared/plan.types'
 import type { ToolRuntimeContext } from './types'
@@ -22,6 +22,8 @@ interface ToolOutcome {
   diff?: ToolCallDiff
   /** Full plan snapshot after a plan tool call, so the UI can update its Plan panel live. */
   plan?: Plan
+  /** Optional rich preview shown in the chat transcript. */
+  preview?: ToolCallPreview
 }
 
 function rememberResult(modelResult: string): string {
@@ -90,7 +92,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   const id = randomUUID()
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   try {
-    const { modelResult, detail, plan } = await spec.run()
+    const { modelResult, detail, plan, preview } = await spec.run()
     const truncated = truncateModelResult(modelResult)
     recordTouch(ctx, spec.touch)
     ctx.emit({
@@ -101,6 +103,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
       status: 'success',
       detail,
       plan,
+      preview,
       result: rememberResult(modelResult)
     })
     return truncated
@@ -183,7 +186,7 @@ export async function runGuardedTool(
       }
     }
 
-    const { modelResult, detail, diff } = await spec.run()
+    const { modelResult, detail, diff, preview } = await spec.run()
     const truncated = truncateModelResult(modelResult)
     recordTouch(ctx, spec.touch)
     ctx.emit({
@@ -194,6 +197,7 @@ export async function runGuardedTool(
       status: 'success',
       detail,
       diff,
+      preview,
       result: rememberResult(modelResult)
     })
     return truncated

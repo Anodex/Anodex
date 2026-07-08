@@ -63,7 +63,8 @@ folder (path traversal outside it is blocked):
 
 - **Read (never need approval):** `list_directory`, `read_file`,
   `read_file_range`, `read_multiple_files`, `get_file_info`, `search_files`,
-  `find_files`, `git_status`, `git_diff`.
+  `find_files`, `preview_html` (inline chat preview for HTML pages/games),
+  `git_status`, `git_diff`.
 - **Write/mutate (approval depends on permission mode):** `write_file`,
   `edit_file`, `patch_file`, `delete_file`, `move_file`, `delete_directory`,
   `create_directory` (always low-risk, never confirms), `run_command`.

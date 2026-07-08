@@ -37,6 +37,15 @@ export interface ToolCall {
   diff?: ToolCallDiff
   /** Full snapshot of the conversation's plan after a `write_plan`/`update_plan_step` call. */
   plan?: Plan
+  /** Optional rich preview rendered inside the chat transcript. */
+  preview?: ToolCallPreview
+}
+
+export type ToolCallPreview = {
+  kind: 'html'
+  title: string
+  path: string
+  content: string
 }
 
 /** Full before/after content for a single file change, diffed for display. */
@@ -96,6 +105,11 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: 'Read a specific range of lines from a file.'
   },
   { name: 'read_multiple_files', kind: 'read', description: 'Read several files in one call.' },
+  {
+    name: 'preview_html',
+    kind: 'read',
+    description: 'Render an HTML file as an inline, sandboxed preview in chat.'
+  },
   { name: 'get_file_info', kind: 'read', description: 'Get metadata about a file or directory.' },
   { name: 'search_files', kind: 'read', description: 'Search the workspace for text.' },
   { name: 'find_files', kind: 'read', description: 'Find files and folders by path or name.' },
