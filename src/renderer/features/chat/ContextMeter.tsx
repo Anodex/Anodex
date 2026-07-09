@@ -11,7 +11,7 @@ function formatTokenCount(tokens: number): string {
 }
 
 /** Shows the estimated model-facing context projection for the active conversation. */
-export function ContextMeter(): JSX.Element | null {
+export function ContextMeter({ className }: { className?: string } = {}): JSX.Element | null {
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const engine = useModelStore((s) => s.engine)
   const systemPrompt = useSettingsStore((s) => s.settings?.ui.systemPrompt)
@@ -51,7 +51,7 @@ export function ContextMeter(): JSX.Element | null {
 
   return (
     <div
-      className={`${styles.meter} ${styles[level]}`}
+      className={[styles.meter, styles[level], className].filter(Boolean).join(' ')}
       title={`${summary.join(' | ')} (${info.pct}% of context window)`}
     >
       <Icon name="activity" size={12} className={styles.icon} />
