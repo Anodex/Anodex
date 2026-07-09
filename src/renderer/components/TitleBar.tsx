@@ -9,7 +9,7 @@ import styles from './TitleBar.module.css'
 
 /** Custom drag region with window controls and app action buttons. */
 export function TitleBar(): JSX.Element {
-  const setView = useUiStore((s) => s.setView)
+  const openSettings = useUiStore((s) => s.openSettings)
   const [maximized, setMaximized] = useState(false)
   const [isMac, setIsMac] = useState(false)
   const [logoPulseId, setLogoPulseId] = useState(0)
@@ -77,7 +77,7 @@ export function TitleBar(): JSX.Element {
           label="Settings"
           icon={<Icon name="settings" size={18} />}
           size="sm"
-          onClick={() => setView('settings')}
+          onClick={() => openSettings()}
         />
       </div>
       {!isMac && (

@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { TOOL_CATALOG } from '@shared/tools.types'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { useUiStore } from '../../stores/uiStore'
+import { useUiStore, type SettingsSection } from '../../stores/uiStore'
 import { PageHeader } from '../../components/PageHeader'
 import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
@@ -19,17 +19,6 @@ import { ProjectsSettings } from './pages/projects/ProjectsSettings'
 import { MemorySettings } from './pages/memory/MemorySettings'
 import { ArchiveSettings } from './pages/archive/ArchiveSettings'
 import styles from './SettingsView.module.css'
-
-type SettingsSection =
-  | 'profile'
-  | 'appearance'
-  | 'general'
-  | 'projects'
-  | 'archive'
-  | 'memory'
-  | 'ai-models'
-  | 'diagnostics'
-  | 'about'
 
 interface NavItem {
   id: SettingsSection
@@ -71,8 +60,8 @@ export function SettingsView(): JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const update = useSettingsStore((s) => s.update)
   const setView = useUiStore((s) => s.setView)
-
-  const [section, setSection] = useState<SettingsSection>('profile')
+  const section = useUiStore((s) => s.settingsSection)
+  const setSection = useUiStore((s) => s.setSettingsSection)
 
   if (!settings) {
     return (

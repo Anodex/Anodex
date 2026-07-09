@@ -17,7 +17,7 @@ const SUGGESTIONS = [
 export function ChatEmptyState(): JSX.Element {
   const ready = useModelStore((s) => s.engine.status === 'ready')
   const sendMessage = useChatStore((s) => s.sendMessage)
-  const setView = useUiStore((s) => s.setView)
+  const openSettings = useUiStore((s) => s.openSettings)
 
   return (
     <div className={styles.empty}>
@@ -55,7 +55,7 @@ export function ChatEmptyState(): JSX.Element {
               Load a local model to start chatting — it runs entirely on your machine.
             </div>
           </div>
-          <button className={styles.calloutButton} onClick={() => setView('settings')}>
+          <button className={styles.calloutButton} onClick={() => openSettings('ai-models')}>
             Open Settings
           </button>
         </div>

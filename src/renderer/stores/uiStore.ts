@@ -8,6 +8,16 @@ import { logDiagnostic } from './diagnosticsStore'
 
 export type AppView = 'chat' | 'settings'
 export type ToastKind = 'info' | 'success' | 'error'
+export type SettingsSection =
+  | 'profile'
+  | 'appearance'
+  | 'general'
+  | 'projects'
+  | 'archive'
+  | 'memory'
+  | 'ai-models'
+  | 'diagnostics'
+  | 'about'
 
 export interface Toast {
   id: string
@@ -18,11 +28,16 @@ export interface Toast {
 
 interface UiState {
   view: AppView
+  /** Which settings page is showing. Reset to 'profile' each time settings is opened via `openSettings()`, unless a section is given. */
+  settingsSection: SettingsSection
   toasts: Toast[]
   readConversationAt: Record<string, number>
   /** A write/command approval awaiting the user's decision, if any. */
   pendingConfirmation: ToolConfirmRequest | null
   setView: (view: AppView) => void
+  /** Switch to the settings view, optionally jumping straight to a specific section (defaults to 'profile'). */
+  openSettings: (section?: SettingsSection) => void
+  setSettingsSection: (section: SettingsSection) => void
   markConversationRead: (conversationId: string, updatedAt: number) => void
   markConversationUnread: (conversationId: string, updatedAt: number) => void
   notify: (toast: Omit<Toast, 'id'>) => void
@@ -57,11 +72,16 @@ function saveReadMarkers(markers: Record<string, number>): void {
 /** Global, ephemeral UI state: the active view, toasts, and tool approvals. */
 export const useUiStore = create<UiState>((set, get) => ({
   view: 'chat',
+  settingsSection: 'profile',
   toasts: [],
   readConversationAt: loadReadMarkers(),
   pendingConfirmation: null,
 
   setView: (view) => set({ view }),
+
+  openSettings: (section) => set({ view: 'settings', settingsSection: section ?? 'profile' }),
+
+  setSettingsSection: (section) => set({ settingsSection: section }),
 
   markConversationRead: (conversationId, updatedAt) => {
     set((state) => {
