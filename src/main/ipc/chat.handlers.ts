@@ -49,6 +49,10 @@ function activeModelDescriptor(provider: ProviderSettings): { id: string; name: 
 export function registerChatHandlers(): void {
   ipcMain.handle(IpcChannel.Chat.send, async (event, request: ChatRequest) => {
     const controller = new AbortController()
+    // Abort any prior generation still registered for this conversation before
+    // taking over the slot — otherwise an overlapping send would silently
+    // orphan the earlier controller, leaving it unreachable by Stop.
+    inflight.get(request.conversationId)?.abort()
     inflight.set(request.conversationId, controller)
 
     // Enable tools whenever the feature is on. Workspace (file/command) tools
@@ -189,7 +193,12 @@ export function registerChatHandlers(): void {
       }
       return err('chat.generation-failed', message)
     } finally {
-      inflight.delete(request.conversationId)
+      // Only clear the slot if it's still ours — an overlapping send may have
+      // already replaced it with its own controller, and that one is still
+      // running.
+      if (inflight.get(request.conversationId) === controller) {
+        inflight.delete(request.conversationId)
+      }
     }
   })
 
