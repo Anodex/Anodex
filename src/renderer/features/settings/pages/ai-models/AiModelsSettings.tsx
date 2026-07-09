@@ -4,6 +4,8 @@ import type { ModelSettingsRecommendation } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import { recommendModel } from '@shared/modelRecommendation'
 import { CONTEXT_SIZE_LADDER, formatContextSizeLabel } from '@shared/contextSizes'
+import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
+import { OPENAI_MODELS } from '@shared/openaiModels'
 import { useModelStore } from '../../../../stores/modelStore'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { useUiStore } from '../../../../stores/uiStore'
@@ -11,7 +13,7 @@ import { anodex } from '../../../../lib/anodex'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
-import { RangeControl, SelectControl } from '../../controls'
+import { RangeControl, SelectControl, TextControl } from '../../controls'
 import { Spinner } from '../../../../components/ui/Spinner'
 import { EnginePanel } from './EnginePanel'
 import { HardwarePanel } from './HardwarePanel'
@@ -31,6 +33,22 @@ const GPU_OPTIONS = [
   { label: 'CPU only', value: 'cpu' },
   { label: 'Custom', value: 'custom' }
 ]
+
+const CHAT_PROVIDER_OPTIONS = [
+  { label: 'Local model', value: 'local' },
+  { label: 'Claude (Anthropic)', value: 'anthropic' },
+  { label: 'ChatGPT / Codex (OpenAI)', value: 'openai' }
+]
+
+const ANTHROPIC_MODEL_OPTIONS = ANTHROPIC_MODELS.map((model) => ({
+  label: model.label,
+  value: model.id
+}))
+
+const OPENAI_MODEL_OPTIONS = OPENAI_MODELS.map((model) => ({
+  label: model.label,
+  value: model.id
+}))
 
 /** Ceiling for the custom layer slider when the loaded model's real layer
  * count isn't known yet (nothing loaded, or a model just switched). Comfortably
@@ -383,19 +401,98 @@ export function AiModelsSettings(): JSX.Element {
       </section>
 
       <section className={styles.section}>
-        <div className={styles.cloudPanel}>
-          <div className={styles.cloudIcon}>
-            <Icon name="web" size={18} />
-          </div>
+        <div className={styles.sectionTitleRow}>
           <div>
             <p className={styles.sectionKicker}>Cloud models</p>
-            <h2 className={styles.sectionTitle}>Optional fallback later</h2>
+            <h2 className={styles.sectionTitle}>Claude &amp; ChatGPT / Codex</h2>
             <p className={styles.sectionDesc}>
-              Anodex stays local-first. Cloud providers can be added later as an optional fallback
-              for users who want larger models or shared team plans.
+              Anodex stays local-first by default. Switch to a cloud provider for chat replies when you
+              want a larger model instead — your API key is stored locally, the same as the web search
+              provider keys.
             </p>
           </div>
-          <span className={styles.comingSoon}>Coming soon</span>
+        </div>
+
+        <div className={styles.defaultsPanel}>
+          <SettingRow
+            label="Chat provider"
+            description="Which backend generates assistant replies."
+            control={
+              <SelectControl
+                value={settings.provider.active}
+                options={CHAT_PROVIDER_OPTIONS}
+                onChange={(value) =>
+                  void update({ provider: { active: value as 'local' | 'anthropic' | 'openai' } })
+                }
+              />
+            }
+          />
+          {settings.provider.active === 'anthropic' && (
+            <>
+              <SettingRow
+                label="API key"
+                description="Your Anthropic API key, from your Anthropic Console account."
+                control={
+                  <TextControl
+                    type="password"
+                    value={settings.provider.anthropic.apiKey}
+                    placeholder="sk-ant-..."
+                    onChange={(value) => void update({ provider: { anthropic: { apiKey: value } } })}
+                  />
+                }
+              />
+              <SettingRow
+                label="Model"
+                description="Claude model used for chat generations."
+                control={
+                  <SelectControl
+                    value={settings.provider.anthropic.model}
+                    options={ANTHROPIC_MODEL_OPTIONS}
+                    onChange={(value) => void update({ provider: { anthropic: { model: value } } })}
+                  />
+                }
+              />
+              {!settings.provider.anthropic.apiKey.trim() && (
+                <div className={styles.hintLine}>
+                  <span className={styles.hintDot} />
+                  Add an API key above to start chatting with Claude.
+                </div>
+              )}
+            </>
+          )}
+          {settings.provider.active === 'openai' && (
+            <>
+              <SettingRow
+                label="API key"
+                description="Your OpenAI API key, from your OpenAI platform account."
+                control={
+                  <TextControl
+                    type="password"
+                    value={settings.provider.openai.apiKey}
+                    placeholder="sk-..."
+                    onChange={(value) => void update({ provider: { openai: { apiKey: value } } })}
+                  />
+                }
+              />
+              <SettingRow
+                label="Model"
+                description="OpenAI model used for chat generations — including Codex, tuned for coding."
+                control={
+                  <SelectControl
+                    value={settings.provider.openai.model}
+                    options={OPENAI_MODEL_OPTIONS}
+                    onChange={(value) => void update({ provider: { openai: { model: value } } })}
+                  />
+                }
+              />
+              {!settings.provider.openai.apiKey.trim() && (
+                <div className={styles.hintLine}>
+                  <span className={styles.hintDot} />
+                  Add an API key above to start chatting with ChatGPT / Codex.
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
     </div>

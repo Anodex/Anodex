@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useUiStore } from '../stores/uiStore'
 import { useModelStore } from '../stores/modelStore'
 import { useChatStore } from '../stores/chatStore'
@@ -10,6 +11,7 @@ import type { EngineState } from '@shared/model.types'
 import { Icon } from './Icon'
 import { anodex } from '../lib/anodex'
 import { notifyError } from '../stores/uiStore'
+import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
 import { SidebarSearch } from './sidebar/SidebarSearch'
 import { SidebarSection } from './sidebar/SidebarSection'
 import { ProjectRow } from './sidebar/ProjectRow'
@@ -29,6 +31,29 @@ function statusTone(status: EngineState['status']): string {
   return 'idle'
 }
 
+const CLOUD_PROVIDER_LABELS: Record<'anthropic' | 'openai', string> = {
+  anthropic: 'Claude',
+  openai: 'OpenAI'
+}
+
+/** Footer status label/tone, aware of which provider is active — the local
+ *  engine's `EngineState` only describes itself, so a cloud provider needs
+ *  its own ready/idle read based on whether an API key is configured. */
+function providerStatus(
+  engine: EngineState,
+  providerActive: 'local' | 'anthropic' | 'openai' | undefined,
+  cloudModel: string | undefined,
+  cloudApiKeySet: boolean
+): { label: string; tone: string } {
+  if (providerActive === 'anthropic' || providerActive === 'openai') {
+    const providerLabel = CLOUD_PROVIDER_LABELS[providerActive]
+    return cloudApiKeySet
+      ? { label: `${providerLabel} — ${cloudModel ?? ''}`, tone: 'ready' }
+      : { label: `${providerLabel} — no API key`, tone: 'error' }
+  }
+  return { label: engine.model?.name ?? 'No model loaded', tone: statusTone(engine.status) }
+}
+
 function matchesQuery(text: string, query: string): boolean {
   return text.toLowerCase().includes(query.toLowerCase())
 }
@@ -42,11 +67,16 @@ interface FilteredProject {
 export function Sidebar(): JSX.Element {
   const view = useUiStore((s) => s.view)
   const setView = useUiStore((s) => s.setView)
+  const openSettings = useUiStore((s) => s.openSettings)
   const readConversationAt = useUiStore((s) => s.readConversationAt)
   const markConversationUnread = useUiStore((s) => s.markConversationUnread)
   const engine = useModelStore((s) => s.engine)
 
-  const conversations = useChatStore((s) => s.conversations)
+  const conversations = useStoreWithEqualityFn(
+    useChatStore,
+    (s) => s.conversations,
+    conversationsRelevantlyEqual
+  )
   const activeConversationId = useChatStore((s) => s.activeId)
   const newConversation = useChatStore((s) => s.newConversation)
   const selectConversation = useChatStore((s) => s.selectConversation)
@@ -61,6 +91,21 @@ export function Sidebar(): JSX.Element {
   const openProjectFolder = useProjectStore((s) => s.openFolder)
   const deleteProject = useProjectStore((s) => s.delete)
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
+  const providerActive = useSettingsStore((s) => s.settings?.provider.active)
+  const cloudModel = useSettingsStore((s) =>
+    s.settings?.provider.active === 'openai'
+      ? s.settings.provider.openai.model
+      : s.settings?.provider.anthropic.model
+  )
+  const cloudApiKeySet = useSettingsStore((s) =>
+    Boolean(
+      (s.settings?.provider.active === 'openai'
+        ? s.settings.provider.openai.apiKey
+        : s.settings?.provider.anthropic.apiKey
+      )?.trim()
+    )
+  )
+  const footerStatus = providerStatus(engine, providerActive, cloudModel, cloudApiKeySet)
 
   const [searchQuery, setSearchQuery] = useState('')
   // These three are all "coming soon" placeholders with no working backend yet
@@ -376,13 +421,13 @@ export function Sidebar(): JSX.Element {
         <button
           type="button"
           className={styles.status}
-          onClick={() => setView('settings')}
-          title="Model status — click to open settings"
+          onClick={() => openSettings('ai-models')}
+          title="Model status — click to open AI & Models settings"
         >
-          <span className={`${styles.statusDot} ${styles[statusTone(engine.status)]}`} />
-          <span className={styles.statusText}>{engine.model?.name ?? 'No model loaded'}</span>
+          <span className={`${styles.statusDot} ${styles[footerStatus.tone]}`} />
+          <span className={styles.statusText}>{footerStatus.label}</span>
         </button>
-        <SidebarProfile active={view === 'settings'} onClick={() => setView('settings')} />
+        <SidebarProfile active={view === 'settings'} onClick={() => openSettings()} />
       </footer>
 
       {deletingProject && (

@@ -1,4 +1,7 @@
 import { llamaService } from '../llama/LlamaService'
+import { settingsStore } from '../settings/SettingsStore'
+import { anthropicProvider } from './AnthropicProvider'
+import { openAiProvider } from './OpenAiProvider'
 import type { LlmProvider } from './LlmProvider'
 
 const localProvider: LlmProvider = {
@@ -7,17 +10,17 @@ const localProvider: LlmProvider = {
 }
 
 const providers: Record<string, LlmProvider> = {
-  local: localProvider
+  local: localProvider,
+  anthropic: anthropicProvider,
+  openai: openAiProvider
 }
 
 /**
- * Returns the provider that should handle the next generation.
- *
- * Local is the only registered provider today, so this always returns it.
- * When a cloud provider is added, this is the one place that needs to change
- * (e.g. reading a `settings.provider` choice) — the rest of the chat pipeline
- * already talks to providers through {@link LlmProvider}, not `LlamaService` directly.
+ * Returns the provider that should handle the next generation, based on the
+ * user's `provider.active` setting. Falls back to `local` for an unknown or
+ * unset value so a corrupt/older settings file can't leave chat unusable.
  */
 export function getActiveProvider(): LlmProvider {
-  return providers.local
+  const active = settingsStore.get().provider.active
+  return providers[active] ?? localProvider
 }

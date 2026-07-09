@@ -34,7 +34,8 @@ vi.mock('../../settings/SettingsStore', () => ({
       webSearch: { provider: 'duckduckgo', requireApproval: false },
       memory: { crossChatEnabled: false, personalEnabled: false },
       ui: { systemPrompt: '' },
-      generation: { temperature: 0.7, topP: 0.9, maxTokens: 512 }
+      generation: { temperature: 0.7, topP: 0.9, maxTokens: 512 },
+      provider: { active: 'local', anthropic: { apiKey: '', model: 'claude-sonnet-5' } }
     })
   }
 }))

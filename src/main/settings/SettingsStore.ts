@@ -165,6 +165,22 @@ function validatePatch(patch: DeepPartial<AppSettings>): void {
       throw new Error('webSearch.resultCount must be a non-negative finite number')
     }
   }
+
+  if (patch.provider?.active !== undefined) {
+    if (!['local', 'anthropic', 'openai'].includes(patch.provider.active)) {
+      throw new Error('provider.active must be "local", "anthropic", or "openai"')
+    }
+  }
+  if (patch.provider?.anthropic?.model !== undefined) {
+    if (typeof patch.provider.anthropic.model !== 'string' || !patch.provider.anthropic.model.trim()) {
+      throw new Error('provider.anthropic.model must be a non-empty string')
+    }
+  }
+  if (patch.provider?.openai?.model !== undefined) {
+    if (typeof patch.provider.openai.model !== 'string' || !patch.provider.openai.model.trim()) {
+      throw new Error('provider.openai.model must be a non-empty string')
+    }
+  }
 }
 
 export const settingsStore = new SettingsStore()

@@ -1,8 +1,11 @@
-import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { MANUAL_COMPACTION_RECENT_TURNS } from '@shared/contextBudget'
+import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
+import { messageToHistoryTurn } from '@shared/chatSanitizer'
+import { planManualContextCompaction } from '@shared/contextProjection'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
+import { isChatReady } from '../../lib/chatReadiness'
 import { Icon } from '../../components/Icon'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { anodex } from '../../lib/anodex'
@@ -31,15 +34,38 @@ export function ChatComposer(): JSX.Element {
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const compactConversation = useChatStore((s) => s.compactConversation)
   const engine = useModelStore((s) => s.engine)
+  const settings = useSettingsStore((s) => s.settings)
 
-  const ready = engine.status === 'ready'
-  const generating = engine.generating
+  // Provider-aware: the Anthropic provider needs no loaded local model, only
+  // a configured API key (see `isChatReady`). `localReady` is kept separate
+  // because manual context compaction is always a local-engine feature (see
+  // `chatStore.compactConversation`), regardless of which provider is active.
+  const ready = isChatReady(settings, engine.status)
+  const localReady = engine.status === 'ready'
+  // Driven off the active conversation's own streaming message rather than
+  // the local engine's `generating` flag, which the Anthropic provider never
+  // touches — this way Send/Stop toggles correctly for either provider.
+  const generating = activeConversation?.messages.some((m) => m.streaming) ?? false
   const canSend = ready && !generating && (text.trim().length > 0 || attachments.length > 0)
-  const canCompact =
-    ready &&
-    !generating &&
-    !compacting &&
-    (activeConversation?.messages.length ?? 0) > MANUAL_COMPACTION_RECENT_TURNS
+  // Mirrors the real eligibility check `compactConversation` sends to the main
+  // process (via `planManualContextCompaction`), instead of a raw message-count
+  // heuristic that ignores an already-applied snapshot — that heuristic could
+  // leave the button enabled with nothing actually left to compact.
+  //
+  // Skipped entirely while generating: the store gives the active conversation
+  // a new object reference on every streamed token (see `appendToken`), which
+  // would otherwise defeat this memo and re-run the full-history scan on every
+  // token — for a value that's already forced to `false` below regardless.
+  const hasCompactableHistory = useMemo(() => {
+    if (!activeConversation || generating) return false
+    return (
+      planManualContextCompaction(
+        activeConversation.messages.map(messageToHistoryTurn),
+        activeConversation.context
+      ) != null
+    )
+  }, [activeConversation, generating])
+  const canCompact = localReady && !generating && !compacting && hasCompactableHistory
 
   const resetHeight = (): void => {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -191,7 +217,11 @@ export function ChatComposer(): JSX.Element {
               ? 'Drop to attach…'
               : ready
                 ? 'Message Anodex…'
-                : 'Load a model from the Models tab to start chatting'
+                : settings?.provider.active === 'anthropic'
+                  ? 'Add a Claude API key in Settings → AI & Models to start chatting'
+                  : settings?.provider.active === 'openai'
+                    ? 'Add an OpenAI API key in Settings → AI & Models to start chatting'
+                    : 'Load a model from the Models tab to start chatting'
           }
           onChange={(event) => {
             setText(event.target.value)
@@ -232,7 +262,7 @@ export function ChatComposer(): JSX.Element {
         >
           <Icon name={compacting ? 'refresh' : 'archive'} size={13} />
         </button>
-        <ContextMeter />
+        <ContextMeter className={styles.contextMeter} />
       </div>
       <div className={styles.hint}>
         Enter to send · Shift+Enter for a new line · Drag a file in to attach it · Responses are

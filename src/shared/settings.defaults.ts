@@ -1,4 +1,6 @@
 import type { AppSettings } from './settings.types'
+import { DEFAULT_ANTHROPIC_MODEL } from './anthropicModels'
+import { DEFAULT_OPENAI_MODEL } from './openaiModels'
 
 /**
  * Default settings, parameterised by the platform-specific models directory
@@ -75,6 +77,17 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     tools: {
       enabled: true
+    },
+    provider: {
+      active: 'local',
+      anthropic: {
+        apiKey: '',
+        model: DEFAULT_ANTHROPIC_MODEL
+      },
+      openai: {
+        apiKey: '',
+        model: DEFAULT_OPENAI_MODEL
+      }
     },
     webSearch: {
       provider: 'none',

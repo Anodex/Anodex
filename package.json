@@ -33,6 +33,7 @@
     ]
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "diff": "^9.0.0",
@@ -41,6 +42,9 @@
     "html-to-text": "^10.0.0",
     "immer": "^10.1.1",
     "node-llama-cpp": "^3.4.0",
+    "openai": "^6.46.0",
+    "undici": "^6.27.0",
+    "use-sync-external-store": "^1.6.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

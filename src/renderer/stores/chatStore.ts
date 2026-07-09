@@ -15,6 +15,7 @@ import { notifyDesktop, shouldShowDesktopToast } from '../lib/notifications'
 import { buildPromptWithAttachments, type ComposerAttachment } from '../lib/attachments'
 import { reconcileMessageBlocks } from '../features/chat/reconcileMessageBlocks'
 import { quarantineStreamingToolPayload } from '../features/chat/streamingToolPayload'
+import { isChatReady } from '../lib/chatReadiness'
 
 export type { Conversation }
 
@@ -147,8 +148,20 @@ export const useChatStore = create<ChatState>()(
     },
 
     deleteAllConversations: async () => {
+      // Await the IPC call before touching state — unlike an optimistic
+      // clear, this means a failed delete leaves the chat list intact
+      // (with an error surfaced) instead of showing an empty list that
+      // doesn't match what's actually still on disk.
+      try {
+        await anodex.conversations.deleteAll()
+      } catch (error) {
+        notifyError(
+          'Could not delete all chats',
+          error instanceof Error ? error.message : 'The delete request failed.'
+        )
+        return
+      }
       set({ conversations: [], activeId: null })
-      await anodex.conversations.deleteAll()
     },
 
     refreshConversations: async () => {
@@ -161,8 +174,18 @@ export const useChatStore = create<ChatState>()(
       if (!trimmed && attachments.length === 0) return
 
       const engine = useModelStore.getState().engine
-      if (engine.status !== 'ready') {
-        notifyError('No model loaded', 'Load a model in Settings → AI & Models to start chatting.')
+      const settingsForReadyCheck = useSettingsStore.getState().settings
+      if (!isChatReady(settingsForReadyCheck, engine.status)) {
+        const providerActive = settingsForReadyCheck?.provider.active
+        if (providerActive === 'anthropic' || providerActive === 'openai') {
+          const providerLabel = providerActive === 'anthropic' ? 'Claude' : 'OpenAI'
+          notifyError(
+            'No API key configured',
+            `Add a ${providerLabel} API key in Settings → AI & Models to start chatting.`
+          )
+        } else {
+          notifyError('No model loaded', 'Load a model in Settings → AI & Models to start chatting.')
+        }
         return
       }
 
@@ -230,7 +253,14 @@ export const useChatStore = create<ChatState>()(
           const content = sanitizeAssistantContent(result.value.content)
           message.content = content
           message.stats = result.value.stats
-          message.blocks = reconcileMessageBlocks(message.blocks, content, message.toolCalls)
+          message.blocks = reconcileMessageBlocks(
+            message.blocks,
+            content,
+            message.toolCalls,
+            [],
+            trimmed,
+            Boolean(projectId)
+          )
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
         } else {
           if (message.toolCalls?.length) {
@@ -240,7 +270,9 @@ export const useChatStore = create<ChatState>()(
               message.blocks,
               message.content,
               message.toolCalls,
-              toolNames
+              toolNames,
+              trimmed,
+              Boolean(projectId)
             )
           }
           message.error = result.error.message
@@ -348,10 +380,7 @@ export const useChatStore = create<ChatState>()(
             token,
             pendingToolPayloadByMessage
           )
-          if (!visibleToken) {
-            convo.updatedAt = Date.now()
-            return
-          }
+          if (!visibleToken) return
           message.content += visibleToken
           // Tokens and tool-activity events both arrive over IPC in the exact
           // order they happened during generation, so appending each to a
@@ -363,9 +392,19 @@ export const useChatStore = create<ChatState>()(
           const last = message.blocks[message.blocks.length - 1]
           if (last && last.type === 'text') last.text += visibleToken
           else message.blocks.push({ type: 'text', text: visibleToken })
-          convo.updatedAt = Date.now()
         }
       })
+      // convo.updatedAt is intentionally left untouched here — it's already
+      // bumped once at turn start (see `sendMessage`), which is all the
+      // sidebar's recency sort needs. Re-touching it on every single token
+      // would change the top-level `conversations` array reference (Immer
+      // bubbles a new reference up through every ancestor of a mutated path)
+      // hundreds of times per second, defeating the Sidebar's relevance-based
+      // equality check below and re-running its full project/chat grouping
+      // and sort on every token — this was directly observed to starve
+      // window-resize repaints and the ChatRow hover-card's dismiss timer
+      // during long generations, making the UI look frozen even though state
+      // was updating correctly underneath.
       // Persisted when the generation completes in `sendMessage` to avoid
       // excessive disk writes on every streamed token.
     },
@@ -395,9 +434,10 @@ export const useChatStore = create<ChatState>()(
         // Workspace Dock's Plan panel updates live, independent of which
         // message/tool card it came from.
         if (call.plan) convo.plan = call.plan
-
-        convo.updatedAt = Date.now()
       })
+      // convo.updatedAt is deliberately not touched here — see the comment in
+      // `appendToken` above; a turn with many tool calls is just as hot a
+      // path as one with many tokens.
       // Persisted when the generation completes in `sendMessage`.
     },
 
@@ -424,6 +464,24 @@ export const useChatStore = create<ChatState>()(
 
       const conversation = get().conversations.find((c) => c.id === event.conversationId)
       if (conversation) void persistConversation(conversation)
+
+      // Unlike the manual "Compact" button (which already toasts, since the
+      // user just took an explicit action), proactive/reactive compaction
+      // was previously completely silent — the model's context window would
+      // shrink out from under a long conversation with no visible signal at
+      // all, making it confusing when the model seemed to "forget"
+      // something from many turns back. `onLoad` (rebuilding an
+      // already-compacted session on conversation switch) isn't new
+      // information and would just be noise, so it's excluded.
+      if (event.reason === 'proactive' || event.reason === 'reactive') {
+        useUiStore.getState().notify({
+          kind: 'info',
+          title: 'Chat context compacted',
+          message: `This conversation reached the model's context limit — summarized ${
+            event.removedTurns
+          } older turn${event.removedTurns === 1 ? '' : 's'} to keep going.`
+        })
+      }
     }
   }))
 )

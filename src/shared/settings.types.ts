@@ -110,6 +110,27 @@ export interface ToolSettings {
   enabled: boolean
 }
 
+export interface AnthropicProviderSettings {
+  /** User's Anthropic API key. Stored locally in settings, same as the web search provider keys. */
+  apiKey: string
+  /** Claude model id used for chat generations, e.g. `claude-sonnet-5`. */
+  model: string
+}
+
+export interface OpenAiProviderSettings {
+  /** User's OpenAI API key. Stored locally in settings, same as the web search provider keys. */
+  apiKey: string
+  /** OpenAI model id used for chat generations, e.g. `gpt-5.6` or `gpt-5.1-codex`. */
+  model: string
+}
+
+export interface ProviderSettings {
+  /** Which backend handles chat generation. `local` is the local Llama engine. */
+  active: 'local' | 'anthropic' | 'openai'
+  anthropic: AnthropicProviderSettings
+  openai: OpenAiProviderSettings
+}
+
 export interface WebSearchSettings {
   /** Search backend used by the web_search tool. */
   provider: 'none' | 'searxng' | 'brave' | 'tavily' | 'google'
@@ -175,6 +196,7 @@ export interface AppSettings {
   general: GeneralSettings
   workspace: WorkspaceSettings
   tools: ToolSettings
+  provider: ProviderSettings
   webSearch: WebSearchSettings
   diagnostics: DiagnosticSettings
   memory: MemorySettings

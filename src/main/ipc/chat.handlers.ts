@@ -3,6 +3,7 @@ import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ChatCompactRequest, ChatRequest, ChatTitleRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
+import type { ProviderSettings } from '@shared/settings.types'
 import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
@@ -25,6 +26,23 @@ const inflight = new Map<string, AbortController>()
 export function abortAllChatGenerations(): void {
   for (const controller of inflight.values()) controller.abort()
   inflight.clear()
+}
+
+/**
+ * The model that actually produced this turn, for token-activity stats.
+ * `llamaService.getState()` only describes the local engine, so a cloud
+ * provider's turn is attributed to its own configured model instead of
+ * whatever (if anything) is loaded locally.
+ */
+function activeModelDescriptor(provider: ProviderSettings): { id: string; name: string } | null {
+  if (provider.active === 'anthropic') {
+    return { id: provider.anthropic.model, name: `Claude — ${provider.anthropic.model}` }
+  }
+  if (provider.active === 'openai') {
+    return { id: provider.openai.model, name: `OpenAI — ${provider.openai.model}` }
+  }
+  const model = llamaService.getState().model
+  return model ? { id: model.id, name: model.name } : null
 }
 
 /** IPC handlers for streaming chat generation and stopping it. */
@@ -130,17 +148,20 @@ export function registerChatHandlers(): void {
         projectMemoryStore.recordSummary(activeProject.id, request.conversationId, content)
       }
 
-      // Recorded regardless of `stopped` — real tokens were generated either way.
-      const modelState = llamaService.getState()
-      if (outcome.stats.tokens > 0 && modelState.model) {
+      // Recorded regardless of `stopped` — real tokens were generated either
+      // way. `llamaService.getState()` only describes the local engine, so a
+      // cloud provider's turn is attributed to its own configured model
+      // instead of whatever (if anything) is loaded locally.
+      const modelDescriptor = activeModelDescriptor(settings.provider)
+      if (outcome.stats.tokens > 0 && modelDescriptor) {
         tokenActivityStore.recordGeneration({
           tokens: outcome.stats.tokens,
           inputTokens: llamaService.countPromptTokens(request.prompt),
           durationMs: outcome.stats.durationMs,
           toolNames: toolNamesThisTurn,
           conversationId: request.conversationId,
-          modelId: modelState.model.id,
-          modelName: modelState.model.name
+          modelId: modelDescriptor.id,
+          modelName: modelDescriptor.name
         })
       }
 
