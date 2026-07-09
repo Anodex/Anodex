@@ -38,6 +38,9 @@ const api: AnodexApi = {
     onHistoryCompacted: (listener) =>
       subscribe<HistoryCompactionEvent>(IpcChannel.Chat.historyCompacted, listener)
   },
+  provider: {
+    verifyKey: (request) => ipcRenderer.invoke(IpcChannel.Provider.verifyKey, request)
+  },
   settings: {
     get: () => ipcRenderer.invoke(IpcChannel.Settings.get),
     update: (patch) => ipcRenderer.invoke(IpcChannel.Settings.update, patch),

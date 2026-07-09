@@ -20,6 +20,7 @@ import { HardwarePanel } from './HardwarePanel'
 import { RecommendedModelStrip } from './RecommendedModelStrip'
 import { DiscoverModelsPanel } from './DiscoverModelsPanel'
 import { InstalledModelsList } from './InstalledModelsList'
+import { ProviderKeyStatus } from './ProviderKeyStatus'
 import { ctxSizeWarning, scoreInstalledModel } from './scoring'
 import styles from './AiModelsSettings.module.css'
 
@@ -452,6 +453,11 @@ export function AiModelsSettings(): JSX.Element {
                   />
                 }
               />
+              <ProviderKeyStatus
+                provider="anthropic"
+                apiKey={settings.provider.anthropic.apiKey}
+                model={settings.provider.anthropic.model}
+              />
               {!settings.provider.anthropic.apiKey.trim() && (
                 <div className={styles.hintLine}>
                   <span className={styles.hintDot} />
@@ -484,6 +490,11 @@ export function AiModelsSettings(): JSX.Element {
                     onChange={(value) => void update({ provider: { openai: { model: value } } })}
                   />
                 }
+              />
+              <ProviderKeyStatus
+                provider="openai"
+                apiKey={settings.provider.openai.apiKey}
+                model={settings.provider.openai.model}
               />
               {!settings.provider.openai.apiKey.trim() && (
                 <div className={styles.hintLine}>

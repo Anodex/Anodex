@@ -221,4 +221,25 @@ function toInputSchema(params: ToolFunction['params']): Anthropic.Tool.InputSche
   }
 }
 
+/**
+ * Confirm an Anthropic API key actually works, and that `model` is reachable
+ * with it. Uses `models.retrieve` — a metadata-only call, not a generation —
+ * so checking a key never spends tokens. Throws a message already suitable
+ * to show the user; callers just need to catch and relay it.
+ */
+export async function verifyAnthropicKey(apiKey: string, model: string): Promise<void> {
+  const client = new Anthropic({ apiKey })
+  try {
+    await client.models.retrieve(model)
+  } catch (error) {
+    if (error instanceof Anthropic.AuthenticationError) {
+      throw new Error('Invalid API key.')
+    }
+    if (error instanceof Anthropic.NotFoundError) {
+      throw new Error(`Key looks valid, but model "${model}" isn't available on this account.`)
+    }
+    throw new Error(error instanceof Error ? error.message : 'Could not verify the API key.')
+  }
+}
+
 export const anthropicProvider: LlmProvider = new AnthropicProvider()

@@ -6,6 +6,7 @@ import { registerModelHandlers } from './model.handlers'
 import { registerConversationHandlers } from './conversation.handlers'
 import { registerProjectHandlers } from './project.handlers'
 import { registerSettingsHandlers } from './settings.handlers'
+import { registerProviderHandlers } from './provider.handlers'
 import { registerSystemHandlers } from './system.handlers'
 import { registerToolHandlers } from './tools.handlers'
 import { registerWindowHandlers } from './window.handlers'
@@ -26,6 +27,7 @@ export function registerIpcHandlers(): void {
   registerModelHandlers()
   registerChatHandlers()
   registerSettingsHandlers()
+  registerProviderHandlers()
   registerProjectHandlers()
   registerConversationHandlers()
   registerSystemHandlers()

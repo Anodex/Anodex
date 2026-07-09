@@ -232,6 +232,17 @@
   color: var(--danger);
 }
 
+.keyStatusRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.keyStatusRow .errorText {
+  margin: 0;
+}
+
 .engineMetrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

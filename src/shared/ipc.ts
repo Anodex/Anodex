@@ -81,6 +81,10 @@ export const IpcChannel = {
     /** main → renderer broadcast when older conversation turns were summarized to fit context. */
     historyCompacted: 'chat:history-compacted'
   },
+  Provider: {
+    /** Test whether a cloud provider API key (and configured model) actually works. */
+    verifyKey: 'provider:verify-key'
+  },
   Settings: {
     get: 'settings:get',
     update: 'settings:update',
@@ -181,6 +185,13 @@ export const IpcChannel = {
   }
 } as const
 
+/** Request to test whether a cloud provider API key (and model) works. */
+export interface VerifyProviderKeyRequest {
+  provider: 'anthropic' | 'openai'
+  apiKey: string
+  model: string
+}
+
 export interface ContextMenuItem {
   id: string
   label: string
@@ -235,6 +246,10 @@ export interface AnodexApi {
     title(request: ChatTitleRequest): Promise<string | null>
     /** Fires when older conversation turns were summarized to fit the model's context window. */
     onHistoryCompacted(listener: (event: HistoryCompactionEvent) => void): () => void
+  }
+  provider: {
+    /** Makes a cheap, metadata-only API call to confirm the key (and model) actually work. */
+    verifyKey(request: VerifyProviderKeyRequest): Promise<Result<true>>
   }
   settings: {
     get(): Promise<AppSettings>
