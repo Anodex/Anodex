@@ -23,6 +23,8 @@
  * `LlamaService.generate()`'s intent-nudge step).
  */
 
+import { CODE_ONLY_REQUEST_RE, hasSubstantialCodeFence } from '@shared/toolCallText'
+
 export interface FallbackToolCall {
   name: string
   arguments: Record<string, unknown>
@@ -32,6 +34,20 @@ export interface FallbackToolCall {
 
 const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/gi
 const JSON_FENCE = /```(?:json)?\s*\n?([\s\S]*?)```/gi
+
+/**
+ * Self-closing XML-style pseudo-tag a model can write instead of calling a
+ * tool — e.g. `<preview_html path="index.html" title="..." />`. Observed
+ * directly with gemma4-coding-Q8_0: nudged to "call preview_html", it wrote a
+ * plausible-looking tag literally in its reply text instead of using the
+ * real function-calling mechanism, so the tool never ran and the tag leaked
+ * into the chat transcript as visible text. Requires at least one attribute
+ * so it can't match incidental markup like `<br/>`; the registered-tool-name
+ * check in `detectFallbackToolCall` (same as every other candidate shape
+ * here) keeps it from misfiring on unrelated HTML the model quotes.
+ */
+const SELF_CLOSING_TAG = /<([a-zA-Z][\w-]*)((?:\s+[\w-]+=(?:"[^"]*"|'[^']*'))+)\s*\/>/g
+const TAG_ATTRIBUTE = /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g
 
 /**
  * Look for a tool-call attempt in a model's plain-text response that wasn't
@@ -66,6 +82,14 @@ function extractCandidates(text: string): Candidate[] {
   }
   for (const match of text.matchAll(JSON_FENCE)) {
     candidates.push({ matchedText: match[0], jsonText: match[1] })
+  }
+  for (const match of text.matchAll(SELF_CLOSING_TAG)) {
+    const [matchedText, name, attrText] = match
+    const args: Record<string, string> = {}
+    for (const attr of attrText.matchAll(TAG_ATTRIBUTE)) {
+      args[attr[1]] = attr[2] ?? attr[3] ?? ''
+    }
+    candidates.push({ matchedText, jsonText: JSON.stringify({ name, arguments: args }) })
   }
 
   // A bare JSON object with no wrapping tag/fence is accepted either as the
@@ -252,28 +276,45 @@ export function looksLikeFabricatedOutcome(text: string): boolean {
   return FABRICATED_OUTCOME_RE.test(trimmed.slice(-INTENT_CHECK_WINDOW))
 }
 
-const CODE_FENCE_RE = /```([a-zA-Z0-9_-]*)\s*\n?([\s\S]*?)```/g
-const CODE_FENCE_MIN_CHARS = 80
-const CODE_LANGS = new Set([
-  '',
-  'css',
-  'html',
-  'javascript',
-  'js',
-  'jsx',
-  'json',
-  'ts',
-  'tsx',
-  'typescript'
-])
-const CODE_LIKE_RE =
-  /[{};]|\b(?:body|class|const|display|document|export|function|import|let|querySelector)\b/i
+/**
+ * Broader than `FILE_ACTION_RE` below (which only covers file-edit verbs for
+ * `looksLikeToolBypass`'s narrower purpose) — this also covers read/inspect
+ * verbs, since a stalled turn is just as possible for "check git status" as
+ * for "add a feature". Used against the *user's* prompt, not the reply.
+ */
+const ACTION_REQUEST_RE =
+  /\b(?:add|create|edit|include|insert|modify|patch|put|replace|update|write|check|run|search|list|verify|test|fix|remember|delete|move|rename|refactor)\b/i
+
+/**
+ * True when the user's message asked for a concrete action and *no tool call
+ * of any kind happened this turn* (the caller is expected to gate on this —
+ * same discipline as `looksLikeUnactedIntent`/`looksLikeFabricatedOutcome`
+ * above), and the reply isn't a genuine clarifying question. Deliberately
+ * phrasing-agnostic on the reply itself: models have been observed avoiding
+ * a real tool call while still sounding like something happened in at least
+ * three distinct ways in the same long session — a bare "Let's add X"
+ * announcement, a first-person "I've added X" claim (nominally covered by
+ * `looksLikeUnactedIntent`, but that regex is narrow), and a passive/
+ * third-person "X is now live" / "X has been updated" claim that matches
+ * neither existing regex. Chasing each new phrasing with its own pattern is
+ * a losing game — if the user asked for a checkable/actionable thing and
+ * literally nothing was attempted, that's worth a nudge regardless of how
+ * the reply is worded. The cost of a false positive here (a reply that
+ * genuinely needed no tool call, e.g. "no change needed, X already does
+ * that") is just one extra retry round, not a wrong action — the nudge
+ * prompt explicitly allows declining plainly on retry.
+ */
+export function looksLikeStalledIntent(reply: string, userPrompt: string): boolean {
+  const trimmed = reply.trim()
+  if (!trimmed || trimmed.endsWith('?')) return false
+  if (CODE_ONLY_REQUEST_RE.test(userPrompt)) return false
+  return ACTION_REQUEST_RE.test(userPrompt)
+}
+
 const FILE_ACTION_RE =
   /\b(?:add|create|edit|include|insert|modify|patch|put|replace|update|write)\b/i
 const FILE_TARGET_RE =
   /`?[\w./-]+\.(?:css|html|js|jsx|json|md|ts|tsx)`?|\b(?:css|html|javascript|js|file)\b/i
-const CODE_ONLY_REQUEST_RE =
-  /\b(?:show|display|provide|give|send|explain|describe)\b[\s\S]{0,100}\b(?:code|css|example|html|javascript|js|snippet)\b/i
 
 /**
  * True when a project-chat reply appears to give the user file-edit code in
@@ -286,14 +327,4 @@ export function looksLikeToolBypass(reply: string, userPrompt: string): boolean 
   if (!trimmedReply || CODE_ONLY_REQUEST_RE.test(userPrompt)) return false
   if (!FILE_ACTION_RE.test(trimmedReply) || !FILE_TARGET_RE.test(trimmedReply)) return false
   return hasSubstantialCodeFence(trimmedReply)
-}
-
-function hasSubstantialCodeFence(text: string): boolean {
-  for (const match of text.matchAll(CODE_FENCE_RE)) {
-    const lang = match[1].toLowerCase()
-    const body = match[2].trim()
-    if (body.length < CODE_FENCE_MIN_CHARS) continue
-    if (CODE_LANGS.has(lang) || CODE_LIKE_RE.test(body)) return true
-  }
-  return false
 }

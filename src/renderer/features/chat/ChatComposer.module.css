@@ -172,6 +172,11 @@
   cursor: not-allowed;
 }
 
+.contextMeter {
+  flex: 1;
+  min-width: 0;
+}
+
 .hint {
   margin-top: var(--space-2);
   text-align: center;

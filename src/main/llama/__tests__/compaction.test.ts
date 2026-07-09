@@ -85,10 +85,56 @@ describe('splitHistoryByTokenBudget', () => {
         ]
       }
     ]
-    // Budget fits the assistant turn's own text but not its tool result too.
+    // Budget fits the assistant turn's own text but not its tool result too —
+    // the newest (only) turn is still kept, but with its tool result capped
+    // (see the dedicated capping tests below), so the older user turn is the
+    // only thing that ends up in `older`.
     const result = splitHistoryByTokenBudget(history, 20, countTokens)
-    expect(result.recent).toEqual([history[1]])
+    expect(result.recent).toHaveLength(1)
+    expect(result.recent[0].content).toBe('done')
+    expect(result.recent[0].toolCalls?.[0].result).not.toContain('y'.repeat(100))
     expect(result.older).toEqual([history[0]])
+  })
+
+  it('caps an oversized newest turn\'s tool results in place instead of leaving it oversized', () => {
+    // Regression test: observed directly in a long live session — a single
+    // turn with 35 tool calls stayed oversized through every subsequent
+    // "successful" compaction (the split always keeps the newest turn no
+    // matter its size), so node-llama-cpp's context-shift crash recurred on
+    // every later turn, permanently wedging the conversation. The fix caps
+    // the oversized turn's own tool results so the rebuilt session actually
+    // fits, rather than guaranteeing a repeat crash.
+    const history: ChatHistoryTurn[] = [
+      {
+        role: 'assistant',
+        content: 'done',
+        // Mirrors a real multi-tool-call turn: each result near the
+        // model-facing replay cap (MAX_MODEL_TOOL_RESULT_CHARS = 1200).
+        toolCalls: Array.from({ length: 35 }, (_, i) => ({
+          id: `t${i}`,
+          name: 'read_file',
+          kind: 'read' as const,
+          title: `Read ${i}`,
+          status: 'success' as const,
+          result: 'y'.repeat(1000)
+        }))
+      }
+    ]
+    // Raw cost: 4 (content) + 35*1000 (results) = 35,004 — vastly over budget.
+    const result = splitHistoryByTokenBudget(history, 4000, countTokens)
+    expect(result.recent).toHaveLength(1)
+    expect(result.older).toEqual([])
+    const cappedCalls = result.recent[0].toolCalls ?? []
+    expect(cappedCalls).toHaveLength(35)
+    // Oldest calls got capped (no longer the raw 1000-char result)...
+    expect(cappedCalls[0].result).not.toBe('y'.repeat(1000))
+    // ...cheaply enough that the turn's total cost now actually fits the
+    // budget, unlike before the fix, where it stayed at the full raw
+    // ~35,000-token cost forever, permanently overflowing on every rebuild.
+    const newTotal =
+      countTokens(result.recent[0].content) +
+      cappedCalls.reduce((sum, c) => sum + countTokens(c.result ?? ''), 0)
+    expect(newTotal).toBeLessThanOrEqual(4000)
   })
 
   it('does not count raw tool payload text once assistant content is sanitized', () => {

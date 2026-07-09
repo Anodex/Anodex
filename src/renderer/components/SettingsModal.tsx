@@ -2,6 +2,7 @@ import { useUiStore } from '../stores/uiStore'
 import { SettingsView } from '../features/settings/SettingsView'
 import { Overlay } from './ui/Overlay'
 import { Icon } from './Icon'
+import { ErrorBoundary } from './ErrorBoundary'
 import styles from './SettingsModal.module.css'
 
 /**
@@ -10,6 +11,11 @@ import styles from './SettingsModal.module.css'
  * into the same content slot as the chat view. `SettingsView` itself is
  * unchanged; this just supplies the modal-specific sizing and close button
  * around the shared `Overlay` chrome (backdrop, card, Escape-to-close).
+ *
+ * `SettingsView` is wrapped in its own error boundary rather than relying on
+ * the outer one in `AppShell` — that way a crash in one settings page still
+ * leaves the close button (and Escape-to-close) working, instead of taking
+ * out the only way to leave the crashed modal.
  */
 export function SettingsModal(): JSX.Element {
   const setView = useUiStore((s) => s.setView)
@@ -25,7 +31,9 @@ export function SettingsModal(): JSX.Element {
       <button className={styles.close} onClick={close} aria-label="Close settings" title="Close">
         <Icon name="close" size={16} />
       </button>
-      <SettingsView />
+      <ErrorBoundary label="Settings">
+        <SettingsView />
+      </ErrorBoundary>
     </Overlay>
   )
 }

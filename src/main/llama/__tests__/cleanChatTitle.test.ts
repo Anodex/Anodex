@@ -1,0 +1,52 @@
+import { describe, expect, it } from 'vitest'
+import { cleanChatTitle } from '../LlamaService'
+
+describe('cleanChatTitle', () => {
+  it('accepts a well-formed title as-is', () => {
+    expect(cleanChatTitle('Fix Sidebar Hover Preview')).toBe('Fix Sidebar Hover Preview')
+  })
+
+  it('strips a leading "Title:" prefix', () => {
+    expect(cleanChatTitle('Title: Plan Garden Layout')).toBe('Plan Garden Layout')
+  })
+
+  it('strips wrapping markdown bold/italic markers', () => {
+    // Regression: observed live — the model sometimes wraps its title in
+    // markdown emphasis, and the asterisks showed up literally in the
+    // sidebar because nothing stripped them.
+    expect(cleanChatTitle('**Fetch URL Content**')).toBe('Fetch URL Content')
+    expect(cleanChatTitle('__Plan Simple Counter App__')).toBe('Plan Simple Counter App')
+    expect(cleanChatTitle('*Check Git Status and Diff*')).toBe('Check Git Status and Diff')
+  })
+
+  it('strips wrapping quotes and trailing punctuation', () => {
+    expect(cleanChatTitle('"Build Personal Site."')).toBe('Build Personal Site')
+  })
+
+  it('rejects a reply that echoes the title-generation instruction instead of following it', () => {
+    // Regression: observed live, reproduced twice across separate sessions —
+    // the model echoed a paraphrase of its own system instruction back as
+    // the "title" instead of generating a real one.
+    expect(cleanChatTitle('Goal: Create a 3-6 word Title Case')).toBeNull()
+    expect(cleanChatTitle('Sure, here is a concise title for this conversation')).toBeNull()
+    expect(cleanChatTitle('I will use Title Case with no preamble')).toBeNull()
+  })
+
+  it('returns null for empty or whitespace-only input', () => {
+    expect(cleanChatTitle('')).toBeNull()
+    expect(cleanChatTitle('   \n  ')).toBeNull()
+  })
+
+  it('returns null for a too-short result', () => {
+    expect(cleanChatTitle('Hi')).toBeNull()
+  })
+
+  it('caps to 7 words and 60 characters', () => {
+    const long = 'One Two Three Four Five Six Seven Eight Nine Ten'
+    expect(cleanChatTitle(long)).toBe('One Two Three Four Five Six Seven')
+  })
+
+  it('uses only the first non-empty line', () => {
+    expect(cleanChatTitle('\n\nFix Login Bug\nSome extra text below')).toBe('Fix Login Bug')
+  })
+})

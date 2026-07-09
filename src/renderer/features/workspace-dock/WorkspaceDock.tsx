@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Icon } from '../../components/Icon'
 import { IconButton } from '../../components/ui/IconButton'
+import { ErrorBoundary } from '../../components/ErrorBoundary'
 import { useFileViewer } from '../file-viewer/useFileViewer'
 import { FileViewerPanel } from '../file-viewer/FileViewerPanel'
 import { useWorkspaceDock } from './useWorkspaceDock'
@@ -19,6 +20,14 @@ const PANEL_COMPONENTS = {
   outputs: OutputsPanel,
   terminal: TerminalPanel
 } as const
+
+const PANEL_LABELS: Record<keyof typeof PANEL_COMPONENTS, string> = {
+  plan: 'Plan panel',
+  files: 'File tree',
+  activity: 'Activity panel',
+  outputs: 'Outputs panel',
+  terminal: 'Terminal'
+}
 
 /** Right-side workspace dock that shows selected panels. */
 export function WorkspaceDock(): JSX.Element | null {
@@ -53,7 +62,9 @@ export function WorkspaceDock(): JSX.Element | null {
       </div>
       <div className={styles.body}>
         {openFile ? (
-          <FileViewerPanel />
+          <ErrorBoundary label="File viewer">
+            <FileViewerPanel />
+          </ErrorBoundary>
         ) : visiblePanels.length === 0 ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyTitle}>No dock panels selected.</div>
@@ -62,7 +73,11 @@ export function WorkspaceDock(): JSX.Element | null {
         ) : (
           visiblePanels.map((panel) => {
             const Panel = PANEL_COMPONENTS[panel.id]
-            return <Panel key={panel.id} />
+            return (
+              <ErrorBoundary key={panel.id} label={PANEL_LABELS[panel.id]}>
+                <Panel />
+              </ErrorBoundary>
+            )
           })
         )}
       </div>

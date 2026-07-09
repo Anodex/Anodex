@@ -11,6 +11,9 @@ interface Candidate {
 
 const TOOL_CALL_TAG = /<tool_call>([\s\S]*?)<\/tool_call>/gi
 const JSON_FENCE = /```(?:json)?\s*\n?([\s\S]*?)```/gi
+/** See the matching constant in `main/llama/toolCallFallback.ts` for why this exists. */
+const SELF_CLOSING_TAG = /<([a-zA-Z][\w-]*)((?:\s+[\w-]+=(?:"[^"]*"|'[^']*'))+)\s*\/>/g
+const TAG_ATTRIBUTE = /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g
 
 /**
  * Finds model-emitted tool-call JSON in ordinary assistant text. Accepts only
@@ -65,6 +68,14 @@ function extractCandidates(text: string): Candidate[] {
   }
   for (const match of text.matchAll(JSON_FENCE)) {
     candidates.push({ matchedText: match[0], jsonText: match[1] })
+  }
+  for (const match of text.matchAll(SELF_CLOSING_TAG)) {
+    const [matchedText, name, attrText] = match
+    const args: Record<string, string> = {}
+    for (const attr of attrText.matchAll(TAG_ATTRIBUTE)) {
+      args[attr[1]] = attr[2] ?? attr[3] ?? ''
+    }
+    candidates.push({ matchedText, jsonText: JSON.stringify({ name, arguments: args }) })
   }
 
   const trimmed = text.trim()
@@ -135,6 +146,75 @@ function balancedJsonObjectEnd(text: string, start: number): number {
   }
 
   return -1
+}
+
+const CODE_FENCE_RE = /```([a-zA-Z0-9_-]*)\s*\n?([\s\S]*?)```/g
+const CODE_FENCE_MIN_CHARS = 80
+/**
+ * Fallback heuristic for a *bare* (no language tag) fence — brace/JS-ish
+ * vocabulary. Deliberately narrow: an explicitly-tagged fence (```markdown,
+ * ```xml, ```python, anything) never needs this — the model naming a
+ * language at all is already the signal that it's a real content block, not
+ * incidental backtick-quoting. Previously this narrowness lived in the
+ * *language allowlist* instead (css/html/js/json/ts/tsx only), which meant
+ * any other tagged language — observed directly: ```markdown for a README,
+ * ```xml for an RSS feed — silently bypassed detection entirely. Only the
+ * untagged-fence fallback needs a heuristic at all now.
+ */
+const CODE_LIKE_RE =
+  /[{};]|\b(?:body|class|const|display|document|export|function|import|let|querySelector)\b/i
+/** Matches when the user's own prompt explicitly asked to see code in chat. */
+export const CODE_ONLY_REQUEST_RE =
+  /\b(?:show|display|provide|give|send|explain|describe)\b[\s\S]{0,100}\b(?:code|css|example|html|javascript|js|snippet)\b/i
+
+export function hasSubstantialCodeFence(text: string): boolean {
+  for (const match of text.matchAll(CODE_FENCE_RE)) {
+    const lang = match[1].trim()
+    const body = match[2].trim()
+    if (body.length < CODE_FENCE_MIN_CHARS) continue
+    if (lang || CODE_LIKE_RE.test(body)) return true
+  }
+  return false
+}
+
+/**
+ * Remove substantial file-edit-shaped code fences from a reply, keeping the
+ * surrounding prose. Shared between the main-process generation path (the
+ * live streamed reply) and the renderer's post-generation block reconciler
+ * (`reconcileMessageBlocks`) — both need the exact same decision, or the
+ * flat `content` string and the rendered block list drift out of sync with
+ * each other (one stripped, the other not). Never strips when the user
+ * explicitly asked to see code in chat.
+ */
+export function stripSubstantialCodeFences(text: string, userPrompt: string): string {
+  if (CODE_ONLY_REQUEST_RE.test(userPrompt)) return text
+  const stripped = text.replace(CODE_FENCE_RE, (match, lang: string, body: string) => {
+    const trimmedBody = body.trim()
+    if (trimmedBody.length < CODE_FENCE_MIN_CHARS) return match
+    if (!lang.trim() && !CODE_LIKE_RE.test(trimmedBody)) return match
+    return ''
+  })
+  return stripped.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/**
+ * Some chat templates (observed: node-llama-cpp's `Gemma4ChatWrapper`, used
+ * for Gemma-family GGUFs) mark a hidden "thinking" segment with a special
+ * token pair — an opening `<|channel>thought` and a closing `<channel|>` —
+ * that the wrapper is supposed to consume internally, surfacing only the
+ * segment's content (never the raw tags) to the caller. A model that doesn't
+ * reproduce that exact token sequence byte-for-byte (observed directly with
+ * a third-party Gemma fine-tune) can leave the wrapper unable to recognize a
+ * malformed/mismatched marker as part of a real segment boundary, so it
+ * falls through as literal visible text instead — `<channel|>`, `<channel>`,
+ * and `</channel>` have all been seen leaking this way. Narrow on purpose:
+ * only strips this exact known artifact shape, not anything angle-bracketed
+ * in general, so real HTML/JSX the model legitimately writes is untouched.
+ */
+const LEAKED_CHANNEL_TOKEN_RE = /<\/?channel\|?>\n?/gi
+
+export function stripLeakedChannelTokens(text: string): string {
+  return text.replace(LEAKED_CHANNEL_TOKEN_RE, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 function tryParseToolCallJson(

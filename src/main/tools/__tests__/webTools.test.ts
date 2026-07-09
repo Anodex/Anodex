@@ -116,6 +116,59 @@ describe('AI web tools', () => {
       expect(fetchSpy).not.toHaveBeenCalled()
     })
 
+    it('re-validates DNS for a redirect that points at a private address', async () => {
+      // Regression test for the DNS-rebinding TOCTOU fix: a redirect hop must
+      // get its own resolveHost() check, not just the initial URL.
+      let resolveCalls = 0
+      setResolveHostForTests((hostname) => {
+        resolveCalls += 1
+        return Promise.resolve(hostname === 'evil.example.test' ? ['127.0.0.1'] : ['93.184.216.34'])
+      })
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 302,
+        statusText: 'Found',
+        headers: new Map([['location', 'https://evil.example.test/internal']]),
+        text: () => Promise.resolve('')
+      })
+      globalThis.fetch = fetchSpy
+
+      const tool = fetchUrlTool(
+        createMockDefine(),
+        createMockContext('/tmp/workspace')
+      ) as unknown as {
+        handler: (args: { url: string }) => Promise<string>
+      }
+      const result = await tool.handler({ url: 'https://docs.example.test/start' })
+
+      expect(result.toLowerCase()).toContain('local or private')
+      expect(resolveCalls).toBe(2) // initial hop + redirect hop
+      expect(fetchSpy).toHaveBeenCalledTimes(1) // never followed the redirect
+    })
+
+    it('pins each fetch call to a dispatcher scoped to the validated addresses', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map(),
+        text: () => Promise.resolve('<p>hi</p>')
+      })
+      globalThis.fetch = fetchSpy
+
+      const tool = fetchUrlTool(
+        createMockDefine(),
+        createMockContext('/tmp/workspace')
+      ) as unknown as {
+        handler: (args: { url: string }) => Promise<string>
+      }
+      await tool.handler({ url: 'https://example.com/docs' })
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      const init = fetchSpy.mock.calls[0][1] as { dispatcher?: unknown }
+      expect(init.dispatcher).toBeDefined()
+    })
+
     it('refuses non-http(s) schemes', async () => {
       const fetchSpy = vi.fn()
       globalThis.fetch = fetchSpy

@@ -66,8 +66,10 @@ function buildActivitySummary(projectId: string, retrievalQuery: string): string
   if (memory.filesTouched.length === 0 && memory.recentSummaries.length === 0) return ''
 
   const lines: string[] = [
-    'Retrieved project recall from past conversations. This is background context only. ' +
-      'Use it when it is relevant to the current request; ignore it when it is not.'
+    'Retrieved project recall from past conversations. This is background context only, ' +
+      'ranked by lexical overlap with the current request — not a guarantee of relevance. ' +
+      "Don't reuse code or fixes from it unless they actually apply to what the user is " +
+      'asking now; ignore anything that does not.'
   ]
 
   const files = rankTouchedFiles(memory, retrievalQuery).slice(0, MAX_ACTIVITY_FILES)

@@ -302,4 +302,29 @@ describe('patch_file', () => {
     expect(result).toContain('provide occurrence or replaceAll')
     expect(requests).toHaveLength(0)
   })
+
+  it('tells the model when replacements were truncated instead of dropping them silently', async () => {
+    // Delimited markers so no token is a substring of another (e.g. "word1"
+    // inside "word10"), which would otherwise trip the occurrence-ambiguity
+    // check unrelated to the truncation behavior under test.
+    const words = Array.from({ length: 25 }, (_, i) => `<<${i}>>`)
+    await writeFile(join(workspace, 'a.txt'), words.join(' '))
+    const ctx = createMockContext(workspace)
+    const tool = patchFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: {
+        path: string
+        replacements: Array<{ oldText: string; newText: string }>
+      }) => Promise<string>
+    }
+
+    const replacements = words.map((w, i) => ({ oldText: w, newText: `[${i}]` }))
+    const result = await tool.handler({ path: 'a.txt', replacements })
+
+    expect(result).toContain('20 replacement')
+    expect(result).toContain('Only the first 20 of 25 requested replacements were applied')
+    expect(result).toContain('remaining 5 were dropped')
+    const updated = await readFile(join(workspace, 'a.txt'), 'utf-8')
+    expect(updated).toContain('[0]')
+    expect(updated).toContain('<<24>>') // beyond the 20-replacement cap, left untouched
+  })
 })

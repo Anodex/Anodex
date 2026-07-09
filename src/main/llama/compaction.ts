@@ -89,6 +89,17 @@ function turnTokenCost(turn: ChatHistoryTurn, countTokens: (text: string) => num
  * newest-first while walking, then reversed to oldest-first) and older turns
  * that don't. `countTokens` is injected so this stays unit-testable without a
  * real model loaded.
+ *
+ * The newest turn is always kept, even if it alone exceeds `budgetTokens` —
+ * dropping the turn the user is actively in the middle of would be worse
+ * than a tight fit. But if that single turn is capped in place (see
+ * `capTurnToTokenBudget`) when it's the *only* kept turn, so the rebuilt
+ * session is guaranteed to actually fit. Without this, an outsized turn
+ * (observed directly: 35 tool calls in one exchange, each with a real
+ * result) stays oversized through every subsequent "successful" compaction —
+ * node-llama-cpp's own context-shift crash recurs on every later turn,
+ * permanently wedging the conversation, since nothing ever shrinks the one
+ * turn actually responsible.
  */
 export function splitHistoryByTokenBudget(
   history: ChatHistoryTurn[],
@@ -107,10 +118,48 @@ export function splitHistoryByTokenBudget(
   }
 
   const firstKeptIndex = keepIndices[0] ?? history.length
+  const recent = keepIndices.map((i) => history[i])
+  if (recent.length === 1) {
+    recent[0] = capTurnToTokenBudget(recent[0], budgetTokens, countTokens)
+  }
+
   return {
-    recent: keepIndices.map((i) => history[i]),
+    recent,
     older: history.slice(0, firstKeptIndex)
   }
+}
+
+/**
+ * Trim a single oversized turn's tool-call results — oldest first, since the
+ * most recent calls are the ones most likely to matter for continuing the
+ * conversation — until it fits `budgetTokens`. Leaves the turn's own text
+ * content untouched; that's rarely what makes a turn oversized (a long run of
+ * tool calls, each with a real result, is), and losing the model's own words
+ * would be more damaging than losing an old tool result the UI transcript
+ * still has in full anyway (only the model-facing replay copy is capped).
+ */
+function capTurnToTokenBudget(
+  turn: ChatHistoryTurn,
+  budgetTokens: number,
+  countTokens: (text: string) => number
+): ChatHistoryTurn {
+  if (!turn.toolCalls?.length) return turn
+
+  const callCosts = turn.toolCalls.map((call) => countTokens(call.result ?? call.detail ?? ''))
+  let total = countTokens(turn.content) + callCosts.reduce((sum, cost) => sum + cost, 0)
+  if (total <= budgetTokens) return turn
+
+  const notice = '(result omitted to fit context)'
+  const noticeCost = countTokens(notice)
+  const toolCalls = [...turn.toolCalls]
+  for (let i = 0; i < toolCalls.length && total > budgetTokens; i++) {
+    const call = toolCalls[i]
+    if (!call.result && !call.detail) continue
+    if (callCosts[i] <= noticeCost) continue // already cheaper than the notice would be
+    total += noticeCost - callCosts[i]
+    toolCalls[i] = { ...call, result: notice, detail: notice }
+  }
+  return { ...turn, toolCalls }
 }
 
 /**

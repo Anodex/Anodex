@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { Icon } from '../../components/Icon'
+import { conversationsRelevantlyEqual } from '../../lib/conversationEquality'
 import styles from './WorkspaceControl.module.css'
 
 function baseName(path: string): string {
@@ -23,7 +25,11 @@ function baseName(path: string): string {
 export function WorkspaceControl(): JSX.Element | null {
   const toolsEnabled = useSettingsStore((s) => s.settings?.tools.enabled ?? true)
   const activeConversationId = useChatStore((s) => s.activeId)
-  const conversations = useChatStore((s) => s.conversations)
+  const conversations = useStoreWithEqualityFn(
+    useChatStore,
+    (s) => s.conversations,
+    conversationsRelevantlyEqual
+  )
   const projects = useProjectStore((s) => s.projects)
 
   const root = useMemo(() => {

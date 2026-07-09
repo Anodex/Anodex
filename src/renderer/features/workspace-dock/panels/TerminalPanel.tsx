@@ -77,8 +77,17 @@ export function TerminalPanel(): JSX.Element {
       setTimeout(() => fitAddon.fit(), 0)
     }
 
+    let cancelled = false
+
     const startSession = async (): Promise<void> => {
       const result = await anodex.terminal.create()
+      if (cancelled) {
+        // The effect already cleaned up while `create()` was in flight —
+        // don't register listeners into an already-cleared unsubsRef, and
+        // don't leak the pty this call just started.
+        if (result.ok) void anodex.terminal.kill(result.value)
+        return
+      }
       if (!result.ok) {
         term.write(`\r\n\x1b[31mFailed to start terminal: ${result.error.message}\x1b[0m\r\n`)
         return
@@ -123,6 +132,7 @@ export function TerminalPanel(): JSX.Element {
     if (containerRef.current) resizeObserver.observe(containerRef.current)
 
     return () => {
+      cancelled = true
       for (const unsub of unsubsRef.current) unsub()
       unsubsRef.current = []
       resizeObserver.disconnect()

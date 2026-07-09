@@ -134,20 +134,6 @@
   color: var(--text-faint);
 }
 
-.phaseGroup {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.phaseLabel {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
 /* Streaming "thinking" label — shimmer sweep across a cycling phrase */
 .thinking {
   display: inline-block;

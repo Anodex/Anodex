@@ -3,6 +3,7 @@ import {
   detectFallbackToolCall,
   findPotentialToolCallTextStart,
   looksLikeFabricatedOutcome,
+  looksLikeStalledIntent,
   looksLikeToolBypass,
   looksLikeUnactedIntent,
   stripFallbackCall
@@ -93,6 +94,30 @@ describe('detectFallbackToolCall', () => {
     const call = detectFallbackToolCall(text, TOOLS)
     expect(call?.arguments).toEqual({})
   })
+
+  it('detects a self-closing XML-style pseudo-tag with attributes as arguments', () => {
+    // Regression test: observed live with gemma4-coding-Q8_0 — nudged to
+    // "call preview_html", it wrote `<preview_html path="..." title="..." />`
+    // literally in its reply instead of using real function-calling, and the
+    // tag leaked into the chat transcript as dead text.
+    const tools = new Set(['preview_html'])
+    const text =
+      "I'll add keyboard navigation support.\n\n" +
+      '<preview_html path="index.html" title="Personal Portfolio Site" />'
+    const call = detectFallbackToolCall(text, tools)
+    expect(call?.name).toBe('preview_html')
+    expect(call?.arguments).toEqual({ path: 'index.html', title: 'Personal Portfolio Site' })
+    expect(stripFallbackCall(text, call!)).toBe("I'll add keyboard navigation support.")
+  })
+
+  it('ignores a self-closing tag with no attributes', () => {
+    expect(detectFallbackToolCall('Some text with a <br/> line break.', TOOLS)).toBeNull()
+  })
+
+  it('ignores a self-closing tag whose name is not a registered tool', () => {
+    const text = '<foo_bar path="x" />'
+    expect(detectFallbackToolCall(text, TOOLS)).toBeNull()
+  })
 })
 
 describe('findPotentialToolCallTextStart', () => {
@@ -180,6 +205,90 @@ describe('looksLikeFabricatedOutcome', () => {
   it('only checks near the end, not a claim buried far before the tail', () => {
     const text = 'The user denied the change.\n\n' + 'x'.repeat(700)
     expect(looksLikeFabricatedOutcome(text)).toBe(false)
+  })
+})
+
+describe('looksLikeStalledIntent', () => {
+  const ADD_PROMPT = 'Add internationalization support to the counter app.'
+
+  it('detects a bare restatement of the request with no attempt behind it', () => {
+    // Verbatim (trimmed) reproduction of a real observed stall: a model
+    // paraphrasing the user's own request back in collaborative voice,
+    // reproduced across two different model brands/quantizations in long
+    // sessions, instead of either refusing or fabricating a completion claim.
+    const reply =
+      "Sure, let's add internationalization support to the counter app by creating an " +
+      '`i18n.js` file with English and Spanish translations for all the UI text (buttons, ' +
+      'labels, messages), and adding a language switcher dropdown in `counter.html` that ' +
+      'swaps the displayed text.'
+    expect(looksLikeStalledIntent(reply, ADD_PROMPT)).toBe(true)
+  })
+
+  it('detects a passive/third-person fabricated completion claim, not just first-person', () => {
+    // Regression test: observed live, in the SAME session where the bare
+    // "let's add X" announcement above was also observed — once that
+    // pattern got nudged, the model shifted to a third failure mode neither
+    // the original first-person `looksLikeUnactedIntent` regex nor the
+    // original bare-announcement regex caught: claiming completion in
+    // passive/third-person voice with zero tool calls behind it.
+    const replies = [
+      "I'll add `scroll-behavior: smooth` to the `html` element.\n\nSmooth scrolling is now " +
+        'enabled via CSS, so clicking any navigation link will slide to that section.',
+      "I'll write a friendly `404.html` page.\n\nThe 404 page is live in `portfolio/404.html` " +
+        '— it has a friendly message and a link back to the homepage.',
+      "I'll add common SEO meta tags to the head of `index.html`.\n\nThe SEO meta tags are now " +
+        'in `index.html` — title, description, and Open Graph tags for social sharing.'
+    ]
+    for (const reply of replies) {
+      expect(looksLikeStalledIntent(reply, 'Add smooth-scroll behavior to the nav links.')).toBe(
+        true
+      )
+    }
+  })
+
+  it('detects a stalled read/inspect request, not just file-edit requests', () => {
+    // Ties back to the original observation that started this investigation:
+    // a model narrating "let's check git status" without ever calling the
+    // tool. `ACTION_REQUEST_RE` covers check/run/search/verify, not just
+    // file-edit verbs, so this class of stall is caught too.
+    expect(
+      looksLikeStalledIntent(
+        "Let's check the git status to see the current state.",
+        'Can you check what git status looks like right now?'
+      )
+    ).toBe(true)
+  })
+
+  it('does not flag a genuine clarifying question', () => {
+    expect(
+      looksLikeStalledIntent("Sure, I'll help with that — which file should I add it to?", ADD_PROMPT)
+    ).toBe(false)
+  })
+
+  it('does not flag any reply when the user prompt was not action-shaped', () => {
+    // A memory-recall question ("what folder...") has no action verb — even
+    // a reply that happens to look stall-shaped shouldn't be nudged, since
+    // there was nothing actionable to attempt in the first place.
+    expect(
+      looksLikeStalledIntent(
+        'Counter.css is sitting in the legacy folder right now.',
+        'What subfolder is counter.css sitting in?'
+      )
+    ).toBe(false)
+  })
+
+  it('does not flag a reply when the user explicitly asked to see code in chat', () => {
+    expect(
+      looksLikeStalledIntent(
+        "Sure, I'll show you what that would look like.",
+        'Can you show me the code for a dark mode toggle?'
+      )
+    ).toBe(false)
+  })
+
+  it('returns false for empty text', () => {
+    expect(looksLikeStalledIntent('', ADD_PROMPT)).toBe(false)
+    expect(looksLikeStalledIntent('   ', ADD_PROMPT)).toBe(false)
   })
 })
 
@@ -275,3 +384,4 @@ Here is the requested code example:
     )
   })
 })
+

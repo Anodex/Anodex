@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises'
 import { convert } from 'html-to-text'
+import { Agent } from 'undici'
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
 
@@ -61,36 +62,62 @@ export const fetchUrlTool: ToolFactory = (define, ctx) =>
       })
   })
 
+const MAX_REDIRECTS = 10
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+
 /**
- * Fetch a URL with a timeout and abort support. Redirects are followed by
- * `fetch` (which also handles gzip/charset); we validate the host before the
- * request and re-validate the final resolved URL so a redirect can't deliver
- * the contents of a private/loopback address to the model.
+ * Fetch a URL with a timeout and abort support, following redirects manually
+ * (one hop at a time) so every hop — not just the final URL — gets its own
+ * DNS re-validation.
+ *
+ * DNS is resolved once per hop via `assertPublicDns`, and the resulting
+ * address is pinned into a per-hop `undici.Agent` so the actual TCP
+ * connection is forced to the exact IP we validated. Letting `fetch` re-run
+ * its own DNS lookup after our check would open a DNS-rebinding gap: a
+ * malicious resolver could answer the pre-check with a public IP and the
+ * real connection with a private/loopback one.
  */
 async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<string> {
-  const start = assertPublicUrl(rawUrl)
-  await assertPublicDns(start)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   const onAbort = (): void => controller.abort()
   signal?.addEventListener('abort', onAbort, { once: true })
 
   try {
-    const response = await fetch(start.toString(), {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: { 'User-Agent': 'Anodex/1.0' }
-    })
+    let current = assertPublicUrl(rawUrl)
+    for (let hop = 0; ; hop++) {
+      if (hop > MAX_REDIRECTS) {
+        throw new Error('Too many redirects.')
+      }
+      const addresses = await assertPublicDns(current)
+      const dispatcher = pinnedDispatcher(addresses)
+      try {
+        const response = await fetch(current.toString(), {
+          signal: controller.signal,
+          redirect: 'manual',
+          // Pins this request's connection to the pre-validated address
+          // (see `pinnedDispatcher`) instead of trusting `fetch`'s own
+          // internal DNS resolution.
+          dispatcher,
+          headers: { 'User-Agent': 'Anodex/1.0' }
+        })
 
-    // Guard against redirects that land on a private/loopback host.
-    if (response.url) {
-      const finalUrl = assertPublicUrl(response.url)
-      await assertPublicDns(finalUrl)
+        if (REDIRECT_STATUSES.has(response.status)) {
+          const location = response.headers.get('location')
+          if (!location) {
+            throw new Error(`HTTP ${response.status} redirect with no Location header.`)
+          }
+          current = assertPublicUrl(new URL(location, current).toString())
+          continue
+        }
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+        return await response.text()
+      } finally {
+        await dispatcher.close()
+      }
     }
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
-    return await response.text()
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('The request timed out or was cancelled.')
@@ -100,6 +127,28 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<string> {
     clearTimeout(timeout)
     signal?.removeEventListener('abort', onAbort)
   }
+}
+
+/** An undici dispatcher whose connections are pinned to pre-validated addresses. */
+function pinnedDispatcher(addresses: string[]): Agent {
+  const records = addresses.map((address) => ({
+    address,
+    family: address.includes(':') ? 6 : 4
+  }))
+  return new Agent({
+    connect: {
+      // Node's connector calls this either "all" style (Happy Eyeballs,
+      // expects an array) or single-address style depending on runtime
+      // settings — support both so the pin holds either way.
+      lookup: (_hostname, options, callback) => {
+        if (options && (options as { all?: boolean }).all) {
+          callback(null, records)
+        } else {
+          callback(null, records[0].address, records[0].family)
+        }
+      }
+    }
+  })
 }
 
 export function setResolveHostForTests(
@@ -130,12 +179,21 @@ function assertPublicUrl(raw: string): URL {
   return url
 }
 
-/** Resolve public-looking hostnames and reject DNS answers that point inward. */
-async function assertPublicDns(url: URL): Promise<void> {
+/**
+ * Resolve public-looking hostnames and reject DNS answers that point inward.
+ * Returns the validated addresses so the caller can pin the actual
+ * connection to them (see `pinnedDispatcher`) instead of trusting a second,
+ * separate resolution.
+ */
+async function assertPublicDns(url: URL): Promise<string[]> {
   const addresses = await resolveHost(url.hostname)
+  if (addresses.length === 0) {
+    throw new Error(`Could not resolve host (${url.hostname}).`)
+  }
   if (addresses.some(isPrivateAddress)) {
     throw new Error(`Refusing to fetch a local or private address (${url.hostname}).`)
   }
+  return addresses
 }
 
 /** True for loopback, link-local, and private-range hosts. */

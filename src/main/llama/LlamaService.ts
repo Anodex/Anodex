@@ -44,11 +44,13 @@ import {
 import {
   detectFallbackToolCall,
   looksLikeFabricatedOutcome,
+  looksLikeStalledIntent,
   looksLikeToolBypass,
   looksLikeUnactedIntent,
   stripFallbackCall,
   type FallbackToolCall
 } from './toolCallFallback'
+import { stripLeakedChannelTokens, stripSubstantialCodeFences } from '@shared/toolCallText'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
@@ -98,6 +100,22 @@ const TOOL_BYPASS_NUDGE_PROMPT =
   'needed, then call write_file, edit_file, or patch_file to make the change for real. ' +
   'If the user asked to see the result in chat, call preview_html on the relevant HTML file. ' +
   "If you cannot make the change, say exactly what's blocking you."
+
+/**
+ * Sent once, at most, when a reply just restates the request in collaborative
+ * future-tense voice ("Sure, let's add...") without calling any tool at all
+ * this turn (see `looksLikeStalledIntent` in `toolCallFallback.ts`). Distinct
+ * from `INTENT_NUDGE_PROMPT`: that covers a false *past-tense* completion
+ * claim; this covers the model never even attempting anything. Deliberately
+ * generic — unlike the other nudges, it doesn't name specific tools, since
+ * this pattern isn't limited to edit tools (observed with git_status too,
+ * not just write_file/edit_file) and can fire in chats where the available
+ * tool for the job isn't a file-edit tool at all.
+ */
+const STALLED_INTENT_NUDGE_PROMPT =
+  'You described what you were about to do but did not actually call any tool this turn — ' +
+  'nothing happened yet. Stop describing the plan and call the appropriate tool now to do the ' +
+  "work for real. If you can't or the task is blocked, say so plainly instead of restating the plan."
 
 /** The dynamically-imported `node-llama-cpp` module (ESM-only). */
 type LlamaModule = typeof import('node-llama-cpp')
@@ -390,6 +408,15 @@ class LlamaService extends EventEmitter {
     let usedIntentNudge = false
     const originalPrompt = params.prompt
     let prompt = params.prompt
+    // The nudge prompts fired below explicitly instruct the model to call
+    // write_file/edit_file/patch_file — only meaningful if one of those is
+    // actually registered for this chat (e.g. no project workspace is open,
+    // so only web tools are active). `functions` is fixed for the whole
+    // turn, so this only needs computing once, not once per round.
+    const hasEditTool = Boolean(
+      functions &&
+        ('write_file' in functions || 'edit_file' in functions || 'patch_file' in functions)
+    )
 
     try {
       for (let round = 0; ; round++) {
@@ -399,6 +426,17 @@ class LlamaService extends EventEmitter {
           temperature: params.options?.temperature,
           topP: params.options?.topP,
           maxTokens: params.options?.maxTokens,
+          // node-llama-cpp's standard repeatPenalty is a soft probability
+          // nudge and doesn't prevent verbatim broken-record looping — DRY
+          // (Don't Repeat Yourself) sampling is the library's purpose-built
+          // defense for that exact failure mode, but ships disabled by
+          // default. Observed directly: gemma4-coding-Q8_0, deep into a
+          // heavily-compacted long conversation, got stuck re-emitting the
+          // same two sentences verbatim for 150+ seconds straight without
+          // ever producing a stop token, burning through most of the
+          // per-turn token budget on pure repetition. `strength: 0.8` is the
+          // library's own recommended default.
+          dryRepeatPenalty: { strength: 0.8 },
           signal: params.signal,
           functions,
           // Full per-parameter JSON schema docs. Costs more prompt tokens, but
@@ -464,6 +502,13 @@ class LlamaService extends EventEmitter {
         if (!roundContent.trim() && roundSegment.trim()) {
           roundContent = roundSegment.trim()
         }
+        // A chat template's own hidden-reasoning boundary marker (e.g.
+        // Gemma4ChatWrapper's `<channel|>`) that a model didn't reproduce
+        // precisely enough for the wrapper to consume internally — falls
+        // through as literal text otherwise. Cleaned here, before any of the
+        // detection logic below sees it, so a stray leaked tag can't also
+        // confuse the fallback/stalled-intent checks.
+        roundContent = stripLeakedChannelTokens(roundContent)
 
         log.debug('Generation round complete', {
           round,
@@ -484,32 +529,47 @@ class LlamaService extends EventEmitter {
         // calling and instead print the call as plain, unexecuted text (see
         // toolCallFallback.ts). Detect and run it manually so the turn still
         // does real work instead of silently doing nothing.
+        //
+        // Only the visible reply is scanned, never `roundSegment` (hidden
+        // reasoning/"thought" chunks): a tool-shaped JSON draft the model
+        // never intended to surface shouldn't get executed just because it
+        // appeared in private chain-of-thought. When a round has no visible
+        // answer at all, the surfacing step above already promotes the
+        // segment text into `roundContent`, so that case is still covered.
         const activeFunctions = functions
-        const fallbackSource = [roundContent, roundSegment].filter(Boolean).join('\n')
         const fallback =
           activeFunctions && round < MAX_FALLBACK_ROUNDS
-            ? detectFallbackToolCall(fallbackSource, new Set(Object.keys(activeFunctions)))
+            ? detectFallbackToolCall(roundContent, new Set(Object.keys(activeFunctions)))
             : null
 
         if (!fallback || !activeFunctions) {
           // The reply describes an outcome that didn't actually happen this turn:
           // either a claimed file change with no successful write anywhere this
-          // turn, a code-dump bypass of available edit tools, or a fabricated
-          // approval/denial/test-result when no tool was called at all this turn.
+          // turn, a code-dump bypass of available edit tools, a fabricated
+          // approval/denial/test-result when no tool was called at all this turn,
+          // or — distinct from all three — a bare announcement of intent with no
+          // tool call attempted at all (see `looksLikeStalledIntent`). This
+          // detection is independent of tool availability — a model can
+          // fabricate an outcome (or stall) for remember_fact or git_status just
+          // as easily as for a file edit — so it is NOT gated on hasEditTool.
           const isToolBypass =
             Boolean(activeFunctions) &&
             !hadSuccessfulWrite &&
             looksLikeToolBypass(roundContent, originalPrompt)
-          const needsActionNudge =
+          const isStalledIntent =
+            !hadAnyToolAttempt && looksLikeStalledIntent(roundContent, originalPrompt)
+          const isFabrication =
             Boolean(activeFunctions) &&
             (isToolBypass ||
               (!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
-              (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent)))
+              (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent)) ||
+              isStalledIntent)
 
-          // Record this independently of whether a nudge fires below: a bypass
-          // or fabricated outcome still tells us the model needs more steering,
-          // even when the one-nudge-per-turn budget was already spent.
-          if (needsActionNudge && currentModel) {
+          // Record this independently of whether a nudge fires below: a bypass,
+          // fabricated outcome, or stall still tells us the model needs more
+          // steering, even when the one-nudge-per-turn budget was already
+          // spent, or when no edit tool is registered to nudge toward.
+          if (isFabrication && currentModel) {
             modelReliabilityStore.recordFabrication(
               currentModel.id,
               currentModel.name,
@@ -517,20 +577,56 @@ class LlamaService extends EventEmitter {
             )
           }
 
+          // The bypass/unacted-intent/fabricated-outcome nudges explicitly
+          // instruct the model to call write_file/edit_file/patch_file by
+          // name, so they only fire when one of those tools is actually
+          // registered for this chat. The stalled-intent nudge is generic —
+          // it names no specific tool — so it can fire whenever any tool at
+          // all is available, since the stall isn't limited to edit tools.
+          const needsEditToolNudge =
+            (isToolBypass ||
+              (!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
+              (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent))) &&
+            hasEditTool
+          const needsGenericNudge = isStalledIntent && Boolean(activeFunctions)
+          const needsActionNudge = needsEditToolNudge || needsGenericNudge
+
+          // Content the model already produced this round is never silently
+          // dropped, even when nudging for a retry — a false-positive nudge
+          // (or one the model doesn't repeat next round) would otherwise
+          // erase the round from the transcript with no trace anywhere. What
+          // IS stripped: a substantial file-edit code fence, when an edit tool
+          // exists to have done the work for real — the tool card (if any
+          // write succeeded) or the upcoming nudge (if not) already covers
+          // it, so repeating the whole file as prose is just noise. Skipped
+          // entirely in a tool-less chat, where a code paste may be the
+          // model's only possible answer.
+          const displayRoundContent = hasEditTool
+            ? stripSubstantialCodeFences(roundContent, originalPrompt)
+            : roundContent
+          visibleContent = appendContent(visibleContent, displayRoundContent)
+
           // Give it one chance to actually act.
           if (needsActionNudge && !usedIntentNudge) {
             usedIntentNudge = true
-            prompt = isToolBypass ? TOOL_BYPASS_NUDGE_PROMPT : INTENT_NUDGE_PROMPT
+            prompt = needsEditToolNudge
+              ? isToolBypass
+                ? TOOL_BYPASS_NUDGE_PROMPT
+                : INTENT_NUDGE_PROMPT
+              : STALLED_INTENT_NUDGE_PROMPT
             continue
           }
-          visibleContent = appendContent(visibleContent, roundContent)
           break
         }
 
         // Keep any natural-language commentary the model wrote before the call
         // ("I'll check the file first...") and drop the raw call text itself —
-        // the resulting tool card stands in for it in the UI.
-        const cleanedRoundContent = stripFallbackCall(roundContent, fallback)
+        // the resulting tool card stands in for it in the UI. Also strip any
+        // separate code fence in that commentary (see the identical check above).
+        const strippedFallbackContent = stripFallbackCall(roundContent, fallback)
+        const cleanedRoundContent = hasEditTool
+          ? stripSubstantialCodeFences(strippedFallbackContent, originalPrompt)
+          : strippedFallbackContent
         visibleContent = appendContent(visibleContent, cleanedRoundContent)
 
         const resultText = await runFallbackToolCall(activeFunctions, fallback)
@@ -550,6 +646,30 @@ class LlamaService extends EventEmitter {
     } catch (error) {
       if (params.signal?.aborted) {
         log.info('Generation stopped by user')
+        return { content: visibleContent, stats: buildStats(tokenCount, startedAt), stopped: true }
+      }
+      // The reactive recovery inside the round loop above only retries a
+      // *fresh* round (round 0, no content yet) — a context-shift crash
+      // deeper into a multi-tool-call turn can't be safely retried the same
+      // way: rebuilding the session from `params.history` loses this turn's
+      // own in-progress exchange, so replaying a "continue with this tool
+      // result" follow-up prompt against that fresh session would confuse
+      // the model with no memory of what it's continuing. Observed directly:
+      // a turn with many tool calls can grow past the hard context ceiling
+      // faster than the proactive per-turn check (which only runs once, at
+      // the *start* of a turn) can catch — previously this threw, producing
+      // a fully empty, errored message, and left the session wedged so every
+      // later turn failed the exact same way. Instead, end the turn early
+      // with whatever content was already produced (often substantial — the
+      // failure happens after real tool calls already succeeded) and force
+      // the next turn to rebuild from a clean session, rather than cascading
+      // into a permanently broken conversation.
+      if (
+        error instanceof Error &&
+        error.message.includes(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT)
+      ) {
+        log.warn('Context shift failed mid-turn; ending this turn early with partial content.')
+        this.disposeSession()
         return { content: visibleContent, stats: buildStats(tokenCount, startedAt), stopped: true }
       }
       throw error
@@ -708,7 +828,15 @@ class LlamaService extends EventEmitter {
           else responseText += chunk.text
         }
       })
-      return (meta.responseText || responseText || segmentText).trim()
+      const finalText = meta.responseText || responseText || segmentText
+      // These throwaway summarization sessions use the same chat wrappers
+      // (e.g. Gemma4ChatWrapper) as the main conversation, so they're subject
+      // to the same special-token leak (see `stripLeakedChannelTokens`'s
+      // docs). Compaction summaries in particular are now shown directly to
+      // the user via the in-transcript compaction marker, not just fed back
+      // as model context, so a leaked `<channel|>` here would be a new
+      // user-visible bug rather than a harmless internal artifact.
+      return stripLeakedChannelTokens(finalText)
     } finally {
       session.dispose()
     }
@@ -1147,7 +1275,19 @@ function truncateForTitlePrompt(text: string): string {
   return cleaned.length > 900 ? `${cleaned.slice(0, 900)}...` : cleaned
 }
 
-function cleanChatTitle(raw: string): string | null {
+/**
+ * Telltale fragments of the title-generation instruction itself (see the
+ * prompt in `generateChatTitle`). Observed directly, reproduced twice: a
+ * model echoing the instruction back ("Goal: Create a 3-6 word Title Case")
+ * instead of following it. Rejecting these is safe — the caller falls back
+ * to the already-reasonable derived title from the first message rather
+ * than showing a title-less chat (see `generateConversationTitle` in
+ * `chatStore.ts`, which no-ops on a `null` result).
+ */
+const INSTRUCTION_ECHO_RE =
+  /\b(?:3[\s-]to[\s-]6|3-6)\s*words?\b|\btitle\s*case\b|\bconcise\s*title\b|\bno\s*preamble\b|\bno\s*trailing\s*punctuation\b/i
+
+export function cleanChatTitle(raw: string): string | null {
   const firstLine = raw
     .split('\n')
     .map((line) => line.trim())
@@ -1156,11 +1296,17 @@ function cleanChatTitle(raw: string): string | null {
 
   const cleaned = firstLine
     .replace(/^title\s*:\s*/i, '')
+    // Wrapping markdown emphasis (**bold**, __bold__, *italic*) the model
+    // sometimes adds around the title — observed directly ("**Fetch URL
+    // Content**") — isn't part of the title itself.
+    .replace(/^[*_]{1,3}|[*_]{1,3}$/g, '')
     .replace(/^["'\s]+|["'.!?:;\s]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 
   if (!cleaned || cleaned.length < 3) return null
+  if (INSTRUCTION_ECHO_RE.test(cleaned)) return null
+
   const words = cleaned.split(' ').slice(0, 7)
   return (
     words

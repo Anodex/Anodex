@@ -7,8 +7,8 @@ import { formatBytes, formatClock } from '../../lib/format'
 import { MemoryUsedCard } from './MemoryUsedCard'
 import { MessageContent } from './MessageContent'
 import { ThinkingIndicator } from './ThinkingIndicator'
-import { ToolCallCard } from './ToolCallCard'
-import { TASK_PHASE_LABEL, buildRenderSegments, messageBlocks } from './taskPhase'
+import { ToolCallGroup } from './ToolCallGroup'
+import { buildRenderSegments, messageBlocks } from './taskPhase'
 import styles from './MessageBubble.module.css'
 
 /** A single chat turn: avatar, author/time meta, content, and optional stats. */
@@ -67,12 +67,11 @@ export function MessageBubble({ message }: { message: ChatMessage }): JSX.Elemen
                 segment.type === 'text' ? (
                   <MessageContent key={`text-${index}`} content={segment.text} />
                 ) : (
-                  <div key={`tools-${index}`} className={styles.phaseGroup}>
-                    <span className={styles.phaseLabel}>{TASK_PHASE_LABEL[segment.phase]}</span>
-                    {segment.calls.map((call) => (
-                      <ToolCallCard key={call.id} call={call} />
-                    ))}
-                  </div>
+                  <ToolCallGroup
+                    key={`tools-${index}`}
+                    phase={segment.phase}
+                    calls={segment.calls}
+                  />
                 )
               )}
             </div>

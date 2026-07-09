@@ -14,7 +14,7 @@ export function ChatView(): JSX.Element {
       <PageHeader title={conversation?.title ?? 'Chat'} />
       <div className={styles.body}>
         {conversation && conversation.messages.length > 0 ? (
-          <MessageList messages={conversation.messages} />
+          <MessageList messages={conversation.messages} context={conversation.context} />
         ) : (
           <ChatEmptyState />
         )}

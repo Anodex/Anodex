@@ -199,14 +199,29 @@ export const patchFileTool: WorkspaceToolFactory = (define, ctx) =>
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
           const original = await readFile(file, 'utf-8')
           const replacements = args.replacements.slice(0, MAX_PATCH_REPLACEMENTS)
+          const droppedCount = args.replacements.length - replacements.length
+          // Silently truncating would leave the model believing all of its
+          // requested replacements applied when some never ran — say so
+          // explicitly in both the confirmation prompt and the final result.
+          const truncationNote =
+            droppedCount > 0
+              ? ` Only the first ${MAX_PATCH_REPLACEMENTS} of ${args.replacements.length} requested replacements were applied; the remaining ${droppedCount} were dropped. Call patch_file again for the rest.`
+              : ''
           const patched = applyTextPatch(original, replacements)
           return {
-            confirmDetail: `Apply ${patched.count} replacement(s) to ${args.path}:\n\n${describePatch(replacements)}`,
+            confirmDetail: `Apply ${patched.count} replacement(s) to ${args.path}:\n\n${describePatch(replacements)}${truncationNote}`,
             confirmDiff: diffOrUndefined(relativePath, original, patched.text),
-            data: { file, relativePath, original, updated: patched.text, count: patched.count }
+            data: {
+              file,
+              relativePath,
+              original,
+              updated: patched.text,
+              count: patched.count,
+              truncationNote
+            }
           }
         },
-        async ({ file, relativePath, original, updated, count }) => {
+        async ({ file, relativePath, original, updated, count, truncationNote }) => {
           const current = await readFile(file, 'utf-8').catch(() => null)
           if (current !== original) {
             throw new Error(
@@ -215,7 +230,7 @@ export const patchFileTool: WorkspaceToolFactory = (define, ctx) =>
           }
           await writeFile(file, updated, 'utf-8')
           return {
-            modelResult: `Patched ${relativePath} with ${count} replacement(s).`,
+            modelResult: `Patched ${relativePath} with ${count} replacement(s).${truncationNote}`,
             detail: `${count} replacement(s)`,
             diff: diffOrUndefined(relativePath, original, updated)
           }

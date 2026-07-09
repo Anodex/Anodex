@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useUiStore } from '../stores/uiStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useChatStore } from '../stores/chatStore'
+import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
 import { useWorkspaceDock } from '../features/workspace-dock/useWorkspaceDock'
 import { useTheme } from '../hooks/useTheme'
 import { Sidebar } from './Sidebar'
@@ -12,6 +14,7 @@ import { ChatView } from '../features/chat/ChatView'
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
 import { ContextMenu } from './ContextMenu'
+import { ErrorBoundary } from './ErrorBoundary'
 import styles from './AppShell.module.css'
 
 const MIN_SIDEBAR = 200
@@ -26,7 +29,11 @@ export function AppShell(): JSX.Element {
   const view = useUiStore((s) => s.view)
   const appearance = useSettingsStore((s) => s.settings?.appearance)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
-  const conversations = useChatStore((s) => s.conversations)
+  const conversations = useStoreWithEqualityFn(
+    useChatStore,
+    (s) => s.conversations,
+    conversationsRelevantlyEqual
+  )
   const chatsLoaded = useChatStore((s) => s.loaded)
   const newConversation = useChatStore((s) => s.newConversation)
   const dockOpen = useWorkspaceDock((s) => s.open)
@@ -164,24 +171,36 @@ export function AppShell(): JSX.Element {
       }
     >
       <div className={styles.titleBar}>
-        <TitleBar />
+        <ErrorBoundary label="Title bar">
+          <TitleBar />
+        </ErrorBoundary>
       </div>
       <div className={styles.sidebar}>
-        <Sidebar />
+        <ErrorBoundary label="Sidebar">
+          <Sidebar />
+        </ErrorBoundary>
         <div className={styles.resizeHandle} onPointerDown={handleSidebarDown} />
       </div>
       <main className={styles.main}>
-        <ChatView />
+        <ErrorBoundary label="Chat">
+          <ChatView />
+        </ErrorBoundary>
       </main>
       {dockOpen && (
         <div className={styles.dockWrap}>
           <div className={styles.dockHandle} onPointerDown={handleDockDown} />
-          <WorkspaceDock />
+          <ErrorBoundary label="Workspace Dock">
+            <WorkspaceDock />
+          </ErrorBoundary>
         </div>
       )}
       <Toasts />
       <ContextMenu />
-      {view === 'settings' && <SettingsModal />}
+      {view === 'settings' && (
+        <ErrorBoundary label="Settings">
+          <SettingsModal />
+        </ErrorBoundary>
+      )}
     </div>
   )
 }

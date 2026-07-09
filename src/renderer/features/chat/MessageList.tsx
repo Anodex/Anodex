@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
+import type { ConversationContext } from '@shared/context.types'
+import { CompactionMarker } from './CompactionMarker'
 import { MessageBubble } from './MessageBubble'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
@@ -24,7 +26,14 @@ interface UserMarker {
 }
 
 /** Scrollable transcript that follows streaming output unless the user scrolls up. */
-export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Element {
+export function MessageList({
+  messages,
+  context
+}: {
+  messages: ChatMessage[]
+  context?: ConversationContext | null
+}): JSX.Element {
+  const compactionThroughId = context?.activeSnapshot?.throughMessageId ?? null
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -118,13 +127,17 @@ export function MessageList({ messages }: { messages: ChatMessage[] }): JSX.Elem
       <div className={styles.scroll} ref={containerRef} onScroll={handleScroll}>
         <div className={styles.inner}>
           {messages.map((message) => (
-            <div
-              key={message.id}
-              ref={(node) => {
-                messageRefs.current[message.id] = node
-              }}
-            >
-              <MessageBubble message={message} />
+            <div key={message.id}>
+              <div
+                ref={(node) => {
+                  messageRefs.current[message.id] = node
+                }}
+              >
+                <MessageBubble message={message} />
+              </div>
+              {context?.activeSnapshot && message.id === compactionThroughId && (
+                <CompactionMarker snapshot={context.activeSnapshot} />
+              )}
             </div>
           ))}
           <div ref={bottomRef} />
