@@ -13,14 +13,14 @@ import { anodex } from '../../../../lib/anodex'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
-import { RangeControl, SelectControl, TextControl } from '../../controls'
+import { RangeControl, SelectControl } from '../../controls'
 import { Spinner } from '../../../../components/ui/Spinner'
 import { EnginePanel } from './EnginePanel'
 import { HardwarePanel } from './HardwarePanel'
 import { RecommendedModelStrip } from './RecommendedModelStrip'
 import { DiscoverModelsPanel } from './DiscoverModelsPanel'
 import { InstalledModelsList } from './InstalledModelsList'
-import { ProviderKeyStatus } from './ProviderKeyStatus'
+import { ApiKeyField } from './ApiKeyField'
 import { ctxSizeWarning, scoreInstalledModel } from './scoring'
 import styles from './AiModelsSettings.module.css'
 
@@ -434,9 +434,10 @@ export function AiModelsSettings(): JSX.Element {
                 label="API key"
                 description="Your Anthropic API key, from your Anthropic Console account."
                 control={
-                  <TextControl
-                    type="password"
+                  <ApiKeyField
+                    provider="anthropic"
                     value={settings.provider.anthropic.apiKey}
+                    model={settings.provider.anthropic.model}
                     placeholder="sk-ant-..."
                     onChange={(value) => void update({ provider: { anthropic: { apiKey: value } } })}
                   />
@@ -453,11 +454,6 @@ export function AiModelsSettings(): JSX.Element {
                   />
                 }
               />
-              <ProviderKeyStatus
-                provider="anthropic"
-                apiKey={settings.provider.anthropic.apiKey}
-                model={settings.provider.anthropic.model}
-              />
               {!settings.provider.anthropic.apiKey.trim() && (
                 <div className={styles.hintLine}>
                   <span className={styles.hintDot} />
@@ -472,9 +468,10 @@ export function AiModelsSettings(): JSX.Element {
                 label="API key"
                 description="Your OpenAI API key, from your OpenAI platform account."
                 control={
-                  <TextControl
-                    type="password"
+                  <ApiKeyField
+                    provider="openai"
                     value={settings.provider.openai.apiKey}
+                    model={settings.provider.openai.model}
                     placeholder="sk-..."
                     onChange={(value) => void update({ provider: { openai: { apiKey: value } } })}
                   />
@@ -490,11 +487,6 @@ export function AiModelsSettings(): JSX.Element {
                     onChange={(value) => void update({ provider: { openai: { model: value } } })}
                   />
                 }
-              />
-              <ProviderKeyStatus
-                provider="openai"
-                apiKey={settings.provider.openai.apiKey}
-                model={settings.provider.openai.model}
               />
               {!settings.provider.openai.apiKey.trim() && (
                 <div className={styles.hintLine}>

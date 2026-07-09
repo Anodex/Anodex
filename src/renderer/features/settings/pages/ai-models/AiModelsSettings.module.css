@@ -232,15 +232,16 @@
   color: var(--danger);
 }
 
-.keyStatusRow {
+.keyField {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-3);
 }
 
-.keyStatusRow .errorText {
-  margin: 0;
+.keyField input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
 }
 
 .engineMetrics {
