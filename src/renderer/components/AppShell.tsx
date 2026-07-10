@@ -11,6 +11,8 @@ import { Sidebar } from './Sidebar'
 import { TitleBar } from './TitleBar'
 import { Toasts } from './Toasts'
 import { ChatView } from '../features/chat/ChatView'
+import { SchedulerView } from '../features/scheduler/SchedulerView'
+import { PlaceholderView } from '../features/placeholder/PlaceholderView'
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
 import { ContextMenu } from './ContextMenu'
@@ -24,6 +26,22 @@ const MAX_DOCK = 800
 const MIN_MAIN = 360
 const SIDEBAR_KEY = 'anodex:sidebarWidth'
 const DOCK_KEY = 'anodex:dockWidth'
+
+function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): string {
+  if (view === 'scheduler') return 'Scheduled tasks'
+  if (view === 'agent') return 'Agent'
+  if (view === 'critical-thinking') return 'Critical Thinking'
+  return 'Chat'
+}
+
+function renderMainView(view: ReturnType<typeof useUiStore.getState>['view']): JSX.Element {
+  if (view === 'scheduler') return <SchedulerView />
+  if (view === 'agent') return <PlaceholderView icon="wand" title="Agent" />
+  if (view === 'critical-thinking') {
+    return <PlaceholderView icon="globe" title="Critical Thinking" />
+  }
+  return <ChatView />
+}
 
 export function AppShell(): JSX.Element {
   const view = useUiStore((s) => s.view)
@@ -182,9 +200,7 @@ export function AppShell(): JSX.Element {
         <div className={styles.resizeHandle} onPointerDown={handleSidebarDown} />
       </div>
       <main className={styles.main}>
-        <ErrorBoundary label="Chat">
-          <ChatView />
-        </ErrorBoundary>
+        <ErrorBoundary label={getMainLabel(view)}>{renderMainView(view)}</ErrorBoundary>
       </main>
       {dockOpen && (
         <div className={styles.dockWrap}>

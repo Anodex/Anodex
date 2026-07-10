@@ -7,6 +7,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useModelStore } from '../stores/modelStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useProviderUsageStore } from '../stores/providerUsageStore'
+import { useSchedulerStore } from '../stores/schedulerStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useUiStore } from '../stores/uiStore'
 
@@ -93,6 +94,22 @@ export function useAnodexBridge(): void {
           : `Dropped ${turnWord} to stay within the model's context window.`
       })
     })
+    const offSchedulerTasks = anodex.scheduler.onTasksChanged((tasks) => {
+      useSchedulerStore.getState().setTasks(tasks)
+      // A task run creates or appends to its own conversation in the main
+      // process without the renderer ever calling `chat.send` — refresh the
+      // list so a task's chat/badge shows up without a manual reload.
+      void useChatStore.getState().refreshConversations()
+    })
+    // Clicking a scheduled-task toast asks the main window to open the
+    // conversation that run produced, instead of just focusing whatever view
+    // already happened to be showing.
+    const offToastOpenConversation = anodex.toast.onOpenConversation((conversationId) => {
+      const conversation = useChatStore.getState().conversations.find((c) => c.id === conversationId)
+      void useProjectStore.getState().setActive(conversation?.projectId ?? null)
+      void useChatStore.getState().selectConversation(conversationId)
+      useUiStore.getState().setView('chat')
+    })
 
     return () => {
       cancelled = true
@@ -104,6 +121,8 @@ export function useAnodexBridge(): void {
       offConfirm()
       offProviderUsage()
       offHistoryCompacted()
+      offSchedulerTasks()
+      offToastOpenConversation()
     }
   }, [])
 }
@@ -119,6 +138,7 @@ async function hydrate(): Promise<void> {
   useModelStore.getState().setEngineState(state)
   const usage = await anodex.provider.getUsageSnapshot()
   useProviderUsageStore.getState().setAll(usage)
+  await useSchedulerStore.getState().load()
 }
 
 /**

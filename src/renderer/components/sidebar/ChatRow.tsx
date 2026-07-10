@@ -104,6 +104,9 @@ export function ChatRow({
       }}
     >
       <button type="button" className={styles.select} onClick={onClick} title={conversation.title}>
+        {conversation.origin === 'scheduled' && (
+          <Icon name="clock" size={12} className={styles.scheduledIcon} />
+        )}
         <span className={styles.title}>{conversation.title}</span>
       </button>
       <span className={styles.meta}>

@@ -48,6 +48,11 @@ import type {
   UpdateMemoryRequest
 } from './memory.types'
 import type { CloudProviderId, ProviderUsageSnapshot } from './providerUsage.types'
+import type {
+  CreateScheduledTaskRequest,
+  ScheduledTask,
+  UpdateScheduledTaskRequest
+} from './scheduledTask.types'
 
 export const IpcChannel = {
   Models: {
@@ -159,8 +164,10 @@ export const IpcChannel = {
   Toast: {
     /** Show a themed desktop toast in its own always-on-top window. */
     show: 'toast:show',
-    /** From a toast window: bring the main window to the foreground. */
-    focusMain: 'toast:focus-main'
+    /** From a toast window: bring the main window to the foreground, optionally passing a conversation to open. */
+    focusMain: 'toast:focus-main',
+    /** main → renderer (main window): open this conversation, requested from a clicked toast. */
+    openConversation: 'toast:open-conversation'
   },
   Updates: {
     getStatus: 'updates:get-status',
@@ -187,6 +194,18 @@ export const IpcChannel = {
     kill: 'terminal:kill',
     data: 'terminal:data',
     exit: 'terminal:exit'
+  },
+  Scheduler: {
+    list: 'scheduler:list',
+    create: 'scheduler:create',
+    update: 'scheduler:update',
+    delete: 'scheduler:delete',
+    /** Trigger a task immediately, regardless of its schedule. */
+    runNow: 'scheduler:run-now',
+    getKeepAwake: 'scheduler:get-keep-awake',
+    setKeepAwake: 'scheduler:set-keep-awake',
+    /** main → renderer broadcast whenever tasks change (create/update/delete/run). */
+    tasksChanged: 'scheduler:tasks-changed'
   }
 } as const
 
@@ -338,8 +357,11 @@ export interface AnodexApi {
   toast: {
     /** Show a themed desktop toast (own always-on-top window) with this content. */
     show(content: ToastContent): Promise<void>
-    /** Bring the main window to the foreground — called when a toast is clicked. */
-    focusMain(): Promise<void>
+    /** Bring the main window to the foreground — called when a toast is clicked. Pass the toast's
+     *  conversationId (if any) to also have the main window open it. */
+    focusMain(conversationId?: string): Promise<void>
+    /** Fires in the main window when a clicked toast asked to open a specific conversation. */
+    onOpenConversation(listener: (conversationId: string) => void): () => void
   }
   updates: {
     getStatus(): Promise<UpdateStatus>
@@ -380,5 +402,16 @@ export interface AnodexApi {
     onData(listener: (payload: { sessionId: string; data: string }) => void): () => void
     /** Listen for a terminal session exiting. */
     onExit(listener: (payload: { sessionId: string }) => void): () => void
+  }
+  scheduler: {
+    list(): Promise<ScheduledTask[]>
+    create(request: CreateScheduledTaskRequest): Promise<ScheduledTask>
+    update(id: string, request: UpdateScheduledTaskRequest): Promise<ScheduledTask>
+    delete(id: string): Promise<void>
+    /** Trigger a task immediately, regardless of its schedule. */
+    runNow(id: string): Promise<void>
+    getKeepAwake(): Promise<boolean>
+    setKeepAwake(value: boolean): Promise<boolean>
+    onTasksChanged(listener: (tasks: ScheduledTask[]) => void): () => void
   }
 }

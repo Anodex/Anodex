@@ -24,13 +24,13 @@ export function SidebarSection({
     <div className={styles.section}>
       <div className={styles.header}>
         <button type="button" className={styles.toggle} onClick={onToggle}>
+          {icon && <Icon name={icon} size={14} className={styles.sectionIcon} />}
+          <span className={styles.title}>{title}</span>
           <Icon
             name="chevron-down"
             size={14}
             className={`${styles.chevron} ${expanded ? '' : styles.chevronCollapsed}`}
           />
-          {icon && <Icon name={icon} size={14} className={styles.sectionIcon} />}
-          <span className={styles.title}>{title}</span>
         </button>
         {actions && <div className={styles.actions}>{actions}</div>}
       </div>

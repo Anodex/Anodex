@@ -15,13 +15,15 @@ const LEAVE_MS = 180
 interface ToastParams {
   title: string
   body: string
+  conversationId?: string
 }
 
 function readParams(): ToastParams {
   const params = new URLSearchParams(window.location.search)
   return {
     title: params.get('title') ?? 'Notification',
-    body: params.get('body') ?? ''
+    body: params.get('body') ?? '',
+    conversationId: params.get('conversationId') ?? undefined
   }
 }
 
@@ -33,7 +35,7 @@ function readParams(): ToastParams {
  * one message and then close.
  */
 export function ToastWindow(): JSX.Element {
-  const [{ title, body }] = useState(readParams)
+  const [{ title, body, conversationId }] = useState(readParams)
   const [leaving, setLeaving] = useState(false)
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export function ToastWindow(): JSX.Element {
   }, [leaving])
 
   const focusAndDismiss = (): void => {
-    void anodex.toast.focusMain()
+    void anodex.toast.focusMain(conversationId)
     setLeaving(true)
   }
 

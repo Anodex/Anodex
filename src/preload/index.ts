@@ -5,6 +5,7 @@ import type { ChatStreamChunk, HistoryCompactionEvent } from '@shared/chat.types
 import type { ToolActivityEvent, ToolConfirmRequest } from '@shared/tools.types'
 import type { UpdateStatus } from '@shared/update.types'
 import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
+import type { ScheduledTask } from '@shared/scheduledTask.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -116,7 +117,9 @@ const api: AnodexApi = {
   },
   toast: {
     show: (content) => ipcRenderer.invoke(IpcChannel.Toast.show, content),
-    focusMain: () => ipcRenderer.invoke(IpcChannel.Toast.focusMain)
+    focusMain: (conversationId) => ipcRenderer.invoke(IpcChannel.Toast.focusMain, conversationId),
+    onOpenConversation: (listener) =>
+      subscribe<string>(IpcChannel.Toast.openConversation, listener)
   },
   updates: {
     getStatus: () => ipcRenderer.invoke(IpcChannel.Updates.getStatus),
@@ -146,6 +149,17 @@ const api: AnodexApi = {
     onData: (listener) =>
       subscribe<{ sessionId: string; data: string }>(IpcChannel.Terminal.data, listener),
     onExit: (listener) => subscribe<{ sessionId: string }>(IpcChannel.Terminal.exit, listener)
+  },
+  scheduler: {
+    list: () => ipcRenderer.invoke(IpcChannel.Scheduler.list),
+    create: (request) => ipcRenderer.invoke(IpcChannel.Scheduler.create, request),
+    update: (id, request) => ipcRenderer.invoke(IpcChannel.Scheduler.update, id, request),
+    delete: (id) => ipcRenderer.invoke(IpcChannel.Scheduler.delete, id),
+    runNow: (id) => ipcRenderer.invoke(IpcChannel.Scheduler.runNow, id),
+    getKeepAwake: () => ipcRenderer.invoke(IpcChannel.Scheduler.getKeepAwake),
+    setKeepAwake: (value) => ipcRenderer.invoke(IpcChannel.Scheduler.setKeepAwake, value),
+    onTasksChanged: (listener) =>
+      subscribe<ScheduledTask[]>(IpcChannel.Scheduler.tasksChanged, listener)
   }
 }
 

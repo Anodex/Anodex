@@ -6,7 +6,7 @@ import { playChime } from '../lib/sound'
 import { notifyDesktop } from '../lib/notifications'
 import { logDiagnostic } from './diagnosticsStore'
 
-export type AppView = 'chat' | 'settings'
+export type AppView = 'chat' | 'settings' | 'scheduler' | 'agent' | 'critical-thinking'
 export type ToastKind = 'info' | 'success' | 'error'
 export type SettingsSection =
   | 'profile'

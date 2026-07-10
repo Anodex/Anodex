@@ -18,6 +18,8 @@ export interface Conversation {
   plan?: Plan | null
   /** Durable model-context snapshot for older turns; the UI transcript stays complete. */
   context?: ConversationContext | null
+  /** Set when every turn in this chat came from an automated scheduled task, not the user. */
+  origin?: 'scheduled'
 }
 
 /** Persisted UI state for the conversation list. */

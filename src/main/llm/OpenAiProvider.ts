@@ -64,6 +64,7 @@ class OpenAiProvider implements LlmProvider {
           commandShell: params.tools.commandShell,
           webSearch: params.tools.webSearch,
           memory: params.tools.memory,
+          enabledTools: params.tools.enabledTools ?? null,
           // A mutable box, not the plan value itself — shared by every tool
           // call in this generation, matching LlamaService's own wiring.
           plan: { current: params.tools.plan },

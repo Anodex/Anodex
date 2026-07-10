@@ -101,31 +101,35 @@ export function buildTools(
   ctx: ToolRuntimeContext
 ): Record<string, ToolFunction> {
   const tools: Record<string, ToolFunction> = {}
+  const isEnabled = (name: string): boolean => ctx.enabledTools === null || ctx.enabledTools.has(name)
 
   if (ctx.workspaceRoot) {
     const workspaceCtx: WorkspaceToolContext = { ...ctx, workspaceRoot: ctx.workspaceRoot }
     for (const [name, factory] of Object.entries(READ_ONLY_WORKSPACE_FACTORIES)) {
-      tools[name] = factory(define, workspaceCtx)
+      if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
     }
     if (ctx.projectId) {
       for (const [name, factory] of Object.entries(PROJECT_WORKSPACE_FACTORIES)) {
-        tools[name] = factory(define, workspaceCtx)
+        if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
       }
     }
   }
 
   for (const [name, factory] of Object.entries(GLOBAL_FACTORIES)) {
-    tools[name] = factory(define, ctx)
+    if (isEnabled(name)) tools[name] = factory(define, ctx)
   }
 
-  if (ctx.webSearch.provider !== 'none') {
+  if (ctx.webSearch.provider !== 'none' && isEnabled('web_search')) {
     tools.web_search = webSearchTool(define, ctx)
   }
 
   // Available in every chat, project or not — see the comment on
   // `PROJECT_WORKSPACE_FACTORIES` above. Disappears entirely only when both
   // memory scopes are turned off.
-  if (ctx.memory.crossChatEnabled || ctx.memory.personalEnabled) {
+  if (
+    (ctx.memory.crossChatEnabled || ctx.memory.personalEnabled) &&
+    isEnabled('remember_fact')
+  ) {
     tools.remember_fact = rememberFactTool(define, ctx)
   }
 

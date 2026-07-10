@@ -49,6 +49,11 @@
   white-space: nowrap;
 }
 
+.scheduledIcon {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
 .meta {
   position: relative;
   display: inline-flex;

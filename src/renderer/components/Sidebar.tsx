@@ -15,9 +15,6 @@ import { SidebarSection } from './sidebar/SidebarSection'
 import { ProjectRow } from './sidebar/ProjectRow'
 import { ChatRow } from './sidebar/ChatRow'
 import { ChatsActionsMenu, type ChatSortMode } from './sidebar/ChatsActionsMenu'
-import { AgentPanel } from './sidebar/AgentPanel'
-import { CriticalThinkingPanel } from './sidebar/CriticalThinkingPanel'
-import { SchedulerPanel } from './sidebar/SchedulerPanel'
 import { SidebarProfile } from './sidebar/SidebarProfile'
 import { ModelStatusMenu } from './sidebar/ModelStatusMenu'
 import { ConfirmDialog } from './ui/ConfirmDialog'
@@ -61,13 +58,6 @@ export function Sidebar(): JSX.Element {
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
 
   const [searchQuery, setSearchQuery] = useState('')
-  // These three are all "coming soon" placeholders with no working backend yet
-  // (see AgentPanel/SchedulerPanel/CriticalThinkingPanel) — collapsed by
-  // default so they don't permanently occupy sidebar space for features that
-  // don't do anything yet.
-  const [agentExpanded, setAgentExpanded] = useState(false)
-  const [schedulerExpanded, setSchedulerExpanded] = useState(false)
-  const [criticalThinkingExpanded, setCriticalThinkingExpanded] = useState(false)
   const [projectsExpanded, setProjectsExpanded] = useState(true)
   const [chatsExpanded, setChatsExpanded] = useState(true)
   const [chatSortMode, setChatSortMode] = useState<ChatSortMode>('recent')
@@ -222,32 +212,37 @@ export function Sidebar(): JSX.Element {
           </div>
         ) : (
           <>
-            <SidebarSection
-              title="Scheduler"
-              icon="clock"
-              expanded={schedulerExpanded}
-              onToggle={() => setSchedulerExpanded((v) => !v)}
+            <button
+              type="button"
+              className={`${styles.navItem} ${view === 'scheduler' ? styles.navItemActive : ''}`}
+              onClick={() => setView('scheduler')}
+              aria-current={view === 'scheduler' ? 'page' : undefined}
             >
-              <SchedulerPanel />
-            </SidebarSection>
+              <Icon name="clock" size={14} className={styles.navItemIcon} />
+              <span>Scheduler</span>
+            </button>
 
-            <SidebarSection
-              title="Agent"
-              icon="wand"
-              expanded={agentExpanded}
-              onToggle={() => setAgentExpanded((v) => !v)}
+            <button
+              type="button"
+              className={`${styles.navItem} ${view === 'agent' ? styles.navItemActive : ''}`}
+              onClick={() => setView('agent')}
+              aria-current={view === 'agent' ? 'page' : undefined}
             >
-              <AgentPanel />
-            </SidebarSection>
+              <Icon name="wand" size={14} className={styles.navItemIcon} />
+              <span>Agent</span>
+            </button>
 
-            <SidebarSection
-              title="Critical Thinking"
-              icon="globe"
-              expanded={criticalThinkingExpanded}
-              onToggle={() => setCriticalThinkingExpanded((v) => !v)}
+            <button
+              type="button"
+              className={`${styles.navItem} ${
+                view === 'critical-thinking' ? styles.navItemActive : ''
+              }`}
+              onClick={() => setView('critical-thinking')}
+              aria-current={view === 'critical-thinking' ? 'page' : undefined}
             >
-              <CriticalThinkingPanel />
-            </SidebarSection>
+              <Icon name="globe" size={14} className={styles.navItemIcon} />
+              <span>Critical Thinking</span>
+            </button>
 
             <SidebarSection
               title="Projects"

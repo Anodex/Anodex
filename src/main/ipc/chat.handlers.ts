@@ -2,22 +2,9 @@ import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ChatCompactRequest, ChatRequest, ChatTitleRequest } from '@shared/chat.types'
-import type { ToolCall } from '@shared/tools.types'
-import type { ProviderSettings } from '@shared/settings.types'
-import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
-import { OPENAI_MODELS } from '@shared/openaiModels'
-import { composeSystemPrompt } from '@shared/prompts'
-import { sanitizeAssistantContent } from '@shared/chatSanitizer'
-import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService } from '../llama/LlamaService'
-import { providerUsageStore } from '../llm/ProviderUsageStore'
-import { settingsStore } from '../settings/SettingsStore'
-import { projectStore } from '../projects/ProjectStore'
-import { projectMemoryStore } from '../projects/ProjectMemoryStore'
-import { tokenActivityStore } from '../stats/TokenActivityStore'
-import { buildWorkspaceContext } from '../tools/workspaceContext'
-import { buildMemoryContext } from '../memory/MemoryRetriever'
 import { requestToolConfirmation } from './tools.handlers'
+import { runGeneration } from '../chat/runGeneration'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:chat')
@@ -31,23 +18,6 @@ export function abortAllChatGenerations(): void {
   inflight.clear()
 }
 
-/**
- * The model that actually produced this turn, for token-activity stats.
- * `llamaService.getState()` only describes the local engine, so a cloud
- * provider's turn is attributed to its own configured model instead of
- * whatever (if anything) is loaded locally.
- */
-function activeModelDescriptor(provider: ProviderSettings): { id: string; name: string } | null {
-  if (provider.active === 'anthropic') {
-    return { id: provider.anthropic.model, name: `Claude — ${provider.anthropic.model}` }
-  }
-  if (provider.active === 'openai') {
-    return { id: provider.openai.model, name: `OpenAI — ${provider.openai.model}` }
-  }
-  const model = llamaService.getState().model
-  return model ? { id: model.id, name: model.name } : null
-}
-
 /** IPC handlers for streaming chat generation and stopping it. */
 export function registerChatHandlers(): void {
   ipcMain.handle(IpcChannel.Chat.send, async (event, request: ChatRequest) => {
@@ -58,85 +28,9 @@ export function registerChatHandlers(): void {
     inflight.get(request.conversationId)?.abort()
     inflight.set(request.conversationId, controller)
 
-    // Enable tools whenever the feature is on. Workspace (file/command) tools
-    // must be scoped to the conversation's own project, not the process-wide
-    // activeProjectId. The renderer can briefly lag while switching chats, and
-    // general chats intentionally clear the active project; deriving the root
-    // from request.projectId keeps project chats writable and plain chats safe.
-    const settings = settingsStore.get()
-    const projects = projectStore.getState()
-    const requestProjectId =
-      'projectId' in request ? (request.projectId ?? null) : projects.activeProjectId
-    const activeProject = projects.projects.find((p) => p.id === requestProjectId) ?? null
-    const workspaceRoot = activeProject?.folderPath ?? null
-    let hadToolActivity = false
-    const toolNamesThisTurn: string[] = []
-    const tools = settings.tools.enabled
-      ? {
-          workspaceRoot,
-          permissionMode: settings.general.permissionMode,
-          commandShell: settings.general.defaultShell.trim() || undefined,
-          projectId: activeProject?.id ?? null,
-          webSearch: settings.webSearch,
-          memory: {
-            crossChatEnabled: settings.memory.crossChatEnabled,
-            personalEnabled: settings.memory.personalEnabled
-          },
-          plan: request.plan ?? null,
-          onActivity: (call: ToolCall) => {
-            hadToolActivity = true
-            // `onActivity` fires once per status transition for the same call
-            // id ('running', then a terminal status) — only tally on the
-            // terminal, actually-executed ones, matching the same guard
-            // `LlamaService.generate()` already uses before recording to
-            // `modelReliabilityStore`.
-            if (call.status === 'success' || call.status === 'error') {
-              toolNamesThisTurn.push(call.name)
-            }
-            if (event.sender.isDestroyed()) return
-            event.sender.send(IpcChannel.Tools.activity, {
-              conversationId: request.conversationId,
-              messageId: request.messageId,
-              call
-            })
-          },
-          confirm: (confirmRequest: Parameters<typeof requestToolConfirmation>[1]) =>
-            requestToolConfirmation(event.sender, confirmRequest, controller.signal)
-        }
-      : undefined
-
-    // Compose the full system prompt: built-in coding-agent discipline, an
-    // auto-generated summary of the active workspace (including recent activity
-    // remembered from past conversations in this project), the active project's
-    // own rules, and the user's free-form guidance.
-    const hasWorkspaceTools = settings.tools.enabled && Boolean(workspaceRoot)
-    const memory = buildMemoryContext(activeProject?.id ?? null, request.prompt, {
-      crossChatEnabled: settings.memory.crossChatEnabled,
-      personalEnabled: settings.memory.personalEnabled
-    })
-    const systemPrompt = composeSystemPrompt({
-      hasWorkspaceTools,
-      hasProject: Boolean(activeProject),
-      workspaceContext:
-        hasWorkspaceTools && workspaceRoot
-          ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null, request.prompt)
-          : null,
-      memoryContext: memory?.text ?? null,
-      projectRules: activeProject?.instructions ?? null,
-      userInstructions: settings.ui.systemPrompt
-    })
-
     try {
-      const outcome = await getActiveProvider().generate({
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        systemPrompt,
-        context: request.context,
-        history: request.history,
-        prompt: request.prompt,
-        options: request.options,
+      const result = await runGeneration(request, {
         signal: controller.signal,
-        tools,
         onToken: (token) => {
           if (event.sender.isDestroyed()) return
           event.sender.send(IpcChannel.Chat.stream, {
@@ -144,55 +38,23 @@ export function registerChatHandlers(): void {
             messageId: request.messageId,
             token
           })
-        }
+        },
+        onActivity: (call) => {
+          if (event.sender.isDestroyed()) return
+          event.sender.send(IpcChannel.Tools.activity, {
+            conversationId: request.conversationId,
+            messageId: request.messageId,
+            call
+          })
+        },
+        confirm: (confirmRequest) =>
+          requestToolConfirmation(event.sender, confirmRequest, controller.signal)
       })
-
-      const content = sanitizeAssistantContent(outcome.content)
-
-      // Remember this turn in project memory so a future conversation in the
-      // same project has ambient context, not just this one's chat history.
-      if (hadToolActivity && !outcome.stopped && activeProject && content) {
-        projectMemoryStore.recordSummary(activeProject.id, request.conversationId, content)
-      }
-
-      // Recorded regardless of `stopped` — real tokens were generated either
-      // way. `llamaService.getState()` only describes the local engine, so a
-      // cloud provider's turn is attributed to its own configured model
-      // instead of whatever (if anything) is loaded locally.
-      const modelDescriptor = activeModelDescriptor(settings.provider)
-      if (outcome.stats.tokens > 0 && modelDescriptor) {
-        tokenActivityStore.recordGeneration({
-          tokens: outcome.stats.tokens,
-          inputTokens: llamaService.countPromptTokens(request.prompt),
-          durationMs: outcome.stats.durationMs,
-          toolNames: toolNamesThisTurn,
-          conversationId: request.conversationId,
-          modelId: modelDescriptor.id,
-          modelName: modelDescriptor.name
-        })
-
-        // Refresh the cloud provider usage gauge with today's new total —
-        // the daily-cap comparison lives entirely on this local tally, not
-        // on anything the provider itself reports.
-        if (settings.provider.active === 'anthropic' || settings.provider.active === 'openai') {
-          const modelIds =
-            settings.provider.active === 'anthropic'
-              ? ANTHROPIC_MODELS.map((m) => m.id)
-              : OPENAI_MODELS.map((m) => m.id)
-          providerUsageStore.recordTodayTokens(
-            settings.provider.active,
-            tokenActivityStore.getTodayTokensForModelIds(modelIds)
-          )
-        }
-      }
 
       return ok({
         conversationId: request.conversationId,
         messageId: request.messageId,
-        content,
-        stats: outcome.stats,
-        stopped: outcome.stopped,
-        memoryUsed: memory?.entries
+        ...result
       })
     } catch (error) {
       const message = toErrorMessage(error)

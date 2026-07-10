@@ -66,12 +66,12 @@ export function ProjectRow({
     >
       <div className={styles.header}>
         <button type="button" className={styles.toggle} onClick={onToggle} title={project.name}>
+          <span className={styles.name}>{project.name}</span>
           <Icon
             name="chevron-down"
             size={12}
             className={`${styles.chevron} ${expanded ? '' : styles.chevronCollapsed}`}
           />
-          <span className={styles.name}>{project.name}</span>
           {showProjectStatus && (
             <span className={`${styles.status} ${running ? styles.running : styles.unread}`}>
               {running ? (

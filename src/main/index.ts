@@ -13,6 +13,9 @@ import { tokenActivityStore } from './stats/TokenActivityStore'
 import { updateService } from './updates/UpdateService'
 import { llamaService } from './llama/LlamaService'
 import { cancelAllDownloads } from './llama/modelDownloader'
+import { schedulerStore } from './scheduler/SchedulerStore'
+import { schedulerService } from './scheduler/SchedulerService'
+import { setKeepAwake } from './scheduler/keepAwake'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('main')
@@ -50,6 +53,9 @@ if (!app.requestSingleInstanceLock()) {
       modelReliabilityStore.init()
       tokenActivityStore.init()
       updateService.init()
+      schedulerStore.init()
+      schedulerService.init()
+      setKeepAwake(settingsStore.get().scheduler.keepAwake)
       registerIpcHandlers()
       createMainWindow()
       setTimeout(() => void updateService.check(), STARTUP_UPDATE_CHECK_DELAY_MS)
@@ -74,6 +80,7 @@ if (!app.requestSingleInstanceLock()) {
   // generation is just killed mid-operation instead of shut down cleanly.
   app.on('will-quit', () => {
     abortAllChatGenerations()
+    schedulerService.stop()
     cancelAllDownloads()
     closeToast()
     llamaService.unload().catch((error) => {

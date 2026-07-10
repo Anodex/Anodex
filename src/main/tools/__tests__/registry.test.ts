@@ -106,6 +106,31 @@ describe('buildTools', () => {
     expect(tools).toHaveProperty('update_project_notes')
   })
 
+  it('restricts registration to only the tools named in enabledTools', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      webSearch: { ...createMockContext('/workspace').webSearch, provider: 'brave' as const },
+      enabledTools: new Set(['read_file', 'web_search'])
+    }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('read_file')
+    expect(tools).toHaveProperty('web_search')
+    expect(tools).not.toHaveProperty('write_file')
+    expect(tools).not.toHaveProperty('list_directory')
+    expect(tools).not.toHaveProperty('remember_fact')
+  })
+
+  it('registers every allowed tool when enabledTools is null (normal chat)', () => {
+    const ctx = { ...createMockContext('/workspace'), projectId: 'project-1', enabledTools: null }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    for (const name of [...READ_ONLY_WORKSPACE_TOOLS, ...PROJECT_WORKSPACE_TOOLS]) {
+      expect(tools).toHaveProperty(name)
+    }
+  })
+
   it('keeps the Settings tool catalog in sync with registered tool names', () => {
     const catalogNames = new Set(TOOL_CATALOG.map((tool) => tool.name))
 
@@ -115,6 +140,14 @@ describe('buildTools', () => {
       ...GLOBAL_OR_CONDITIONAL_TOOLS
     ]) {
       expect(catalogNames).toContain(name)
+    }
+  })
+
+  it('flags requiresProject on the catalog exactly for tools gated behind workspaceRoot/projectId', () => {
+    const requiresProjectNames = new Set([...READ_ONLY_WORKSPACE_TOOLS, ...PROJECT_WORKSPACE_TOOLS])
+
+    for (const tool of TOOL_CATALOG) {
+      expect(Boolean(tool.requiresProject)).toBe(requiresProjectNames.has(tool.name))
     }
   })
 })

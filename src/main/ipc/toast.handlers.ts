@@ -10,11 +10,12 @@ export function registerToastHandlers(): void {
     showToastWindow(content)
   })
 
-  ipcMain.handle(IpcChannel.Toast.focusMain, () => {
+  ipcMain.handle(IpcChannel.Toast.focusMain, (_event, conversationId?: string) => {
     const win = getMainWindow()
     if (!win || win.isDestroyed()) return
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
+    if (conversationId) win.webContents.send(IpcChannel.Toast.openConversation, conversationId)
   })
 }

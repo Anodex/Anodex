@@ -68,7 +68,12 @@ export function showToastWindow(content: ToastContent): void {
 
   positionToast(toast)
 
-  const query = { mode: 'toast', title: content.title, body: content.body }
+  const query: Record<string, string> = {
+    mode: 'toast',
+    title: content.title,
+    body: content.body,
+    ...(content.conversationId ? { conversationId: content.conversationId } : {})
+  }
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
   if (devServerUrl) {
     toast

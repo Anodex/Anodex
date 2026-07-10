@@ -185,6 +185,11 @@ export interface MemorySettings {
   personalEnabled: boolean
 }
 
+export interface SchedulerSettings {
+  /** Prevent the system from sleeping so scheduled tasks keep firing while the app is open. */
+  keepAwake: boolean
+}
+
 export interface AppSettings {
   /** Directory scanned for `.gguf` model files. */
   modelsDirectory: string
@@ -204,6 +209,7 @@ export interface AppSettings {
   webSearch: WebSearchSettings
   diagnostics: DiagnosticSettings
   memory: MemorySettings
+  scheduler: SchedulerSettings
 }
 
 /** Recursive partial used for settings patches over IPC. */

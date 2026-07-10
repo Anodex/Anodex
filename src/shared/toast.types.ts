@@ -2,4 +2,6 @@
 export interface ToastContent {
   title: string
   body: string
+  /** If set, clicking the toast opens this conversation instead of just focusing the window. */
+  conversationId?: string
 }

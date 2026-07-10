@@ -94,27 +94,66 @@ export interface ToolCatalogEntry {
   name: string
   kind: ToolKind
   description: string
+  /** True if this tool only registers when a project (workspace folder) is open. */
+  requiresProject?: boolean
 }
 
 export const TOOL_CATALOG: ToolCatalogEntry[] = [
-  { name: 'list_directory', kind: 'read', description: 'List files and folders in the workspace.' },
-  { name: 'read_file', kind: 'read', description: 'Read the contents of a file.' },
+  {
+    name: 'list_directory',
+    kind: 'read',
+    description: 'List files and folders in the workspace.',
+    requiresProject: true
+  },
+  { name: 'read_file', kind: 'read', description: 'Read the contents of a file.', requiresProject: true },
   {
     name: 'read_file_range',
     kind: 'read',
-    description: 'Read a specific range of lines from a file.'
+    description: 'Read a specific range of lines from a file.',
+    requiresProject: true
   },
-  { name: 'read_multiple_files', kind: 'read', description: 'Read several files in one call.' },
+  {
+    name: 'read_multiple_files',
+    kind: 'read',
+    description: 'Read several files in one call.',
+    requiresProject: true
+  },
   {
     name: 'preview_html',
     kind: 'read',
-    description: 'Render an HTML file as an inline, sandboxed preview in chat.'
+    description: 'Render an HTML file as an inline, sandboxed preview in chat.',
+    requiresProject: true
   },
-  { name: 'get_file_info', kind: 'read', description: 'Get metadata about a file or directory.' },
-  { name: 'search_files', kind: 'read', description: 'Search the workspace for text.' },
-  { name: 'find_files', kind: 'read', description: 'Find files and folders by path or name.' },
-  { name: 'git_status', kind: 'read', description: 'Show git status of the workspace.' },
-  { name: 'git_diff', kind: 'read', description: 'Show git diff of the workspace.' },
+  {
+    name: 'get_file_info',
+    kind: 'read',
+    description: 'Get metadata about a file or directory.',
+    requiresProject: true
+  },
+  {
+    name: 'search_files',
+    kind: 'read',
+    description: 'Search the workspace for text.',
+    requiresProject: true
+  },
+  {
+    name: 'find_files',
+    kind: 'read',
+    description: 'Find files and folders by path or name.',
+    requiresProject: true
+  },
+  {
+    name: 'git_status',
+    kind: 'read',
+    description: 'Show git status of the workspace.',
+    requiresProject: true
+  },
+  {
+    name: 'git_diff',
+    kind: 'read',
+    description: 'Show git diff of the workspace.',
+    requiresProject: true
+  },
   {
     name: 'fetch_url',
     kind: 'web',
@@ -128,44 +167,52 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: 'write_file',
     kind: 'write',
-    description: 'Create or overwrite a file (asks for approval). Requires an open project.'
+    description: 'Create or overwrite a file (asks for approval). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'edit_file',
     kind: 'write',
-    description: 'Replace text within a file (asks for approval). Requires an open project.'
+    description: 'Replace text within a file (asks for approval). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'patch_file',
     kind: 'write',
     description:
-      'Apply multiple exact replacements in one file (asks for approval). Requires an open project.'
+      'Apply multiple exact replacements in one file (asks for approval). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'delete_file',
     kind: 'write',
-    description: 'Delete a file (asks for approval). Requires an open project.'
+    description: 'Delete a file (asks for approval). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'move_file',
     kind: 'write',
-    description: 'Move or rename a file (asks for approval). Requires an open project.'
+    description: 'Move or rename a file (asks for approval). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'delete_directory',
     kind: 'write',
-    description: 'Delete an empty directory (asks for approval). Requires an open project.'
+    description: 'Delete an empty directory (asks for approval). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'create_directory',
     kind: 'write',
-    description: 'Create a directory (no approval needed). Requires an open project.'
+    description: 'Create a directory (no approval needed). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'run_command',
     kind: 'command',
     description:
-      'Run a shell command in the workspace (asks for approval). Requires an open project.'
+      'Run a shell command in the workspace (asks for approval). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'write_plan',
@@ -181,7 +228,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'update_project_notes',
     kind: 'write',
     description:
-      'Record a durable note about this project into ANODEX.md (asks for approval). Requires an open project.'
+      'Record a durable note about this project into ANODEX.md (asks for approval). Requires an open project.',
+    requiresProject: true
   },
   {
     name: 'remember_fact',

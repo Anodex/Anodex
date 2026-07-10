@@ -36,6 +36,13 @@ export interface ToolRuntimeContext {
   /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
   memory: { crossChatEnabled: boolean; personalEnabled: boolean }
   /**
+   * Restricts which tools get registered at all, by name. `null` means no
+   * restriction (every tool the other context fields allow) — the normal
+   * interactive-chat case. Used by scheduled tasks, where the user opts a
+   * specific tool subset into unattended runs.
+   */
+  enabledTools: Set<string> | null
+  /**
    * Mutable holder for the conversation's current plan, shared by every tool
    * call in this generation — `write_plan` sets it, `update_plan_step` reads
    * and mutates it, so a later call in the same turn sees an earlier one's

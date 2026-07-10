@@ -147,6 +147,8 @@ export interface GenerateParams {
     memory: { crossChatEnabled: boolean; personalEnabled: boolean }
     /** The conversation's current plan, if any, so plan tools can continue it across turns. */
     plan: Plan | null
+    /** Restricts which tools get registered at all; null = unrestricted (normal chat). */
+    enabledTools?: Set<string> | null
     onActivity: (call: ToolCall) => void
     confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
   }
@@ -1038,6 +1040,7 @@ class LlamaService extends EventEmitter {
       commandShell: params.tools.commandShell,
       webSearch: params.tools.webSearch,
       memory: params.tools.memory,
+      enabledTools: params.tools.enabledTools ?? null,
       // A mutable box, not the plan value itself — shared by every tool call
       // in this generation so `update_plan_step` sees `write_plan`'s result
       // within the same turn (see `ToolRuntimeContext.plan`'s doc comment).

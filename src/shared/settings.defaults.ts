@@ -107,6 +107,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     memory: {
       crossChatEnabled: true,
       personalEnabled: true
+    },
+    scheduler: {
+      keepAwake: false
     }
   }
 }
