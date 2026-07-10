@@ -9,6 +9,12 @@ Anodex is a local-first desktop AI assistant built on **Electron + React + TypeS
 The local model engine is [`node-llama-cpp`](https://github.com/withcatai/node-llama-cpp)
 (llama.cpp bindings). The UI is React 18 with CSS Modules and Zustand for state.
 
+**Before starting new feature work**, check `README.md` (what exists and how it
+should behave) and `ROADMAP.md` (what's planned, in progress, or deliberately
+deferred and why) — several sessions work on this repo concurrently, and
+`ROADMAP.md` exists specifically so work doesn't get duplicated or built out
+of sync with an already-settled design decision.
+
 ## Quick commands
 
 ```bash

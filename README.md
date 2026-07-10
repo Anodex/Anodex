@@ -187,7 +187,8 @@ Load a model: **AI & Models → Recommended** to download one, or **Add
 model** to point at a `.gguf` file you already have. Once it shows "ready",
 start chatting.
 
-See `AGENTS.md` for architecture, conventions, and contribution details.
+See `AGENTS.md` for architecture, conventions, and contribution details, and
+`ROADMAP.md` for planned/in-progress features not covered above.
 
 ## License
 
