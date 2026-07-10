@@ -19,10 +19,19 @@ import { isChatReady } from '../lib/chatReadiness'
 
 export type { Conversation }
 
+/** A message queued from the composer while a turn is still streaming. */
+export interface PendingMessage {
+  id: string
+  text: string
+  attachments: ComposerAttachment[]
+}
+
 interface ChatState {
   conversations: Conversation[]
   activeId: string | null
   loaded: boolean
+  /** Messages queued (per conversation) while that conversation is still generating. */
+  pendingMessages: Record<string, PendingMessage[]>
   /** Load persisted conversations and active state from the main process. */
   load: () => Promise<void>
   /**
@@ -40,7 +49,21 @@ interface ChatState {
   /** Archive every active conversation (all projects and general chats). */
   deleteAllConversations: () => Promise<void>
   refreshConversations: () => Promise<void>
-  sendMessage: (text: string, attachments?: ComposerAttachment[]) => Promise<void>
+  /**
+   * `conversationIdOverride` targets a specific conversation instead of the
+   * active one — used when auto-dispatching a queued message so it lands in
+   * the conversation it was queued for, even if the user has since switched
+   * to a different chat.
+   */
+  sendMessage: (
+    text: string,
+    attachments?: ComposerAttachment[],
+    conversationIdOverride?: string
+  ) => Promise<void>
+  /** Queue a message onto the active conversation while it's still generating. */
+  queueMessage: (text: string, attachments?: ComposerAttachment[]) => void
+  /** Cancel a queued message before it's auto-sent. */
+  removeQueuedMessage: (conversationId: string, id: string) => void
   stopGeneration: () => Promise<void>
   /** Manually summarize older turns into the conversation's durable context snapshot. */
   compactConversation: () => Promise<void>
@@ -69,6 +92,7 @@ export const useChatStore = create<ChatState>()(
     conversations: [],
     activeId: null,
     loaded: false,
+    pendingMessages: {},
 
     load: async () => {
       const conversations = await anodex.conversations.list()
@@ -169,7 +193,7 @@ export const useChatStore = create<ChatState>()(
       set({ conversations })
     },
 
-    sendMessage: async (text, attachments = []) => {
+    sendMessage: async (text, attachments = [], conversationIdOverride) => {
       const trimmed = text.trim()
       if (!trimmed && attachments.length === 0) return
 
@@ -189,7 +213,7 @@ export const useChatStore = create<ChatState>()(
         return
       }
 
-      const conversationId = get().activeId ?? get().newConversation()
+      const conversationId = conversationIdOverride ?? get().activeId ?? get().newConversation()
       if (!conversationId) return
       const existing = get().conversations.find((c) => c.id === conversationId)
       const projectId = existing?.projectId ?? null
@@ -311,6 +335,40 @@ export const useChatStore = create<ChatState>()(
           editedFiles: editedFilesForAssistantMessage(finalConvo, assistantId)
         })
       }
+
+      // Drain the next queued comment, if any, into a fresh turn on this same
+      // conversation — regardless of whether it's still the active tab, and
+      // regardless of ok/error/stopped, since a manual Stop only ends the
+      // current reply; a queued message the user explicitly typed should
+      // still go out unless they removed it themselves.
+      const queued = get().pendingMessages[conversationId]
+      if (queued && queued.length > 0) {
+        const [next, ...rest] = queued
+        set((state) => {
+          state.pendingMessages[conversationId] = rest
+        })
+        void get().sendMessage(next.text, next.attachments, conversationId)
+      }
+    },
+
+    queueMessage: (text, attachments = []) => {
+      const trimmed = text.trim()
+      if (!trimmed && attachments.length === 0) return
+      const conversationId = get().activeId
+      if (!conversationId) return
+      set((state) => {
+        const queue = state.pendingMessages[conversationId] ?? []
+        queue.push({ id: createId('pending'), text: trimmed, attachments })
+        state.pendingMessages[conversationId] = queue
+      })
+    },
+
+    removeQueuedMessage: (conversationId, id) => {
+      set((state) => {
+        const queue = state.pendingMessages[conversationId]
+        if (!queue) return
+        state.pendingMessages[conversationId] = queue.filter((item) => item.id !== id)
+      })
     },
 
     stopGeneration: async () => {

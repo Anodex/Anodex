@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { planManualContextCompaction } from '@shared/contextProjection'
-import { useChatStore } from '../../stores/chatStore'
+import { useChatStore, type PendingMessage } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
@@ -19,6 +19,11 @@ import styles from './ChatComposer.module.css'
 const MAX_TEXTAREA_HEIGHT = 200
 /** Keeps a single turn's attached content bounded — mirrors the old read_file cap. */
 const MAX_ATTACHMENTS = 10
+// Stable reference for the no-queue case — a fresh `[]` literal in the
+// selector would give useSyncExternalStore a new snapshot on every call,
+// which React treats as "state changed every render" and throws "Maximum
+// update depth exceeded".
+const EMPTY_QUEUE: PendingMessage[] = []
 
 /** Auto-growing message input with send / stop controls and drag-and-drop file attachments. */
 export function ChatComposer(): JSX.Element {
@@ -31,6 +36,11 @@ export function ChatComposer(): JSX.Element {
 
   const activeConversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const sendMessage = useChatStore((s) => s.sendMessage)
+  const queueMessage = useChatStore((s) => s.queueMessage)
+  const removeQueuedMessage = useChatStore((s) => s.removeQueuedMessage)
+  const pendingQueue = useChatStore((s) =>
+    s.activeId ? (s.pendingMessages[s.activeId] ?? EMPTY_QUEUE) : EMPTY_QUEUE
+  )
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const compactConversation = useChatStore((s) => s.compactConversation)
   const engine = useModelStore((s) => s.engine)
@@ -46,7 +56,12 @@ export function ChatComposer(): JSX.Element {
   // the local engine's `generating` flag, which the Anthropic provider never
   // touches — this way Send/Stop toggles correctly for either provider.
   const generating = activeConversation?.messages.some((m) => m.streaming) ?? false
-  const canSend = ready && !generating && (text.trim().length > 0 || attachments.length > 0)
+  const hasContent = text.trim().length > 0 || attachments.length > 0
+  const canSend = ready && !generating && hasContent
+  // While generating, Enter/Send queues a comment instead of sending
+  // immediately — the model can't be steered mid-turn, so it's held until the
+  // current reply finishes rather than firing a second overlapping request.
+  const canQueue = ready && generating && hasContent
   // Mirrors the real eligibility check `compactConversation` sends to the main
   // process (via `planManualContextCompaction`), instead of a raw message-count
   // heuristic that ignores an already-applied snapshot — that heuristic could
@@ -79,6 +94,16 @@ export function ChatComposer(): JSX.Element {
   }
 
   const submit = (): void => {
+    if (generating) {
+      if (!canQueue) return
+      const value = text
+      const pendingAttachments = attachments
+      setText('')
+      setAttachments([])
+      resetHeight()
+      queueMessage(value, pendingAttachments)
+      return
+    }
     if (!canSend) return
     const value = text
     const pendingAttachments = attachments
@@ -183,6 +208,28 @@ export function ChatComposer(): JSX.Element {
       <ToolConfirmCard />
       <WorkspaceControl />
 
+      {pendingQueue.length > 0 && activeConversation && (
+        <div className={styles.pendingQueue}>
+          {pendingQueue.map((item) => (
+            <div key={item.id} className={styles.pendingItem}>
+              <Icon name="clock" size={12} />
+              <span className={styles.pendingText}>
+                {item.text || `${item.attachments.length} file(s) attached`}
+              </span>
+              <button
+                type="button"
+                className={styles.pendingRemove}
+                onClick={() => removeQueuedMessage(activeConversation.id, item.id)}
+                aria-label="Remove queued message"
+                title="Remove — won't be sent"
+              >
+                <Icon name="close" size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {attachments.length > 0 && (
         <div className={styles.attachments}>
           {attachments.map((attachment) => (
@@ -230,7 +277,7 @@ export function ChatComposer(): JSX.Element {
           onKeyDown={handleKeyDown}
         />
 
-        {generating ? (
+        {generating && !hasContent ? (
           <button
             className={`${styles.action} ${styles.stop}`}
             onClick={() => void stopGeneration()}
@@ -238,6 +285,16 @@ export function ChatComposer(): JSX.Element {
             aria-label="Stop generating"
           >
             <Icon name="stop" size={15} />
+          </button>
+        ) : generating ? (
+          <button
+            className={`${styles.action} ${styles.send}`}
+            onClick={submit}
+            disabled={!canQueue}
+            title="Send after the current reply finishes"
+            aria-label="Queue message"
+          >
+            <Icon name="send" size={16} />
           </button>
         ) : (
           <button
@@ -265,8 +322,9 @@ export function ChatComposer(): JSX.Element {
         <ContextMeter className={styles.contextMeter} />
       </div>
       <div className={styles.hint}>
-        Enter to send · Shift+Enter for a new line · Drag a file in to attach it · Responses are
-        generated locally
+        {generating
+          ? 'Enter to queue for after this reply · Shift+Enter for a new line'
+          : 'Enter to send · Shift+Enter for a new line · Drag a file in to attach it · Responses are generated locally'}
       </div>
     </div>
   )
