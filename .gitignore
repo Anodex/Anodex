@@ -7,7 +7,7 @@ dist/
 
 # Local model files (never commit large GGUF weights)
 *.gguf
-models/
+/models/
 
 # Logs
 *.log
