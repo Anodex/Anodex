@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
@@ -64,7 +64,7 @@ class SettingsStore {
     try {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as DeepPartial<AppSettings>
       // Merge over defaults so missing/added fields are always populated.
-      return deepMerge(defaults, raw)
+      return withDecryptedSecrets(deepMerge(defaults, raw))
     } catch (error) {
       log.warn('Failed to parse settings, falling back to defaults:', error)
       return defaults
@@ -73,11 +73,78 @@ class SettingsStore {
 
   private persist(settings: AppSettings): void {
     this.ensureDir(app.getPath('userData'))
-    writeFileSync(this.filePath, JSON.stringify(settings, null, 2), 'utf-8')
+    writeFileSync(this.filePath, JSON.stringify(withEncryptedSecrets(settings), null, 2), 'utf-8')
   }
 
   private ensureDir(dir: string): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  }
+}
+
+/** Marks a value in `settings.json` as encrypted by `safeStorage`, vs. legacy plaintext. */
+const ENCRYPTED_PREFIX = 'enc:'
+
+/**
+ * Encrypts a provider/search API key with the OS credential store (Keychain,
+ * DPAPI, libsecret) via `safeStorage`, so keys don't sit as plaintext in
+ * `settings.json`. Falls back to leaving the value untouched when encryption
+ * isn't available (e.g. some Linux setups with no keyring) — the same
+ * behaviour as today, not a regression.
+ */
+function encryptSecret(value: string): string {
+  if (!value || !safeStorage.isEncryptionAvailable()) return value
+  return ENCRYPTED_PREFIX + safeStorage.encryptString(value).toString('base64')
+}
+
+/**
+ * Reverses {@link encryptSecret}. A value with no `enc:` prefix is legacy
+ * plaintext from before this change (or encryption was unavailable when it
+ * was saved) — returned as-is, and it will be encrypted on the next save.
+ */
+function decryptSecret(value: string): string {
+  if (!value.startsWith(ENCRYPTED_PREFIX)) return value
+  if (!safeStorage.isEncryptionAvailable()) return ''
+  try {
+    return safeStorage.decryptString(Buffer.from(value.slice(ENCRYPTED_PREFIX.length), 'base64'))
+  } catch (error) {
+    log.warn('Failed to decrypt a stored API key, treating it as unset:', error)
+    return ''
+  }
+}
+
+function withEncryptedSecrets(settings: AppSettings): AppSettings {
+  return {
+    ...settings,
+    provider: {
+      ...settings.provider,
+      anthropic: {
+        ...settings.provider.anthropic,
+        apiKey: encryptSecret(settings.provider.anthropic.apiKey)
+      },
+      openai: {
+        ...settings.provider.openai,
+        apiKey: encryptSecret(settings.provider.openai.apiKey)
+      }
+    },
+    webSearch: { ...settings.webSearch, apiKey: encryptSecret(settings.webSearch.apiKey) }
+  }
+}
+
+function withDecryptedSecrets(settings: AppSettings): AppSettings {
+  return {
+    ...settings,
+    provider: {
+      ...settings.provider,
+      anthropic: {
+        ...settings.provider.anthropic,
+        apiKey: decryptSecret(settings.provider.anthropic.apiKey)
+      },
+      openai: {
+        ...settings.provider.openai,
+        apiKey: decryptSecret(settings.provider.openai.apiKey)
+      }
+    },
+    webSearch: { ...settings.webSearch, apiKey: decryptSecret(settings.webSearch.apiKey) }
   }
 }
 
@@ -109,6 +176,30 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 /**
+ * Recursively rejects patch keys that don't exist anywhere in the canonical
+ * settings shape. `deepMerge` trusts whatever keys survive validation, so an
+ * unrecognised key — a typo, a stale field from an older version, or a bad
+ * renderer-side payload — would otherwise persist to disk unnoticed.
+ */
+function assertKnownKeys(
+  patch: Record<string, unknown>,
+  reference: Record<string, unknown>,
+  path = ''
+): void {
+  for (const key of Object.keys(patch)) {
+    if (patch[key] === undefined) continue
+    if (!(key in reference)) {
+      throw new Error(`Unknown settings key: ${path}${key}`)
+    }
+    const patchValue = patch[key]
+    const refValue = reference[key]
+    if (isPlainObject(refValue) && isPlainObject(patchValue)) {
+      assertKnownKeys(patchValue, refValue, `${path}${key}.`)
+    }
+  }
+}
+
+/**
  * Rejects malformed patches before they reach `deepMerge`. This is the only
  * runtime check on data crossing the IPC boundary — TypeScript's compile-time
  * types don't survive `ipcMain.handle`, so a bad value here (e.g. `NaN`
@@ -116,6 +207,8 @@ function isFiniteNumber(value: unknown): value is number {
  * `node-llama-cpp` and fail there with a much less useful error.
  */
 function validatePatch(patch: DeepPartial<AppSettings>): void {
+  assertKnownKeys(patch, createDefaultSettings('') as unknown as Record<string, unknown>)
+
   const generation = patch.generation
   if (generation?.temperature !== undefined) {
     if (!isFiniteNumber(generation.temperature) || generation.temperature < 0) {
@@ -140,10 +233,7 @@ function validatePatch(patch: DeepPartial<AppSettings>): void {
     }
   }
   if (model?.gpuLayers !== undefined) {
-    if (
-      model.gpuLayers !== 'auto' &&
-      (!isFiniteNumber(model.gpuLayers) || model.gpuLayers < 0)
-    ) {
+    if (model.gpuLayers !== 'auto' && (!isFiniteNumber(model.gpuLayers) || model.gpuLayers < 0)) {
       throw new Error('model.gpuLayers must be "auto" or a non-negative finite number')
     }
   }
@@ -172,7 +262,10 @@ function validatePatch(patch: DeepPartial<AppSettings>): void {
     }
   }
   if (patch.provider?.anthropic?.model !== undefined) {
-    if (typeof patch.provider.anthropic.model !== 'string' || !patch.provider.anthropic.model.trim()) {
+    if (
+      typeof patch.provider.anthropic.model !== 'string' ||
+      !patch.provider.anthropic.model.trim()
+    ) {
       throw new Error('provider.anthropic.model must be a non-empty string')
     }
   }
