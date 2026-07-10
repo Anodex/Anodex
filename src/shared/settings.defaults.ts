@@ -82,11 +82,13 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       active: 'local',
       anthropic: {
         apiKey: '',
-        model: DEFAULT_ANTHROPIC_MODEL
+        model: DEFAULT_ANTHROPIC_MODEL,
+        dailyTokenCap: null
       },
       openai: {
         apiKey: '',
-        model: DEFAULT_OPENAI_MODEL
+        model: DEFAULT_OPENAI_MODEL,
+        dailyTokenCap: null
       }
     },
     webSearch: {

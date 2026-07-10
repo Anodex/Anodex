@@ -115,6 +115,8 @@ export interface AnthropicProviderSettings {
   apiKey: string
   /** Claude model id used for chat generations, e.g. `claude-sonnet-5`. */
   model: string
+  /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
+  dailyTokenCap: number | null
 }
 
 export interface OpenAiProviderSettings {
@@ -122,6 +124,8 @@ export interface OpenAiProviderSettings {
   apiKey: string
   /** OpenAI model id used for chat generations, e.g. `gpt-5.6` or `gpt-5.1-codex`. */
   model: string
+  /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
+  dailyTokenCap: number | null
 }
 
 export interface ProviderSettings {

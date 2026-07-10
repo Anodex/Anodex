@@ -4,6 +4,7 @@ import type { EngineState, ModelDownloadProgress } from '@shared/model.types'
 import type { ChatStreamChunk, HistoryCompactionEvent } from '@shared/chat.types'
 import type { ToolActivityEvent, ToolConfirmRequest } from '@shared/tools.types'
 import type { UpdateStatus } from '@shared/update.types'
+import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -39,7 +40,10 @@ const api: AnodexApi = {
       subscribe<HistoryCompactionEvent>(IpcChannel.Chat.historyCompacted, listener)
   },
   provider: {
-    verifyKey: (request) => ipcRenderer.invoke(IpcChannel.Provider.verifyKey, request)
+    verifyKey: (request) => ipcRenderer.invoke(IpcChannel.Provider.verifyKey, request),
+    getUsageSnapshot: () => ipcRenderer.invoke(IpcChannel.Provider.getUsageSnapshot),
+    onUsageChanged: (listener) =>
+      subscribe<ProviderUsageSnapshot>(IpcChannel.Provider.usageChanged, listener)
   },
   settings: {
     get: () => ipcRenderer.invoke(IpcChannel.Settings.get),

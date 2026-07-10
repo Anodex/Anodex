@@ -1,13 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useUiStore } from '../stores/uiStore'
-import { useModelStore } from '../stores/modelStore'
 import { useChatStore } from '../stores/chatStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import type { Project } from '@shared/project.types'
 import type { Conversation } from '@shared/conversation.types'
-import type { EngineState } from '@shared/model.types'
 import { Icon } from './Icon'
 import { anodex } from '../lib/anodex'
 import { notifyError } from '../stores/uiStore'
@@ -21,38 +19,9 @@ import { AgentPanel } from './sidebar/AgentPanel'
 import { CriticalThinkingPanel } from './sidebar/CriticalThinkingPanel'
 import { SchedulerPanel } from './sidebar/SchedulerPanel'
 import { SidebarProfile } from './sidebar/SidebarProfile'
+import { ModelStatusMenu } from './sidebar/ModelStatusMenu'
 import { ConfirmDialog } from './ui/ConfirmDialog'
 import styles from './Sidebar.module.css'
-
-function statusTone(status: EngineState['status']): string {
-  if (status === 'ready') return 'ready'
-  if (status === 'loading') return 'busy'
-  if (status === 'error') return 'error'
-  return 'idle'
-}
-
-const CLOUD_PROVIDER_LABELS: Record<'anthropic' | 'openai', string> = {
-  anthropic: 'Claude',
-  openai: 'OpenAI'
-}
-
-/** Footer status label/tone, aware of which provider is active — the local
- *  engine's `EngineState` only describes itself, so a cloud provider needs
- *  its own ready/idle read based on whether an API key is configured. */
-function providerStatus(
-  engine: EngineState,
-  providerActive: 'local' | 'anthropic' | 'openai' | undefined,
-  cloudModel: string | undefined,
-  cloudApiKeySet: boolean
-): { label: string; tone: string } {
-  if (providerActive === 'anthropic' || providerActive === 'openai') {
-    const providerLabel = CLOUD_PROVIDER_LABELS[providerActive]
-    return cloudApiKeySet
-      ? { label: `${providerLabel} — ${cloudModel ?? ''}`, tone: 'ready' }
-      : { label: `${providerLabel} — no API key`, tone: 'error' }
-  }
-  return { label: engine.model?.name ?? 'No model loaded', tone: statusTone(engine.status) }
-}
 
 function matchesQuery(text: string, query: string): boolean {
   return text.toLowerCase().includes(query.toLowerCase())
@@ -70,7 +39,6 @@ export function Sidebar(): JSX.Element {
   const openSettings = useUiStore((s) => s.openSettings)
   const readConversationAt = useUiStore((s) => s.readConversationAt)
   const markConversationUnread = useUiStore((s) => s.markConversationUnread)
-  const engine = useModelStore((s) => s.engine)
 
   const conversations = useStoreWithEqualityFn(
     useChatStore,
@@ -91,21 +59,6 @@ export function Sidebar(): JSX.Element {
   const openProjectFolder = useProjectStore((s) => s.openFolder)
   const deleteProject = useProjectStore((s) => s.delete)
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
-  const providerActive = useSettingsStore((s) => s.settings?.provider.active)
-  const cloudModel = useSettingsStore((s) =>
-    s.settings?.provider.active === 'openai'
-      ? s.settings.provider.openai.model
-      : s.settings?.provider.anthropic.model
-  )
-  const cloudApiKeySet = useSettingsStore((s) =>
-    Boolean(
-      (s.settings?.provider.active === 'openai'
-        ? s.settings.provider.openai.apiKey
-        : s.settings?.provider.anthropic.apiKey
-      )?.trim()
-    )
-  )
-  const footerStatus = providerStatus(engine, providerActive, cloudModel, cloudApiKeySet)
 
   const [searchQuery, setSearchQuery] = useState('')
   // These three are all "coming soon" placeholders with no working backend yet
@@ -418,15 +371,7 @@ export function Sidebar(): JSX.Element {
       </div>
 
       <footer className={styles.footer}>
-        <button
-          type="button"
-          className={styles.status}
-          onClick={() => openSettings('ai-models')}
-          title="Model status — click to open AI & Models settings"
-        >
-          <span className={`${styles.statusDot} ${styles[footerStatus.tone]}`} />
-          <span className={styles.statusText}>{footerStatus.label}</span>
-        </button>
+        <ModelStatusMenu />
         <SidebarProfile active={view === 'settings'} onClick={() => openSettings()} />
       </footer>
 

@@ -13,7 +13,7 @@ import { anodex } from '../../../../lib/anodex'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
-import { RangeControl, SelectControl } from '../../controls'
+import { RangeControl, SelectControl, TextControl } from '../../controls'
 import { Spinner } from '../../../../components/ui/Spinner'
 import { EnginePanel } from './EnginePanel'
 import { HardwarePanel } from './HardwarePanel'
@@ -50,6 +50,49 @@ const OPENAI_MODEL_OPTIONS = OPENAI_MODELS.map((model) => ({
   label: model.label,
   value: model.id
 }))
+
+/**
+ * Parse a daily-cap text field: empty clears the cap (`null`), a positive
+ * integer sets it. Anything else (negative, zero, non-numeric) is treated as
+ * not-yet-valid and ignored rather than committed, so a half-typed number
+ * doesn't wipe out the field's own previous value mid-keystroke.
+ */
+function parseDailyCapInput(value: string): number | null | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : undefined
+}
+
+/**
+ * A daily-cap text field backed by local state, not the settings value
+ * directly. `onCommit` persists over IPC, which is async — a plain
+ * controlled input bound straight to `settings...dailyTokenCap` re-renders
+ * with the still-stale value between keystrokes and drops fast typing (e.g.
+ * typing "100" quickly leaves only "1" committed). Local state renders every
+ * keystroke immediately; `value` only seeds it once, on mount, since nothing
+ * else edits this field concurrently in a single-window desktop app.
+ */
+function DailyCapInput({
+  value,
+  onCommit
+}: {
+  value: number | null
+  onCommit: (cap: number | null) => void
+}): JSX.Element {
+  const [text, setText] = useState(value?.toString() ?? '')
+  return (
+    <TextControl
+      value={text}
+      placeholder="No cap"
+      onChange={(next) => {
+        setText(next)
+        const cap = parseDailyCapInput(next)
+        if (cap !== undefined) onCommit(cap)
+      }}
+    />
+  )
+}
 
 /** Ceiling for the custom layer slider when the loaded model's real layer
  * count isn't known yet (nothing loaded, or a model just switched). Comfortably
@@ -454,6 +497,16 @@ export function AiModelsSettings(): JSX.Element {
                   />
                 }
               />
+              <SettingRow
+                label="Daily token cap"
+                description="Optional self-imposed budget in tokens/day. Anodex warns when you're near or over it — it never blocks a message."
+                control={
+                  <DailyCapInput
+                    value={settings.provider.anthropic.dailyTokenCap}
+                    onCommit={(cap) => void update({ provider: { anthropic: { dailyTokenCap: cap } } })}
+                  />
+                }
+              />
               {!settings.provider.anthropic.apiKey.trim() && (
                 <div className={styles.hintLine}>
                   <span className={styles.hintDot} />
@@ -485,6 +538,16 @@ export function AiModelsSettings(): JSX.Element {
                     value={settings.provider.openai.model}
                     options={OPENAI_MODEL_OPTIONS}
                     onChange={(value) => void update({ provider: { openai: { model: value } } })}
+                  />
+                }
+              />
+              <SettingRow
+                label="Daily token cap"
+                description="Optional self-imposed budget in tokens/day. Anodex warns when you're near or over it — it never blocks a message."
+                control={
+                  <DailyCapInput
+                    value={settings.provider.openai.dailyTokenCap}
+                    onCommit={(cap) => void update({ provider: { openai: { dailyTokenCap: cap } } })}
                   />
                 }
               />

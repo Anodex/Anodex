@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { llamaService } from '../llama/LlamaService'
+import { providerUsageStore } from '../llm/ProviderUsageStore'
 import { registerChatHandlers } from './chat.handlers'
 import { registerModelHandlers } from './model.handlers'
 import { registerConversationHandlers } from './conversation.handlers'
@@ -53,6 +54,13 @@ export function registerIpcHandlers(): void {
   llamaService.on('historyCompacted', (event) => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send(IpcChannel.Chat.historyCompacted, event)
+    }
+  })
+
+  // Push cloud provider usage snapshot changes to every open renderer window.
+  providerUsageStore.on('change', (snapshot) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Provider.usageChanged, snapshot)
     }
   })
 }

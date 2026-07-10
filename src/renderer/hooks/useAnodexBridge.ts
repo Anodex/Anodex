@@ -6,6 +6,7 @@ import { playChime } from '../lib/sound'
 import { useChatStore } from '../stores/chatStore'
 import { useModelStore } from '../stores/modelStore'
 import { useProjectStore } from '../stores/projectStore'
+import { useProviderUsageStore } from '../stores/providerUsageStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useUiStore } from '../stores/uiStore'
 
@@ -78,6 +79,9 @@ export function useAnodexBridge(): void {
         notifyDesktop('Approval needed', request.title)
       }
     })
+    const offProviderUsage = anodex.provider.onUsageChanged((snapshot) =>
+      useProviderUsageStore.getState().setSnapshot(snapshot)
+    )
     const offHistoryCompacted = anodex.chat.onHistoryCompacted((event) => {
       useChatStore.getState().applyHistoryCompaction(event)
       const turnWord = `${event.removedTurns} earlier turn${event.removedTurns === 1 ? '' : 's'}`
@@ -98,6 +102,7 @@ export function useAnodexBridge(): void {
       offDownloadProgress()
       offToolActivity()
       offConfirm()
+      offProviderUsage()
       offHistoryCompacted()
     }
   }, [])
@@ -112,6 +117,8 @@ async function hydrate(): Promise<void> {
   await useModelStore.getState().refresh()
   const state = await anodex.models.getState()
   useModelStore.getState().setEngineState(state)
+  const usage = await anodex.provider.getUsageSnapshot()
+  useProviderUsageStore.getState().setAll(usage)
 }
 
 /**

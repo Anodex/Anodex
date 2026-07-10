@@ -4,10 +4,13 @@ import { ok, err, toErrorMessage } from '@shared/result'
 import type { ChatCompactRequest, ChatRequest, ChatTitleRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import type { ProviderSettings } from '@shared/settings.types'
+import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
+import { OPENAI_MODELS } from '@shared/openaiModels'
 import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService } from '../llama/LlamaService'
+import { providerUsageStore } from '../llm/ProviderUsageStore'
 import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
@@ -167,6 +170,20 @@ export function registerChatHandlers(): void {
           modelId: modelDescriptor.id,
           modelName: modelDescriptor.name
         })
+
+        // Refresh the cloud provider usage gauge with today's new total —
+        // the daily-cap comparison lives entirely on this local tally, not
+        // on anything the provider itself reports.
+        if (settings.provider.active === 'anthropic' || settings.provider.active === 'openai') {
+          const modelIds =
+            settings.provider.active === 'anthropic'
+              ? ANTHROPIC_MODELS.map((m) => m.id)
+              : OPENAI_MODELS.map((m) => m.id)
+          providerUsageStore.recordTodayTokens(
+            settings.provider.active,
+            tokenActivityStore.getTodayTokensForModelIds(modelIds)
+          )
+        }
       }
 
       return ok({

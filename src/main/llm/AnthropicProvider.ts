@@ -7,6 +7,7 @@ import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
+import { providerUsageStore } from './ProviderUsageStore'
 import type { LlmProvider } from './LlmProvider'
 
 const log = createLogger('anthropic')
@@ -105,6 +106,11 @@ class AnthropicProvider implements LlmProvider {
         content += delta
         params.onToken(delta)
       })
+      // Best-effort: `.response` is only populated once the connection is
+      // established, and reading it must never affect generation itself —
+      // a change in SDK internals here should silently stop updating the
+      // usage gauge, not break chat.
+      stream.once('connect', () => captureRateLimitHeaders(stream.response))
 
       let response: Anthropic.Message
       try {
@@ -143,6 +149,28 @@ class AnthropicProvider implements LlmProvider {
     }
 
     return { content, stats, stopped }
+  }
+}
+
+/**
+ * Read the rate-limit window off a live Anthropic response's headers and
+ * record it for the usage gauge. `anthropic-ratelimit-tokens-*` (as opposed
+ * to the separate `-input-tokens-*`/`-output-tokens-*` variants) is
+ * documented to already reflect whichever limit is most restrictive right
+ * now, so it alone is the right single number to show. Never throws — a
+ * missing/malformed header just means no gauge update this round, not a
+ * failed generation.
+ */
+function captureRateLimitHeaders(response: Response | null | undefined): void {
+  try {
+    if (!response) return
+    const limit = Number(response.headers.get('anthropic-ratelimit-tokens-limit'))
+    const remaining = Number(response.headers.get('anthropic-ratelimit-tokens-remaining'))
+    const resetAt = Date.parse(response.headers.get('anthropic-ratelimit-tokens-reset') ?? '')
+    if (!Number.isFinite(limit) || !Number.isFinite(remaining) || !Number.isFinite(resetAt)) return
+    providerUsageStore.recordRateLimit('anthropic', { tokensLimit: limit, tokensRemaining: remaining, resetAt })
+  } catch (error) {
+    log.warn('Failed to read Anthropic rate-limit headers:', error)
   }
 }
 

@@ -94,6 +94,22 @@ class TokenActivityStore {
     this.persist()
   }
 
+  /**
+   * Sum of input+output tokens recorded today across a set of model ids —
+   * used to total a cloud provider's usage from its curated model id list
+   * (`ANTHROPIC_MODELS`/`OPENAI_MODELS`), since a generation's `modelId` is
+   * the cloud model id itself (see `activeModelDescriptor` in
+   * `chat.handlers.ts`), not a separate provider field.
+   */
+  getTodayTokensForModelIds(modelIds: readonly string[]): number {
+    const bucket = this.record.daily[localDateString(new Date())]
+    if (!bucket) return 0
+    return modelIds.reduce((sum, id) => {
+      const model = bucket.models[id]
+      return sum + (model ? model.inputTokens + model.outputTokens : 0)
+    }, 0)
+  }
+
   getUsageProfile(): UsageProfile {
     return buildUsageProfile(this.record, localDateString(new Date()))
   }

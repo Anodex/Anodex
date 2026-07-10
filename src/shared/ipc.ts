@@ -47,6 +47,7 @@ import type {
   MemoryScope,
   UpdateMemoryRequest
 } from './memory.types'
+import type { CloudProviderId, ProviderUsageSnapshot } from './providerUsage.types'
 
 export const IpcChannel = {
   Models: {
@@ -83,7 +84,11 @@ export const IpcChannel = {
   },
   Provider: {
     /** Test whether a cloud provider API key (and configured model) actually works. */
-    verifyKey: 'provider:verify-key'
+    verifyKey: 'provider:verify-key',
+    /** Current usage snapshot for every cloud provider, computed on demand. */
+    getUsageSnapshot: 'provider:get-usage-snapshot',
+    /** main → renderer broadcast whenever a cloud provider's usage snapshot changes. */
+    usageChanged: 'provider:usage-changed'
   },
   Settings: {
     get: 'settings:get',
@@ -250,6 +255,9 @@ export interface AnodexApi {
   provider: {
     /** Makes a cheap, metadata-only API call to confirm the key (and model) actually work. */
     verifyKey(request: VerifyProviderKeyRequest): Promise<Result<true>>
+    /** Current usage snapshot for every cloud provider Anodex has any data for. */
+    getUsageSnapshot(): Promise<Partial<Record<CloudProviderId, ProviderUsageSnapshot>>>
+    onUsageChanged(listener: (snapshot: ProviderUsageSnapshot) => void): () => void
   }
   settings: {
     get(): Promise<AppSettings>
