@@ -14,11 +14,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({
   ipcMain: {
-    handle: vi.fn(
-      (channel: string, handler: IpcTestHandler) => {
-        mocks.handlers.set(channel, handler)
-      }
-    )
+    handle: vi.fn((channel: string, handler: IpcTestHandler) => {
+      mocks.handlers.set(channel, handler)
+    })
   }
 }))
 
@@ -95,20 +93,89 @@ describe('chat IPC handlers', () => {
       }
     }
 
-    await handler?.(
-      { sender: { isDestroyed: () => false, send: vi.fn() } },
-      {
-        conversationId: 'c1',
-        messageId: 'm3',
-        projectId: null,
-        systemPrompt: 'be direct',
-        context,
-        history: [{ id: 'm2', role: 'assistant', content: 'Older answer.' }],
-        prompt: 'continue',
-        plan: null
-      } satisfies ChatRequest
-    )
+    await handler?.({ sender: { isDestroyed: () => false, send: vi.fn() } }, {
+      conversationId: 'c1',
+      messageId: 'm3',
+      projectId: null,
+      systemPrompt: 'be direct',
+      context,
+      history: [{ id: 'm2', role: 'assistant', content: 'Older answer.' }],
+      prompt: 'continue',
+      plan: null
+    } satisfies ChatRequest)
 
     expect(mocks.generate).toHaveBeenCalledWith(expect.objectContaining({ context }))
+  })
+
+  it('aborts the prior generation when a second send overlaps the same conversation', async () => {
+    registerChatHandlers()
+    const sendHandler = mocks.handlers.get(IpcChannel.Chat.send)
+    const stopHandler = mocks.handlers.get(IpcChannel.Chat.stop)
+    expect(sendHandler).toBeDefined()
+    expect(stopHandler).toBeDefined()
+
+    const signals: AbortSignal[] = []
+    let resolveFirst: ((value: unknown) => void) | undefined
+    const firstGeneration = new Promise((resolve) => {
+      resolveFirst = resolve
+    })
+    let resolveSecond: ((value: unknown) => void) | undefined
+    const secondGeneration = new Promise((resolve) => {
+      resolveSecond = resolve
+    })
+
+    mocks.generate.mockReset()
+    mocks.generate
+      .mockImplementationOnce(async ({ signal }: { signal: AbortSignal }) => {
+        signals.push(signal)
+        return firstGeneration
+      })
+      .mockImplementationOnce(async ({ signal }: { signal: AbortSignal }) => {
+        signals.push(signal)
+        return secondGeneration
+      })
+
+    const request = (id: string) =>
+      ({
+        conversationId: 'shared',
+        messageId: id,
+        projectId: null,
+        systemPrompt: '',
+        context: undefined,
+        history: [],
+        prompt: 'hi',
+        plan: null
+      }) satisfies ChatRequest
+
+    const event = { sender: { isDestroyed: () => false, send: vi.fn() } }
+
+    const firstSend = sendHandler?.(event, request('m1'))
+    // Let the first generate() call register before the second send overlaps it.
+    await Promise.resolve()
+    const secondSend = sendHandler?.(event, request('m2'))
+    await Promise.resolve()
+
+    expect(signals).toHaveLength(2)
+    expect(signals[0].aborted).toBe(true)
+    expect(signals[1].aborted).toBe(false)
+
+    resolveFirst?.({
+      content: 'first (superseded)',
+      stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 },
+      stopped: false
+    })
+    await firstSend
+
+    // The first request finishing must not clear the second, still-running
+    // request's slot in the in-flight map.
+    await stopHandler?.(event, 'shared')
+    expect(signals[1].aborted).toBe(true)
+
+    resolveSecond?.({
+      content: 'second',
+      stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 },
+      stopped: true
+    })
+    await secondSend
   })
 })
