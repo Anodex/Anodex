@@ -36,10 +36,7 @@ export function reconcileMessageBlocks(
     return finalContent ? [{ type: 'text', text: finalContent }] : undefined
   }
 
-  const toolNames = new Set([
-    ...(toolCalls?.map((call) => call.name) ?? []),
-    ...extraToolNames
-  ])
+  const toolNames = new Set([...(toolCalls?.map((call) => call.name) ?? []), ...extraToolNames])
   if (toolNames.size === 0) {
     return finalContent ? [{ type: 'text', text: finalContent }] : undefined
   }

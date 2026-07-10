@@ -117,7 +117,11 @@ export function registerWorkspaceHandlers(): void {
       if (isLikelyBinary(buffer)) return ok({ kind: 'binary' } as const)
       return ok({ kind: 'text', content: buffer.toString('utf-8') } as const)
     } catch (error) {
-      return err('workspace.read-content-failed', 'Could not read that file.', toErrorMessage(error))
+      return err(
+        'workspace.read-content-failed',
+        'Could not read that file.',
+        toErrorMessage(error)
+      )
     }
   })
 
@@ -131,7 +135,11 @@ export function registerWorkspaceHandlers(): void {
         await writeFile(file, content, 'utf-8')
         return ok(undefined)
       } catch (error) {
-        return err('workspace.write-content-failed', 'Could not save that file.', toErrorMessage(error))
+        return err(
+          'workspace.write-content-failed',
+          'Could not save that file.',
+          toErrorMessage(error)
+        )
       }
     }
   )

@@ -96,7 +96,7 @@ describe('splitHistoryByTokenBudget', () => {
     expect(result.older).toEqual([history[0]])
   })
 
-  it('caps an oversized newest turn\'s tool results in place instead of leaving it oversized', () => {
+  it("caps an oversized newest turn's tool results in place instead of leaving it oversized", () => {
     // Regression test: observed directly in a long live session — a single
     // turn with 35 tool calls stayed oversized through every subsequent
     // "successful" compaction (the split always keeps the newest turn no

@@ -284,10 +284,26 @@ describe('buildModelBreakdown', () => {
 describe('buildChartBuckets', () => {
   const record: TokenActivityRecord = {
     daily: {
-      '2026-06-01': { tokens: 0, generations: 0, models: { a: { modelName: 'A', inputTokens: 10, outputTokens: 0 } } },
-      '2026-06-29': { tokens: 0, generations: 0, models: { a: { modelName: 'A', inputTokens: 20, outputTokens: 0 } } },
-      '2026-06-30': { tokens: 0, generations: 0, models: { a: { modelName: 'A', inputTokens: 5, outputTokens: 0 } } },
-      '2026-07-05': { tokens: 0, generations: 0, models: { a: { modelName: 'A', inputTokens: 100, outputTokens: 0 } } }
+      '2026-06-01': {
+        tokens: 0,
+        generations: 0,
+        models: { a: { modelName: 'A', inputTokens: 10, outputTokens: 0 } }
+      },
+      '2026-06-29': {
+        tokens: 0,
+        generations: 0,
+        models: { a: { modelName: 'A', inputTokens: 20, outputTokens: 0 } }
+      },
+      '2026-06-30': {
+        tokens: 0,
+        generations: 0,
+        models: { a: { modelName: 'A', inputTokens: 5, outputTokens: 0 } }
+      },
+      '2026-07-05': {
+        tokens: 0,
+        generations: 0,
+        models: { a: { modelName: 'A', inputTokens: 100, outputTokens: 0 } }
+      }
     },
     toolUsage: {},
     longestGenerationDurationMs: 0,
@@ -309,8 +325,16 @@ describe('buildChartBuckets', () => {
     // 2026-06-05 is exactly 30 days before 2026-07-05 — must NOT appear in '30d'.
     const boundaryRecord: TokenActivityRecord = {
       daily: {
-        '2026-06-05': { tokens: 0, generations: 0, models: { a: { modelName: 'A', inputTokens: 1, outputTokens: 0 } } },
-        '2026-06-06': { tokens: 0, generations: 0, models: { a: { modelName: 'A', inputTokens: 2, outputTokens: 0 } } }
+        '2026-06-05': {
+          tokens: 0,
+          generations: 0,
+          models: { a: { modelName: 'A', inputTokens: 1, outputTokens: 0 } }
+        },
+        '2026-06-06': {
+          tokens: 0,
+          generations: 0,
+          models: { a: { modelName: 'A', inputTokens: 2, outputTokens: 0 } }
+        }
       },
       toolUsage: {},
       longestGenerationDurationMs: 0,
@@ -324,7 +348,12 @@ describe('buildChartBuckets', () => {
 
   it('"all" range includes every recorded day', () => {
     const buckets = buildChartBuckets(record, 'all', 'daily', '2026-07-05')
-    expect(buckets.map((b) => b.key)).toEqual(['2026-06-01', '2026-06-29', '2026-06-30', '2026-07-05'])
+    expect(buckets.map((b) => b.key)).toEqual([
+      '2026-06-01',
+      '2026-06-29',
+      '2026-06-30',
+      '2026-07-05'
+    ])
   })
 
   it('weekly granularity groups by Sunday-start week, even across a month boundary', () => {

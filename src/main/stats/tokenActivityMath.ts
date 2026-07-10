@@ -110,7 +110,10 @@ function startOfWeek(dateString: string): string {
  * day behind `today` — i.e. activity today or yesterday still counts as
  * "current", two or more silent days resets it.
  */
-export function computeStreaks(dates: string[], today: string): { current: number; longest: number } {
+export function computeStreaks(
+  dates: string[],
+  today: string
+): { current: number; longest: number } {
   if (dates.length === 0) return { current: 0, longest: 0 }
   const sorted = [...new Set(dates)].sort()
 
@@ -238,7 +241,11 @@ export function buildChartBuckets(
 export function buildUsageProfile(record: TokenActivityRecord, today: string): UsageProfile {
   const dailyActivity: DailyUsageBucket[] = Object.keys(record.daily)
     .sort()
-    .map((date) => ({ date, tokens: record.daily[date].tokens, generations: record.daily[date].generations }))
+    .map((date) => ({
+      date,
+      tokens: record.daily[date].tokens,
+      generations: record.daily[date].generations
+    }))
 
   const lifetimeTokens = dailyActivity.reduce((sum, day) => sum + day.tokens, 0)
   const lifetimeGenerations = dailyActivity.reduce((sum, day) => sum + day.generations, 0)
@@ -269,7 +276,11 @@ export function buildUsageProfile(record: TokenActivityRecord, today: string): U
     insights.push({ kind: 'busiestDay', date: peakDay.date, tokens: peakDay.tokens })
   }
   if (mostUsedTools.length > 0) {
-    insights.push({ kind: 'favoriteTool', name: mostUsedTools[0].name, count: mostUsedTools[0].count })
+    insights.push({
+      kind: 'favoriteTool',
+      name: mostUsedTools[0].name,
+      count: mostUsedTools[0].count
+    })
   }
   if (record.longestGenerationDurationMs > 0) {
     insights.push({ kind: 'longestTask', durationMs: record.longestGenerationDurationMs })

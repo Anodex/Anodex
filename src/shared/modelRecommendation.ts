@@ -71,8 +71,7 @@ const TIER_WEIGHT: Record<ModelTier, number> = {
  * tier that persists as the ceiling no matter how much RAM is available.
  */
 export function contextSizeFor(model: RecommendedModel, ramGb: number, vramGb = 0): number {
-  const usableGb =
-    Math.max(0, ramGb - RESERVED_GB) + Math.max(0, vramGb - RESERVED_VRAM_GB)
+  const usableGb = Math.max(0, ramGb - RESERVED_GB) + Math.max(0, vramGb - RESERVED_VRAM_GB)
 
   switch (model.tier) {
     case '70b':

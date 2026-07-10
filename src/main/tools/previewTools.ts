@@ -72,7 +72,9 @@ async function inlineLocalAssets(
     async (match, before: string, href: string, after: string) => {
       if (!/\brel=["']?stylesheet["']?/i.test(`${before} ${after}`)) return match
       const css = await readLocalTextAsset(workspaceRoot, htmlPath, href)
-      return css === null ? match : `<style data-anodex-preview-source="${escapeAttr(href)}">\n${css}\n</style>`
+      return css === null
+        ? match
+        : `<style data-anodex-preview-source="${escapeAttr(href)}">\n${css}\n</style>`
     }
   )
 
@@ -93,7 +95,11 @@ async function readLocalTextAsset(
   htmlPath: string,
   assetUrl: string
 ): Promise<string | null> {
-  if (/^(?:[a-z]+:)?\/\//i.test(assetUrl) || assetUrl.startsWith('data:') || assetUrl.startsWith('#')) {
+  if (
+    /^(?:[a-z]+:)?\/\//i.test(assetUrl) ||
+    assetUrl.startsWith('data:') ||
+    assetUrl.startsWith('#')
+  ) {
     return null
   }
 

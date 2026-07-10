@@ -261,7 +261,10 @@ describe('looksLikeStalledIntent', () => {
 
   it('does not flag a genuine clarifying question', () => {
     expect(
-      looksLikeStalledIntent("Sure, I'll help with that — which file should I add it to?", ADD_PROMPT)
+      looksLikeStalledIntent(
+        "Sure, I'll help with that — which file should I add it to?",
+        ADD_PROMPT
+      )
     ).toBe(false)
   })
 
@@ -384,4 +387,3 @@ Here is the requested code example:
     )
   })
 })
-

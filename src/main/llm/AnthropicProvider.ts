@@ -168,7 +168,11 @@ function captureRateLimitHeaders(response: Response | null | undefined): void {
     const remaining = Number(response.headers.get('anthropic-ratelimit-tokens-remaining'))
     const resetAt = Date.parse(response.headers.get('anthropic-ratelimit-tokens-reset') ?? '')
     if (!Number.isFinite(limit) || !Number.isFinite(remaining) || !Number.isFinite(resetAt)) return
-    providerUsageStore.recordRateLimit('anthropic', { tokensLimit: limit, tokensRemaining: remaining, resetAt })
+    providerUsageStore.recordRateLimit('anthropic', {
+      tokensLimit: limit,
+      tokensRemaining: remaining,
+      resetAt
+    })
   } catch (error) {
     log.warn('Failed to read Anthropic rate-limit headers:', error)
   }

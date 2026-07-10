@@ -208,7 +208,10 @@ export const useChatStore = create<ChatState>()(
             `Add a ${providerLabel} API key in Settings → AI & Models to start chatting.`
           )
         } else {
-          notifyError('No model loaded', 'Load a model in Settings → AI & Models to start chatting.')
+          notifyError(
+            'No model loaded',
+            'Load a model in Settings → AI & Models to start chatting.'
+          )
         }
         return
       }

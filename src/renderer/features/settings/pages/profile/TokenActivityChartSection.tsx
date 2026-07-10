@@ -31,7 +31,11 @@ export function TokenActivityChartSection(): JSX.Element {
         <h3 className={styles.panelTitle}>Tokens over time</h3>
         <div className={styles.toggles}>
           <SegmentedToggle value={range} options={RANGE_OPTIONS} onChange={setRange} />
-          <SegmentedToggle value={granularity} options={GRANULARITY_OPTIONS} onChange={setGranularity} />
+          <SegmentedToggle
+            value={granularity}
+            options={GRANULARITY_OPTIONS}
+            onChange={setGranularity}
+          />
         </div>
       </div>
 

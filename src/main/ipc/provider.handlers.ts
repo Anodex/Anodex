@@ -10,18 +10,21 @@ import { tokenActivityStore } from '../stats/TokenActivityStore'
 
 /** IPC handlers for cloud provider key verification and live usage snapshots. */
 export function registerProviderHandlers(): void {
-  ipcMain.handle(IpcChannel.Provider.verifyKey, async (_event, request: VerifyProviderKeyRequest) => {
-    const apiKey = request.apiKey.trim()
-    if (!apiKey) return err('provider.no-key', 'No API key entered.')
+  ipcMain.handle(
+    IpcChannel.Provider.verifyKey,
+    async (_event, request: VerifyProviderKeyRequest) => {
+      const apiKey = request.apiKey.trim()
+      if (!apiKey) return err('provider.no-key', 'No API key entered.')
 
-    try {
-      if (request.provider === 'anthropic') await verifyAnthropicKey(apiKey, request.model)
-      else await verifyOpenAiKey(apiKey, request.model)
-      return ok(true as const)
-    } catch (error) {
-      return err('provider.verify-failed', toErrorMessage(error))
+      try {
+        if (request.provider === 'anthropic') await verifyAnthropicKey(apiKey, request.model)
+        else await verifyOpenAiKey(apiKey, request.model)
+        return ok(true as const)
+      } catch (error) {
+        return err('provider.verify-failed', toErrorMessage(error))
+      }
     }
-  })
+  )
 
   // Refreshes `todayTokens` from `TokenActivityStore` on every call, so a
   // freshly opened dropdown reflects usage from earlier today even before

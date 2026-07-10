@@ -137,7 +137,10 @@ export function MemorySettings(): JSX.Element {
       ) : (
         <ul className={styles.list}>
           {list.map((entry) => (
-            <li key={entry.id} className={`${styles.item} ${entry.archived ? styles.itemArchived : ''}`}>
+            <li
+              key={entry.id}
+              className={`${styles.item} ${entry.archived ? styles.itemArchived : ''}`}
+            >
               <div className={styles.itemMain}>
                 {editingId === entry.id ? (
                   <div className={styles.editRow}>

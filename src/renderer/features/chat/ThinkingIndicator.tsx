@@ -51,7 +51,7 @@ const THINKING_PHRASES = [
   'Tightening up the logic',
   'Reading through the history',
   'Confirming the details',
-  'Bringing it together',
+  'Bringing it together'
 ]
 
 function shuffled<T>(items: readonly T[]): T[] {

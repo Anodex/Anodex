@@ -214,7 +214,10 @@ export function stripSubstantialCodeFences(text: string, userPrompt: string): st
 const LEAKED_CHANNEL_TOKEN_RE = /<\/?channel\|?>\n?/gi
 
 export function stripLeakedChannelTokens(text: string): string {
-  return text.replace(LEAKED_CHANNEL_TOKEN_RE, '').replace(/\n{3,}/g, '\n\n').trim()
+  return text
+    .replace(LEAKED_CHANNEL_TOKEN_RE, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 function tryParseToolCallJson(

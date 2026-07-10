@@ -98,7 +98,11 @@ export function UsageActivitySection(): JSX.Element {
                   : '—'
               }
             />
-            <StatCard icon="layers" label="Sessions" value={profile.sessionCount.toLocaleString()} />
+            <StatCard
+              icon="layers"
+              label="Sessions"
+              value={profile.sessionCount.toLocaleString()}
+            />
             <StatCard
               icon="chat"
               label="Messages"

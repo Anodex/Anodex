@@ -1,7 +1,12 @@
 import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import type { ChartGranularity, ChartRange, UsageBreakdown, UsageProfile } from '@shared/stats.types'
+import type {
+  ChartGranularity,
+  ChartRange,
+  UsageBreakdown,
+  UsageProfile
+} from '@shared/stats.types'
 import { createLogger } from '../utils/logger'
 import {
   buildChartBuckets,

@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, MessageBlock } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
-import {
-  messageToHistoryTurn,
-  sanitizeConversationTranscript
-} from '@shared/chatSanitizer'
+import { messageToHistoryTurn, sanitizeConversationTranscript } from '@shared/chatSanitizer'
 import { estimateProjectedContextUsage } from '@shared/contextProjection'
 import { buildHistoryItems } from '../LlamaService'
 import { projectHistoryForModel, seedContextFromSnapshot } from '../contextAssembler'
@@ -136,8 +133,7 @@ function ticTacToeFailureTranscript(): Conversation {
         blocks: [
           {
             type: 'text',
-            text:
-              'The replacement missed the current file. I will inspect it first, then patch only matching text.'
+            text: 'The replacement missed the current file. I will inspect it first, then patch only matching text.'
           },
           {
             type: 'tool',

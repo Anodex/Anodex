@@ -28,9 +28,11 @@ describe('reconcileMessageBlocks', () => {
       { type: 'text', text: 'The issue is in the imports.' }
     ]
 
-    expect(reconcileMessageBlocks(blocks, "I'll inspect the file.\n\nThe issue is in the imports.", [
-      tool
-    ])).toEqual([
+    expect(
+      reconcileMessageBlocks(blocks, "I'll inspect the file.\n\nThe issue is in the imports.", [
+        tool
+      ])
+    ).toEqual([
       { type: 'text', text: "I'll inspect the file." },
       { type: 'tool', call: tool },
       { type: 'text', text: 'The issue is in the imports.' }
@@ -79,8 +81,8 @@ describe('reconcileMessageBlocks', () => {
       }
     ]
 
-    expect(reconcileMessageBlocks(blocks, 'Let me verify that.', undefined, ['read_file'])).toEqual([
-      { type: 'text', text: 'Let me verify that.' }
-    ])
+    expect(reconcileMessageBlocks(blocks, 'Let me verify that.', undefined, ['read_file'])).toEqual(
+      [{ type: 'text', text: 'Let me verify that.' }]
+    )
   })
 })

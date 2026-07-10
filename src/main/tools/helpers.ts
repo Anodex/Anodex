@@ -101,7 +101,10 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   try {
     const { modelResult, detail, plan, preview } = await spec.run()
-    const truncated = truncateModelResult(modelResult, spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS)
+    const truncated = truncateModelResult(
+      modelResult,
+      spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS
+    )
     recordTouch(ctx, spec.touch)
     ctx.emit({
       id,
@@ -195,7 +198,10 @@ export async function runGuardedTool(
     }
 
     const { modelResult, detail, diff, preview } = await spec.run()
-    const truncated = truncateModelResult(modelResult, spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS)
+    const truncated = truncateModelResult(
+      modelResult,
+      spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS
+    )
     recordTouch(ctx, spec.touch)
     ctx.emit({
       id,

@@ -94,7 +94,11 @@ export function UsageHeatmap({ dailyActivity }: UsageHeatmapProps): JSX.Element 
                   key={cell.date}
                   className={styles.cell}
                   data-level={cell.inRange ? intensityLevel(cell.tokens, maxTokens) : 'none'}
-                  title={cell.inRange ? `${cell.date}: ${cell.tokens.toLocaleString()} tokens` : undefined}
+                  title={
+                    cell.inRange
+                      ? `${cell.date}: ${cell.tokens.toLocaleString()} tokens`
+                      : undefined
+                  }
                 />
               ))}
             </div>
