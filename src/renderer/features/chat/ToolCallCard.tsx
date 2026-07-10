@@ -70,7 +70,12 @@ export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
       </button>
       {expanded && call.diff && (
         <div className={styles.diffWrap}>
-          <DiffView before={call.diff.before} after={call.diff.after} mode={diffView} />
+          <DiffView
+            before={call.diff.before}
+            after={call.diff.after}
+            mode={diffView}
+            path={call.diff.path}
+          />
         </div>
       )}
       {expanded && call.preview?.kind === 'html' && <ChatHtmlPreview preview={call.preview} />}

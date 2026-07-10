@@ -52,7 +52,12 @@ export function ToolConfirmCard(): JSX.Element | null {
 
       {pending.diff ? (
         <div className={styles.diffWrap}>
-          <DiffView before={pending.diff.before} after={pending.diff.after} mode={diffViewMode} />
+          <DiffView
+            before={pending.diff.before}
+            after={pending.diff.after}
+            mode={diffViewMode}
+            path={pending.diff.path}
+          />
         </div>
       ) : (
         <pre className={styles.detail}>{pending.detail}</pre>

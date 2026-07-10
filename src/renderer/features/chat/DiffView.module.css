@@ -29,6 +29,14 @@
   white-space: pre;
 }
 
+.lineNumber {
+  flex-shrink: 0;
+  width: 3ch;
+  text-align: right;
+  color: var(--text-faint);
+  user-select: none;
+}
+
 .marker {
   flex-shrink: 0;
   width: 1ch;
@@ -68,4 +76,46 @@
 
 .blank {
   background: var(--bg-surface);
+}
+
+.gap {
+  display: flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  background: var(--bg-surface);
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+}
+
+.gapText {
+  color: var(--text-faint);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* highlight.js tokens, mapped onto the theme's text tokens */
+.lineText :global(.hljs-keyword),
+.lineText :global(.hljs-selector-tag),
+.lineText :global(.hljs-literal) {
+  color: var(--accent);
+}
+
+.lineText :global(.hljs-string),
+.lineText :global(.hljs-attr) {
+  color: var(--success);
+}
+
+.lineText :global(.hljs-comment) {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.lineText :global(.hljs-number) {
+  color: var(--warn);
+}
+
+.lineText :global(.hljs-title),
+.lineText :global(.hljs-name),
+.lineText :global(.hljs-tag) {
+  color: var(--info);
 }

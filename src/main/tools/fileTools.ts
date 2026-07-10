@@ -94,6 +94,13 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
         kind: 'read',
         title: `Read ${args.path}`,
         touch: { path: args.path, action: 'read' },
+        // Full file content, not a bounded summary — cap at the same size
+        // limit already enforced on disk reads (MAX_FILE_BYTES), not the
+        // much tighter generic 4000-char cap. Under that generic cap, most
+        // real source files got silently cut off mid-file: the model never
+        // saw the rest, then failed edit_file/patch_file with "text not
+        // found" when it tried to edit content it never actually read.
+        modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const info = await stat(file)
@@ -266,6 +273,10 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
         kind: 'read',
         title: `Read ${args.path} lines ${args.startLine}-${args.endLine ?? '…'}`,
         touch: { path: args.path, action: 'read' },
+        // See read_file's modelResultCap comment — a 200-line range of long
+        // lines (minified/generated code, long strings) can still exceed the
+        // generic 4000-char cap and get cut mid-range under it.
+        modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const info = await stat(file)
@@ -317,6 +328,10 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
         kind: 'read',
         title: `Read ${args.paths.length} file(s)`,
         touch: readTouches,
+        // See read_file's modelResultCap comment — this tool already budgets
+        // its own MAX_BATCH_TOTAL_BYTES across files; don't let the generic
+        // 4000-char cap re-truncate that down to a near-useless prefix.
+        modelResultCap: MAX_BATCH_TOTAL_BYTES,
         async run() {
           const paths = args.paths.slice(0, MAX_FILES_BATCH)
           const results: string[] = []

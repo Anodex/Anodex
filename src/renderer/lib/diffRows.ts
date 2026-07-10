@@ -1,21 +1,36 @@
 import { diffLines } from 'diff'
 
-export type DiffLineType = 'unchanged' | 'added' | 'removed' | 'blank'
+export type DiffLineType = 'unchanged' | 'added' | 'removed' | 'blank' | 'gap'
 
 export interface UnifiedDiffLine {
   type: DiffLineType
   text: string
+  oldLine: number | null
+  newLine: number | null
+  /** Only set on `gap` rows: how many unchanged lines were collapsed here. */
+  count?: number
+}
+
+export interface SideBySideDiffCell {
+  type: DiffLineType
+  text: string
+  line: number | null
 }
 
 export interface SideBySideDiffRow {
-  left: { type: DiffLineType; text: string }
-  right: { type: DiffLineType; text: string }
+  left: SideBySideDiffCell
+  right: SideBySideDiffCell
+  /** Only set when both cells are `gap`: how many unchanged rows were collapsed here. */
+  count?: number
 }
 
 export interface DiffStats {
   added: number
   removed: number
 }
+
+/** Lines of unchanged context kept immediately around each change, before collapsing the rest. */
+const CONTEXT_LINES = 3
 
 /**
  * `diffLines` chunks end with a trailing `\n` (except possibly the very last
@@ -27,14 +42,62 @@ function splitIntoLines(value: string): string[] {
   return value.replace(/\n$/, '').split('\n')
 }
 
+/** Collapses long runs of "unchanged" items into a single gap marker, keeping `CONTEXT_LINES` around every change. */
+function collapseContext<T>(
+  items: T[],
+  isChanged: (item: T) => boolean,
+  makeGap: (count: number) => T
+): T[] {
+  const n = items.length
+  const keep = new Array<boolean>(n).fill(false)
+  for (let i = 0; i < n; i++) {
+    if (!isChanged(items[i])) continue
+    for (let j = Math.max(0, i - CONTEXT_LINES); j <= Math.min(n - 1, i + CONTEXT_LINES); j++) {
+      keep[j] = true
+    }
+  }
+
+  const result: T[] = []
+  let hiddenRun = 0
+  for (let i = 0; i < n; i++) {
+    if (keep[i]) {
+      if (hiddenRun > 0) {
+        result.push(makeGap(hiddenRun))
+        hiddenRun = 0
+      }
+      result.push(items[i])
+    } else {
+      hiddenRun++
+    }
+  }
+  if (hiddenRun > 0) result.push(makeGap(hiddenRun))
+
+  return result
+}
+
 /** One row per line, in order, prefixed +/-/space — a single scrolling column. */
 export function buildUnifiedDiffLines(before: string, after: string): UnifiedDiffLine[] {
   const lines: UnifiedDiffLine[] = []
+  let oldLine = 1
+  let newLine = 1
   for (const change of diffLines(before, after)) {
     const type: DiffLineType = change.added ? 'added' : change.removed ? 'removed' : 'unchanged'
-    for (const text of splitIntoLines(change.value)) lines.push({ type, text })
+    for (const text of splitIntoLines(change.value)) {
+      lines.push({
+        type,
+        text,
+        oldLine: type === 'added' ? null : oldLine,
+        newLine: type === 'removed' ? null : newLine
+      })
+      if (type !== 'added') oldLine++
+      if (type !== 'removed') newLine++
+    }
   }
-  return lines
+  return collapseContext(
+    lines,
+    (line) => line.type !== 'unchanged',
+    (count) => ({ type: 'gap', text: '', oldLine: null, newLine: null, count })
+  )
 }
 
 /**
@@ -46,13 +109,20 @@ export function buildUnifiedDiffLines(before: string, after: string): UnifiedDif
 export function buildSideBySideDiffRows(before: string, after: string): SideBySideDiffRow[] {
   const changes = diffLines(before, after)
   const rows: SideBySideDiffRow[] = []
+  let oldLine = 1
+  let newLine = 1
 
   for (let i = 0; i < changes.length; i++) {
     const change = changes[i]
 
     if (!change.added && !change.removed) {
       for (const text of splitIntoLines(change.value)) {
-        rows.push({ left: { type: 'unchanged', text }, right: { type: 'unchanged', text } })
+        rows.push({
+          left: { type: 'unchanged', text, line: oldLine },
+          right: { type: 'unchanged', text, line: newLine }
+        })
+        oldLine++
+        newLine++
       }
       continue
     }
@@ -67,18 +137,21 @@ export function buildSideBySideDiffRows(before: string, after: string): SideBySi
           rows.push({
             left:
               j < removedLines.length
-                ? { type: 'removed', text: removedLines[j] }
-                : { type: 'blank', text: '' },
+                ? { type: 'removed', text: removedLines[j], line: oldLine++ }
+                : { type: 'blank', text: '', line: null },
             right:
               j < addedLines.length
-                ? { type: 'added', text: addedLines[j] }
-                : { type: 'blank', text: '' }
+                ? { type: 'added', text: addedLines[j], line: newLine++ }
+                : { type: 'blank', text: '', line: null }
           })
         }
         i++ // consumed the paired added block
       } else {
         for (const text of removedLines) {
-          rows.push({ left: { type: 'removed', text }, right: { type: 'blank', text: '' } })
+          rows.push({
+            left: { type: 'removed', text, line: oldLine++ },
+            right: { type: 'blank', text: '', line: null }
+          })
         }
       }
       continue
@@ -86,11 +159,22 @@ export function buildSideBySideDiffRows(before: string, after: string): SideBySi
 
     // An added block with no preceding removed block (unpaired insertion).
     for (const text of splitIntoLines(change.value)) {
-      rows.push({ left: { type: 'blank', text: '' }, right: { type: 'added', text } })
+      rows.push({
+        left: { type: 'blank', text: '', line: null },
+        right: { type: 'added', text, line: newLine++ }
+      })
     }
   }
 
-  return rows
+  return collapseContext(
+    rows,
+    (row) => row.left.type !== 'unchanged' || row.right.type !== 'unchanged',
+    (count) => ({
+      left: { type: 'gap', text: '', line: null },
+      right: { type: 'gap', text: '', line: null },
+      count
+    })
+  )
 }
 
 /** Total added/removed line counts, for a collapsed "+N -M" summary. */

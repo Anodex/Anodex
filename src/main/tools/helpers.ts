@@ -32,9 +32,9 @@ function rememberResult(modelResult: string): string {
     : modelResult
 }
 
-function truncateModelResult(modelResult: string): string {
-  return modelResult.length > MAX_MODEL_RESULT_CHARS
-    ? `${modelResult.slice(0, MAX_MODEL_RESULT_CHARS)}\n… (truncated, ${modelResult.length} bytes total)`
+function truncateModelResult(modelResult: string, cap: number): string {
+  return modelResult.length > cap
+    ? `${modelResult.slice(0, cap)}\n… (truncated, ${modelResult.length} bytes total)`
     : modelResult
 }
 
@@ -65,6 +65,14 @@ interface ReadToolSpec {
   title: string
   /** When set and a project is active, records this (or these) path(s) in project memory on success. */
   touch?: FileTouch | FileTouch[]
+  /**
+   * Overrides the default 4000-char model-result cap. Tools meant to deliver
+   * full file content (read_file, read_multiple_files) need a much higher
+   * ceiling — otherwise the model silently sees only a prefix of the file,
+   * then calls edit_file/patch_file with an oldText it never actually read,
+   * which fails with "text not found" even though nothing else is wrong.
+   */
+  modelResultCap?: number
   run: () => Promise<ToolOutcome>
 }
 
@@ -93,7 +101,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   try {
     const { modelResult, detail, plan, preview } = await spec.run()
-    const truncated = truncateModelResult(modelResult)
+    const truncated = truncateModelResult(modelResult, spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS)
     recordTouch(ctx, spec.touch)
     ctx.emit({
       id,
@@ -187,7 +195,7 @@ export async function runGuardedTool(
     }
 
     const { modelResult, detail, diff, preview } = await spec.run()
-    const truncated = truncateModelResult(modelResult)
+    const truncated = truncateModelResult(modelResult, spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS)
     recordTouch(ctx, spec.touch)
     ctx.emit({
       id,
