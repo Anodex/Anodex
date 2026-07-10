@@ -12,8 +12,17 @@ const pendingConfirmations = new Map<string, (response: ToolConfirmResponse) => 
  * Kept in the main process, rather than the renderer, so the same permission
  * policy that decided a prompt was needed also decides whether it can be
  * skipped later. Destructive calls are intentionally never remembered.
+ *
+ * Scoped per (tool, conversation) rather than tool alone — approving
+ * `edit_file` once in a throwaway chat shouldn't silently blanket-approve
+ * every future `edit_file` call across every other conversation for the
+ * rest of the session.
  */
 const rememberedToolApprovals = new Set<string>()
+
+function approvalKey(toolName: string, conversationId: string): string {
+  return `${toolName}::${conversationId}`
+}
 
 /**
  * Ask the renderer to approve a write/command and wait for the user's decision.
@@ -25,7 +34,10 @@ export function requestToolConfirmation(
   request: ToolConfirmRequest,
   signal?: AbortSignal
 ): Promise<ToolConfirmResponse> {
-  if (request.risk !== 'destructive' && rememberedToolApprovals.has(request.toolName)) {
+  if (
+    request.risk !== 'destructive' &&
+    rememberedToolApprovals.has(approvalKey(request.toolName, request.conversationId))
+  ) {
     return Promise.resolve({ approved: true })
   }
 
@@ -38,7 +50,7 @@ export function requestToolConfirmation(
       if (!pendingConfirmations.has(request.id)) return
       pendingConfirmations.delete(request.id)
       if (response.approved && response.remember && request.risk !== 'destructive') {
-        rememberedToolApprovals.add(request.toolName)
+        rememberedToolApprovals.add(approvalKey(request.toolName, request.conversationId))
       }
       resolve(response)
     }
