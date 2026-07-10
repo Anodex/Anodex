@@ -415,7 +415,7 @@ class LlamaService extends EventEmitter {
     // turn, so this only needs computing once, not once per round.
     const hasEditTool = Boolean(
       functions &&
-        ('write_file' in functions || 'edit_file' in functions || 'patch_file' in functions)
+      ('write_file' in functions || 'edit_file' in functions || 'patch_file' in functions)
     )
 
     try {
