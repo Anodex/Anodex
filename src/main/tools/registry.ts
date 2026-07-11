@@ -31,6 +31,8 @@ import { webSearchTool } from './webSearchTools'
 import { writePlanTool, updatePlanStepTool } from './planTools'
 import { updateProjectNotesTool } from './projectNotesTool'
 import { rememberFactTool } from './memoryTool'
+import { findSkillTool, loadSkillTool } from './skillTools'
+import { finishGoalTool } from './agentTools'
 
 /**
  * Read-only workspace tools — available whenever a workspace folder is
@@ -81,7 +83,9 @@ const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
 const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
   fetch_url: fetchUrlTool,
   write_plan: writePlanTool,
-  update_plan_step: updatePlanStepTool
+  update_plan_step: updatePlanStepTool,
+  find_skill: findSkillTool,
+  load_skill: loadSkillTool
 }
 
 /**
@@ -131,6 +135,16 @@ export function buildTools(
     isEnabled('remember_fact')
   ) {
     tools.remember_fact = rememberFactTool(define, ctx)
+  }
+
+  // finish_goal only exists for a restricted run that explicitly opts into it
+  // (`AgentRunService` always does) — interactive chat's `enabledTools` is
+  // always `null` (unrestricted), so this never registers there, and nothing
+  // else can reach it without deliberately including 'finish_goal' in a
+  // headless run's tool set (it's not in `TOOL_CATALOG`, so no picker UI
+  // ever offers it).
+  if (ctx.enabledTools !== null && isEnabled('finish_goal')) {
+    tools.finish_goal = finishGoalTool(define, ctx)
   }
 
   return tools

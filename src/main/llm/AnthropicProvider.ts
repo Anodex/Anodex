@@ -48,7 +48,7 @@ class AnthropicProvider implements LlmProvider {
     }
 
     const client = new Anthropic({ apiKey })
-    const model = settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
+    const model = params.modelOverride?.trim() || settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
 
     const toolFunctions = params.tools
       ? buildTools(defineToolFunction, {

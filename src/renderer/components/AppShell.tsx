@@ -12,6 +12,7 @@ import { TitleBar } from './TitleBar'
 import { Toasts } from './Toasts'
 import { ChatView } from '../features/chat/ChatView'
 import { SchedulerView } from '../features/scheduler/SchedulerView'
+import { AgentView } from '../features/agent/AgentView'
 import { PlaceholderView } from '../features/placeholder/PlaceholderView'
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
@@ -36,7 +37,7 @@ function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): str
 
 function renderMainView(view: ReturnType<typeof useUiStore.getState>['view']): JSX.Element {
   if (view === 'scheduler') return <SchedulerView />
-  if (view === 'agent') return <PlaceholderView icon="wand" title="Agent" />
+  if (view === 'agent') return <AgentView />
   if (view === 'critical-thinking') {
     return <PlaceholderView icon="globe" title="Critical Thinking" />
   }

@@ -39,7 +39,9 @@
 
   /* Status */
   --success: #3ccf7a;
+  --success-soft: rgba(60, 207, 122, 0.12);
   --warn: #f5a623;
+  --warn-soft: rgba(245, 166, 35, 0.12);
   --danger: #f05a5a;
   --danger-hover: #d64d4d;
   --danger-soft: rgba(240, 90, 90, 0.12);

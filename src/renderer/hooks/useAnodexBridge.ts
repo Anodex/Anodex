@@ -8,6 +8,7 @@ import { useModelStore } from '../stores/modelStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useProviderUsageStore } from '../stores/providerUsageStore'
 import { useSchedulerStore } from '../stores/schedulerStore'
+import { useAgentStore } from '../stores/agentStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useUiStore } from '../stores/uiStore'
 
@@ -101,6 +102,13 @@ export function useAnodexBridge(): void {
       // list so a task's chat/badge shows up without a manual reload.
       void useChatStore.getState().refreshConversations()
     })
+    const offAgentRuns = anodex.agent.onRunsChanged((runs) => {
+      useAgentStore.getState().setRuns(runs)
+      // A run creates or appends to its own conversation in the main process
+      // without the renderer ever calling `chat.send` — refresh the list so
+      // its chat/badge shows up without a manual reload.
+      void useChatStore.getState().refreshConversations()
+    })
     // Clicking a scheduled-task toast asks the main window to open the
     // conversation that run produced, instead of just focusing whatever view
     // already happened to be showing.
@@ -122,6 +130,7 @@ export function useAnodexBridge(): void {
       offProviderUsage()
       offHistoryCompacted()
       offSchedulerTasks()
+      offAgentRuns()
       offToastOpenConversation()
     }
   }, [])
@@ -139,6 +148,7 @@ async function hydrate(): Promise<void> {
   const usage = await anodex.provider.getUsageSnapshot()
   useProviderUsageStore.getState().setAll(usage)
   await useSchedulerStore.getState().load()
+  await useAgentStore.getState().load()
 }
 
 /**

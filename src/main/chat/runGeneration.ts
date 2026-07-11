@@ -32,6 +32,13 @@ export interface RunGenerationIo {
   enabledTools?: Set<string> | null
   /** Overrides the user's configured permission mode for this run (scheduled tasks force one). */
   permissionModeOverride?: PermissionMode
+  /**
+   * Use this provider (and, for a cloud provider, this model) instead of the
+   * user's globally active one for this run — an agent run picking its own
+   * provider. Never mutates the global setting; every other caller (omitting
+   * this) behaves exactly as before.
+   */
+  providerOverride?: { provider: 'local' | 'anthropic' | 'openai'; model?: string }
   signal?: AbortSignal
 }
 
@@ -45,16 +52,25 @@ export interface RunGenerationResult {
 
 /**
  * The model that actually produced this turn, for token-activity stats.
+ * Defaults to the globally active provider/model; `override` lets it reflect
+ * what a run actually used instead (see `RunGenerationIo.providerOverride`) so
+ * stats never misattribute to the global provider for an overridden run.
  * `llamaService.getState()` only describes the local engine, so a cloud
  * provider's turn is attributed to its own configured model instead of
  * whatever (if anything) is loaded locally.
  */
-function activeModelDescriptor(provider: ProviderSettings): { id: string; name: string } | null {
-  if (provider.active === 'anthropic') {
-    return { id: provider.anthropic.model, name: `Claude — ${provider.anthropic.model}` }
+function activeModelDescriptor(
+  provider: ProviderSettings,
+  override?: RunGenerationIo['providerOverride']
+): { id: string; name: string } | null {
+  const activeId = override?.provider ?? provider.active
+  if (activeId === 'anthropic') {
+    const model = override?.model?.trim() || provider.anthropic.model
+    return { id: model, name: `Claude — ${model}` }
   }
-  if (provider.active === 'openai') {
-    return { id: provider.openai.model, name: `OpenAI — ${provider.openai.model}` }
+  if (activeId === 'openai') {
+    const model = override?.model?.trim() || provider.openai.model
+    return { id: model, name: `OpenAI — ${model}` }
   }
   const model = llamaService.getState().model
   return model ? { id: model.id, name: model.name } : null
@@ -131,7 +147,7 @@ export async function runGeneration(
     userInstructions: settings.ui.systemPrompt
   })
 
-  const outcome = await getActiveProvider().generate({
+  const outcome = await getActiveProvider(io.providerOverride?.provider).generate({
     conversationId: request.conversationId,
     messageId: request.messageId,
     systemPrompt,
@@ -139,6 +155,7 @@ export async function runGeneration(
     history: request.history,
     prompt: request.prompt,
     options: request.options,
+    modelOverride: io.providerOverride?.model,
     signal: io.signal,
     tools,
     onToken: (token) => io.onToken?.(token)
@@ -153,7 +170,7 @@ export async function runGeneration(
   }
 
   // Recorded regardless of `stopped` — real tokens were generated either way.
-  const modelDescriptor = activeModelDescriptor(settings.provider)
+  const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
   if (outcome.stats.tokens > 0 && modelDescriptor) {
     tokenActivityStore.recordGeneration({
       tokens: outcome.stats.tokens,
@@ -165,16 +182,18 @@ export async function runGeneration(
       modelName: modelDescriptor.name
     })
 
-    // Refresh the cloud provider usage gauge with today's new total — the
-    // daily-cap comparison lives entirely on this local tally, not on
-    // anything the provider itself reports.
-    if (settings.provider.active === 'anthropic' || settings.provider.active === 'openai') {
+    // Refresh the cloud provider usage gauge with today's new total — keyed
+    // by whichever provider actually ran (an override, if this run has one,
+    // not necessarily the global setting) — the daily-cap comparison lives
+    // entirely on this local tally, not on anything the provider itself reports.
+    const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
+    if (effectiveProviderId === 'anthropic' || effectiveProviderId === 'openai') {
       const modelIds =
-        settings.provider.active === 'anthropic'
+        effectiveProviderId === 'anthropic'
           ? ANTHROPIC_MODELS.map((m) => m.id)
           : OPENAI_MODELS.map((m) => m.id)
       providerUsageStore.recordTodayTokens(
-        settings.provider.active,
+        effectiveProviderId,
         tokenActivityStore.getTodayTokensForModelIds(modelIds)
       )
     }

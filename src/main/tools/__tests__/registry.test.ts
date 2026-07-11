@@ -33,6 +33,8 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'web_search',
   'write_plan',
   'update_plan_step',
+  'find_skill',
+  'load_skill',
   'remember_fact'
 ]
 
@@ -60,6 +62,14 @@ describe('buildTools', () => {
     for (const name of [...READ_ONLY_WORKSPACE_TOOLS, ...PROJECT_WORKSPACE_TOOLS]) {
       expect(tools).not.toHaveProperty(name)
     }
+  })
+
+  it('registers find_skill and load_skill even in a plain general chat with no workspace', () => {
+    const ctx = { ...createMockContext('/workspace'), workspaceRoot: null, projectId: null }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('find_skill')
+    expect(tools).toHaveProperty('load_skill')
   })
 
   it('registers remember_fact even in a plain general chat with no workspace or project', () => {
@@ -106,6 +116,27 @@ describe('buildTools', () => {
     expect(tools).toHaveProperty('update_project_notes')
   })
 
+  it('never registers finish_goal in an unrestricted (interactive chat) generation', () => {
+    const ctx = { ...createMockContext('/workspace'), enabledTools: null }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).not.toHaveProperty('finish_goal')
+  })
+
+  it('registers finish_goal only for a restricted run that explicitly opts into it', () => {
+    const withoutIt = {
+      ...createMockContext('/workspace'),
+      enabledTools: new Set(['read_file'])
+    }
+    expect(buildTools(createMockDefine(), withoutIt)).not.toHaveProperty('finish_goal')
+
+    const withIt = {
+      ...createMockContext('/workspace'),
+      enabledTools: new Set(['read_file', 'finish_goal'])
+    }
+    expect(buildTools(createMockDefine(), withIt)).toHaveProperty('finish_goal')
+  })
+
   it('restricts registration to only the tools named in enabledTools', () => {
     const ctx = {
       ...createMockContext('/workspace'),
@@ -120,6 +151,8 @@ describe('buildTools', () => {
     expect(tools).not.toHaveProperty('write_file')
     expect(tools).not.toHaveProperty('list_directory')
     expect(tools).not.toHaveProperty('remember_fact')
+    expect(tools).not.toHaveProperty('find_skill')
+    expect(tools).not.toHaveProperty('load_skill')
   })
 
   it('registers every allowed tool when enabledTools is null (normal chat)', () => {

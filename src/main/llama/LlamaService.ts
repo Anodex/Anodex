@@ -130,6 +130,14 @@ export interface GenerateParams {
   history: ChatHistoryTurn[]
   prompt: string
   options?: GenerationOptions
+  /**
+   * Use this model id instead of the globally configured one for this call
+   * (an agent run picking its own provider/model — see
+   * `RunGenerationIo.providerOverride`). Ignored by the local provider: only
+   * one model is ever loaded at a time in this shared engine, so there's no
+   * per-call swap, just whatever's currently loaded.
+   */
+  modelOverride?: string
   /** Called for each decoded text chunk as it is produced. */
   onToken: (token: string) => void
   signal?: AbortSignal

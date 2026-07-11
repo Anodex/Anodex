@@ -107,6 +107,9 @@ export function ChatRow({
         {conversation.origin === 'scheduled' && (
           <Icon name="clock" size={12} className={styles.scheduledIcon} />
         )}
+        {conversation.origin === 'agent' && (
+          <Icon name="wand" size={12} className={styles.scheduledIcon} />
+        )}
         <span className={styles.title}>{conversation.title}</span>
       </button>
       <span className={styles.meta}>

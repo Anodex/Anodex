@@ -225,6 +225,16 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: 'Mark a plan step as in progress or completed.'
   },
   {
+    name: 'find_skill',
+    kind: 'read',
+    description: 'Search the local skill catalog for reusable instructions.'
+  },
+  {
+    name: 'load_skill',
+    kind: 'read',
+    description: "Load a skill's full instructions by name."
+  },
+  {
     name: 'update_project_notes',
     kind: 'write',
     description:

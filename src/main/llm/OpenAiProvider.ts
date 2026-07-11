@@ -52,7 +52,7 @@ class OpenAiProvider implements LlmProvider {
     }
 
     const client = new OpenAI({ apiKey })
-    const model = settings.model.trim() || DEFAULT_OPENAI_MODEL
+    const model = params.modelOverride?.trim() || settings.model.trim() || DEFAULT_OPENAI_MODEL
 
     const toolFunctions = params.tools
       ? buildTools(defineToolFunction, {

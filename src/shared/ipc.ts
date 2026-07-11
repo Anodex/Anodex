@@ -53,6 +53,7 @@ import type {
   ScheduledTask,
   UpdateScheduledTaskRequest
 } from './scheduledTask.types'
+import type { AgentRun, CreateAgentRunRequest } from './agentRun.types'
 
 export const IpcChannel = {
   Models: {
@@ -206,6 +207,14 @@ export const IpcChannel = {
     setKeepAwake: 'scheduler:set-keep-awake',
     /** main → renderer broadcast whenever tasks change (create/update/delete/run). */
     tasksChanged: 'scheduler:tasks-changed'
+  },
+  Agent: {
+    list: 'agent:list',
+    create: 'agent:create',
+    stop: 'agent:stop',
+    delete: 'agent:delete',
+    /** main → renderer broadcast whenever a run changes (create/turn/finish/delete). */
+    runsChanged: 'agent:runs-changed'
   }
 } as const
 
@@ -413,5 +422,12 @@ export interface AnodexApi {
     getKeepAwake(): Promise<boolean>
     setKeepAwake(value: boolean): Promise<boolean>
     onTasksChanged(listener: (tasks: ScheduledTask[]) => void): () => void
+  }
+  agent: {
+    list(): Promise<AgentRun[]>
+    create(request: CreateAgentRunRequest): Promise<AgentRun>
+    stop(id: string): Promise<void>
+    delete(id: string): Promise<void>
+    onRunsChanged(listener: (runs: AgentRun[]) => void): () => void
   }
 }

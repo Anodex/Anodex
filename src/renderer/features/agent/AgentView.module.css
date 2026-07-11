@@ -1,0 +1,187 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 900px;
+  height: 100%;
+  margin: 0 auto;
+  padding: var(--space-6);
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.subtitle {
+  margin: calc(var(--space-3) * -1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-base);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-10) 0;
+  color: var(--text-faint);
+}
+
+.emptyIcon {
+  color: var(--text-faint);
+}
+
+.runList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.runCard {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast);
+}
+
+.runCard:hover {
+  border-color: var(--border-strong);
+}
+
+.runMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.runTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+}
+
+.status-running {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.status-done {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.status-stopped {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.status-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.runProject {
+  padding: 1px var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-pill);
+}
+
+.runGoal {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.runResult {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.runResultError {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.runActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+}
+
+.iconAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.iconAction:hover {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.iconAction:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

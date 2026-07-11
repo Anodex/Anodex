@@ -6,6 +6,7 @@ import type { ToolActivityEvent, ToolConfirmRequest } from '@shared/tools.types'
 import type { UpdateStatus } from '@shared/update.types'
 import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
 import type { ScheduledTask } from '@shared/scheduledTask.types'
+import type { AgentRun } from '@shared/agentRun.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -160,6 +161,13 @@ const api: AnodexApi = {
     setKeepAwake: (value) => ipcRenderer.invoke(IpcChannel.Scheduler.setKeepAwake, value),
     onTasksChanged: (listener) =>
       subscribe<ScheduledTask[]>(IpcChannel.Scheduler.tasksChanged, listener)
+  },
+  agent: {
+    list: () => ipcRenderer.invoke(IpcChannel.Agent.list),
+    create: (request) => ipcRenderer.invoke(IpcChannel.Agent.create, request),
+    stop: (id) => ipcRenderer.invoke(IpcChannel.Agent.stop, id),
+    delete: (id) => ipcRenderer.invoke(IpcChannel.Agent.delete, id),
+    onRunsChanged: (listener) => subscribe<AgentRun[]>(IpcChannel.Agent.runsChanged, listener)
   }
 }
 

@@ -16,6 +16,9 @@ import { cancelAllDownloads } from './llama/modelDownloader'
 import { schedulerStore } from './scheduler/SchedulerStore'
 import { schedulerService } from './scheduler/SchedulerService'
 import { setKeepAwake } from './scheduler/keepAwake'
+import { skillStore } from './skills/SkillStore'
+import { agentRunStore } from './agents/AgentRunStore'
+import { agentRunService } from './agents/AgentRunService'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('main')
@@ -53,6 +56,8 @@ if (!app.requestSingleInstanceLock()) {
       modelReliabilityStore.init()
       tokenActivityStore.init()
       updateService.init()
+      skillStore.init()
+      agentRunStore.init()
       schedulerStore.init()
       schedulerService.init()
       setKeepAwake(settingsStore.get().scheduler.keepAwake)
@@ -81,6 +86,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('will-quit', () => {
     abortAllChatGenerations()
     schedulerService.stop()
+    agentRunService.stopAll()
     cancelAllDownloads()
     closeToast()
     llamaService.unload().catch((error) => {
