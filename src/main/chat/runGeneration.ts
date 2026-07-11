@@ -4,10 +4,12 @@ import type { MemoryEntry } from '@shared/memory.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
+import { DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS } from '@shared/contextBudget'
 import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService } from '../llama/LlamaService'
+import { boundHistoryForCloudProvider } from '../llama/contextAssembler'
 import { providerUsageStore } from '../llm/ProviderUsageStore'
 import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
@@ -15,6 +17,7 @@ import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { buildWorkspaceContext } from '../tools/workspaceContext'
 import { buildMemoryContext } from '../memory/MemoryRetriever'
+import { chatEvents } from './chatEvents'
 
 /**
  * Everything a caller of {@link runGeneration} decides — how (or whether) to
@@ -74,6 +77,20 @@ function activeModelDescriptor(
   }
   const model = llamaService.getState().model
   return model ? { id: model.id, name: model.name } : null
+}
+
+/**
+ * Conservative context-window budget for a cloud model, used to bound
+ * history before it's sent (see `boundHistoryForCloudProvider`). Falls back
+ * to `DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS` for a custom/typed-in model id
+ * with no known catalog entry, so an unrecognized model still gets bounded
+ * instead of replaying history unboundedly.
+ */
+function cloudContextWindowTokens(providerId: 'openai' | 'anthropic', modelId: string): number {
+  const models = providerId === 'anthropic' ? ANTHROPIC_MODELS : OPENAI_MODELS
+  return (
+    models.find((m) => m.id === modelId)?.contextWindowTokens ?? DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS
+  )
 }
 
 /**
@@ -148,12 +165,51 @@ export async function runGeneration(
     userInstructions: settings.ui.systemPrompt
   })
 
+  // Resolved once and reused below for both cloud context bounding (before
+  // generation) and stats attribution (after) — a cloud provider's turn must
+  // attribute to its own configured model, not whatever's loaded locally.
+  const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
+  const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
+
+  // The local engine applies persisted-snapshot seeding and real-tokenizer
+  // budget splitting internally (`LlamaService.generate` →
+  // `compactHistoryForSession`). OpenAI/Anthropic have no such step of their
+  // own and would otherwise replay the entire history every turn — bound it
+  // here instead, using a conservative character-based token estimate since
+  // there's no real tokenizer for a cloud model. No summarization yet (that's
+  // a follow-up slice): turns that don't fit are just omitted, and the
+  // renderer is notified so it's visible rather than a silent context loss.
+  let boundedSystemPrompt: string | undefined = systemPrompt
+  let boundedHistory = request.history
+  if (
+    (effectiveProviderId === 'openai' || effectiveProviderId === 'anthropic') &&
+    modelDescriptor
+  ) {
+    const bounded = boundHistoryForCloudProvider(
+      systemPrompt,
+      request.history,
+      request.context,
+      cloudContextWindowTokens(effectiveProviderId, modelDescriptor.id)
+    )
+    boundedSystemPrompt = bounded.systemPrompt
+    boundedHistory = bounded.history
+    if (bounded.omittedTurns > 0) {
+      chatEvents.emitHistoryCompacted({
+        conversationId: request.conversationId,
+        removedTurns: bounded.omittedTurns,
+        reason: 'proactive',
+        summarized: false,
+        createdAt: Date.now()
+      })
+    }
+  }
+
   const outcome = await getActiveProvider(io.providerOverride?.provider).generate({
     conversationId: request.conversationId,
     messageId: request.messageId,
-    systemPrompt,
+    systemPrompt: boundedSystemPrompt,
     context: request.context,
-    history: request.history,
+    history: boundedHistory,
     prompt: request.prompt,
     options: request.options,
     modelOverride: io.providerOverride?.model,
@@ -171,7 +227,6 @@ export async function runGeneration(
   }
 
   // Recorded regardless of `stopped` — real tokens were generated either way.
-  const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
   if (outcome.stats.tokens > 0 && modelDescriptor) {
     tokenActivityStore.recordGeneration({
       tokens: outcome.stats.tokens,
@@ -187,7 +242,6 @@ export async function runGeneration(
     // by whichever provider actually ran (an override, if this run has one,
     // not necessarily the global setting) — the daily-cap comparison lives
     // entirely on this local tally, not on anything the provider itself reports.
-    const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
     if (effectiveProviderId === 'anthropic' || effectiveProviderId === 'openai') {
       const modelIds =
         effectiveProviderId === 'anthropic'

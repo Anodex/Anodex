@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { llamaService } from '../llama/LlamaService'
+import { chatEvents } from '../chat/chatEvents'
 import { providerUsageStore } from '../llm/ProviderUsageStore'
 import { registerChatHandlers } from './chat.handlers'
 import { registerModelHandlers } from './model.handlers'
@@ -56,8 +57,16 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  // Push context-compaction notices to every open renderer window.
+  // Push context-compaction notices to every open renderer window. Local
+  // generations emit via `llamaService`; cloud generations (no engine object
+  // of their own) emit the identical event shape via `chatEvents` instead —
+  // both funnel into the same IPC channel below.
   llamaService.on('historyCompacted', (event) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Chat.historyCompacted, event)
+    }
+  })
+  chatEvents.on('historyCompacted', (event) => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send(IpcChannel.Chat.historyCompacted, event)
     }

@@ -3,6 +3,7 @@ import type { ConversationContext } from '@shared/context.types'
 import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { MAX_MODEL_TOOL_RESULT_CHARS } from '@shared/contextBudget'
+import { APPROX_CHARS_PER_TOKEN } from '@shared/contextProjection'
 import {
   buildCompactionSystemPrompt,
   MIN_CHARS_TO_SUMMARIZE,
@@ -172,6 +173,48 @@ export function seedContextFromSnapshot(
     summary: snapshot.summary,
     throughMessageId: snapshot.throughMessageId
   }
+}
+
+export interface CloudBoundedContext {
+  systemPrompt: string | undefined
+  history: ChatHistoryTurn[]
+  /** Older turns dropped from this turn's context because they didn't fit — never summarized. */
+  omittedTurns: number
+}
+
+/**
+ * Bound history for a provider with no exact tokenizer or summarizer wired up
+ * yet (OpenAI/Anthropic, until cloud compaction-summary support lands — see
+ * `assembleModelContext` above for the full local snapshot+summarize
+ * pipeline this deliberately mirrors a smaller slice of). Applies the same
+ * persisted snapshot seeding as the local engine, then drops — never
+ * summarizes — whatever still doesn't fit a conservative character-based
+ * token estimate, since Anodex has no real tokenizer for cloud models.
+ */
+export function boundHistoryForCloudProvider(
+  systemPrompt: string | undefined,
+  history: ChatHistoryTurn[],
+  context: ConversationContext | null | undefined,
+  contextWindowTokens: number
+): CloudBoundedContext {
+  const seeded = seedContextFromSnapshot(systemPrompt, history, context)
+  const budget = historyBudgetTokens(seeded.systemPrompt, contextWindowTokens, estimateTokensApprox)
+  const split = splitHistoryByTokenBudget(seeded.history, budget, estimateTokensApprox)
+  return {
+    systemPrompt: seeded.systemPrompt,
+    history: split.recent,
+    omittedTurns: split.older.length
+  }
+}
+
+/**
+ * Character-based token estimate — the same conservative approximation the
+ * renderer's context meter uses (`contextProjection.ts`), reused here since
+ * Anodex has no real tokenizer for cloud models the way it does for the local
+ * engine (`LlamaModel.tokenize`).
+ */
+function estimateTokensApprox(text: string): number {
+  return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN)
 }
 
 async function summarizeTurns(

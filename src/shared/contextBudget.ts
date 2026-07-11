@@ -26,6 +26,14 @@ export const MANUAL_COMPACTION_RECENT_TURNS = 6
  */
 export const MAX_MODEL_TOOL_RESULT_CHARS = 1_200
 
+/**
+ * Conservative context-window fallback for a cloud model with no known
+ * `contextWindowTokens` entry (e.g. a custom/typed-in model override). Well
+ * below every current OpenAI/Anthropic model's real window so an unrecognized
+ * model still gets bounded instead of replaying history unboundedly.
+ */
+export const DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS = 128_000
+
 /** Non-history token reservation for the given context window. */
 export function reservedNonHistoryTokens(contextSize: number): number {
   return Math.min(

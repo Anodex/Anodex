@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatHistoryTurn } from '@shared/chat.types'
 import {
   assembleModelContext,
+  boundHistoryForCloudProvider,
   MAX_MODEL_TOOL_RESULT_CHARS,
   projectHistoryForModel,
   rememberToolCallForModel,
@@ -186,5 +187,60 @@ describe('seedContextFromSnapshot', () => {
 
     expect(seeded.applied).toBe(false)
     expect(seeded.history).toEqual(history)
+  })
+})
+
+describe('boundHistoryForCloudProvider', () => {
+  it('keeps history verbatim and reports no omissions when it fits the budget', () => {
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' }
+    ]
+
+    const bounded = boundHistoryForCloudProvider('be helpful', history, null, 10_000)
+
+    expect(bounded.systemPrompt).toBe('be helpful')
+    expect(bounded.history).toEqual(history)
+    expect(bounded.omittedTurns).toBe(0)
+  })
+
+  it('drops (never summarizes) older turns that do not fit the estimated budget', () => {
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'A'.repeat(3_000) },
+      { id: 'm2', role: 'assistant', content: 'latest' }
+    ]
+
+    const bounded = boundHistoryForCloudProvider(undefined, history, null, 1_000)
+
+    expect(bounded.omittedTurns).toBe(1)
+    expect(bounded.history).toEqual([history[1]])
+  })
+
+  it('applies a persisted snapshot before bounding, same as the local engine', () => {
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'old request' },
+      { id: 'm2', role: 'assistant', content: 'old answer' },
+      { id: 'm3', role: 'user', content: 'latest request' }
+    ]
+
+    const bounded = boundHistoryForCloudProvider(
+      'system',
+      history,
+      {
+        activeSnapshot: {
+          id: 'ctx1',
+          createdAt: 1,
+          reason: 'onLoad',
+          throughMessageId: 'm2',
+          removedTurns: 2,
+          summary: 'User asked about old request and assistant answered.'
+        }
+      },
+      10_000
+    )
+
+    expect(bounded.systemPrompt).toContain('Summary of earlier conversation')
+    expect(bounded.history).toEqual([history[2]])
+    expect(bounded.omittedTurns).toBe(0)
   })
 })

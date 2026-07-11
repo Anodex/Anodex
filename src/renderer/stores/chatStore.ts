@@ -208,7 +208,10 @@ export const useChatStore = create<ChatState>()(
             `Add a ${providerLabel} API key in Settings → AI & Models to start chatting.`
           )
         } else {
-          notifyError('No model loaded', 'Load a model in Settings → AI & Models to start chatting.')
+          notifyError(
+            'No model loaded',
+            'Load a model in Settings → AI & Models to start chatting.'
+          )
         }
         return
       }
@@ -500,7 +503,22 @@ export const useChatStore = create<ChatState>()(
     },
 
     applyHistoryCompaction: (event) => {
-      if (!event.summarized || !event.summary || !event.compactedThroughMessageId) return
+      if (!event.summarized || !event.summary || !event.compactedThroughMessageId) {
+        // Turns were omitted but not summarized (e.g. a cloud provider with
+        // no summarizer wired up yet) — nothing to seed a snapshot from, but
+        // the user should still know older context silently stopped being
+        // sent, same reasoning as the summarized-toast below.
+        if (event.reason === 'proactive' || event.reason === 'reactive') {
+          useUiStore.getState().notify({
+            kind: 'info',
+            title: 'Older context omitted',
+            message: `This conversation reached the model's context limit — ${
+              event.removedTurns
+            } older turn${event.removedTurns === 1 ? ' was' : 's were'} left out of this reply (no summary available yet).`
+          })
+        }
+        return
+      }
       const summary = event.summary
       const throughMessageId = event.compactedThroughMessageId
 
