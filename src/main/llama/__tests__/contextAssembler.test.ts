@@ -191,39 +191,41 @@ describe('seedContextFromSnapshot', () => {
 })
 
 describe('boundHistoryForCloudProvider', () => {
-  it('keeps history verbatim and reports no omissions when it fits the budget', () => {
+  it('keeps history verbatim and reports no omissions when it fits the budget', async () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'hello' }
     ]
 
-    const bounded = boundHistoryForCloudProvider('be helpful', history, null, 10_000)
+    const bounded = await boundHistoryForCloudProvider('be helpful', history, null, 10_000)
 
     expect(bounded.systemPrompt).toBe('be helpful')
     expect(bounded.history).toEqual(history)
     expect(bounded.omittedTurns).toBe(0)
+    expect(bounded.summarized).toBe(false)
   })
 
-  it('drops (never summarizes) older turns that do not fit the estimated budget', () => {
+  it('drops (never summarizes) older turns that do not fit the estimated budget, with no summarizer', async () => {
     const history: ChatHistoryTurn[] = [
       { id: 'm1', role: 'user', content: 'A'.repeat(3_000) },
       { id: 'm2', role: 'assistant', content: 'latest' }
     ]
 
-    const bounded = boundHistoryForCloudProvider(undefined, history, null, 1_000)
+    const bounded = await boundHistoryForCloudProvider(undefined, history, null, 1_000)
 
     expect(bounded.omittedTurns).toBe(1)
     expect(bounded.history).toEqual([history[1]])
+    expect(bounded.summarized).toBe(false)
   })
 
-  it('applies a persisted snapshot before bounding, same as the local engine', () => {
+  it('applies a persisted snapshot before bounding, same as the local engine', async () => {
     const history: ChatHistoryTurn[] = [
       { id: 'm1', role: 'user', content: 'old request' },
       { id: 'm2', role: 'assistant', content: 'old answer' },
       { id: 'm3', role: 'user', content: 'latest request' }
     ]
 
-    const bounded = boundHistoryForCloudProvider(
+    const bounded = await boundHistoryForCloudProvider(
       'system',
       history,
       {
@@ -242,5 +244,43 @@ describe('boundHistoryForCloudProvider', () => {
     expect(bounded.systemPrompt).toContain('Summary of earlier conversation')
     expect(bounded.history).toEqual([history[2]])
     expect(bounded.omittedTurns).toBe(0)
+  })
+
+  it('summarizes overflow via the supplied summarizer instead of dropping it', async () => {
+    // Character counts here are calibrated for the real ~4-chars-per-token
+    // estimate `boundHistoryForCloudProvider` actually uses (unlike
+    // `assembleModelContext`'s own tests above, which inject a 1-char-per-
+    // token `countTokens` and can use much smaller strings).
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'A'.repeat(2_000) },
+      { id: 'm2', role: 'assistant', content: 'B'.repeat(2_000) },
+      { id: 'm3', role: 'user', content: 'recent question' },
+      { id: 'm4', role: 'assistant', content: 'recent answer' }
+    ]
+
+    const bounded = await boundHistoryForCloudProvider('system', history, null, 700, (transcript) =>
+      Promise.resolve(`Summary: ${transcript.slice(0, 60)}`)
+    )
+
+    expect(bounded.summarized).toBe(true)
+    expect(bounded.omittedTurns).toBeGreaterThan(0)
+    expect(bounded.systemPrompt).toContain('Summary of earlier conversation')
+    expect(bounded.history.at(-1)).toEqual(history.at(-1))
+    expect(bounded.compactedThroughMessageId).toBeTruthy()
+  })
+
+  it('falls back to dropping when the summarizer fails or returns a degenerate result', async () => {
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'a'.repeat(2_000) },
+      { id: 'm2', role: 'assistant', content: 'b'.repeat(2_000) },
+      { id: 'm3', role: 'user', content: 'latest' }
+    ]
+
+    const bounded = await boundHistoryForCloudProvider(undefined, history, null, 700, () =>
+      Promise.resolve(null)
+    )
+
+    expect(bounded.summarized).toBe(false)
+    expect(bounded.history).toEqual([history[2]])
   })
 })

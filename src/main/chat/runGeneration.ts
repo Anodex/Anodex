@@ -10,6 +10,8 @@ import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService } from '../llama/LlamaService'
 import { boundHistoryForCloudProvider } from '../llama/contextAssembler'
+import { summarizeForCompactionOpenAi } from '../llm/OpenAiProvider'
+import { summarizeForCompactionAnthropic } from '../llm/AnthropicProvider'
 import { providerUsageStore } from '../llm/ProviderUsageStore'
 import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
@@ -93,6 +95,13 @@ function cloudContextWindowTokens(providerId: 'openai' | 'anthropic', modelId: s
   )
 }
 
+/** The narrow, tool-free summarizer this provider uses for context compaction. */
+function cloudSummarizer(
+  providerId: 'openai' | 'anthropic'
+): (transcript: string) => Promise<string | null> {
+  return providerId === 'anthropic' ? summarizeForCompactionAnthropic : summarizeForCompactionOpenAi
+}
+
 /**
  * Runs one assistant turn: composes the system prompt (workspace context,
  * project rules, retrieved memory), builds the tool set if enabled, calls the
@@ -171,25 +180,29 @@ export async function runGeneration(
   const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
   const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
 
-  // The local engine applies persisted-snapshot seeding and real-tokenizer
-  // budget splitting internally (`LlamaService.generate` →
-  // `compactHistoryForSession`). OpenAI/Anthropic have no such step of their
-  // own and would otherwise replay the entire history every turn — bound it
-  // here instead, using a conservative character-based token estimate since
-  // there's no real tokenizer for a cloud model. No summarization yet (that's
-  // a follow-up slice): turns that don't fit are just omitted, and the
-  // renderer is notified so it's visible rather than a silent context loss.
+  // The local engine applies persisted-snapshot seeding, real-tokenizer
+  // budget splitting, and summarization internally (`LlamaService.generate`
+  // → `compactHistoryForSession`). OpenAI/Anthropic have no such step of
+  // their own and would otherwise replay the entire history every turn —
+  // bound it here instead, using a conservative character-based token
+  // estimate since there's no real tokenizer for a cloud model, and the same
+  // provider's own narrow, tool-free summary call for overflow (isolated
+  // from this turn's real generation, memory writes, usage stats, and
+  // project activity recording). Turns that still don't fit after a failed
+  // or degenerate summary are just omitted, and the renderer is notified
+  // either way so it's visible rather than a silent context loss.
   let boundedSystemPrompt: string | undefined = systemPrompt
   let boundedHistory = request.history
   if (
     (effectiveProviderId === 'openai' || effectiveProviderId === 'anthropic') &&
     modelDescriptor
   ) {
-    const bounded = boundHistoryForCloudProvider(
+    const bounded = await boundHistoryForCloudProvider(
       systemPrompt,
       request.history,
       request.context,
-      cloudContextWindowTokens(effectiveProviderId, modelDescriptor.id)
+      cloudContextWindowTokens(effectiveProviderId, modelDescriptor.id),
+      cloudSummarizer(effectiveProviderId)
     )
     boundedSystemPrompt = bounded.systemPrompt
     boundedHistory = bounded.history
@@ -198,7 +211,9 @@ export async function runGeneration(
         conversationId: request.conversationId,
         removedTurns: bounded.omittedTurns,
         reason: 'proactive',
-        summarized: false,
+        summarized: bounded.summarized,
+        summary: bounded.summary,
+        compactedThroughMessageId: bounded.compactedThroughMessageId,
         createdAt: Date.now()
       })
     }

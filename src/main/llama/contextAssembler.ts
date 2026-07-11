@@ -178,32 +178,67 @@ export function seedContextFromSnapshot(
 export interface CloudBoundedContext {
   systemPrompt: string | undefined
   history: ChatHistoryTurn[]
-  /** Older turns dropped from this turn's context because they didn't fit — never summarized. */
+  /** Older turns removed from this turn's context, summarized or dropped. */
   omittedTurns: number
+  /** Whether `omittedTurns` were actually condensed into a summary, vs. just dropped. */
+  summarized: boolean
+  /** New summary created this call, if any (excludes a previously persisted snapshot). */
+  summary?: string
+  /** Last original message represented by `summary`, if known. */
+  compactedThroughMessageId?: string | null
 }
 
 /**
- * Bound history for a provider with no exact tokenizer or summarizer wired up
- * yet (OpenAI/Anthropic, until cloud compaction-summary support lands — see
- * `assembleModelContext` above for the full local snapshot+summarize
- * pipeline this deliberately mirrors a smaller slice of). Applies the same
- * persisted snapshot seeding as the local engine, then drops — never
- * summarizes — whatever still doesn't fit a conservative character-based
- * token estimate, since Anodex has no real tokenizer for cloud models.
+ * Bound history for a provider with no exact tokenizer of its own (OpenAI/
+ * Anthropic — Anodex estimates their tokens from character count instead).
+ * Always applies the same persisted-snapshot seeding the local engine uses.
+ * With no `summarizeOlderTurns` supplied, turns that don't fit are dropped,
+ * never summarized (used before a cloud summarizer existed, and still the
+ * fallback if a caller doesn't have one). With one supplied, delegates to the
+ * same `assembleModelContext` pipeline the local engine uses, so cloud
+ * conversations get the identical summarize-and-fold-back behavior — just
+ * with a cloud model doing the summarizing instead of the local engine.
  */
-export function boundHistoryForCloudProvider(
+export async function boundHistoryForCloudProvider(
   systemPrompt: string | undefined,
   history: ChatHistoryTurn[],
   context: ConversationContext | null | undefined,
-  contextWindowTokens: number
-): CloudBoundedContext {
+  contextWindowTokens: number,
+  summarizeOlderTurns?: (transcript: string) => Promise<string | null>
+): Promise<CloudBoundedContext> {
   const seeded = seedContextFromSnapshot(systemPrompt, history, context)
-  const budget = historyBudgetTokens(seeded.systemPrompt, contextWindowTokens, estimateTokensApprox)
-  const split = splitHistoryByTokenBudget(seeded.history, budget, estimateTokensApprox)
-  return {
+
+  if (!summarizeOlderTurns) {
+    const budget = historyBudgetTokens(
+      seeded.systemPrompt,
+      contextWindowTokens,
+      estimateTokensApprox
+    )
+    const split = splitHistoryByTokenBudget(seeded.history, budget, estimateTokensApprox)
+    return {
+      systemPrompt: seeded.systemPrompt,
+      history: split.recent,
+      omittedTurns: split.older.length,
+      summarized: false
+    }
+  }
+
+  const assembled = await assembleModelContext({
     systemPrompt: seeded.systemPrompt,
-    history: split.recent,
-    omittedTurns: split.older.length
+    history: seeded.history,
+    contextSize: contextWindowTokens,
+    countTokens: estimateTokensApprox,
+    summarizeOlderTurns
+  })
+
+  return {
+    systemPrompt: assembled.systemPrompt,
+    history: assembled.history,
+    omittedTurns: assembled.removedTurns,
+    summarized: assembled.summarized,
+    summary: mergeContextSummaries(seeded.summary, assembled.summary),
+    compactedThroughMessageId:
+      assembled.compactedThroughMessageId ?? seeded.throughMessageId ?? null
   }
 }
 
@@ -215,6 +250,21 @@ export function boundHistoryForCloudProvider(
  */
 function estimateTokensApprox(text: string): number {
   return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN)
+}
+
+/**
+ * Combine the prior context epoch summary with a newly compacted chunk.
+ * Shared by the local engine and `boundHistoryForCloudProvider` — both fold
+ * a persisted snapshot's summary together with whatever gets freshly
+ * compacted in the same turn.
+ */
+export function mergeContextSummaries(
+  previous: string | undefined,
+  next: string | undefined
+): string | undefined {
+  if (!previous) return next
+  if (!next) return previous
+  return `${previous}\n\nAdditional compacted context:\n${next}`
 }
 
 async function summarizeTurns(

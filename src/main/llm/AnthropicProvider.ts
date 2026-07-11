@@ -3,6 +3,11 @@ import type { ChatHistoryTurn, GenerationStats } from '@shared/chat.types'
 import { DEFAULT_ANTHROPIC_MODEL } from '@shared/anthropicModels'
 import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
 import { projectHistoryForModel, rememberToolCallForModel } from '../llama/contextAssembler'
+import {
+  buildCompactionSummaryPrompt,
+  MAX_COMPACTION_SUMMARY_WORDS,
+  MIN_SUMMARY_CHARS
+} from '../llama/compaction'
 import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { settingsStore } from '../settings/SettingsStore'
@@ -170,7 +175,11 @@ function captureRateLimitHeaders(response: Response | null | undefined): void {
     const remaining = Number(response.headers.get('anthropic-ratelimit-tokens-remaining'))
     const resetAt = Date.parse(response.headers.get('anthropic-ratelimit-tokens-reset') ?? '')
     if (!Number.isFinite(limit) || !Number.isFinite(remaining) || !Number.isFinite(resetAt)) return
-    providerUsageStore.recordRateLimit('anthropic', { tokensLimit: limit, tokensRemaining: remaining, resetAt })
+    providerUsageStore.recordRateLimit('anthropic', {
+      tokensLimit: limit,
+      tokensRemaining: remaining,
+      resetAt
+    })
   } catch (error) {
     log.warn('Failed to read Anthropic rate-limit headers:', error)
   }
@@ -248,6 +257,40 @@ function toInputSchema(params: ToolFunction['params']): Anthropic.Tool.InputSche
     type: 'object',
     properties,
     required: Object.keys(properties)
+  }
+}
+
+/**
+ * Narrow, tool-free summary call used only for cloud context compaction (see
+ * `boundHistoryForCloudProvider` in `contextAssembler.ts`) — isolated from
+ * normal generation: no tools, no streaming, no activity/stats recording.
+ * Best-effort, matching the local engine's equivalent: `null` on any failure
+ * or a degenerate (too-short) result, so the caller falls back to just
+ * dropping the older turns instead of keeping a useless "summary".
+ */
+export async function summarizeForCompactionAnthropic(transcript: string): Promise<string | null> {
+  const settings = settingsStore.get().provider.anthropic
+  const apiKey = settings.apiKey.trim()
+  if (!apiKey) return null
+
+  const client = new Anthropic({ apiKey })
+  const model = settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
+
+  try {
+    const response = await client.messages.create({
+      model,
+      max_tokens: Math.max(256, MAX_COMPACTION_SUMMARY_WORDS * 4),
+      messages: [{ role: 'user', content: buildCompactionSummaryPrompt(transcript) }]
+    })
+    const text = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+      .trim()
+    return text.length >= MIN_SUMMARY_CHARS ? text : null
+  } catch (error) {
+    log.warn('Cloud history compaction summary failed:', error)
+    return null
   }
 }
 

@@ -9,6 +9,11 @@ import type { ChatHistoryTurn, GenerationStats } from '@shared/chat.types'
 import { DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
 import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
 import { projectHistoryForModel, rememberToolCallForModel } from '../llama/contextAssembler'
+import {
+  buildCompactionSummaryPrompt,
+  MAX_COMPACTION_SUMMARY_WORDS,
+  MIN_SUMMARY_CHARS
+} from '../llama/compaction'
 import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { settingsStore } from '../settings/SettingsStore'
@@ -238,6 +243,36 @@ function toParametersSchema(params: ToolFunction['params']): Record<string, unkn
     type: 'object',
     properties,
     required: Object.keys(properties)
+  }
+}
+
+/**
+ * Narrow, tool-free summary call used only for cloud context compaction (see
+ * `boundHistoryForCloudProvider` in `contextAssembler.ts`) — isolated from
+ * normal generation: no tools, no streaming, no activity/stats recording.
+ * Best-effort, matching the local engine's equivalent: `null` on any failure
+ * or a degenerate (too-short) result, so the caller falls back to just
+ * dropping the older turns instead of keeping a useless "summary".
+ */
+export async function summarizeForCompactionOpenAi(transcript: string): Promise<string | null> {
+  const settings = settingsStore.get().provider.openai
+  const apiKey = settings.apiKey.trim()
+  if (!apiKey) return null
+
+  const client = new OpenAI({ apiKey })
+  const model = settings.model.trim() || DEFAULT_OPENAI_MODEL
+
+  try {
+    const response = await client.responses.create({
+      model,
+      max_output_tokens: Math.max(256, MAX_COMPACTION_SUMMARY_WORDS * 4),
+      input: [{ role: 'user', content: buildCompactionSummaryPrompt(transcript) }]
+    })
+    const text = response.output_text?.trim() ?? ''
+    return text.length >= MIN_SUMMARY_CHARS ? text : null
+  } catch (error) {
+    log.warn('Cloud history compaction summary failed:', error)
+    return null
   }
 }
 
