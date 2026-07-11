@@ -14,11 +14,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({
   ipcMain: {
-    handle: vi.fn(
-      (channel: string, handler: IpcTestHandler) => {
-        mocks.handlers.set(channel, handler)
-      }
-    )
+    handle: vi.fn((channel: string, handler: IpcTestHandler) => {
+      mocks.handlers.set(channel, handler)
+    })
   }
 }))
 
@@ -33,6 +31,12 @@ vi.mock('../../settings/SettingsStore', () => ({
       general: { permissionMode: 'ask', defaultShell: '' },
       webSearch: { provider: 'duckduckgo', requireApproval: false },
       memory: { crossChatEnabled: false, personalEnabled: false },
+      transcriptRecall: {
+        enabled: false,
+        crossScopeEnabled: false,
+        archivedEnabled: false,
+        cloudProviderEnabled: false
+      },
       ui: { systemPrompt: '' },
       generation: { temperature: 0.7, topP: 0.9, maxTokens: 512 },
       provider: { active: 'local', anthropic: { apiKey: '', model: 'claude-sonnet-5' } }
@@ -95,19 +99,16 @@ describe('chat IPC handlers', () => {
       }
     }
 
-    await handler?.(
-      { sender: { isDestroyed: () => false, send: vi.fn() } },
-      {
-        conversationId: 'c1',
-        messageId: 'm3',
-        projectId: null,
-        systemPrompt: 'be direct',
-        context,
-        history: [{ id: 'm2', role: 'assistant', content: 'Older answer.' }],
-        prompt: 'continue',
-        plan: null
-      } satisfies ChatRequest
-    )
+    await handler?.({ sender: { isDestroyed: () => false, send: vi.fn() } }, {
+      conversationId: 'c1',
+      messageId: 'm3',
+      projectId: null,
+      systemPrompt: 'be direct',
+      context,
+      history: [{ id: 'm2', role: 'assistant', content: 'Older answer.' }],
+      prompt: 'continue',
+      plan: null
+    } satisfies ChatRequest)
 
     expect(mocks.generate).toHaveBeenCalledWith(expect.objectContaining({ context }))
   })

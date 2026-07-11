@@ -1,4 +1,10 @@
-/** Small, dependency-free text similarity helpers shared by retrieval and dedup. */
+/**
+ * Small, dependency-free text similarity helpers shared by retrieval and
+ * dedup. Lives in `shared/` (not `main/`) since both the main process
+ * (structured memory, project recall, transcript search) and the renderer
+ * (a client-side transcript search UI, working on data it already has
+ * loaded) use it — no Node/Electron APIs, pure string operations only.
+ */
 
 const MIN_WORD_LENGTH = 4
 

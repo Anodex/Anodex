@@ -289,6 +289,9 @@ export const useChatStore = create<ChatState>()(
             Boolean(projectId)
           )
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
+          if (result.value.transcriptRecallUsed?.length) {
+            message.transcriptRecallUsed = result.value.transcriptRecallUsed
+          }
         } else {
           if (message.toolCalls?.length) {
             const toolNames = TOOL_CATALOG.map((tool) => tool.name)

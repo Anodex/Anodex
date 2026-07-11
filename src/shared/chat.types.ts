@@ -3,6 +3,7 @@
 import type { ToolCall } from './tools.types'
 import type { Plan } from './plan.types'
 import type { MemoryEntry } from './memory.types'
+import type { TranscriptRecallResult } from './transcriptRecall.types'
 import type { ConversationContext, ConversationContextSnapshot } from './context.types'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
@@ -55,6 +56,8 @@ export interface ChatMessage {
   attachments?: ChatAttachment[]
   /** Memory entries that were retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
+  /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
+  transcriptRecallUsed?: TranscriptRecallResult[]
 }
 
 /** Sampling parameters for a single generation. */
@@ -159,4 +162,6 @@ export interface ChatResult {
   stopped: boolean
   /** Memory entries that were retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
+  /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
+  transcriptRecallUsed?: TranscriptRecallResult[]
 }

@@ -1,6 +1,6 @@
 import type { MemoryEntry } from '@shared/memory.types'
+import { wordSet } from '@shared/textSimilarity'
 import { memoryStore } from './MemoryStore'
-import { wordSet } from './textSimilarity'
 
 /**
  * Builds the `# Memory` prompt section from stored entries. Deliberately not

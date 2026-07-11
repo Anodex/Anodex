@@ -108,6 +108,12 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       crossChatEnabled: true,
       personalEnabled: true
     },
+    transcriptRecall: {
+      enabled: true,
+      crossScopeEnabled: false,
+      archivedEnabled: false,
+      cloudProviderEnabled: true
+    },
     scheduler: {
       keepAwake: false
     },

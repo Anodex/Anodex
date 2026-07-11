@@ -185,6 +185,28 @@ export interface MemorySettings {
   personalEnabled: boolean
 }
 
+export interface TranscriptRecallSettings {
+  /** Master toggle for automatic cross-session transcript recall. */
+  enabled: boolean
+  /**
+   * Search past chats outside the current scope too — every project and
+   * every general chat — instead of just the active project's own history
+   * (or general chats only, in a non-project chat). Off by default: recall
+   * should stay scoped to what the current conversation is actually about
+   * unless the user opts into a wider search.
+   */
+  crossScopeEnabled: boolean
+  /** Include archived conversations in search. Off by default. */
+  archivedEnabled: boolean
+  /**
+   * Allow retrieved excerpts to be sent to a cloud provider (OpenAI/
+   * Anthropic), not just the local engine. A separate gate from `enabled`
+   * since transcript excerpts are raw prior conversation content, a more
+   * sensitive surface than curated structured memory.
+   */
+  cloudProviderEnabled: boolean
+}
+
 export interface SchedulerSettings {
   /** Prevent the system from sleeping so scheduled tasks keep firing while the app is open. */
   keepAwake: boolean
@@ -229,6 +251,7 @@ export interface AppSettings {
   webSearch: WebSearchSettings
   diagnostics: DiagnosticSettings
   memory: MemorySettings
+  transcriptRecall: TranscriptRecallSettings
   scheduler: SchedulerSettings
   email: EmailSettings
 }

@@ -9,8 +9,8 @@ import type {
   MemoryScope,
   UpdateMemoryRequest
 } from '@shared/memory.types'
+import { jaccardSimilarity } from '@shared/textSimilarity'
 import { createLogger } from '../utils/logger'
-import { jaccardSimilarity } from './textSimilarity'
 
 const log = createLogger('memory-store')
 

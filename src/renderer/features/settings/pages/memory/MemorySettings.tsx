@@ -137,7 +137,10 @@ export function MemorySettings(): JSX.Element {
       ) : (
         <ul className={styles.list}>
           {list.map((entry) => (
-            <li key={entry.id} className={`${styles.item} ${entry.archived ? styles.itemArchived : ''}`}>
+            <li
+              key={entry.id}
+              className={`${styles.item} ${entry.archived ? styles.itemArchived : ''}`}
+            >
               <div className={styles.itemMain}>
                 {editingId === entry.id ? (
                   <div className={styles.editRow}>
@@ -214,6 +217,57 @@ export function MemorySettings(): JSX.Element {
           label="Show archived"
           description="Include archived memories in the lists below."
           control={<ToggleControl checked={showArchived} onChange={setShowArchived} />}
+        />
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Past chat recall</h2>
+        <p className={styles.sectionDesc}>
+          Automatically surfaces relevant excerpts from other conversations when they lexically
+          match what you&apos;re asking — no search tool call needed. Always shown to you as a
+          &quot;Past chats used&quot; card so you can see (and open) exactly what was recalled.
+        </p>
+        <SettingRow
+          label="Enable past chat recall"
+          description="Search other conversations for context relevant to the current message."
+          control={
+            <ToggleControl
+              checked={settings.transcriptRecall.enabled}
+              onChange={(value) => void update({ transcriptRecall: { enabled: value } })}
+            />
+          }
+        />
+        <SettingRow
+          label="Search beyond the current scope"
+          description="Also search chats from other projects and general chats, not just this project's own history (or general chats only, outside a project)."
+          control={
+            <ToggleControl
+              checked={settings.transcriptRecall.crossScopeEnabled}
+              onChange={(value) => void update({ transcriptRecall: { crossScopeEnabled: value } })}
+            />
+          }
+        />
+        <SettingRow
+          label="Include archived chats"
+          description="Search archived conversations too."
+          control={
+            <ToggleControl
+              checked={settings.transcriptRecall.archivedEnabled}
+              onChange={(value) => void update({ transcriptRecall: { archivedEnabled: value } })}
+            />
+          }
+        />
+        <SettingRow
+          label="Allow on cloud providers"
+          description="Let recalled excerpts be sent to OpenAI/Anthropic, not just the local model. Off keeps past-chat content local-only."
+          control={
+            <ToggleControl
+              checked={settings.transcriptRecall.cloudProviderEnabled}
+              onChange={(value) =>
+                void update({ transcriptRecall: { cloudProviderEnabled: value } })
+              }
+            />
+          }
         />
       </section>
 

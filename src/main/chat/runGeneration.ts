@@ -2,6 +2,7 @@ import type { ChatRequest, GenerationStats } from '@shared/chat.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { MemoryEntry } from '@shared/memory.types'
 import type { VerificationResult } from '@shared/projectMemory.types'
+import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
@@ -20,6 +21,7 @@ import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { buildWorkspaceContext } from '../tools/workspaceContext'
 import { buildMemoryContext } from '../memory/MemoryRetriever'
+import { buildTranscriptRecallContext } from '../recall/transcriptRecallContext'
 import { parseRunCommandVerification } from '../tools/commandTools'
 import { chatEvents } from './chatEvents'
 
@@ -55,6 +57,8 @@ export interface RunGenerationResult {
   stopped: boolean
   /** Memory entries retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
+  /** Past-conversation excerpts retrieved and injected into context for this turn, if any. */
+  transcriptRecallUsed?: TranscriptRecallResult[]
 }
 
 /**
@@ -177,6 +181,23 @@ export async function runGeneration(
     crossChatEnabled: settings.memory.crossChatEnabled,
     personalEnabled: settings.memory.personalEnabled
   })
+
+  // Resolved once and reused below for cloud-provider gating (transcript
+  // recall, context bounding, before generation) and stats attribution
+  // (after) — a cloud provider's turn must attribute to its own configured
+  // model, not whatever's loaded locally.
+  const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
+  const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
+
+  const transcriptRecall = buildTranscriptRecallContext({
+    conversationId: request.conversationId,
+    projectId: activeProject?.id ?? null,
+    query: request.prompt,
+    settings: settings.transcriptRecall,
+    allowedForProvider:
+      effectiveProviderId === 'local' || settings.transcriptRecall.cloudProviderEnabled
+  })
+
   const systemPrompt = composeSystemPrompt({
     hasWorkspaceTools,
     hasProject: Boolean(activeProject),
@@ -185,15 +206,10 @@ export async function runGeneration(
         ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null, request.prompt)
         : null,
     memoryContext: memory?.text ?? null,
+    transcriptRecallContext: transcriptRecall?.text ?? null,
     projectRules: activeProject?.instructions ?? null,
     userInstructions: settings.ui.systemPrompt
   })
-
-  // Resolved once and reused below for both cloud context bounding (before
-  // generation) and stats attribution (after) — a cloud provider's turn must
-  // attribute to its own configured model, not whatever's loaded locally.
-  const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
-  const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
 
   // The local engine applies persisted-snapshot seeding, real-tokenizer
   // budget splitting, and summarization internally (`LlamaService.generate`
@@ -299,6 +315,7 @@ export async function runGeneration(
     content,
     stats: outcome.stats,
     stopped: outcome.stopped,
-    memoryUsed: memory?.entries
+    memoryUsed: memory?.entries,
+    transcriptRecallUsed: transcriptRecall?.results
   }
 }

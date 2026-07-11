@@ -5,6 +5,7 @@ import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatBytes, formatClock } from '../../lib/format'
 import { MemoryUsedCard } from './MemoryUsedCard'
+import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ToolCallGroup } from './ToolCallGroup'
@@ -57,6 +58,11 @@ export function MessageBubble({ message }: { message: ChatMessage }): JSX.Elemen
           {!isUser && message.memoryUsed && message.memoryUsed.length > 0 && (
             <div className={styles.memoryUsed}>
               <MemoryUsedCard entries={message.memoryUsed} />
+            </div>
+          )}
+          {!isUser && message.transcriptRecallUsed && message.transcriptRecallUsed.length > 0 && (
+            <div className={styles.memoryUsed}>
+              <TranscriptRecallCard results={message.transcriptRecallUsed} />
             </div>
           )}
           {showThinking ? (

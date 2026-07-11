@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { FileTouch, ProjectMemory, ProjectRecallEvent } from '@shared/projectMemory.types'
-import { wordSet } from '../memory/textSimilarity'
+import { wordSet } from '@shared/textSimilarity'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { PROJECT_NOTES_FILENAME } from './projectNotesTool'
 
