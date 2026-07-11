@@ -23,6 +23,11 @@ function providerLabel(run: AgentRun): string {
   return `OpenAI${label ? ` · ${label}` : ''}`
 }
 
+/** Compact token count for the live status badge, e.g. 12400 -> "12.4k". */
+function formatCompactTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+
 const STATUS_ICON: Record<AgentRunStatus, IconName> = {
   running: 'activity',
   done: 'check',
@@ -67,6 +72,8 @@ export function AgentView(): JSX.Element {
       provider: run.provider,
       model: run.model,
       maxTurns: run.maxTurns,
+      maxTokens: run.maxTokens,
+      maxDurationMinutes: run.maxDurationMinutes,
       enabledTools: run.enabledTools
     })
   }
@@ -120,7 +127,8 @@ export function AgentView(): JSX.Element {
                   <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
                     <Icon name={STATUS_ICON[run.status]} size={12} />
                     {STATUS_LABEL[run.status]}
-                    {run.status === 'running' && ` · turn ${run.turnsUsed}/${run.maxTurns}`}
+                    {run.status === 'running' &&
+                      ` · turn ${run.turnsUsed}/${run.maxTurns} · ${formatCompactTokens(run.tokensUsed)}/${formatCompactTokens(run.maxTokens)} tokens`}
                   </span>
                   {projectName(run.projectId) && (
                     <span className={styles.runProject}>{projectName(run.projectId)}</span>

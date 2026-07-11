@@ -11,6 +11,7 @@ import { runGeneration } from '../chat/runGeneration'
 import { createLogger } from '../utils/logger'
 import { agentRunStore } from './AgentRunStore'
 import { buildKickoffPrompt, CONTINUE_PROMPT } from './agentPrompts'
+import { budgetExceededReason } from './agentBudgets'
 
 const log = createLogger('agent-run-service')
 
@@ -67,19 +68,21 @@ class AgentRunService {
     // `RunGenerationIo.providerOverride`.
     const providerOverride = { provider: run.provider, model: run.model ?? undefined }
     let turnsUsed = 0
+    let tokensUsed = 0
 
     try {
       for (let turn = 1; turn <= run.maxTurns; turn++) {
         turnsUsed = turn
         const prompt = turn === 1 ? buildKickoffPrompt(run.goal) : CONTINUE_PROMPT
-        const { finished, summary, stopped } = await this.runTurn(
+        const { finished, summary, stopped, tokens } = await this.runTurn(
           conversation,
           prompt,
           enabledTools,
           providerOverride,
           controller.signal
         )
-        agentRunStore.update(run.id, { turnsUsed })
+        tokensUsed += tokens
+        agentRunStore.update(run.id, { turnsUsed, tokensUsed })
         this.broadcastRunsChanged()
 
         if (stopped) {
@@ -88,6 +91,12 @@ class AgentRunService {
         }
         if (finished) {
           this.finish(run.id, conversation.id, 'done', summary, null)
+          return
+        }
+
+        const budgetReason = budgetExceededReason(run, tokensUsed, Date.now() - run.createdAt)
+        if (budgetReason) {
+          this.finish(run.id, conversation.id, 'stopped', null, budgetReason)
           return
         }
       }
@@ -120,7 +129,7 @@ class AgentRunService {
     enabledTools: Set<string>,
     providerOverride: { provider: AgentRun['provider']; model?: string },
     signal: AbortSignal
-  ): Promise<{ finished: boolean; summary: string | null; stopped: boolean }> {
+  ): Promise<{ finished: boolean; summary: string | null; stopped: boolean; tokens: number }> {
     const userMessage: ChatMessage = {
       id: generateId('agent_msg'),
       role: 'user',
@@ -173,7 +182,8 @@ class AgentRunService {
     return {
       finished: Boolean(finishCall),
       summary: finishCall?.detail ?? null,
-      stopped: result.stopped
+      stopped: result.stopped,
+      tokens: result.stats.tokens
     }
   }
 

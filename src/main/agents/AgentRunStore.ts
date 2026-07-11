@@ -2,7 +2,14 @@ import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
-import { DEFAULT_MAX_TURNS, MAX_MAX_TURNS } from '@shared/agentRun.types'
+import {
+  DEFAULT_MAX_TURNS,
+  MAX_MAX_TURNS,
+  DEFAULT_MAX_TOKENS,
+  MAX_MAX_TOKENS,
+  DEFAULT_MAX_DURATION_MINUTES,
+  MAX_MAX_DURATION_MINUTES
+} from '@shared/agentRun.types'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('agent-run-store')
@@ -44,6 +51,12 @@ class AgentRunStore {
       model: request.provider === 'local' ? null : (request.model?.trim() ?? null),
       maxTurns: Math.min(request.maxTurns ?? DEFAULT_MAX_TURNS, MAX_MAX_TURNS),
       turnsUsed: 0,
+      maxTokens: Math.min(request.maxTokens ?? DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS),
+      tokensUsed: 0,
+      maxDurationMinutes: Math.min(
+        request.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES,
+        MAX_MAX_DURATION_MINUTES
+      ),
       conversationId: null,
       summary: null,
       lastError: null,

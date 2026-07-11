@@ -7,6 +7,18 @@ export const DEFAULT_MAX_TURNS = 8
 /** Hard ceiling a user can configure `maxTurns` up to. */
 export const MAX_MAX_TURNS = 20
 
+/** Default cumulative token budget for a run, across every turn. */
+export const DEFAULT_MAX_TOKENS = 50_000
+
+/** Hard ceiling a user can configure `maxTokens` up to. */
+export const MAX_MAX_TOKENS = 500_000
+
+/** Default wall-clock budget for a run, in minutes, from `createdAt`. */
+export const DEFAULT_MAX_DURATION_MINUTES = 30
+
+/** Hard ceiling a user can configure `maxDurationMinutes` up to (4 hours). */
+export const MAX_MAX_DURATION_MINUTES = 240
+
 /**
  * A single unattended, goal-directed run: a loop of assistant turns against
  * its own conversation until the model calls `finish_goal` (`status: 'done'`),
@@ -26,6 +38,11 @@ export interface AgentRun {
   model: string | null
   maxTurns: number
   turnsUsed: number
+  /** Cumulative token budget across every turn. */
+  maxTokens: number
+  tokensUsed: number
+  /** Wall-clock budget in minutes, measured from `createdAt`. */
+  maxDurationMinutes: number
   /** The conversation this run's turns append to, created on start. */
   conversationId: string | null
   /** Set once the model calls `finish_goal`, or on an error. */
@@ -42,4 +59,6 @@ export interface CreateAgentRunRequest {
   provider: 'local' | 'anthropic' | 'openai'
   model?: string | null
   maxTurns?: number
+  maxTokens?: number
+  maxDurationMinutes?: number
 }

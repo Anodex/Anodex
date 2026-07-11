@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { DEFAULT_MAX_TURNS, MAX_MAX_TURNS } from '@shared/agentRun.types'
+import {
+  DEFAULT_MAX_TURNS,
+  MAX_MAX_TURNS,
+  DEFAULT_MAX_TOKENS,
+  MAX_MAX_TOKENS,
+  DEFAULT_MAX_DURATION_MINUTES,
+  MAX_MAX_DURATION_MINUTES
+} from '@shared/agentRun.types'
 import { TOOL_CATALOG, type ToolKind } from '@shared/tools.types'
 import { ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL } from '@shared/anthropicModels'
 import { OPENAI_MODELS, DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
@@ -35,6 +42,8 @@ export interface AgentRunEditorSeed {
   provider?: RunProvider
   model?: string | null
   maxTurns?: number
+  maxTokens?: number
+  maxDurationMinutes?: number
   enabledTools?: string[]
 }
 
@@ -76,6 +85,10 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     return ''
   })
   const [maxTurns, setMaxTurns] = useState(seed?.maxTurns ?? DEFAULT_MAX_TURNS)
+  const [maxTokens, setMaxTokens] = useState(seed?.maxTokens ?? DEFAULT_MAX_TOKENS)
+  const [maxDurationMinutes, setMaxDurationMinutes] = useState(
+    seed?.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES
+  )
   const [enabledTools, setEnabledTools] = useState<Set<string>>(
     new Set(seed?.enabledTools ?? ['fetch_url', 'web_search'])
   )
@@ -83,7 +96,8 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
 
   const hasProject = projectId !== null
   const availableTools = TOOL_CATALOG.filter((tool) => !tool.requiresProject || hasProject)
-  const canSave = goal.trim().length > 0 && maxTurns >= 1
+  const canSave =
+    goal.trim().length > 0 && maxTurns >= 1 && maxTokens >= 1 && maxDurationMinutes >= 1
 
   const modelOptions =
     provider === 'anthropic'
@@ -123,6 +137,8 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       provider,
       model: provider === 'local' ? null : model,
       maxTurns,
+      maxTokens,
+      maxDurationMinutes,
       enabledTools: [...enabledTools].filter((toolName) =>
         availableTools.some((tool) => tool.name === toolName)
       )
@@ -201,6 +217,37 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
           />
           <p className={styles.hint}>
             Stops on its own after this many turns if it hasn&apos;t finished (max {MAX_MAX_TURNS}).
+          </p>
+        </label>
+
+        <label className={styles.field}>
+          <span className={styles.label}>Token budget</span>
+          <input
+            type="number"
+            min={1}
+            max={MAX_MAX_TOKENS}
+            className={styles.turnsInput}
+            value={maxTokens}
+            onChange={(event) => setMaxTokens(Number(event.target.value) || 1)}
+          />
+          <p className={styles.hint}>
+            Stops on its own once this many tokens have been used across every turn (max{' '}
+            {MAX_MAX_TOKENS.toLocaleString()}).
+          </p>
+        </label>
+
+        <label className={styles.field}>
+          <span className={styles.label}>Time budget (minutes)</span>
+          <input
+            type="number"
+            min={1}
+            max={MAX_MAX_DURATION_MINUTES}
+            className={styles.turnsInput}
+            value={maxDurationMinutes}
+            onChange={(event) => setMaxDurationMinutes(Number(event.target.value) || 1)}
+          />
+          <p className={styles.hint}>
+            Stops on its own after this much wall-clock time (max {MAX_MAX_DURATION_MINUTES} minutes).
           </p>
         </label>
 
