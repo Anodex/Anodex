@@ -201,6 +201,14 @@ export interface MemorySettings {
    * entries; existing entries are kept, not deleted.
    */
   personalEnabled: boolean
+  /**
+   * Always confirm a `remember_fact` call before it saves, even in
+   * permission modes that would otherwise skip confirmation for a "safe"
+   * risk tool. Off by default — immediate saving is the existing behavior;
+   * this is an opt-in for anyone who wants to review every memory before
+   * it's written, not a new default everyone has to deal with.
+   */
+  confirmBeforeSaving: boolean
 }
 
 export interface TranscriptRecallSettings {

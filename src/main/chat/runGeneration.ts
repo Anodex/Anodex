@@ -151,7 +151,8 @@ export async function runGeneration(
         email: settings.email,
         memory: {
           crossChatEnabled: settings.memory.crossChatEnabled,
-          personalEnabled: settings.memory.personalEnabled
+          personalEnabled: settings.memory.personalEnabled,
+          confirmBeforeSaving: settings.memory.confirmBeforeSaving
         },
         plan: request.plan ?? null,
         enabledTools: io.enabledTools ?? null,

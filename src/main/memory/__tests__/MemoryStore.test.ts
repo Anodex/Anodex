@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_MEMORY_TEXT_CHARS,
+  MAX_PINNED_PER_SCOPE,
+  assertPinCapacity,
   capEntries,
   findSimilarEntry,
   normalizeMemoryText,
-  validateMemoryScope
+  validateMemoryScope,
+  validateScopeFile
 } from '../MemoryStore'
 import type { MemoryEntry, MemoryScope } from '@shared/memory.types'
 
@@ -97,5 +100,63 @@ describe('normalizeMemoryText', () => {
   it('trims and caps memory text', () => {
     const text = `  ${'a'.repeat(MAX_MEMORY_TEXT_CHARS + 20)}  `
     expect(normalizeMemoryText(text)).toHaveLength(MAX_MEMORY_TEXT_CHARS)
+  })
+})
+
+describe('assertPinCapacity', () => {
+  it('allows pinning under the cap', () => {
+    const entries = Array.from({ length: MAX_PINNED_PER_SCOPE - 1 }, (_, i) =>
+      entry({ id: `${i}`, pinned: true })
+    )
+    expect(() => assertPinCapacity(entries, false, true)).not.toThrow()
+  })
+
+  it('rejects newly pinning an entry once the scope is at the cap', () => {
+    const entries = Array.from({ length: MAX_PINNED_PER_SCOPE }, (_, i) =>
+      entry({ id: `${i}`, pinned: true })
+    )
+    expect(() => assertPinCapacity(entries, false, true)).toThrow('Cannot pin more than')
+  })
+
+  it('allows editing an already-pinned entry even at the cap (not a new pin)', () => {
+    const entries = Array.from({ length: MAX_PINNED_PER_SCOPE }, (_, i) =>
+      entry({ id: `${i}`, pinned: true })
+    )
+    expect(() => assertPinCapacity(entries, true, true)).not.toThrow()
+  })
+
+  it('allows unpinning even at the cap', () => {
+    const entries = Array.from({ length: MAX_PINNED_PER_SCOPE }, (_, i) =>
+      entry({ id: `${i}`, pinned: true })
+    )
+    expect(() => assertPinCapacity(entries, true, false)).not.toThrow()
+  })
+})
+
+describe('validateScopeFile', () => {
+  it('returns entries from a well-formed file', () => {
+    const good = entry({ id: 'e1' })
+    expect(validateScopeFile({ version: 1, entries: [good] })).toEqual([good])
+  })
+
+  it('drops malformed entries but keeps the valid ones', () => {
+    const good = entry({ id: 'e1' })
+    const badKind = { ...entry({ id: 'e2' }), kind: 'not-a-real-kind' }
+    const missingField = { id: 'e3', text: 'no other fields' }
+    expect(validateScopeFile({ version: 1, entries: [good, badKind, missingField] })).toEqual([
+      good
+    ])
+  })
+
+  it('returns an empty array for a completely malformed file instead of throwing', () => {
+    expect(validateScopeFile(null)).toEqual([])
+    expect(validateScopeFile('not an object')).toEqual([])
+    expect(validateScopeFile({})).toEqual([])
+    expect(validateScopeFile({ entries: 'not an array' })).toEqual([])
+  })
+
+  it('rejects an entry with an invalid scope shape', () => {
+    const badScope = { ...entry({ id: 'e1' }), scope: { type: 'project' } }
+    expect(validateScopeFile({ entries: [badScope] })).toEqual([])
   })
 })

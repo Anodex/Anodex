@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import type {
   CreateMemoryRequest,
   MemoryEntry,
@@ -11,10 +11,18 @@ import type {
 } from '@shared/memory.types'
 import { jaccardSimilarity } from '@shared/textSimilarity'
 import { createLogger } from '../utils/logger'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 
 const log = createLogger('memory-store')
 
 const MAX_ENTRIES_PER_SCOPE = 200
+/**
+ * Separate, meaningfully smaller cap on *pinned* entries specifically.
+ * `capEntries` below only evicts unpinned entries, so without this an
+ * unbounded run of pins could fill an entire scope with entries that can
+ * never be evicted, silently defeating `MAX_ENTRIES_PER_SCOPE` altogether.
+ */
+export const MAX_PINNED_PER_SCOPE = 50
 export const MAX_MEMORY_TEXT_CHARS = 400
 const GLOBAL_KEY = 'global'
 const SAFE_SCOPE_KEY = /^[A-Za-z0-9_-]+$/
@@ -28,7 +36,11 @@ const MEMORY_KINDS = new Set<MemoryKind>([
 /** How similar (Jaccard, same kind) a new fact must be to an existing one to update it in place instead of creating a duplicate. */
 const DEDUP_SIMILARITY_THRESHOLD = 0.5
 
+/** Bumped only if the persisted shape changes in a way old readers can't tolerate. */
+const STORE_VERSION = 1
+
 interface ScopeFile {
+  version: number
   entries: MemoryEntry[]
 }
 
@@ -105,6 +117,7 @@ class MemoryStore {
     const entries = this.load(key)
     const index = entries.findIndex((e) => e.id === id)
     if (index === -1) throw new Error(`Memory entry not found: ${id}`)
+    assertPinCapacity(entries, entries[index].pinned, patch.pinned ?? entries[index].pinned)
     const text =
       patch.text !== undefined
         ? normalizeMemoryText(patch.text) || entries[index].text
@@ -136,7 +149,7 @@ class MemoryStore {
     this.cache.delete(key)
     try {
       const file = this.filePath(key)
-      if (existsSync(file)) writeFileSync(file, JSON.stringify({ entries: [] }, null, 2), 'utf-8')
+      if (existsSync(file)) writeJsonAtomic(file, { version: STORE_VERSION, entries: [] })
     } catch (error) {
       log.warn('Failed to clear project memory:', error)
     }
@@ -149,8 +162,8 @@ class MemoryStore {
     const file = this.filePath(key)
     if (existsSync(file)) {
       try {
-        const raw = JSON.parse(readFileSync(file, 'utf-8')) as ScopeFile
-        const entries = raw.entries ?? []
+        const raw = JSON.parse(readFileSync(file, 'utf-8')) as unknown
+        const entries = validateScopeFile(raw)
         this.cache.set(key, entries)
         return entries
       } catch (error) {
@@ -166,7 +179,8 @@ class MemoryStore {
     this.cache.set(key, entries)
     try {
       if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true })
-      writeFileSync(this.filePath(key), JSON.stringify({ entries }, null, 2), 'utf-8')
+      const file: ScopeFile = { version: STORE_VERSION, entries }
+      writeJsonAtomic(this.filePath(key), file)
     } catch (error) {
       log.error('Failed to persist memory:', error)
     }
@@ -207,6 +221,71 @@ export function normalizeMemoryText(text: string): string {
 function validateMemoryKind(kind: MemoryKind): MemoryKind {
   if (MEMORY_KINDS.has(kind)) return kind
   throw new Error('Invalid memory kind.')
+}
+
+/**
+ * Throws if pinning would push a scope's pinned count past
+ * `MAX_PINNED_PER_SCOPE`. A no-op unless this update actually newly pins an
+ * entry (an already-pinned entry being edited, or a pin being removed, never
+ * hits the cap check). Exported for unit testing.
+ */
+export function assertPinCapacity(
+  entries: MemoryEntry[],
+  wasPinned: boolean,
+  willBePinned: boolean
+): void {
+  if (!willBePinned || wasPinned) return
+  const pinnedCount = entries.filter((e) => e.pinned).length
+  if (pinnedCount >= MAX_PINNED_PER_SCOPE) {
+    throw new Error(
+      `Cannot pin more than ${MAX_PINNED_PER_SCOPE} memories in this scope — unpin another one first.`
+    )
+  }
+}
+
+/**
+ * Defensive parse of a loaded scope file: never throws, never trusts disk
+ * content blindly. A corrupted or hand-edited file with some malformed
+ * entries loses only those entries, not the whole scope — the alternative
+ * (the existing catch-and-start-fresh behavior in `load()`) would silently
+ * discard every real entry over one bad one. Exported for unit testing.
+ */
+export function validateScopeFile(raw: unknown): MemoryEntry[] {
+  if (!isPlainObject(raw) || !Array.isArray(raw.entries)) return []
+  const valid: MemoryEntry[] = []
+  let dropped = 0
+  for (const candidate of raw.entries) {
+    if (isValidMemoryEntry(candidate)) valid.push(candidate)
+    else dropped++
+  }
+  if (dropped > 0) {
+    log.warn(`Dropped ${dropped} malformed memory entr${dropped === 1 ? 'y' : 'ies'} on load.`)
+  }
+  return valid
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isValidMemoryScopeShape(value: unknown): value is MemoryScope {
+  if (!isPlainObject(value)) return false
+  if (value.type === 'global') return true
+  return value.type === 'project' && typeof value.projectId === 'string'
+}
+
+function isValidMemoryEntry(value: unknown): value is MemoryEntry {
+  if (!isPlainObject(value)) return false
+  return (
+    typeof value.id === 'string' &&
+    MEMORY_KINDS.has(value.kind as MemoryKind) &&
+    typeof value.text === 'string' &&
+    isValidMemoryScopeShape(value.scope) &&
+    typeof value.createdAt === 'number' &&
+    typeof value.updatedAt === 'number' &&
+    typeof value.pinned === 'boolean' &&
+    typeof value.archived === 'boolean'
+  )
 }
 
 /**

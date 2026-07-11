@@ -214,6 +214,16 @@ export function MemorySettings(): JSX.Element {
           }
         />
         <SettingRow
+          label="Ask before saving memories"
+          description="Confirm every remember_fact call before it saves, even in permission modes that would otherwise save automatically. Off by default — memories save immediately."
+          control={
+            <ToggleControl
+              checked={settings.memory.confirmBeforeSaving}
+              onChange={(value) => void update({ memory: { confirmBeforeSaving: value } })}
+            />
+          }
+        />
+        <SettingRow
           label="Show archived"
           description="Include archived memories in the lists below."
           control={<ToggleControl checked={showArchived} onChange={setShowArchived} />}

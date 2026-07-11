@@ -108,7 +108,8 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     memory: {
       crossChatEnabled: true,
-      personalEnabled: true
+      personalEnabled: true,
+      confirmBeforeSaving: false
     },
     transcriptRecall: {
       enabled: true,

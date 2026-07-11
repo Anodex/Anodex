@@ -93,7 +93,7 @@ describe('buildTools', () => {
     const ctx = {
       ...createMockContext('/workspace'),
       projectId: 'project-1',
-      memory: { crossChatEnabled: true, personalEnabled: false }
+      memory: { crossChatEnabled: true, personalEnabled: false, confirmBeforeSaving: false }
     }
     const tools = buildTools(createMockDefine(), ctx)
 
@@ -104,7 +104,7 @@ describe('buildTools', () => {
     const ctx = {
       ...createMockContext('/workspace'),
       projectId: null,
-      memory: { crossChatEnabled: false, personalEnabled: true }
+      memory: { crossChatEnabled: false, personalEnabled: true, confirmBeforeSaving: false }
     }
     const tools = buildTools(createMockDefine(), ctx)
 
@@ -115,7 +115,7 @@ describe('buildTools', () => {
     const ctx = {
       ...createMockContext('/workspace'),
       projectId: 'project-1',
-      memory: { crossChatEnabled: false, personalEnabled: false }
+      memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false }
     }
     const tools = buildTools(createMockDefine(), ctx)
 

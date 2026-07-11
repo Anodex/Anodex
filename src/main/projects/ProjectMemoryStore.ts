@@ -1,12 +1,15 @@
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import type {
+  FileTouch,
   FileTouchAction,
   ProjectMemory,
-  ProjectRecallEvent
+  ProjectRecallEvent,
+  VerificationResult
 } from '@shared/projectMemory.types'
 import { createLogger } from '../utils/logger'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 
 const log = createLogger('project-memory')
 
@@ -14,6 +17,9 @@ const MAX_FILES_TOUCHED = 60
 const MAX_EVENTS = 10
 const MAX_ASSISTANT_SUMMARY_CHARS = 220
 const SAFE_PROJECT_ID = /^[A-Za-z0-9_-]+$/
+const FILE_TOUCH_ACTIONS = new Set<FileTouchAction>(['read', 'write', 'delete', 'move'])
+/** Bumped only if the persisted shape changes in a way old readers can't tolerate. */
+const STORE_VERSION = 1
 
 /**
  * Persists a small per-project activity ledger — recently touched files and
@@ -94,16 +100,14 @@ class ProjectMemoryStore {
     const file = this.filePath(projectId)
     if (existsSync(file)) {
       try {
-        const raw = JSON.parse(readFileSync(file, 'utf-8')) as ProjectMemory
-        const memory: ProjectMemory = {
-          projectId,
-          filesTouched: raw.filesTouched ?? [],
-          // A pre-existing file from before this store recorded structured
-          // events (only ever `recentSummaries`) has nothing usable here —
-          // it's a small, disposable activity ledger, not durable user data,
-          // so starting the event list fresh rather than migrating is fine.
-          recentEvents: raw.recentEvents ?? []
-        }
+        const raw = JSON.parse(readFileSync(file, 'utf-8')) as unknown
+        // A pre-existing file from before this store recorded structured
+        // events (only ever `recentSummaries`) has nothing usable there —
+        // it's a small, disposable activity ledger, not durable user data,
+        // so starting the event list fresh rather than migrating is fine.
+        // Malformed individual entries are dropped, not treated as a reason
+        // to discard the whole file (see `validateProjectMemoryFile`).
+        const memory: ProjectMemory = { projectId, ...validateProjectMemoryFile(raw) }
         this.cache.set(projectId, memory)
         return memory
       } catch (error) {
@@ -121,7 +125,7 @@ class ProjectMemoryStore {
     try {
       const dir = join(this.dir, memory.projectId)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, 'memory.json'), JSON.stringify(memory, null, 2), 'utf-8')
+      writeJsonAtomic(join(dir, 'memory.json'), { version: STORE_VERSION, ...memory })
     } catch (error) {
       log.error('Failed to persist project memory:', error)
     }
@@ -137,6 +141,63 @@ function assertSafeProjectId(projectId: string): void {
   if (typeof projectId !== 'string' || !SAFE_PROJECT_ID.test(projectId)) {
     throw new Error(`Unsafe project id: "${projectId}"`)
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isValidFileTouch(value: unknown): value is FileTouch {
+  return (
+    isPlainObject(value) &&
+    typeof value.path === 'string' &&
+    FILE_TOUCH_ACTIONS.has(value.action as FileTouchAction) &&
+    typeof value.at === 'number'
+  )
+}
+
+function isValidVerificationResult(value: unknown): value is VerificationResult {
+  return (
+    isPlainObject(value) &&
+    typeof value.command === 'string' &&
+    (value.status === 'passed' || value.status === 'failed')
+  )
+}
+
+function isValidRecallEvent(value: unknown): value is ProjectRecallEvent {
+  return (
+    isPlainObject(value) &&
+    typeof value.conversationId === 'string' &&
+    typeof value.messageId === 'string' &&
+    typeof value.createdAt === 'number' &&
+    Array.isArray(value.changedFiles) &&
+    value.changedFiles.every((f) => typeof f === 'string') &&
+    Array.isArray(value.successfulTools) &&
+    value.successfulTools.every((t) => typeof t === 'string') &&
+    Array.isArray(value.failedTools) &&
+    value.failedTools.every((t) => typeof t === 'string') &&
+    Array.isArray(value.verification) &&
+    value.verification.every(isValidVerificationResult) &&
+    (value.assistantSummary === undefined || typeof value.assistantSummary === 'string')
+  )
+}
+
+/**
+ * Defensive parse of a loaded project-memory file: never throws, never
+ * trusts disk content blindly. A file with some malformed entries loses
+ * only those entries, not the whole ledger. Exported for unit testing.
+ */
+export function validateProjectMemoryFile(
+  raw: unknown
+): Pick<ProjectMemory, 'filesTouched' | 'recentEvents'> {
+  if (!isPlainObject(raw)) return { filesTouched: [], recentEvents: [] }
+  const filesTouched = Array.isArray(raw.filesTouched)
+    ? raw.filesTouched.filter(isValidFileTouch)
+    : []
+  const recentEvents = Array.isArray(raw.recentEvents)
+    ? raw.recentEvents.filter(isValidRecallEvent)
+    : []
+  return { filesTouched, recentEvents }
 }
 
 /**

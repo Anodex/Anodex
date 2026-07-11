@@ -22,7 +22,7 @@ describe('resolveMemoryScope', () => {
   it('returns project scope when requested and cross-chat memory is on', () => {
     const scope = resolveMemoryScope('project', {
       projectId: 'project-1',
-      memory: { crossChatEnabled: true, personalEnabled: true }
+      memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false }
     })
     expect(scope).toEqual({ type: 'project', projectId: 'project-1' })
   })
@@ -30,7 +30,7 @@ describe('resolveMemoryScope', () => {
   it('returns global scope when requested and personal memory is on', () => {
     const scope = resolveMemoryScope('global', {
       projectId: 'project-1',
-      memory: { crossChatEnabled: true, personalEnabled: true }
+      memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false }
     })
     expect(scope).toEqual({ type: 'global' })
   })
@@ -38,7 +38,7 @@ describe('resolveMemoryScope', () => {
   it('falls back to global when project is requested but no project is open', () => {
     const scope = resolveMemoryScope('project', {
       projectId: null,
-      memory: { crossChatEnabled: true, personalEnabled: true }
+      memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false }
     })
     expect(scope).toEqual({ type: 'global' })
   })
@@ -46,7 +46,7 @@ describe('resolveMemoryScope', () => {
   it('falls back to global when project is requested but cross-chat memory is off', () => {
     const scope = resolveMemoryScope('project', {
       projectId: 'project-1',
-      memory: { crossChatEnabled: false, personalEnabled: true }
+      memory: { crossChatEnabled: false, personalEnabled: true, confirmBeforeSaving: false }
     })
     expect(scope).toEqual({ type: 'global' })
   })
@@ -54,7 +54,7 @@ describe('resolveMemoryScope', () => {
   it('falls back to project when global is requested but personal memory is off', () => {
     const scope = resolveMemoryScope('global', {
       projectId: 'project-1',
-      memory: { crossChatEnabled: true, personalEnabled: false }
+      memory: { crossChatEnabled: true, personalEnabled: false, confirmBeforeSaving: false }
     })
     expect(scope).toEqual({ type: 'project', projectId: 'project-1' })
   })
@@ -63,13 +63,13 @@ describe('resolveMemoryScope', () => {
     expect(
       resolveMemoryScope('global', {
         projectId: null,
-        memory: { crossChatEnabled: false, personalEnabled: false }
+        memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false }
       })
     ).toBeNull()
     expect(
       resolveMemoryScope('project', {
         projectId: 'project-1',
-        memory: { crossChatEnabled: false, personalEnabled: false }
+        memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false }
       })
     ).toBeNull()
   })
@@ -101,8 +101,10 @@ describe('remember_fact tool', () => {
       scope: 'project'
     })
 
-    expect(result).toBe('Remembered.')
+    expect(result).toBe('Remembered as project cross-chat memory.')
     expect(requests).toHaveLength(1)
+    // The resolved scope is shown before approval, not just noted after.
+    expect(requests[0].detail).toContain('Save as project cross-chat memory')
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'convention',
@@ -132,26 +134,26 @@ describe('remember_fact tool', () => {
       scope: 'global'
     })
 
-    expect(result).toBe('Remembered.')
+    expect(result).toBe('Remembered as global personal memory.')
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'My name is Gabe.', scope: { type: 'global' } })
     )
   })
 
-  it('notes the scope fallback in the model-facing result when the requested scope is unavailable', async () => {
-    const ctx = {
-      ...createMockContext('/workspace'),
-      projectId: null,
-      confirm: () => Promise.resolve({ approved: true })
-    }
+  it('shows the resolved scope — not the requested one — in the confirmation, before approval', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), projectId: null, confirm }
     const tool = rememberFactTool(createMockDefine(), ctx) as unknown as {
       handler: (args: { text: string; kind: string; scope: string }) => Promise<string>
     }
 
-    // Requests 'project' with no project open — silently falls back to global.
+    // Requests 'project' with no project open — resolves to global.
     const result = await tool.handler({ text: 'Some fact.', kind: 'open_task', scope: 'project' })
 
-    expect(result).toContain('saved as global')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].detail).toContain('Save as global personal memory')
+    expect(requests[0].detail).toContain("Requested 'project' scope")
+    expect(result).toContain('Remembered as global personal memory')
   })
 
   it('truncates text at the max length', async () => {
@@ -204,11 +206,49 @@ describe('remember_fact tool', () => {
     expect(success?.detail).toBe('Short fact.')
   })
 
+  it('saves automatically in a permission mode that would not otherwise confirm a safe tool, when confirmBeforeSaving is off', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      permissionMode: 'full' as const,
+      memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false },
+      confirm
+    }
+    const tool = rememberFactTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { text: string; kind: string; scope: string }) => Promise<string>
+    }
+
+    await tool.handler({ text: 'Auto-saved fact.', kind: 'convention', scope: 'project' })
+
+    expect(requests).toHaveLength(0)
+    expect(createMock).toHaveBeenCalled()
+  })
+
+  it('forces confirmation even in a permission mode that would not otherwise ask, when confirmBeforeSaving is on', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      permissionMode: 'full' as const,
+      memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: true },
+      confirm
+    }
+    const tool = rememberFactTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { text: string; kind: string; scope: string }) => Promise<string>
+    }
+
+    await tool.handler({ text: 'Should be confirmed.', kind: 'convention', scope: 'project' })
+
+    expect(requests).toHaveLength(1)
+    expect(createMock).toHaveBeenCalled()
+  })
+
   it('rejects when both memory scopes are off', async () => {
     const ctx = {
       ...createMockContext('/workspace'),
       projectId: 'project-1',
-      memory: { crossChatEnabled: false, personalEnabled: false },
+      memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false },
       confirm: () => Promise.resolve({ approved: true })
     }
     const tool = rememberFactTool(createMockDefine(), ctx) as unknown as {

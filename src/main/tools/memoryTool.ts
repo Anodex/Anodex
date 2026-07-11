@@ -1,6 +1,6 @@
 import type { MemoryEntry, MemoryKind, MemoryScope } from '@shared/memory.types'
 import type { ToolFactory, ToolRuntimeContext } from './types'
-import { runGuardedTool } from './helpers'
+import { runGuardedToolWithPrepare } from './helpers'
 import { MAX_MEMORY_TEXT_CHARS, memoryStore, normalizeMemoryText } from '../memory/MemoryStore'
 
 /**
@@ -74,19 +74,44 @@ export const rememberFactTool: ToolFactory = (define, ctx) =>
       required: ['text', 'kind', 'scope']
     } as const,
     handler: (args: { text: string; kind: MemoryKind; scope: 'global' | 'project' }) =>
-      runGuardedTool(ctx, {
-        name: 'remember_fact',
-        kind: 'write',
-        title: 'Remember fact',
-        confirmDetail: `Remember (${args.kind}, ${args.scope}): ${args.text}`,
-        risk: 'safe',
-        run() {
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'remember_fact',
+          kind: 'write',
+          title: 'Remember fact',
+          risk: 'safe',
+          // Only ever force *on*: omitting this when the setting is off lets
+          // the normal permission-mode decision apply as usual (including
+          // Ask mode still confirming). Passing `false` here would instead
+          // force confirmation *off* even in Ask mode — not what "leave the
+          // setting off" should mean.
+          forceConfirm: ctx.memory.confirmBeforeSaving ? true : undefined
+        },
+        // Resolve the actual scope *before* the user sees the confirm prompt,
+        // so it shows the real destination ("Save as global personal
+        // memory") rather than the requested one, silently redirected after
+        // approval — the requested scope can legitimately differ (e.g.
+        // 'project' asked for with cross-chat memory off), and the user
+        // should know which one they're actually approving.
+        () => {
           const text = normalizeMemoryText(args.text)
           if (!text) throw new Error('text was empty.')
 
           const scope = resolveMemoryScope(args.scope, ctx)
           if (!scope) throw new Error('Memory is turned off in Settings → Memory.')
 
+          const redirectNote =
+            scope.type !== args.scope
+              ? `\n\n(Requested '${args.scope}' scope, but that's currently off in Settings → Memory.)`
+              : ''
+
+          return Promise.resolve({
+            confirmDetail: `Save as ${scopeLabel(scope)} memory (${args.kind}): ${text}${redirectNote}`,
+            data: { text, scope }
+          })
+        },
+        ({ text, scope }: { text: string; scope: MemoryScope }) => {
           const entry: MemoryEntry = memoryStore.create({
             kind: args.kind,
             text,
@@ -94,19 +119,19 @@ export const rememberFactTool: ToolFactory = (define, ctx) =>
             source: { conversationId: ctx.conversationId }
           })
 
-          const scopeNote =
-            entry.scope.type !== args.scope
-              ? ` (saved as ${entry.scope.type} — the requested scope is off)`
-              : ''
           // A dedup update-in-place keeps the original createdAt but bumps
           // updatedAt; a fresh create sets both to the same instant.
           const updateNote =
             entry.createdAt !== entry.updatedAt ? ' Updated an existing memory.' : ''
 
           return Promise.resolve({
-            modelResult: `Remembered${scopeNote}.${updateNote}`,
+            modelResult: `Remembered as ${scopeLabel(entry.scope)} memory.${updateNote}`,
             detail: text.length > 60 ? `${text.slice(0, 60)}…` : text
           })
         }
-      })
+      )
   })
+
+function scopeLabel(scope: MemoryScope): string {
+  return scope.type === 'global' ? 'global personal' : 'project cross-chat'
+}

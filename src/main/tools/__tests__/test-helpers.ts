@@ -38,7 +38,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
         sendRequiresApproval: true
       }
     },
-    memory: { crossChatEnabled: true, personalEnabled: true },
+    memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false },
     enabledTools: null,
     plan: { current: null },
     emit: () => {},

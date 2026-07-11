@@ -36,7 +36,7 @@ export interface ToolRuntimeContext {
   /** Email provider configuration used by email tools. */
   email: EmailSettings
   /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
-  memory: { crossChatEnabled: boolean; personalEnabled: boolean }
+  memory: { crossChatEnabled: boolean; personalEnabled: boolean; confirmBeforeSaving: boolean }
   /**
    * Restricts which tools get registered at all, by name. `null` means no
    * restriction (every tool the other context fields allow) — the normal

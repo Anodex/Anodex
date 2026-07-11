@@ -155,7 +155,7 @@ export interface GenerateParams {
     webSearch: WebSearchSettings
     email: EmailSettings
     /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
-    memory: { crossChatEnabled: boolean; personalEnabled: boolean }
+    memory: { crossChatEnabled: boolean; personalEnabled: boolean; confirmBeforeSaving: boolean }
     /** The conversation's current plan, if any, so plan tools can continue it across turns. */
     plan: Plan | null
     /** Restricts which tools get registered at all; null = unrestricted (normal chat). */
