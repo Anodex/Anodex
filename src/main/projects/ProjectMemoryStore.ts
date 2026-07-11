@@ -42,12 +42,15 @@ class ProjectMemoryStore {
 
   recordTouch(projectId: string, path: string, action: FileTouchAction): void {
     assertSafeProjectId(projectId)
-    const memory = this.load(projectId)
-    memory.filesTouched = [
-      { path, action, at: Date.now() },
-      ...memory.filesTouched.filter((touch) => touch.path !== path)
-    ].slice(0, MAX_FILES_TOUCHED)
-    this.persist(memory)
+    const current = this.load(projectId)
+    const next: ProjectMemory = {
+      ...current,
+      filesTouched: [
+        { path, action, at: Date.now() },
+        ...current.filesTouched.filter((touch) => touch.path !== path)
+      ].slice(0, MAX_FILES_TOUCHED)
+    }
+    this.persist(next)
   }
 
   /**
@@ -70,10 +73,13 @@ class ProjectMemoryStore {
       !assistantSummary
     if (isEmpty) return
 
-    const memory = this.load(projectId)
+    const current = this.load(projectId)
     const recorded: ProjectRecallEvent = { ...event, assistantSummary, createdAt: Date.now() }
-    memory.recentEvents = [recorded, ...memory.recentEvents].slice(0, MAX_EVENTS)
-    this.persist(memory)
+    const next: ProjectMemory = {
+      ...current,
+      recentEvents: [recorded, ...current.recentEvents].slice(0, MAX_EVENTS)
+    }
+    this.persist(next)
   }
 
   get(projectId: string): ProjectMemory {
@@ -120,15 +126,26 @@ class ProjectMemoryStore {
     return empty
   }
 
+  /**
+   * Writes to disk first and only swaps the cache to `memory` once that
+   * succeeds — `recordTouch`/`recordEvent` build `memory` as a fresh object
+   * (not a mutation of the currently-cached one) precisely so a failed write
+   * leaves the cache holding the last known-good state instead of a change
+   * that only exists in memory. Kept best-effort (logged, not rethrown): this
+   * ledger is a side channel alongside the real tool action (e.g. a file
+   * write) that already succeeded by the time this runs, so a write failure
+   * here shouldn't turn a genuinely successful tool call into a reported error.
+   */
   private persist(memory: ProjectMemory): void {
-    this.cache.set(memory.projectId, memory)
     try {
       const dir = join(this.dir, memory.projectId)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       writeJsonAtomic(join(dir, 'memory.json'), { version: STORE_VERSION, ...memory })
     } catch (error) {
       log.error('Failed to persist project memory:', error)
+      return
     }
+    this.cache.set(memory.projectId, memory)
   }
 
   private filePath(projectId: string): string {

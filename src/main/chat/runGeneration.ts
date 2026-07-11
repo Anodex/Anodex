@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import type { ChatRequest, GenerationStats } from '@shared/chat.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { MemoryEntry } from '@shared/memory.types'
 import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
+import type { ConversationContext } from '@shared/context.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
@@ -59,6 +61,20 @@ export interface RunGenerationResult {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /**
+   * A new compacted context snapshot produced this turn, if any — only ever
+   * set on the cloud-provider path (`boundHistoryForCloudProvider`), since
+   * the local engine keeps its own in-memory session/KV-cache continuity
+   * across turns within a run. `chat.handlers.ts`'s interactive caller
+   * already gets the same information via `chatEvents`' `historyCompacted`
+   * event (forwarded to the renderer, which persists it through
+   * `chatStore.applyHistoryCompaction`); a headless caller (`AgentRunService`,
+   * `SchedulerService`) has no renderer listening on its behalf, so it must
+   * persist this directly onto its own conversation record — otherwise every
+   * subsequent turn in the same run re-summarizes the same growing history
+   * from scratch instead of seeding from the snapshot already paid for.
+   */
+  context?: ConversationContext
 }
 
 /**
@@ -101,11 +117,19 @@ function cloudContextWindowTokens(providerId: 'openai' | 'anthropic', modelId: s
   )
 }
 
-/** The narrow, tool-free summarizer this provider uses for context compaction. */
+/**
+ * The narrow, tool-free summarizer this provider uses for context compaction,
+ * bound to `modelOverride` (an agent/scheduled run's pinned model, if any) so
+ * a run that never touches the globally-configured model doesn't have its
+ * history silently summarized by that global model instead.
+ */
 function cloudSummarizer(
-  providerId: 'openai' | 'anthropic'
+  providerId: 'openai' | 'anthropic',
+  modelOverride?: string
 ): (transcript: string) => Promise<string | null> {
-  return providerId === 'anthropic' ? summarizeForCompactionAnthropic : summarizeForCompactionOpenAi
+  const summarize =
+    providerId === 'anthropic' ? summarizeForCompactionAnthropic : summarizeForCompactionOpenAi
+  return (transcript: string) => summarize(transcript, modelOverride)
 }
 
 /**
@@ -164,7 +188,13 @@ export async function runGeneration(
           if (call.status === 'success') {
             toolNamesThisTurn.push(call.name)
             successfulToolsThisTurn.push(call.name)
-            for (const path of call.touchedPaths ?? []) changedFilesThisTurn.add(path)
+            // Only a write-kind call's touchedPaths represents an actual change
+            // (write/delete/move) — a read-kind call (read_file, preview_html,
+            // etc.) also populates touchedPaths so its target shows up in the
+            // "recently inspected" ledger, but must not count as "changed".
+            if (call.kind === 'write') {
+              for (const path of call.touchedPaths ?? []) changedFilesThisTurn.add(path)
+            }
             const verification = parseRunCommandVerification(call)
             if (verification) verificationThisTurn.push(verification)
           } else if (call.status === 'error') {
@@ -225,6 +255,7 @@ export async function runGeneration(
   // either way so it's visible rather than a silent context loss.
   let boundedSystemPrompt: string | undefined = systemPrompt
   let boundedHistory = request.history
+  let contextUpdate: ConversationContext | undefined
   if (
     (effectiveProviderId === 'openai' || effectiveProviderId === 'anthropic') &&
     modelDescriptor
@@ -234,7 +265,7 @@ export async function runGeneration(
       request.history,
       request.context,
       cloudContextWindowTokens(effectiveProviderId, modelDescriptor.id),
-      cloudSummarizer(effectiveProviderId)
+      cloudSummarizer(effectiveProviderId, io.providerOverride?.model)
     )
     boundedSystemPrompt = bounded.systemPrompt
     boundedHistory = bounded.history
@@ -248,6 +279,21 @@ export async function runGeneration(
         compactedThroughMessageId: bounded.compactedThroughMessageId,
         createdAt: Date.now()
       })
+      // See `RunGenerationResult.context`'s doc comment — a headless caller
+      // has no renderer to persist the snapshot the event above carries, so
+      // hand it back directly too.
+      if (bounded.summarized && bounded.summary && bounded.compactedThroughMessageId) {
+        contextUpdate = {
+          activeSnapshot: {
+            id: randomUUID(),
+            createdAt: Date.now(),
+            reason: 'proactive',
+            throughMessageId: bounded.compactedThroughMessageId,
+            removedTurns: bounded.omittedTurns,
+            summary: bounded.summary
+          }
+        }
+      }
     }
   }
 
@@ -317,6 +363,7 @@ export async function runGeneration(
     stats: outcome.stats,
     stopped: outcome.stopped,
     memoryUsed: memory?.entries,
-    transcriptRecallUsed: transcriptRecall?.results
+    transcriptRecallUsed: transcriptRecall?.results,
+    context: contextUpdate
   }
 }

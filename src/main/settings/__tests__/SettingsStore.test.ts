@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
-import { migrateLegacyAssistantStyle } from '../SettingsStore'
+import { migrateLegacyAssistantStyle, validatePatch } from '../SettingsStore'
 
 const baseSettings = () => createDefaultSettings('/models')
 
@@ -35,5 +35,30 @@ describe('migrateLegacyAssistantStyle', () => {
     const legacy = 'x'.repeat(2000)
     const migrated = migrateLegacyAssistantStyle(baseSettings(), { ui: { systemPrompt: legacy } })
     expect(migrated.assistantStyle.globalStyle.length).toBe(MAX_ASSISTANT_STYLE_CHARS)
+  })
+
+  it('strips the legacy field even when the new field already has content', () => {
+    // Otherwise a later Reset of assistantStyle.globalStyle (which never
+    // touches this stray field) would see it as "still legacy present, new
+    // field now empty" on the next load and silently re-migrate the old text.
+    const settings = { ...baseSettings(), assistantStyle: { globalStyle: 'Already set.' } }
+    const migrated = migrateLegacyAssistantStyle(settings, { ui: { systemPrompt: 'Old value.' } })
+    expect((migrated.ui as unknown as Record<string, unknown>).systemPrompt).toBeUndefined()
+  })
+
+  it('strips the legacy field even when it is only whitespace', () => {
+    const migrated = migrateLegacyAssistantStyle(baseSettings(), { ui: { systemPrompt: '   ' } })
+    expect((migrated.ui as unknown as Record<string, unknown>).systemPrompt).toBeUndefined()
+  })
+})
+
+describe('validatePatch', () => {
+  it('accepts an assistantStyle.globalStyle patch within the cap', () => {
+    expect(() => validatePatch({ assistantStyle: { globalStyle: 'Be concise.' } })).not.toThrow()
+  })
+
+  it('rejects an assistantStyle.globalStyle patch over the documented cap', () => {
+    const patch = { assistantStyle: { globalStyle: 'x'.repeat(MAX_ASSISTANT_STYLE_CHARS + 1) } }
+    expect(() => validatePatch(patch)).toThrow(/assistantStyle.globalStyle/)
   })
 })

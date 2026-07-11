@@ -169,6 +169,42 @@ describe('searchTranscripts', () => {
     expect(results[0].excerpts.length).toBeLessThanOrEqual(2)
   })
 
+  it('does not surface a message on a single incidental word overlap', () => {
+    const conversations = [
+      conversation({
+        id: 'c1',
+        messages: [
+          message({
+            id: 'm1',
+            role: 'user',
+            content: 'the deployment pipeline failed with a timeout error'
+          })
+        ]
+      })
+    ]
+
+    // Only "with" overlaps (a common 4+ letter word) — not a real match.
+    const results = searchTranscripts(conversations, 'salary negotiation tips with recruiters')
+
+    expect(results).toEqual([])
+  })
+
+  it('centers a long excerpt on the match instead of always taking the prefix', () => {
+    const filler = 'unrelated padding text '.repeat(20)
+    const content = `${filler}the login redirect is broken ${filler}`
+    const conversations = [
+      conversation({
+        id: 'c1',
+        messages: [message({ id: 'm1', role: 'user', content })]
+      })
+    ]
+
+    const results = searchTranscripts(conversations, 'login redirect broken')
+
+    expect(results[0].excerpts[0].text).toContain('login redirect')
+    expect(results[0].excerpts[0].text.startsWith('…')).toBe(true)
+  })
+
   it('breaks a relevance tie by recency', () => {
     const conversations = [
       conversation({

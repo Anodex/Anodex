@@ -115,7 +115,7 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       enabled: true,
       crossScopeEnabled: false,
       archivedEnabled: false,
-      cloudProviderEnabled: true
+      cloudProviderEnabled: false
     },
     scheduler: {
       keepAwake: false

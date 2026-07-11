@@ -175,15 +175,25 @@ class MemoryStore {
     return []
   }
 
+  /**
+   * Writes to disk first and only updates the in-memory cache once that
+   * succeeds, then rethrows on failure instead of just logging — `create`/
+   * `update`/`delete` call this directly with no try/catch of their own, so a
+   * thrown error here propagates all the way to the tool caller (which
+   * already converts a thrown error into a model-facing "Error: ..." message).
+   * Committing the cache unconditionally beforehand would report success to
+   * the model and UI for a memory that never actually reached disk.
+   */
   private persist(key: string, entries: MemoryEntry[]): void {
-    this.cache.set(key, entries)
+    if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true })
+    const file: ScopeFile = { version: STORE_VERSION, entries }
     try {
-      if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true })
-      const file: ScopeFile = { version: STORE_VERSION, entries }
       writeJsonAtomic(this.filePath(key), file)
     } catch (error) {
       log.error('Failed to persist memory:', error)
+      throw error
     }
+    this.cache.set(key, entries)
   }
 
   private filePath(key: string): string {

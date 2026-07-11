@@ -171,6 +171,13 @@ class AgentRunService {
       memoryUsed: result.memoryUsed,
       toolCalls: toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined
     }
+    // A new compacted context snapshot this turn (cloud providers only — see
+    // `RunGenerationResult.context`'s doc comment) — without this, no one is
+    // present to persist it the way the interactive chat renderer does, so
+    // every later turn in this same run would silently re-summarize the same
+    // growing history from scratch instead of seeding from what was already
+    // compacted.
+    if (result.context) conversation.context = result.context
     this.saveConversationTurn(conversation, [userMessage, assistantMessage])
     // `conversation` is reused by the next turn in this same loop — keep its
     // in-memory `messages` in sync with what was just persisted.

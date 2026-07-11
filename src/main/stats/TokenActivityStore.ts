@@ -1,7 +1,12 @@
 import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import type { ChartGranularity, ChartRange, UsageBreakdown, UsageProfile } from '@shared/stats.types'
+import type {
+  ChartGranularity,
+  ChartRange,
+  UsageBreakdown,
+  UsageProfile
+} from '@shared/stats.types'
 import { createLogger } from '../utils/logger'
 import {
   buildChartBuckets,
@@ -108,6 +113,41 @@ class TokenActivityStore {
       const model = bucket.models[id]
       return sum + (model ? model.inputTokens + model.outputTokens : 0)
     }, 0)
+  }
+
+  /**
+   * Record token spend from a non-generation API call — currently just the
+   * cloud providers' context-compaction summary call (see
+   * `summarizeForCompactionOpenAi`/`summarizeForCompactionAnthropic`), which
+   * is real billed usage but produces no chat turn. Folds into the same daily/
+   * model token totals the usage gauge and daily-cap comparison read (so that
+   * spend is no longer invisible to them), but deliberately skips
+   * `generations`/`sessionIds`/`toolUsage`/duration bookkeeping — those are
+   * all specifically about assistant replies, and this call isn't one.
+   */
+  recordAncillaryUsage({
+    inputTokens,
+    outputTokens,
+    modelId,
+    modelName
+  }: {
+    inputTokens: number
+    outputTokens: number
+    modelId: string
+    modelName: string
+  }): void {
+    const today = localDateString(new Date())
+    const bucket = this.record.daily[today] ?? { tokens: 0, generations: 0, models: {} }
+    bucket.tokens += inputTokens + outputTokens
+
+    const modelBucket = bucket.models[modelId] ?? { modelName, inputTokens: 0, outputTokens: 0 }
+    modelBucket.inputTokens += inputTokens
+    modelBucket.outputTokens += outputTokens
+    modelBucket.modelName = modelName
+    bucket.models[modelId] = modelBucket
+
+    this.record.daily[today] = bucket
+    this.persist()
   }
 
   getUsageProfile(): UsageProfile {

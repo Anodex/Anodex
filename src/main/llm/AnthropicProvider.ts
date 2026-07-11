@@ -11,6 +11,7 @@ import {
 import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { settingsStore } from '../settings/SettingsStore'
+import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
 import { providerUsageStore } from './ProviderUsageStore'
 import type { LlmProvider } from './LlmProvider'
@@ -268,19 +269,31 @@ function toInputSchema(params: ToolFunction['params']): Anthropic.Tool.InputSche
  * or a degenerate (too-short) result, so the caller falls back to just
  * dropping the older turns instead of keeping a useless "summary".
  */
-export async function summarizeForCompactionAnthropic(transcript: string): Promise<string | null> {
+export async function summarizeForCompactionAnthropic(
+  transcript: string,
+  modelOverride?: string
+): Promise<string | null> {
   const settings = settingsStore.get().provider.anthropic
   const apiKey = settings.apiKey.trim()
   if (!apiKey) return null
 
   const client = new Anthropic({ apiKey })
-  const model = settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
+  const model = modelOverride?.trim() || settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
 
   try {
     const response = await client.messages.create({
       model,
       max_tokens: Math.max(256, MAX_COMPACTION_SUMMARY_WORDS * 4),
       messages: [{ role: 'user', content: buildCompactionSummaryPrompt(transcript) }]
+    })
+    // Real billed usage with no chat turn attached to it — fold into the
+    // daily/model token totals so the usage gauge and daily cap comparison
+    // aren't blind to compaction spend (see `recordAncillaryUsage`'s comment).
+    tokenActivityStore.recordAncillaryUsage({
+      inputTokens: response.usage.input_tokens ?? 0,
+      outputTokens: response.usage.output_tokens ?? 0,
+      modelId: model,
+      modelName: `Claude — ${model}`
     })
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')

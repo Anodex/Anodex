@@ -124,6 +124,12 @@ class SchedulerService {
         memoryUsed: result.memoryUsed,
         toolCalls: toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined
       }
+      // A new compacted context snapshot this turn (cloud providers only —
+      // see `RunGenerationResult.context`'s doc comment). Without persisting
+      // this, the task's next scheduled run would re-summarize the same
+      // growing history from scratch instead of seeding from what this run
+      // already paid to compact.
+      if (result.context) conversation.context = result.context
       this.saveConversationTurn(conversation, [userMessage, assistantMessage])
 
       const summary = await this.summarize(result.content)

@@ -63,10 +63,24 @@ class SettingsStore {
       return defaults
     }
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as DeepPartial<AppSettings>
+      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as DeepPartial<AppSettings> & {
+        ui?: { systemPrompt?: string }
+      }
       // Merge over defaults so missing/added fields are always populated.
       const merged = deepMerge(defaults, raw)
-      return migrateLegacyAssistantStyle(merged, raw)
+      const migrated = migrateLegacyAssistantStyle(merged, raw)
+      // Persist right away so the stray legacy field (and, on the first pass,
+      // its migrated text) only ever needs handling once — left on disk, it
+      // would silently re-trigger on every future load (see the migration
+      // function's own comment), undoing a later Reset of the new field.
+      if (raw.ui?.systemPrompt !== undefined) {
+        try {
+          this.persist(migrated)
+        } catch (error) {
+          log.error('Failed to persist assistant-style migration:', error)
+        }
+      }
+      return migrated
     } catch (error) {
       log.warn('Failed to parse settings, falling back to defaults:', error)
       return defaults
@@ -96,12 +110,26 @@ export function migrateLegacyAssistantStyle(
   settings: AppSettings,
   raw: DeepPartial<AppSettings> & { ui?: { systemPrompt?: string } }
 ): AppSettings {
-  const legacy = raw.ui?.systemPrompt?.trim()
-  if (!legacy || settings.assistantStyle.globalStyle.trim()) return settings
+  if (raw.ui?.systemPrompt === undefined) return settings
+
+  // `deepMerge` carries `ui.systemPrompt` forward onto `settings.ui` even
+  // though `UiSettings` no longer declares it (it blindly copies every key
+  // present in a patch — see `deepMerge`'s doc comment). Strip it here
+  // unconditionally, not just when migrating text below, so this only ever
+  // needs handling once per legacy install: left in place, it would silently
+  // re-trigger on every future load, undoing a later Reset of the new field
+  // (Reset only ever clears `assistantStyle.globalStyle`, never this stray
+  // field, since callers no longer know it exists).
+  const ui = { ...(settings.ui as unknown as Record<string, unknown>) }
+  delete ui.systemPrompt
+  const cleaned = { ...settings, ui: ui as unknown as AppSettings['ui'] }
+
+  const legacy = raw.ui.systemPrompt.trim()
+  if (!legacy || settings.assistantStyle.globalStyle.trim()) return cleaned
   return {
-    ...settings,
+    ...cleaned,
     assistantStyle: {
-      ...settings.assistantStyle,
+      ...cleaned.assistantStyle,
       globalStyle: legacy.slice(0, MAX_ASSISTANT_STYLE_CHARS)
     }
   }
@@ -139,9 +167,10 @@ function isFiniteNumber(value: unknown): value is number {
  * runtime check on data crossing the IPC boundary — TypeScript's compile-time
  * types don't survive `ipcMain.handle`, so a bad value here (e.g. `NaN`
  * temperature, a negative context size) would otherwise flow straight into
- * `node-llama-cpp` and fail there with a much less useful error.
+ * `node-llama-cpp` and fail there with a much less useful error. Exported for
+ * unit testing.
  */
-function validatePatch(patch: DeepPartial<AppSettings>): void {
+export function validatePatch(patch: DeepPartial<AppSettings>): void {
   const generation = patch.generation
   if (generation?.temperature !== undefined) {
     if (!isFiniteNumber(generation.temperature) || generation.temperature < 0) {
@@ -231,6 +260,19 @@ function validatePatch(patch: DeepPartial<AppSettings>): void {
   if (patch.email?.gmail?.syncMode !== undefined) {
     if (!['metadata', 'full'].includes(patch.email.gmail.syncMode)) {
       throw new Error('email.gmail.syncMode must be "metadata" or "full"')
+    }
+  }
+
+  if (patch.assistantStyle?.globalStyle !== undefined) {
+    if (typeof patch.assistantStyle.globalStyle !== 'string') {
+      throw new Error('assistantStyle.globalStyle must be a string')
+    }
+    // The Settings UI enforces this via the textarea's maxLength, but a raw
+    // IPC call bypasses that — enforce the same documented hard cap here too.
+    if (patch.assistantStyle.globalStyle.length > MAX_ASSISTANT_STYLE_CHARS) {
+      throw new Error(
+        `assistantStyle.globalStyle must be at most ${MAX_ASSISTANT_STYLE_CHARS} characters`
+      )
     }
   }
   if (patch.email?.gmail?.sendRequiresApproval !== undefined) {

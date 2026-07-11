@@ -17,6 +17,7 @@ import {
 import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { settingsStore } from '../settings/SettingsStore'
+import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
 import type { LlmProvider } from './LlmProvider'
 
@@ -254,13 +255,16 @@ function toParametersSchema(params: ToolFunction['params']): Record<string, unkn
  * or a degenerate (too-short) result, so the caller falls back to just
  * dropping the older turns instead of keeping a useless "summary".
  */
-export async function summarizeForCompactionOpenAi(transcript: string): Promise<string | null> {
+export async function summarizeForCompactionOpenAi(
+  transcript: string,
+  modelOverride?: string
+): Promise<string | null> {
   const settings = settingsStore.get().provider.openai
   const apiKey = settings.apiKey.trim()
   if (!apiKey) return null
 
   const client = new OpenAI({ apiKey })
-  const model = settings.model.trim() || DEFAULT_OPENAI_MODEL
+  const model = modelOverride?.trim() || settings.model.trim() || DEFAULT_OPENAI_MODEL
 
   try {
     const response = await client.responses.create({
@@ -268,6 +272,17 @@ export async function summarizeForCompactionOpenAi(transcript: string): Promise<
       max_output_tokens: Math.max(256, MAX_COMPACTION_SUMMARY_WORDS * 4),
       input: [{ role: 'user', content: buildCompactionSummaryPrompt(transcript) }]
     })
+    // Real billed usage with no chat turn attached to it — fold into the
+    // daily/model token totals so the usage gauge and daily cap comparison
+    // aren't blind to compaction spend (see `recordAncillaryUsage`'s comment).
+    if (response.usage) {
+      tokenActivityStore.recordAncillaryUsage({
+        inputTokens: response.usage.input_tokens ?? 0,
+        outputTokens: response.usage.output_tokens ?? 0,
+        modelId: model,
+        modelName: `OpenAI — ${model}`
+      })
+    }
     const text = response.output_text?.trim() ?? ''
     return text.length >= MIN_SUMMARY_CHARS ? text : null
   } catch (error) {

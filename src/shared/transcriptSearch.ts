@@ -21,6 +21,13 @@ const MAX_RESULTS = 3
 const PHRASE_BOOST = 3
 /** Below this length a literal-substring match is too likely to be noise (e.g. a 2-letter query) to boost on. */
 const MIN_PHRASE_LENGTH = 4
+/**
+ * A message must clear this score to surface at all — a single incidental
+ * overlapping word (e.g. a common 4+ letter word like "with" or "that") isn't
+ * enough on its own. A single-word query still clears this: it also matches
+ * as a verbatim phrase, which alone is worth `PHRASE_BOOST` (3).
+ */
+const MIN_SCORE = 2
 
 export interface SearchTranscriptsOptions {
   /** Excluded from results — never recall the conversation currently being generated. */
@@ -59,7 +66,7 @@ export function searchTranscripts(
         message,
         score: scoreText(message.content, queryWords, queryPhrase)
       }))
-      .filter((entry) => entry.score > 0)
+      .filter((entry) => entry.score >= MIN_SCORE)
       .sort((a, b) => b.score - a.score)
       .slice(0, maxExcerpts)
 
@@ -68,7 +75,7 @@ export function searchTranscripts(
     const excerpts: TranscriptRecallExcerpt[] = scoredMessages.map(({ message, score }) => ({
       messageId: message.id,
       role: message.role as 'user' | 'assistant',
-      text: truncate(message.content, MAX_EXCERPT_CHARS),
+      text: excerptAround(message.content, queryWords, queryPhrase, MAX_EXCERPT_CHARS),
       score
     }))
 
@@ -114,6 +121,47 @@ function scoreText(text: string, queryWords: Set<string>, queryPhrase: string): 
   return score
 }
 
-function truncate(text: string, maxChars: number): string {
-  return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text
+/**
+ * Bound `text` to `maxChars`, centered on the query's first match rather than
+ * always the literal start — a message longer than the excerpt cap whose
+ * match falls later on would otherwise produce an excerpt that never even
+ * contains the word that caused the recall in the first place.
+ */
+function excerptAround(
+  text: string,
+  queryWords: Set<string>,
+  queryPhrase: string,
+  maxChars: number
+): string {
+  if (text.length <= maxChars) return text
+
+  const matchIndex = findFirstMatchIndex(text, queryWords, queryPhrase)
+  if (matchIndex === null) return `${text.slice(0, maxChars)}…`
+
+  let start = Math.max(0, matchIndex - Math.floor(maxChars / 2))
+  const end = Math.min(text.length, start + maxChars)
+  start = Math.max(0, end - maxChars)
+
+  const prefix = start > 0 ? '…' : ''
+  const suffix = end < text.length ? '…' : ''
+  return `${prefix}${text.slice(start, end)}${suffix}`
+}
+
+/** Earliest position of the query phrase or any query word in `text`, case-insensitive. */
+function findFirstMatchIndex(
+  text: string,
+  queryWords: Set<string>,
+  queryPhrase: string
+): number | null {
+  const lower = text.toLowerCase()
+  if (queryPhrase.length >= MIN_PHRASE_LENGTH) {
+    const phraseIndex = lower.indexOf(queryPhrase)
+    if (phraseIndex >= 0) return phraseIndex
+  }
+  let earliest: number | null = null
+  for (const word of queryWords) {
+    const index = lower.indexOf(word)
+    if (index >= 0 && (earliest === null || index < earliest)) earliest = index
+  }
+  return earliest
 }
