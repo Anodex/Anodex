@@ -256,7 +256,7 @@ export const useChatStore = create<ChatState>()(
         conversationId,
         messageId: assistantId,
         projectId,
-        systemPrompt: settings?.ui.systemPrompt,
+        systemPrompt: settings?.assistantStyle.globalStyle,
         context: existing?.context ?? null,
         history,
         prompt: buildPromptWithAttachments(trimmed, attachments),

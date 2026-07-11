@@ -201,14 +201,14 @@ export async function runGeneration(
   const systemPrompt = composeSystemPrompt({
     hasWorkspaceTools,
     hasProject: Boolean(activeProject),
+    assistantStyle: settings.assistantStyle.globalStyle,
+    projectRules: activeProject?.instructions ?? null,
     workspaceContext:
       hasWorkspaceTools && workspaceRoot
         ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null, request.prompt)
         : null,
     memoryContext: memory?.text ?? null,
-    transcriptRecallContext: transcriptRecall?.text ?? null,
-    projectRules: activeProject?.instructions ?? null,
-    userInstructions: settings.ui.systemPrompt
+    transcriptRecallContext: transcriptRecall?.text ?? null
   })
 
   // The local engine applies persisted-snapshot seeding, real-tokenizer

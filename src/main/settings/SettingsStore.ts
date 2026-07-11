@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import { createLogger } from '../utils/logger'
 
@@ -64,7 +65,8 @@ class SettingsStore {
     try {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as DeepPartial<AppSettings>
       // Merge over defaults so missing/added fields are always populated.
-      return deepMerge(defaults, raw)
+      const merged = deepMerge(defaults, raw)
+      return migrateLegacyAssistantStyle(merged, raw)
     } catch (error) {
       log.warn('Failed to parse settings, falling back to defaults:', error)
       return defaults
@@ -78,6 +80,30 @@ class SettingsStore {
 
   private ensureDir(dir: string): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  }
+}
+
+/**
+ * One-time migration: `ui.systemPrompt` (an uncapped, generic free-text
+ * field) was replaced by a dedicated, capped `assistantStyle.globalStyle`.
+ * An existing user's old text is carried over automatically on first load
+ * after upgrading, so it isn't silently discarded — but only when the new
+ * field is still empty, so it never overwrites something the user has
+ * already typed into the new field. Exported for unit testing; operates on
+ * plain data, no store/disk access of its own.
+ */
+export function migrateLegacyAssistantStyle(
+  settings: AppSettings,
+  raw: DeepPartial<AppSettings> & { ui?: { systemPrompt?: string } }
+): AppSettings {
+  const legacy = raw.ui?.systemPrompt?.trim()
+  if (!legacy || settings.assistantStyle.globalStyle.trim()) return settings
+  return {
+    ...settings,
+    assistantStyle: {
+      ...settings.assistantStyle,
+      globalStyle: legacy.slice(0, MAX_ASSISTANT_STYLE_CHARS)
+    }
   }
 }
 
@@ -140,10 +166,7 @@ function validatePatch(patch: DeepPartial<AppSettings>): void {
     }
   }
   if (model?.gpuLayers !== undefined) {
-    if (
-      model.gpuLayers !== 'auto' &&
-      (!isFiniteNumber(model.gpuLayers) || model.gpuLayers < 0)
-    ) {
+    if (model.gpuLayers !== 'auto' && (!isFiniteNumber(model.gpuLayers) || model.gpuLayers < 0)) {
       throw new Error('model.gpuLayers must be "auto" or a non-negative finite number')
     }
   }
@@ -172,7 +195,10 @@ function validatePatch(patch: DeepPartial<AppSettings>): void {
     }
   }
   if (patch.provider?.anthropic?.model !== undefined) {
-    if (typeof patch.provider.anthropic.model !== 'string' || !patch.provider.anthropic.model.trim()) {
+    if (
+      typeof patch.provider.anthropic.model !== 'string' ||
+      !patch.provider.anthropic.model.trim()
+    ) {
       throw new Error('provider.anthropic.model must be a non-empty string')
     }
   }

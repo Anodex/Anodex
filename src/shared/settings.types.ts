@@ -22,8 +22,26 @@ export interface ModelSettings {
 export interface UiSettings {
   /** Only `dark` is shipped today; typed as an enum for future themes. */
   theme: 'dark' | 'light' | 'system'
-  /** System prompt prepended to every conversation. */
-  systemPrompt: string
+}
+
+/**
+ * Modest hard cap on `AssistantStyleSettings.globalStyle` — durable voice/
+ * tone guidance should stay short, not grow into a second project-
+ * instructions field. Exported so the Settings UI can show a live counter
+ * against the same real limit that gets enforced.
+ */
+export const MAX_ASSISTANT_STYLE_CHARS = 1200
+
+export interface AssistantStyleSettings {
+  /**
+   * Durable voice/tone/personality guidance — how the assistant should
+   * communicate, not what a specific project needs. Global only, never
+   * loaded from a workspace file; injected right after Anodex's built-in
+   * behavior, ahead of project instructions and any retrieved reference
+   * data (workspace context, memory, past chats). Capped at
+   * `MAX_ASSISTANT_STYLE_CHARS`.
+   */
+  globalStyle: string
 }
 
 export interface ProfileSettings {
@@ -242,6 +260,7 @@ export interface AppSettings {
   generation: GenerationSettings
   model: ModelSettings
   ui: UiSettings
+  assistantStyle: AssistantStyleSettings
   profile: ProfileSettings
   appearance: AppearanceSettings
   general: GeneralSettings

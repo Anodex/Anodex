@@ -37,7 +37,7 @@ vi.mock('../../settings/SettingsStore', () => ({
         archivedEnabled: false,
         cloudProviderEnabled: false
       },
-      ui: { systemPrompt: '' },
+      assistantStyle: { globalStyle: '' },
       generation: { temperature: 0.7, topP: 0.9, maxTokens: 512 },
       provider: { active: 'local', anthropic: { apiKey: '', model: 'claude-sonnet-5' } }
     })

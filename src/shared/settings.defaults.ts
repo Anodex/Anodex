@@ -11,9 +11,9 @@ import { DEFAULT_OPENAI_MODEL } from './openaiModels'
  * window large enough to keep earlier steps in memory. The context size and
  * token budget are re-seeded from detected hardware on first run.
  *
- * `ui.systemPrompt` is now *additional* user guidance layered on top of the
- * built-in coding-agent prompt (see `src/shared/prompts.ts`), so it defaults to
- * empty rather than carrying the agent's behaviour.
+ * `assistantStyle.globalStyle` is *additional* user guidance layered on top of
+ * the built-in coding-agent prompt (see `src/shared/prompts.ts`), so it
+ * defaults to empty rather than carrying the agent's behaviour.
  */
 export function createDefaultSettings(modelsDirectory: string): AppSettings {
   return {
@@ -30,8 +30,10 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       gpuLayers: 'auto'
     },
     ui: {
-      theme: 'dark',
-      systemPrompt: ''
+      theme: 'dark'
+    },
+    assistantStyle: {
+      globalStyle: ''
     },
     profile: {
       displayName: 'Anodex User',

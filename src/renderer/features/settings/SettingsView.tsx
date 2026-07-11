@@ -1,12 +1,15 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { TOOL_CATALOG } from '@shared/tools.types'
+import { renderAssistantStyleSection } from '@shared/prompts'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore, type SettingsSection } from '../../stores/uiStore'
 import { PageHeader } from '../../components/PageHeader'
 import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
+import { Button } from '../../components/ui/Button'
 import { SettingRow } from './SettingRow'
 import { RangeControl, SelectControl, TextControl, ToggleControl } from './controls'
 import { ProfileSettings } from './pages/profile/ProfileSettings'
@@ -153,6 +156,8 @@ interface GeneralToolsSectionProps {
 
 function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JSX.Element {
   const engine = useModelStore((s) => s.engine)
+  const [showStylePreview, setShowStylePreview] = useState(false)
+  const [copiedStyle, setCopiedStyle] = useState(false)
   // The setting is a target; the engine can resolve a smaller *actual*
   // context for a given model + hardware combination (heavier model sizes on
   // borderline hardware are the common case — see `contextWasDownsized` in
@@ -347,17 +352,67 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
       />
 
       <h2 className={styles.sectionTitle} style={{ marginTop: 'var(--space-6)' }}>
-        Assistant
+        Assistant style
       </h2>
       <p className={styles.sectionDesc}>
-        The system prompt sets the assistant&apos;s behaviour for every new conversation.
+        Durable voice and tone guidance — how the assistant should communicate, not what a specific
+        project needs (that belongs in Settings → Projects). Applied to every conversation, ahead of
+        project instructions and anything Anodex retrieves as context.
       </p>
       <textarea
         className={styles.textarea}
-        value={settings.ui.systemPrompt}
+        value={settings.assistantStyle.globalStyle}
         rows={4}
-        onChange={(event) => void update({ ui: { systemPrompt: event.target.value } })}
+        maxLength={MAX_ASSISTANT_STYLE_CHARS}
+        placeholder="e.g. Be direct and terse. Skip the recap at the end. Explain tradeoffs before making a choice."
+        onChange={(event) =>
+          void update({
+            assistantStyle: { globalStyle: event.target.value.slice(0, MAX_ASSISTANT_STYLE_CHARS) }
+          })
+        }
       />
+      <div className={styles.styleMeta}>
+        <span className={styles.styleCounter}>
+          {settings.assistantStyle.globalStyle.length} / {MAX_ASSISTANT_STYLE_CHARS}
+        </span>
+        <div className={styles.styleActions}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowStylePreview((value) => !value)}
+            disabled={!settings.assistantStyle.globalStyle.trim()}
+          >
+            {showStylePreview ? 'Hide preview' : 'Preview'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!settings.assistantStyle.globalStyle}
+            onClick={() => {
+              void (async () => {
+                await navigator.clipboard.writeText(settings.assistantStyle.globalStyle)
+                setCopiedStyle(true)
+                setTimeout(() => setCopiedStyle(false), 1500)
+              })()
+            }}
+          >
+            {copiedStyle ? 'Copied' : 'Copy'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!settings.assistantStyle.globalStyle}
+            onClick={() => void update({ assistantStyle: { globalStyle: '' } })}
+          >
+            Reset
+          </Button>
+        </div>
+      </div>
+      {showStylePreview && settings.assistantStyle.globalStyle.trim() && (
+        <pre className={styles.stylePreview}>
+          {renderAssistantStyleSection(settings.assistantStyle.globalStyle.trim())}
+        </pre>
+      )}
     </section>
   )
 }

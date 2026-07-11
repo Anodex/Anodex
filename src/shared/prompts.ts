@@ -1,11 +1,14 @@
 /**
  * System-prompt building blocks for the Anodex coding agent.
  *
- * The final system prompt sent to the model is composed at request time from:
+ * The final system prompt sent to the model is composed at request time,
+ * trusted instructions first and reference data last, so what the user
+ * actually asked for is never outweighed by material Anodex merely read:
  *   1. CODING_AGENT_PROMPT — the built-in behaviour/discipline (this file)
- *   2. workspace context   — an auto-generated summary of the active project
+ *   2. assistant style     — durable voice/tone from Settings → Assistant
  *   3. project rules       — the user's per-project instructions
- *   4. user instructions   — the free-form text from Settings → Assistant
+ *   4. reference data      — workspace context, memory, past chats: data to
+ *                            consult, always delimited, never instructions
  *
  * Keeping the discipline in code (rather than in the user-editable field) means
  * every user gets a capable agent by default, and their custom text is added on
@@ -74,21 +77,30 @@ function renderReferenceDataSection(title: string, note: string, text: string): 
   return `# ${title}\n${note}\n\n${text}`
 }
 
+/**
+ * Render the assistant-style section exactly as `composeSystemPrompt` will —
+ * shared so the Settings UI's "preview" can show the user precisely what
+ * gets injected, not an approximation that could drift from reality.
+ */
+export function renderAssistantStyleSection(text: string): string {
+  return `# Assistant style\n${text}`
+}
+
 export interface SystemPromptParts {
   /** Whether file/command tools are available (a workspace is set). */
   hasWorkspaceTools: boolean
   /** Whether a project is open (unlocks mutating/executing tools, not just read-only ones). */
   hasProject: boolean
+  /** Durable voice/tone guidance from Settings → Assistant, if any. */
+  assistantStyle?: string | null
+  /** Per-project instructions (Phase 5), if any. */
+  projectRules?: string | null
   /** Auto-generated workspace summary (Phase 3), if any. */
   workspaceContext?: string | null
   /** Retrieved structured-memory entries (project + global), if any and enabled. */
   memoryContext?: string | null
   /** Retrieved cross-session transcript excerpts, if any and enabled. */
   transcriptRecallContext?: string | null
-  /** Per-project instructions (Phase 5), if any. */
-  projectRules?: string | null
-  /** Free-form user instructions from Settings → Assistant. */
-  userInstructions?: string | null
 }
 
 /** Compose the full system prompt from its layered parts. */
@@ -98,6 +110,12 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
   if (!parts.hasWorkspaceTools) sections.push(NO_WORKSPACE_NOTE)
   else if (!parts.hasProject) sections.push(READ_ONLY_WORKSPACE_NOTE)
   if (parts.hasWorkspaceTools) sections.push(TOOLING_UPDATE_NOTE)
+  if (parts.assistantStyle?.trim()) {
+    sections.push(renderAssistantStyleSection(parts.assistantStyle.trim()))
+  }
+  if (parts.projectRules?.trim()) {
+    sections.push(`# Project instructions\n${parts.projectRules.trim()}`)
+  }
   if (parts.workspaceContext?.trim()) {
     sections.push(
       renderReferenceDataSection(
@@ -120,12 +138,6 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
         parts.transcriptRecallContext.trim()
       )
     )
-  }
-  if (parts.projectRules?.trim()) {
-    sections.push(`# Project instructions\n${parts.projectRules.trim()}`)
-  }
-  if (parts.userInstructions?.trim()) {
-    sections.push(`# User instructions\n${parts.userInstructions.trim()}`)
   }
 
   return sections.join('\n\n')

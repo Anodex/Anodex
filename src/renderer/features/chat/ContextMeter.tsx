@@ -14,7 +14,7 @@ function formatTokenCount(tokens: number): string {
 export function ContextMeter({ className }: { className?: string } = {}): JSX.Element | null {
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const engine = useModelStore((s) => s.engine)
-  const systemPrompt = useSettingsStore((s) => s.settings?.ui.systemPrompt)
+  const systemPrompt = useSettingsStore((s) => s.settings?.assistantStyle.globalStyle)
 
   const info = useMemo(() => {
     const contextSize = engine.contextSize
