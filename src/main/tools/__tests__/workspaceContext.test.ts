@@ -9,7 +9,7 @@ vi.mock('../../projects/ProjectMemoryStore', () => ({
   projectMemoryStore: { get: getMock }
 }))
 
-const { buildWorkspaceContext, rankTaskSummaries, rankTouchedFiles } =
+const { buildWorkspaceContext, rankRecallEvents, rankTouchedFiles } =
   await import('../workspaceContext')
 
 describe('buildWorkspaceContext', () => {
@@ -18,7 +18,7 @@ describe('buildWorkspaceContext', () => {
   beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), 'anodex-wsctx-'))
     getMock.mockReset()
-    getMock.mockReturnValue({ projectId: 'p1', filesTouched: [], recentSummaries: [] })
+    getMock.mockReturnValue({ projectId: 'p1', filesTouched: [], recentEvents: [] })
   })
 
   afterEach(async () => {
@@ -76,24 +76,55 @@ describe('buildWorkspaceContext', () => {
     const memory: ProjectMemory = {
       projectId: 'p1',
       filesTouched: [{ path: 'src/index.ts', action: 'write', at: Date.now() }],
-      recentSummaries: [{ conversationId: 'c1', summary: 'Fixed the login bug.', at: Date.now() }]
+      recentEvents: [
+        {
+          conversationId: 'c1',
+          messageId: 'm1',
+          createdAt: Date.now(),
+          changedFiles: ['src/login.ts'],
+          successfulTools: ['edit_file'],
+          failedTools: [],
+          verification: [{ command: 'npm test', status: 'passed' }],
+          assistantSummary: 'Fixed the login bug.'
+        }
+      ]
     }
     getMock.mockReturnValue(memory)
 
-    const context = buildWorkspaceContext(workspace, 'p1')
+    const context = buildWorkspaceContext(workspace, 'p1', 'index login')
 
     expect(context).toContain('project recall')
     expect(context).toContain('write: src/index.ts')
-    expect(context).toContain('Fixed the login bug.')
+    expect(context).toContain('changed src/login.ts')
+    expect(context).toContain('ran `npm test` (passed)')
+    expect(context).toContain("assistant's own account (unverified): Fixed the login bug.")
   })
 
-  it('retrieves relevant older summaries ahead of newer unrelated summaries', () => {
+  it('retrieves relevant older events ahead of newer unrelated events', () => {
     const memory: ProjectMemory = {
       projectId: 'p1',
       filesTouched: [],
-      recentSummaries: [
-        { conversationId: 'c-new', summary: 'Updated button colors and spacing.', at: 30 },
-        { conversationId: 'c-old', summary: 'Fixed login redirect after authentication.', at: 10 }
+      recentEvents: [
+        {
+          conversationId: 'c-new',
+          messageId: 'm-new',
+          createdAt: 30,
+          changedFiles: ['src/theme/colors.css'],
+          successfulTools: ['edit_file'],
+          failedTools: [],
+          verification: [],
+          assistantSummary: 'Updated button colors and spacing.'
+        },
+        {
+          conversationId: 'c-old',
+          messageId: 'm-old',
+          createdAt: 10,
+          changedFiles: ['src/auth/login.ts'],
+          successfulTools: ['edit_file'],
+          failedTools: [],
+          verification: [],
+          assistantSummary: 'Fixed login redirect after authentication.'
+        }
       ]
     }
     getMock.mockReturnValue(memory)
@@ -107,6 +138,35 @@ describe('buildWorkspaceContext', () => {
   it('omits the activity section when project memory is empty', () => {
     const context = buildWorkspaceContext(workspace, 'p1')
     expect(context).not.toContain('Recent activity')
+  })
+
+  it('omits the activity section when nothing in project memory matches the query, instead of injecting unrelated activity', () => {
+    const memory: ProjectMemory = {
+      projectId: 'p1',
+      filesTouched: [{ path: 'src/theme/colors.css', action: 'write', at: Date.now() }],
+      recentEvents: [
+        {
+          conversationId: 'c1',
+          messageId: 'm1',
+          createdAt: Date.now(),
+          changedFiles: ['src/theme/colors.css'],
+          successfulTools: ['edit_file'],
+          failedTools: [],
+          verification: [],
+          assistantSummary: 'Updated button colors.'
+        }
+      ]
+    }
+    getMock.mockReturnValue(memory)
+
+    const context = buildWorkspaceContext(
+      workspace,
+      'p1',
+      'completely unrelated database migration'
+    )
+
+    expect(context).not.toContain('project recall')
+    expect(context).not.toContain('colors.css')
   })
 
   it('includes ANODEX.md notes when present', async () => {
@@ -134,22 +194,40 @@ describe('project-memory retrieval ranking', () => {
         { path: 'src/theme/colors.css', action: 'write', at: 30 },
         { path: 'src/auth/login.ts', action: 'read', at: 10 }
       ],
-      recentSummaries: []
+      recentEvents: []
     }
 
     expect(rankTouchedFiles(memory, 'login auth bug')[0].path).toBe('src/auth/login.ts')
   })
 
-  it('falls back to recency when the query has no overlap', () => {
+  it('returns nothing when the query has no lexical overlap — no fallback to recency', () => {
     const memory: ProjectMemory = {
       projectId: 'p1',
       filesTouched: [],
-      recentSummaries: [
-        { conversationId: 'old', summary: 'Older unrelated task.', at: 10 },
-        { conversationId: 'new', summary: 'Newer unrelated task.', at: 30 }
+      recentEvents: [
+        {
+          conversationId: 'old',
+          messageId: 'm-old',
+          createdAt: 10,
+          changedFiles: [],
+          successfulTools: [],
+          failedTools: [],
+          verification: [],
+          assistantSummary: 'Older unrelated task.'
+        },
+        {
+          conversationId: 'new',
+          messageId: 'm-new',
+          createdAt: 30,
+          changedFiles: [],
+          successfulTools: [],
+          failedTools: [],
+          verification: [],
+          assistantSummary: 'Newer unrelated task.'
+        }
       ]
     }
 
-    expect(rankTaskSummaries(memory, 'zqxv')[0].conversationId).toBe('new')
+    expect(rankRecallEvents(memory, 'zqxv')).toEqual([])
   })
 })

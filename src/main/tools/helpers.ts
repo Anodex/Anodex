@@ -101,8 +101,11 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   try {
     const { modelResult, detail, plan, preview } = await spec.run()
-    const truncated = truncateModelResult(modelResult, spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS)
-    recordTouch(ctx, spec.touch)
+    const truncated = truncateModelResult(
+      modelResult,
+      spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS
+    )
+    const touchedPaths = recordTouch(ctx, spec.touch)
     ctx.emit({
       id,
       name: spec.name,
@@ -112,7 +115,8 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
       detail,
       plan,
       preview,
-      result: rememberResult(modelResult)
+      result: rememberResult(modelResult),
+      touchedPaths: touchedPaths.length ? touchedPaths : undefined
     })
     return truncated
   } catch (error) {
@@ -131,18 +135,27 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
 }
 
 /**
- * Record a file touch (or several) in project memory, if a project is active.
+ * Record a file touch (or several) in project memory, if a project is active,
+ * and return the normalized path(s) recorded — the single authoritative
+ * source (rather than re-deriving from `title`/`diff` later) for what this
+ * call actually changed, threaded onto the emitted `ToolCall` below and, from
+ * there, into `ProjectRecallEvent`'s `changedFiles`.
  * Normalizes the path against the workspace root first — the model can supply
  * equivalent spellings of the same path (`./foo.ts`, `foo.ts`), which would
  * otherwise create separate ledger entries for the same file.
  */
-function recordTouch(ctx: ToolRuntimeContext, touch: FileTouch | FileTouch[] | undefined): void {
-  if (!touch || !ctx.projectId) return
+function recordTouch(
+  ctx: ToolRuntimeContext,
+  touch: FileTouch | FileTouch[] | undefined
+): string[] {
+  if (!touch || !ctx.projectId) return []
   const projectId = ctx.projectId
   const touches = Array.isArray(touch) ? touch : [touch]
-  for (const t of touches) {
-    projectMemoryStore.recordTouch(projectId, normalizeTouchPath(ctx, t.path), t.action)
-  }
+  return touches.map((t) => {
+    const path = normalizeTouchPath(ctx, t.path)
+    projectMemoryStore.recordTouch(projectId, path, t.action)
+    return path
+  })
 }
 
 /** Best-effort normalization; falls back to the raw path if it can't be resolved. */
@@ -195,8 +208,11 @@ export async function runGuardedTool(
     }
 
     const { modelResult, detail, diff, preview } = await spec.run()
-    const truncated = truncateModelResult(modelResult, spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS)
-    recordTouch(ctx, spec.touch)
+    const truncated = truncateModelResult(
+      modelResult,
+      spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS
+    )
+    const touchedPaths = recordTouch(ctx, spec.touch)
     ctx.emit({
       id,
       name: spec.name,
@@ -206,7 +222,8 @@ export async function runGuardedTool(
       detail,
       diff,
       preview,
-      result: rememberResult(modelResult)
+      result: rememberResult(modelResult),
+      touchedPaths: touchedPaths.length ? touchedPaths : undefined
     })
     return truncated
   } catch (error) {

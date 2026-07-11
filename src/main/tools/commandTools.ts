@@ -1,4 +1,5 @@
 import { exec } from 'node:child_process'
+import type { ToolCall } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { runGuardedTool } from './helpers'
 import { classifyCommandRisk } from './permissions'
@@ -67,6 +68,28 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
         }
       })
   })
+
+/**
+ * Extract a pass/fail verification result from a completed `run_command`
+ * call, for `ProjectRecallEvent`'s `verification` field (see
+ * `runGeneration.ts`). Parses this tool's own fixed, Anodex-authored
+ * title/detail format (`Run: <command>` / `exit <code>`, both set above and
+ * in `helpers.ts`'s `runGuardedTool`) rather than model-generated free text —
+ * safe, controlled string parsing, not the kind this project treats with
+ * suspicion elsewhere. Returns `null` for anything other than a
+ * successfully *executed* run_command call: a non-zero exit code still
+ * executed (that's a failed verification, worth recording), but a
+ * denied/errored call never reached a real exit code at all.
+ */
+export function parseRunCommandVerification(
+  call: Pick<ToolCall, 'name' | 'status' | 'title' | 'detail'>
+): { command: string; status: 'passed' | 'failed' } | null {
+  if (call.name !== 'run_command' || call.status !== 'success') return null
+  const command = call.title.startsWith('Run: ') ? call.title.slice('Run: '.length) : null
+  const exitMatch = call.detail?.match(/^exit (.+)$/)
+  if (!command || !exitMatch) return null
+  return { command, status: exitMatch[1] === '0' ? 'passed' : 'failed' }
+}
 
 /** Run a command, always resolving with output + exit code (never rejecting). */
 function runShell(

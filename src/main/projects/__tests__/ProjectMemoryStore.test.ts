@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanSummaryText } from '../ProjectMemoryStore'
+import { capAssistantSummary, cleanSummaryText } from '../ProjectMemoryStore'
 
 describe('cleanSummaryText', () => {
   it('strips fenced code blocks, keeping surrounding prose', () => {
@@ -26,5 +26,22 @@ describe('cleanSummaryText', () => {
   it('collapses excess blank lines left behind by stripped blocks', () => {
     const text = 'Step one.\n\n```\ncode\n```\n\n\n\nStep two.'
     expect(cleanSummaryText(text)).toBe('Step one.\n\nStep two.')
+  })
+})
+
+describe('capAssistantSummary', () => {
+  it('returns undefined for an empty string', () => {
+    expect(capAssistantSummary('')).toBeUndefined()
+  })
+
+  it('leaves short text untouched', () => {
+    expect(capAssistantSummary('Fixed the bug.')).toBe('Fixed the bug.')
+  })
+
+  it('truncates long text with an ellipsis', () => {
+    const long = 'x'.repeat(300)
+    const capped = capAssistantSummary(long)
+    expect(capped?.length).toBe(221) // 220 chars + the ellipsis character
+    expect(capped?.endsWith('…')).toBe(true)
   })
 })

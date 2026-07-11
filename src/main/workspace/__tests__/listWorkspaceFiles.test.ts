@@ -7,7 +7,7 @@ import type { WorkspaceTreeNode } from '@shared/workspaceFiles.types'
 import { determineEditedBy, listWorkspaceFiles } from '../listWorkspaceFiles'
 
 function memoryWith(touches: ProjectMemory['filesTouched']): ProjectMemory {
-  return { projectId: 'p1', filesTouched: touches, recentSummaries: [] }
+  return { projectId: 'p1', filesTouched: touches, recentEvents: [] }
 }
 
 describe('determineEditedBy', () => {

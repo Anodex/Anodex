@@ -39,6 +39,14 @@ export interface ToolCall {
   plan?: Plan
   /** Optional rich preview rendered inside the chat transcript. */
   preview?: ToolCallPreview
+  /**
+   * Workspace-relative path(s) this call touched on success, same source as
+   * `ProjectMemoryStore`'s file-touch ledger (see `helpers.ts`'s `recordTouch`)
+   * — the authoritative list of what actually changed, as opposed to a path
+   * parsed out of `title`/`diff` after the fact. Covers delete/move too,
+   * which don't carry a `diff`.
+   */
+  touchedPaths?: string[]
 }
 
 export type ToolCallPreview = {
@@ -105,7 +113,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: 'List files and folders in the workspace.',
     requiresProject: true
   },
-  { name: 'read_file', kind: 'read', description: 'Read the contents of a file.', requiresProject: true },
+  {
+    name: 'read_file',
+    kind: 'read',
+    description: 'Read the contents of a file.',
+    requiresProject: true
+  },
   {
     name: 'read_file_range',
     kind: 'read',

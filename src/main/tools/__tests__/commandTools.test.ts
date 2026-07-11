@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ToolConfirmRequest } from '@shared/tools.types'
-import { runCommandTool } from '../commandTools'
+import { parseRunCommandVerification, runCommandTool } from '../commandTools'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 describe('run_command', () => {
@@ -142,5 +142,70 @@ describe('run_command', () => {
     await tool.handler({ command: 'rm -rf /' })
 
     expect(requests[0]?.risk).toBe('destructive')
+  })
+})
+
+describe('parseRunCommandVerification', () => {
+  it('parses a passing command', () => {
+    expect(
+      parseRunCommandVerification({
+        name: 'run_command',
+        status: 'success',
+        title: 'Run: npm test',
+        detail: 'exit 0'
+      })
+    ).toEqual({ command: 'npm test', status: 'passed' })
+  })
+
+  it('parses a failing command', () => {
+    expect(
+      parseRunCommandVerification({
+        name: 'run_command',
+        status: 'success',
+        title: 'Run: npm run build',
+        detail: 'exit 1'
+      })
+    ).toEqual({ command: 'npm run build', status: 'failed' })
+  })
+
+  it('treats a non-numeric exit reason (e.g. a timeout signal) as failed', () => {
+    expect(
+      parseRunCommandVerification({
+        name: 'run_command',
+        status: 'success',
+        title: 'Run: npm test',
+        detail: 'exit ETIMEDOUT'
+      })
+    ).toEqual({ command: 'npm test', status: 'failed' })
+  })
+
+  it('returns null for a different tool', () => {
+    expect(
+      parseRunCommandVerification({
+        name: 'read_file',
+        status: 'success',
+        title: 'Read x',
+        detail: undefined
+      })
+    ).toBeNull()
+  })
+
+  it('returns null for a denied or errored call (never reached a real exit code)', () => {
+    expect(
+      parseRunCommandVerification({
+        name: 'run_command',
+        status: 'denied',
+        title: 'Run: rm -rf /',
+        detail: 'Denied by user'
+      })
+    ).toBeNull()
+    expect(
+      parseRunCommandVerification({
+        name: 'run_command',
+        status: 'error',
+        title: 'Run: npm test',
+        detail: 'Command failed to spawn'
+      })
+    ).toBeNull()
   })
 })

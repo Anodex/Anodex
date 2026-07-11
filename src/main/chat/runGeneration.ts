@@ -1,6 +1,7 @@
 import type { ChatRequest, GenerationStats } from '@shared/chat.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { MemoryEntry } from '@shared/memory.types'
+import type { VerificationResult } from '@shared/projectMemory.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
@@ -19,6 +20,7 @@ import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { buildWorkspaceContext } from '../tools/workspaceContext'
 import { buildMemoryContext } from '../memory/MemoryRetriever'
+import { parseRunCommandVerification } from '../tools/commandTools'
 import { chatEvents } from './chatEvents'
 
 /**
@@ -128,6 +130,12 @@ export async function runGeneration(
   const workspaceRoot = activeProject?.folderPath ?? null
   let hadToolActivity = false
   const toolNamesThisTurn: string[] = []
+  // Real, verified outcomes this turn — for ProjectRecallEvent, as opposed to
+  // the assistant's own prose claim about what it did. See recordEvent below.
+  const successfulToolsThisTurn: string[] = []
+  const failedToolsThisTurn: string[] = []
+  const changedFilesThisTurn = new Set<string>()
+  const verificationThisTurn: VerificationResult[] = []
 
   const tools = settings.tools.enabled
     ? {
@@ -148,8 +156,15 @@ export async function runGeneration(
           // Only tally terminal, actually-executed calls, matching the same
           // guard `LlamaService.generate()` uses before recording to
           // `modelReliabilityStore`.
-          if (call.status === 'success' || call.status === 'error') {
+          if (call.status === 'success') {
             toolNamesThisTurn.push(call.name)
+            successfulToolsThisTurn.push(call.name)
+            for (const path of call.touchedPaths ?? []) changedFilesThisTurn.add(path)
+            const verification = parseRunCommandVerification(call)
+            if (verification) verificationThisTurn.push(verification)
+          } else if (call.status === 'error') {
+            toolNamesThisTurn.push(call.name)
+            failedToolsThisTurn.push(call.name)
           }
           io.onActivity?.(call)
         },
@@ -237,8 +252,19 @@ export async function runGeneration(
 
   // Remember this turn in project memory so a future conversation in the
   // same project has ambient context, not just this one's chat history.
-  if (hadToolActivity && !outcome.stopped && activeProject && content) {
-    projectMemoryStore.recordSummary(activeProject.id, request.conversationId, content)
+  // changedFiles/successfulTools/failedTools/verification come from real
+  // tool outcomes, not the assistant's own claim; the reply text is kept
+  // only as a supplemental, explicitly non-authoritative summary.
+  if (hadToolActivity && !outcome.stopped && activeProject) {
+    projectMemoryStore.recordEvent(activeProject.id, {
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      changedFiles: [...changedFilesThisTurn],
+      successfulTools: successfulToolsThisTurn,
+      failedTools: failedToolsThisTurn,
+      verification: verificationThisTurn,
+      assistantSummary: content || undefined
+    })
   }
 
   // Recorded regardless of `stopped` — real tokens were generated either way.

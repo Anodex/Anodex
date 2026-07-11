@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import type { FileTouch, ProjectMemory, TaskSummary } from '@shared/projectMemory.types'
+import type { FileTouch, ProjectMemory, ProjectRecallEvent } from '@shared/projectMemory.types'
 import { wordSet } from '../memory/textSimilarity'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { PROJECT_NOTES_FILENAME } from './projectNotesTool'
@@ -60,10 +60,20 @@ export function buildWorkspaceContext(
   return activity ? `${cache.text}\n\n${activity}` : cache.text
 }
 
-/** Retrieve relevant touched files and past task summaries for this project. */
+/**
+ * Retrieve relevant touched files and past recall events for this project.
+ * Only genuine lexical matches are injected — no "nothing matched, show
+ * recent activity anyway" fallback — since that shape of fallback is exactly
+ * what caused this project's earlier documented project-memory-bleed bug
+ * (unrelated past activity leaking into and biasing an unrelated new task).
+ */
 function buildActivitySummary(projectId: string, retrievalQuery: string): string {
   const memory = projectMemoryStore.get(projectId)
-  if (memory.filesTouched.length === 0 && memory.recentSummaries.length === 0) return ''
+  if (memory.filesTouched.length === 0 && memory.recentEvents.length === 0) return ''
+
+  const files = rankTouchedFiles(memory, retrievalQuery).slice(0, MAX_ACTIVITY_FILES)
+  const events = rankRecallEvents(memory, retrievalQuery).slice(0, MAX_ACTIVITY_SUMMARIES)
+  if (files.length === 0 && events.length === 0) return ''
 
   const lines: string[] = [
     'Retrieved project recall from past conversations. This is background context only, ' +
@@ -72,19 +82,35 @@ function buildActivitySummary(projectId: string, retrievalQuery: string): string
       'asking now; ignore anything that does not.'
   ]
 
-  const files = rankTouchedFiles(memory, retrievalQuery).slice(0, MAX_ACTIVITY_FILES)
   if (files.length) {
     lines.push('Potentially relevant files touched previously:')
     lines.push(...files.map((touch) => `- ${touch.action}: ${touch.path}`))
   }
 
-  const summaries = rankTaskSummaries(memory, retrievalQuery).slice(0, MAX_ACTIVITY_SUMMARIES)
-  if (summaries.length) {
-    lines.push('Potentially relevant past task summaries:')
-    lines.push(...summaries.map((entry) => `- ${entry.summary}`))
+  if (events.length) {
+    lines.push(
+      'Potentially relevant past turns. changedFiles/verification below are confirmed from real ' +
+        'tool results; anything marked "assistant\'s own account" is only the model\'s own ' +
+        'unverified claim about what it did, not a confirmed outcome:'
+    )
+    lines.push(...events.map(formatRecallEvent))
   }
 
   return lines.join('\n')
+}
+
+/** One compact line per event, verified facts first, unverified prose clearly labeled. */
+function formatRecallEvent(event: ProjectRecallEvent): string {
+  const verified: string[] = []
+  if (event.changedFiles.length) verified.push(`changed ${event.changedFiles.join(', ')}`)
+  for (const v of event.verification) verified.push(`ran \`${v.command}\` (${v.status})`)
+  if (event.failedTools.length) verified.push(`${event.failedTools.join(', ')} failed`)
+
+  const line = verified.length ? verified.join('; ') : 'no verified file changes or commands'
+  const supplemental = event.assistantSummary
+    ? ` — assistant's own account (unverified): ${event.assistantSummary}`
+    : ''
+  return `- ${line}${supplemental}`
 }
 
 /** Exported for unit tests; ranks by lexical relevance, then recency. */
@@ -96,26 +122,38 @@ export function rankTouchedFiles(memory: ProjectMemory, retrievalQuery: string):
       if (a.relevance !== b.relevance) return b.relevance - a.relevance
       return b.entry.at - a.entry.at
     })
-  return onlyRelevantWhenAvailable(ranked)
+  return onlyRelevantMatches(ranked)
 }
 
-/** Exported for unit tests; ranks summaries by lexical relevance, then recency. */
-export function rankTaskSummaries(memory: ProjectMemory, retrievalQuery: string): TaskSummary[] {
+/** Exported for unit tests; ranks recall events by lexical relevance, then recency. */
+export function rankRecallEvents(
+  memory: ProjectMemory,
+  retrievalQuery: string
+): ProjectRecallEvent[] {
   const queryWords = wordSet(retrievalQuery)
-  const ranked = [...memory.recentSummaries]
-    .map((entry) => ({ entry, relevance: overlapScore(entry.summary, queryWords) }))
+  const ranked = [...memory.recentEvents]
+    .map((entry) => ({ entry, relevance: overlapScore(recallEventSearchText(entry), queryWords) }))
     .sort((a, b) => {
       if (a.relevance !== b.relevance) return b.relevance - a.relevance
-      return b.entry.at - a.entry.at
+      return b.entry.createdAt - a.entry.createdAt
     })
-  return onlyRelevantWhenAvailable(ranked)
+  return onlyRelevantMatches(ranked)
 }
 
-function onlyRelevantWhenAvailable<T>(items: Array<{ entry: T; relevance: number }>): T[] {
-  if (items.some((item) => item.relevance > 0)) {
-    return items.filter((item) => item.relevance > 0).map((item) => item.entry)
-  }
-  return items.map((item) => item.entry)
+/** Text an event is scored against: what changed, what ran, and its supplemental summary. */
+function recallEventSearchText(event: ProjectRecallEvent): string {
+  return [
+    ...event.changedFiles,
+    ...event.verification.map((v) => v.command),
+    ...event.successfulTools,
+    ...event.failedTools,
+    event.assistantSummary ?? ''
+  ].join(' ')
+}
+
+/** No fallback: an item with zero lexical overlap is dropped, not injected anyway. */
+function onlyRelevantMatches<T>(items: Array<{ entry: T; relevance: number }>): T[] {
+  return items.filter((item) => item.relevance > 0).map((item) => item.entry)
 }
 
 function overlapScore(text: string, queryWords: Set<string>): number {

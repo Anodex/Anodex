@@ -1,14 +1,18 @@
 import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import type { FileTouchAction, ProjectMemory, TaskSummary } from '@shared/projectMemory.types'
+import type {
+  FileTouchAction,
+  ProjectMemory,
+  ProjectRecallEvent
+} from '@shared/projectMemory.types'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('project-memory')
 
 const MAX_FILES_TOUCHED = 60
-const MAX_SUMMARIES = 10
-const MAX_SUMMARY_CHARS = 220
+const MAX_EVENTS = 10
+const MAX_ASSISTANT_SUMMARY_CHARS = 220
 const SAFE_PROJECT_ID = /^[A-Za-z0-9_-]+$/
 
 /**
@@ -40,18 +44,29 @@ class ProjectMemoryStore {
     this.persist(memory)
   }
 
-  recordSummary(projectId: string, conversationId: string, summary: string): void {
+  /**
+   * Record one completed coding turn as a structured event — see
+   * `ProjectRecallEvent`'s doc comment for why this replaced a raw assistant-
+   * prose summary. Skipped entirely if the turn produced nothing worth
+   * recalling (no file changes, no tool outcomes, no verification, no
+   * supplemental summary), same as the old summary-only guard.
+   */
+  recordEvent(projectId: string, event: Omit<ProjectRecallEvent, 'createdAt'>): void {
     assertSafeProjectId(projectId)
-    const cleaned = cleanSummaryText(summary)
-    if (!cleaned) return
+    const assistantSummary = event.assistantSummary
+      ? capAssistantSummary(cleanSummaryText(event.assistantSummary))
+      : undefined
+    const isEmpty =
+      event.changedFiles.length === 0 &&
+      event.successfulTools.length === 0 &&
+      event.failedTools.length === 0 &&
+      event.verification.length === 0 &&
+      !assistantSummary
+    if (isEmpty) return
+
     const memory = this.load(projectId)
-    const capped: TaskSummary = {
-      conversationId,
-      summary:
-        cleaned.length > MAX_SUMMARY_CHARS ? `${cleaned.slice(0, MAX_SUMMARY_CHARS)}…` : cleaned,
-      at: Date.now()
-    }
-    memory.recentSummaries = [capped, ...memory.recentSummaries].slice(0, MAX_SUMMARIES)
+    const recorded: ProjectRecallEvent = { ...event, assistantSummary, createdAt: Date.now() }
+    memory.recentEvents = [recorded, ...memory.recentEvents].slice(0, MAX_EVENTS)
     this.persist(memory)
   }
 
@@ -83,7 +98,11 @@ class ProjectMemoryStore {
         const memory: ProjectMemory = {
           projectId,
           filesTouched: raw.filesTouched ?? [],
-          recentSummaries: raw.recentSummaries ?? []
+          // A pre-existing file from before this store recorded structured
+          // events (only ever `recentSummaries`) has nothing usable here —
+          // it's a small, disposable activity ledger, not durable user data,
+          // so starting the event list fresh rather than migrating is fine.
+          recentEvents: raw.recentEvents ?? []
         }
         this.cache.set(projectId, memory)
         return memory
@@ -92,7 +111,7 @@ class ProjectMemoryStore {
       }
     }
 
-    const empty: ProjectMemory = { projectId, filesTouched: [], recentSummaries: [] }
+    const empty: ProjectMemory = { projectId, filesTouched: [], recentEvents: [] }
     this.cache.set(projectId, empty)
     return empty
   }
@@ -134,6 +153,14 @@ export function cleanSummaryText(text: string): string {
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+/** Caps the (already-cleaned) supplemental assistant summary to a short excerpt. Exported for unit testing. */
+export function capAssistantSummary(cleaned: string): string | undefined {
+  if (!cleaned) return undefined
+  return cleaned.length > MAX_ASSISTANT_SUMMARY_CHARS
+    ? `${cleaned.slice(0, MAX_ASSISTANT_SUMMARY_CHARS)}…`
+    : cleaned
 }
 
 export const projectMemoryStore = new ProjectMemoryStore()
