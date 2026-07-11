@@ -110,6 +110,7 @@ export async function runGeneration(
         commandShell: settings.general.defaultShell.trim() || undefined,
         projectId: activeProject?.id ?? null,
         webSearch: settings.webSearch,
+        email: settings.email,
         memory: {
           crossChatEnabled: settings.memory.crossChatEnabled,
           personalEnabled: settings.memory.personalEnabled

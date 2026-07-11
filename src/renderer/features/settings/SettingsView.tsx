@@ -17,6 +17,7 @@ import { DiagnosticsSettings } from './pages/diagnostics/DiagnosticsSettings'
 import { AboutSettings } from './pages/about/AboutSettings'
 import { ProjectsSettings } from './pages/projects/ProjectsSettings'
 import { MemorySettings } from './pages/memory/MemorySettings'
+import { EmailSettings } from './pages/email/EmailSettings'
 import { ArchiveSettings } from './pages/archive/ArchiveSettings'
 import styles from './SettingsView.module.css'
 
@@ -33,6 +34,7 @@ const NAV: NavItem[] = [
   { id: 'projects', label: 'Projects', icon: <Icon name="folder" size={18} /> },
   { id: 'archive', label: 'Archive', icon: <Icon name="archive" size={18} /> },
   { id: 'memory', label: 'Memory', icon: <Icon name="layers" size={18} /> },
+  { id: 'email', label: 'Email', icon: <Icon name="mail" size={18} /> },
   { id: 'ai-models', label: 'AI & Models', icon: <Icon name="cpu" size={18} /> },
   { id: 'diagnostics', label: 'Diagnostics', icon: <Icon name="activity" size={18} /> },
   { id: 'about', label: 'About', icon: <Icon name="info" size={18} /> }
@@ -134,6 +136,7 @@ export function SettingsView(): JSX.Element {
               {section === 'projects' && <ProjectsSettings />}
               {section === 'archive' && <ArchiveSettings />}
               {section === 'memory' && <MemorySettings />}
+              {section === 'email' && <EmailSettings />}
               {section === 'general' && <GeneralToolsSection settings={settings} update={update} />}
             </div>
           </div>

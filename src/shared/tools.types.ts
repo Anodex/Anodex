@@ -246,5 +246,40 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'write',
     description:
       'Save a durable global or project memory when memory is enabled (asks for approval).'
+  },
+  {
+    name: 'list_threads',
+    kind: 'read',
+    description: 'List recent email threads from the configured email provider.'
+  },
+  {
+    name: 'search_email',
+    kind: 'read',
+    description: 'Search email threads by query.'
+  },
+  {
+    name: 'read_email',
+    kind: 'read',
+    description: 'Read an email message by id.'
+  },
+  {
+    name: 'draft_email',
+    kind: 'read',
+    description: 'Create a local email draft without sending it.'
+  },
+  {
+    name: 'send_email',
+    kind: 'write',
+    description: 'Send an email, always requiring explicit approval.'
+  },
+  {
+    name: 'summarize_thread',
+    kind: 'read',
+    description: 'Summarize an email thread by id.'
+  },
+  {
+    name: 'find_attachments',
+    kind: 'read',
+    description: 'Find attachments in an email thread.'
   }
 ]

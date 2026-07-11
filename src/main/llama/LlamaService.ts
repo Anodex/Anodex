@@ -27,7 +27,7 @@ import type {
   HistoryCompactionEvent
 } from '@shared/chat.types'
 import type { ConversationContext } from '@shared/context.types'
-import type { PermissionMode, WebSearchSettings } from '@shared/settings.types'
+import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
@@ -151,6 +151,7 @@ export interface GenerateParams {
     /** Shell executable used by run_command, if configured. */
     commandShell?: string
     webSearch: WebSearchSettings
+    email: EmailSettings
     /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
     memory: { crossChatEnabled: boolean; personalEnabled: boolean }
     /** The conversation's current plan, if any, so plan tools can continue it across turns. */
@@ -1047,6 +1048,7 @@ class LlamaService extends EventEmitter {
       permissionMode: params.tools.permissionMode,
       commandShell: params.tools.commandShell,
       webSearch: params.tools.webSearch,
+      email: params.tools.email,
       memory: params.tools.memory,
       enabledTools: params.tools.enabledTools ?? null,
       // A mutable box, not the plan value itself — shared by every tool call

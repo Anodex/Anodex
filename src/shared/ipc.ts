@@ -54,6 +54,16 @@ import type {
   UpdateScheduledTaskRequest
 } from './scheduledTask.types'
 import type { AgentRun, CreateAgentRunRequest } from './agentRun.types'
+import type {
+  EmailConnectionStatus,
+  EmailDraft,
+  EmailDraftRequest,
+  EmailListThreadsRequest,
+  EmailMessage,
+  EmailSearchRequest,
+  EmailSendRequest,
+  EmailThreadSummary
+} from './email.types'
 
 export const IpcChannel = {
   Models: {
@@ -215,6 +225,17 @@ export const IpcChannel = {
     delete: 'agent:delete',
     /** main → renderer broadcast whenever a run changes (create/turn/finish/delete). */
     runsChanged: 'agent:runs-changed'
+  },
+  Email: {
+    getStatus: 'email:get-status',
+    openGmailWeb: 'email:open-gmail-web',
+    connectGmail: 'email:connect-gmail',
+    disconnectGmail: 'email:disconnect-gmail',
+    listThreads: 'email:list-threads',
+    search: 'email:search',
+    readMessage: 'email:read-message',
+    createDraft: 'email:create-draft',
+    send: 'email:send'
   }
 } as const
 
@@ -429,5 +450,16 @@ export interface AnodexApi {
     stop(id: string): Promise<void>
     delete(id: string): Promise<void>
     onRunsChanged(listener: (runs: AgentRun[]) => void): () => void
+  }
+  email: {
+    getStatus(): Promise<Result<EmailConnectionStatus>>
+    openGmailWeb(): Promise<Result<void>>
+    connectGmail(): Promise<Result<EmailConnectionStatus>>
+    disconnectGmail(): Promise<Result<EmailConnectionStatus>>
+    listThreads(request?: EmailListThreadsRequest): Promise<Result<EmailThreadSummary[]>>
+    search(request: EmailSearchRequest): Promise<Result<EmailThreadSummary[]>>
+    readMessage(id: string): Promise<Result<EmailMessage>>
+    createDraft(request: EmailDraftRequest): Promise<Result<EmailDraft>>
+    send(request: EmailSendRequest): Promise<Result<void>>
   }
 }

@@ -34,3 +34,6 @@ Thumbs.db
 # Ad-hoc local notes/audits and packaging artifacts dropped in the repo root
 /CC/
 /*.zip
+
+# Test-runner artifacts
+/test-results/

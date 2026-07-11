@@ -181,6 +181,37 @@ function validatePatch(patch: DeepPartial<AppSettings>): void {
       throw new Error('provider.openai.model must be a non-empty string')
     }
   }
+
+  if (patch.email?.provider !== undefined) {
+    if (!['none', 'gmail'].includes(patch.email.provider)) {
+      throw new Error('email.provider must be "none" or "gmail"')
+    }
+  }
+  if (patch.email?.gmail?.address !== undefined) {
+    if (typeof patch.email.gmail.address !== 'string') {
+      throw new Error('email.gmail.address must be a string')
+    }
+  }
+  if (patch.email?.gmail?.oauthClientId !== undefined) {
+    if (typeof patch.email.gmail.oauthClientId !== 'string') {
+      throw new Error('email.gmail.oauthClientId must be a string')
+    }
+  }
+  if (patch.email?.gmail?.oauthClientSecret !== undefined) {
+    if (typeof patch.email.gmail.oauthClientSecret !== 'string') {
+      throw new Error('email.gmail.oauthClientSecret must be a string')
+    }
+  }
+  if (patch.email?.gmail?.syncMode !== undefined) {
+    if (!['metadata', 'full'].includes(patch.email.gmail.syncMode)) {
+      throw new Error('email.gmail.syncMode must be "metadata" or "full"')
+    }
+  }
+  if (patch.email?.gmail?.sendRequiresApproval !== undefined) {
+    if (patch.email.gmail.sendRequiresApproval !== true) {
+      throw new Error('email.gmail.sendRequiresApproval must be true')
+    }
+  }
 }
 
 export const settingsStore = new SettingsStore()

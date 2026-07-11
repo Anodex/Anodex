@@ -13,6 +13,7 @@ import { Toasts } from './Toasts'
 import { ChatView } from '../features/chat/ChatView'
 import { SchedulerView } from '../features/scheduler/SchedulerView'
 import { AgentView } from '../features/agent/AgentView'
+import { EmailView } from '../features/email/EmailView'
 import { PlaceholderView } from '../features/placeholder/PlaceholderView'
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
@@ -32,6 +33,7 @@ function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): str
   if (view === 'scheduler') return 'Scheduled tasks'
   if (view === 'agent') return 'Agent'
   if (view === 'critical-thinking') return 'Critical Thinking'
+  if (view === 'email') return 'Email'
   return 'Chat'
 }
 
@@ -41,6 +43,7 @@ function renderMainView(view: ReturnType<typeof useUiStore.getState>['view']): J
   if (view === 'critical-thinking') {
     return <PlaceholderView icon="globe" title="Critical Thinking" />
   }
+  if (view === 'email') return <EmailView />
   return <ChatView />
 }
 

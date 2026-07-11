@@ -27,6 +27,17 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
       resultCount: 5,
       requireApproval: false
     },
+    email: {
+      provider: 'none',
+      gmail: {
+        enabled: false,
+        address: '',
+        oauthClientId: '',
+        oauthClientSecret: '',
+        syncMode: 'metadata',
+        sendRequiresApproval: true
+      }
+    },
     memory: { crossChatEnabled: true, personalEnabled: true },
     enabledTools: null,
     plan: { current: null },

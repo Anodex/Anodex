@@ -6,7 +6,7 @@ import { playChime } from '../lib/sound'
 import { notifyDesktop } from '../lib/notifications'
 import { logDiagnostic } from './diagnosticsStore'
 
-export type AppView = 'chat' | 'settings' | 'scheduler' | 'agent' | 'critical-thinking'
+export type AppView = 'chat' | 'settings' | 'scheduler' | 'agent' | 'critical-thinking' | 'email'
 export type ToastKind = 'info' | 'success' | 'error'
 export type SettingsSection =
   | 'profile'
@@ -15,6 +15,7 @@ export type SettingsSection =
   | 'projects'
   | 'archive'
   | 'memory'
+  | 'email'
   | 'ai-models'
   | 'diagnostics'
   | 'about'

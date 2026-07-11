@@ -35,7 +35,14 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'update_plan_step',
   'find_skill',
   'load_skill',
-  'remember_fact'
+  'remember_fact',
+  'list_threads',
+  'search_email',
+  'read_email',
+  'draft_email',
+  'send_email',
+  'summarize_thread',
+  'find_attachments'
 ]
 
 describe('buildTools', () => {
@@ -160,6 +167,36 @@ describe('buildTools', () => {
     const tools = buildTools(createMockDefine(), ctx)
 
     for (const name of [...READ_ONLY_WORKSPACE_TOOLS, ...PROJECT_WORKSPACE_TOOLS]) {
+      expect(tools).toHaveProperty(name)
+    }
+  })
+
+  it('registers email tools when Gmail is enabled', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      email: {
+        provider: 'gmail' as const,
+        gmail: {
+          enabled: true,
+          address: 'user@gmail.com',
+          oauthClientId: '',
+          oauthClientSecret: '',
+          syncMode: 'metadata' as const,
+          sendRequiresApproval: true as const
+        }
+      }
+    }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    for (const name of [
+      'list_threads',
+      'search_email',
+      'read_email',
+      'draft_email',
+      'send_email',
+      'summarize_thread',
+      'find_attachments'
+    ]) {
       expect(tools).toHaveProperty(name)
     }
   })

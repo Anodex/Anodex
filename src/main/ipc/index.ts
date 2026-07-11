@@ -20,6 +20,7 @@ import { registerMemoryHandlers } from './memory.handlers'
 import { registerTerminalHandlers } from './terminal.handlers'
 import { registerSchedulerHandlers } from './scheduler.handlers'
 import { registerAgentHandlers } from './agent.handlers'
+import { registerEmailHandlers } from './email.handlers'
 import { registerContextMenuHandlers } from '../contextMenu'
 
 /**
@@ -45,6 +46,7 @@ export function registerIpcHandlers(): void {
   registerTerminalHandlers()
   registerSchedulerHandlers()
   registerAgentHandlers()
+  registerEmailHandlers()
   registerContextMenuHandlers()
 
   // Push engine state changes to every open renderer window.

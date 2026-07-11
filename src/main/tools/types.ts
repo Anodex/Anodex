@@ -1,5 +1,5 @@
 import type { ChatSessionModelFunction } from 'node-llama-cpp'
-import type { PermissionMode, WebSearchSettings } from '@shared/settings.types'
+import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
 
@@ -33,6 +33,8 @@ export interface ToolRuntimeContext {
   commandShell?: string
   /** Web search configuration used by the web_search tool. */
   webSearch: WebSearchSettings
+  /** Email provider configuration used by email tools. */
+  email: EmailSettings
   /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
   memory: { crossChatEnabled: boolean; personalEnabled: boolean }
   /**

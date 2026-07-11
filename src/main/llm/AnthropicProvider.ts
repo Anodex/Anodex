@@ -59,6 +59,7 @@ class AnthropicProvider implements LlmProvider {
           permissionMode: params.tools.permissionMode,
           commandShell: params.tools.commandShell,
           webSearch: params.tools.webSearch,
+          email: params.tools.email,
           memory: params.tools.memory,
           enabledTools: params.tools.enabledTools ?? null,
           // A mutable box, not the plan value itself — shared by every tool

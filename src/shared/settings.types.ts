@@ -190,6 +190,26 @@ export interface SchedulerSettings {
   keepAwake: boolean
 }
 
+export interface GmailSettings {
+  /** Whether Gmail is selected as the active email provider. */
+  enabled: boolean
+  /** The connected Gmail address, filled in automatically after authorization. */
+  address: string
+  /** Google OAuth desktop app client ID. */
+  oauthClientId: string
+  /** Google OAuth desktop app client secret, stored in local settings. */
+  oauthClientSecret: string
+  /** How much message content Anodex syncs. */
+  syncMode: 'metadata' | 'full'
+  /** Sending email is high-risk and is always confirmation-gated. */
+  sendRequiresApproval: true
+}
+
+export interface EmailSettings {
+  provider: 'none' | 'gmail'
+  gmail: GmailSettings
+}
+
 export interface AppSettings {
   /** Directory scanned for `.gguf` model files. */
   modelsDirectory: string
@@ -210,6 +230,7 @@ export interface AppSettings {
   diagnostics: DiagnosticSettings
   memory: MemorySettings
   scheduler: SchedulerSettings
+  email: EmailSettings
 }
 
 /** Recursive partial used for settings patches over IPC. */

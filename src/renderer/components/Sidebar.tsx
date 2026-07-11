@@ -244,6 +244,16 @@ export function Sidebar(): JSX.Element {
               <span>Critical Thinking</span>
             </button>
 
+            <button
+              type="button"
+              className={`${styles.navItem} ${view === 'email' ? styles.navItemActive : ''}`}
+              onClick={() => setView('email')}
+              aria-current={view === 'email' ? 'page' : undefined}
+            >
+              <Icon name="mail" size={14} className={styles.navItemIcon} />
+              <span>Email</span>
+            </button>
+
             <SidebarSection
               title="Projects"
               icon="folder"

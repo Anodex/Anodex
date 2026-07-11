@@ -33,6 +33,15 @@ import { updateProjectNotesTool } from './projectNotesTool'
 import { rememberFactTool } from './memoryTool'
 import { findSkillTool, loadSkillTool } from './skillTools'
 import { finishGoalTool } from './agentTools'
+import {
+  draftEmailTool,
+  findEmailAttachmentsTool,
+  listEmailThreadsTool,
+  readEmailTool,
+  searchEmailTool,
+  sendEmailTool,
+  summarizeEmailThreadTool
+} from './emailTools'
 
 /**
  * Read-only workspace tools — available whenever a workspace folder is
@@ -88,6 +97,16 @@ const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
   load_skill: loadSkillTool
 }
 
+const EMAIL_FACTORIES: Record<string, ToolFactory> = {
+  list_threads: listEmailThreadsTool,
+  search_email: searchEmailTool,
+  read_email: readEmailTool,
+  summarize_thread: summarizeEmailThreadTool,
+  find_attachments: findEmailAttachmentsTool,
+  draft_email: draftEmailTool,
+  send_email: sendEmailTool
+}
+
 /**
  * Instantiate the tools available for a generation, producing the `functions`
  * map the engine's chat session expects.
@@ -125,6 +144,12 @@ export function buildTools(
 
   if (ctx.webSearch.provider !== 'none' && isEnabled('web_search')) {
     tools.web_search = webSearchTool(define, ctx)
+  }
+
+  if (ctx.email.provider === 'gmail' && ctx.email.gmail.enabled) {
+    for (const [name, factory] of Object.entries(EMAIL_FACTORIES)) {
+      if (isEnabled(name)) tools[name] = factory(define, ctx)
+    }
   }
 
   // Available in every chat, project or not — see the comment on

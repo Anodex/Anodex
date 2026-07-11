@@ -110,6 +110,17 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     scheduler: {
       keepAwake: false
+    },
+    email: {
+      provider: 'none',
+      gmail: {
+        enabled: false,
+        address: '',
+        oauthClientId: '',
+        oauthClientSecret: '',
+        syncMode: 'metadata',
+        sendRequiresApproval: true
+      }
     }
   }
 }

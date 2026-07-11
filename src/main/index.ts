@@ -16,6 +16,7 @@ import { cancelAllDownloads } from './llama/modelDownloader'
 import { schedulerStore } from './scheduler/SchedulerStore'
 import { schedulerService } from './scheduler/SchedulerService'
 import { setKeepAwake } from './scheduler/keepAwake'
+import { emailAuthStore } from './email/EmailAuthStore'
 import { skillStore } from './skills/SkillStore'
 import { agentRunStore } from './agents/AgentRunStore'
 import { agentRunService } from './agents/AgentRunService'
@@ -56,6 +57,7 @@ if (!app.requestSingleInstanceLock()) {
       modelReliabilityStore.init()
       tokenActivityStore.init()
       updateService.init()
+      emailAuthStore.init()
       skillStore.init()
       agentRunStore.init()
       schedulerStore.init()

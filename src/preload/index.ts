@@ -168,6 +168,17 @@ const api: AnodexApi = {
     stop: (id) => ipcRenderer.invoke(IpcChannel.Agent.stop, id),
     delete: (id) => ipcRenderer.invoke(IpcChannel.Agent.delete, id),
     onRunsChanged: (listener) => subscribe<AgentRun[]>(IpcChannel.Agent.runsChanged, listener)
+  },
+  email: {
+    getStatus: () => ipcRenderer.invoke(IpcChannel.Email.getStatus),
+    openGmailWeb: () => ipcRenderer.invoke(IpcChannel.Email.openGmailWeb),
+    connectGmail: () => ipcRenderer.invoke(IpcChannel.Email.connectGmail),
+    disconnectGmail: () => ipcRenderer.invoke(IpcChannel.Email.disconnectGmail),
+    listThreads: (request = {}) => ipcRenderer.invoke(IpcChannel.Email.listThreads, request),
+    search: (request) => ipcRenderer.invoke(IpcChannel.Email.search, request),
+    readMessage: (id) => ipcRenderer.invoke(IpcChannel.Email.readMessage, id),
+    createDraft: (request) => ipcRenderer.invoke(IpcChannel.Email.createDraft, request),
+    send: (request) => ipcRenderer.invoke(IpcChannel.Email.send, request)
   }
 }
 
