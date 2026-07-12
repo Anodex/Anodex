@@ -1,27 +1,45 @@
 export type SlashCommandName = 'test' | 'review' | 'refactor' | 'summarize'
 
 interface SlashCommandSpec {
+  label: string
+  description: string
   prompt: string
+}
+
+export interface SlashCommandSuggestion {
+  name: SlashCommandName
+  label: string
+  description: string
 }
 
 const SLASH_COMMANDS: Record<SlashCommandName, SlashCommandSpec> = {
   test: {
+    label: 'Run tests',
+    description: 'Find and run the most relevant tests.',
     prompt:
       'Run the most relevant tests for the current change. If there is no obvious narrow target, run the closest reasonable test suite. Summarize any failures with file names and likely causes.'
   },
   review: {
+    label: 'Review code',
+    description: 'Review the current code or diff for issues.',
     prompt:
       'Review the current code or diff like a careful pull request reviewer. Focus on bugs, regressions, missing tests, and maintainability.'
   },
   refactor: {
+    label: 'Refactor',
+    description: 'Improve clarity without changing behavior.',
     prompt:
       'Refactor the current code for clarity and maintainability without changing behavior. Explain any behavior-preserving changes and mention tests to run.'
   },
   summarize: {
+    label: 'Summarize',
+    description: 'Summarize the chat or workspace state.',
     prompt:
       'Summarize the current conversation or workspace state clearly and compactly. Capture decisions, open questions, and next steps.'
   }
 }
+
+const SLASH_COMMAND_ORDER: SlashCommandName[] = ['test', 'review', 'refactor', 'summarize']
 
 export interface SlashCommandExpansion {
   command: SlashCommandName
@@ -55,3 +73,27 @@ export function expandSlashCommand(text: string): SlashCommandExpansion | null {
 }
 
 export const SLASH_COMMAND_HINT = 'Shortcuts: /test, /review, /refactor, /summarize'
+
+function toSuggestion(name: SlashCommandName): SlashCommandSuggestion {
+  const command = SLASH_COMMANDS[name]
+  return {
+    name,
+    label: command.label,
+    description: command.description
+  }
+}
+
+/** Return matching commands while the composer contains only a slash prefix. */
+export function getSlashCommandSuggestions(text: string): SlashCommandSuggestion[] {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('/')) return []
+  if (/\s/.test(trimmed)) return []
+
+  const query = trimmed.slice(1).toLowerCase()
+  return SLASH_COMMAND_ORDER.filter((name) => name.startsWith(query)).map(toSuggestion)
+}
+
+/** Complete the typed slash prefix with a selected command, ready for optional user context. */
+export function completeSlashCommand(_text: string, command: SlashCommandName): string {
+  return `/${command} `
+}

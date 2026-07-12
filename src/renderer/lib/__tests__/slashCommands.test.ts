@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { expandSlashCommand } from '../slashCommands'
+import { completeSlashCommand, expandSlashCommand, getSlashCommandSuggestions } from '../slashCommands'
 
 describe('expandSlashCommand', () => {
   it('expands /test into a reusable test prompt', () => {
@@ -24,5 +24,37 @@ describe('expandSlashCommand', () => {
 
   it('ignores ordinary messages', () => {
     expect(expandSlashCommand('please summarize this')).toBeNull()
+  })
+})
+
+describe('getSlashCommandSuggestions', () => {
+  it('returns all commands when the user starts a slash command', () => {
+    expect(getSlashCommandSuggestions('/').map((command) => command.name)).toEqual([
+      'test',
+      'review',
+      'refactor',
+      'summarize'
+    ])
+  })
+
+  it('filters commands by the typed slash prefix', () => {
+    expect(getSlashCommandSuggestions('/re').map((command) => command.name)).toEqual([
+      'review',
+      'refactor'
+    ])
+  })
+
+  it('does not show suggestions once the user adds command arguments', () => {
+    expect(getSlashCommandSuggestions('/review current diff')).toEqual([])
+  })
+
+  it('does not show suggestions for ordinary messages', () => {
+    expect(getSlashCommandSuggestions('please /review')).toEqual([])
+  })
+})
+
+describe('completeSlashCommand', () => {
+  it('replaces the typed prefix with the selected slash command and a trailing space', () => {
+    expect(completeSlashCommand('/re', 'review')).toBe('/review ')
   })
 })

@@ -14,7 +14,13 @@ import { formatBytes } from '../../lib/format'
 import { WorkspaceControl } from './WorkspaceControl'
 import { ContextMeter } from './ContextMeter'
 import { ToolConfirmCard } from './ToolConfirmCard'
-import { expandSlashCommand, SLASH_COMMAND_HINT } from '../../lib/slashCommands'
+import {
+  completeSlashCommand,
+  expandSlashCommand,
+  getSlashCommandSuggestions,
+  SLASH_COMMAND_HINT,
+  type SlashCommandName
+} from '../../lib/slashCommands'
 import styles from './ChatComposer.module.css'
 
 const MAX_TEXTAREA_HEIGHT = 200
@@ -31,6 +37,7 @@ export function ChatComposer(): JSX.Element {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [dragActive, setDragActive] = useState(false)
+  const [activeSlashIndex, setActiveSlashIndex] = useState(0)
   const [compacting, setCompacting] = useState(false)
   const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -82,6 +89,9 @@ export function ChatComposer(): JSX.Element {
     )
   }, [activeConversation, generating])
   const canCompact = localReady && !generating && !compacting && hasCompactableHistory
+  const slashSuggestions = useMemo(() => getSlashCommandSuggestions(text), [text])
+  const showSlashSuggestions = ready && slashSuggestions.length > 0
+  const selectedSlashSuggestion = slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)]
 
   const resetHeight = (): void => {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -95,6 +105,15 @@ export function ChatComposer(): JSX.Element {
   }
 
   const expandComposerText = (value: string): string => expandSlashCommand(value)?.expandedText ?? value
+
+  const selectSlashCommand = (command: SlashCommandName): void => {
+    setText(completeSlashCommand(text, command))
+    setActiveSlashIndex(0)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      autoGrow()
+    })
+  }
 
   const submit = (): void => {
     if (generating) {
@@ -127,6 +146,30 @@ export function ChatComposer(): JSX.Element {
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (showSlashSuggestions) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setActiveSlashIndex((index) => (index + 1) % slashSuggestions.length)
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setActiveSlashIndex((index) => (index - 1 + slashSuggestions.length) % slashSuggestions.length)
+        return
+      }
+      if ((event.key === 'Tab' || event.key === 'Enter') && selectedSlashSuggestion) {
+        event.preventDefault()
+        selectSlashCommand(selectedSlashSuggestion.name)
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setText('')
+        setActiveSlashIndex(0)
+        return
+      }
+    }
+
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       submit()
@@ -254,6 +297,28 @@ export function ChatComposer(): JSX.Element {
         </div>
       )}
 
+      {showSlashSuggestions && (
+        <div className={styles.commandMenu} role="listbox" aria-label="Slash commands">
+          <div className={styles.commandMenuHeader}>Slash commands</div>
+          {slashSuggestions.map((command, index) => (
+            <button
+              key={command.name}
+              type="button"
+              className={`${styles.commandItem} ${index === activeSlashIndex ? styles.commandItemActive : ''}`}
+              onMouseDown={(event) => {
+                event.preventDefault()
+                selectSlashCommand(command.name)
+              }}
+              role="option"
+              aria-selected={index === activeSlashIndex}
+            >
+              <span className={styles.commandName}>/{command.name}</span>
+              <span className={styles.commandDescription}>{command.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className={`${styles.inputRow} ${!ready ? styles.disabled : ''}`}>
         <textarea
           ref={textareaRef}
@@ -275,6 +340,7 @@ export function ChatComposer(): JSX.Element {
           }
           onChange={(event) => {
             setText(event.target.value)
+            setActiveSlashIndex(0)
             autoGrow()
           }}
           onKeyDown={handleKeyDown}
