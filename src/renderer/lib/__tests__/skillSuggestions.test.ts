@@ -46,6 +46,19 @@ describe('getSkillSuggestions', () => {
 
     expect(results.map((skill) => skill.name)).toEqual(['project-review', 'personal-review'])
   })
+
+  it('orders pinned skills before unpinned matches', () => {
+    const results = getSkillSuggestions(
+      [
+        { name: 'release-checklist', description: 'Release code.', scope: 'project', keywords: [] },
+        { name: 'code-review', description: 'Review code.', scope: 'project', keywords: [] }
+      ],
+      'review release code',
+      { pinnedSkillNames: ['code-review'] }
+    )
+
+    expect(results.map((skill) => skill.name)).toEqual(['code-review', 'release-checklist'])
+  })
 })
 
 describe('applySkillSuggestion', () => {

@@ -20,6 +20,28 @@ const DEFAULT_STATE: ProjectsState = {
   activeProjectId: null
 }
 
+export function normalizePinnedSkillNames(names: readonly string[] | undefined): string[] {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const name of names ?? []) {
+    const trimmed = name.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    normalized.push(trimmed)
+  }
+  return normalized
+}
+
+export function normalizeProject(
+  project: Omit<Project, 'pinnedSkillNames'> & { pinnedSkillNames?: string[] }
+): Project {
+  return {
+    ...project,
+    pinnedSkillNames: normalizePinnedSkillNames(project.pinnedSkillNames),
+    archived: project.archived ?? false
+  }
+}
+
 /**
  * Persists the user's projects in Electron's `userData` directory.
  *
@@ -67,6 +89,7 @@ class ProjectStore {
       name: request.name.trim(),
       folderPath: request.folderPath,
       instructions: request.instructions?.trim() || undefined,
+      pinnedSkillNames: [],
       createdAt: Date.now(),
       updatedAt: Date.now()
     }
@@ -88,6 +111,10 @@ class ProjectStore {
         request.instructions !== undefined
           ? request.instructions.trim() || undefined
           : project.instructions,
+      pinnedSkillNames:
+        request.pinnedSkillNames !== undefined
+          ? normalizePinnedSkillNames(request.pinnedSkillNames)
+          : project.pinnedSkillNames,
       updatedAt: Date.now()
     }
     state.projects[index] = next
@@ -162,19 +189,30 @@ class ProjectStore {
       return DEFAULT_STATE
     }
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as ProjectsState
-      const projects = (raw.projects ?? []).map((project) => ({
-        ...project,
-        archived: project.archived ?? false
-      }))
+      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as {
+        projects?: Array<Omit<Project, 'pinnedSkillNames'> & { pinnedSkillNames?: string[] }>
+        activeProjectId?: string | null
+      }
+      const rawProjects = raw.projects ?? []
+      const projects = rawProjects.map(normalizeProject)
       const activeProjectId =
         raw.activeProjectId && projects.some((p) => p.id === raw.activeProjectId && !p.archived)
           ? raw.activeProjectId
           : null
-      return {
-        projects,
-        activeProjectId
-      }
+      const state = { projects, activeProjectId }
+      const shouldPersist =
+        activeProjectId !== raw.activeProjectId ||
+        rawProjects.some((project, index) => {
+          const normalized = projects[index]
+          return (
+            project.archived === undefined ||
+            project.pinnedSkillNames === undefined ||
+            normalizePinnedSkillNames(project.pinnedSkillNames).join('\0') !==
+              normalized.pinnedSkillNames.join('\0')
+          )
+        })
+      if (shouldPersist) this.persist(state)
+      return state
     } catch (error) {
       log.warn('Failed to parse projects, falling back to defaults:', error)
       return DEFAULT_STATE
@@ -203,6 +241,7 @@ class ProjectStore {
       id: generateId(),
       name: 'My workspace',
       folderPath: workspaceRoot,
+      pinnedSkillNames: [],
       createdAt: Date.now(),
       updatedAt: Date.now()
     }

@@ -24,6 +24,8 @@ import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { buildWorkspaceContext } from '../tools/workspaceContext'
 import { buildMemoryContext } from '../memory/MemoryRetriever'
 import { buildTranscriptRecallContext } from '../recall/transcriptRecallContext'
+import { skillStore } from '../skills/SkillStore'
+import { buildActiveSkillContext } from '../skills/activeSkillContext'
 import { parseRunCommandVerification } from '../tools/commandTools'
 import { chatEvents } from './chatEvents'
 
@@ -229,11 +231,17 @@ export async function runGeneration(
       effectiveProviderId === 'local' || settings.transcriptRecall.cloudProviderEnabled
   })
 
+  const activeSkillContext =
+    activeProject && activeProject.pinnedSkillNames.length > 0
+      ? buildActiveSkillContext(skillStore.list(workspaceRoot), activeProject.pinnedSkillNames)
+      : null
+
   const systemPrompt = composeSystemPrompt({
     hasWorkspaceTools,
     hasProject: Boolean(activeProject),
     assistantStyle: settings.assistantStyle.globalStyle,
     projectRules: activeProject?.instructions ?? null,
+    activeSkillContext,
     workspaceContext:
       hasWorkspaceTools && workspaceRoot
         ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null, request.prompt)

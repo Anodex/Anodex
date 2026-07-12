@@ -4,6 +4,7 @@ import type { SkillSummary } from '@shared/skill.types'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import { useChatStore, type PendingMessage } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
+import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { isChatReady } from '../../lib/chatReadiness'
@@ -37,6 +38,7 @@ const MAX_ATTACHMENTS = 10
 // which React treats as "state changed every render" and throws "Maximum
 // update depth exceeded".
 const EMPTY_QUEUE: PendingMessage[] = []
+const EMPTY_SKILL_NAMES: string[] = []
 
 /** Auto-growing message input with send / stop controls and drag-and-drop file attachments. */
 export function ChatComposer(): JSX.Element {
@@ -61,6 +63,9 @@ export function ChatComposer(): JSX.Element {
   const compactConversation = useChatStore((s) => s.compactConversation)
   const engine = useModelStore((s) => s.engine)
   const settings = useSettingsStore((s) => s.settings)
+  const projects = useProjectStore((s) => s.projects)
+  const activeProject = projects.find((project) => project.id === activeConversation?.projectId)
+  const pinnedSkillNames = activeProject?.pinnedSkillNames ?? EMPTY_SKILL_NAMES
 
   // Provider-aware: the Anthropic provider needs no loaded local model, only
   // a configured API key (see `isChatReady`). `localReady` is kept separate
@@ -102,14 +107,20 @@ export function ChatComposer(): JSX.Element {
   const selectedSlashSuggestion =
     slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)]
   const skillSuggestions = useMemo(
-    () => (ready && !showSlashSuggestions ? getSkillSuggestions(skills, text, 2) : []),
-    [ready, showSlashSuggestions, skills, text]
+    () =>
+      ready && !showSlashSuggestions
+        ? getSkillSuggestions(skills, text, { limit: 2, pinnedSkillNames })
+        : [],
+    [ready, showSlashSuggestions, skills, text, pinnedSkillNames]
   )
   const appliedSkillName = getAppliedSkillName(text)
   const visibleSkillSuggestion =
     skillSuggestions.find(
       (skill) => skill.name !== dismissedSkillName && skill.name !== appliedSkillName
     ) ?? null
+  const activeSkillNames = pinnedSkillNames.filter((name) =>
+    skills.some((skill) => skill.name === name)
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -392,6 +403,19 @@ export function ChatComposer(): JSX.Element {
           >
             <Icon name="close" size={11} />
           </button>
+        </div>
+      )}
+
+      {!visibleSkillSuggestion && activeSkillNames.length > 0 && !generating && (
+        <div
+          className={styles.activeSkillsHint}
+          title="Pinned skills are included in this project's prompt"
+        >
+          <Icon name="sparkle" size={12} />
+          <span>
+            Active skills: <strong>{activeSkillNames.slice(0, 2).join(', ')}</strong>
+            {activeSkillNames.length > 2 ? ` +${activeSkillNames.length - 2}` : ''}
+          </span>
         </div>
       )}
 

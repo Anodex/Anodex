@@ -121,6 +121,21 @@ describe('composeSystemPrompt', () => {
     expect(prompt).toContain('# Assistant style\nBe terse.')
   })
 
+  it('includes active pinned skills after project instructions and before reference data', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      projectRules: 'Run tests before finishing.',
+      activeSkillContext: '## code-review\n\nReview the diff before finalizing.',
+      workspaceContext: 'Name: anodex'
+    })
+
+    expect(prompt).toContain('# Active skills')
+    expect(prompt).toContain('## code-review')
+    expect(prompt.indexOf('# Project instructions')).toBeLessThan(prompt.indexOf('# Active skills'))
+    expect(prompt.indexOf('# Active skills')).toBeLessThan(prompt.indexOf('# Workspace'))
+  })
+
   it('omits the assistant style section when empty', () => {
     const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
     expect(prompt).not.toContain('# Assistant style')

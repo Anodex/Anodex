@@ -9,6 +9,8 @@ export interface Project {
    * is active (like an AGENTS.md) — conventions, commands, do's and don'ts.
    */
   instructions?: string
+  /** Skill names that should be treated as active by default for this project. */
+  pinnedSkillNames: string[]
   createdAt: number
   updatedAt: number
   /** Archived projects are hidden from the sidebar until restored from Settings. */
@@ -25,4 +27,6 @@ export interface ProjectsState {
 
 export type CreateProjectRequest = Pick<Project, 'name' | 'folderPath'> &
   Partial<Pick<Project, 'instructions'>>
-export type UpdateProjectRequest = Partial<Pick<Project, 'name' | 'folderPath' | 'instructions'>>
+export type UpdateProjectRequest = Partial<
+  Pick<Project, 'name' | 'folderPath' | 'instructions' | 'pinnedSkillNames'>
+>

@@ -95,6 +95,8 @@ export interface SystemPromptParts {
   assistantStyle?: string | null
   /** Per-project instructions (Phase 5), if any. */
   projectRules?: string | null
+  /** User-pinned skill instructions that should be active for this project. */
+  activeSkillContext?: string | null
   /** Auto-generated workspace summary (Phase 3), if any. */
   workspaceContext?: string | null
   /** Retrieved structured-memory entries (project + global), if any and enabled. */
@@ -115,6 +117,11 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
   }
   if (parts.projectRules?.trim()) {
     sections.push(`# Project instructions\n${parts.projectRules.trim()}`)
+  }
+  if (parts.activeSkillContext?.trim()) {
+    sections.push(
+      `# Active skills\nThe user pinned these reusable workflow skills for this project. Treat them as active instructions for relevant work, while still prioritizing the user's current request.\n\n${parts.activeSkillContext.trim()}`
+    )
   }
   if (parts.workspaceContext?.trim()) {
     sections.push(

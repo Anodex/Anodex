@@ -84,12 +84,11 @@ Initial markdown skills are now built: `find_skill`/`load_skill` search both
 project `.anodex/skills/*.md` and personal app-data `skills/*.md`, with project
 skills taking precedence. The Anodex repo seeds starter project skills for code
 review, TDD feature work, bug triage, release checklist, UI polish pass,
-dependency upgrade, and handoff notes.
+dependency upgrade, and handoff notes. The composer can suggest relevant skills,
+and projects can pin skills that are auto-loaded into chat/agent prompts.
 
 Remaining follow-ups:
 
-- **Pin/auto-load skills** — let the user pin project skills that should be
-  suggested or loaded by default for that project.
 - **Skill authoring helper** — a command/action like "save this as a skill" after
   a successful workflow, with user review before saving.
 - **Library/editor UI** — the model path has searchable tools; a later UI can

@@ -3,6 +3,11 @@ import type { SkillSummary } from '@shared/skill.types'
 const MIN_QUERY_LENGTH = 3
 const SKILL_PREFIX_RE = /^Use the `([^`]+)` skill for this request\.\n\n/
 
+export interface SkillSuggestionOptions {
+  limit?: number
+  pinnedSkillNames?: string[]
+}
+
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
@@ -33,8 +38,10 @@ function scoreSkill(skill: SkillSummary, queryTerms: string[]): number {
 export function getSkillSuggestions(
   skills: SkillSummary[],
   text: string,
-  limit = 2
+  options: number | SkillSuggestionOptions = 2
 ): SkillSummary[] {
+  const limit = typeof options === 'number' ? options : (options.limit ?? 2)
+  const pinned = new Set(typeof options === 'number' ? [] : (options.pinnedSkillNames ?? []))
   const queryTerms = tokenize(text)
   if (queryTerms.length === 0) return []
 
@@ -42,6 +49,9 @@ export function getSkillSuggestions(
     .map((skill) => ({ skill, score: scoreSkill(skill, queryTerms) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => {
+      const aPinned = pinned.has(a.skill.name)
+      const bPinned = pinned.has(b.skill.name)
+      if (aPinned !== bPinned) return aPinned ? -1 : 1
       if (b.score !== a.score) return b.score - a.score
       if (a.skill.scope !== b.skill.scope) return a.skill.scope === 'project' ? -1 : 1
       return a.skill.name.localeCompare(b.skill.name)

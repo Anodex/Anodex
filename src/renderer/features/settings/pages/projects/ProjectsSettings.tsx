@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Project } from '@shared/project.types'
+import type { SkillSummary } from '@shared/skill.types'
 import { useProjectStore, getActiveProject } from '../../../../stores/projectStore'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { anodex } from '../../../../lib/anodex'
@@ -23,10 +24,26 @@ export function ProjectsSettings(): JSX.Element {
   const [editName, setEditName] = useState('')
   const [instructionsDraft, setInstructionsDraft] = useState('')
   const [deletingProject, setDeletingProject] = useState<Project | null>(null)
+  const [skillCatalog, setSkillCatalog] = useState<SkillSummary[]>([])
+  const activeProjectIdForSkills = activeProject?.id ?? null
 
   useEffect(() => {
     setInstructionsDraft(activeProject?.instructions ?? '')
   }, [activeProject?.id, activeProject?.instructions])
+
+  useEffect(() => {
+    if (!activeProjectIdForSkills) {
+      setSkillCatalog([])
+      return
+    }
+    let cancelled = false
+    void anodex.skills.list(activeProjectIdForSkills).then((skills) => {
+      if (!cancelled) setSkillCatalog(skills)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeProjectIdForSkills])
 
   const startCreate = async (): Promise<void> => {
     const result = await anodex.tools.pickWorkspace()
@@ -54,6 +71,15 @@ export function ProjectsSettings(): JSX.Element {
       return
     }
     setDeletingProject(project)
+  }
+
+  const togglePinnedSkill = async (skillName: string): Promise<void> => {
+    if (!activeProject) return
+    const pinned = activeProject.pinnedSkillNames
+    const pinnedSkillNames = pinned.includes(skillName)
+      ? pinned.filter((name) => name !== skillName)
+      : [...pinned, skillName]
+    await update(activeProject.id, { pinnedSkillNames })
   }
 
   return (
@@ -172,6 +198,41 @@ export function ProjectsSettings(): JSX.Element {
               </Button>
             </div>
           </div>
+
+          <details className={styles.skillsDisclosure}>
+            <summary className={styles.skillsSummary}>
+              <span>
+                Pinned skills
+                {activeProject.pinnedSkillNames.length > 0
+                  ? ` · ${activeProject.pinnedSkillNames.length}`
+                  : ''}
+              </span>
+              <span className={styles.skillsSummaryHint}>Auto-loaded for this project</span>
+            </summary>
+            {skillCatalog.length === 0 ? (
+              <p className={styles.instructionsHint}>
+                No project or personal skills found yet. Add markdown skills under `.anodex/skills`
+                or your personal skills folder.
+              </p>
+            ) : (
+              <div className={styles.skillList}>
+                {skillCatalog.map((skill) => {
+                  const pinned = activeProject.pinnedSkillNames.includes(skill.name)
+                  return (
+                    <button
+                      key={`${skill.scope}:${skill.name}`}
+                      type="button"
+                      className={`${styles.skillToggle} ${pinned ? styles.skillTogglePinned : ''}`}
+                      onClick={() => void togglePinnedSkill(skill.name)}
+                    >
+                      <span className={styles.skillToggleName}>{skill.name}</span>
+                      <span className={styles.skillToggleMeta}>{skill.scope}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </details>
         </section>
       )}
 

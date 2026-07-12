@@ -105,6 +105,9 @@ it can actually take.
   “Relevant skill” hint when the active project/personal catalog appears to
   match your request. Choosing **Use** prepends a concise instruction to use that
   skill without adding persistent composer clutter.
+- **Pinned project skills:** Settings → Projects lets you pin skills for the
+  active project. Pinned skills are auto-loaded into the project prompt and shown
+  as a compact active-skills pill in the composer.
 
 Skill files use a small markdown format:
 
