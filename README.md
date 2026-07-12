@@ -42,6 +42,9 @@ folder.
   finishes while the window isn't focused.
 - A "jump to latest" button appears when you've scrolled up during a long or
   streaming reply.
+- Built-in slash-command shortcuts in the composer: `/test`, `/review`,
+  `/refactor`, and `/summarize` expand into reusable prompts for common
+  workflows.
 
 ## Projects
 

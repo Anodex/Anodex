@@ -14,6 +14,7 @@ import { formatBytes } from '../../lib/format'
 import { WorkspaceControl } from './WorkspaceControl'
 import { ContextMeter } from './ContextMeter'
 import { ToolConfirmCard } from './ToolConfirmCard'
+import { expandSlashCommand, SLASH_COMMAND_HINT } from '../../lib/slashCommands'
 import styles from './ChatComposer.module.css'
 
 const MAX_TEXTAREA_HEIGHT = 200
@@ -93,10 +94,12 @@ export function ChatComposer(): JSX.Element {
     el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`
   }
 
+  const expandComposerText = (value: string): string => expandSlashCommand(value)?.expandedText ?? value
+
   const submit = (): void => {
     if (generating) {
       if (!canQueue) return
-      const value = text
+      const value = expandComposerText(text)
       const pendingAttachments = attachments
       setText('')
       setAttachments([])
@@ -105,7 +108,7 @@ export function ChatComposer(): JSX.Element {
       return
     }
     if (!canSend) return
-    const value = text
+    const value = expandComposerText(text)
     const pendingAttachments = attachments
     setText('')
     setAttachments([])
@@ -323,8 +326,8 @@ export function ChatComposer(): JSX.Element {
       </div>
       <div className={styles.hint}>
         {generating
-          ? 'Enter to queue for after this reply · Shift+Enter for a new line'
-          : 'Enter to send · Shift+Enter for a new line · Drag a file in to attach it · Responses are generated locally'}
+          ? `Enter to queue for after this reply · Shift+Enter for a new line · ${SLASH_COMMAND_HINT}`
+          : `Enter to send · Shift+Enter for a new line · Drag a file in to attach it · Responses are generated locally · ${SLASH_COMMAND_HINT}`}
       </div>
     </div>
   )
