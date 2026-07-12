@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { diffStats } from '../../lib/diffRows'
 import { ChatHtmlPreview } from './ChatHtmlPreview'
 import { DiffView } from './DiffView'
+import { getToolCallDisplay } from './toolCallDisplay'
 import styles from './ToolCallCard.module.css'
 
 const KIND_ICON: Record<ToolCall['kind'], IconName> = {
@@ -30,6 +31,7 @@ export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
   const hasDiff = Boolean(call.diff)
   const hasPreview = Boolean(call.preview)
   const canExpand = hasDiff || hasPreview
+  const display = getToolCallDisplay(call)
 
   // The card is keyed by call.id and reused in place as the same call goes
   // from running (no preview yet) to success (preview populated) — the
@@ -57,9 +59,9 @@ export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
             <Icon name={statusIcon(call)} size={14} />
           )}
         </span>
-        <span className={styles.title}>{call.title}</span>
-        {hasDiff && call.diff && <DiffStat before={call.diff.before} after={call.diff.after} />}
-        {call.detail && <span className={styles.detail}>{call.detail}</span>}
+        <span className={styles.actionLabel}>{display.action}</span>
+        <span className={styles.target}>{display.target}</span>
+        {display.meta && <span className={styles.metaPill}>{display.meta}</span>}
         {canExpand && (
           <Icon
             name={expanded ? 'chevron-down' : 'chevron-right'}

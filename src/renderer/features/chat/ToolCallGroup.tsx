@@ -3,6 +3,10 @@ import type { ToolCall } from '@shared/tools.types'
 import { Icon } from '../../components/Icon'
 import { ToolCallCard } from './ToolCallCard'
 import { TASK_PHASE_LABEL, type TaskPhase } from './taskPhase'
+import {
+  DEFAULT_TOOL_GROUP_COLLAPSE_THRESHOLD,
+  shouldStartToolGroupExpanded
+} from './toolGroupDisclosure'
 import styles from './ToolCallGroup.module.css'
 
 /**
@@ -14,7 +18,7 @@ import styles from './ToolCallGroup.module.css'
  * visible), since that's the common case and collapsing it would just add a
  * click for no benefit.
  */
-const COLLAPSE_THRESHOLD = 6
+const COLLAPSE_THRESHOLD = DEFAULT_TOOL_GROUP_COLLAPSE_THRESHOLD
 
 /**
  * One phase's contiguous run of tool calls (see `taskPhase.ts`). Collapsed
@@ -31,47 +35,41 @@ export function ToolCallGroup({
   phase: TaskPhase
   calls: ToolCall[]
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(calls.length <= COLLAPSE_THRESHOLD)
-  const collapsible = calls.length > COLLAPSE_THRESHOLD
-
-  if (!collapsible || expanded) {
-    return (
-      <div className={styles.group}>
-        <div className={styles.labelRow}>
-          <span className={styles.label}>{TASK_PHASE_LABEL[phase]}</span>
-          {collapsible && (
-            <button
-              type="button"
-              className={styles.toggle}
-              onClick={() => setExpanded(false)}
-              aria-label={`Collapse ${calls.length} tool calls`}
-            >
-              <Icon name="chevron-down" size={12} />
-              Collapse
-            </button>
-          )}
-        </div>
-        {calls.map((call) => (
-          <ToolCallCard key={call.id} call={call} />
-        ))}
-      </div>
-    )
-  }
-
+  const [expanded, setExpanded] = useState(shouldStartToolGroupExpanded(calls.length, COLLAPSE_THRESHOLD))
   const failedCount = calls.filter(
     (call) => call.status === 'error' || call.status === 'denied'
   ).length
+  const runningCount = calls.filter((call) => call.status === 'running').length
+  const groupMeta = [
+    `${calls.length} ${calls.length === 1 ? 'action' : 'actions'}`,
+    runningCount > 0 ? `${runningCount} running` : null,
+    failedCount > 0 ? `${failedCount} failed` : null
+  ].filter(Boolean).join(' · ')
 
   return (
-    <div className={styles.group}>
-      <span className={styles.label}>{TASK_PHASE_LABEL[phase]}</span>
-      <button type="button" className={styles.summary} onClick={() => setExpanded(true)}>
-        <Icon name="chevron-right" size={13} className={styles.summaryChevron} />
-        <span className={styles.summaryText}>
-          {calls.length} tool calls
-          {failedCount > 0 ? ` · ${failedCount} failed` : ''}
-        </span>
+    <section className={`${styles.group} ${expanded ? styles.expanded : styles.collapsed}`}>
+      <button
+        type="button"
+        className={styles.labelButton}
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Collapse' : 'Show'} ${TASK_PHASE_LABEL[phase]} tool calls`}
+      >
+        <Icon
+          name={expanded ? 'chevron-down' : 'chevron-right'}
+          size={12}
+          className={styles.labelChevron}
+        />
+        <span className={styles.label}>{TASK_PHASE_LABEL[phase]}</span>
+        <span className={styles.groupMeta}>{groupMeta}</span>
       </button>
-    </div>
+      {expanded && (
+        <div className={styles.callList}>
+          {calls.map((call) => (
+            <ToolCallCard key={call.id} call={call} />
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
