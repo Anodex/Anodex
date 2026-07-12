@@ -43,6 +43,12 @@ export interface AgentRun {
   tokensUsed: number
   /** Wall-clock budget in minutes, measured from `createdAt`. */
   maxDurationMinutes: number
+  /**
+   * When false, `maxTurns`/`maxTokens`/`maxDurationMinutes` are never enforced — the
+   * run continues until it finishes itself or is stopped manually. The budget values
+   * themselves are unchanged either way; this only gates whether they're checked.
+   */
+  limitsEnabled: boolean
   /** The conversation this run's turns append to, created on start. */
   conversationId: string | null
   /** Set once the model calls `finish_goal`, or on an error. */
@@ -61,4 +67,6 @@ export interface CreateAgentRunRequest {
   maxTurns?: number
   maxTokens?: number
   maxDurationMinutes?: number
+  /** Defaults to true — pass false to let the run continue unbounded until it finishes itself. */
+  limitsEnabled?: boolean
 }

@@ -57,6 +57,7 @@ class AgentRunStore {
         request.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES,
         MAX_MAX_DURATION_MINUTES
       ),
+      limitsEnabled: request.limitsEnabled ?? true,
       conversationId: null,
       summary: null,
       lastError: null,
@@ -92,7 +93,8 @@ class AgentRunStore {
   private load(): AgentRun[] {
     if (!existsSync(this.filePath)) return []
     try {
-      return JSON.parse(readFileSync(this.filePath, 'utf-8')) as AgentRun[]
+      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<AgentRun>[]
+      return parsed.map(normalizeAgentRun)
     } catch (error) {
       log.warn('Failed to parse agent runs, starting fresh:', error)
       return []
@@ -111,6 +113,10 @@ class AgentRunStore {
 
 function generateId(): string {
   return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
+}
+
+export function normalizeAgentRun(run: Partial<AgentRun>): AgentRun {
+  return { ...run, limitsEnabled: run.limitsEnabled ?? true } as AgentRun
 }
 
 export const agentRunStore = new AgentRunStore()

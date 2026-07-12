@@ -13,10 +13,12 @@ import { OPENAI_MODELS, DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAgentStore } from '../../stores/agentStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { notifyError } from '../../stores/uiStore'
+import { anodex } from '../../lib/anodex'
 import { Overlay } from '../../components/ui/Overlay'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/Icon'
-import { SelectControl } from '../settings/controls'
+import { SelectControl, ToggleControl } from '../settings/controls'
 import styles from './AgentRunEditor.module.css'
 
 type RunProvider = 'local' | 'anthropic' | 'openai'
@@ -44,6 +46,7 @@ export interface AgentRunEditorSeed {
   maxTurns?: number
   maxTokens?: number
   maxDurationMinutes?: number
+  limitsEnabled?: boolean
   enabledTools?: string[]
 }
 
@@ -89,10 +92,12 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const [maxDurationMinutes, setMaxDurationMinutes] = useState(
     seed?.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES
   )
+  const [limitsEnabled, setLimitsEnabled] = useState(seed?.limitsEnabled ?? true)
   const [enabledTools, setEnabledTools] = useState<Set<string>>(
     new Set(seed?.enabledTools ?? ['fetch_url', 'web_search'])
   )
   const [saving, setSaving] = useState(false)
+  const [creatingProject, setCreatingProject] = useState(false)
 
   const hasProject = projectId !== null
   const availableTools = TOOL_CATALOG.filter((tool) => !tool.requiresProject || hasProject)
@@ -113,6 +118,34 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       setModel(settings?.provider.anthropic.model.trim() || DEFAULT_ANTHROPIC_MODEL)
     } else if (next === 'openai') {
       setModel(settings?.provider.openai.model.trim() || DEFAULT_OPENAI_MODEL)
+    }
+  }
+
+  /**
+   * Creates a project without switching the app's globally active project —
+   * unlike `projectStore.create()` (which `Sidebar.tsx`'s own "New project"
+   * button relies on `setActive` for), this editor already has its own
+   * independent project selection and shouldn't have a side effect on
+   * whatever the user has open in chat.
+   */
+  const handleCreateProject = async (): Promise<void> => {
+    setCreatingProject(true)
+    try {
+      const result = await anodex.tools.pickWorkspace()
+      if (!result.ok) {
+        notifyError('Could not select folder', result.error.message)
+        return
+      }
+      const folderPath = result.value
+      if (!folderPath) return
+      const name = folderPath.split(/[/\\]/).pop() ?? 'New project'
+      const project = await anodex.projects.create({ name, folderPath })
+      await useProjectStore.getState().load()
+      setProjectId(project.id)
+    } catch (error) {
+      notifyError('Could not create project', error instanceof Error ? error.message : undefined)
+    } finally {
+      setCreatingProject(false)
     }
   }
 
@@ -139,6 +172,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       maxTurns,
       maxTokens,
       maxDurationMinutes,
+      limitsEnabled,
       enabledTools: [...enabledTools].filter((toolName) =>
         availableTools.some((tool) => tool.name === toolName)
       )
@@ -155,7 +189,13 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     >
       <div className={styles.header}>
         <h2 className={styles.title}>{seed ? 'Retry agent run' : 'New agent run'}</h2>
-        <button type="button" className={styles.close} onClick={onClose} aria-label="Close" title="Close">
+        <button
+          type="button"
+          className={styles.close}
+          onClick={onClose}
+          aria-label="Close"
+          title="Close"
+        >
           <Icon name="close" size={16} />
         </button>
       </div>
@@ -179,19 +219,35 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
 
         <label className={styles.field}>
           <span className={styles.label}>Project</span>
-          <SelectControl
-            value={projectId ?? ''}
-            onChange={(value) => setProjectId(value || null)}
-            options={[
-              { label: 'No project (plain chat)', value: '' },
-              ...projects.map((project) => ({ label: project.name, value: project.id }))
-            ]}
-          />
+          <div className={styles.projectRow}>
+            <SelectControl
+              value={projectId ?? ''}
+              onChange={(value) => setProjectId(value || null)}
+              options={[
+                { label: 'No project (plain chat)', value: '' },
+                ...projects.map((project) => ({ label: project.name, value: project.id }))
+              ]}
+            />
+            <button
+              type="button"
+              className={styles.newProjectButton}
+              onClick={() => void handleCreateProject()}
+              disabled={creatingProject}
+              aria-label="New project"
+              title="New project"
+            >
+              <Icon name="folder-plus" size={14} />
+            </button>
+          </div>
         </label>
 
         <label className={styles.field}>
           <span className={styles.label}>Provider</span>
-          <SelectControl value={provider} onChange={handleProviderChange} options={providerOptions} />
+          <SelectControl
+            value={provider}
+            onChange={handleProviderChange}
+            options={providerOptions}
+          />
           <p className={styles.hint}>
             Independent of your global active model — picking one here never changes what
             interactive chat uses.
@@ -205,51 +261,77 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
           </label>
         )}
 
-        <label className={styles.field}>
-          <span className={styles.label}>Turn budget</span>
-          <input
-            type="number"
-            min={1}
-            max={MAX_MAX_TURNS}
-            className={styles.turnsInput}
-            value={maxTurns}
-            onChange={(event) => setMaxTurns(Number(event.target.value) || 1)}
-          />
+        <div className={styles.field}>
+          <div className={styles.toggleRow}>
+            <span className={styles.label}>Enforce limits</span>
+            <ToggleControl checked={limitsEnabled} onChange={setLimitsEnabled} />
+          </div>
           <p className={styles.hint}>
-            Stops on its own after this many turns if it hasn&apos;t finished (max {MAX_MAX_TURNS}).
+            {limitsEnabled
+              ? 'Stops on its own once one of the budgets below is reached.'
+              : 'No limits — runs until it finishes on its own or you stop it manually. It still ' +
+                'checks in periodically so you can see what it’s doing.'}
           </p>
-        </label>
+          {!limitsEnabled && provider !== 'local' && (
+            <p className={styles.riskNote}>
+              This run uses {provider === 'anthropic' ? 'Claude' : 'OpenAI'}, a paid API, with no
+              limits — it could run for a long time and use a meaningful number of paid tokens
+              before finishing or being stopped.
+            </p>
+          )}
+        </div>
 
-        <label className={styles.field}>
-          <span className={styles.label}>Token budget</span>
-          <input
-            type="number"
-            min={1}
-            max={MAX_MAX_TOKENS}
-            className={styles.turnsInput}
-            value={maxTokens}
-            onChange={(event) => setMaxTokens(Number(event.target.value) || 1)}
-          />
-          <p className={styles.hint}>
-            Stops on its own once this many tokens have been used across every turn (max{' '}
-            {MAX_MAX_TOKENS.toLocaleString()}).
-          </p>
-        </label>
+        {limitsEnabled && (
+          <>
+            <label className={styles.field}>
+              <span className={styles.label}>Turn budget</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_MAX_TURNS}
+                className={styles.turnsInput}
+                value={maxTurns}
+                onChange={(event) => setMaxTurns(Number(event.target.value) || 1)}
+              />
+              <p className={styles.hint}>
+                Stops on its own after this many turns if it hasn&apos;t finished (max{' '}
+                {MAX_MAX_TURNS}).
+              </p>
+            </label>
 
-        <label className={styles.field}>
-          <span className={styles.label}>Time budget (minutes)</span>
-          <input
-            type="number"
-            min={1}
-            max={MAX_MAX_DURATION_MINUTES}
-            className={styles.turnsInput}
-            value={maxDurationMinutes}
-            onChange={(event) => setMaxDurationMinutes(Number(event.target.value) || 1)}
-          />
-          <p className={styles.hint}>
-            Stops on its own after this much wall-clock time (max {MAX_MAX_DURATION_MINUTES} minutes).
-          </p>
-        </label>
+            <label className={styles.field}>
+              <span className={styles.label}>Token budget</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_MAX_TOKENS}
+                className={styles.turnsInput}
+                value={maxTokens}
+                onChange={(event) => setMaxTokens(Number(event.target.value) || 1)}
+              />
+              <p className={styles.hint}>
+                Stops on its own once this many tokens have been used across every turn (max{' '}
+                {MAX_MAX_TOKENS.toLocaleString()}).
+              </p>
+            </label>
+
+            <label className={styles.field}>
+              <span className={styles.label}>Time budget (minutes)</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_MAX_DURATION_MINUTES}
+                className={styles.turnsInput}
+                value={maxDurationMinutes}
+                onChange={(event) => setMaxDurationMinutes(Number(event.target.value) || 1)}
+              />
+              <p className={styles.hint}>
+                Stops on its own after this much wall-clock time (max {MAX_MAX_DURATION_MINUTES}{' '}
+                minutes).
+              </p>
+            </label>
+          </>
+        )}
 
         <div className={styles.field}>
           <div className={styles.toolsHeader}>
@@ -277,7 +359,9 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
               return (
                 <div key={kind} className={styles.toolGroup}>
                   <span className={styles.toolGroupLabel}>{KIND_LABELS[kind]}</span>
-                  {KIND_RISK_NOTE[kind] && <p className={styles.riskNote}>{KIND_RISK_NOTE[kind]}</p>}
+                  {KIND_RISK_NOTE[kind] && (
+                    <p className={styles.riskNote}>{KIND_RISK_NOTE[kind]}</p>
+                  )}
                   <div className={styles.toolList}>
                     {toolsInKind.map((tool) => {
                       const disabled = Boolean(tool.requiresProject) && !hasProject
@@ -309,7 +393,12 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
         <Button variant="secondary" onClick={onClose}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={() => void handleSave()} disabled={!canSave} loading={saving}>
+        <Button
+          variant="primary"
+          onClick={() => void handleSave()}
+          disabled={!canSave}
+          loading={saving}
+        >
           Start run
         </Button>
       </div>

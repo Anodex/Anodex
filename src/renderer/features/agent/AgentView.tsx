@@ -23,6 +23,11 @@ function providerLabel(run: AgentRun): string {
   return `OpenAI${label ? ` · ${label}` : ''}`
 }
 
+/** Local runs use the engine icon; cloud runs (Claude/OpenAI) share a generic cloud-model icon. */
+function providerIcon(run: AgentRun): IconName {
+  return run.provider === 'local' ? 'cpu' : 'sparkle'
+}
+
 /** Compact token count for the live status badge, e.g. 12400 -> "12.4k". */
 function formatCompactTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
@@ -42,6 +47,16 @@ const STATUS_LABEL: Record<AgentRunStatus, string> = {
   error: 'Error'
 }
 
+type StatusFilter = AgentRunStatus | 'all'
+
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'running', label: 'Running' },
+  { value: 'done', label: 'Done' },
+  { value: 'stopped', label: 'Stopped' },
+  { value: 'error', label: 'Error' }
+]
+
 /**
  * Dedicated main view for autonomous agent runs — replaces the chat pane the
  * same way `SchedulerView` does (inline, not a popup or separate window).
@@ -59,6 +74,10 @@ export function AgentView(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [retrySeed, setRetrySeed] = useState<AgentRunEditorSeed | null>(null)
   const [stoppingId, setStoppingId] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+  const visibleRuns =
+    statusFilter === 'all' ? runs : runs.filter((run) => run.status === statusFilter)
 
   const closeEditor = (): void => {
     setCreating(false)
@@ -74,6 +93,7 @@ export function AgentView(): JSX.Element {
       maxTurns: run.maxTurns,
       maxTokens: run.maxTokens,
       maxDurationMinutes: run.maxDurationMinutes,
+      limitsEnabled: run.limitsEnabled,
       enabledTools: run.enabledTools
     })
   }
@@ -83,7 +103,11 @@ export function AgentView(): JSX.Element {
 
   const openConversation = (run: AgentRun): void => {
     if (!run.conversationId) {
-      notify({ kind: 'info', title: 'Nothing to show yet', message: 'This run has not started yet.' })
+      notify({
+        kind: 'info',
+        title: 'Nothing to show yet',
+        message: 'This run has not started yet.'
+      })
       return
     }
     void setActiveProject(run.projectId)
@@ -104,7 +128,11 @@ export function AgentView(): JSX.Element {
     <div className={styles.view}>
       <div className={styles.header}>
         <h1 className={styles.title}>Agent</h1>
-        <Button variant="primary" iconLeft={<Icon name="plus" size={16} />} onClick={() => setCreating(true)}>
+        <Button
+          variant="primary"
+          iconLeft={<Icon name="plus" size={16} />}
+          onClick={() => setCreating(true)}
+        >
           New run
         </Button>
       </div>
@@ -113,22 +141,52 @@ export function AgentView(): JSX.Element {
         runs out of turns.
       </p>
 
+      {runs.length > 0 && (
+        <div className={styles.filterRow}>
+          {STATUS_FILTERS.map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              className={`${styles.filterTab} ${statusFilter === filter.value ? styles.filterTabActive : ''}`}
+              onClick={() => setStatusFilter(filter.value)}
+              aria-pressed={statusFilter === filter.value}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {runs.length === 0 ? (
         <div className={styles.empty}>
           <Icon name="wand" size={40} className={styles.emptyIcon} />
           <p>No agent runs yet.</p>
         </div>
+      ) : visibleRuns.length === 0 ? (
+        <div className={styles.empty}>
+          <p>No {statusFilter} runs.</p>
+        </div>
       ) : (
         <div className={styles.runList}>
-          {runs.map((run) => (
-            <div key={run.id} className={styles.runCard}>
-              <button type="button" className={styles.runMain} onClick={() => openConversation(run)}>
+          {visibleRuns.map((run) => (
+            <div key={run.id} className={`${styles.runCard} ${styles[`runCard-${run.status}`]}`}>
+              <button
+                type="button"
+                className={styles.runMain}
+                onClick={() => openConversation(run)}
+              >
                 <div className={styles.runTitleRow}>
                   <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
-                    <Icon name={STATUS_ICON[run.status]} size={12} />
+                    <Icon
+                      name={STATUS_ICON[run.status]}
+                      size={12}
+                      className={run.status === 'running' ? styles.pulseIcon : undefined}
+                    />
                     {STATUS_LABEL[run.status]}
                     {run.status === 'running' &&
-                      ` · turn ${run.turnsUsed}/${run.maxTurns} · ${formatCompactTokens(run.tokensUsed)}/${formatCompactTokens(run.maxTokens)} tokens`}
+                      (run.limitsEnabled
+                        ? ` · turn ${run.turnsUsed}/${run.maxTurns} · ${formatCompactTokens(run.tokensUsed)}/${formatCompactTokens(run.maxTokens)} tokens`
+                        : ` · turn ${run.turnsUsed} · ${formatCompactTokens(run.tokensUsed)} tokens (unlimited)`)}
                   </span>
                   {projectName(run.projectId) && (
                     <span className={styles.runProject}>{projectName(run.projectId)}</span>
@@ -137,11 +195,31 @@ export function AgentView(): JSX.Element {
                 <p className={styles.runGoal}>{run.goal}</p>
                 <div className={styles.runMeta}>
                   <span>{formatRelativeTime(run.updatedAt)}</span>
-                  <span>{providerLabel(run)}</span>
+                  <span className={styles.runProvider}>
+                    <Icon name={providerIcon(run)} size={12} />
+                    {providerLabel(run)}
+                  </span>
+                  {run.status === 'running' && !run.limitsEnabled && run.provider !== 'local' && (
+                    <span
+                      className={styles.unlimitedWarning}
+                      title="Unlimited run on a paid API — no automatic spend ceiling."
+                    >
+                      <Icon name="alert" size={12} />
+                      Unlimited spend
+                    </span>
+                  )}
                 </div>
                 {(run.summary || run.lastError) && (
-                  <p className={`${styles.runResult} ${run.lastError ? styles.runResultError : ''}`}>
-                    {run.lastError ? 'Failed: ' : ''}
+                  <p
+                    className={`${styles.runResult} ${
+                      run.status === 'error'
+                        ? styles.runResultError
+                        : run.status === 'stopped' && run.lastError
+                          ? styles.runResultWarn
+                          : ''
+                    }`}
+                  >
+                    {run.status === 'error' ? 'Failed: ' : ''}
                     {run.summary ?? run.lastError}
                   </p>
                 )}
@@ -184,7 +262,9 @@ export function AgentView(): JSX.Element {
                   onClick={() => void deleteRun(run.id)}
                   disabled={run.status === 'running'}
                   aria-label="Delete run"
-                  title={run.status === 'running' ? 'Stop the run before deleting it' : 'Delete run'}
+                  title={
+                    run.status === 'running' ? 'Stop the run before deleting it' : 'Delete run'
+                  }
                 >
                   <Icon name="trash" size={14} />
                 </button>

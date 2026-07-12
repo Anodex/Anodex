@@ -22,6 +22,13 @@ const log = createLogger('agent-run-service')
 const ALWAYS_ON_TOOLS = ['find_skill', 'load_skill', 'finish_goal']
 
 /**
+ * How often (in turns) a still-running run surfaces a progress toast, regardless of
+ * whether `limitsEnabled` is on — this is deliberately unconditional so an unlimited
+ * run stays visible without needing to be stopped to find out what it's doing.
+ */
+const CHECK_IN_EVERY_TURNS = 3
+
+/**
  * Runs a single goal-directed agent run to completion in the background: a
  * loop of `runGeneration()` turns, each appended to the run's own persisted
  * `Conversation` (same pattern as `SchedulerService`), until the model calls
@@ -71,7 +78,7 @@ class AgentRunService {
     let tokensUsed = 0
 
     try {
-      for (let turn = 1; turn <= run.maxTurns; turn++) {
+      for (let turn = 1; run.limitsEnabled ? turn <= run.maxTurns : true; turn++) {
         turnsUsed = turn
         const prompt = turn === 1 ? buildKickoffPrompt(run.goal) : CONTINUE_PROMPT
         const { finished, summary, stopped, tokens } = await this.runTurn(
@@ -94,10 +101,16 @@ class AgentRunService {
           return
         }
 
-        const budgetReason = budgetExceededReason(run, tokensUsed, Date.now() - run.createdAt)
-        if (budgetReason) {
-          this.finish(run.id, conversation.id, 'stopped', null, budgetReason)
-          return
+        if (run.limitsEnabled) {
+          const budgetReason = budgetExceededReason(run, tokensUsed, Date.now() - run.createdAt)
+          if (budgetReason) {
+            this.finish(run.id, conversation.id, 'stopped', null, budgetReason)
+            return
+          }
+        }
+
+        if (turnsUsed % CHECK_IN_EVERY_TURNS === 0) {
+          this.sendCheckIn(run, conversation, turnsUsed, tokensUsed)
         }
       }
       this.finish(
@@ -211,6 +224,31 @@ class AgentRunService {
     })
   }
 
+  /**
+   * Fires every `CHECK_IN_EVERY_TURNS` turns while a run is still going, so a
+   * long or unlimited run stays visible without needing to be stopped to find
+   * out what it's doing — same toast mechanism `finish()` uses, just mid-run.
+   */
+  private sendCheckIn(
+    run: AgentRun,
+    conversation: Conversation,
+    turnsUsed: number,
+    tokensUsed: number
+  ): void {
+    const latest = [...conversation.messages]
+      .reverse()
+      .find((message) => message.role === 'assistant')
+    const snippet = latest
+      ? truncate(latest.content.replace(/\s+/g, ' ').trim(), 140)
+      : 'Still working.'
+    const turnLabel = run.limitsEnabled ? `${turnsUsed}/${run.maxTurns}` : String(turnsUsed)
+    showToastWindow({
+      title: `${truncateTitle(run.goal)} — checking in`,
+      body: `Turn ${turnLabel} · ${tokensUsed.toLocaleString()} tokens\n${snippet}`,
+      conversationId: conversation.id
+    })
+  }
+
   private createConversation(run: AgentRun): Conversation {
     const conversation: Conversation = {
       id: generateId('agent_conv'),
@@ -251,6 +289,10 @@ function generateId(prefix: string): string {
 function truncateTitle(text: string): string {
   const firstLine = text.trim().split('\n')[0] ?? ''
   return firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine || 'Agent run'
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}...` : text
 }
 
 export const agentRunService = new AgentRunService()
