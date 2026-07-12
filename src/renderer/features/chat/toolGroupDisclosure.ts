@@ -1,8 +1,6 @@
-export const DEFAULT_TOOL_GROUP_COLLAPSE_THRESHOLD = 6
-
 export function shouldStartToolGroupExpanded(
-  callCount: number,
-  threshold = DEFAULT_TOOL_GROUP_COLLAPSE_THRESHOLD
+  _callCount: number,
+  _threshold?: number
 ): boolean {
-  return callCount <= threshold
+  return false
 }

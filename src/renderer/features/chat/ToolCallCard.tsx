@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { ToolCall } from '@shared/tools.types'
 import { Icon, type IconName } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
@@ -26,26 +26,15 @@ function statusIcon(call: ToolCall): IconName {
 
 /** Compact inline card representing one tool invocation in the transcript. */
 export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
-  const [expanded, setExpanded] = useState(Boolean(call.preview))
+  const [expanded, setExpanded] = useState(false)
   const diffView = useSettingsStore((s) => s.settings?.appearance.diffView ?? 'unified')
   const hasDiff = Boolean(call.diff)
   const hasPreview = Boolean(call.preview)
   const canExpand = hasDiff || hasPreview
   const display = getToolCallDisplay(call)
 
-  // The card is keyed by call.id and reused in place as the same call goes
-  // from running (no preview yet) to success (preview populated) — the
-  // initial useState above only captures the mount-time value. Auto-expand
-  // on the transition to having a preview, without re-forcing it open if the
-  // user manually collapses it afterward.
-  const hadPreviewRef = useRef(hasPreview)
-  useEffect(() => {
-    if (hasPreview && !hadPreviewRef.current) setExpanded(true)
-    hadPreviewRef.current = hasPreview
-  }, [hasPreview])
-
   return (
-    <div className={`${styles.card} ${styles[call.status]}`}>
+    <div className={`${styles.card} ${styles[call.status]} ${expanded ? styles.expanded : ''}`}>
       <button
         type="button"
         className={styles.row}

@@ -1,14 +1,22 @@
 .card {
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg-base) 92%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: var(--radius-md);
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0;
   overflow: hidden;
   transition:
     border-color var(--transition-fast),
     background var(--transition-fast),
     box-shadow var(--transition-fast);
+}
+
+.expanded {
+  margin: 2px 0;
+  background: color-mix(in srgb, var(--bg-base) 74%, transparent);
+  border-color: color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: var(--radius-sm);
 }
 
 .row {
@@ -17,8 +25,8 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  min-height: 34px;
-  padding: 7px var(--space-3);
+  min-height: 32px;
+  padding: 6px var(--space-3);
   font: inherit;
   color: inherit;
   text-align: left;
@@ -32,7 +40,7 @@
 }
 
 .row:not(:disabled):hover {
-  background: color-mix(in srgb, var(--bg-surface-2) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-surface-2) 54%, transparent);
 }
 
 .icon {
@@ -74,7 +82,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   background: color-mix(in srgb, var(--bg-surface-2) 72%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
   border-radius: 999px;
 }
 
@@ -105,7 +113,9 @@
 }
 
 .running {
+  background: color-mix(in srgb, var(--accent-soft) 20%, transparent);
   border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: var(--radius-sm);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -120,6 +130,7 @@
 .error {
   background: color-mix(in srgb, var(--danger-soft) 18%, var(--bg-base));
   border-color: rgba(248, 113, 113, 0.55);
+  border-radius: var(--radius-sm);
   box-shadow: inset 2px 0 0 var(--danger);
 }
 
@@ -129,7 +140,9 @@
 }
 
 .denied {
+  background: color-mix(in srgb, var(--warn-soft) 18%, transparent);
   border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
+  border-radius: var(--radius-sm);
   box-shadow: inset 2px 0 0 var(--warn);
 }
 

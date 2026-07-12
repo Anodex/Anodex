@@ -3,30 +3,13 @@ import type { ToolCall } from '@shared/tools.types'
 import { Icon } from '../../components/Icon'
 import { ToolCallCard } from './ToolCallCard'
 import { TASK_PHASE_LABEL, type TaskPhase } from './taskPhase'
-import {
-  DEFAULT_TOOL_GROUP_COLLAPSE_THRESHOLD,
-  shouldStartToolGroupExpanded
-} from './toolGroupDisclosure'
+import { shouldStartToolGroupExpanded } from './toolGroupDisclosure'
 import styles from './ToolCallGroup.module.css'
 
 /**
- * Above this many calls in one phase run, the group collapses behind a
- * summary by default instead of rendering every card — observed directly: a
- * single turn with 35 tool calls made the transcript very long to scan, with
- * no way to see the shape of what happened without scrolling through all of
- * it. Below the threshold, turns render exactly as before (every call
- * visible), since that's the common case and collapsing it would just add a
- * click for no benefit.
- */
-const COLLAPSE_THRESHOLD = DEFAULT_TOOL_GROUP_COLLAPSE_THRESHOLD
-
-/**
- * One phase's contiguous run of tool calls (see `taskPhase.ts`). Collapsed
- * groups start collapsed only at mount — a group that's actively streaming
- * and already rendered expanded (because it started under the threshold)
- * never auto-collapses out from under the user mid-stream; it only starts
- * collapsed for an already-large group loaded from history or reached before
- * the user was watching.
+ * Tool groups default closed so the transcript stays compact. The phase header
+ * still shows the shape of the work (action count, running/failed counts), and
+ * the user can expand a phase when they want the full tool details.
  */
 export function ToolCallGroup({
   phase,
@@ -35,7 +18,7 @@ export function ToolCallGroup({
   phase: TaskPhase
   calls: ToolCall[]
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(shouldStartToolGroupExpanded(calls.length, COLLAPSE_THRESHOLD))
+  const [expanded, setExpanded] = useState(shouldStartToolGroupExpanded(calls.length))
   const failedCount = calls.filter(
     (call) => call.status === 'error' || call.status === 'denied'
   ).length

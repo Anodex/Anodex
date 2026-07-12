@@ -37,6 +37,107 @@ building the feature — check with the user first.
 Raised, discussed, and deliberately deferred — not started. Ordered roughly by
 priority, not chronologically.
 
+### Tooling review: higher-leverage assistant tools
+
+A pass over the current tool system found the foundation is strong: tools are
+workspace-confined where possible, mutating actions are approval-gated, calls are
+visible in the transcript, diffs/HTML previews are surfaced inline, and the
+catalog is parity-tested against runtime registration. The biggest opportunities
+are not "more random tools," but tools that reduce repeated multi-call loops and
+make tool output easier to review:
+
+- **Structured diagnostics/test tool** — wrap common project checks (`npm test`,
+  `npm run typecheck`, `npm run lint`) and return parsed failures, touched test
+  files, duration, and pass/fail state instead of a raw `run_command` blob. Keep
+  `run_command` for escape hatches; use this for the common verify loop.
+- **Workspace outline/code-map tool** — return symbols/imports/exports for a
+  file or folder so the model can orient itself without reading entire source
+  files. Start with TypeScript via the compiler API or ts-morph, then expand
+  only if needed.
+- **Git commit-assist tool/action** — build on existing `git_status`/`git_diff`
+  to produce a commit summary/message and optionally stage selected files. The
+  roadmap already has the UI question open; tool-level support would make it
+  more reliable than asking the model to chain raw git calls every time.
+- **Batch file-change review** — already listed below as a bigger approval-flow
+  feature. It remains the best UI-side improvement for tool-heavy turns: group
+  proposed edits into one review instead of modal/card fatigue across many
+  sequential `write_file`/`edit_file` calls.
+- **Tool result search/filter in transcript** — keep the current compact cards,
+  but add a small per-turn affordance to filter failed calls, changed files, and
+  verification commands. This preserves Anodex's minimal chat composer while
+  making long tool runs scannable after the fact.
+- **Safer command presets** — provide first-class preset buttons or model tools
+  for install/test/lint/build/dev-server tasks, with command templates stored
+  per project. This gives users predictable approvals without weakening the
+  existing shell risk model.
+- **Attachment/file artifact tools** — email tools can find attachments but not
+  save/open them into the workspace. A guarded `save_email_attachment` tool
+  would make the email integration more useful without letting the model send or
+  mutate mail silently.
+
+Avoid near-term work on broad semantic search or vision-as-a-tool until the
+larger infrastructure blockers in their existing backlog entries are resolved.
+
+### Skills for reusable workflows
+
+Yes: Anodex should have skills, but they should be introduced as a lightweight
+workflow layer rather than a heavy plugin marketplace. Tools let the assistant do
+actions; skills tell it _how this user/project wants a recurring task done_ —
+for example "review a PR," "ship an Electron release," "debug a flaky test," or
+"use this repo's design rules." The best initial shape:
+
+- **Project skills first** — store markdown skills in the project, e.g.
+  `.anodex/skills/<name>.md`, so teams can version them with the repo.
+- **Global personal skills second** — optional user-level skills for personal
+  workflows that apply across projects.
+- **Simple markdown format** — title/description/triggers/body, no code execution
+  at first. Skills should guide tool use, not secretly run actions.
+- **Explicit load UX** — assistant can suggest "I found a matching skill: use
+  it?" and the user can pin auto-load skills per project. Avoid cluttering the
+  composer; surface this subtly in project/settings or a small context pill.
+- **Skill authoring helper** — a command/action like "save this as a skill" after
+  a successful workflow, with user review before saving.
+- **Searchable skill library** — `find_skill`/`load_skill`-style tools are enough
+  for the model path; the UI can later show a small library/editor.
+
+Good starter built-in/project templates: code review, TDD feature work, bug
+triage, release checklist, app UI polish pass, dependency upgrade, and project
+handoff notes. Defer executable skills, remote skill sharing, and marketplace
+mechanics until the markdown version proves useful and safe.
+
+### Additional product gaps worth considering
+
+A broader pass over README/current features suggests a few high-leverage gaps that
+are not quite "tools" or "skills":
+
+- **First-run success path** — a guided setup that gets a new user from empty app
+  to "model downloaded, project opened, first useful task completed" without
+  digging through Settings. This matters more than another advanced feature.
+- **Context transparency** — a small "what context is the assistant using?" view
+  showing active project instructions, loaded memories, selected files,
+  compaction summaries, and loaded skills. Default it closed/collapsed to save
+  space, opening only when the user asks or when there is a relevant warning.
+  This builds trust and makes wrong answers easier to debug.
+- **Checkpoint / restore UX** — complement the existing file-rollback backlog
+  with visible per-turn checkpoints: changed files, before/after snapshots where
+  available, and a restore action. Default checkpoint details closed/collapsed,
+  with a compact changed-files summary visible. This is a safety/trust feature,
+  not just a coding convenience.
+- **Model capability labels** — surface which models are good at tool use,
+  coding, long context, JSON/tool-call reliability, and speed. Reliability
+  scoring exists; the missing piece is turning it into actionable guidance at
+  model-pick time.
+- **Shareable support bundle** — one button to collect app version, hardware,
+  model, recent diagnostics, failed tool calls, and logs into a redacted local
+  report. Useful while the app is private and support is hands-on.
+- **Conversation-to-work artifact** — promote useful outputs into durable docs:
+  plan summary, implementation notes, decision record, release notes, or
+  `ANODEX.md` update. This keeps valuable chat work from disappearing in a long
+  transcript.
+- **Project health dashboard** — lightweight panel combining git status, latest
+  test/check result, open TODOs from plans, recently changed files, and active
+  scheduled/agent runs. Keep it in the Workspace Dock, not the composer.
+
 ### 1. File rollback on message edit
 
 Editing a past user message and regenerating already truncates chat history
