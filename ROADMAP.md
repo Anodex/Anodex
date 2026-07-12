@@ -88,9 +88,8 @@ dependency upgrade, and handoff notes.
 
 Remaining follow-ups:
 
-- **Explicit load UX** — assistant can suggest "I found a matching skill: use
-  it?" and the user can pin auto-load skills per project. Avoid cluttering the
-  composer; surface this subtly in project/settings or a small context pill.
+- **Pin/auto-load skills** — let the user pin project skills that should be
+  suggested or loaded by default for that project.
 - **Skill authoring helper** — a command/action like "save this as a skill" after
   a successful workflow, with user review before saving.
 - **Library/editor UI** — the model path has searchable tools; a later UI can

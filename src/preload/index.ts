@@ -61,6 +61,9 @@ const api: AnodexApi = {
     onConfirmRequest: (listener) =>
       subscribe<ToolConfirmRequest>(IpcChannel.Tools.confirmRequest, listener)
   },
+  skills: {
+    list: (projectId) => ipcRenderer.invoke(IpcChannel.Skills.list, projectId)
+  },
   system: {
     getInfo: () => ipcRenderer.invoke(IpcChannel.System.getInfo),
     getHardwareInfo: () => ipcRenderer.invoke(IpcChannel.System.getHardwareInfo),

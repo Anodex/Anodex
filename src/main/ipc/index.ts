@@ -18,6 +18,7 @@ import { registerAttachmentHandlers } from './attachments.handlers'
 import { registerUpdateHandlers } from './update.handlers'
 import { registerStatsHandlers } from './stats.handlers'
 import { registerMemoryHandlers } from './memory.handlers'
+import { registerSkillHandlers } from './skill.handlers'
 import { registerTerminalHandlers } from './terminal.handlers'
 import { registerSchedulerHandlers } from './scheduler.handlers'
 import { registerAgentHandlers } from './agent.handlers'
@@ -44,6 +45,7 @@ export function registerIpcHandlers(): void {
   registerUpdateHandlers()
   registerStatsHandlers()
   registerMemoryHandlers()
+  registerSkillHandlers()
   registerTerminalHandlers()
   registerSchedulerHandlers()
   registerAgentHandlers()

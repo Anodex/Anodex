@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
+import type { SkillSummary } from '@shared/skill.types'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import { useChatStore, type PendingMessage } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
@@ -11,6 +12,11 @@ import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { anodex } from '../../lib/anodex'
 import { ANODEX_FILE_DRAG_TYPE, type ComposerAttachment } from '../../lib/attachments'
 import { formatBytes } from '../../lib/format'
+import {
+  applySkillSuggestion,
+  getAppliedSkillName,
+  getSkillSuggestions
+} from '../../lib/skillSuggestions'
 import { WorkspaceControl } from './WorkspaceControl'
 import { ContextMeter } from './ContextMeter'
 import { ToolConfirmCard } from './ToolConfirmCard'
@@ -39,6 +45,8 @@ export function ChatComposer(): JSX.Element {
   const [dragActive, setDragActive] = useState(false)
   const [activeSlashIndex, setActiveSlashIndex] = useState(0)
   const [compacting, setCompacting] = useState(false)
+  const [skills, setSkills] = useState<SkillSummary[]>([])
+  const [dismissedSkillName, setDismissedSkillName] = useState<string | null>(null)
   const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -91,7 +99,31 @@ export function ChatComposer(): JSX.Element {
   const canCompact = localReady && !generating && !compacting && hasCompactableHistory
   const slashSuggestions = useMemo(() => getSlashCommandSuggestions(text), [text])
   const showSlashSuggestions = ready && slashSuggestions.length > 0
-  const selectedSlashSuggestion = slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)]
+  const selectedSlashSuggestion =
+    slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)]
+  const skillSuggestions = useMemo(
+    () => (ready && !showSlashSuggestions ? getSkillSuggestions(skills, text, 2) : []),
+    [ready, showSlashSuggestions, skills, text]
+  )
+  const appliedSkillName = getAppliedSkillName(text)
+  const visibleSkillSuggestion =
+    skillSuggestions.find(
+      (skill) => skill.name !== dismissedSkillName && skill.name !== appliedSkillName
+    ) ?? null
+
+  useEffect(() => {
+    let cancelled = false
+    void anodex.skills.list(activeConversation?.projectId ?? null).then((result) => {
+      if (!cancelled) setSkills(result)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeConversation?.projectId])
+
+  useEffect(() => {
+    setDismissedSkillName(null)
+  }, [text])
 
   const resetHeight = (): void => {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -104,11 +136,21 @@ export function ChatComposer(): JSX.Element {
     el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`
   }
 
-  const expandComposerText = (value: string): string => expandSlashCommand(value)?.expandedText ?? value
+  const expandComposerText = (value: string): string =>
+    expandSlashCommand(value)?.expandedText ?? value
 
   const selectSlashCommand = (command: SlashCommandName): void => {
     setText(completeSlashCommand(text, command))
     setActiveSlashIndex(0)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      autoGrow()
+    })
+  }
+
+  const applySuggestedSkill = (skillName: string): void => {
+    setText((current) => applySkillSuggestion(skillName, current))
+    setDismissedSkillName(skillName)
     requestAnimationFrame(() => {
       textareaRef.current?.focus()
       autoGrow()
@@ -154,7 +196,9 @@ export function ChatComposer(): JSX.Element {
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault()
-        setActiveSlashIndex((index) => (index - 1 + slashSuggestions.length) % slashSuggestions.length)
+        setActiveSlashIndex(
+          (index) => (index - 1 + slashSuggestions.length) % slashSuggestions.length
+        )
         return
       }
       if ((event.key === 'Tab' || event.key === 'Enter') && selectedSlashSuggestion) {
@@ -316,6 +360,38 @@ export function ChatComposer(): JSX.Element {
               <span className={styles.commandDescription}>{command.description}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {visibleSkillSuggestion && !generating && (
+        <div className={styles.skillHint}>
+          <Icon name="sparkle" size={13} />
+          <span className={styles.skillHintText}>
+            Relevant {visibleSkillSuggestion.scope} skill:{' '}
+            <strong>{visibleSkillSuggestion.name}</strong>
+          </span>
+          <button
+            type="button"
+            className={styles.skillHintAction}
+            onMouseDown={(event) => {
+              event.preventDefault()
+              applySuggestedSkill(visibleSkillSuggestion.name)
+            }}
+          >
+            Use
+          </button>
+          <button
+            type="button"
+            className={styles.skillHintDismiss}
+            aria-label="Dismiss skill suggestion"
+            title="Dismiss"
+            onMouseDown={(event) => {
+              event.preventDefault()
+              setDismissedSkillName(visibleSkillSuggestion.name)
+            }}
+          >
+            <Icon name="close" size={11} />
+          </button>
         </div>
       )}
 

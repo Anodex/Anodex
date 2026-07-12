@@ -22,9 +22,13 @@ export interface Skill {
   filePath: string
 }
 
+/** Skill metadata safe to expose to renderer UI — no markdown body or absolute file path. */
+export type SkillSummary = Pick<Skill, 'name' | 'description' | 'scope' | 'keywords'>
+
 /** One ranked match from a skill-catalog search. */
 export interface SkillSearchResult {
   name: string
   description: string
+  scope: SkillScope
   score: number
 }

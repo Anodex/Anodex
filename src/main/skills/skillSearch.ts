@@ -78,7 +78,12 @@ export function search(index: SkillIndex, query: string, limit = 5): SkillSearch
   return ranked
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
-    .map(({ doc, score }) => ({ name: doc.skill.name, description: doc.skill.description, score }))
+    .map(({ doc, score }) => ({
+      name: doc.skill.name,
+      description: doc.skill.description,
+      scope: doc.skill.scope,
+      score
+    }))
 }
 
 function substringFallback(

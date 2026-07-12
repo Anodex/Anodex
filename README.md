@@ -101,6 +101,10 @@ it can actually take.
 - **Assistant tools:** `find_skill` searches the active catalog and `load_skill`
   loads the exact instructions. They are always available to normal chats and
   autonomous agent runs.
+- **Composer discovery:** while you type, Anodex shows a small, dismissible
+  “Relevant skill” hint when the active project/personal catalog appears to
+  match your request. Choosing **Use** prepends a concise instruction to use that
+  skill without adding persistent composer clutter.
 
 Skill files use a small markdown format:
 

@@ -54,6 +54,7 @@ import type {
   UpdateScheduledTaskRequest
 } from './scheduledTask.types'
 import type { AgentRun, CreateAgentRunRequest } from './agentRun.types'
+import type { SkillSummary } from './skill.types'
 import type {
   EmailConnectionStatus,
   EmailDraft,
@@ -120,6 +121,9 @@ export const IpcChannel = {
     activity: 'tools:activity',
     /** main → renderer: approval is required before a write/command runs. */
     confirmRequest: 'tools:confirm-request'
+  },
+  Skills: {
+    list: 'skills:list'
   },
   Projects: {
     list: 'projects:list',
@@ -323,6 +327,10 @@ export interface AnodexApi {
     respondConfirmation(id: string, response: ToolConfirmResponse): Promise<void>
     onActivity(listener: (event: ToolActivityEvent) => void): () => void
     onConfirmRequest(listener: (request: ToolConfirmRequest) => void): () => void
+  }
+  skills: {
+    /** List project + personal skill metadata for lightweight renderer discovery. */
+    list(projectId?: string | null): Promise<SkillSummary[]>
   }
   projects: {
     list(): Promise<ProjectsState>
