@@ -199,41 +199,160 @@
   color: var(--text-muted);
 }
 
-.skillList {
+.skillLibraryToolbar {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
 
-.skillToggle {
-  display: inline-flex;
+.skillSearch {
+  flex: 1;
+  min-width: 160px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--bg-input, var(--bg-base));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  outline: none;
+}
+
+.skillSearch:focus {
+  border-color: var(--border-focus);
+}
+
+.skillError {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius-md);
+}
+
+.skillList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.skillRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  color: var(--text-muted);
+  padding: var(--space-2);
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  cursor: pointer;
+  border-radius: var(--radius-md);
 }
 
-.skillToggle:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-}
-
-.skillTogglePinned {
-  color: var(--accent);
+.skillRowSelected {
   border-color: var(--accent);
 }
 
+.skillOpen {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.skillOpen:hover .skillToggleName {
+  color: var(--accent);
+}
+
 .skillToggleName {
+  overflow: hidden;
   font-size: var(--text-sm);
   font-weight: 500;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skillDescription {
+  overflow: hidden;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .skillToggleMeta {
   font-size: var(--text-xs);
   color: var(--text-faint);
+}
+
+.pinButton {
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.pinButton:hover,
+.pinButtonPinned {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.skillEditor {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.skillEditorHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.skillEditorTitle {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.skillEditorMeta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.skillEditorActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.skillTextarea {
+  width: 100%;
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg-input, var(--bg-base));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  resize: vertical;
+  outline: none;
+}
+
+.skillTextarea:focus {
+  border-color: var(--border-focus);
 }

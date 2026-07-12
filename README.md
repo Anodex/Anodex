@@ -114,6 +114,9 @@ it can actually take.
 - **Skill draft helper:** assistant replies that used tools expose a subtle
   **Draft skill** footer action that copies a reviewable markdown skill draft
   based on the workflow, so the user can edit before saving.
+- **Skill library/editor:** Settings → Projects includes a collapsed skill
+  library where you can search project/personal skills, pin them, create starter
+  skill markdown, edit the body, and save back to the right skill folder.
 
 Skill files use a small markdown format:
 

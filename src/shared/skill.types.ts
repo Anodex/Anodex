@@ -25,6 +25,29 @@ export interface Skill {
 /** Skill metadata safe to expose to renderer UI — no markdown body or absolute file path. */
 export type SkillSummary = Pick<Skill, 'name' | 'description' | 'scope' | 'keywords'>
 
+/** Renderer request to read one editable skill markdown document. */
+export interface SkillReadRequest {
+  projectId?: string | null
+  scope: SkillScope
+  name: string
+}
+
+/** Renderer request to validate and save one skill markdown document. */
+export interface SkillSaveRequest {
+  projectId?: string | null
+  scope: SkillScope
+  /** Existing name when editing; omitted/null when creating a new skill. */
+  originalName?: string | null
+  content: string
+}
+
+/** Editable skill document safe for renderer UI. */
+export interface SkillDocument {
+  name: string
+  scope: SkillScope
+  content: string
+}
+
 /** One ranked match from a skill-catalog search. */
 export interface SkillSearchResult {
   name: string

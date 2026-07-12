@@ -91,10 +91,12 @@ Remaining follow-ups:
 
 - **Skill authoring helper** — first draft helper built: assistant replies that
   used tools expose a subtle **Draft skill** action that copies reviewable
-  markdown. Later passes can save directly into project/personal skill folders
-  once the compact library/editor exists.
-- **Library/editor UI** — the model path has searchable tools; a later UI can
-  show a compact project/personal skill library and editor.
+  markdown; Settings → Projects now provides the compact library/editor needed to
+  paste, review, create, and save project/personal skill markdown.
+- **Library/editor UI** — first compact version built in Settings → Projects:
+  collapsed library, search, pin controls, markdown editor, starter templates,
+  and project/personal save paths. Future passes can add delete/duplicate actions
+  and richer validation previews.
 
 Continue to defer executable skills, remote skill sharing, and marketplace
 mechanics until the markdown version proves useful and safe.

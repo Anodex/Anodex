@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Project } from '@shared/project.types'
-import type { SkillSummary } from '@shared/skill.types'
+import type { SkillDocument, SkillScope, SkillSummary } from '@shared/skill.types'
 import { useProjectStore, getActiveProject } from '../../../../stores/projectStore'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { anodex } from '../../../../lib/anodex'
@@ -25,25 +25,36 @@ export function ProjectsSettings(): JSX.Element {
   const [instructionsDraft, setInstructionsDraft] = useState('')
   const [deletingProject, setDeletingProject] = useState<Project | null>(null)
   const [skillCatalog, setSkillCatalog] = useState<SkillSummary[]>([])
+  const [skillSearch, setSkillSearch] = useState('')
+  const [editingSkill, setEditingSkill] = useState<SkillDocument | null>(null)
+  const [skillDraft, setSkillDraft] = useState('')
+  const [skillError, setSkillError] = useState<string | null>(null)
+  const [savingSkill, setSavingSkill] = useState(false)
   const activeProjectIdForSkills = activeProject?.id ?? null
 
   useEffect(() => {
     setInstructionsDraft(activeProject?.instructions ?? '')
   }, [activeProject?.id, activeProject?.instructions])
 
-  useEffect(() => {
+  const loadSkills = useCallback(async (): Promise<void> => {
     if (!activeProjectIdForSkills) {
       setSkillCatalog([])
       return
     }
+    const skills = await anodex.skills.list(activeProjectIdForSkills)
+    setSkillCatalog(skills)
+  }, [activeProjectIdForSkills])
+
+  useEffect(() => {
     let cancelled = false
-    void anodex.skills.list(activeProjectIdForSkills).then((skills) => {
-      if (!cancelled) setSkillCatalog(skills)
+    void loadSkills().catch((error) => {
+      if (!cancelled)
+        setSkillError(error instanceof Error ? error.message : 'Could not load skills')
     })
     return () => {
       cancelled = true
     }
-  }, [activeProjectIdForSkills])
+  }, [loadSkills])
 
   const startCreate = async (): Promise<void> => {
     const result = await anodex.tools.pickWorkspace()
@@ -81,6 +92,58 @@ export function ProjectsSettings(): JSX.Element {
       : [...pinned, skillName]
     await update(activeProject.id, { pinnedSkillNames })
   }
+
+  const openSkill = async (skill: SkillSummary): Promise<void> => {
+    if (!activeProject) return
+    try {
+      setSkillError(null)
+      const document = await anodex.skills.read({
+        projectId: activeProject.id,
+        scope: skill.scope,
+        name: skill.name
+      })
+      setEditingSkill(document)
+      setSkillDraft(document.content)
+    } catch (error) {
+      setSkillError(error instanceof Error ? error.message : 'Could not read skill')
+    }
+  }
+
+  const startNewSkill = (scope: SkillScope): void => {
+    const name = scope === 'project' ? 'project-workflow' : 'personal-workflow'
+    setSkillError(null)
+    setEditingSkill({ name, scope, content: newSkillTemplate(name) })
+    setSkillDraft(newSkillTemplate(name))
+  }
+
+  const saveSkill = async (): Promise<void> => {
+    if (!activeProject || !editingSkill) return
+    try {
+      setSavingSkill(true)
+      setSkillError(null)
+      const saved = await anodex.skills.save({
+        projectId: activeProject.id,
+        scope: editingSkill.scope,
+        originalName: editingSkill.name,
+        content: skillDraft
+      })
+      setEditingSkill({ name: saved.name, scope: saved.scope, content: skillDraft })
+      await loadSkills()
+    } catch (error) {
+      setSkillError(error instanceof Error ? error.message : 'Could not save skill')
+    } finally {
+      setSavingSkill(false)
+    }
+  }
+
+  const filteredSkillCatalog = skillCatalog.filter((skill) => {
+    const query = skillSearch.trim().toLowerCase()
+    if (!query) return true
+    return [skill.name, skill.description, skill.scope, ...skill.keywords]
+      .join(' ')
+      .toLowerCase()
+      .includes(query)
+  })
 
   return (
     <div className={styles.page}>
@@ -202,34 +265,93 @@ export function ProjectsSettings(): JSX.Element {
           <details className={styles.skillsDisclosure}>
             <summary className={styles.skillsSummary}>
               <span>
-                Pinned skills
+                Skill library
                 {activeProject.pinnedSkillNames.length > 0
-                  ? ` · ${activeProject.pinnedSkillNames.length}`
+                  ? ` · ${activeProject.pinnedSkillNames.length} pinned`
                   : ''}
               </span>
-              <span className={styles.skillsSummaryHint}>Auto-loaded for this project</span>
+              <span className={styles.skillsSummaryHint}>Browse, pin, and edit skills</span>
             </summary>
+            <div className={styles.skillLibraryToolbar}>
+              <input
+                className={styles.skillSearch}
+                value={skillSearch}
+                placeholder="Search skills"
+                onChange={(event) => setSkillSearch(event.target.value)}
+              />
+              <Button variant="ghost" size="sm" onClick={() => startNewSkill('project')}>
+                New project skill
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => startNewSkill('personal')}>
+                New personal skill
+              </Button>
+            </div>
+            {skillError && <div className={styles.skillError}>{skillError}</div>}
             {skillCatalog.length === 0 ? (
               <p className={styles.instructionsHint}>
-                No project or personal skills found yet. Add markdown skills under `.anodex/skills`
-                or your personal skills folder.
+                No project or personal skills found yet. Create a project skill here or add markdown
+                skills under `.anodex/skills`.
               </p>
             ) : (
               <div className={styles.skillList}>
-                {skillCatalog.map((skill) => {
+                {filteredSkillCatalog.map((skill) => {
                   const pinned = activeProject.pinnedSkillNames.includes(skill.name)
+                  const selected =
+                    editingSkill?.name === skill.name && editingSkill.scope === skill.scope
                   return (
-                    <button
+                    <div
                       key={`${skill.scope}:${skill.name}`}
-                      type="button"
-                      className={`${styles.skillToggle} ${pinned ? styles.skillTogglePinned : ''}`}
-                      onClick={() => void togglePinnedSkill(skill.name)}
+                      className={`${styles.skillRow} ${selected ? styles.skillRowSelected : ''}`}
                     >
-                      <span className={styles.skillToggleName}>{skill.name}</span>
+                      <button
+                        type="button"
+                        className={styles.skillOpen}
+                        onClick={() => void openSkill(skill)}
+                      >
+                        <span className={styles.skillToggleName}>{skill.name}</span>
+                        <span className={styles.skillDescription}>{skill.description}</span>
+                      </button>
                       <span className={styles.skillToggleMeta}>{skill.scope}</span>
-                    </button>
+                      <button
+                        type="button"
+                        className={`${styles.pinButton} ${pinned ? styles.pinButtonPinned : ''}`}
+                        onClick={() => void togglePinnedSkill(skill.name)}
+                      >
+                        {pinned ? 'Pinned' : 'Pin'}
+                      </button>
+                    </div>
                   )
                 })}
+              </div>
+            )}
+            {editingSkill && (
+              <div className={styles.skillEditor}>
+                <div className={styles.skillEditorHead}>
+                  <div>
+                    <div className={styles.skillEditorTitle}>{editingSkill.name}</div>
+                    <div className={styles.skillEditorMeta}>{editingSkill.scope} markdown</div>
+                  </div>
+                  <div className={styles.skillEditorActions}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={savingSkill}
+                      onClick={() => void saveSkill()}
+                    >
+                      {savingSkill ? 'Saving…' : 'Save skill'}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditingSkill(null)}>
+                      Close
+                    </Button>
+                  </div>
+                </div>
+                <textarea
+                  className={styles.skillTextarea}
+                  value={skillDraft}
+                  rows={14}
+                  spellCheck={false}
+                  onChange={(event) => setSkillDraft(event.target.value)}
+                />
               </div>
             )}
           </details>
@@ -252,4 +374,30 @@ export function ProjectsSettings(): JSX.Element {
       )}
     </div>
   )
+}
+
+function newSkillTemplate(name: string): string {
+  return `---
+name: ${name}
+description: Describe when to use this workflow.
+keywords: []
+tools: []
+---
+
+# ${name}
+
+## When to use
+
+Use this skill when...
+
+## Steps
+
+1. Inspect the relevant context.
+2. Make the smallest safe change.
+3. Verify the result.
+
+## Pitfalls
+
+- Keep this focused on one reusable workflow class.
+`
 }
