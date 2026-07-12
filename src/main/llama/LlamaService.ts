@@ -43,6 +43,7 @@ import {
   seedContextFromSnapshot
 } from './contextAssembler'
 import {
+  detectFabricatedUserTurn,
   detectFallbackToolCall,
   looksLikeFabricatedOutcome,
   looksLikeStalledIntent,
@@ -431,6 +432,32 @@ class LlamaService extends EventEmitter {
       ('write_file' in functions || 'edit_file' in functions || 'patch_file' in functions)
     )
 
+    // Guard abort we trigger ourselves the moment the model starts fabricating
+    // the user's next turn mid-generation (see `detectFabricatedUserTurn`) — so
+    // generation stops *before* any tool call in that invented turn actually
+    // runs, rather than only cleaning up the transcript after the fact. Merged
+    // with the caller's own signal so a real user "stop" still aborts too.
+    const genController = new AbortController()
+    const forwardAbort = () => genController.abort()
+    if (params.signal) {
+      if (params.signal.aborted) genController.abort()
+      else params.signal.addEventListener('abort', forwardAbort, { once: true })
+    }
+    // Index within the current round's content where a fabricated user turn
+    // begins, once detected — everything from here on is dropped.
+    let fabricatedTurnCut: number | null = null
+    const finalizeFabricatedTurn = (keptContent: string): void => {
+      visibleContent = appendContent(visibleContent, keptContent.trimEnd())
+      stopped = true
+      if (currentModel) {
+        modelReliabilityStore.recordFabrication(
+          currentModel.id,
+          currentModel.name,
+          basename(currentModel.path)
+        )
+      }
+    }
+
     try {
       for (let round = 0; ; round++) {
         let roundContent = ''
@@ -450,7 +477,7 @@ class LlamaService extends EventEmitter {
           // per-turn token budget on pure repetition. `strength: 0.8` is the
           // library's own recommended default.
           dryRepeatPenalty: { strength: 0.8 },
-          signal: params.signal,
+          signal: genController.signal,
           functions,
           // Full per-parameter JSON schema docs. Costs more prompt tokens, but
           // omitting them (as this used to) left weaker local models guessing at
@@ -465,6 +492,18 @@ class LlamaService extends EventEmitter {
             }
             roundContent += chunk.text
             params.onToken(chunk.text)
+            // Only meaningful when tools are registered: the danger of a
+            // fabricated user turn is the model acting on its own invented
+            // approval. Detecting here, as the fabricated reply streams in but
+            // before the model emits its next tool-call token, lets the abort
+            // below stop the round before that call ever executes.
+            if (fabricatedTurnCut === null && functions) {
+              const cut = detectFabricatedUserTurn(roundContent)
+              if (cut !== -1) {
+                fabricatedTurnCut = cut
+                genController.abort()
+              }
+            }
           }
         }
 
@@ -492,6 +531,16 @@ class LlamaService extends EventEmitter {
         try {
           meta = await session.promptWithMeta(prompt, promptOptions)
         } catch (error) {
+          // Our own guard fired mid-stream (not a failure): the model began
+          // fabricating the user's next turn. Keep the reply up to the cut
+          // point (the genuine question), drop the invented turn, and end the
+          // turn so control returns to the real user. Checked before the
+          // context-shift handling below because this abort is expected, not an
+          // error to recover from.
+          if (fabricatedTurnCut !== null) {
+            finalizeFabricatedTurn(roundContent.slice(0, fabricatedTurnCut))
+            break
+          }
           const isContextShiftFailure =
             error instanceof Error &&
             error.message.includes(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT)
@@ -506,6 +555,15 @@ class LlamaService extends EventEmitter {
           log.warn('Context shift failed mid-generation; compacting and retrying this round once.')
           session = await this.recompactSession(params, 'reactive')
           meta = await session.promptWithMeta(prompt, promptOptions)
+        }
+
+        // Aborting mid-stream can also resolve (rather than throw) with the
+        // partial text already streamed — handle the fabricated-turn cut here
+        // too, before `meta.responseText` (the full, untruncated text) replaces
+        // the streamed `roundContent` below.
+        if (fabricatedTurnCut !== null) {
+          finalizeFabricatedTurn(roundContent.slice(0, fabricatedTurnCut))
+          break
         }
 
         // Prefer the assembled final text, then fall back to streamed text.
@@ -687,6 +745,7 @@ class LlamaService extends EventEmitter {
       }
       throw error
     } finally {
+      params.signal?.removeEventListener('abort', forwardAbort)
       this.generating = false
       this.emitState()
     }

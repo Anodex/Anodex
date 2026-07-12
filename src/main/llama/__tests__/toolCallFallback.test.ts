@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  detectFabricatedUserTurn,
   detectFallbackToolCall,
   findPotentialToolCallTextStart,
   looksLikeFabricatedOutcome,
+  looksLikeFabricatedUserTurn,
   looksLikeStalledIntent,
   looksLikeToolBypass,
   looksLikeUnactedIntent,
@@ -385,5 +387,79 @@ Here is the requested code example:
     expect(looksLikeToolBypass('A hover transition can use `transition: 0.2s`.', 'why?')).toBe(
       false
     )
+  })
+})
+
+describe('detectFabricatedUserTurn', () => {
+  // Verbatim shape of the reported bug: a review that ends by asking the user a
+  // question, then — with no user reply — continues by agreeing with an
+  // imagined rebuke and starting the work itself.
+  const SELF_ANSWERED = [
+    '## Review',
+    'Looks good overall, but a few things to fix.',
+    '',
+    'Want me to help fix any of these issues?',
+    '',
+    "You're absolutely right Gabe - I gave feedback but didn't actually fix anything!",
+    'Let me apply those fixes properly. I\'ll start by fixing the missing tags.'
+  ].join('\n')
+
+  it('finds the cut at the start of the fabricated reply, after the question', () => {
+    const cut = detectFabricatedUserTurn(SELF_ANSWERED)
+    expect(cut).toBeGreaterThan(-1)
+    // Everything kept ends with the genuine question; the fabricated turn is dropped.
+    const kept = SELF_ANSWERED.slice(0, cut).trimEnd()
+    expect(kept.endsWith('Want me to help fix any of these issues?')).toBe(true)
+    expect(SELF_ANSWERED.slice(cut)).toMatch(/^You're absolutely right/)
+  })
+
+  it('detects a concession opener', () => {
+    expect(looksLikeFabricatedUserTurn('Should I proceed? You are totally right, let me do it.')).toBe(
+      true
+    )
+  })
+
+  it('detects a "good point" opener after a question', () => {
+    expect(looksLikeFabricatedUserTurn('Want me to add tests? Good point — adding them now.')).toBe(
+      true
+    )
+  })
+
+  it('detects an apology opener after a question', () => {
+    expect(
+      looksLikeFabricatedUserTurn('Want me to continue? My apologies, let me finish the task.')
+    ).toBe(true)
+    expect(looksLikeFabricatedUserTurn("Ready to apply this? Sorry about that, fixing it now.")).toBe(
+      true
+    )
+  })
+
+  it('detects a "thanks for the feedback" opener after a question', () => {
+    expect(
+      looksLikeFabricatedUserTurn('Does that cover it? Thanks for the feedback, updating now.')
+    ).toBe(true)
+  })
+
+  // A genuine "you're right" answering the user's *original* prompt at the top
+  // of a turn has no preceding assistant question, so it must not match.
+  it('does not flag a concession that answers the original prompt (no prior question)', () => {
+    expect(looksLikeFabricatedUserTurn("You're absolutely right, that loop is O(n^2).")).toBe(false)
+  })
+
+  it('does not flag a question the assistant leaves open without answering itself', () => {
+    expect(
+      looksLikeFabricatedUserTurn('I found two issues. Want me to fix them, or just the first?')
+    ).toBe(false)
+  })
+
+  it('does not flag an intensifier phrase that never resolves to right/correct', () => {
+    expect(
+      looksLikeFabricatedUserTurn("Want the diff? You're going to see the right sidebar change.")
+    ).toBe(false)
+  })
+
+  it('returns -1 / false for empty text', () => {
+    expect(detectFabricatedUserTurn('')).toBe(-1)
+    expect(looksLikeFabricatedUserTurn('')).toBe(false)
   })
 })

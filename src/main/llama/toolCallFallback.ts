@@ -328,3 +328,50 @@ export function looksLikeToolBypass(reply: string, userPrompt: string): boolean 
   if (!FILE_ACTION_RE.test(trimmedReply) || !FILE_TARGET_RE.test(trimmedReply)) return false
   return hasSubstantialCodeFence(trimmedReply)
 }
+
+/**
+ * A sentence opener that only makes sense as a *reply to something the user
+ * just said* — an agreement with user feedback ("you're absolutely right"), a
+ * concession ("good point"), or an apology ("my apologies", "sorry about
+ * that"). Each is anchored to a sentence/line boundary (group 1) so the opener
+ * itself (group 2) can be located precisely. The "you're right/correct" branch
+ * only allows a short, fixed set of intensifiers between so it can't stretch
+ * across an unrelated clause ("you're going to see the right side").
+ */
+const FABRICATED_USER_REPLY_RE =
+  /((?:^|[\n.!?)]\s+))(you(?:'re| are)\s+(?:(?:absolutely|totally|completely|so|quite|100%|definitely|certainly|entirely|indeed|very)\s+)?(?:right|correct)\b|(?:good|great|fair)\s+(?:point|catch)\b|my\s+apolog(?:y|ies)\b|i\s+apologize\b|i'?m\s+sorry\b|apologies\b|sorry(?:,|\s+about|\s+for)\b|thanks?\s+(?:you\s+)?for\s+(?:the\s+|your\s+)?(?:feedback|catch|pointing|correcting|clarifying)\b)/gi
+
+/**
+ * Locate the point where an assistant reply stops talking to the user and
+ * starts fabricating the user's *next turn* — the model asks the user a
+ * question ("Want me to fix these?") and then, in the same generation, keeps
+ * going as if the user had already answered ("You're absolutely right — let me
+ * apply those fixes"), often proceeding to act on its own invented approval.
+ *
+ * Returns the index where the fabricated reply begins (so a caller can cut the
+ * turn there, keeping the genuine question), or -1 if none is found.
+ *
+ * The discriminator is a real question earlier in the *same* generation: within
+ * one assistant turn no new user input can have arrived, so a "responding to
+ * you" opener (agreement/concession/apology) that appears *after* the assistant
+ * has already put a question to the user is fabricated by construction. Gating
+ * on a preceding question is what keeps a legitimate "you're right" — one that
+ * answers the user's *original* prompt at the top of a turn — from matching.
+ */
+export function detectFabricatedUserTurn(text: string): number {
+  const questionIdx = text.indexOf('?')
+  if (questionIdx === -1) return -1
+
+  FABRICATED_USER_REPLY_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = FABRICATED_USER_REPLY_RE.exec(text)) !== null) {
+    const openerStart = match.index + match[1].length
+    if (openerStart > questionIdx) return openerStart
+  }
+  return -1
+}
+
+/** True when a reply fabricates the user's next turn (see {@link detectFabricatedUserTurn}). */
+export function looksLikeFabricatedUserTurn(text: string): boolean {
+  return detectFabricatedUserTurn(text) !== -1
+}
