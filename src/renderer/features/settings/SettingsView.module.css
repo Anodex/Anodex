@@ -244,6 +244,22 @@
   color: var(--text-muted);
 }
 
+.toolCatalogSearch {
+  width: 100%;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--bg-input, var(--bg-base));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  outline: none;
+}
+
+.toolCatalogSearch:focus {
+  border-color: var(--border-focus);
+}
+
 .toolList {
   display: flex;
   flex-direction: column;

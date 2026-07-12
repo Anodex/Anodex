@@ -17,6 +17,23 @@ export interface ToolHealthItem {
   tone: ToolHealthTone
 }
 
+export function filterToolCatalog(catalog: ToolCatalogEntry[], query: string): ToolCatalogEntry[] {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return catalog
+
+  return catalog.filter((tool) =>
+    [
+      tool.name,
+      tool.kind,
+      tool.description,
+      tool.requiresProject ? 'project workspace required' : 'general chat'
+    ]
+      .join(' ')
+      .toLowerCase()
+      .includes(normalized)
+  )
+}
+
 export function buildToolHealthSummary(input: ToolHealthInput): ToolHealthItem[] {
   const projectToolCount = input.catalog.filter((tool) => tool.requiresProject).length
 

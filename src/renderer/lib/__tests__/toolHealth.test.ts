@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCatalogEntry } from '@shared/tools.types'
-import { buildToolHealthSummary } from '../toolHealth'
+import { buildToolHealthSummary, filterToolCatalog } from '../toolHealth'
 
 const CATALOG: ToolCatalogEntry[] = [
   { name: 'read_file', kind: 'read', description: 'Read files.', requiresProject: true },
@@ -42,5 +42,22 @@ describe('buildToolHealthSummary', () => {
       { label: 'Web search', value: 'Disabled', tone: 'muted' },
       { label: 'Approvals', value: 'Full access', tone: 'ready' }
     ])
+  })
+})
+
+describe('filterToolCatalog', () => {
+  it('matches by name, kind, description, and project requirement', () => {
+    expect(filterToolCatalog(CATALOG, 'write').map((tool) => tool.name)).toEqual(['write_file'])
+    expect(filterToolCatalog(CATALOG, 'web').map((tool) => tool.name)).toEqual(['web_search'])
+    expect(filterToolCatalog(CATALOG, 'project').map((tool) => tool.name)).toEqual([
+      'read_file',
+      'write_file'
+    ])
+  })
+
+  it('returns the full catalog for an empty query', () => {
+    expect(filterToolCatalog(CATALOG, '').map((tool) => tool.name)).toEqual(
+      CATALOG.map((tool) => tool.name)
+    )
   })
 })

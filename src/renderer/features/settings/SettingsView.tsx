@@ -3,7 +3,7 @@ import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { TOOL_CATALOG } from '@shared/tools.types'
 import { renderAssistantStyleSection } from '@shared/prompts'
-import { buildToolHealthSummary } from '../../lib/toolHealth'
+import { buildToolHealthSummary, filterToolCatalog } from '../../lib/toolHealth'
 import { ASSISTANT_STYLE_PRESETS } from './assistantStylePresets'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -160,6 +160,7 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
   const engine = useModelStore((s) => s.engine)
   const [showStylePreview, setShowStylePreview] = useState(false)
   const [copiedStyle, setCopiedStyle] = useState(false)
+  const [toolSearch, setToolSearch] = useState('')
   // The setting is a target; the engine can resolve a smaller *actual*
   // context for a given model + hardware combination (heavier model sizes on
   // borderline hardware are the common case — see `contextWasDownsized` in
@@ -177,6 +178,7 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
     permissionMode: settings.general.permissionMode,
     webSearchProvider: settings.webSearch.provider
   })
+  const filteredTools = filterToolCatalog(TOOL_CATALOG, toolSearch)
 
   return (
     <section className={styles.section}>
@@ -219,8 +221,14 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
           <span>Tool catalog</span>
           <span className={styles.toolCatalogHint}>{TOOL_CATALOG.length} tools</span>
         </summary>
+        <input
+          className={styles.toolCatalogSearch}
+          value={toolSearch}
+          placeholder="Filter tools by name, kind, or project requirement"
+          onChange={(event) => setToolSearch(event.target.value)}
+        />
         <div className={styles.toolList}>
-          {TOOL_CATALOG.map((tool) => (
+          {filteredTools.map((tool) => (
             <div key={tool.name} className={styles.toolItem}>
               <code className={styles.toolName}>{tool.name}</code>
               <span className={`${styles.toolKind} ${styles[tool.kind]}`}>{tool.kind}</span>

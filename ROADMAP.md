@@ -46,7 +46,7 @@ catalog is parity-tested against runtime registration. The biggest opportunities
 are not "more random tools," but tools that reduce repeated multi-call loops and
 make tool output easier to review. Settings → General now includes a compact tool
 health dashboard (enablement, project readiness, web search, approvals) and keeps
-the full catalog collapsed by default.
+the searchable full catalog collapsed by default.
 
 Remaining tool-side opportunities:
 
