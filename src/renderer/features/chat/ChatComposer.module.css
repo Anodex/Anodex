@@ -216,25 +216,6 @@
   background: var(--bg-surface-hover);
 }
 
-.activeSkillsHint {
-  display: inline-flex;
-  align-self: flex-start;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 100%;
-  padding: 2px var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-}
-
-.activeSkillsHint strong {
-  color: var(--text);
-  font-weight: 500;
-}
-
 .inputRow {
   display: flex;
   align-items: flex-end;

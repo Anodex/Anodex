@@ -19,6 +19,7 @@ import {
   getSkillSuggestions
 } from '../../lib/skillSuggestions'
 import { WorkspaceControl } from './WorkspaceControl'
+import { ContextTransparencyPanel } from './ContextTransparencyPanel'
 import { ContextMeter } from './ContextMeter'
 import { ToolConfirmCard } from './ToolConfirmCard'
 import {
@@ -63,6 +64,7 @@ export function ChatComposer(): JSX.Element {
   const compactConversation = useChatStore((s) => s.compactConversation)
   const engine = useModelStore((s) => s.engine)
   const settings = useSettingsStore((s) => s.settings)
+  const toolsEnabled = settings?.tools.enabled ?? true
   const projects = useProjectStore((s) => s.projects)
   const activeProject = projects.find((project) => project.id === activeConversation?.projectId)
   const pinnedSkillNames = activeProject?.pinnedSkillNames ?? EMPTY_SKILL_NAMES
@@ -121,6 +123,12 @@ export function ChatComposer(): JSX.Element {
   const activeSkillNames = pinnedSkillNames.filter((name) =>
     skills.some((skill) => skill.name === name)
   )
+  const showContextPanel =
+    ready &&
+    (Boolean(activeProject) ||
+      activeSkillNames.length > 0 ||
+      attachments.length > 0 ||
+      Boolean(activeConversation?.context?.activeSnapshot))
 
   useEffect(() => {
     let cancelled = false
@@ -309,6 +317,17 @@ export function ChatComposer(): JSX.Element {
       <ToolConfirmCard />
       <WorkspaceControl />
 
+      {showContextPanel && (
+        <ContextTransparencyPanel
+          projectName={activeProject?.name ?? null}
+          toolsEnabled={toolsEnabled}
+          hasProjectInstructions={Boolean(activeProject?.instructions)}
+          pinnedSkillNames={activeSkillNames}
+          attachmentCount={attachments.length}
+          hasContextSnapshot={Boolean(activeConversation?.context?.activeSnapshot)}
+        />
+      )}
+
       {pendingQueue.length > 0 && activeConversation && (
         <div className={styles.pendingQueue}>
           {pendingQueue.map((item) => (
@@ -403,19 +422,6 @@ export function ChatComposer(): JSX.Element {
           >
             <Icon name="close" size={11} />
           </button>
-        </div>
-      )}
-
-      {!visibleSkillSuggestion && activeSkillNames.length > 0 && !generating && (
-        <div
-          className={styles.activeSkillsHint}
-          title="Pinned skills are included in this project's prompt"
-        >
-          <Icon name="sparkle" size={12} />
-          <span>
-            Active skills: <strong>{activeSkillNames.slice(0, 2).join(', ')}</strong>
-            {activeSkillNames.length > 2 ? ` +${activeSkillNames.length - 2}` : ''}
-          </span>
         </div>
       )}
 

@@ -105,11 +105,11 @@ are not quite "tools" or "skills":
 - **First-run success path** — a guided setup that gets a new user from empty app
   to "model downloaded, project opened, first useful task completed" without
   digging through Settings. This matters more than another advanced feature.
-- **Context transparency** — a small "what context is the assistant using?" view
-  showing active project instructions, loaded memories, selected files,
-  compaction summaries, and loaded skills. Default it closed/collapsed to save
-  space, opening only when the user asks or when there is a relevant warning.
-  This builds trust and makes wrong answers easier to debug.
+- **Context transparency** — first compact version built in the composer: a
+  collapsed-by-default row summarizes active project instructions, pinned skills,
+  selected files, compaction summary state, and tool availability. Future passes
+  can add per-turn memory/past-chat details and warning states without making the
+  composer heavier by default.
 - **Checkpoint / restore UX** — complement the existing file-rollback backlog
   with visible per-turn checkpoints: changed files, before/after snapshots where
   available, and a restore action. Default checkpoint details closed/collapsed,

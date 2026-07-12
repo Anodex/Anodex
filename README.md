@@ -107,7 +107,10 @@ it can actually take.
   skill without adding persistent composer clutter.
 - **Pinned project skills:** Settings → Projects lets you pin skills for the
   active project. Pinned skills are auto-loaded into the project prompt and shown
-  as a compact active-skills pill in the composer.
+  in the compact context summary above the composer.
+- **Context transparency:** project chats show a collapsed-by-default context row
+  summarizing active project, project instructions, pinned skills, attachments,
+  compaction summary state, and tool availability.
 
 Skill files use a small markdown format:
 
