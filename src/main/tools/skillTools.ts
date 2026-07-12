@@ -23,19 +23,32 @@ export const findSkillTool: ToolFactory = (define, ctx) =>
         kind: 'read',
         title: `Find skill "${args.query}"`,
         run() {
-          const skills = skillStore.list()
+          const skills = skillStore.list(ctx.workspaceRoot)
           if (skills.length === 0) {
+            const locations = ctx.workspaceRoot
+              ? `"${skillStore.getProjectDir(ctx.workspaceRoot)}" or "${skillStore.getDir()}"`
+              : `"${skillStore.getDir()}"`
             return Promise.resolve({
-              modelResult: `No skills found yet. Add one as a markdown file in "${skillStore.getDir()}".`,
+              modelResult: `No skills found yet. Add one as a markdown file in ${locations}.`,
               detail: '0 skills in catalog'
             })
           }
           const results = search(buildIndex(skills), args.query, DEFAULT_LIMIT)
           if (results.length === 0) {
-            return Promise.resolve({ modelResult: 'No matching skills found.', detail: 'No matches' })
+            return Promise.resolve({
+              modelResult: 'No matching skills found.',
+              detail: 'No matches'
+            })
           }
-          const lines = results.map((result) => `${result.name} — ${result.description}`)
-          return Promise.resolve({ modelResult: lines.join('\n'), detail: `${results.length} matches` })
+          const byName = new Map(skills.map((skill) => [skill.name, skill]))
+          const lines = results.map((result) => {
+            const scope = byName.get(result.name)?.scope ?? 'personal'
+            return `[${scope}] ${result.name} — ${result.description}`
+          })
+          return Promise.resolve({
+            modelResult: lines.join('\n'),
+            detail: `${results.length} matches`
+          })
         }
       })
   })
@@ -58,7 +71,7 @@ export const loadSkillTool: ToolFactory = (define, ctx) =>
         kind: 'read',
         title: `Load skill "${args.name}"`,
         run() {
-          const skill = skillStore.get(args.name)
+          const skill = skillStore.get(args.name, ctx.workspaceRoot)
           if (!skill) {
             throw new Error(`No skill named "${args.name}" found. Use find_skill to search.`)
           }
@@ -70,7 +83,10 @@ export const loadSkillTool: ToolFactory = (define, ctx) =>
             missingTools.length > 0
               ? `\n\n(Note: this skill expects ${missingTools.join(', ')}, which ${missingTools.length === 1 ? 'is' : 'are'} not enabled for this run.)`
               : ''
-          return Promise.resolve({ modelResult: `${skill.body}${note}`, detail: skill.name })
+          return Promise.resolve({
+            modelResult: `# ${skill.name} (${skill.scope} skill)\n\n${skill.body}${note}`,
+            detail: `${skill.scope}:${skill.name}`
+          })
         }
       })
   })

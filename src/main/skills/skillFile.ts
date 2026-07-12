@@ -1,5 +1,7 @@
 import type { Skill } from '@shared/skill.types'
 
+export type ParsedSkill = Omit<Skill, 'scope'>
+
 const FRONTMATTER_DELIMITER = '---'
 
 /**
@@ -9,7 +11,7 @@ const FRONTMATTER_DELIMITER = '---'
  * YAML library — the schema is deliberately flat, so a real parser would be
  * more machinery than the format needs.
  */
-export function parseSkillFile(raw: string, filePath: string): Skill {
+export function parseSkillFile(raw: string, filePath: string): ParsedSkill {
   const { frontmatter, body } = splitFrontmatter(raw, filePath)
   const fields = parseFrontmatterFields(frontmatter, filePath)
 

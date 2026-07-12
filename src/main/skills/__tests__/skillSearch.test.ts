@@ -6,6 +6,7 @@ function makeSkill(overrides: Partial<Skill>): Skill {
   return {
     name: 'skill',
     description: 'A skill.',
+    scope: 'personal',
     keywords: [],
     tools: [],
     body: '',

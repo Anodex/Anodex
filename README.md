@@ -87,6 +87,40 @@ folder (path traversal outside it is blocked):
 - **Memory:** `remember_fact` saves approved global or project-scoped facts
   when memory is enabled.
 
+## Skills
+
+Anodex has a lightweight markdown skill catalog for reusable workflows. Skills
+tell the assistant _how_ to do recurring work; tools still decide what actions
+it can actually take.
+
+- **Project skills:** `.anodex/skills/*.md` in the active workspace. These are
+  versionable with the repo and take precedence over personal skills with the
+  same name.
+- **Personal skills:** app-data `skills/*.md`, shared across projects on the
+  local machine.
+- **Assistant tools:** `find_skill` searches the active catalog and `load_skill`
+  loads the exact instructions. They are always available to normal chats and
+  autonomous agent runs.
+
+Skill files use a small markdown format:
+
+```md
+---
+name: code-review
+description: Review code changes for correctness, safety, tests, and docs.
+keywords: [review, pr, quality]
+tools: [git_status, git_diff, read_file]
+---
+
+# Code review
+
+Follow these steps...
+```
+
+The Anodex repo includes starter project skills for code review, TDD feature
+work, bug triage, release checks, UI polish, dependency upgrades, and handoff
+notes under `.anodex/skills/`.
+
 ### Workspace security model
 
 File and directory tools resolve paths through the workspace boundary and check

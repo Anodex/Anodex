@@ -80,29 +80,23 @@ larger infrastructure blockers in their existing backlog entries are resolved.
 
 ### Skills for reusable workflows
 
-Yes: Anodex should have skills, but they should be introduced as a lightweight
-workflow layer rather than a heavy plugin marketplace. Tools let the assistant do
-actions; skills tell it _how this user/project wants a recurring task done_ —
-for example "review a PR," "ship an Electron release," "debug a flaky test," or
-"use this repo's design rules." The best initial shape:
+Initial markdown skills are now built: `find_skill`/`load_skill` search both
+project `.anodex/skills/*.md` and personal app-data `skills/*.md`, with project
+skills taking precedence. The Anodex repo seeds starter project skills for code
+review, TDD feature work, bug triage, release checklist, UI polish pass,
+dependency upgrade, and handoff notes.
 
-- **Project skills first** — store markdown skills in the project, e.g.
-  `.anodex/skills/<name>.md`, so teams can version them with the repo.
-- **Global personal skills second** — optional user-level skills for personal
-  workflows that apply across projects.
-- **Simple markdown format** — title/description/triggers/body, no code execution
-  at first. Skills should guide tool use, not secretly run actions.
+Remaining follow-ups:
+
 - **Explicit load UX** — assistant can suggest "I found a matching skill: use
   it?" and the user can pin auto-load skills per project. Avoid cluttering the
   composer; surface this subtly in project/settings or a small context pill.
 - **Skill authoring helper** — a command/action like "save this as a skill" after
   a successful workflow, with user review before saving.
-- **Searchable skill library** — `find_skill`/`load_skill`-style tools are enough
-  for the model path; the UI can later show a small library/editor.
+- **Library/editor UI** — the model path has searchable tools; a later UI can
+  show a compact project/personal skill library and editor.
 
-Good starter built-in/project templates: code review, TDD feature work, bug
-triage, release checklist, app UI polish pass, dependency upgrade, and project
-handoff notes. Defer executable skills, remote skill sharing, and marketplace
+Continue to defer executable skills, remote skill sharing, and marketplace
 mechanics until the markdown version proves useful and safe.
 
 ### Additional product gaps worth considering
