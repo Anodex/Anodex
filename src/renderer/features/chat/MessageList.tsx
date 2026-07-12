@@ -6,6 +6,7 @@ import { MessageBubble } from './MessageBubble'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
+import { shouldPinCurrentRequest } from './messageTimeline'
 import styles from './MessageList.module.css'
 
 /** Distance (px) from the bottom within which we keep auto-scrolling. */
@@ -41,6 +42,7 @@ export function MessageList({
   const [showJumpButton, setShowJumpButton] = useState(false)
   const [hasNewContent, setHasNewContent] = useState(false)
   const [userMarkers, setUserMarkers] = useState<UserMarker[]>([])
+  const [pinnedRequest, setPinnedRequest] = useState<UserMarker | null>(null)
 
   const updateMarkers = useCallback((): void => {
     const el = containerRef.current
@@ -60,13 +62,21 @@ export function MessageList({
       else break
     }
 
-    setUserMarkers(
-      entries.map(({ message }, index) => ({
-        message,
-        top: RAIL_TOP_OFFSET + index * markerGap,
-        active: message.id === activeId,
-        ...previewContextForMessage(messages, message)
-      }))
+    const markers = entries.map(({ message }, index) => ({
+      message,
+      top: RAIL_TOP_OFFSET + index * markerGap,
+      active: message.id === activeId,
+      ...previewContextForMessage(messages, message)
+    }))
+
+    setUserMarkers(markers)
+
+    const activeEntry = entries.find((entry) => entry.message.id === activeId)
+    const activeMarker = markers.find((marker) => marker.message.id === activeId) ?? null
+    setPinnedRequest(
+      activeEntry && activeMarker && shouldPinCurrentRequest({ messageTop: activeEntry.offsetTop, scrollTop: el.scrollTop })
+        ? activeMarker
+        : null
     )
   }, [messages])
 
@@ -143,6 +153,17 @@ export function MessageList({
           <div ref={bottomRef} />
         </div>
       </div>
+      {pinnedRequest && (
+        <button
+          type="button"
+          className={styles.currentRequest}
+          onClick={() => scrollToMessage(pinnedRequest.message.id)}
+          title="Jump to current request"
+        >
+          <span className={styles.currentRequestLabel}>Current request</span>
+          <span className={styles.currentRequestText}>{previewText(pinnedRequest.message, 132)}</span>
+        </button>
+      )}
       {userMarkers.length > 0 && (
         <UserScrollRail markers={userMarkers} onSelect={scrollToMessage} />
       )}

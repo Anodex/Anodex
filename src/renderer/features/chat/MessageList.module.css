@@ -19,6 +19,49 @@
   padding: var(--space-4) var(--space-6) var(--space-8);
 }
 
+.currentRequest {
+  position: absolute;
+  z-index: 4;
+  top: var(--space-3);
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: min(760px, calc(100% - var(--space-10)));
+  padding: 8px var(--space-3);
+  transform: translateX(-50%);
+  color: var(--text);
+  text-align: left;
+  background: color-mix(in srgb, var(--bg-surface-2) 88%, transparent);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+}
+
+.currentRequest:hover {
+  border-color: var(--border-focus);
+}
+
+.currentRequestLabel {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.currentRequestText {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .userRail {
   position: absolute;
   top: 0;

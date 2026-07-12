@@ -1,7 +1,16 @@
 .row {
   display: flex;
   gap: var(--space-3);
-  padding: var(--space-4) 0;
+  padding: var(--space-5) 0;
+}
+
+.assistant {
+  padding-top: var(--space-6);
+  padding-bottom: var(--space-6);
+}
+
+.assistant + .assistant {
+  padding-top: var(--space-2);
 }
 
 .avatar {
@@ -53,6 +62,17 @@
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+}
+
+.assistant .bubble {
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.assistant .meta {
+  margin-bottom: var(--space-3);
 }
 
 .footer {
