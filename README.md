@@ -111,6 +111,9 @@ it can actually take.
 - **Context transparency:** project chats show a collapsed-by-default context row
   summarizing active project, project instructions, pinned skills, attachments,
   compaction summary state, and tool availability.
+- **Skill draft helper:** assistant replies that used tools expose a subtle
+  **Draft skill** footer action that copies a reviewable markdown skill draft
+  based on the workflow, so the user can edit before saving.
 
 Skill files use a small markdown format:
 

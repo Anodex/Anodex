@@ -4,6 +4,7 @@ import { AnodexLogo } from '../../components/AnodexLogo'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatBytes, formatClock } from '../../lib/format'
+import { buildSkillDraft } from '../../lib/skillDraft'
 import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
@@ -13,16 +14,43 @@ import { buildRenderSegments, messageBlocks } from './taskPhase'
 import styles from './MessageBubble.module.css'
 
 /** A single chat turn: avatar, author/time meta, content, and optional stats. */
-export function MessageBubble({ message }: { message: ChatMessage }): JSX.Element {
+export function MessageBubble({
+  message,
+  previousUserContent
+}: {
+  message: ChatMessage
+  previousUserContent?: string
+}): JSX.Element {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
+  const [draftCopied, setDraftCopied] = useState(false)
   const showCopy = !message.streaming && message.content.length > 0
+  const showSkillDraft =
+    !isUser &&
+    !message.streaming &&
+    message.content.length > 0 &&
+    (message.toolCalls?.some((call) => call.status === 'success') ?? false)
 
   const handleCopy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(message.content)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* Clipboard unavailable — silently ignore. */
+    }
+  }
+
+  const handleDraftSkill = async (): Promise<void> => {
+    try {
+      const draft = buildSkillDraft({
+        userPrompt: previousUserContent || 'Workflow from chat',
+        assistantContent: message.content,
+        toolNames: message.toolCalls?.map((call) => call.name) ?? []
+      })
+      await navigator.clipboard.writeText(draft)
+      setDraftCopied(true)
+      setTimeout(() => setDraftCopied(false), 1500)
     } catch {
       /* Clipboard unavailable — silently ignore. */
     }
@@ -92,7 +120,7 @@ export function MessageBubble({ message }: { message: ChatMessage }): JSX.Elemen
           )}
         </div>
 
-        {(message.stats && !message.streaming) || showCopy ? (
+        {(message.stats && !message.streaming) || showCopy || showSkillDraft ? (
           <div className={styles.footer}>
             {message.stats && !message.streaming && (
               <span className={styles.stats}>
@@ -108,6 +136,18 @@ export function MessageBubble({ message }: { message: ChatMessage }): JSX.Elemen
               >
                 <Icon name={copied ? 'check' : 'copy'} size={12} />
                 {copied ? 'Copied' : 'Copy'}
+              </button>
+            )}
+            {showSkillDraft && (
+              <button
+                type="button"
+                className={styles.copyButton}
+                onClick={() => void handleDraftSkill()}
+                aria-label="Copy skill draft"
+                title="Copy a reviewable markdown skill draft from this workflow"
+              >
+                <Icon name={draftCopied ? 'check' : 'sparkle'} size={12} />
+                {draftCopied ? 'Draft copied' : 'Draft skill'}
               </button>
             )}
           </div>

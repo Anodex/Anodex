@@ -74,7 +74,9 @@ export function MessageList({
     const activeEntry = entries.find((entry) => entry.message.id === activeId)
     const activeMarker = markers.find((marker) => marker.message.id === activeId) ?? null
     setPinnedRequest(
-      activeEntry && activeMarker && shouldPinCurrentRequest({ messageTop: activeEntry.offsetTop, scrollTop: el.scrollTop })
+      activeEntry &&
+        activeMarker &&
+        shouldPinCurrentRequest({ messageTop: activeEntry.offsetTop, scrollTop: el.scrollTop })
         ? activeMarker
         : null
     )
@@ -136,14 +138,17 @@ export function MessageList({
     <div className={styles.scrollWrap}>
       <div className={styles.scroll} ref={containerRef} onScroll={handleScroll}>
         <div className={styles.inner}>
-          {messages.map((message) => (
+          {messages.map((message, index) => (
             <div key={message.id}>
               <div
                 ref={(node) => {
                   messageRefs.current[message.id] = node
                 }}
               >
-                <MessageBubble message={message} />
+                <MessageBubble
+                  message={message}
+                  previousUserContent={findPreviousUserContent(messages, index)}
+                />
               </div>
               {context?.activeSnapshot && message.id === compactionThroughId && (
                 <CompactionMarker snapshot={context.activeSnapshot} />
@@ -161,7 +166,9 @@ export function MessageList({
           title="Jump to current request"
         >
           <span className={styles.currentRequestLabel}>Current request</span>
-          <span className={styles.currentRequestText}>{previewText(pinnedRequest.message, 132)}</span>
+          <span className={styles.currentRequestText}>
+            {previewText(pinnedRequest.message, 132)}
+          </span>
         </button>
       )}
       {userMarkers.length > 0 && (
@@ -186,6 +193,14 @@ export function MessageList({
 interface UserScrollRailProps {
   markers: UserMarker[]
   onSelect: (messageId: string) => void
+}
+
+function findPreviousUserContent(messages: ChatMessage[], index: number): string | undefined {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message.role === 'user' && message.content.trim()) return message.content
+  }
+  return undefined
 }
 
 function UserScrollRail({ markers, onSelect }: UserScrollRailProps): JSX.Element {

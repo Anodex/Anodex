@@ -89,8 +89,10 @@ and projects can pin skills that are auto-loaded into chat/agent prompts.
 
 Remaining follow-ups:
 
-- **Skill authoring helper** — a command/action like "save this as a skill" after
-  a successful workflow, with user review before saving.
+- **Skill authoring helper** — first draft helper built: assistant replies that
+  used tools expose a subtle **Draft skill** action that copies reviewable
+  markdown. Later passes can save directly into project/personal skill folders
+  once the compact library/editor exists.
 - **Library/editor UI** — the model path has searchable tools; a later UI can
   show a compact project/personal skill library and editor.
 
