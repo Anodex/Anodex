@@ -54,6 +54,7 @@ const api: AnodexApi = {
   },
   tools: {
     pickWorkspace: () => ipcRenderer.invoke(IpcChannel.Tools.pickWorkspace),
+    pickFolder: () => ipcRenderer.invoke(IpcChannel.Tools.pickFolder),
     respondConfirmation: (id, response) =>
       ipcRenderer.invoke(IpcChannel.Tools.confirmResponse, id, response),
     onActivity: (listener) => subscribe<ToolActivityEvent>(IpcChannel.Tools.activity, listener),
@@ -119,8 +120,7 @@ const api: AnodexApi = {
   toast: {
     show: (content) => ipcRenderer.invoke(IpcChannel.Toast.show, content),
     focusMain: (conversationId) => ipcRenderer.invoke(IpcChannel.Toast.focusMain, conversationId),
-    onOpenConversation: (listener) =>
-      subscribe<string>(IpcChannel.Toast.openConversation, listener)
+    onOpenConversation: (listener) => subscribe<string>(IpcChannel.Toast.openConversation, listener)
   },
   updates: {
     getStatus: () => ipcRenderer.invoke(IpcChannel.Updates.getStatus),

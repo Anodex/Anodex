@@ -109,7 +109,10 @@ class AgentRunService {
           }
         }
 
-        if (turnsUsed % CHECK_IN_EVERY_TURNS === 0) {
+        if (
+          turnsUsed % CHECK_IN_EVERY_TURNS === 0 &&
+          (!run.limitsEnabled || turnsUsed < run.maxTurns)
+        ) {
           this.sendCheckIn(run, conversation, turnsUsed, tokensUsed)
         }
       }

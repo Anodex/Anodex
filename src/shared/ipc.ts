@@ -113,6 +113,7 @@ export const IpcChannel = {
   },
   Tools: {
     pickWorkspace: 'tools:pick-workspace',
+    pickFolder: 'tools:pick-folder',
     /** renderer → main: user's answer to a confirmation prompt. */
     confirmResponse: 'tools:confirm-response',
     /** main → renderer: a tool call started/updated. */
@@ -314,8 +315,10 @@ export interface AnodexApi {
     openModelsDir(): Promise<void>
   }
   tools: {
-    /** Opens a folder picker; resolves the chosen path, or `null` if cancelled. */
+    /** Opens a folder picker and makes the chosen path the active workspace root. */
     pickWorkspace(): Promise<Result<string | null>>
+    /** Opens a folder picker without changing global workspace/project state. */
+    pickFolder(): Promise<Result<string | null>>
     /** Answer a pending write/command approval prompt. */
     respondConfirmation(id: string, response: ToolConfirmResponse): Promise<void>
     onActivity(listener: (event: ToolActivityEvent) => void): () => void

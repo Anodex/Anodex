@@ -94,7 +94,11 @@ class AgentRunStore {
     if (!existsSync(this.filePath)) return []
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<AgentRun>[]
-      return parsed.map(normalizeAgentRun)
+      const normalized = parsed.map(normalizeAgentRun)
+      if (normalized.some((_, index) => parsed[index]?.limitsEnabled === undefined)) {
+        this.persist(normalized)
+      }
+      return normalized
     } catch (error) {
       log.warn('Failed to parse agent runs, starting fresh:', error)
       return []

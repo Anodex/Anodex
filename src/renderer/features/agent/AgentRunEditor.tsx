@@ -102,7 +102,8 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const hasProject = projectId !== null
   const availableTools = TOOL_CATALOG.filter((tool) => !tool.requiresProject || hasProject)
   const canSave =
-    goal.trim().length > 0 && maxTurns >= 1 && maxTokens >= 1 && maxDurationMinutes >= 1
+    goal.trim().length > 0 &&
+    (!limitsEnabled || (maxTurns >= 1 && maxTokens >= 1 && maxDurationMinutes >= 1))
 
   const modelOptions =
     provider === 'anthropic'
@@ -131,7 +132,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const handleCreateProject = async (): Promise<void> => {
     setCreatingProject(true)
     try {
-      const result = await anodex.tools.pickWorkspace()
+      const result = await anodex.tools.pickFolder()
       if (!result.ok) {
         notifyError('Could not select folder', result.error.message)
         return

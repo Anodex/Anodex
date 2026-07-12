@@ -1,4 +1,11 @@
-import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions, type WebContents } from 'electron'
+import {
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  type IpcMainInvokeEvent,
+  type OpenDialogOptions,
+  type WebContents
+} from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
@@ -64,7 +71,21 @@ export function resetToolApprovalStateForTests(): void {
   rememberedToolApprovals.clear()
 }
 
-/** IPC handlers for linking a project folder and approval responses. */
+async function pickDirectory(event: IpcMainInvokeEvent): Promise<string | null> {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const options: OpenDialogOptions = {
+    title: 'Select a project folder',
+    properties: ['openDirectory']
+  }
+  const picked = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options)
+
+  if (picked.canceled || !picked.filePaths[0]) return null
+  return picked.filePaths[0]
+}
+
+/** IPC handlers for linking project folders and approval responses. */
 export function registerToolHandlers(): void {
   ipcMain.handle(
     IpcChannel.Tools.confirmResponse,
@@ -73,25 +94,28 @@ export function registerToolHandlers(): void {
     }
   )
 
-  // Only ever called when linking a new project's folder (`ProjectsSettings.tsx`) —
-  // there's no standalone "set a workspace" path outside a project anymore.
+  // Used by project creation surfaces that immediately activate the new project.
+  // Keep the workspace update here for backward compatibility with those flows.
   ipcMain.handle(IpcChannel.Tools.pickWorkspace, async (event) => {
     try {
-      const win = BrowserWindow.fromWebContents(event.sender)
-      const options: OpenDialogOptions = {
-        title: 'Select a project folder',
-        properties: ['openDirectory']
-      }
-      const picked = win
-        ? await dialog.showOpenDialog(win, options)
-        : await dialog.showOpenDialog(options)
-
-      if (picked.canceled || !picked.filePaths[0]) return ok(null)
-      const root = picked.filePaths[0]
+      const root = await pickDirectory(event)
+      if (!root) return ok(null)
       settingsStore.update({ workspace: { root } })
       return ok(root)
     } catch (error) {
       return err('tools.workspace-failed', 'Could not set the workspace.', toErrorMessage(error))
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Tools.pickFolder, async (event) => {
+    try {
+      return ok(await pickDirectory(event))
+    } catch (error) {
+      return err(
+        'tools.folder-picker-failed',
+        'Could not select the folder.',
+        toErrorMessage(error)
+      )
     }
   })
 }
