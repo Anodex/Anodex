@@ -3,6 +3,7 @@ import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { TOOL_CATALOG } from '@shared/tools.types'
 import { renderAssistantStyleSection } from '@shared/prompts'
+import { buildToolHealthSummary } from '../../lib/toolHealth'
 import { ASSISTANT_STYLE_PRESETS } from './assistantStylePresets'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -169,6 +170,13 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
     engine.status === 'ready' && engine.contextSize
       ? engine.contextSize
       : settings.model.contextSize
+  const toolHealth = buildToolHealthSummary({
+    catalog: TOOL_CATALOG,
+    toolsEnabled: settings.tools.enabled,
+    workspaceRoot: settings.workspace.root,
+    permissionMode: settings.general.permissionMode,
+    webSearchProvider: settings.webSearch.provider
+  })
 
   return (
     <section className={styles.section}>
@@ -198,15 +206,29 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
         General → Permissions. File and command tools all require an open project — a plain chat
         with no project can still discuss code, but can&apos;t read or change files.
       </p>
-      <div className={styles.toolList}>
-        {TOOL_CATALOG.map((tool) => (
-          <div key={tool.name} className={styles.toolItem}>
-            <code className={styles.toolName}>{tool.name}</code>
-            <span className={`${styles.toolKind} ${styles[tool.kind]}`}>{tool.kind}</span>
-            <span className={styles.toolDesc}>{tool.description}</span>
+      <div className={styles.toolHealthGrid}>
+        {toolHealth.map((item) => (
+          <div key={item.label} className={`${styles.toolHealthCard} ${styles[item.tone]}`}>
+            <span className={styles.toolHealthLabel}>{item.label}</span>
+            <span className={styles.toolHealthValue}>{item.value}</span>
           </div>
         ))}
       </div>
+      <details className={styles.toolCatalogDisclosure}>
+        <summary className={styles.toolCatalogSummary}>
+          <span>Tool catalog</span>
+          <span className={styles.toolCatalogHint}>{TOOL_CATALOG.length} tools</span>
+        </summary>
+        <div className={styles.toolList}>
+          {TOOL_CATALOG.map((tool) => (
+            <div key={tool.name} className={styles.toolItem}>
+              <code className={styles.toolName}>{tool.name}</code>
+              <span className={`${styles.toolKind} ${styles[tool.kind]}`}>{tool.kind}</span>
+              <span className={styles.toolDesc}>{tool.description}</span>
+            </div>
+          ))}
+        </div>
+      </details>
 
       <h2 className={styles.sectionTitle} style={{ marginTop: 'var(--space-6)' }}>
         Web Search

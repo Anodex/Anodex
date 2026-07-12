@@ -44,7 +44,11 @@ workspace-confined where possible, mutating actions are approval-gated, calls ar
 visible in the transcript, diffs/HTML previews are surfaced inline, and the
 catalog is parity-tested against runtime registration. The biggest opportunities
 are not "more random tools," but tools that reduce repeated multi-call loops and
-make tool output easier to review:
+make tool output easier to review. Settings → General now includes a compact tool
+health dashboard (enablement, project readiness, web search, approvals) and keeps
+the full catalog collapsed by default.
+
+Remaining tool-side opportunities:
 
 - **Structured diagnostics/test tool** — wrap common project checks (`npm test`,
   `npm run typecheck`, `npm run lint`) and return parsed failures, touched test
