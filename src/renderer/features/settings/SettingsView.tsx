@@ -3,6 +3,7 @@ import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { TOOL_CATALOG } from '@shared/tools.types'
 import { renderAssistantStyleSection } from '@shared/prompts'
+import { ASSISTANT_STYLE_PRESETS } from './assistantStylePresets'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore, type SettingsSection } from '../../stores/uiStore'
@@ -359,6 +360,26 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
         project needs (that belongs in Settings → Projects). Applied to every conversation, ahead of
         project instructions and anything Anodex retrieves as context.
       </p>
+      <SettingRow
+        label="Quick start"
+        description="Fills the field below with a starting point — still fully editable afterward."
+        control={
+          <SelectControl
+            value=""
+            options={[
+              { label: 'Choose a preset…', value: '' },
+              ...ASSISTANT_STYLE_PRESETS.map((preset) => ({
+                label: preset.label,
+                value: preset.label
+              }))
+            ]}
+            onChange={(label) => {
+              const preset = ASSISTANT_STYLE_PRESETS.find((p) => p.label === label)
+              if (preset) void update({ assistantStyle: { globalStyle: preset.text } })
+            }}
+          />
+        }
+      />
       <textarea
         className={styles.textarea}
         value={settings.assistantStyle.globalStyle}
