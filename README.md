@@ -66,11 +66,16 @@ folder (path traversal outside it is blocked):
 
 - **Read (never need approval):** `list_directory`, `read_file`,
   `read_file_range`, `read_multiple_files`, `get_file_info`, `search_files`,
-  `find_files`, `preview_html` (inline chat preview for HTML pages/games),
-  `git_status`, `git_diff`.
+  `find_files`, `code_outline` (compact imports/exported-symbol map),
+  `preview_html` (inline chat preview for HTML pages/games), `git_status`,
+  `git_diff`, `git_commit_summary` (drafts a conventional commit message from
+  status/diff stats).
 - **Write/mutate (approval depends on permission mode):** `write_file`,
   `edit_file`, `patch_file`, `delete_file`, `move_file`, `delete_directory`,
-  `create_directory` (always low-risk, never confirms), `run_command`.
+  `create_directory` (always low-risk, never confirms), `run_command`,
+  `run_project_check` (structured test/typecheck/lint/build diagnostics), and
+  `save_email_attachment` (when Gmail is enabled, saves an attachment into the
+  project).
 - **Web (workspace-independent, available in general chat too):**
   `fetch_url` (read a public URL), `web_search` (via a provider you choose in
   Settings — SearXNG self-hosted, Brave, Tavily, or Google Programmable

@@ -24,8 +24,11 @@ import {
   moveFileTool
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
+import { runProjectCheckTool } from './diagnosticsTools'
 import { createDirectoryTool, deleteDirectoryTool } from './directoryTools'
 import { gitStatusTool, gitDiffTool } from './gitTools'
+import { gitCommitSummaryTool } from './gitCommitTools'
+import { codeOutlineTool } from './codeOutlineTools'
 import { fetchUrlTool } from './webTools'
 import { webSearchTool } from './webSearchTools'
 import { writePlanTool, updatePlanStepTool } from './planTools'
@@ -38,6 +41,7 @@ import {
   findEmailAttachmentsTool,
   listEmailThreadsTool,
   readEmailTool,
+  saveEmailAttachmentTool,
   searchEmailTool,
   sendEmailTool,
   summarizeEmailThreadTool
@@ -57,8 +61,10 @@ const READ_ONLY_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   read_file_range: readFileRangeTool,
   read_multiple_files: readMultipleFilesTool,
   preview_html: previewHtmlTool,
+  code_outline: codeOutlineTool,
   git_status: gitStatusTool,
-  git_diff: gitDiffTool
+  git_diff: gitDiffTool,
+  git_commit_summary: gitCommitSummaryTool
 }
 
 /**
@@ -76,6 +82,7 @@ const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   create_directory: createDirectoryTool,
   delete_directory: deleteDirectoryTool,
   run_command: runCommandTool,
+  run_project_check: runProjectCheckTool,
   update_project_notes: updateProjectNotesTool
 }
 
@@ -105,6 +112,10 @@ const EMAIL_FACTORIES: Record<string, ToolFactory> = {
   find_attachments: findEmailAttachmentsTool,
   draft_email: draftEmailTool,
   send_email: sendEmailTool
+}
+
+const EMAIL_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
+  save_email_attachment: saveEmailAttachmentTool
 }
 
 /**
@@ -149,6 +160,12 @@ export function buildTools(
   if (ctx.email.provider === 'gmail' && ctx.email.gmail.enabled) {
     for (const [name, factory] of Object.entries(EMAIL_FACTORIES)) {
       if (isEnabled(name)) tools[name] = factory(define, ctx)
+    }
+    if (ctx.workspaceRoot && ctx.projectId) {
+      const workspaceCtx: WorkspaceToolContext = { ...ctx, workspaceRoot: ctx.workspaceRoot }
+      for (const [name, factory] of Object.entries(EMAIL_WORKSPACE_FACTORIES)) {
+        if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
+      }
     }
   }
 

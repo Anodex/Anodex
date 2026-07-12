@@ -1,6 +1,9 @@
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type { EmailDraft, EmailDraftRequest, EmailThreadSummary } from '@shared/email.types'
-import type { ToolFactory } from './types'
+import type { ToolFactory, WorkspaceToolFactory } from './types'
 import { runGuardedTool, runReadTool } from './helpers'
+import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { emailService } from '../email/EmailService'
 
 const MAX_BODY_PREVIEW = 700
@@ -218,6 +221,44 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
         async run() {
           await emailService.send(args)
           return { modelResult: 'Email sent.', detail: args.subject }
+        }
+      })
+  })
+
+export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
+  define({
+    description:
+      'Save a Gmail attachment into the current workspace. Use after find_attachments/read_email when the user wants an attachment available as a project file.',
+    params: {
+      type: 'object',
+      properties: {
+        messageId: { type: 'string', description: 'The Gmail message id containing the attachment.' },
+        attachmentId: {
+          type: 'string',
+          description: 'The attachment id returned by read_email/find_attachments.'
+        },
+        path: { type: 'string', description: 'Destination file path relative to the workspace root.' }
+      },
+      required: ['messageId', 'attachmentId', 'path']
+    } as const,
+    handler: (args: { messageId: string; attachmentId: string; path: string }) =>
+      runGuardedTool(ctx, {
+        name: 'save_email_attachment',
+        kind: 'write',
+        title: `Save email attachment to ${args.path}`,
+        confirmDetail: `Save attachment ${args.attachmentId} from message ${args.messageId} to ${args.path}`,
+        risk: 'safe',
+        touch: { path: args.path, action: 'write' },
+        async run() {
+          const destination = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          const attachment = await emailService.getAttachment(args.messageId, args.attachmentId)
+          await mkdir(dirname(destination), { recursive: true })
+          await writeFile(destination, attachment.data)
+          const relativePath = toWorkspaceRelative(ctx.workspaceRoot, destination)
+          return {
+            modelResult: `Saved attachment ${attachment.filename} (${attachment.mimeType}, ${attachment.data.length} bytes) to ${relativePath}.`,
+            detail: `${attachment.filename} → ${relativePath}`
+          }
         }
       })
   })

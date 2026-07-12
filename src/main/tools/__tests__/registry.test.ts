@@ -12,6 +12,7 @@ const PROJECT_WORKSPACE_TOOLS = [
   'create_directory',
   'delete_directory',
   'run_command',
+  'run_project_check',
   'update_project_notes'
 ]
 
@@ -24,8 +25,10 @@ const READ_ONLY_WORKSPACE_TOOLS = [
   'read_file_range',
   'read_multiple_files',
   'preview_html',
+  'code_outline',
   'git_status',
-  'git_diff'
+  'git_diff',
+  'git_commit_summary'
 ]
 
 const GLOBAL_OR_CONDITIONAL_TOOLS = [
@@ -44,6 +47,8 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'summarize_thread',
   'find_attachments'
 ]
+
+const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
 
 describe('buildTools', () => {
   it('registers only read-only workspace tools when no project is open', () => {
@@ -174,6 +179,7 @@ describe('buildTools', () => {
   it('registers email tools when Gmail is enabled', () => {
     const ctx = {
       ...createMockContext('/workspace'),
+      projectId: 'project-1',
       email: {
         provider: 'gmail' as const,
         gmail: {
@@ -195,7 +201,8 @@ describe('buildTools', () => {
       'draft_email',
       'send_email',
       'summarize_thread',
-      'find_attachments'
+      'find_attachments',
+      'save_email_attachment'
     ]) {
       expect(tools).toHaveProperty(name)
     }
@@ -207,6 +214,7 @@ describe('buildTools', () => {
     for (const name of [
       ...READ_ONLY_WORKSPACE_TOOLS,
       ...PROJECT_WORKSPACE_TOOLS,
+      ...EMAIL_WORKSPACE_TOOLS,
       ...GLOBAL_OR_CONDITIONAL_TOOLS
     ]) {
       expect(catalogNames).toContain(name)
@@ -214,7 +222,11 @@ describe('buildTools', () => {
   })
 
   it('flags requiresProject on the catalog exactly for tools gated behind workspaceRoot/projectId', () => {
-    const requiresProjectNames = new Set([...READ_ONLY_WORKSPACE_TOOLS, ...PROJECT_WORKSPACE_TOOLS])
+    const requiresProjectNames = new Set([
+      ...READ_ONLY_WORKSPACE_TOOLS,
+      ...PROJECT_WORKSPACE_TOOLS,
+      ...EMAIL_WORKSPACE_TOOLS
+    ])
 
     for (const tool of TOOL_CATALOG) {
       expect(Boolean(tool.requiresProject)).toBe(requiresProjectNames.has(tool.name))

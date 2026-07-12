@@ -88,12 +88,15 @@ The catalog shown in Settings is `TOOL_CATALOG` in `src/shared/tools.types.ts`.
 #### Adding a new tool
 
 1. Choose the right file (or create one):
-   - Read operations → `fileTools.ts` or `gitTools.ts`
+   - Read operations → `fileTools.ts`, `codeOutlineTools.ts`, or `gitTools.ts`
+   - Git summaries/commit-message assistance → `gitCommitTools.ts`
    - Web page fetching → `webTools.ts`
    - Web search → `webSearchTools.ts` + `src/main/tools/search/`
    - File mutations → `mutationTools.ts`
    - Directory mutations → `directoryTools.ts`
    - Shell commands → `commandTools.ts`
+   - Structured verification/check wrappers → `diagnosticsTools.ts`
+   - Email actions → `emailTools.ts`
 2. Export a `ToolFactory` that calls `define({ description, params, handler })`.
 3. Use `runReadTool()` for safe reads or `runGuardedTool()` for mutations.
 4. Confine all paths with `resolveInWorkspace(ctx.workspaceRoot, path)`.

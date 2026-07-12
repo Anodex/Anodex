@@ -156,6 +156,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'code_outline',
+    kind: 'read',
+    description: 'Summarize imports and exported symbols for source files.',
+    requiresProject: true
+  },
+  {
     name: 'git_status',
     kind: 'read',
     description: 'Show git status of the workspace.',
@@ -165,6 +171,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'git_diff',
     kind: 'read',
     description: 'Show git diff of the workspace.',
+    requiresProject: true
+  },
+  {
+    name: 'git_commit_summary',
+    kind: 'read',
+    description: 'Summarize git changes and draft a conventional commit message.',
     requiresProject: true
   },
   {
@@ -225,6 +237,13 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'command',
     description:
       'Run a shell command in the workspace (asks for approval). Requires an open project.',
+    requiresProject: true
+  },
+  {
+    name: 'run_project_check',
+    kind: 'command',
+    description:
+      'Run test/typecheck/lint/build with structured pass/fail diagnostics (asks for approval). Requires an open project.',
     requiresProject: true
   },
   {
@@ -294,5 +313,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'find_attachments',
     kind: 'read',
     description: 'Find attachments in an email thread.'
+  },
+  {
+    name: 'save_email_attachment',
+    kind: 'write',
+    description:
+      'Save an email attachment into the current workspace (asks for approval). Requires an open project.',
+    requiresProject: true
   }
 ]

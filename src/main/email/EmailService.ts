@@ -55,6 +55,15 @@ interface GmailThreadResponse {
   messages?: GmailApiMessage[]
 }
 
+interface GmailAttachmentResponse {
+  data?: string
+  size?: number
+}
+
+interface EmailAttachmentContent extends EmailAttachmentSummary {
+  data: Buffer
+}
+
 interface GmailApiMessage {
   id: string
   threadId: string
@@ -192,6 +201,24 @@ class EmailService {
       `/threads/${encodeURIComponent(id)}?format=full`
     )
     return (thread.messages ?? []).flatMap((message) => extractAttachments(message.payload))
+  }
+
+  async getAttachment(messageId: string, attachmentId: string): Promise<EmailAttachmentContent> {
+    this.requireConnected()
+    const id = messageId.trim()
+    const attachment = attachmentId.trim()
+    if (!id) throw new Error('message id is required.')
+    if (!attachment) throw new Error('attachment id is required.')
+
+    const message = await this.gmailFetch<GmailApiMessage>(`/messages/${encodeURIComponent(id)}?format=full`)
+    const metadata = extractAttachments(message.payload).find((item) => item.id === attachment)
+    if (!metadata) throw new Error('Attachment was not found on that message.')
+
+    const response = await this.gmailFetch<GmailAttachmentResponse>(
+      `/messages/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment)}`
+    )
+    if (!response.data) throw new Error('Attachment response did not include data.')
+    return { ...metadata, size: response.size ?? metadata.size, data: decodeBase64UrlBuffer(response.data) }
   }
 
   createDraft(request: EmailDraftRequest): EmailDraft {
@@ -532,8 +559,12 @@ function encodeBase64Url(value: string): string {
 }
 
 function decodeBase64Url(value: string): string {
+  return decodeBase64UrlBuffer(value).toString('utf-8')
+}
+
+function decodeBase64UrlBuffer(value: string): Buffer {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
-  return Buffer.from(normalized, 'base64').toString('utf-8')
+  return Buffer.from(normalized, 'base64')
 }
 
 function truncate(text: string, max: number): string {
