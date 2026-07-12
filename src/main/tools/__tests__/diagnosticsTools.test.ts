@@ -18,7 +18,11 @@ describe('run_project_check', () => {
         JSON.stringify({ scripts: { typecheck: 'node -e "console.log(\'types ok\')"' } }),
         'utf-8'
       )
-      const ctx = { ...createMockContext(workspace), projectId: 'project-1', permissionMode: 'untethered' as const }
+      const ctx = {
+        ...createMockContext(workspace),
+        projectId: 'project-1',
+        permissionMode: 'untethered' as const
+      }
       const tool = runProjectCheckTool(createMockDefine(), ctx) as unknown as {
         handler: (args: unknown) => Promise<string>
       }
@@ -38,10 +42,18 @@ describe('run_project_check', () => {
     try {
       await writeFile(
         join(workspace, 'package.json'),
-        JSON.stringify({ scripts: { lint: 'node -e "console.error(\'src/app.ts:4:2 error bad lint\'); process.exit(2)"' } }),
+        JSON.stringify({
+          scripts: {
+            lint: 'node -e "console.error(\'src/app.ts:4:2 error bad lint\'); process.exit(2)"'
+          }
+        }),
         'utf-8'
       )
-      const ctx = { ...createMockContext(workspace), projectId: 'project-1', permissionMode: 'untethered' as const }
+      const ctx = {
+        ...createMockContext(workspace),
+        projectId: 'project-1',
+        permissionMode: 'untethered' as const
+      }
       const tool = runProjectCheckTool(createMockDefine(), ctx) as unknown as {
         handler: (args: unknown) => Promise<string>
       }

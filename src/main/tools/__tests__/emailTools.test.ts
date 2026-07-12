@@ -8,7 +8,8 @@ import { captureConfirmations, createMockContext, createMockDefine } from './tes
 
 const createDraftMock = vi.fn<(request: EmailDraftRequest) => EmailDraft>()
 const sendMock = vi.fn<(request: EmailSendRequest) => void>()
-const getAttachmentMock = vi.fn<() => Promise<{ filename: string; mimeType: string; data: Buffer }>>()
+const getAttachmentMock =
+  vi.fn<() => Promise<{ filename: string; mimeType: string; data: Buffer }>>()
 
 vi.mock('../../email/EmailService', () => ({
   emailService: {
@@ -57,7 +58,11 @@ describe('email tools', () => {
 
   it('always asks before sending, even in untethered mode', async () => {
     const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext('/workspace'), permissionMode: 'untethered' as const, confirm }
+    const ctx = {
+      ...createMockContext('/workspace'),
+      permissionMode: 'untethered' as const,
+      confirm
+    }
     const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
       handler: (args: EmailSendRequest) => Promise<string>
     }

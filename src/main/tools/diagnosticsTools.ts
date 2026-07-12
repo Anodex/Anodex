@@ -54,7 +54,13 @@ export const runProjectCheckTool: WorkspaceToolFactory = (define, ctx) =>
         risk: 'sensitive',
         async run() {
           const command = await resolveCheckCommand(ctx.workspaceRoot, args.kind, args.command)
-          const result = await runCheck(command, ctx.workspaceRoot, normalizeTimeout(args.timeoutMs), ctx.commandShell, ctx.signal)
+          const result = await runCheck(
+            command,
+            ctx.workspaceRoot,
+            normalizeTimeout(args.timeoutMs),
+            ctx.commandShell,
+            ctx.signal
+          )
           return {
             modelResult: JSON.stringify(result, null, 2),
             detail: `${result.status} · exit ${result.exitCode}`
@@ -85,7 +91,9 @@ async function resolveCheckCommand(
   return fallbacks[kind]
 }
 
-async function readPackageJson(workspaceRoot: string): Promise<{ scripts?: Record<string, string> } | null> {
+async function readPackageJson(
+  workspaceRoot: string
+): Promise<{ scripts?: Record<string, string> } | null> {
   try {
     const path = resolveInWorkspace(workspaceRoot, 'package.json')
     return JSON.parse(await readFile(path, 'utf-8')) as { scripts?: Record<string, string> }

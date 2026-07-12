@@ -10,7 +10,8 @@ const MAX_FILE_BYTES = 180 * 1024
 const CODE_FILE_EXT = /\.(tsx?|jsx?|mjs|cjs)$/i
 const IMPORT_RE = /^\s*import(?:\s+type)?(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/gm
 const SIDE_EFFECT_IMPORT_RE = /^\s*import\s+['"]([^'"]+)['"]/gm
-const SYMBOL_RE = /^\s*export\s+(?:default\s+)?(?:async\s+)?(function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gm
+const SYMBOL_RE =
+  /^\s*export\s+(?:default\s+)?(?:async\s+)?(function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gm
 const NAMED_EXPORT_RE = /^\s*export\s*\{([^}]+)\}/gm
 
 interface CodeOutlineArgs {
@@ -32,7 +33,10 @@ export const codeOutlineTool: WorkspaceToolFactory = (define, ctx) =>
     params: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'File or directory path relative to the workspace root.' },
+        path: {
+          type: 'string',
+          description: 'File or directory path relative to the workspace root.'
+        },
         maxFiles: {
           type: 'number',
           description: `Maximum source files to outline. Defaults to ${MAX_OUTLINE_FILES}.`
@@ -49,8 +53,12 @@ export const codeOutlineTool: WorkspaceToolFactory = (define, ctx) =>
           const root = resolveInWorkspace(ctx.workspaceRoot, requested)
           const maxFiles = normalizeMaxFiles(args.maxFiles)
           const files = await collectCodeFiles(root, maxFiles)
-          const outlines = await Promise.all(files.map((file) => outlineFile(ctx.workspaceRoot, file)))
-          const body = outlines.length ? outlines.map(formatOutline).join('\n\n') : 'No source files found.'
+          const outlines = await Promise.all(
+            files.map((file) => outlineFile(ctx.workspaceRoot, file))
+          )
+          const body = outlines.length
+            ? outlines.map(formatOutline).join('\n\n')
+            : 'No source files found.'
           return {
             modelResult: body,
             detail: `${outlines.length} file${outlines.length === 1 ? '' : 's'}`

@@ -135,7 +135,8 @@ export function buildTools(
   ctx: ToolRuntimeContext
 ): Record<string, ToolFunction> {
   const tools: Record<string, ToolFunction> = {}
-  const isEnabled = (name: string): boolean => ctx.enabledTools === null || ctx.enabledTools.has(name)
+  const isEnabled = (name: string): boolean =>
+    ctx.enabledTools === null || ctx.enabledTools.has(name)
 
   if (ctx.workspaceRoot) {
     const workspaceCtx: WorkspaceToolContext = { ...ctx, workspaceRoot: ctx.workspaceRoot }
@@ -172,10 +173,7 @@ export function buildTools(
   // Available in every chat, project or not — see the comment on
   // `PROJECT_WORKSPACE_FACTORIES` above. Disappears entirely only when both
   // memory scopes are turned off.
-  if (
-    (ctx.memory.crossChatEnabled || ctx.memory.personalEnabled) &&
-    isEnabled('remember_fact')
-  ) {
+  if ((ctx.memory.crossChatEnabled || ctx.memory.personalEnabled) && isEnabled('remember_fact')) {
     tools.remember_fact = rememberFactTool(define, ctx)
   }
 

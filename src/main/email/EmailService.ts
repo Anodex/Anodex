@@ -210,7 +210,9 @@ class EmailService {
     if (!id) throw new Error('message id is required.')
     if (!attachment) throw new Error('attachment id is required.')
 
-    const message = await this.gmailFetch<GmailApiMessage>(`/messages/${encodeURIComponent(id)}?format=full`)
+    const message = await this.gmailFetch<GmailApiMessage>(
+      `/messages/${encodeURIComponent(id)}?format=full`
+    )
     const metadata = extractAttachments(message.payload).find((item) => item.id === attachment)
     if (!metadata) throw new Error('Attachment was not found on that message.')
 
@@ -218,7 +220,11 @@ class EmailService {
       `/messages/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment)}`
     )
     if (!response.data) throw new Error('Attachment response did not include data.')
-    return { ...metadata, size: response.size ?? metadata.size, data: decodeBase64UrlBuffer(response.data) }
+    return {
+      ...metadata,
+      size: response.size ?? metadata.size,
+      data: decodeBase64UrlBuffer(response.data)
+    }
   }
 
   createDraft(request: EmailDraftRequest): EmailDraft {
@@ -297,7 +303,8 @@ class EmailService {
     const token = emailAuthStore.getToken<GmailToken>('gmail')
     if (!token) throw new Error('Gmail is not connected.')
     if (token.expiresAt > Date.now() + 60_000) return token.accessToken
-    if (!token.refreshToken) throw new Error('Gmail token expired and no refresh token is available.')
+    if (!token.refreshToken)
+      throw new Error('Gmail token expired and no refresh token is available.')
 
     const refreshed = await refreshToken(token.refreshToken)
     const next: GmailToken = {
@@ -345,7 +352,10 @@ async function waitForOAuthCode(clientId: string): Promise<{ code: string; redir
   })
 
   const codePromise = new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Timed out waiting for Gmail authorization.')), AUTH_TIMEOUT_MS)
+    const timeout = setTimeout(
+      () => reject(new Error('Timed out waiting for Gmail authorization.')),
+      AUTH_TIMEOUT_MS
+    )
 
     server.on('request', (req, res) => {
       const url = new URL(req.url ?? '/', redirectUri)
@@ -434,7 +444,10 @@ async function refreshToken(refreshTokenValue: string): Promise<GmailToken> {
   if (!response.ok) {
     throw new Error(`Google token refresh failed: ${await response.text()}`)
   }
-  return { ...toGmailToken((await response.json()) as GoogleTokenResponse), refreshToken: refreshTokenValue }
+  return {
+    ...toGmailToken((await response.json()) as GoogleTokenResponse),
+    refreshToken: refreshTokenValue
+  }
 }
 
 function toGmailToken(response: GoogleTokenResponse): GmailToken {
@@ -479,7 +492,10 @@ function toEmailMessage(message: GmailApiMessage): EmailMessage {
 }
 
 function header(message: GmailApiMessage, name: string): string {
-  return message.payload?.headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.value ?? ''
+  return (
+    message.payload?.headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())
+      ?.value ?? ''
+  )
 }
 
 function splitAddresses(value: string): string[] {
@@ -491,7 +507,8 @@ function splitAddresses(value: string): string[] {
 
 function extractBody(payload: GmailPayload | undefined): string {
   if (!payload) return ''
-  if (payload.mimeType === 'text/plain' && payload.body?.data) return decodeBase64Url(payload.body.data)
+  if (payload.mimeType === 'text/plain' && payload.body?.data)
+    return decodeBase64Url(payload.body.data)
   if (payload.parts) {
     const plain = payload.parts.map(extractBody).find((part) => part.trim())
     if (plain) return plain

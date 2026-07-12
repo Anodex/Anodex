@@ -117,7 +117,8 @@ export const summarizeEmailThreadTool: ToolFactory = (define, ctx) =>
 
 export const findEmailAttachmentsTool: ToolFactory = (define, ctx) =>
   define({
-    description: 'Find attachments in a Gmail thread by id and return filenames, MIME types, and sizes.',
+    description:
+      'Find attachments in a Gmail thread by id and return filenames, MIME types, and sizes.',
     params: {
       type: 'object',
       properties: {
@@ -232,12 +233,18 @@ export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
     params: {
       type: 'object',
       properties: {
-        messageId: { type: 'string', description: 'The Gmail message id containing the attachment.' },
+        messageId: {
+          type: 'string',
+          description: 'The Gmail message id containing the attachment.'
+        },
         attachmentId: {
           type: 'string',
           description: 'The attachment id returned by read_email/find_attachments.'
         },
-        path: { type: 'string', description: 'Destination file path relative to the workspace root.' }
+        path: {
+          type: 'string',
+          description: 'Destination file path relative to the workspace root.'
+        }
       },
       required: ['messageId', 'attachmentId', 'path']
     } as const,

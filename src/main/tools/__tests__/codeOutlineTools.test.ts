@@ -21,7 +21,7 @@ describe('code_outline', () => {
           "import { helper } from './helper'",
           'export interface WidgetProps { label: string }',
           'export function Widget(props: WidgetProps): JSX.Element { return <div /> }',
-          'export const widgetName = \'Widget\'',
+          "export const widgetName = 'Widget'",
           'class InternalOnly {}'
         ].join('\n'),
         'utf-8'

@@ -84,7 +84,9 @@ function inferCommitType(files: string[]): string {
   if (files.every((file) => /(^|\/)(README|CHANGELOG|docs\/)|\.(md|mdx|rst)$/i.test(file))) {
     return 'docs'
   }
-  if (files.every((file) => /(^|\/)(__tests__|tests?|e2e)(\/|$)|\.(test|spec)\.[tj]sx?$/i.test(file))) {
+  if (
+    files.every((file) => /(^|\/)(__tests__|tests?|e2e)(\/|$)|\.(test|spec)\.[tj]sx?$/i.test(file))
+  ) {
     return 'test'
   }
   if (files.some((file) => /package(-lock)?\.json$|pnpm-lock\.yaml$|yarn\.lock$/i.test(file))) {
@@ -108,19 +110,26 @@ function inferSubject(type: string, files: string[]): string {
 
 function runGit(command: string, cwd: string, signal?: AbortSignal): Promise<GitCommandResult> {
   return new Promise((resolve) => {
-    exec(`git ${command}`, { cwd, timeout: GIT_TIMEOUT_MS, windowsHide: true, signal }, (error, stdout, stderr) => {
-      const code =
-        error && typeof (error as NodeJS.ErrnoException).code !== 'undefined'
-          ? ((error as NodeJS.ErrnoException).code as number | string)
-          : error
-            ? 1
-            : 0
-      resolve({ stdout, stderr, code })
-    })
+    exec(
+      `git ${command}`,
+      { cwd, timeout: GIT_TIMEOUT_MS, windowsHide: true, signal },
+      (error, stdout, stderr) => {
+        const code =
+          error && typeof (error as NodeJS.ErrnoException).code !== 'undefined'
+            ? ((error as NodeJS.ErrnoException).code as number | string)
+            : error
+              ? 1
+              : 0
+        resolve({ stdout, stderr, code })
+      }
+    )
   })
 }
 
-function gitError(command: string, result: GitCommandResult): { modelResult: string; detail: string } {
+function gitError(
+  command: string,
+  result: GitCommandResult
+): { modelResult: string; detail: string } {
   return {
     modelResult: `git ${command} failed (exit ${result.code}): ${result.stderr.trim() || result.stdout.trim() || 'unknown error'}`,
     detail: `exit ${result.code}`
