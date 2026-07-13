@@ -1,0 +1,39 @@
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.running {
+  background: var(--accent);
+  animation: statusPulse 1.4s ease-in-out infinite;
+}
+
+.success {
+  background: var(--success);
+}
+
+.warning {
+  background: var(--warn);
+}
+
+.danger {
+  background: var(--danger);
+}
+
+.neutral {
+  background: var(--text-faint);
+}
+
+@keyframes statusPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

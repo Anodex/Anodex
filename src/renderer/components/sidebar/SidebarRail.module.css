@@ -43,18 +43,3 @@
 .railSpacer {
   flex: 1;
 }
-
-.statusDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-faint);
-}
-
-.statusReady {
-  background: var(--accent);
-}
-
-.statusIdle {
-  background: var(--text-faint);
-}

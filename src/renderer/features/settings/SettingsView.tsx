@@ -3,7 +3,7 @@ import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { TOOL_CATALOG } from '@shared/tools.types'
 import { renderAssistantStyleSection } from '@shared/prompts'
-import { buildToolHealthSummary, filterToolCatalog } from '../../lib/toolHealth'
+import { buildToolHealthSummary, filterToolCatalog, type ToolHealthTone } from '../../lib/toolHealth'
 import { ASSISTANT_STYLE_PRESETS } from './assistantStylePresets'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -12,6 +12,7 @@ import { PageHeader } from '../../components/PageHeader'
 import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
 import { Button } from '../../components/ui/Button'
+import { StatusDot, type StatusTone } from '../../components/ui/StatusDot'
 import { SettingRow } from './SettingRow'
 import { RangeControl, SelectControl, TextControl, ToggleControl } from './controls'
 import { ProfileSettings } from './pages/profile/ProfileSettings'
@@ -52,6 +53,13 @@ const WEB_SEARCH_OPTIONS = [
   { label: 'Tavily', value: 'tavily' },
   { label: 'Google Programmable Search', value: 'google' }
 ]
+
+const TOOL_HEALTH_STATUS_TONE: Record<ToolHealthTone, StatusTone> = {
+  ready: 'success',
+  attention: 'warning',
+  blocked: 'danger',
+  muted: 'neutral'
+}
 
 const PROVIDER_HINTS: Record<string, string> = {
   none: 'Web search is disabled.',
@@ -212,7 +220,10 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
         {toolHealth.map((item) => (
           <div key={item.label} className={`${styles.toolHealthCard} ${styles[item.tone]}`}>
             <span className={styles.toolHealthLabel}>{item.label}</span>
-            <span className={styles.toolHealthValue}>{item.value}</span>
+            <span className={styles.toolHealthValue}>
+              <StatusDot tone={TOOL_HEALTH_STATUS_TONE[item.tone]} className={styles.toolHealthDot} />
+              {item.value}
+            </span>
           </div>
         ))}
       </div>

@@ -8,6 +8,7 @@ import { useProviderUsageStore } from '../../stores/providerUsageStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore } from '../../stores/uiStore'
 import { Icon } from '../Icon'
+import { StatusDot, type StatusTone } from '../ui/StatusDot'
 import styles from './ModelStatusMenu.module.css'
 
 type CloudProvider = 'anthropic' | 'openai'
@@ -108,6 +109,13 @@ function statusTone(status: EngineState['status']): string {
   if (status === 'loading') return 'busy'
   if (status === 'error') return 'error'
   return 'idle'
+}
+
+const FOOTER_STATUS_TONE: Record<string, StatusTone> = {
+  ready: 'success',
+  busy: 'running',
+  error: 'danger',
+  idle: 'neutral'
 }
 
 /** Footer status label/tone, aware of which provider is active — the local
@@ -211,7 +219,7 @@ export function ModelStatusMenu(): JSX.Element {
         onClick={() => openSettings('ai-models')}
         title="Model status — click to open AI & Models settings"
       >
-        <span className={`${styles.dot} ${styles[footerStatus.tone]}`} />
+        <StatusDot tone={FOOTER_STATUS_TONE[footerStatus.tone]} />
         <span className={styles.label}>{footerStatus.label}</span>
       </button>
     )
@@ -227,7 +235,7 @@ export function ModelStatusMenu(): JSX.Element {
         onMouseLeave={() => setHovering(false)}
         title="Model status — click to switch models"
       >
-        <span className={`${styles.dot} ${styles[footerStatus.tone]}`} />
+        <StatusDot tone={FOOTER_STATUS_TONE[footerStatus.tone]} />
         <span className={styles.label}>{footerStatus.label}</span>
         <Icon name="chevron-down" size={12} className={styles.chevron} />
       </button>

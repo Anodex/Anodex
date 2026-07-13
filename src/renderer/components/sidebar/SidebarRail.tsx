@@ -5,6 +5,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore } from '../../stores/uiStore'
 import { isChatReady } from '../../lib/chatReadiness'
 import { Icon } from '../Icon'
+import { StatusDot } from '../ui/StatusDot'
 import styles from './SidebarRail.module.css'
 
 interface SidebarRailProps {
@@ -115,7 +116,7 @@ export function SidebarRail({ onExpand }: SidebarRailProps): JSX.Element {
         aria-label="Model status"
         title={ready ? 'Model ready' : 'No model loaded'}
       >
-        <span className={`${styles.statusDot} ${ready ? styles.statusReady : styles.statusIdle}`} />
+        <StatusDot tone={ready ? 'success' : 'neutral'} />
       </button>
 
       <button
