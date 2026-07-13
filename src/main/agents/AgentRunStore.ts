@@ -14,6 +14,25 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('agent-run-store')
 
+const INTERRUPTED_RUN_MESSAGE = 'Interrupted — the app restarted before this run finished.'
+
+/**
+ * A run still marked `'running'` at startup was mid-flight when the app last
+ * exited (crash, force-quit, restart) — nothing will ever resume it, since
+ * `AgentRunService`'s in-memory mutex starts fresh with every process. Left
+ * alone it's stuck forever: `stop()` throws ("not currently active", nothing
+ * is actually running it) and the UI blocks deleting a `'running'` run. A
+ * `'needs-review'` run needs no reconciliation — planning already released
+ * the mutex before that status was set, so it's still safely resumable.
+ */
+export function reconcileInterruptedRuns(runs: AgentRun[]): AgentRun[] {
+  return runs.map((run) =>
+    run.status === 'running'
+      ? { ...run, status: 'stopped', lastError: INTERRUPTED_RUN_MESSAGE }
+      : run
+  )
+}
+
 /**
  * Persists agent runs in their own `userData/agent-runs/runs.json` — same
  * singleton-class + single-JSON-file pattern as `SchedulerStore`.
@@ -61,6 +80,8 @@ class AgentRunStore {
       conversationId: null,
       summary: null,
       lastError: null,
+      requirePlan: request.requirePlan ?? true,
+      plan: null,
       createdAt: now,
       updatedAt: now
     }
@@ -95,10 +116,17 @@ class AgentRunStore {
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<AgentRun>[]
       const normalized = parsed.map(normalizeAgentRun)
-      if (normalized.some((_, index) => parsed[index]?.limitsEnabled === undefined)) {
-        this.persist(normalized)
+      const reconciled = reconcileInterruptedRuns(normalized)
+      const needsPersist =
+        reconciled.some((run, index) => run !== normalized[index]) ||
+        normalized.some(
+          (_, index) =>
+            parsed[index]?.limitsEnabled === undefined || parsed[index]?.requirePlan === undefined
+        )
+      if (needsPersist) {
+        this.persist(reconciled)
       }
-      return normalized
+      return reconciled
     } catch (error) {
       log.warn('Failed to parse agent runs, starting fresh:', error)
       return []
@@ -120,7 +148,12 @@ function generateId(): string {
 }
 
 export function normalizeAgentRun(run: Partial<AgentRun>): AgentRun {
-  return { ...run, limitsEnabled: run.limitsEnabled ?? true } as AgentRun
+  return {
+    ...run,
+    limitsEnabled: run.limitsEnabled ?? true,
+    requirePlan: run.requirePlan ?? true,
+    plan: run.plan ?? null
+  } as AgentRun
 }
 
 export const agentRunStore = new AgentRunStore()

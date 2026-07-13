@@ -10,6 +10,8 @@ interface AgentState {
   create: (request: CreateAgentRunRequest) => Promise<AgentRun | null>
   stop: (id: string) => Promise<void>
   delete: (id: string) => Promise<void>
+  approvePlan: (id: string) => Promise<void>
+  rejectPlan: (id: string) => Promise<void>
   /** Called by the IPC bridge when the main process broadcasts a run list change. */
   setRuns: (runs: AgentRun[]) => void
 }
@@ -49,6 +51,22 @@ export const useAgentStore = create<AgentState>((set) => ({
       set((state) => ({ runs: state.runs.filter((r) => r.id !== id) }))
     } catch (error) {
       notifyError('Could not delete agent run', error instanceof Error ? error.message : undefined)
+    }
+  },
+
+  approvePlan: async (id) => {
+    try {
+      await anodex.agent.approvePlan(id)
+    } catch (error) {
+      notifyError('Could not approve plan', error instanceof Error ? error.message : undefined)
+    }
+  },
+
+  rejectPlan: async (id) => {
+    try {
+      await anodex.agent.rejectPlan(id)
+    } catch (error) {
+      notifyError('Could not reject plan', error instanceof Error ? error.message : undefined)
     }
   },
 

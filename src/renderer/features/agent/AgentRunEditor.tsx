@@ -47,6 +47,7 @@ export interface AgentRunEditorSeed {
   maxTokens?: number
   maxDurationMinutes?: number
   limitsEnabled?: boolean
+  requirePlan?: boolean
   enabledTools?: string[]
 }
 
@@ -93,6 +94,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     seed?.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES
   )
   const [limitsEnabled, setLimitsEnabled] = useState(seed?.limitsEnabled ?? true)
+  const [requirePlan, setRequirePlan] = useState(seed?.requirePlan ?? true)
   const [enabledTools, setEnabledTools] = useState<Set<string>>(
     new Set(seed?.enabledTools ?? ['fetch_url', 'web_search'])
   )
@@ -174,6 +176,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       maxTokens,
       maxDurationMinutes,
       limitsEnabled,
+      requirePlan,
       enabledTools: [...enabledTools].filter((toolName) =>
         availableTools.some((tool) => tool.name === toolName)
       )
@@ -261,6 +264,19 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
             <SelectControl value={model} onChange={setModel} options={modelOptions} />
           </label>
         )}
+
+        <div className={styles.field}>
+          <div className={styles.toggleRow}>
+            <span className={styles.label}>Require plan review</span>
+            <ToggleControl checked={requirePlan} onChange={setRequirePlan} />
+          </div>
+          <p className={styles.hint}>
+            {requirePlan
+              ? 'Anodex proposes a plan first and pauses for your approval before doing anything ' +
+                'else. Turn off to let it start working immediately.'
+              : 'Starts working immediately, with no plan review checkpoint.'}
+          </p>
+        </div>
 
         <div className={styles.field}>
           <div className={styles.toggleRow}>

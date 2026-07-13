@@ -39,6 +39,7 @@ export type IconName =
   | 'restore'
   | 'chevrons-up'
   | 'download'
+  | 'eye'
   | 'shield-question'
   | 'shield-check'
   | 'unlock-keyhole'
@@ -246,6 +247,12 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <path d="M7 10l5 5 5-5" />
       <line x1="12" y1="15" x2="12" y2="3" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
     </>
   ),
   'shield-question': (

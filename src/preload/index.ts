@@ -174,6 +174,8 @@ const api: AnodexApi = {
     create: (request) => ipcRenderer.invoke(IpcChannel.Agent.create, request),
     stop: (id) => ipcRenderer.invoke(IpcChannel.Agent.stop, id),
     delete: (id) => ipcRenderer.invoke(IpcChannel.Agent.delete, id),
+    approvePlan: (id) => ipcRenderer.invoke(IpcChannel.Agent.approvePlan, id),
+    rejectPlan: (id) => ipcRenderer.invoke(IpcChannel.Agent.rejectPlan, id),
     onRunsChanged: (listener) => subscribe<AgentRun[]>(IpcChannel.Agent.runsChanged, listener)
   },
   email: {

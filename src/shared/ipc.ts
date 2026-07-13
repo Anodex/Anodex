@@ -238,6 +238,8 @@ export const IpcChannel = {
     create: 'agent:create',
     stop: 'agent:stop',
     delete: 'agent:delete',
+    approvePlan: 'agent:approve-plan',
+    rejectPlan: 'agent:reject-plan',
     /** main → renderer broadcast whenever a run changes (create/turn/finish/delete). */
     runsChanged: 'agent:runs-changed'
   },
@@ -478,6 +480,8 @@ export interface AnodexApi {
     create(request: CreateAgentRunRequest): Promise<AgentRun>
     stop(id: string): Promise<void>
     delete(id: string): Promise<void>
+    approvePlan(id: string): Promise<void>
+    rejectPlan(id: string): Promise<void>
     onRunsChanged(listener: (runs: AgentRun[]) => void): () => void
   }
   email: {

@@ -4,13 +4,20 @@ import type { ChatMessage } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { ToolCall } from '@shared/tools.types'
+import type { Plan } from '@shared/plan.types'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
 import { createLogger } from '../utils/logger'
 import { agentRunStore } from './AgentRunStore'
-import { buildKickoffPrompt, CONTINUE_PROMPT } from './agentPrompts'
+import {
+  buildKickoffPrompt,
+  buildPlanningPrompt,
+  CONTINUE_PROMPT,
+  PLAN_APPROVED_PROMPT,
+  PLAN_RETRY_PROMPT
+} from './agentPrompts'
 import { budgetExceededReason } from './agentBudgets'
 
 const log = createLogger('agent-run-service')
@@ -20,6 +27,14 @@ const log = createLogger('agent-run-service')
  * creating it — skill discovery and the run's own termination signal.
  */
 const ALWAYS_ON_TOOLS = ['find_skill', 'load_skill', 'finish_goal']
+
+/**
+ * Tools available during the planning-only turn(s) of a `requirePlan: true`
+ * run — deliberately excludes `finish_goal` and every write/command/web
+ * tool, so "propose a plan first" is a structural guarantee, not just a
+ * prompt instruction the model could ignore.
+ */
+const PLANNING_TOOLS = ['find_skill', 'load_skill', 'write_plan']
 
 /**
  * How often (in turns) a still-running run surfaces a progress toast, regardless of
@@ -43,14 +58,49 @@ class AgentRunService {
   private runningRunId: string | null = null
   private activeController: AbortController | null = null
 
-  /** Create the run + its conversation, then start its turn loop in the background. */
+  /**
+   * Create the run + its conversation, then start it in the background —
+   * either a plan-review turn first (`requirePlan`, the default), or
+   * straight into the normal turn loop.
+   */
   start(request: CreateAgentRunRequest): AgentRun {
     if (this.runningRunId) throw new Error('Another agent run is currently in progress.')
     const run = agentRunStore.create(request)
     const conversation = this.createConversation(run)
     agentRunStore.update(run.id, { conversationId: conversation.id })
-    void this.runLoop({ ...run, conversationId: conversation.id }, conversation)
+    const started = { ...run, conversationId: conversation.id }
+    if (started.requirePlan) {
+      void this.runPlanningPhase(started, conversation)
+    } else {
+      void this.runLoop(started, conversation)
+    }
     return agentRunStore.get(run.id)!
+  }
+
+  /** Approve a plan awaiting review and resume the run's normal turn loop. */
+  approvePlan(runId: string): void {
+    const run = agentRunStore.get(runId)
+    if (!run) throw new Error('Agent run not found.')
+    if (run.status !== 'needs-review') throw new Error('This run is not waiting for plan review.')
+    if (this.runningRunId) throw new Error('Another agent run is currently in progress.')
+    if (!run.conversationId) throw new Error("This run's conversation could not be found.")
+    const conversation = conversationStore.listAll().find((c) => c.id === run.conversationId)
+    if (!conversation) throw new Error("This run's conversation could not be found.")
+
+    const updated = agentRunStore.update(runId, { status: 'running' })
+    this.broadcastRunsChanged()
+    void this.runLoop(updated, conversation, {
+      startTurn: updated.turnsUsed + 1,
+      firstPrompt: PLAN_APPROVED_PROMPT
+    })
+  }
+
+  /** Reject a plan awaiting review — ends the run without executing anything further. */
+  rejectPlan(runId: string): void {
+    const run = agentRunStore.get(runId)
+    if (!run) throw new Error('Agent run not found.')
+    if (run.status !== 'needs-review') throw new Error('This run is not waiting for plan review.')
+    this.finish(runId, run.conversationId!, 'stopped', null, 'Plan rejected.')
   }
 
   /** Abort the currently running run, if any. */
@@ -64,7 +114,11 @@ class AgentRunService {
     this.activeController?.abort()
   }
 
-  private async runLoop(run: AgentRun, conversation: Conversation): Promise<void> {
+  private async runLoop(
+    run: AgentRun,
+    conversation: Conversation,
+    options?: { startTurn?: number; firstPrompt?: string }
+  ): Promise<void> {
     this.runningRunId = run.id
     const controller = new AbortController()
     this.activeController = controller
@@ -74,22 +128,35 @@ class AgentRunService {
     // Never touches the user's global `provider.active` setting — see
     // `RunGenerationIo.providerOverride`.
     const providerOverride = { provider: run.provider, model: run.model ?? undefined }
-    let turnsUsed = 0
-    let tokensUsed = 0
+    const startTurn = options?.startTurn ?? 1
+    let turnsUsed = run.turnsUsed
+    let tokensUsed = run.tokensUsed
+    let plan = run.plan
 
     try {
-      for (let turn = 1; run.limitsEnabled ? turn <= run.maxTurns : true; turn++) {
+      for (let turn = startTurn; run.limitsEnabled ? turn <= run.maxTurns : true; turn++) {
         turnsUsed = turn
-        const prompt = turn === 1 ? buildKickoffPrompt(run.goal) : CONTINUE_PROMPT
-        const { finished, summary, stopped, tokens } = await this.runTurn(
+        const prompt =
+          turn === startTurn
+            ? (options?.firstPrompt ?? buildKickoffPrompt(run.goal))
+            : CONTINUE_PROMPT
+        const {
+          finished,
+          summary,
+          stopped,
+          tokens,
+          plan: nextPlan
+        } = await this.runTurn(
           conversation,
           prompt,
           enabledTools,
           providerOverride,
-          controller.signal
+          controller.signal,
+          plan
         )
         tokensUsed += tokens
-        agentRunStore.update(run.id, { turnsUsed, tokensUsed })
+        if (nextPlan) plan = nextPlan
+        agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan })
         this.broadcastRunsChanged()
 
         if (stopped) {
@@ -138,14 +205,94 @@ class AgentRunService {
     }
   }
 
-  /** Run one turn, appending it to the conversation, and report whether `finish_goal` fired. */
+  /**
+   * The planning-only phase for a `requirePlan: true` run: one turn (plus one
+   * bounded retry if the model didn't call `write_plan`) restricted to
+   * `PLANNING_TOOLS`, then pauses in `needs-review` for a human to approve or
+   * reject via `approvePlan`/`rejectPlan` — never falls through into the
+   * normal turn loop itself.
+   */
+  private async runPlanningPhase(run: AgentRun, conversation: Conversation): Promise<void> {
+    this.runningRunId = run.id
+    const controller = new AbortController()
+    this.activeController = controller
+    log.info('Starting plan review phase for agent run:', run.id, run.goal)
+
+    const planningTools = new Set(PLANNING_TOOLS)
+    const providerOverride = { provider: run.provider, model: run.model ?? undefined }
+
+    try {
+      const first = await this.runTurn(
+        conversation,
+        buildPlanningPrompt(run.goal),
+        planningTools,
+        providerOverride,
+        controller.signal,
+        null
+      )
+      let plan = first.plan
+      let turnsUsed = 1
+      let tokensUsed = first.tokens
+
+      if (!plan) {
+        const retry = await this.runTurn(
+          conversation,
+          PLAN_RETRY_PROMPT,
+          planningTools,
+          providerOverride,
+          controller.signal,
+          null
+        )
+        turnsUsed = 2
+        tokensUsed += retry.tokens
+        plan = retry.plan
+      }
+
+      agentRunStore.update(run.id, { turnsUsed, tokensUsed })
+
+      if (!plan) {
+        this.finish(run.id, conversation.id, 'error', null, 'Could not produce a plan for review.')
+        return
+      }
+
+      agentRunStore.update(run.id, { status: 'needs-review', plan })
+      this.broadcastRunsChanged()
+    } catch (error) {
+      log.error('Plan review phase failed:', run.id, error)
+      this.finish(
+        run.id,
+        conversation.id,
+        'error',
+        null,
+        error instanceof Error ? error.message : 'Run failed.'
+      )
+    } finally {
+      this.runningRunId = null
+      this.activeController = null
+    }
+  }
+
+  /**
+   * Run one turn, appending it to the conversation, and report whether
+   * `finish_goal` fired and the latest plan snapshot, if `write_plan`/
+   * `update_plan_step` was called this turn (used by both the planning
+   * phase and the normal loop, which seeds `currentPlan` back in so a
+   * later `update_plan_step` call continues the same plan object).
+   */
   private async runTurn(
     conversation: Conversation,
     prompt: string,
     enabledTools: Set<string>,
     providerOverride: { provider: AgentRun['provider']; model?: string },
-    signal: AbortSignal
-  ): Promise<{ finished: boolean; summary: string | null; stopped: boolean; tokens: number }> {
+    signal: AbortSignal,
+    currentPlan: Plan | null
+  ): Promise<{
+    finished: boolean
+    summary: string | null
+    stopped: boolean
+    tokens: number
+    plan: Plan | null
+  }> {
     const userMessage: ChatMessage = {
       id: generateId('agent_msg'),
       role: 'user',
@@ -163,7 +310,7 @@ class AgentRunService {
         context: conversation.context ?? null,
         history: conversation.messages.map(messageToHistoryTurn),
         prompt,
-        plan: null
+        plan: currentPlan
       },
       {
         signal,
@@ -194,19 +341,33 @@ class AgentRunService {
     // growing history from scratch instead of seeding from what was already
     // compacted.
     if (result.context) conversation.context = result.context
+
+    const calls = [...toolCallsById.values()]
+    const finishCall = calls.find(
+      (call) => call.name === 'finish_goal' && call.status === 'success'
+    )
+    // Last successful call that touched the plan (write_plan or
+    // update_plan_step) — `Map` iteration preserves call order, and each
+    // call has a unique id, so the last match is genuinely the latest state.
+    const planCalls = calls.filter((call) => call.status === 'success' && call.plan)
+    const latestPlan = planCalls.length > 0 ? (planCalls[planCalls.length - 1].plan ?? null) : null
+    // Interactive chat's PlanPanel reads `Conversation.plan`, populated via a
+    // renderer event stream a headless run never goes through — set it here
+    // too (not just on `AgentRun.plan`) so opening this run's conversation
+    // shows the same live plan instead of "No active plan for this session."
+    if (latestPlan) conversation.plan = latestPlan
+
     this.saveConversationTurn(conversation, [userMessage, assistantMessage])
     // `conversation` is reused by the next turn in this same loop — keep its
     // in-memory `messages` in sync with what was just persisted.
     conversation.messages = [...conversation.messages, userMessage, assistantMessage]
 
-    const finishCall = [...toolCallsById.values()].find(
-      (call) => call.name === 'finish_goal' && call.status === 'success'
-    )
     return {
       finished: Boolean(finishCall),
       summary: finishCall?.detail ?? null,
       stopped: result.stopped,
-      tokens: result.stats.tokens
+      tokens: result.stats.tokens,
+      plan: latestPlan
     }
   }
 

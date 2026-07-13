@@ -35,4 +35,22 @@ export function registerAgentHandlers(): void {
     }
     agentRunStore.delete(id)
   })
+
+  ipcMain.handle(IpcChannel.Agent.approvePlan, (_event, id: string) => {
+    try {
+      agentRunService.approvePlan(id)
+    } catch (error) {
+      log.error('Failed to approve agent run plan:', id, error)
+      throw error instanceof Error ? error : new Error('Could not approve this plan.')
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Agent.rejectPlan, (_event, id: string) => {
+    try {
+      agentRunService.rejectPlan(id)
+    } catch (error) {
+      log.error('Failed to reject agent run plan:', id, error)
+      throw error instanceof Error ? error : new Error('Could not reject this plan.')
+    }
+  })
 }

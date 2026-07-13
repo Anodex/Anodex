@@ -1,5 +1,7 @@
+import type { Plan } from './plan.types'
+
 /** How an agent run currently stands. */
-export type AgentRunStatus = 'running' | 'done' | 'stopped' | 'error'
+export type AgentRunStatus = 'running' | 'needs-review' | 'done' | 'stopped' | 'error'
 
 /** Default number of turns a run gets before it's stopped as budget-exhausted. */
 export const DEFAULT_MAX_TURNS = 8
@@ -54,6 +56,20 @@ export interface AgentRun {
   /** Set once the model calls `finish_goal`, or on an error. */
   summary: string | null
   lastError: string | null
+  /**
+   * When true, the run does a planning-only turn first and pauses in
+   * `needs-review` until a human approves the proposed plan, before any
+   * real (write/command/web) tool becomes available. Defaults to true —
+   * unattended runs otherwise have no checkpoint at all before acting.
+   */
+  requirePlan: boolean
+  /**
+   * The run's plan: the proposal while `status: 'needs-review'`, then the
+   * live execution checklist (kept current via `update_plan_step`) once
+   * approved. Null for a run created with `requirePlan: false`, or before
+   * the planning turn produces one.
+   */
+  plan: Plan | null
   createdAt: number
   updatedAt: number
 }
@@ -69,4 +85,6 @@ export interface CreateAgentRunRequest {
   maxDurationMinutes?: number
   /** Defaults to true — pass false to let the run continue unbounded until it finishes itself. */
   limitsEnabled?: boolean
+  /** Defaults to true — see `AgentRun.requirePlan`. */
+  requirePlan?: boolean
 }

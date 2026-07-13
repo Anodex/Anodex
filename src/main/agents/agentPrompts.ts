@@ -22,3 +22,26 @@ export const CONTINUE_PROMPT =
   'Continue working toward the goal stated at the start of this conversation. If the ' +
   'goal is complete, or you cannot make further progress, call finish_goal with a short ' +
   'summary of the outcome.'
+
+/**
+ * The planning turn's prompt, used instead of `buildKickoffPrompt` when a run
+ * has `requirePlan: true` — only `write_plan` (plus skill discovery) is
+ * enabled for this turn, so the framing just asks for a plan, not action.
+ */
+export function buildPlanningPrompt(goal: string): string {
+  return (
+    'Before doing anything else, propose a plan for this goal by calling write_plan with a short ' +
+    "ordered list of concrete steps. Don't take any other action yet — you'll get a chance to " +
+    `execute the plan once it's reviewed.\n\nGoal: ${goal}`
+  )
+}
+
+/** First turn after a human approves the plan — replaces `buildKickoffPrompt` for that turn. */
+export const PLAN_APPROVED_PROMPT =
+  'Your plan was approved. Start executing it now, calling update_plan_step as you complete or ' +
+  'start each step.'
+
+/** One bounded retry if the planning turn didn't call write_plan the first time. */
+export const PLAN_RETRY_PROMPT =
+  "You didn't call write_plan. Call it now with a short ordered list of concrete steps toward the " +
+  'goal stated above — no other action yet.'
