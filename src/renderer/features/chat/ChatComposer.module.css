@@ -303,7 +303,12 @@
   border-radius: var(--radius-md);
   transition:
     opacity var(--transition-fast),
-    background var(--transition-fast);
+    background var(--transition-fast),
+    transform 100ms ease;
+}
+
+.action:active:not(:disabled) {
+  transform: scale(0.88);
 }
 
 .attach {
