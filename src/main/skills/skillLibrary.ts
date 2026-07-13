@@ -36,6 +36,11 @@ export function readSkillMarkdown(location: SkillLibraryLocation & { name: strin
   return readFileSync(filePath, 'utf-8')
 }
 
+export function deleteSkillMarkdown(location: SkillLibraryLocation & { name: string }): void {
+  const filePath = skillPathFor(location, location.name)
+  if (existsSync(filePath)) rmSync(filePath)
+}
+
 export function writeSkillMarkdown(request: SkillWriteRequest): SkillWriteResult {
   const dir = skillDirectoryFor(request)
   mkdirSync(dir, { recursive: true })

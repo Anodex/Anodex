@@ -54,7 +54,13 @@ import type {
   UpdateScheduledTaskRequest
 } from './scheduledTask.types'
 import type { AgentRun, CreateAgentRunRequest } from './agentRun.types'
-import type { SkillDocument, SkillReadRequest, SkillSaveRequest, SkillSummary } from './skill.types'
+import type {
+  SkillDeleteRequest,
+  SkillDocument,
+  SkillReadRequest,
+  SkillSaveRequest,
+  SkillSummary
+} from './skill.types'
 import type {
   EmailConnectionStatus,
   EmailDraft,
@@ -125,7 +131,8 @@ export const IpcChannel = {
   Skills: {
     list: 'skills:list',
     read: 'skills:read',
-    save: 'skills:save'
+    save: 'skills:save',
+    delete: 'skills:delete'
   },
   Projects: {
     list: 'projects:list',
@@ -337,6 +344,8 @@ export interface AnodexApi {
     read(request: SkillReadRequest): Promise<SkillDocument>
     /** Validate and save one editable skill markdown document. */
     save(request: SkillSaveRequest): Promise<SkillSummary>
+    /** Delete one editable skill markdown document. */
+    delete(request: SkillDeleteRequest): Promise<void>
   }
   projects: {
     list(): Promise<ProjectsState>

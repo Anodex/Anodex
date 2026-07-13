@@ -116,7 +116,8 @@ it can actually take.
   Settings → Projects, so the user can edit before saving.
 - **Skill library/editor:** Settings → Projects includes a collapsed skill
   library where you can search project/personal skills, pin them, create starter
-  skill markdown, edit the body, and save back to the right skill folder.
+  skill markdown, duplicate existing skills, delete stale skills, edit the body,
+  and save back to the right skill folder.
 - **Tool health dashboard:** Settings → General shows compact tool readiness cards
   for master enablement, project-scoped tool availability, web search, and
   approval mode; the searchable full tool catalog is collapsed by default.

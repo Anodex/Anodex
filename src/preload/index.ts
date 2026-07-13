@@ -64,7 +64,8 @@ const api: AnodexApi = {
   skills: {
     list: (projectId) => ipcRenderer.invoke(IpcChannel.Skills.list, projectId),
     read: (request) => ipcRenderer.invoke(IpcChannel.Skills.read, request),
-    save: (request) => ipcRenderer.invoke(IpcChannel.Skills.save, request)
+    save: (request) => ipcRenderer.invoke(IpcChannel.Skills.save, request),
+    delete: (request) => ipcRenderer.invoke(IpcChannel.Skills.delete, request)
   },
   system: {
     getInfo: () => ipcRenderer.invoke(IpcChannel.System.getInfo),

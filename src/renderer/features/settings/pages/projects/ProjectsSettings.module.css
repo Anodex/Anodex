@@ -298,6 +298,13 @@
   color: var(--text-faint);
 }
 
+.skillRowActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
 .pinButton {
   padding: 2px var(--space-2);
   font-size: var(--text-xs);
@@ -312,6 +319,11 @@
 .pinButtonPinned {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.deleteSkillButton:hover {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .skillEditor {

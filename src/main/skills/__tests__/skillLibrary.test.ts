@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { projectSkillsDir } from '../skillCatalog'
-import { readSkillMarkdown, skillFileNameFromSkillName, writeSkillMarkdown } from '../skillLibrary'
+import {
+  deleteSkillMarkdown,
+  readSkillMarkdown,
+  skillFileNameFromSkillName,
+  writeSkillMarkdown
+} from '../skillLibrary'
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'anodex-skill-library-'))
@@ -108,5 +113,30 @@ describe('writeSkillMarkdown', () => {
     ).toThrow(/Invalid skill name/)
 
     expect(existsSync(join(projectSkillsDir(workspaceRoot), 'new-safe-name.md'))).toBe(false)
+  })
+})
+
+describe('deleteSkillMarkdown', () => {
+  it('removes skill markdown from the selected scope', () => {
+    const workspaceRoot = makeTempDir()
+    const personalDir = makeTempDir()
+    const dir = projectSkillsDir(workspaceRoot)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'code-review.md'), validSkill('code-review'), 'utf-8')
+
+    deleteSkillMarkdown({ workspaceRoot, personalDir, scope: 'project', name: 'code-review' })
+
+    expect(existsSync(join(dir, 'code-review.md'))).toBe(false)
+  })
+
+  it('rejects invalid names before deleting anything', () => {
+    expect(() =>
+      deleteSkillMarkdown({
+        workspaceRoot: makeTempDir(),
+        personalDir: makeTempDir(),
+        scope: 'project',
+        name: '../secret'
+      })
+    ).toThrow(/Invalid skill name/)
   })
 })

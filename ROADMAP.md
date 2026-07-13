@@ -105,10 +105,10 @@ Remaining follow-ups:
   **Draft skill** action that opens reviewable markdown directly in the compact
   Settings → Projects library/editor, where it can be edited and saved as a
   project skill.
-- **Library/editor UI** — first compact version built in Settings → Projects:
+- **Library/editor UI** — compact version built in Settings → Projects:
   collapsed library, search, pin controls, markdown editor, starter templates,
-  and project/personal save paths. Future passes can add delete/duplicate actions
-  and richer validation previews.
+  duplicate/delete actions, and project/personal save paths. Future passes can add
+  richer validation previews.
 - **Draft-to-editor handoff** — built: the assistant footer opens generated
   markdown directly in the project skill editor. Future polish can add a
   project/personal scope chooser before opening the editor.

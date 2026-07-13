@@ -4,7 +4,12 @@ import { existsSync, mkdirSync } from 'node:fs'
 import type { Skill } from '@shared/skill.types'
 import { createLogger } from '../utils/logger'
 import { listSkillCatalog, projectSkillsDir } from './skillCatalog'
-import { readSkillMarkdown, writeSkillMarkdown, type SkillWriteResult } from './skillLibrary'
+import {
+  readSkillMarkdown,
+  writeSkillMarkdown,
+  deleteSkillMarkdown,
+  type SkillWriteResult
+} from './skillLibrary'
 
 const log = createLogger('skill-store')
 
@@ -38,6 +43,10 @@ class SkillStore {
 
   readMarkdown(name: string, scope: Skill['scope'], workspaceRoot?: string | null): string {
     return readSkillMarkdown({ personalDir: this.dir, workspaceRoot, scope, name })
+  }
+
+  deleteMarkdown(name: string, scope: Skill['scope'], workspaceRoot?: string | null): void {
+    deleteSkillMarkdown({ personalDir: this.dir, workspaceRoot, scope, name })
   }
 
   saveMarkdown(

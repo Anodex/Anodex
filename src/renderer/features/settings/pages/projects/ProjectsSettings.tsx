@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Project } from '@shared/project.types'
 import type { SkillDocument, SkillScope, SkillSummary } from '@shared/skill.types'
+import { duplicateSkillMarkdown, nextSkillCopyName } from '../../../../lib/skillLibraryActions'
 import {
   consumePendingSkillEditorDraft,
   pendingSkillEditorDraftName
@@ -28,6 +29,7 @@ export function ProjectsSettings(): JSX.Element {
   const [editName, setEditName] = useState('')
   const [instructionsDraft, setInstructionsDraft] = useState('')
   const [deletingProject, setDeletingProject] = useState<Project | null>(null)
+  const [deletingSkill, setDeletingSkill] = useState<SkillSummary | null>(null)
   const [skillCatalog, setSkillCatalog] = useState<SkillSummary[]>([])
   const [skillSearch, setSkillSearch] = useState('')
   const [editingSkill, setEditingSkill] = useState<SkillDocument | null>(null)
@@ -153,6 +155,71 @@ export function ProjectsSettings(): JSX.Element {
       setSkillError(error instanceof Error ? error.message : 'Could not save skill')
     } finally {
       setSavingSkill(false)
+    }
+  }
+
+  const duplicateSkill = async (skill: SkillSummary): Promise<void> => {
+    if (!activeProject) return
+    try {
+      setSkillError(null)
+      const document = await anodex.skills.read({
+        projectId: activeProject.id,
+        scope: skill.scope,
+        name: skill.name
+      })
+      const name = nextSkillCopyName(
+        skillCatalog.map((item) => item.name),
+        skill.name
+      )
+      const content = duplicateSkillMarkdown(document.content, name)
+      const saved = await anodex.skills.save({
+        projectId: activeProject.id,
+        scope: skill.scope,
+        originalName: null,
+        content
+      })
+      setEditingSkill({ name: saved.name, scope: saved.scope, content })
+      setSkillDraft(content)
+      await loadSkills()
+    } catch (error) {
+      setSkillError(error instanceof Error ? error.message : 'Could not duplicate skill')
+    }
+  }
+
+  const requestDeleteSkill = (skill: SkillSummary): void => {
+    if (!confirmDestructive) {
+      void deleteSkill(skill)
+      return
+    }
+    setDeletingSkill(skill)
+  }
+
+  const deleteSkill = async (skill: SkillSummary): Promise<void> => {
+    if (!activeProject) return
+    try {
+      setSkillError(null)
+      await anodex.skills.delete({
+        projectId: activeProject.id,
+        scope: skill.scope,
+        name: skill.name
+      })
+      const sameNameInOtherScope = skillCatalog.some(
+        (item) => item.name === skill.name && item.scope !== skill.scope
+      )
+      if (!sameNameInOtherScope && activeProject.pinnedSkillNames.includes(skill.name)) {
+        await update(activeProject.id, {
+          pinnedSkillNames: activeProject.pinnedSkillNames.filter((name) => name !== skill.name)
+        })
+      }
+      if (editingSkill?.name === skill.name && editingSkill.scope === skill.scope) {
+        setEditingSkill(null)
+        setSkillDraft('')
+      }
+      await loadSkills()
+    } catch (error) {
+      setSkillError(error instanceof Error ? error.message : 'Could not delete skill')
+    } finally {
+      setDeletingSkill(null)
     }
   }
 
@@ -339,13 +406,29 @@ export function ProjectsSettings(): JSX.Element {
                         <span className={styles.skillDescription}>{skill.description}</span>
                       </button>
                       <span className={styles.skillToggleMeta}>{skill.scope}</span>
-                      <button
-                        type="button"
-                        className={`${styles.pinButton} ${pinned ? styles.pinButtonPinned : ''}`}
-                        onClick={() => void togglePinnedSkill(skill.name)}
-                      >
-                        {pinned ? 'Pinned' : 'Pin'}
-                      </button>
+                      <div className={styles.skillRowActions}>
+                        <button
+                          type="button"
+                          className={`${styles.pinButton} ${pinned ? styles.pinButtonPinned : ''}`}
+                          onClick={() => void togglePinnedSkill(skill.name)}
+                        >
+                          {pinned ? 'Pinned' : 'Pin'}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.pinButton}
+                          onClick={() => void duplicateSkill(skill)}
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.pinButton} ${styles.deleteSkillButton}`}
+                          onClick={() => requestDeleteSkill(skill)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
@@ -397,6 +480,18 @@ export function ProjectsSettings(): JSX.Element {
             void remove(deletingProject.id)
             setDeletingProject(null)
           }}
+        />
+      )}
+
+      {deletingSkill && (
+        <ConfirmDialog
+          title="Delete skill?"
+          message="This removes the markdown skill file from its current library."
+          detail={`${deletingSkill.scope}: ${deletingSkill.name}`}
+          confirmLabel="Delete skill"
+          icon="trash"
+          onCancel={() => setDeletingSkill(null)}
+          onConfirm={() => void deleteSkill(deletingSkill)}
         />
       )}
     </div>

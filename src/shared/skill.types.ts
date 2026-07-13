@@ -41,6 +41,13 @@ export interface SkillSaveRequest {
   content: string
 }
 
+/** Renderer request to delete one skill markdown document. */
+export interface SkillDeleteRequest {
+  projectId?: string | null
+  scope: SkillScope
+  name: string
+}
+
 /** Editable skill document safe for renderer UI. */
 export interface SkillDocument {
   name: string

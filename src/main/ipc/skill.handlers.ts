@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type {
+  SkillDeleteRequest,
   SkillDocument,
   SkillReadRequest,
   SkillSaveRequest,
@@ -57,5 +58,10 @@ export function registerSkillHandlers(): void {
     const skill = skillStore.get(saved.name, workspaceRoot)
     if (!skill) throw new Error(`Saved skill "${saved.name}" could not be reloaded.`)
     return toSummary(skill)
+  })
+
+  ipcMain.handle(IpcChannel.Skills.delete, (_event, request: SkillDeleteRequest): void => {
+    const workspaceRoot = workspaceRootForProject(request.projectId)
+    skillStore.deleteMarkdown(request.name, request.scope, workspaceRoot)
   })
 }
