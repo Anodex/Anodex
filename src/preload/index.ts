@@ -121,7 +121,8 @@ const api: AnodexApi = {
       ipcRenderer.invoke(IpcChannel.Workspace.writeFileContent, relativePath, content)
   },
   attachments: {
-    readFile: (absolutePath) => ipcRenderer.invoke(IpcChannel.Attachments.readFile, absolutePath)
+    readFile: (absolutePath) => ipcRenderer.invoke(IpcChannel.Attachments.readFile, absolutePath),
+    pickFiles: () => ipcRenderer.invoke(IpcChannel.Attachments.pickFiles)
   },
   toast: {
     show: (content) => ipcRenderer.invoke(IpcChannel.Toast.show, content),

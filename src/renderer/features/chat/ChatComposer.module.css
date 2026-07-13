@@ -229,6 +229,7 @@
 
 .inputRow:focus-within {
   border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .inputRow.disabled {
@@ -265,6 +266,21 @@
   transition:
     opacity var(--transition-fast),
     background var(--transition-fast);
+}
+
+.attach {
+  color: var(--text-faint);
+  background: transparent;
+}
+
+.attach:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.attach:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .send {

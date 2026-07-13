@@ -184,7 +184,8 @@ export const IpcChannel = {
     writeFileContent: 'workspace:write-file-content'
   },
   Attachments: {
-    readFile: 'attachments:read-file'
+    readFile: 'attachments:read-file',
+    pickFiles: 'attachments:pick-files'
   },
   Toast: {
     /** Show a themed desktop toast in its own always-on-top window. */
@@ -403,6 +404,8 @@ export interface AnodexApi {
      *  the user explicitly chose this file (via OS drag-drop or the Files panel), unlike an AI-initiated
      *  tool call. Large files are truncated. */
     readFile(absolutePath: string): Promise<Result<AttachmentContent>>
+    /** Open a native multi-select file picker for composer attachments. Empty array if cancelled. */
+    pickFiles(): Promise<{ path: string; name: string }[]>
   }
   system: {
     getInfo(): Promise<SystemInfo>

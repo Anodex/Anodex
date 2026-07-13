@@ -306,6 +306,12 @@ export function ChatComposer(): JSX.Element {
     if (dropped.length > 0) void attachFiles(dropped)
   }
 
+  const handleAttachClick = async (): Promise<void> => {
+    if (!ready) return
+    const picked = await anodex.attachments.pickFiles()
+    if (picked.length > 0) void attachFiles(picked)
+  }
+
   return (
     <div
       className={`${styles.composer} ${dragActive ? styles.dragActive : ''}`}
@@ -426,6 +432,17 @@ export function ChatComposer(): JSX.Element {
       )}
 
       <div className={`${styles.inputRow} ${!ready ? styles.disabled : ''}`}>
+        <button
+          type="button"
+          className={`${styles.action} ${styles.attach}`}
+          onClick={() => void handleAttachClick()}
+          disabled={!ready || attachments.length >= MAX_ATTACHMENTS}
+          title="Attach files"
+          aria-label="Attach files"
+        >
+          <Icon name="paperclip" size={16} />
+        </button>
+
         <textarea
           ref={textareaRef}
           className={styles.textarea}
@@ -499,7 +516,7 @@ export function ChatComposer(): JSX.Element {
       <div className={styles.hint}>
         {generating
           ? `Enter to queue for after this reply · Shift+Enter for a new line · ${SLASH_COMMAND_HINT}`
-          : `Enter to send · Shift+Enter for a new line · Drag a file in to attach it · Responses are generated locally · ${SLASH_COMMAND_HINT}`}
+          : `Enter to send · Shift+Enter for a new line · Drag or attach a file · Responses are generated locally · ${SLASH_COMMAND_HINT}`}
       </div>
     </div>
   )

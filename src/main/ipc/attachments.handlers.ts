@@ -1,6 +1,12 @@
-import { extname } from 'node:path'
+import { basename, extname } from 'node:path'
 import { stat, readFile } from 'node:fs/promises'
-import { ipcMain } from 'electron'
+import {
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  type IpcMainInvokeEvent,
+  type OpenDialogOptions
+} from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 
@@ -38,6 +44,17 @@ export function isLikelyBinary(buffer: Buffer): boolean {
   return sample.includes(0)
 }
 
+async function pickFiles(event: IpcMainInvokeEvent): Promise<{ path: string; name: string }[]> {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const options: OpenDialogOptions = {
+    title: 'Attach files',
+    properties: ['openFile', 'multiSelections']
+  }
+  const picked = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+  if (picked.canceled) return []
+  return picked.filePaths.map((path) => ({ path, name: basename(path) }))
+}
+
 /**
  * IPC handler for reading a file the user dropped/dragged into the chat composer.
  *
@@ -51,6 +68,8 @@ export function isLikelyBinary(buffer: Buffer): boolean {
  * would just inject garbled binary-as-text noise into the prompt instead of failing clearly.
  */
 export function registerAttachmentHandlers(): void {
+  ipcMain.handle(IpcChannel.Attachments.pickFiles, (event) => pickFiles(event))
+
   ipcMain.handle(IpcChannel.Attachments.readFile, async (_event, absolutePath: string) => {
     try {
       const info = await stat(absolutePath)
