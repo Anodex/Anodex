@@ -69,9 +69,14 @@
   transition: background var(--transition-fast);
 }
 
-.resizeHandle:hover::after {
+.resizeHandle:hover::after,
+.resizeHandle:focus-visible::after {
   width: 2px;
   background: var(--accent);
+}
+
+.resizeHandle:focus-visible {
+  outline: none;
 }
 
 .dockHandle {
@@ -96,7 +101,12 @@
   transition: background var(--transition-fast);
 }
 
-.dockHandle:hover::after {
+.dockHandle:hover::after,
+.dockHandle:focus-visible::after {
   width: 2px;
   background: var(--accent);
+}
+
+.dockHandle:focus-visible {
+  outline: none;
 }

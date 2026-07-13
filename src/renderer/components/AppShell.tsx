@@ -28,6 +28,8 @@ const MAX_DOCK = 800
 const MIN_MAIN = 360
 const SIDEBAR_KEY = 'anodex:sidebarWidth'
 const DOCK_KEY = 'anodex:dockWidth'
+const RESIZE_STEP = 16
+const RESIZE_STEP_LARGE = 48
 
 function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): string {
   if (view === 'scheduler') return 'Scheduled tasks'
@@ -147,6 +149,55 @@ export function AppShell(): JSX.Element {
     [sidebarWidth]
   )
 
+  const sidebarDynamicMax = Math.max(
+    MIN_SIDEBAR,
+    Math.min(MAX_SIDEBAR, window.innerWidth - (dockOpen ? dockWidth : 0) - MIN_MAIN)
+  )
+  const dockDynamicMax = Math.max(
+    MIN_DOCK,
+    Math.min(MAX_DOCK, window.innerWidth - sidebarWidth - MIN_MAIN)
+  )
+
+  const handleSidebarKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const step = e.shiftKey ? RESIZE_STEP_LARGE : RESIZE_STEP
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        setSidebarWidth((width) => clampSidebarWidth(width + step))
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        setSidebarWidth((width) => clampSidebarWidth(width - step))
+      } else if (e.key === 'Home') {
+        e.preventDefault()
+        setSidebarWidth(MIN_SIDEBAR)
+      } else if (e.key === 'End') {
+        e.preventDefault()
+        setSidebarWidth(clampSidebarWidth(MAX_SIDEBAR))
+      }
+    },
+    [clampSidebarWidth]
+  )
+
+  const handleDockKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const step = e.shiftKey ? RESIZE_STEP_LARGE : RESIZE_STEP
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        setDockWidth((width) => clampDockWidth(width + step))
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        setDockWidth((width) => clampDockWidth(width - step))
+      } else if (e.key === 'Home') {
+        e.preventDefault()
+        setDockWidth(MIN_DOCK)
+      } else if (e.key === 'End') {
+        e.preventDefault()
+        setDockWidth(clampDockWidth(MAX_DOCK))
+      }
+    },
+    [clampDockWidth]
+  )
+
   useEffect(() => {
     const handleResize = (): void => {
       setSidebarWidth((width) => clampSidebarWidth(width))
@@ -201,14 +252,36 @@ export function AppShell(): JSX.Element {
         <ErrorBoundary label="Sidebar">
           <Sidebar />
         </ErrorBoundary>
-        <div className={styles.resizeHandle} onPointerDown={handleSidebarDown} />
+        <div
+          className={styles.resizeHandle}
+          onPointerDown={handleSidebarDown}
+          onKeyDown={handleSidebarKeyDown}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          aria-valuenow={sidebarWidth}
+          aria-valuemin={MIN_SIDEBAR}
+          aria-valuemax={sidebarDynamicMax}
+          tabIndex={0}
+        />
       </div>
       <main className={styles.main}>
         <ErrorBoundary label={getMainLabel(view)}>{renderMainView(view)}</ErrorBoundary>
       </main>
       {dockOpen && (
         <div className={styles.dockWrap}>
-          <div className={styles.dockHandle} onPointerDown={handleDockDown} />
+          <div
+            className={styles.dockHandle}
+            onPointerDown={handleDockDown}
+            onKeyDown={handleDockKeyDown}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize workspace dock"
+            aria-valuenow={dockWidth}
+            aria-valuemin={MIN_DOCK}
+            aria-valuemax={dockDynamicMax}
+            tabIndex={0}
+          />
           <ErrorBoundary label="Workspace Dock">
             <WorkspaceDock />
           </ErrorBoundary>
