@@ -8,6 +8,7 @@ import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
 import { useWorkspaceDock } from '../features/workspace-dock/useWorkspaceDock'
 import { useTheme } from '../hooks/useTheme'
 import { Sidebar } from './Sidebar'
+import { SidebarRail } from './sidebar/SidebarRail'
 import { TitleBar } from './TitleBar'
 import { Toasts } from './Toasts'
 import { ChatView } from '../features/chat/ChatView'
@@ -33,6 +34,10 @@ const RESIZE_STEP_LARGE = 48
 // Below this window width there isn't room for sidebar + main + dock side by
 // side without crushing the chat, so the dock floats over main instead.
 const NARROW_BREAKPOINT = 960
+// Narrower still — even the minimum sidebar width starts crowding out the
+// chat, so it collapses to an icon rail; the full sidebar becomes a
+// temporary overlay instead.
+const SIDEBAR_COLLAPSE_BREAKPOINT = 760
 
 function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): string {
   if (view === 'scheduler') return 'Scheduled tasks'
@@ -66,6 +71,10 @@ export function AppShell(): JSX.Element {
   const dockOpen = useWorkspaceDock((s) => s.open)
   const setDockOpen = useWorkspaceDock((s) => s.setOpen)
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_BREAKPOINT)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    () => window.innerWidth < SIDEBAR_COLLAPSE_BREAKPOINT
+  )
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       return Number(localStorage.getItem(SIDEBAR_KEY)) || 248
@@ -206,6 +215,9 @@ export function AppShell(): JSX.Element {
   useEffect(() => {
     const handleResize = (): void => {
       setIsNarrow(window.innerWidth < NARROW_BREAKPOINT)
+      const collapsed = window.innerWidth < SIDEBAR_COLLAPSE_BREAKPOINT
+      setIsSidebarCollapsed(collapsed)
+      if (!collapsed) setSidebarOverlayOpen(false)
       setSidebarWidth((width) => clampSidebarWidth(width))
       setDockWidth((width) => clampDockWidth(width))
     }
@@ -213,6 +225,15 @@ export function AppShell(): JSX.Element {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [clampDockWidth, clampSidebarWidth])
+
+  useEffect(() => {
+    if (!sidebarOverlayOpen) return
+    const handleKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setSidebarOverlayOpen(false)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [sidebarOverlayOpen])
 
   useEffect(() => {
     const handleMove = (e: PointerEvent) => {
@@ -241,7 +262,7 @@ export function AppShell(): JSX.Element {
 
   return (
     <div
-      className={`${styles.shell} ${dockOpen && !isNarrow ? styles.shellDockOpen : ''}`}
+      className={`${styles.shell} ${dockOpen && !isNarrow ? styles.shellDockOpen : ''} ${isSidebarCollapsed ? styles.shellSidebarCollapsed : ''}`}
       style={
         {
           '--sidebar-width': `${sidebarWidth}px`,
@@ -255,25 +276,43 @@ export function AppShell(): JSX.Element {
         </ErrorBoundary>
       </div>
       <div className={styles.sidebar}>
-        <ErrorBoundary label="Sidebar">
-          <Sidebar />
-        </ErrorBoundary>
-        <div
-          className={styles.resizeHandle}
-          onPointerDown={handleSidebarDown}
-          onKeyDown={handleSidebarKeyDown}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize sidebar"
-          aria-valuenow={sidebarWidth}
-          aria-valuemin={MIN_SIDEBAR}
-          aria-valuemax={sidebarDynamicMax}
-          tabIndex={0}
-        />
+        {isSidebarCollapsed ? (
+          <ErrorBoundary label="Sidebar rail">
+            <SidebarRail onExpand={() => setSidebarOverlayOpen(true)} />
+          </ErrorBoundary>
+        ) : (
+          <>
+            <ErrorBoundary label="Sidebar">
+              <Sidebar />
+            </ErrorBoundary>
+            <div
+              className={styles.resizeHandle}
+              onPointerDown={handleSidebarDown}
+              onKeyDown={handleSidebarKeyDown}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+              aria-valuenow={sidebarWidth}
+              aria-valuemin={MIN_SIDEBAR}
+              aria-valuemax={sidebarDynamicMax}
+              tabIndex={0}
+            />
+          </>
+        )}
       </div>
       <main className={styles.main}>
         <ErrorBoundary label={getMainLabel(view)}>{renderMainView(view)}</ErrorBoundary>
       </main>
+      {isSidebarCollapsed && sidebarOverlayOpen && (
+        <div className={styles.dockBackdrop} onClick={() => setSidebarOverlayOpen(false)} />
+      )}
+      {isSidebarCollapsed && sidebarOverlayOpen && (
+        <div className={styles.sidebarOverlay}>
+          <ErrorBoundary label="Sidebar">
+            <Sidebar />
+          </ErrorBoundary>
+        </div>
+      )}
       {dockOpen && isNarrow && (
         <div className={styles.dockBackdrop} onClick={() => setDockOpen(false)} />
       )}

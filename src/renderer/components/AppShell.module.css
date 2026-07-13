@@ -11,6 +11,10 @@
   grid-template-columns: var(--sidebar-width) 1fr var(--dock-width, 380px);
 }
 
+.shellSidebarCollapsed {
+  grid-template-columns: 52px 1fr;
+}
+
 .titleBar {
   grid-column: 1 / -1;
   grid-row: 1;
@@ -77,6 +81,15 @@
 
 .resizeHandle:focus-visible {
   outline: none;
+}
+
+.sidebarOverlay {
+  position: fixed;
+  top: var(--titlebar-height);
+  left: 0;
+  bottom: 0;
+  z-index: var(--z-overlay, 900);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.24);
 }
 
 .dockWrapFloating {
