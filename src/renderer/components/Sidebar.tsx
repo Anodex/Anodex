@@ -211,7 +211,7 @@ export function Sidebar(): JSX.Element {
   return (
     <aside className={styles.sidebar}>
       <div className={styles.actions}>
-        <SidebarSearch value={searchQuery} onChange={setSearchQuery} />
+        <SidebarSearch value={searchQuery} onChange={setSearchQuery} shortcutHint="Ctrl K" />
       </div>
 
       <div className={styles.scroll}>

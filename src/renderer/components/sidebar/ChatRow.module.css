@@ -41,7 +41,7 @@
 .active {
   color: var(--text);
   background: var(--bg-surface-2);
-  box-shadow: inset 2px 0 0 0 var(--accent);
+  box-shadow: none;
   animation: activeRowSettle var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
 }
 

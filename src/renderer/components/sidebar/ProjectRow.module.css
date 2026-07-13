@@ -16,7 +16,7 @@
 
 .projectActive {
   background: var(--bg-surface-2);
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: none;
   animation: activeProjectSettle var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
 }
 
@@ -163,12 +163,23 @@
 }
 
 .chats {
+  position: relative;
   display: flex;
   flex-direction: column;
   padding-left: var(--space-4);
   padding-bottom: var(--space-1);
   transform-origin: 50% 0;
   animation: projectChatsIn var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
+}
+
+.chats::before {
+  content: '';
+  position: absolute;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  left: var(--space-2);
+  width: 1px;
+  background: var(--border);
 }
 
 .empty {
