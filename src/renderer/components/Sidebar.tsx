@@ -116,6 +116,16 @@ export function Sidebar(): JSX.Element {
     }
   }, [chatSortMode, conversations, projects, searchQuery])
 
+  // Pin the active project above the Projects list so it reads as "where you
+  // are" rather than one peer among many. Skip the split while searching —
+  // a flat filtered list is clearer there than a hierarchy.
+  const activeProjectEntry = !searching
+    ? (filteredProjects.find((p) => p.project.id === activeProjectId) ?? null)
+    : null
+  const otherProjects = activeProjectEntry
+    ? filteredProjects.filter((p) => p.project.id !== activeProjectId)
+    : filteredProjects
+
   const isProjectExpanded = (projectId: string): boolean =>
     searching || expandedProjectIds[projectId] !== false
 
@@ -212,50 +222,79 @@ export function Sidebar(): JSX.Element {
           </div>
         ) : (
           <>
-            <button
-              type="button"
-              className={`${styles.navItem} ${view === 'scheduler' ? styles.navItemActive : ''}`}
-              onClick={() => setView('scheduler')}
-              aria-current={view === 'scheduler' ? 'page' : undefined}
-            >
-              <Icon name="clock" size={14} className={styles.navItemIcon} />
-              <span>Scheduler</span>
-            </button>
+            <div className={styles.globalNav}>
+              <button
+                type="button"
+                className={`${styles.navItem} ${view === 'scheduler' ? styles.navItemActive : ''}`}
+                onClick={() => setView('scheduler')}
+                aria-current={view === 'scheduler' ? 'page' : undefined}
+              >
+                <Icon name="clock" size={14} className={styles.navItemIcon} />
+                <span>Scheduler</span>
+              </button>
 
-            <button
-              type="button"
-              className={`${styles.navItem} ${view === 'agent' ? styles.navItemActive : ''}`}
-              onClick={() => setView('agent')}
-              aria-current={view === 'agent' ? 'page' : undefined}
-            >
-              <Icon name="wand" size={14} className={styles.navItemIcon} />
-              <span>Agent</span>
-            </button>
+              <button
+                type="button"
+                className={`${styles.navItem} ${view === 'agent' ? styles.navItemActive : ''}`}
+                onClick={() => setView('agent')}
+                aria-current={view === 'agent' ? 'page' : undefined}
+              >
+                <Icon name="wand" size={14} className={styles.navItemIcon} />
+                <span>Agent</span>
+              </button>
 
-            <button
-              type="button"
-              className={`${styles.navItem} ${
-                view === 'critical-thinking' ? styles.navItemActive : ''
-              }`}
-              onClick={() => setView('critical-thinking')}
-              aria-current={view === 'critical-thinking' ? 'page' : undefined}
-            >
-              <Icon name="globe" size={14} className={styles.navItemIcon} />
-              <span>Critical Thinking</span>
-            </button>
+              <button
+                type="button"
+                className={`${styles.navItem} ${
+                  view === 'critical-thinking' ? styles.navItemActive : ''
+                }`}
+                onClick={() => setView('critical-thinking')}
+                aria-current={view === 'critical-thinking' ? 'page' : undefined}
+              >
+                <Icon name="globe" size={14} className={styles.navItemIcon} />
+                <span>Critical Thinking</span>
+              </button>
 
-            <button
-              type="button"
-              className={`${styles.navItem} ${view === 'email' ? styles.navItemActive : ''}`}
-              onClick={() => setView('email')}
-              aria-current={view === 'email' ? 'page' : undefined}
-            >
-              <Icon name="mail" size={14} className={styles.navItemIcon} />
-              <span>Email</span>
-            </button>
+              <button
+                type="button"
+                className={`${styles.navItem} ${view === 'email' ? styles.navItemActive : ''}`}
+                onClick={() => setView('email')}
+                aria-current={view === 'email' ? 'page' : undefined}
+              >
+                <Icon name="mail" size={14} className={styles.navItemIcon} />
+                <span>Email</span>
+              </button>
+            </div>
+
+            {activeProjectEntry && (
+              <div className={styles.activeProjectPin}>
+                <div className={styles.activeProjectLabel}>Current project</div>
+                <ProjectRow
+                  project={activeProjectEntry.project}
+                  conversations={activeProjectEntry.conversations}
+                  active
+                  expanded={isProjectExpanded(activeProjectEntry.project.id)}
+                  activeConversationId={activeConversationId}
+                  running={activeProjectEntry.conversations.some(isConversationRunning)}
+                  unread={activeProjectEntry.conversations.some(isConversationUnread)}
+                  readConversationAt={readConversationAt}
+                  onToggle={() => toggleProject(activeProjectEntry.project.id)}
+                  onNewChat={handleNewChat}
+                  onSelectConversation={handleSelectConversation}
+                  onRenameConversation={(id, title) => void renameConversation(id, title)}
+                  onMarkConversationUnread={(id, updatedAt) =>
+                    markConversationUnread(id, updatedAt)
+                  }
+                  onDeleteConversation={handleDeleteConversation}
+                  onOpenProjectFolder={(id) => void openProjectFolder(id)}
+                  onRename={handleRenameProject}
+                  onDelete={handleDeleteProject}
+                />
+              </div>
+            )}
 
             <SidebarSection
-              title="Projects"
+              title={activeProjectEntry ? 'Other projects' : 'Projects'}
               icon="folder"
               expanded={searching || projectsExpanded}
               onToggle={() => setProjectsExpanded((v) => !v)}
@@ -284,12 +323,12 @@ export function Sidebar(): JSX.Element {
                 </div>
               }
             >
-              {filteredProjects.length === 0 ? (
+              {otherProjects.length === 0 ? (
                 <div className={styles.sectionEmpty}>
-                  <p>No projects yet</p>
+                  <p>{activeProjectEntry ? 'No other projects' : 'No projects yet'}</p>
                 </div>
               ) : (
-                filteredProjects.map(({ project, conversations: projectConversations }) => (
+                otherProjects.map(({ project, conversations: projectConversations }) => (
                   <ProjectRow
                     key={project.id}
                     project={project}
