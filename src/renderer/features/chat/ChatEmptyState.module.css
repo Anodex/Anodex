@@ -132,3 +132,92 @@
 .calloutButton:hover {
   background: var(--accent-hover);
 }
+
+.recommendCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-8);
+  padding: var(--space-4) var(--space-5);
+  width: 100%;
+  max-width: 380px;
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.recommendHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.recommendHeader svg {
+  color: var(--accent);
+}
+
+.recommendModel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-md);
+}
+
+.recommendModelText {
+  flex: 1;
+  min-width: 0;
+}
+
+.recommendModelName {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.recommendModelMeta {
+  margin-top: 1px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.recommendCheck {
+  flex-shrink: 0;
+  color: var(--success);
+}
+
+.recommendButton {
+  padding: var(--space-2) var(--space-3);
+  font-weight: 500;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+}
+
+.recommendButton:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.recommendButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.recommendLink {
+  align-self: center;
+  padding: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  text-decoration: underline;
+}
+
+.recommendLink:hover {
+  color: var(--text);
+}
