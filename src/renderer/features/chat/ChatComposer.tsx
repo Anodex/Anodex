@@ -50,6 +50,7 @@ export function ChatComposer(): JSX.Element {
   const [compacting, setCompacting] = useState(false)
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [dismissedSkillName, setDismissedSkillName] = useState<string | null>(null)
+  const [queueExpanded, setQueueExpanded] = useState(false)
   const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -143,6 +144,10 @@ export function ChatComposer(): JSX.Element {
   useEffect(() => {
     setDismissedSkillName(null)
   }, [text])
+
+  useEffect(() => {
+    if (pendingQueue.length === 0) setQueueExpanded(false)
+  }, [pendingQueue.length])
 
   const resetHeight = (): void => {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -335,24 +340,45 @@ export function ChatComposer(): JSX.Element {
       )}
 
       {pendingQueue.length > 0 && activeConversation && (
-        <div className={styles.pendingQueue}>
-          {pendingQueue.map((item) => (
-            <div key={item.id} className={styles.pendingItem}>
-              <Icon name="clock" size={12} />
-              <span className={styles.pendingText}>
-                {item.text || `${item.attachments.length} file(s) attached`}
-              </span>
-              <button
-                type="button"
-                className={styles.pendingRemove}
-                onClick={() => removeQueuedMessage(activeConversation.id, item.id)}
-                aria-label="Remove queued message"
-                title="Remove — won't be sent"
-              >
-                <Icon name="close" size={11} />
-              </button>
+        <div className={styles.pendingWrap}>
+          <button
+            type="button"
+            className={styles.pendingSummary}
+            onClick={() => setQueueExpanded((value) => !value)}
+            aria-expanded={queueExpanded}
+          >
+            <Icon name="clock" size={12} />
+            <span className={styles.pendingSummaryText}>
+              {pendingQueue.length} message{pendingQueue.length === 1 ? '' : 's'} queued
+            </span>
+            <Icon
+              name="chevron-down"
+              size={12}
+              className={`${styles.pendingChevron} ${queueExpanded ? styles.pendingChevronOpen : ''}`}
+            />
+          </button>
+
+          {queueExpanded && (
+            <div className={styles.pendingQueue}>
+              {pendingQueue.map((item) => (
+                <div key={item.id} className={styles.pendingItem}>
+                  <Icon name="clock" size={12} />
+                  <span className={styles.pendingText}>
+                    {item.text || `${item.attachments.length} file(s) attached`}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.pendingRemove}
+                    onClick={() => removeQueuedMessage(activeConversation.id, item.id)}
+                    aria-label="Remove queued message"
+                    title="Remove — won't be sent"
+                  >
+                    <Icon name="close" size={11} />
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
