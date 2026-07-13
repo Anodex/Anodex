@@ -14,12 +14,35 @@
   min-width: 0;
 }
 
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.eyebrow {
+  flex-shrink: 0;
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.eyebrowSeparator {
+  flex-shrink: 0;
+  font-size: var(--text-base);
+  color: var(--text-faint);
+}
+
 .title {
   margin: 0;
+  overflow: hidden;
   font-size: var(--text-base);
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .subtitle {
