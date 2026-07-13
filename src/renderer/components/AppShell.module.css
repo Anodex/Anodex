@@ -79,6 +79,25 @@
   outline: none;
 }
 
+.dockWrapFloating {
+  position: fixed;
+  top: var(--titlebar-height);
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-overlay, 900);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.24);
+}
+
+.dockBackdrop {
+  position: fixed;
+  top: var(--titlebar-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: calc(var(--z-overlay, 900) - 1);
+  background: rgba(0, 0, 0, 0.32);
+}
+
 .dockHandle {
   position: absolute;
   top: 0;

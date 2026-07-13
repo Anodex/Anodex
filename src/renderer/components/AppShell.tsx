@@ -30,6 +30,9 @@ const SIDEBAR_KEY = 'anodex:sidebarWidth'
 const DOCK_KEY = 'anodex:dockWidth'
 const RESIZE_STEP = 16
 const RESIZE_STEP_LARGE = 48
+// Below this window width there isn't room for sidebar + main + dock side by
+// side without crushing the chat, so the dock floats over main instead.
+const NARROW_BREAKPOINT = 960
 
 function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): string {
   if (view === 'scheduler') return 'Scheduled tasks'
@@ -61,6 +64,8 @@ export function AppShell(): JSX.Element {
   const chatsLoaded = useChatStore((s) => s.loaded)
   const newConversation = useChatStore((s) => s.newConversation)
   const dockOpen = useWorkspaceDock((s) => s.open)
+  const setDockOpen = useWorkspaceDock((s) => s.setOpen)
+  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_BREAKPOINT)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       return Number(localStorage.getItem(SIDEBAR_KEY)) || 248
@@ -200,6 +205,7 @@ export function AppShell(): JSX.Element {
 
   useEffect(() => {
     const handleResize = (): void => {
+      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT)
       setSidebarWidth((width) => clampSidebarWidth(width))
       setDockWidth((width) => clampDockWidth(width))
     }
@@ -235,7 +241,7 @@ export function AppShell(): JSX.Element {
 
   return (
     <div
-      className={`${styles.shell} ${dockOpen ? styles.shellDockOpen : ''}`}
+      className={`${styles.shell} ${dockOpen && !isNarrow ? styles.shellDockOpen : ''}`}
       style={
         {
           '--sidebar-width': `${sidebarWidth}px`,
@@ -268,8 +274,11 @@ export function AppShell(): JSX.Element {
       <main className={styles.main}>
         <ErrorBoundary label={getMainLabel(view)}>{renderMainView(view)}</ErrorBoundary>
       </main>
+      {dockOpen && isNarrow && (
+        <div className={styles.dockBackdrop} onClick={() => setDockOpen(false)} />
+      )}
       {dockOpen && (
-        <div className={styles.dockWrap}>
+        <div className={`${styles.dockWrap} ${isNarrow ? styles.dockWrapFloating : ''}`}>
           <div
             className={styles.dockHandle}
             onPointerDown={handleDockDown}
