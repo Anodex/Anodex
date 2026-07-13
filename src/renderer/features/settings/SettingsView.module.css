@@ -228,6 +228,51 @@
   flex-shrink: 0;
 }
 
+.toolAvailabilityDisclosure {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.toolAvailabilitySummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toolAvailabilityList {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.toolAvailabilityItem {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.35fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  font-size: var(--text-sm);
+}
+
+.toolAvailabilityLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.toolAvailabilityValue {
+  color: var(--text-muted);
+}
+
 .toolCatalogDisclosure {
   margin-top: var(--space-3);
   padding: var(--space-3);

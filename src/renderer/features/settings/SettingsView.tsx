@@ -3,7 +3,12 @@ import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { TOOL_CATALOG } from '@shared/tools.types'
 import { renderAssistantStyleSection } from '@shared/prompts'
-import { buildToolHealthSummary, filterToolCatalog, type ToolHealthTone } from '../../lib/toolHealth'
+import {
+  buildToolAvailabilityDetails,
+  buildToolHealthSummary,
+  filterToolCatalog,
+  type ToolHealthTone
+} from '../../lib/toolHealth'
 import { ASSISTANT_STYLE_PRESETS } from './assistantStylePresets'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -186,6 +191,14 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
     permissionMode: settings.general.permissionMode,
     webSearchProvider: settings.webSearch.provider
   })
+  const toolAvailabilityDetails = buildToolAvailabilityDetails({
+    workspaceRoot: settings.workspace.root,
+    webSearchProvider: settings.webSearch.provider,
+    emailProvider: settings.email.provider,
+    gmailEnabled: settings.email.gmail.enabled,
+    memoryCrossChatEnabled: settings.memory.crossChatEnabled,
+    memoryPersonalEnabled: settings.memory.personalEnabled
+  })
   const filteredTools = filterToolCatalog(TOOL_CATALOG, toolSearch)
 
   return (
@@ -221,12 +234,35 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
           <div key={item.label} className={`${styles.toolHealthCard} ${styles[item.tone]}`}>
             <span className={styles.toolHealthLabel}>{item.label}</span>
             <span className={styles.toolHealthValue}>
-              <StatusDot tone={TOOL_HEALTH_STATUS_TONE[item.tone]} className={styles.toolHealthDot} />
+              <StatusDot
+                tone={TOOL_HEALTH_STATUS_TONE[item.tone]}
+                className={styles.toolHealthDot}
+              />
               {item.value}
             </span>
           </div>
         ))}
       </div>
+      <details className={styles.toolAvailabilityDisclosure}>
+        <summary className={styles.toolAvailabilitySummary}>
+          <span>Availability details</span>
+          <span className={styles.toolCatalogHint}>Why tools may be hidden</span>
+        </summary>
+        <div className={styles.toolAvailabilityList}>
+          {toolAvailabilityDetails.map((item) => (
+            <div key={item.label} className={styles.toolAvailabilityItem}>
+              <span className={styles.toolAvailabilityLabel}>
+                <StatusDot
+                  tone={TOOL_HEALTH_STATUS_TONE[item.tone]}
+                  className={styles.toolHealthDot}
+                />
+                {item.label}
+              </span>
+              <span className={styles.toolAvailabilityValue}>{item.value}</span>
+            </div>
+          ))}
+        </div>
+      </details>
       <details className={styles.toolCatalogDisclosure}>
         <summary className={styles.toolCatalogSummary}>
           <span>Tool catalog</span>

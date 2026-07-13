@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCatalogEntry } from '@shared/tools.types'
-import { buildToolHealthSummary, filterToolCatalog } from '../toolHealth'
+import {
+  buildToolAvailabilityDetails,
+  buildToolHealthSummary,
+  filterToolCatalog
+} from '../toolHealth'
 
 const CATALOG: ToolCatalogEntry[] = [
   { name: 'read_file', kind: 'read', description: 'Read files.', requiresProject: true },
@@ -41,6 +45,56 @@ describe('buildToolHealthSummary', () => {
       { label: 'Project tools', value: '2 waiting for project', tone: 'blocked' },
       { label: 'Web search', value: 'Disabled', tone: 'muted' },
       { label: 'Approvals', value: 'Full access', tone: 'ready' }
+    ])
+  })
+})
+
+describe('buildToolAvailabilityDetails', () => {
+  it('explains conditional availability when dependencies are missing', () => {
+    expect(
+      buildToolAvailabilityDetails({
+        workspaceRoot: null,
+        webSearchProvider: 'none',
+        emailProvider: 'none',
+        gmailEnabled: false,
+        memoryCrossChatEnabled: false,
+        memoryPersonalEnabled: false
+      })
+    ).toEqual([
+      {
+        label: 'Project tools',
+        value: 'Open a project to enable file and command tools.',
+        tone: 'blocked'
+      },
+      { label: 'Web search', value: 'Choose a provider to enable web_search.', tone: 'muted' },
+      { label: 'Email tools', value: 'Connect Gmail to enable email tools.', tone: 'muted' },
+      {
+        label: 'Memory tool',
+        value: 'Enable project or personal memory to save facts.',
+        tone: 'muted'
+      }
+    ])
+  })
+
+  it('summarizes ready conditional tools compactly', () => {
+    expect(
+      buildToolAvailabilityDetails({
+        workspaceRoot: 'C:/repo',
+        webSearchProvider: 'brave',
+        emailProvider: 'gmail',
+        gmailEnabled: true,
+        memoryCrossChatEnabled: true,
+        memoryPersonalEnabled: true
+      })
+    ).toEqual([
+      {
+        label: 'Project tools',
+        value: 'File, command, git, and project-skill tools are ready.',
+        tone: 'ready'
+      },
+      { label: 'Web search', value: 'web_search uses brave.', tone: 'ready' },
+      { label: 'Email tools', value: 'Gmail tools are ready.', tone: 'ready' },
+      { label: 'Memory tool', value: 'Can save project and personal facts.', tone: 'ready' }
     ])
   })
 })

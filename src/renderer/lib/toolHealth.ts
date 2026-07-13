@@ -11,6 +11,15 @@ export interface ToolHealthInput {
   webSearchProvider: string
 }
 
+export interface ToolAvailabilityInput {
+  workspaceRoot: string | null
+  webSearchProvider: string
+  emailProvider: string
+  gmailEnabled: boolean
+  memoryCrossChatEnabled: boolean
+  memoryPersonalEnabled: boolean
+}
+
 export interface ToolHealthItem {
   label: string
   value: string
@@ -32,6 +41,47 @@ export function filterToolCatalog(catalog: ToolCatalogEntry[], query: string): T
       .toLowerCase()
       .includes(normalized)
   )
+}
+
+export function buildToolAvailabilityDetails(input: ToolAvailabilityInput): ToolHealthItem[] {
+  const memoryScopes = [
+    input.memoryCrossChatEnabled ? 'project' : null,
+    input.memoryPersonalEnabled ? 'personal' : null
+  ].filter(Boolean)
+
+  return [
+    {
+      label: 'Project tools',
+      value: input.workspaceRoot
+        ? 'File, command, git, and project-skill tools are ready.'
+        : 'Open a project to enable file and command tools.',
+      tone: input.workspaceRoot ? 'ready' : 'blocked'
+    },
+    {
+      label: 'Web search',
+      value:
+        input.webSearchProvider === 'none'
+          ? 'Choose a provider to enable web_search.'
+          : `web_search uses ${input.webSearchProvider}.`,
+      tone: input.webSearchProvider === 'none' ? 'muted' : 'ready'
+    },
+    {
+      label: 'Email tools',
+      value:
+        input.emailProvider === 'gmail' && input.gmailEnabled
+          ? 'Gmail tools are ready.'
+          : 'Connect Gmail to enable email tools.',
+      tone: input.emailProvider === 'gmail' && input.gmailEnabled ? 'ready' : 'muted'
+    },
+    {
+      label: 'Memory tool',
+      value:
+        memoryScopes.length > 0
+          ? `Can save ${memoryScopes.join(' and ')} facts.`
+          : 'Enable project or personal memory to save facts.',
+      tone: memoryScopes.length > 0 ? 'ready' : 'muted'
+    }
+  ]
 }
 
 export function buildToolHealthSummary(input: ToolHealthInput): ToolHealthItem[] {

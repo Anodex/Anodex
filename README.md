@@ -120,7 +120,8 @@ it can actually take.
   and save back to the right skill folder.
 - **Tool health dashboard:** Settings → General shows compact tool readiness cards
   for master enablement, project-scoped tool availability, web search, and
-  approval mode; the searchable full tool catalog is collapsed by default.
+  approval mode, plus collapsed availability details explaining hidden tools; the
+  searchable full tool catalog is collapsed by default.
 
 Skill files use a small markdown format:
 

@@ -45,8 +45,9 @@ visible in the transcript, diffs/HTML previews are surfaced inline, and the
 catalog is parity-tested against runtime registration. The biggest opportunities
 are not "more random tools," but tools that reduce repeated multi-call loops and
 make tool output easier to review. Settings → General now includes a compact tool
-health dashboard (enablement, project readiness, web search, approvals) and keeps
-the searchable full catalog collapsed by default.
+health dashboard (enablement, project readiness, web search, approvals), collapsed
+availability details for conditional tools, and keeps the searchable full catalog
+collapsed by default.
 
 Remaining tool-side opportunities:
 
@@ -81,11 +82,11 @@ Remaining tool-side opportunities:
 
 Latest review notes:
 
-- The Settings tool catalog is now searchable and reports cataloged tools rather
-  than implying every conditional/email/web tool is active in the current chat.
-- Keep future tool-health work focused on explaining conditional availability
-  (web provider disabled, Gmail disabled, no active project) rather than adding
-  more catalog metadata prematurely.
+- The Settings tool catalog is searchable and reports cataloged tools rather than
+  implying every conditional/email/web tool is active in the current chat.
+- Tool health now has compact collapsed availability details for project, web,
+  Gmail, and memory conditions; keep future work in this area focused on clear
+  setup actions rather than more catalog metadata.
 
 Avoid near-term work on broad semantic search or vision-as-a-tool until the
 larger infrastructure blockers in their existing backlog entries are resolved.
