@@ -23,7 +23,11 @@ export function registerMemoryHandlers(): void {
       return ok(memoryStore.create(request))
     } catch (error) {
       log.error('Failed to create memory entry:', error)
-      return err('memory.create-failed', 'Could not create the memory entry.', toErrorMessage(error))
+      return err(
+        'memory.create-failed',
+        'Could not create the memory entry.',
+        toErrorMessage(error)
+      )
     }
   })
 
@@ -49,7 +53,11 @@ export function registerMemoryHandlers(): void {
       return ok(undefined)
     } catch (error) {
       log.error('Failed to delete memory entry:', id, error)
-      return err('memory.delete-failed', 'Could not delete the memory entry.', toErrorMessage(error))
+      return err(
+        'memory.delete-failed',
+        'Could not delete the memory entry.',
+        toErrorMessage(error)
+      )
     }
   })
 }

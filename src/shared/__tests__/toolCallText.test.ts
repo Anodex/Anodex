@@ -91,7 +91,7 @@ describe('stripSubstantialCodeFences', () => {
     expect(strippedReadme).not.toContain('## Personal Portfolio Site')
 
     const feed =
-      "I'll create `feed.xml` listing the posts.\n\n```xml\n<?xml version=\"1.0\"?>\n<rss>\n" +
+      'I\'ll create `feed.xml` listing the posts.\n\n```xml\n<?xml version="1.0"?>\n<rss>\n' +
       '<channel><title>Blog</title><item><title>Post 1</title></item></channel>\n</rss>\n```'
     const strippedFeed = stripSubstantialCodeFences(feed, 'add an RSS feed.xml file')
     expect(strippedFeed).not.toContain('```')
@@ -130,9 +130,7 @@ describe('stripLeakedChannelTokens', () => {
     expect(stripLeakedChannelTokens("I'll add the footer.<channel|>Done.")).toBe(
       "I'll add the footer.Done."
     )
-    expect(stripLeakedChannelTokens('<channel>Some text</channel> after.')).toBe(
-      'Some text after.'
-    )
+    expect(stripLeakedChannelTokens('<channel>Some text</channel> after.')).toBe('Some text after.')
   })
 
   it('leaves ordinary text with no leaked marker untouched', () => {

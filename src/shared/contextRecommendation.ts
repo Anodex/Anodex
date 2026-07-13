@@ -33,9 +33,8 @@ export function pickRecommendedContextSize(
   )
 
   if (eligible.length === 0) {
-    return candidates.reduce((smallest, c) =>
-      c.contextSize < smallest.contextSize ? c : smallest
-    ).contextSize
+    return candidates.reduce((smallest, c) => (c.contextSize < smallest.contextSize ? c : smallest))
+      .contextSize
   }
 
   return eligible.reduce((best, c) => (c.contextSize > best.contextSize ? c : best)).contextSize

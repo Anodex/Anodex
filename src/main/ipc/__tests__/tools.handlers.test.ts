@@ -25,6 +25,22 @@ describe('tool approval handling', () => {
     expect(sender.sent).toHaveLength(1)
   })
 
+  it('does not carry a remembered approval over to a different conversation', async () => {
+    const sender = createSender()
+    const first = request('safe-1', 'run_command', 'sensitive', 'conversation-a')
+
+    const firstResult = requestToolConfirmation(sender, first)
+    resolvePendingConfirmationForTests(first.id, { approved: true, remember: true })
+    await firstResult
+    expect(sender.sent).toHaveLength(1)
+
+    const otherConversation = request('safe-2', 'run_command', 'sensitive', 'conversation-b')
+    const otherResult = requestToolConfirmation(sender, otherConversation)
+    expect(sender.sent).toHaveLength(2)
+    resolvePendingConfirmationForTests(otherConversation.id, { approved: true })
+    await expect(otherResult).resolves.toEqual({ approved: true })
+  })
+
   it('does not skip destructive confirmations even when the tool was remembered', async () => {
     const sender = createSender()
     const remembered = request('safe-1', 'run_command', 'sensitive')
@@ -56,11 +72,12 @@ function createSender(): WebContents & { sent: ToolConfirmRequest[] } {
 function request(
   id: string,
   toolName: string,
-  risk: ToolConfirmRequest['risk']
+  risk: ToolConfirmRequest['risk'],
+  conversationId = 'conversation'
 ): ToolConfirmRequest {
   return {
     id,
-    conversationId: 'conversation',
+    conversationId,
     messageId: 'message',
     toolName,
     kind: 'command',

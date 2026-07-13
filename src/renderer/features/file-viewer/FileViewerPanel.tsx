@@ -218,7 +218,11 @@ export function FileViewerPanel(): JSX.Element | null {
           isHtmlFile(node.name) && mode === 'preview' ? (
             <HtmlPreview content={value} fileName={node.name} />
           ) : (
-            <CodeEditor value={value} onChange={setValue} language={languageForFileName(node.name)} />
+            <CodeEditor
+              value={value}
+              onChange={setValue}
+              language={languageForFileName(node.name)}
+            />
           )
         ) : result.kind === 'image' ? (
           <ImageViewer dataUrl={result.dataUrl} fileName={node.name} />

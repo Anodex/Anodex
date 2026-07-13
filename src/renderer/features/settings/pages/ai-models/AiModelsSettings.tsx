@@ -450,9 +450,9 @@ export function AiModelsSettings(): JSX.Element {
             <p className={styles.sectionKicker}>Cloud models</p>
             <h2 className={styles.sectionTitle}>Claude &amp; ChatGPT / Codex</h2>
             <p className={styles.sectionDesc}>
-              Anodex stays local-first by default. Switch to a cloud provider for chat replies when you
-              want a larger model instead — your API key is stored locally, the same as the web search
-              provider keys.
+              Anodex stays local-first by default. Switch to a cloud provider for chat replies when
+              you want a larger model instead — your API key is stored locally, the same as the web
+              search provider keys.
             </p>
           </div>
         </div>
@@ -482,7 +482,9 @@ export function AiModelsSettings(): JSX.Element {
                     value={settings.provider.anthropic.apiKey}
                     model={settings.provider.anthropic.model}
                     placeholder="sk-ant-..."
-                    onChange={(value) => void update({ provider: { anthropic: { apiKey: value } } })}
+                    onChange={(value) =>
+                      void update({ provider: { anthropic: { apiKey: value } } })
+                    }
                   />
                 }
               />
@@ -503,7 +505,9 @@ export function AiModelsSettings(): JSX.Element {
                 control={
                   <DailyCapInput
                     value={settings.provider.anthropic.dailyTokenCap}
-                    onCommit={(cap) => void update({ provider: { anthropic: { dailyTokenCap: cap } } })}
+                    onCommit={(cap) =>
+                      void update({ provider: { anthropic: { dailyTokenCap: cap } } })
+                    }
                   />
                 }
               />
@@ -547,7 +551,9 @@ export function AiModelsSettings(): JSX.Element {
                 control={
                   <DailyCapInput
                     value={settings.provider.openai.dailyTokenCap}
-                    onCommit={(cap) => void update({ provider: { openai: { dailyTokenCap: cap } } })}
+                    onCommit={(cap) =>
+                      void update({ provider: { openai: { dailyTokenCap: cap } } })
+                    }
                   />
                 }
               />

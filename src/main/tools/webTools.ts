@@ -201,16 +201,36 @@ function isPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host.endsWith('.localhost')) return true
   if (host === '0.0.0.0' || host === '::' || host === '::1') return true
-  // IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
-  if (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80')) return true
+  // IPv6 unique-local (fc00::/7), link-local (fe80::/10), and multicast (ff00::/8).
+  if (
+    host.startsWith('fc') ||
+    host.startsWith('fd') ||
+    host.startsWith('fe80') ||
+    host.startsWith('ff')
+  )
+    return true
+
+  // IPv4-mapped/compatible IPv6 (::ffff:a.b.c.d or ::ffff:xxxx:xxxx) — unwrap
+  // and re-check the embedded IPv4 address rather than treating it as an
+  // opaque IPv6 literal that slips past the checks below.
+  const mappedDotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(host)
+  if (mappedDotted) return isPrivateHost(mappedDotted[1])
+  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host)
+  if (mappedHex) {
+    const hi = Number.parseInt(mappedHex[1], 16)
+    const lo = Number.parseInt(mappedHex[2], 16)
+    return isPrivateHost(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`)
+  }
 
   const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
   if (ipv4) {
     const [a, b] = [Number(ipv4[1]), Number(ipv4[2])]
-    if (a === 127 || a === 10) return true // loopback, private
+    if (a === 0 || a === 127 || a === 10) return true // "this network", loopback, private
+    if (a === 100 && b >= 64 && b <= 127) return true // carrier-grade NAT (RFC 6598)
     if (a === 169 && b === 254) return true // link-local
     if (a === 172 && b >= 16 && b <= 31) return true // private
     if (a === 192 && b === 168) return true // private
+    if (a >= 224) return true // multicast (224-239) and reserved/future-use (240-255)
   }
   return false
 }

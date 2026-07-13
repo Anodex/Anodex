@@ -24,8 +24,10 @@ export function getMainWindow(): BrowserWindow | null {
 /**
  * Create the main application window.
  *
- * Security posture: `contextIsolation` on and `nodeIntegration` off — the
- * renderer can only reach the main process through the typed preload bridge.
+ * Security posture: `contextIsolation` and `sandbox` on, `nodeIntegration`
+ * off — the renderer can only reach the main process through the typed
+ * preload bridge. The preload script only touches sandbox-compatible APIs
+ * (`contextBridge`, `ipcRenderer`, `webUtils`), so this needed no rework.
  */
 export function createMainWindow(): BrowserWindow {
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
@@ -50,7 +52,7 @@ export function createMainWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
 

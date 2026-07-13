@@ -24,7 +24,8 @@ export function CompactionMarker({
         <button type="button" className={styles.pill} onClick={() => setExpanded((v) => !v)}>
           <Icon name="layers" size={12} />
           <span>
-            {snapshot.removedTurns} older {snapshot.removedTurns === 1 ? 'turn' : 'turns'} summarized
+            {snapshot.removedTurns} older {snapshot.removedTurns === 1 ? 'turn' : 'turns'}{' '}
+            summarized
           </span>
           <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={11} />
         </button>

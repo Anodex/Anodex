@@ -11,7 +11,10 @@ import type { EngineState } from '@shared/model.types'
  * composer stuck showing "load a model" when a cloud provider is active, or
  * vice versa.
  */
-export function isChatReady(settings: AppSettings | null, engineStatus: EngineState['status']): boolean {
+export function isChatReady(
+  settings: AppSettings | null,
+  engineStatus: EngineState['status']
+): boolean {
   if (settings?.provider.active === 'anthropic') {
     return Boolean(settings.provider.anthropic.apiKey.trim())
   }

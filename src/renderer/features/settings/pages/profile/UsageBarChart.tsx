@@ -40,7 +40,10 @@ export function UsageBarChart({ buckets, models }: UsageBarChartProps): JSX.Elem
     return <p className={styles.emptyHint}>No activity in this range yet.</p>
   }
 
-  const ticks = Array.from({ length: AXIS_TICKS + 1 }, (_, i) => (axisMax / AXIS_TICKS) * i).reverse()
+  const ticks = Array.from(
+    { length: AXIS_TICKS + 1 },
+    (_, i) => (axisMax / AXIS_TICKS) * i
+  ).reverse()
 
   return (
     <div className={styles.chartWrap}>

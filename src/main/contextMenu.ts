@@ -31,7 +31,10 @@ function createSeparator(items: ContextMenuItem[]): void {
   })
 }
 
-function buildContextMenu(window: BrowserWindow, params: ContextMenuParams): ContextMenuBuildResult {
+function buildContextMenu(
+  window: BrowserWindow,
+  params: ContextMenuParams
+): ContextMenuBuildResult {
   const items: ContextMenuItem[] = []
   const actionMap = new Map<string, () => void>()
 
@@ -67,11 +70,29 @@ function buildContextMenu(window: BrowserWindow, params: ContextMenuParams): Con
   }
 
   if (params.isEditable) {
-    createAction(items, actionMap, 'Undo', () => window.webContents.undo(), params.editFlags.canUndo)
-    createAction(items, actionMap, 'Redo', () => window.webContents.redo(), params.editFlags.canRedo)
+    createAction(
+      items,
+      actionMap,
+      'Undo',
+      () => window.webContents.undo(),
+      params.editFlags.canUndo
+    )
+    createAction(
+      items,
+      actionMap,
+      'Redo',
+      () => window.webContents.redo(),
+      params.editFlags.canRedo
+    )
     createSeparator(items)
     createAction(items, actionMap, 'Cut', () => window.webContents.cut(), params.editFlags.canCut)
-    createAction(items, actionMap, 'Copy', () => window.webContents.copy(), params.editFlags.canCopy)
+    createAction(
+      items,
+      actionMap,
+      'Copy',
+      () => window.webContents.copy(),
+      params.editFlags.canCopy
+    )
     createAction(
       items,
       actionMap,

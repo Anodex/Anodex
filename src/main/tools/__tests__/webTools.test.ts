@@ -91,7 +91,14 @@ describe('AI web tools', () => {
         'http://localhost:8080/',
         'http://127.0.0.1/',
         'http://169.254.169.254/latest/meta-data',
-        'http://192.168.1.1/'
+        'http://192.168.1.1/',
+        'http://100.64.0.1/', // carrier-grade NAT (RFC 6598)
+        'http://224.0.0.1/', // multicast
+        'http://240.0.0.1/', // reserved/future-use
+        'http://0.0.0.1/', // "this network"
+        'http://[::ffff:127.0.0.1]/', // IPv4-mapped IPv6 (dotted)
+        'http://[::ffff:7f00:1]/', // IPv4-mapped IPv6 (hex)
+        'http://[ff02::1]/' // IPv6 multicast
       ]) {
         const result = await tool.handler({ url })
         expect(result.toLowerCase()).toContain('local or private')
