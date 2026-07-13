@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import type { SkillSummary } from '@shared/skill.types'
+import type { PermissionMode } from '@shared/settings.types'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import { useChatStore, type PendingMessage } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
@@ -8,7 +9,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { isChatReady } from '../../lib/chatReadiness'
-import { Icon } from '../../components/Icon'
+import { Icon, type IconName } from '../../components/Icon'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { anodex } from '../../lib/anodex'
 import { ANODEX_FILE_DRAG_TYPE, type ComposerAttachment } from '../../lib/attachments'
@@ -41,6 +42,24 @@ const MAX_ATTACHMENTS = 10
 const EMPTY_QUEUE: PendingMessage[] = []
 const EMPTY_SKILL_NAMES: string[] = []
 
+function permissionIcon(mode: PermissionMode): IconName {
+  if (mode === 'untethered') return 'unlock-keyhole'
+  if (mode === 'full') return 'shield-check'
+  return 'shield-question'
+}
+
+function permissionLabel(mode: PermissionMode): string {
+  if (mode === 'untethered') return 'Untethered'
+  if (mode === 'full') return 'Full'
+  return 'Ask'
+}
+
+function permissionDescription(mode: PermissionMode): string {
+  if (mode === 'untethered') return 'auto-runs safe and sensitive actions'
+  if (mode === 'full') return 'auto-runs safe edits and asks before risky actions'
+  return 'asks before writes and shell commands'
+}
+
 /** Auto-growing message input with send / stop controls and drag-and-drop file attachments. */
 export function ChatComposer(): JSX.Element {
   const [text, setText] = useState('')
@@ -66,6 +85,7 @@ export function ChatComposer(): JSX.Element {
   const engine = useModelStore((s) => s.engine)
   const settings = useSettingsStore((s) => s.settings)
   const toolsEnabled = settings?.tools.enabled ?? true
+  const permissionMode = settings?.general.permissionMode ?? 'ask'
   const projects = useProjectStore((s) => s.projects)
   const activeProject = projects.find((project) => project.id === activeConversation?.projectId)
   const pinnedSkillNames = activeProject?.pinnedSkillNames ?? EMPTY_SKILL_NAMES
@@ -538,6 +558,18 @@ export function ChatComposer(): JSX.Element {
           <Icon name={compacting ? 'refresh' : 'archive'} size={13} />
         </button>
         <ContextMeter className={styles.contextMeter} />
+        <span
+          className={[
+            styles.permissionBadge,
+            styles[`permission${permissionLabel(permissionMode)}`]
+          ].join(' ')}
+          title={`Permission mode: ${permissionLabel(permissionMode)} - ${permissionDescription(
+            permissionMode
+          )}`}
+          aria-label={`Permission mode: ${permissionLabel(permissionMode)}`}
+        >
+          <Icon name={permissionIcon(permissionMode)} size={13} />
+        </span>
       </div>
       <div className={styles.hint}>
         {generating
