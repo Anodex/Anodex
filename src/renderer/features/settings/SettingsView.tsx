@@ -333,57 +333,60 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
         </>
       )}
 
-      <h2 className={styles.sectionTitle} style={{ marginTop: 'var(--space-6)' }}>
-        Generation
-      </h2>
-      <SettingRow
-        label="Temperature"
-        description="Higher is more creative, lower is more focused."
-        control={
-          <RangeControl
-            value={settings.generation.temperature}
-            min={0}
-            max={1.5}
-            step={0.05}
-            format={(v) => v.toFixed(2)}
-            onChange={(value) => void update({ generation: { temperature: value } })}
-          />
-        }
-      />
-      <SettingRow
-        label="Top-p"
-        description="Nucleus sampling cutoff."
-        control={
-          <RangeControl
-            value={settings.generation.topP}
-            min={0}
-            max={1}
-            step={0.05}
-            format={(v) => v.toFixed(2)}
-            onChange={(value) => void update({ generation: { topP: value } })}
-          />
-        }
-      />
-      <SettingRow
-        label="Max response tokens"
-        description="Upper bound on the length of each reply. Capped by the actual running context size, since a reply can't outgrow the context it has to fit in."
-        control={
-          <RangeControl
-            // Clamp what's displayed/draggable, not just the ceiling: a
-            // context that shrinks (either the setting being lowered, or the
-            // engine resolving a smaller real context than requested) could
-            // otherwise leave a stored value the slider can no longer
-            // represent, silently clamped by the browser instead of by us.
-            // See the context-size and GPU-layers fixes this session for the
-            // same root cause.
-            value={Math.min(settings.generation.maxTokens, effectiveContextSize)}
-            min={128}
-            max={effectiveContextSize}
-            step={128}
-            onChange={(value) => void update({ generation: { maxTokens: value } })}
-          />
-        }
-      />
+      <details className={styles.toolCatalogDisclosure} style={{ marginTop: 'var(--space-6)' }}>
+        <summary className={styles.toolCatalogSummary}>
+          <span>Generation</span>
+          <span className={styles.toolCatalogHint}>temperature, top-p, max tokens</span>
+        </summary>
+        <SettingRow
+          label="Temperature"
+          description="Higher is more creative, lower is more focused."
+          control={
+            <RangeControl
+              value={settings.generation.temperature}
+              min={0}
+              max={1.5}
+              step={0.05}
+              format={(v) => v.toFixed(2)}
+              onChange={(value) => void update({ generation: { temperature: value } })}
+            />
+          }
+        />
+        <SettingRow
+          label="Top-p"
+          description="Nucleus sampling cutoff."
+          control={
+            <RangeControl
+              value={settings.generation.topP}
+              min={0}
+              max={1}
+              step={0.05}
+              format={(v) => v.toFixed(2)}
+              onChange={(value) => void update({ generation: { topP: value } })}
+            />
+          }
+        />
+        <SettingRow
+          label="Max response tokens"
+          description="Upper bound on the length of each reply. Capped by the actual running context size, since a reply can't outgrow the context it has to fit in."
+          control={
+            <RangeControl
+              // Clamp what's displayed/draggable, not just the ceiling: a
+              // context that shrinks (either the setting being lowered, or the
+              // engine resolving a smaller real context than requested) could
+              // otherwise leave a stored value the slider can no longer
+              // represent, silently clamped by the browser instead of by us.
+              // See the context-size and GPU-layers fixes this session for the
+              // same root cause.
+              value={Math.min(settings.generation.maxTokens, effectiveContextSize)}
+              min={128}
+              max={effectiveContextSize}
+              step={128}
+              onChange={(value) => void update({ generation: { maxTokens: value } })}
+            />
+          }
+        />
+      </details>
 
       <h2 className={styles.sectionTitle} style={{ marginTop: 'var(--space-6)' }}>
         Assistant style
