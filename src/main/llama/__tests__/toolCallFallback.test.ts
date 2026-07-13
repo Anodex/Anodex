@@ -401,7 +401,7 @@ describe('detectFabricatedUserTurn', () => {
     'Want me to help fix any of these issues?',
     '',
     "You're absolutely right Gabe - I gave feedback but didn't actually fix anything!",
-    'Let me apply those fixes properly. I\'ll start by fixing the missing tags.'
+    "Let me apply those fixes properly. I'll start by fixing the missing tags."
   ].join('\n')
 
   it('finds the cut at the start of the fabricated reply, after the question', () => {
@@ -414,9 +414,9 @@ describe('detectFabricatedUserTurn', () => {
   })
 
   it('detects a concession opener', () => {
-    expect(looksLikeFabricatedUserTurn('Should I proceed? You are totally right, let me do it.')).toBe(
-      true
-    )
+    expect(
+      looksLikeFabricatedUserTurn('Should I proceed? You are totally right, let me do it.')
+    ).toBe(true)
   })
 
   it('detects a "good point" opener after a question', () => {
@@ -429,9 +429,9 @@ describe('detectFabricatedUserTurn', () => {
     expect(
       looksLikeFabricatedUserTurn('Want me to continue? My apologies, let me finish the task.')
     ).toBe(true)
-    expect(looksLikeFabricatedUserTurn("Ready to apply this? Sorry about that, fixing it now.")).toBe(
-      true
-    )
+    expect(
+      looksLikeFabricatedUserTurn('Ready to apply this? Sorry about that, fixing it now.')
+    ).toBe(true)
   })
 
   it('detects a "thanks for the feedback" opener after a question', () => {
