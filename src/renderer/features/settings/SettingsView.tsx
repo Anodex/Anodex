@@ -228,6 +228,9 @@ function GeneralToolsSection({ settings, update }: GeneralToolsSectionProps): JS
           onChange={(event) => setToolSearch(event.target.value)}
         />
         <div className={styles.toolList}>
+          {filteredTools.length === 0 && (
+            <p className={styles.toolEmpty}>No tools match “{toolSearch.trim()}”.</p>
+          )}
           {filteredTools.map((tool) => (
             <div key={tool.name} className={styles.toolItem}>
               <code className={styles.toolName}>{tool.name}</code>

@@ -238,6 +238,13 @@
   margin-top: var(--space-3);
 }
 
+.skillEmpty {
+  margin: 0;
+  padding: var(--space-3) 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
 .skillRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

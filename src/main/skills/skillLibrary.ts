@@ -41,11 +41,14 @@ export function writeSkillMarkdown(request: SkillWriteRequest): SkillWriteResult
   mkdirSync(dir, { recursive: true })
 
   const parsed = parseSkillFile(request.content, '<skill-draft>')
+  const originalFileName = request.originalName
+    ? skillFileNameFromSkillName(request.originalName)
+    : null
   const targetPath = join(dir, skillFileNameFromSkillName(parsed.name))
   writeFileSync(targetPath, request.content, 'utf-8')
 
   if (request.originalName && request.originalName !== parsed.name) {
-    const oldPath = join(dir, skillFileNameFromSkillName(request.originalName))
+    const oldPath = join(dir, originalFileName ?? '')
     if (oldPath !== targetPath && existsSync(oldPath)) rmSync(oldPath)
   }
 

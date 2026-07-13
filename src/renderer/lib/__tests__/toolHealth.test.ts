@@ -20,7 +20,7 @@ describe('buildToolHealthSummary', () => {
         webSearchProvider: 'brave'
       })
     ).toEqual([
-      { label: 'Tools', value: '4 available', tone: 'ready' },
+      { label: 'Tools', value: '4 cataloged', tone: 'ready' },
       { label: 'Project tools', value: '2 ready', tone: 'ready' },
       { label: 'Web search', value: 'brave', tone: 'ready' },
       { label: 'Approvals', value: 'Ask every time', tone: 'attention' }

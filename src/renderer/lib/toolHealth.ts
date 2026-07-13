@@ -40,7 +40,7 @@ export function buildToolHealthSummary(input: ToolHealthInput): ToolHealthItem[]
   return [
     {
       label: 'Tools',
-      value: input.toolsEnabled ? `${input.catalog.length} available` : 'Disabled',
+      value: input.toolsEnabled ? `${input.catalog.length} cataloged` : 'Disabled',
       tone: input.toolsEnabled ? 'ready' : 'blocked'
     },
     {

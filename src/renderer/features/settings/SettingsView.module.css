@@ -269,6 +269,13 @@
   border-top: 1px solid var(--border);
 }
 
+.toolEmpty {
+  margin: 0;
+  padding: var(--space-3) 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
 .toolItem {
   display: flex;
   align-items: center;

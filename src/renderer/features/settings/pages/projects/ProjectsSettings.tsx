@@ -294,6 +294,9 @@ export function ProjectsSettings(): JSX.Element {
               </p>
             ) : (
               <div className={styles.skillList}>
+                {filteredSkillCatalog.length === 0 && (
+                  <p className={styles.skillEmpty}>No skills match “{skillSearch.trim()}”.</p>
+                )}
                 {filteredSkillCatalog.map((skill) => {
                   const pinned = activeProject.pinnedSkillNames.includes(skill.name)
                   const selected =

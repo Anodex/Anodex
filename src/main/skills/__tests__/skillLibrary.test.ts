@@ -92,4 +92,21 @@ describe('writeSkillMarkdown', () => {
       })
     ).toThrow(/Invalid skill name/)
   })
+
+  it('rejects an invalid original name before writing the new skill file', () => {
+    const workspaceRoot = makeTempDir()
+    const personalDir = makeTempDir()
+
+    expect(() =>
+      writeSkillMarkdown({
+        workspaceRoot,
+        personalDir,
+        scope: 'project',
+        originalName: '../old-secret',
+        content: validSkill('new-safe-name')
+      })
+    ).toThrow(/Invalid skill name/)
+
+    expect(existsSync(join(projectSkillsDir(workspaceRoot), 'new-safe-name.md'))).toBe(false)
+  })
 })

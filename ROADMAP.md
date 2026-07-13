@@ -79,6 +79,14 @@ Remaining tool-side opportunities:
   would make the email integration more useful without letting the model send or
   mutate mail silently.
 
+Latest review notes:
+
+- The Settings tool catalog is now searchable and reports cataloged tools rather
+  than implying every conditional/email/web tool is active in the current chat.
+- Keep future tool-health work focused on explaining conditional availability
+  (web provider disabled, Gmail disabled, no active project) rather than adding
+  more catalog metadata prematurely.
+
 Avoid near-term work on broad semantic search or vision-as-a-tool until the
 larger infrastructure blockers in their existing backlog entries are resolved.
 
@@ -101,6 +109,10 @@ Remaining follow-ups:
   collapsed library, search, pin controls, markdown editor, starter templates,
   and project/personal save paths. Future passes can add delete/duplicate actions
   and richer validation previews.
+- **Draft-to-editor handoff** — the assistant footer currently copies skill
+  markdown, while the library/editor accepts manual paste. A later polish pass
+  can open a new skill editor prefilled from the draft so users do not have to
+  copy/paste between chat and Settings.
 
 Continue to defer executable skills, remote skill sharing, and marketplace
 mechanics until the markdown version proves useful and safe.
