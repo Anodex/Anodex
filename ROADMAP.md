@@ -101,18 +101,17 @@ and projects can pin skills that are auto-loaded into chat/agent prompts.
 
 Remaining follow-ups:
 
-- **Skill authoring helper** — first draft helper built: assistant replies that
-  used tools expose a subtle **Draft skill** action that copies reviewable
-  markdown; Settings → Projects now provides the compact library/editor needed to
-  paste, review, create, and save project/personal skill markdown.
+- **Skill authoring helper** — assistant replies that used tools expose a subtle
+  **Draft skill** action that opens reviewable markdown directly in the compact
+  Settings → Projects library/editor, where it can be edited and saved as a
+  project skill.
 - **Library/editor UI** — first compact version built in Settings → Projects:
   collapsed library, search, pin controls, markdown editor, starter templates,
   and project/personal save paths. Future passes can add delete/duplicate actions
   and richer validation previews.
-- **Draft-to-editor handoff** — the assistant footer currently copies skill
-  markdown, while the library/editor accepts manual paste. A later polish pass
-  can open a new skill editor prefilled from the draft so users do not have to
-  copy/paste between chat and Settings.
+- **Draft-to-editor handoff** — built: the assistant footer opens generated
+  markdown directly in the project skill editor. Future polish can add a
+  project/personal scope chooser before opening the editor.
 
 Continue to defer executable skills, remote skill sharing, and marketplace
 mechanics until the markdown version proves useful and safe.

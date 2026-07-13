@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Project } from '@shared/project.types'
 import type { SkillDocument, SkillScope, SkillSummary } from '@shared/skill.types'
+import {
+  consumePendingSkillEditorDraft,
+  pendingSkillEditorDraftName
+} from '../../../../lib/skillEditorDraftHandoff'
 import { useProjectStore, getActiveProject } from '../../../../stores/projectStore'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { anodex } from '../../../../lib/anodex'
@@ -30,6 +34,7 @@ export function ProjectsSettings(): JSX.Element {
   const [skillDraft, setSkillDraft] = useState('')
   const [skillError, setSkillError] = useState<string | null>(null)
   const [savingSkill, setSavingSkill] = useState(false)
+  const [skillLibraryOpen, setSkillLibraryOpen] = useState(false)
   const activeProjectIdForSkills = activeProject?.id ?? null
 
   useEffect(() => {
@@ -55,6 +60,21 @@ export function ProjectsSettings(): JSX.Element {
       cancelled = true
     }
   }, [loadSkills])
+
+  useEffect(() => {
+    if (!activeProjectIdForSkills) return
+    try {
+      const draft = consumePendingSkillEditorDraft(sessionStorage)
+      if (!draft) return
+      const name = pendingSkillEditorDraftName(draft)
+      setSkillError(null)
+      setSkillLibraryOpen(true)
+      setEditingSkill({ name, scope: 'project', content: draft })
+      setSkillDraft(draft)
+    } catch {
+      setSkillError('Could not open skill draft')
+    }
+  }, [activeProjectIdForSkills])
 
   const startCreate = async (): Promise<void> => {
     const result = await anodex.tools.pickWorkspace()
@@ -262,7 +282,11 @@ export function ProjectsSettings(): JSX.Element {
             </div>
           </div>
 
-          <details className={styles.skillsDisclosure}>
+          <details
+            className={styles.skillsDisclosure}
+            open={skillLibraryOpen}
+            onToggle={(event) => setSkillLibraryOpen(event.currentTarget.open)}
+          >
             <summary className={styles.skillsSummary}>
               <span>
                 Skill library

@@ -4,7 +4,9 @@ import { AnodexLogo } from '../../components/AnodexLogo'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatBytes, formatClock } from '../../lib/format'
+import { savePendingSkillEditorDraft } from '../../lib/skillEditorDraftHandoff'
 import { buildSkillDraft } from '../../lib/skillDraft'
+import { useUiStore } from '../../stores/uiStore'
 import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
@@ -22,8 +24,10 @@ export function MessageBubble({
   previousUserContent?: string
 }): JSX.Element {
   const isUser = message.role === 'user'
+  const openSettings = useUiStore((s) => s.openSettings)
+  const notify = useUiStore((s) => s.notify)
   const [copied, setCopied] = useState(false)
-  const [draftCopied, setDraftCopied] = useState(false)
+  const [draftOpened, setDraftOpened] = useState(false)
   const showCopy = !message.streaming && message.content.length > 0
   const showSkillDraft =
     !isUser &&
@@ -41,18 +45,24 @@ export function MessageBubble({
     }
   }
 
-  const handleDraftSkill = async (): Promise<void> => {
+  const handleDraftSkill = (): void => {
     try {
       const draft = buildSkillDraft({
         userPrompt: previousUserContent || 'Workflow from chat',
         assistantContent: message.content,
         toolNames: message.toolCalls?.map((call) => call.name) ?? []
       })
-      await navigator.clipboard.writeText(draft)
-      setDraftCopied(true)
-      setTimeout(() => setDraftCopied(false), 1500)
+      savePendingSkillEditorDraft(sessionStorage, draft)
+      setDraftOpened(true)
+      openSettings('projects')
+      notify({
+        kind: 'success',
+        title: 'Skill draft opened',
+        message: 'Review and save it from the project skill library.'
+      })
+      setTimeout(() => setDraftOpened(false), 1500)
     } catch {
-      /* Clipboard unavailable — silently ignore. */
+      /* Storage unavailable — silently ignore. */
     }
   }
   const segments = buildRenderSegments(messageBlocks(message))
@@ -142,12 +152,12 @@ export function MessageBubble({
               <button
                 type="button"
                 className={styles.copyButton}
-                onClick={() => void handleDraftSkill()}
-                aria-label="Copy skill draft"
-                title="Copy a reviewable markdown skill draft from this workflow"
+                onClick={handleDraftSkill}
+                aria-label="Open skill draft"
+                title="Open a reviewable markdown skill draft in the project skill library"
               >
-                <Icon name={draftCopied ? 'check' : 'sparkle'} size={12} />
-                {draftCopied ? 'Draft copied' : 'Draft skill'}
+                <Icon name={draftOpened ? 'check' : 'sparkle'} size={12} />
+                {draftOpened ? 'Draft opened' : 'Draft skill'}
               </button>
             )}
           </div>
