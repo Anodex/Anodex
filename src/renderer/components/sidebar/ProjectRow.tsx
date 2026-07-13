@@ -47,7 +47,8 @@ export function ProjectRow({
   onDelete
 }: ProjectRowProps): JSX.Element {
   const [hovered, setHovered] = useState(false)
-  const showProjectStatus = !expanded && (running || unread)
+  const showRunningGlow = !expanded && running
+  const showUnreadDot = !expanded && !running && unread
 
   const isConversationRunning = (conversation: Conversation): boolean =>
     conversation.messages.some((message) => message.streaming)
@@ -66,19 +67,23 @@ export function ProjectRow({
     >
       <div className={styles.header}>
         <button type="button" className={styles.toggle} onClick={onToggle} title={project.name}>
-          <span className={styles.name}>{project.name}</span>
+          <span className={styles.titleWrap}>
+            <span className={styles.name}>{project.name}</span>
+            {showRunningGlow && (
+              <span className={styles.runTrack} aria-hidden="true">
+                <span className={styles.runHalo} />
+                <span className={styles.runCore} />
+              </span>
+            )}
+          </span>
           <Icon
             name="chevron-down"
             size={12}
             className={`${styles.chevron} ${expanded ? '' : styles.chevronCollapsed}`}
           />
-          {showProjectStatus && (
-            <span className={`${styles.status} ${running ? styles.running : styles.unread}`}>
-              {running ? (
-                <span className={styles.spinner} aria-hidden="true" />
-              ) : (
-                <span className={styles.unreadDot} aria-hidden="true" />
-              )}
+          {showUnreadDot && (
+            <span className={styles.status}>
+              <span className={styles.unreadDot} aria-hidden="true" />
             </span>
           )}
         </button>

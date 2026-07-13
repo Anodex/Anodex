@@ -41,7 +41,6 @@ export function ChatRow({
   const [menuPoint, setMenuPoint] = useState<{ x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState(false)
   const time = formatRelativeTime(conversation.updatedAt)
-  const showingStatus = running || unread
 
   useEffect(() => {
     return () => {
@@ -110,20 +109,21 @@ export function ChatRow({
         {conversation.origin === 'agent' && (
           <Icon name="wand" size={12} className={styles.scheduledIcon} />
         )}
-        <span className={styles.title}>{conversation.title}</span>
+        <span className={styles.titleWrap}>
+          <span className={styles.title}>{conversation.title}</span>
+          {running && (
+            <span className={styles.runTrack} aria-hidden="true">
+              <span className={styles.runHalo} />
+              <span className={styles.runCore} />
+            </span>
+          )}
+        </span>
       </button>
       <span className={styles.meta}>
         <span className={styles.defaultMeta}>
-          {showingStatus ? (
-            <span
-              className={`${styles.status} ${running ? styles.running : styles.unread}`}
-              title={running ? 'Assistant is responding' : 'Unread'}
-            >
-              {running ? (
-                <span className={styles.spinner} aria-hidden="true" />
-              ) : (
-                <span className={styles.unreadDot} aria-hidden="true" />
-              )}
+          {unread ? (
+            <span className={`${styles.status} ${styles.unread}`} title="Unread">
+              <span className={styles.unreadDot} aria-hidden="true" />
             </span>
           ) : (
             <span className={styles.time}>{time}</span>
