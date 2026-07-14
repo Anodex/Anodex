@@ -85,9 +85,15 @@ interface GuardedToolSpec extends ReadToolSpec {
   /** How risky this call is; decides whether the active permission mode confirms it. */
   risk: ToolRisk
   /**
-   * Overrides the permission-mode decision with a fixed answer. Used by tools that
-   * have their own independent approval toggle (e.g. `web_search`'s privacy setting)
-   * instead of following the workspace permission mode.
+   * Adds an extra, independent reason to confirm — used by tools with their own
+   * approval toggle (e.g. `web_search`'s privacy setting). Additive only: `true`
+   * forces a confirmation the permission mode/turn gate wouldn't otherwise
+   * require. `false` and `undefined` behave identically — neither one can
+   * remove a confirmation the permission mode or turn gate would otherwise
+   * require; there is no way to force auto-run through this field. (A prior
+   * version treated `false` as an unconditional bypass — `web_search`'s
+   * `forceConfirm: ctx.webSearch.requireApproval` silently skipped the turn
+   * gate too whenever that setting was off, not just its own toggle.)
    */
   forceConfirm?: boolean
 }
@@ -213,7 +219,8 @@ export async function runGuardedTool(
   try {
     const permissionDecision = resolvePermission(ctx.permissionMode, spec.risk)
     const gatedByTurnStart = needsTurnGate(ctx.permissionMode, spec.risk, ctx.turnGate.approved)
-    const needsConfirm = spec.forceConfirm ?? (permissionDecision === 'confirm' || gatedByTurnStart)
+    const needsConfirm =
+      spec.forceConfirm === true || permissionDecision === 'confirm' || gatedByTurnStart
     if (needsConfirm) {
       const response = await ctx.confirm({
         id: randomUUID(),
@@ -238,7 +245,13 @@ export async function runGuardedTool(
         })
         return composeDenialMessage(response.reason)
       }
-      ctx.turnGate.approved = true
+      // Only the turn gate's own checkpoint satisfies the turn gate — an
+      // unrelated confirmation (a forced privacy toggle, a plain
+      // ask-mode/destructive confirm) approving here must not silently mark
+      // the turn's "first action" checkpoint as done too, or a later call
+      // that genuinely needed that checkpoint would auto-run without ever
+      // showing it.
+      if (gatedByTurnStart) ctx.turnGate.approved = true
     }
 
     const { modelResult, detail, diff, preview } = await spec.run()

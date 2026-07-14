@@ -41,7 +41,13 @@ export function requestToolConfirmation(
   request: ToolConfirmRequest,
   signal?: AbortSignal
 ): Promise<ToolConfirmResponse> {
+  // A `turnGate: true` request exists specifically to be this turn's own
+  // "first action" checkpoint (see `needsTurnGate` in `permissions.ts`) — a
+  // remembered "Always allow this tool" from an earlier turn is about trust
+  // in that specific tool, not an opt-out of the once-per-turn checkpoint
+  // itself, so it must not silently satisfy this one.
   if (
+    !request.turnGate &&
     request.risk !== 'destructive' &&
     rememberedToolApprovals.has(approvalKey(request.toolName, request.conversationId))
   ) {

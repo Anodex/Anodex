@@ -56,6 +56,26 @@ describe('tool approval handling', () => {
     resolvePendingConfirmationForTests(destructive.id, { approved: true, remember: true })
     await expect(destructiveResult).resolves.toEqual({ approved: true, remember: true })
   })
+
+  it('does not skip a turn-gated confirmation even when the tool was remembered', async () => {
+    const sender = createSender()
+    const remembered = request('safe-1', 'edit_file', 'sensitive')
+
+    const rememberedResult = requestToolConfirmation(sender, remembered)
+    resolvePendingConfirmationForTests(remembered.id, { approved: true, remember: true })
+    await rememberedResult
+    expect(sender.sent).toHaveLength(1)
+
+    // Same tool, same conversation, remembered — but this one exists
+    // specifically because it's the turn's own "first action" checkpoint,
+    // which a per-tool remembered approval must not silently satisfy.
+    const turnGated = { ...request('safe-2', 'edit_file', 'sensitive'), turnGate: true }
+    const turnGatedResult = requestToolConfirmation(sender, turnGated)
+
+    expect(sender.sent).toHaveLength(2)
+    resolvePendingConfirmationForTests(turnGated.id, { approved: true })
+    await expect(turnGatedResult).resolves.toEqual({ approved: true })
+  })
 })
 
 function createSender(): WebContents & { sent: ToolConfirmRequest[] } {

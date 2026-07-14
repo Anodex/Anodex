@@ -153,6 +153,51 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
     expect(requests).toHaveLength(2)
     expect(requests[1].turnGate).toBeFalsy()
   })
+
+  it("forceConfirm: false does not bypass the turn gate (web_search's bug)", async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+
+    await runGuardedTool(ctx, { ...guardedSpec('safe'), forceConfirm: false })
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0].turnGate).toBe(true)
+  })
+
+  it('forceConfirm: true still forces its own confirmation, unaffected by the fix', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+
+    await runGuardedTool(ctx, { ...guardedSpec('trivial'), forceConfirm: true })
+
+    expect(requests).toHaveLength(1)
+  })
+
+  it('approving an unrelated forced confirmation does not satisfy the turn gate', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+
+    // Forced independently of risk/mode — not the turn's own checkpoint.
+    await runGuardedTool(ctx, { ...guardedSpec('trivial'), forceConfirm: true })
+    expect(ctx.turnGate.approved).toBe(false)
+
+    // The real first safe action still has to show its own gate.
+    await runGuardedTool(ctx, guardedSpec('safe'))
+    expect(requests).toHaveLength(2)
+    expect(requests[1].turnGate).toBe(true)
+  })
+
+  it('approving a destructive confirmation does not satisfy the turn gate either', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+
+    await runGuardedTool(ctx, guardedSpec('destructive'))
+    expect(ctx.turnGate.approved).toBe(false)
+
+    await runGuardedTool(ctx, guardedSpec('safe'))
+    expect(requests).toHaveLength(2)
+    expect(requests[1].turnGate).toBe(true)
+  })
 })
 
 describe('composeDenialMessage', () => {
