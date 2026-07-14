@@ -168,48 +168,58 @@ function overlapScore(text: string, queryWords: Set<string>): number {
 }
 function build(root: string): string {
   if (!existsSync(root)) return ''
-  const lines: string[] = [`Name: ${basename(root)}`, `Path: ${root}`]
+  const coreLines: string[] = [`Name: ${basename(root)}`, `Path: ${root}`]
 
   const pkg = readJson(join(root, 'package.json'))
   if (pkg && typeof pkg === 'object') {
     const record = pkg as Record<string, unknown>
-    if (typeof record.name === 'string') lines.push(`package.json name: ${record.name}`)
+    if (typeof record.name === 'string') coreLines.push(`package.json name: ${record.name}`)
     if (record.scripts && typeof record.scripts === 'object') {
       const scripts = Object.keys(record.scripts)
-      if (scripts.length) lines.push(`Scripts: ${scripts.join(', ')}`)
+      if (scripts.length) coreLines.push(`Scripts: ${scripts.join(', ')}`)
     }
   }
 
   const tree = topLevelTree(root)
   if (tree.length) {
-    lines.push('Top-level entries:')
-    lines.push(tree.join('\n'))
+    coreLines.push('Top-level entries:')
+    coreLines.push(tree.join('\n'))
   }
 
   const readme = readmeExcerpt(root)
   if (readme) {
-    lines.push('README (excerpt):')
-    lines.push(readme)
+    coreLines.push('README (excerpt):')
+    coreLines.push(readme)
   }
 
+  // Notes and SPEC.md are built separately from the core section (name, tree,
+  // README, ...) and their combined length is reserved out of MAX_CHARS
+  // *before* the core is truncated below — otherwise a large top-level tree
+  // or long README alone could fill the entire budget, silently evicting
+  // SPEC.md (added last) with no signal to the model that it was dropped.
+  const trailingLines: string[] = []
   const notes = projectNotesExcerpt(root)
   if (notes) {
-    lines.push(
-      `Notes Anodex previously recorded about this project (from ${PROJECT_NOTES_FILENAME}, most recent last):`
+    trailingLines.push(
+      `Notes Anodex previously recorded about this project (from ${PROJECT_NOTES_FILENAME}, most recent last):`,
+      notes
     )
-    lines.push(notes)
   }
-
   const spec = specExcerpt(root)
   if (spec) {
-    lines.push(
-      "This project's living spec (from .anodex/SPEC.md, built from archived change proposals, most recent last):"
+    trailingLines.push(
+      "This project's living spec (from .anodex/SPEC.md, built from archived change proposals, most recent last):",
+      spec
     )
-    lines.push(spec)
   }
+  const trailingText = trailingLines.length ? `\n${trailingLines.join('\n')}` : ''
 
-  const text = lines.join('\n')
-  return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS)}\n…` : text
+  const coreText = coreLines.join('\n')
+  const coreBudget = Math.max(0, MAX_CHARS - trailingText.length)
+  const truncatedCore =
+    coreText.length > coreBudget ? `${coreText.slice(0, coreBudget)}\n…` : coreText
+
+  return `${truncatedCore}${trailingText}`
 }
 
 /** List top-level entries, folders first, ignoring build/vcs directories. */

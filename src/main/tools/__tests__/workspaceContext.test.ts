@@ -202,6 +202,36 @@ describe('buildWorkspaceContext', () => {
     const context = buildWorkspaceContext(workspace, null)
     expect(context).not.toContain('living spec')
   })
+
+  it('keeps SPEC.md even when a large top-level tree would otherwise fill the whole budget', async () => {
+    for (let i = 0; i < 500; i++) {
+      await writeFile(join(workspace, `file-${i}.txt`), 'x')
+    }
+    await mkdir(join(workspace, '.anodex'), { recursive: true })
+    await writeFile(
+      join(workspace, '.anodex', 'SPEC.md'),
+      '# Project spec\n\n## Add dark mode\n\nUsers asked for it.\n'
+    )
+
+    const context = buildWorkspaceContext(workspace, null)
+
+    expect(context).toContain('living spec')
+    expect(context).toContain('Add dark mode')
+  })
+
+  it('keeps SPEC.md even when a long README would otherwise fill the whole budget', async () => {
+    await writeFile(join(workspace, 'README.md'), 'x'.repeat(5000))
+    await mkdir(join(workspace, '.anodex'), { recursive: true })
+    await writeFile(
+      join(workspace, '.anodex', 'SPEC.md'),
+      '# Project spec\n\n## Add dark mode\n\nUsers asked for it.\n'
+    )
+
+    const context = buildWorkspaceContext(workspace, null)
+
+    expect(context).toContain('living spec')
+    expect(context).toContain('Add dark mode')
+  })
 })
 
 describe('project-memory retrieval ranking', () => {
