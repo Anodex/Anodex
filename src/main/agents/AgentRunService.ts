@@ -165,6 +165,7 @@ class AgentRunService {
           finished,
           summary,
           stopped,
+          stopReason,
           tokens,
           plan: nextPlan
         } = await this.runTurn(
@@ -180,10 +181,16 @@ class AgentRunService {
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan })
         this.broadcastRunsChanged()
 
-        if (stopped) {
+        if (stopped && stopReason !== 'loop-guard') {
           this.finish(run.id, conversation.id, 'stopped', null, 'Run was stopped.')
           return
         }
+        // A loop-guard trip (a call kept repeating after being blocked — see
+        // `LOOP_GUARD_ABORT_AFTER` in `loopGuard.ts`) only ends *this* turn,
+        // not the whole run: the guard's state is per-generation, so the next
+        // turn starts with a clean slate and a genuine chance to make
+        // progress, rather than the run dying over one bad turn. Falls
+        // through to the budget/check-in logic below, same as any other turn.
         if (finished) {
           this.finish(run.id, conversation.id, 'done', summary, null)
           return
@@ -331,6 +338,7 @@ class AgentRunService {
     finished: boolean
     summary: string | null
     stopped: boolean
+    stopReason?: 'user' | 'loop-guard'
     tokens: number
     plan: Plan | null
   }> {
@@ -407,6 +415,7 @@ class AgentRunService {
       finished: Boolean(finishCall),
       summary: finishCall?.detail ?? null,
       stopped: result.stopped,
+      stopReason: result.stopReason,
       tokens: result.stats.tokens,
       plan: latestPlan
     }

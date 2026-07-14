@@ -184,6 +184,19 @@ export interface GenerateOutcome {
   content: string
   stats: GenerationStats
   stopped: boolean
+  /**
+   * Why `stopped` is true, when known. `'user'` — a real Stop click/signal
+   * abort. `'loop-guard'` — the loop guard force-aborted this generation
+   * because a call kept repeating after being blocked (see
+   * `LOOP_GUARD_ABORT_AFTER` in `loopGuard.ts`). Undefined for every other
+   * stop path (fabricated-turn detection, context-shift recovery, or a
+   * provider — Anthropic/OpenAI — that doesn't distinguish reasons at all).
+   * Callers that don't care can ignore this and treat any `stopped: true`
+   * the same as before; `AgentRunService` uses it specifically to tell "the
+   * user wants everything to stop" apart from "this one turn looped" —
+   * only the former should end a whole multi-turn run.
+   */
+  stopReason?: 'user' | 'loop-guard'
 }
 
 /**
@@ -440,6 +453,11 @@ class LlamaService extends EventEmitter {
     let visibleContent = ''
     let tokenCount = 0
     let stopped = false
+    // Set only by the loop guard's abort (see `abortBox` below) — distinct
+    // from `genController.signal.aborted`, which also goes true on a plain
+    // user stop (forwarded into it) or the pre-existing fabricated-turn
+    // abort, neither of which should get the loop-guard-specific stopReason.
+    let loopGuardAborted = false
     let usedIntentNudge = false
     const originalPrompt = params.prompt
     let prompt = params.prompt
@@ -466,7 +484,18 @@ class LlamaService extends EventEmitter {
     }
     // Now that it exists, let the loop guard (see `checkLoopGuard` in
     // `loopGuard.ts`) reach it through the box passed into buildToolFunctions.
-    abortBox.current = () => genController.abort()
+    abortBox.current = () => {
+      loopGuardAborted = true
+      genController.abort()
+    }
+    // A real user stop takes priority in the reported reason even if the
+    // loop guard also fired around the same moment — vanishingly unlikely,
+    // but "the user asked to stop" is the more actionable thing to report.
+    const currentStopReason = (): GenerateOutcome['stopReason'] => {
+      if (params.signal?.aborted) return 'user'
+      if (loopGuardAborted) return 'loop-guard'
+      return undefined
+    }
     // Index within the current round's content where a fabricated user turn
     // begins, once detected — everything from here on is dropped.
     let fabricatedTurnCut: number | null = null
@@ -741,7 +770,8 @@ class LlamaService extends EventEmitter {
       return {
         content: visibleContent,
         stats: buildStats(tokenCount, startedAt),
-        stopped
+        stopped,
+        stopReason: stopped ? currentStopReason() : undefined
       }
     } catch (error) {
       // `genController` also gets aborted internally by the loop guard (see
@@ -752,7 +782,12 @@ class LlamaService extends EventEmitter {
       // below rather than surfacing a confusing raw abort error.
       if (params.signal?.aborted || genController.signal.aborted) {
         log.info('Generation stopped (user or loop guard)')
-        return { content: visibleContent, stats: buildStats(tokenCount, startedAt), stopped: true }
+        return {
+          content: visibleContent,
+          stats: buildStats(tokenCount, startedAt),
+          stopped: true,
+          stopReason: currentStopReason()
+        }
       }
       // The reactive recovery inside the round loop above only retries a
       // *fresh* round (round 0, no content yet) — a context-shift crash

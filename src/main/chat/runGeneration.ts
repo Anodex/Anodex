@@ -59,6 +59,8 @@ export interface RunGenerationResult {
   content: string
   stats: GenerationStats
   stopped: boolean
+  /** Why `stopped` is true, when known — see `GenerateOutcome.stopReason`'s doc comment. */
+  stopReason?: 'user' | 'loop-guard'
   /** Memory entries retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts retrieved and injected into context for this turn, if any. */
@@ -370,6 +372,7 @@ export async function runGeneration(
     content,
     stats: outcome.stats,
     stopped: outcome.stopped,
+    stopReason: outcome.stopReason,
     memoryUsed: memory?.entries,
     transcriptRecallUsed: transcriptRecall?.results,
     context: contextUpdate
