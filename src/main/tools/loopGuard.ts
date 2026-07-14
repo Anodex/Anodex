@@ -22,26 +22,46 @@ export function createLoopGuardState(): LoopGuardState {
 export const LOOP_GUARD_LIMIT = 3
 
 /**
- * Record an attempted call and report whether it should be blocked. Mutates
+ * If a model keeps repeating the exact same call even after being blocked
+ * and told to stop, generation is force-aborted once the total attempt count
+ * reaches this many — rather than trusting the model to eventually listen.
+ * Observed directly: blocking the call (see `LOOP_GUARD_LIMIT`) stopped the
+ * wasted backend work, but the model kept re-issuing the identical blocked
+ * call anyway — 205 times in a row — until the context window itself ran
+ * out, which is the exact failure this guard exists to prevent. A couple of
+ * ignored nudges are tolerated (a model may need one retry to adjust
+ * course); this many in a row means it isn't reacting to the message at all.
+ */
+export const LOOP_GUARD_ABORT_AFTER = LOOP_GUARD_LIMIT + 3
+
+/**
+ * Record an attempted call and report whether it should be blocked, and
+ * whether generation should be force-aborted outright. Mutates
  * `state.counts` — call once per attempted tool invocation, before running it.
  */
 export function checkLoopGuard(
   state: LoopGuardState,
   name: string,
   title: string
-): { blocked: boolean; count: number } {
+): { blocked: boolean; shouldAbort: boolean; count: number } {
   const key = `${name}::${title}`
   const count = (state.counts.get(key) ?? 0) + 1
   state.counts.set(key, count)
-  return { blocked: count > LOOP_GUARD_LIMIT, count }
+  return {
+    blocked: count > LOOP_GUARD_LIMIT,
+    shouldAbort: count >= LOOP_GUARD_ABORT_AFTER,
+    count
+  }
 }
 
 /** The model-facing message returned instead of actually running a blocked call. */
-export function loopGuardMessage(name: string, count: number): string {
-  return (
+export function loopGuardMessage(name: string, count: number, aborting: boolean): string {
+  const base =
     `You've already called ${name} with identical arguments ${count} times this turn ` +
     'without new results — this looks like a loop, not progress. Stop repeating this exact ' +
     'call. Try different arguments, use a different tool, or explain to the user what is ' +
     'blocking you instead.'
-  )
+  return aborting
+    ? `${base} Generation is being stopped now because this kept repeating after being told to stop.`
+    : base
 }

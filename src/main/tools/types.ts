@@ -67,6 +67,17 @@ export interface ToolRuntimeContext {
    * re-issuing the same call over and over instead of making progress.
    */
   loopGuard: LoopGuardState
+  /**
+   * Force-ends the current generation outright, when the engine supports it
+   * (currently local-only — see `LlamaService`'s `genController`). Called by
+   * the loop guard once a model keeps repeating an identical call even after
+   * being blocked and told to stop (see `LOOP_GUARD_ABORT_AFTER` in
+   * `loopGuard.ts`) — cloud providers don't need this since their explicit
+   * per-round tool loop already bounds worst-case repetition via
+   * `MAX_TOOL_ROUNDS`, unlike the local engine's opaque internal
+   * function-calling loop, which can spin many times within a single round.
+   */
+  abortGeneration?: () => void
   signal?: AbortSignal
   /** Report a tool call's progress to the UI. */
   emit: (call: ToolCall) => void

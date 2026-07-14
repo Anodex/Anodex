@@ -246,4 +246,44 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
     // Blocked before the confirm prompt — the user is never asked a 4th time.
     expect(requests).toHaveLength(3)
   })
+
+  it('force-aborts generation once a blocked read-tool call keeps repeating', async () => {
+    const abortGeneration = vi.fn()
+    const ctx = { ...createMockContext(root), abortGeneration }
+
+    // 3 pass through for real, then 3 more get blocked-with-a-message before
+    // the abort threshold (LOOP_GUARD_LIMIT + 3) is reached on the 6th call.
+    for (let i = 0; i < 5; i++) {
+      await runReadTool(ctx, readSpec('Find skill "foo"'))
+      expect(abortGeneration).not.toHaveBeenCalled()
+    }
+    await runReadTool(ctx, readSpec('Find skill "foo"'))
+    expect(abortGeneration).toHaveBeenCalledTimes(1)
+  })
+
+  it('force-aborts generation once a blocked guarded-tool call keeps repeating', async () => {
+    const abortGeneration = vi.fn()
+    const { confirm } = captureConfirmations()
+    const ctx = {
+      ...createMockContext(root),
+      permissionMode: 'ask' as const,
+      confirm,
+      abortGeneration
+    }
+
+    for (let i = 0; i < 5; i++) {
+      await runGuardedTool(ctx, guardedSpec('Write file: same.ts'))
+      expect(abortGeneration).not.toHaveBeenCalled()
+    }
+    await runGuardedTool(ctx, guardedSpec('Write file: same.ts'))
+    expect(abortGeneration).toHaveBeenCalledTimes(1)
+  })
+
+  it('is safe to call without abortGeneration wired up (cloud providers today)', async () => {
+    const ctx = createMockContext(root)
+    for (let i = 0; i < 8; i++) {
+      const result = await runReadTool(ctx, readSpec('Find skill "foo"'))
+      expect(typeof result).toBe('string')
+    }
+  })
 })

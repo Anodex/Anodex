@@ -102,7 +102,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, spec.title)
   if (loopGuard.blocked) {
-    const message = loopGuardMessage(spec.name, loopGuard.count)
+    const message = loopGuardMessage(spec.name, loopGuard.count, loopGuard.shouldAbort)
     ctx.emit({
       id,
       name: spec.name,
@@ -112,6 +112,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
       detail: 'Blocked: repeated identical call',
       result: message
     })
+    if (loopGuard.shouldAbort) ctx.abortGeneration?.()
     return message
   }
   try {
@@ -195,7 +196,7 @@ export async function runGuardedTool(
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, spec.title)
   if (loopGuard.blocked) {
-    const message = loopGuardMessage(spec.name, loopGuard.count)
+    const message = loopGuardMessage(spec.name, loopGuard.count, loopGuard.shouldAbort)
     ctx.emit({
       id,
       name: spec.name,
@@ -205,6 +206,7 @@ export async function runGuardedTool(
       detail: 'Blocked: repeated identical call',
       result: message
     })
+    if (loopGuard.shouldAbort) ctx.abortGeneration?.()
     return message
   }
 

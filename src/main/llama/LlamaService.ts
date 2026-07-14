@@ -399,23 +399,30 @@ class LlamaService extends EventEmitter {
     let hadAnyToolAttempt = false
     const currentModel = this.currentModel
     let functions: Record<string, ToolFunction> | undefined
+    // Filled in below once `genController` exists — see `buildToolFunctions`'s
+    // doc comment for why this can't just be passed in directly.
+    const abortBox: { current: (() => void) | null } = { current: null }
     try {
-      functions = await this.buildToolFunctions(params, (call) => {
-        hadAnyToolAttempt = true
-        if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
-        // Denied calls are excluded — that's a user decision, not a signal
-        // about the model's own reliability.
-        if (currentModel && (call.status === 'success' || call.status === 'error')) {
-          modelReliabilityStore.recordToolCall(
-            currentModel.id,
-            currentModel.name,
-            call.name,
-            call.status,
-            basename(currentModel.path)
-          )
-        }
-        params.tools?.onActivity(call)
-      })
+      functions = await this.buildToolFunctions(
+        params,
+        (call) => {
+          hadAnyToolAttempt = true
+          if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
+          // Denied calls are excluded — that's a user decision, not a signal
+          // about the model's own reliability.
+          if (currentModel && (call.status === 'success' || call.status === 'error')) {
+            modelReliabilityStore.recordToolCall(
+              currentModel.id,
+              currentModel.name,
+              call.name,
+              call.status,
+              basename(currentModel.path)
+            )
+          }
+          params.tools?.onActivity(call)
+        },
+        abortBox
+      )
     } catch (error) {
       this.generating = false
       this.emitState()
@@ -449,6 +456,9 @@ class LlamaService extends EventEmitter {
       if (params.signal.aborted) genController.abort()
       else params.signal.addEventListener('abort', forwardAbort, { once: true })
     }
+    // Now that it exists, let the loop guard (see `checkLoopGuard` in
+    // `loopGuard.ts`) reach it through the box passed into buildToolFunctions.
+    abortBox.current = () => genController.abort()
     // Index within the current round's content where a fabricated user turn
     // begins, once detected — everything from here on is dropped.
     let fabricatedTurnCut: number | null = null
@@ -726,8 +736,14 @@ class LlamaService extends EventEmitter {
         stopped
       }
     } catch (error) {
-      if (params.signal?.aborted) {
-        log.info('Generation stopped by user')
+      // `genController` also gets aborted internally by the loop guard (see
+      // `checkLoopGuard`/`abortBox` above), not just by `params.signal` — if
+      // `promptWithMeta` throws instead of resolving with `stopReason:
+      // 'abort'` for that case, this still ends the turn cleanly with
+      // whatever content was already produced, matching the graceful path
+      // below rather than surfacing a confusing raw abort error.
+      if (params.signal?.aborted || genController.signal.aborted) {
+        log.info('Generation stopped (user or loop guard)')
         return { content: visibleContent, stats: buildStats(tokenCount, startedAt), stopped: true }
       }
       // The reactive recovery inside the round loop above only retries a
@@ -1097,10 +1113,17 @@ class LlamaService extends EventEmitter {
     )
   }
 
-  /** Build the workspace tool set for a generation, or `undefined` if disabled. */
+  /**
+   * Build the workspace tool set for a generation, or `undefined` if disabled.
+   * `abortBox` is a mutable box the caller fills in with the real abort
+   * function once `genController` exists — `buildToolFunctions` runs before
+   * that, so the box lets the loop guard reach it anyway (same pattern as
+   * `plan`/`turnGate` below, just resolved slightly later than those).
+   */
   private async buildToolFunctions(
     params: GenerateParams,
-    onActivity: (call: ToolCall) => void
+    onActivity: (call: ToolCall) => void,
+    abortBox: { current: (() => void) | null }
   ): Promise<Record<string, ToolFunction> | undefined> {
     if (!params.tools) return undefined
     const nlc = await this.getModule()
@@ -1125,6 +1148,9 @@ class LlamaService extends EventEmitter {
       // Fresh every generation call, same reasoning as `turnGate` above — see
       // `ToolRuntimeContext.loopGuard`'s doc comment.
       loopGuard: createLoopGuardState(),
+      // See `ToolRuntimeContext.abortGeneration`'s doc comment and this
+      // method's own doc comment above for why this goes through a box.
+      abortGeneration: () => abortBox.current?.(),
       signal: params.signal,
       emit: onActivity,
       confirm: params.tools.confirm
