@@ -2,6 +2,7 @@ import type { ChatSessionModelFunction } from 'node-llama-cpp'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
+import type { LoopGuardState } from './loopGuard'
 
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
 type NlcModule = typeof import('node-llama-cpp')
@@ -59,6 +60,13 @@ export interface ToolRuntimeContext {
    * read/written by `runGuardedTool`.
    */
   turnGate: { approved: boolean }
+  /**
+   * Mutable per-generation tally of identical (name + title) calls, shared by
+   * every tool call in this generation, same pattern as `plan`/`turnGate`
+   * above — see `checkLoopGuard` in `loopGuard.ts`. Catches a model stuck
+   * re-issuing the same call over and over instead of making progress.
+   */
+  loopGuard: LoopGuardState
   signal?: AbortSignal
   /** Report a tool call's progress to the UI. */
   emit: (call: ToolCall) => void

@@ -36,6 +36,7 @@ import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
+import { createLoopGuardState } from '../tools/loopGuard'
 import {
   assembleModelContext,
   mergeContextSummaries,
@@ -1121,6 +1122,9 @@ class LlamaService extends EventEmitter {
       // Fresh every generation call, no seeding needed (unlike `plan`) — see
       // `ToolRuntimeContext.turnGate`'s doc comment.
       turnGate: { approved: false },
+      // Fresh every generation call, same reasoning as `turnGate` above — see
+      // `ToolRuntimeContext.loopGuard`'s doc comment.
+      loopGuard: createLoopGuardState(),
       signal: params.signal,
       emit: onActivity,
       confirm: params.tools.confirm

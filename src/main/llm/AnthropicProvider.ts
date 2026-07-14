@@ -9,6 +9,7 @@ import {
   MIN_SUMMARY_CHARS
 } from '../llama/compaction'
 import { buildTools } from '../tools/registry'
+import { createLoopGuardState } from '../tools/loopGuard'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
@@ -74,6 +75,9 @@ class AnthropicProvider implements LlmProvider {
           // Fresh every generation call, no seeding needed (unlike `plan`) —
           // see `ToolRuntimeContext.turnGate`'s doc comment.
           turnGate: { approved: false },
+          // Fresh every generation call, same reasoning as `turnGate` above —
+          // see `ToolRuntimeContext.loopGuard`'s doc comment.
+          loopGuard: createLoopGuardState(),
           signal: params.signal,
           emit: params.tools.onActivity,
           confirm: params.tools.confirm

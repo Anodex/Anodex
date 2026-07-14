@@ -4,6 +4,7 @@ import type { FileTouchAction } from '@shared/projectMemory.types'
 import type { Plan } from '@shared/plan.types'
 import type { ToolRuntimeContext } from './types'
 import { needsTurnGate, resolvePermission } from './permissions'
+import { checkLoopGuard, loopGuardMessage } from './loopGuard'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 
@@ -99,6 +100,20 @@ interface GuardedToolSpec extends ReadToolSpec {
 export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): Promise<string> {
   const id = randomUUID()
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
+  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, spec.title)
+  if (loopGuard.blocked) {
+    const message = loopGuardMessage(spec.name, loopGuard.count)
+    ctx.emit({
+      id,
+      name: spec.name,
+      kind: spec.kind,
+      title: spec.title,
+      status: 'error',
+      detail: 'Blocked: repeated identical call',
+      result: message
+    })
+    return message
+  }
   try {
     const { modelResult, detail, plan, preview } = await spec.run()
     const truncated = truncateModelResult(
@@ -178,6 +193,20 @@ export async function runGuardedTool(
 ): Promise<string> {
   const id = randomUUID()
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
+  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, spec.title)
+  if (loopGuard.blocked) {
+    const message = loopGuardMessage(spec.name, loopGuard.count)
+    ctx.emit({
+      id,
+      name: spec.name,
+      kind: spec.kind,
+      title: spec.title,
+      status: 'error',
+      detail: 'Blocked: repeated identical call',
+      result: message
+    })
+    return message
+  }
 
   try {
     const permissionDecision = resolvePermission(ctx.permissionMode, spec.risk)

@@ -1,5 +1,6 @@
 import type { DefineChatSessionFunction, WorkspaceToolContext } from '../types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
+import { createLoopGuardState } from '../loopGuard'
 
 /**
  * A minimal mock for `node-llama-cpp`'s `defineChatSessionFunction`.
@@ -42,6 +43,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     enabledTools: null,
     plan: { current: null },
     turnGate: { approved: false },
+    loopGuard: createLoopGuardState(),
     emit: () => {},
     confirm: () => Promise.resolve({ approved: true })
   }

@@ -180,3 +180,70 @@ describe('composeDenialMessage', () => {
     )
   })
 })
+
+describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
+  const root = 'C:\\workspace'
+
+  function readSpec(title: string) {
+    return {
+      name: 'find_skill',
+      kind: 'read' as const,
+      title,
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    }
+  }
+
+  function guardedSpec(title: string) {
+    return {
+      name: 'write_file',
+      kind: 'write' as const,
+      title,
+      confirmDetail: 'foo.ts',
+      risk: 'safe' as const,
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    }
+  }
+
+  it('lets identical read-tool calls through up to the limit, then blocks without running them', async () => {
+    const ctx = createMockContext(root)
+    const runMock = vi.fn(() => Promise.resolve({ modelResult: 'ok' }))
+
+    for (let i = 0; i < 3; i++) {
+      const result = await runReadTool(ctx, { ...readSpec('Find skill "foo"'), run: runMock })
+      expect(result).toBe('ok')
+    }
+    expect(runMock).toHaveBeenCalledTimes(3)
+
+    const blocked = await runReadTool(ctx, { ...readSpec('Find skill "foo"'), run: runMock })
+    expect(blocked).toContain('find_skill')
+    expect(blocked).toContain('loop')
+    // The underlying call is never actually executed once blocked.
+    expect(runMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not block calls to the same tool with different arguments', async () => {
+    const ctx = createMockContext(root)
+    for (let i = 0; i < 3; i++) {
+      const result = await runReadTool(ctx, readSpec('Find skill "foo"'))
+      expect(result).toBe('ok')
+    }
+    // A genuinely different query is a different call, not a repeat.
+    const result = await runReadTool(ctx, readSpec('Find skill "bar"'))
+    expect(result).toBe('ok')
+  })
+
+  it('also blocks a guarded tool repeated past the limit, before any confirm prompt', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'ask' as const, confirm }
+
+    for (let i = 0; i < 3; i++) {
+      await runGuardedTool(ctx, guardedSpec('Write file: same.ts'))
+    }
+    expect(requests).toHaveLength(3)
+
+    const blocked = await runGuardedTool(ctx, guardedSpec('Write file: same.ts'))
+    expect(blocked).toContain('write_file')
+    // Blocked before the confirm prompt — the user is never asked a 4th time.
+    expect(requests).toHaveLength(3)
+  })
+})
