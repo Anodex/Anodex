@@ -29,6 +29,26 @@ const log = createLogger('agent-run-service')
 const ALWAYS_ON_TOOLS = ['find_skill', 'load_skill', 'finish_goal']
 
 /**
+ * The tool set an execution turn actually gets: the user's selection from
+ * the editor, layered with the always-on tools, plus `update_plan_step` for
+ * any run that went through plan review. Exported as a pure function (rather
+ * than inlined in `runLoop`) so this is testable without the rest of
+ * `AgentRunService`'s IPC/generation machinery — `PLAN_APPROVED_PROMPT`
+ * explicitly instructs the model to call `update_plan_step`, but the
+ * editor's default tool selection doesn't include it, so without this a
+ * plan-reviewed run is told to call a tool that was never registered.
+ */
+export function buildRunEnabledTools(
+  run: Pick<AgentRun, 'enabledTools' | 'requirePlan'>
+): Set<string> {
+  return new Set([
+    ...run.enabledTools,
+    ...ALWAYS_ON_TOOLS,
+    ...(run.requirePlan ? ['update_plan_step'] : [])
+  ])
+}
+
+/**
  * Tools available during the planning-only turn(s) of a `requirePlan: true`
  * run — deliberately excludes `finish_goal` and every write/command/web
  * tool, so "propose a plan first" is a structural guarantee, not just a
@@ -124,7 +144,7 @@ class AgentRunService {
     this.activeController = controller
     log.info('Starting agent run:', run.id, run.goal)
 
-    const enabledTools = new Set([...run.enabledTools, ...ALWAYS_ON_TOOLS])
+    const enabledTools = buildRunEnabledTools(run)
     // Never touches the user's global `provider.active` setting — see
     // `RunGenerationIo.providerOverride`.
     const providerOverride = { provider: run.provider, model: run.model ?? undefined }

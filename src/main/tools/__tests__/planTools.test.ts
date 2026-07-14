@@ -58,6 +58,54 @@ describe('AI plan tools', () => {
       expect(ctx.plan.current?.title).toBe('Second')
       expect(ctx.plan.current?.steps).toHaveLength(1)
     })
+
+    it('rejects an empty step list instead of creating a zero-step plan', async () => {
+      const ctx = context()
+      const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+
+      const result = await tool.handler({ title: 'Empty plan', steps: [] })
+
+      expect(result).toContain('at least one step')
+      expect(ctx.plan.current).toBeNull()
+    })
+
+    it('rejects a step list that is only whitespace', async () => {
+      const ctx = context()
+      const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+
+      const result = await tool.handler({ title: 'Whitespace plan', steps: ['  ', '\t'] })
+
+      expect(result).toContain('at least one step')
+      expect(ctx.plan.current).toBeNull()
+    })
+
+    it('rejects a blank title', async () => {
+      const ctx = context()
+      const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+
+      const result = await tool.handler({ title: '   ', steps: ['A step'] })
+
+      expect(result).toContain('non-empty title')
+      expect(ctx.plan.current).toBeNull()
+    })
+
+    it('does not replace a previously-valid plan with a rejected empty one', async () => {
+      const ctx = context()
+      const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+
+      await tool.handler({ title: 'Valid plan', steps: ['A step'] })
+      await tool.handler({ title: 'Replacement attempt', steps: [] })
+
+      expect(ctx.plan.current?.title).toBe('Valid plan')
+    })
   })
 
   describe('update_plan_step', () => {

@@ -36,12 +36,22 @@ export const writePlanTool: ToolFactory = (define, ctx) =>
         kind: 'plan',
         title: `Plan: ${truncate(args.title, 60)}`,
         run() {
-          const steps: PlanStep[] = args.steps.slice(0, MAX_STEPS).map((title) => ({
-            id: randomUUID(),
-            title: truncate(title, MAX_TITLE_CHARS),
-            status: 'pending'
-          }))
-          const plan: Plan = { title: args.title, steps, updatedAt: Date.now() }
+          const title = args.title.trim()
+          if (!title) throw new Error('A plan needs a non-empty title.')
+          const steps: PlanStep[] = args.steps
+            .map((stepTitle) => stepTitle.trim())
+            .filter((stepTitle) => stepTitle.length > 0)
+            .slice(0, MAX_STEPS)
+            .map((stepTitle) => ({
+              id: randomUUID(),
+              title: truncate(stepTitle, MAX_TITLE_CHARS),
+              status: 'pending'
+            }))
+          // An empty plan is never useful — for a plan-reviewed agent run
+          // specifically, it would otherwise enter `needs-review` with
+          // nothing for the user to actually approve.
+          if (steps.length === 0) throw new Error('A plan needs at least one step.')
+          const plan: Plan = { title, steps, updatedAt: Date.now() }
           ctx.plan.current = plan
           return Promise.resolve({
             modelResult: `Plan created with ${steps.length} step(s).`,
