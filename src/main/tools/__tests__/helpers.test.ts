@@ -348,4 +348,24 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
       expect(typeof result).toBe('string')
     }
   })
+
+  it('does not falsely claim generation is stopping when abortGeneration is absent', async () => {
+    // No abortGeneration on this context — matches Anthropic/OpenAI today,
+    // which have no way to actually stop generation from the loop guard.
+    const ctx = createMockContext(root)
+    let last = ''
+    for (let i = 0; i < 6; i++) {
+      last = await runReadTool(ctx, readSpec('Find skill "foo"'))
+    }
+    expect(last.toLowerCase()).not.toContain('stopped')
+  })
+
+  it('does claim generation is stopping when abortGeneration is actually wired up', async () => {
+    const ctx = { ...createMockContext(root), abortGeneration: vi.fn() }
+    let last = ''
+    for (let i = 0; i < 6; i++) {
+      last = await runReadTool(ctx, readSpec('Find skill "foo"'))
+    }
+    expect(last.toLowerCase()).toContain('stopped')
+  })
 })

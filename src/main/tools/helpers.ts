@@ -117,7 +117,18 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
   if (loopGuard.blocked) {
-    const message = loopGuardMessage(spec.name, loopGuard.count, loopGuard.shouldAbort)
+    // Only claim generation is stopping when something can actually stop it —
+    // cloud providers (Anthropic/OpenAI) don't wire abortGeneration at all
+    // (their own MAX_TOOL_ROUNDS cap bounds the damage differently; see
+    // ToolRuntimeContext.abortGeneration's doc comment), so telling the model
+    // "generation is being stopped now" there would be false: nothing stops,
+    // and the round loop just keeps going, burning further paid API rounds.
+    const canActuallyAbort = Boolean(ctx.abortGeneration)
+    const message = loopGuardMessage(
+      spec.name,
+      loopGuard.count,
+      loopGuard.shouldAbort && canActuallyAbort
+    )
     ctx.emit({
       id,
       name: spec.name,
@@ -211,7 +222,14 @@ export async function runGuardedTool(
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
   if (loopGuard.blocked) {
-    const message = loopGuardMessage(spec.name, loopGuard.count, loopGuard.shouldAbort)
+    // See the identical comment in runReadTool above — only claim generation
+    // is stopping when abortGeneration actually exists to do it.
+    const canActuallyAbort = Boolean(ctx.abortGeneration)
+    const message = loopGuardMessage(
+      spec.name,
+      loopGuard.count,
+      loopGuard.shouldAbort && canActuallyAbort
+    )
     ctx.emit({
       id,
       name: spec.name,
