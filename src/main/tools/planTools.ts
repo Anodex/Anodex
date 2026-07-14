@@ -35,6 +35,7 @@ export const writePlanTool: ToolFactory = (define, ctx) =>
         name: 'write_plan',
         kind: 'plan',
         title: `Plan: ${truncate(args.title, 60)}`,
+        args,
         run() {
           const title = args.title.trim()
           if (!title) throw new Error('A plan needs a non-empty title.')
@@ -82,6 +83,7 @@ export const updatePlanStepTool: ToolFactory = (define, ctx) =>
         name: 'update_plan_step',
         kind: 'plan',
         title: `Update plan step ${args.stepNumber}`,
+        args,
         run() {
           const plan = ctx.plan.current
           if (!plan) throw new Error('No plan exists yet. Call write_plan first.')

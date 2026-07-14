@@ -36,6 +36,7 @@ export const proposeChangeTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'propose_change',
         kind: 'write',
         title: `Propose change: ${args.title}`,
+        args,
         risk: 'safe',
         confirmDetail: `${args.title}\n\n${args.why}\n\nTasks:\n${args.tasks.map((task) => `- ${task}`).join('\n')}`,
         run() {
@@ -71,6 +72,7 @@ export const updateChangeTaskTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'update_change_task',
         kind: 'write',
         title: `Update ${args.slug} task ${args.taskNumber}`,
+        args,
         risk: 'safe',
         confirmDetail: `Mark task ${args.taskNumber} of "${args.slug}" as ${args.done ? 'done' : 'not done'}.`,
         run() {
@@ -110,6 +112,7 @@ export const archiveChangeTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'archive_change',
         kind: 'write',
         title: `Archive change: ${args.slug}`,
+        args,
         risk: 'safe',
         confirmDetail: `Archive "${args.slug}" and add it to this project's living spec.`,
         run() {

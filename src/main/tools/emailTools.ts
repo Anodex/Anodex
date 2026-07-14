@@ -26,6 +26,7 @@ export const listEmailThreadsTool: ToolFactory = (define, ctx) =>
         name: 'list_threads',
         kind: 'read',
         title: 'List email threads',
+        args,
         async run() {
           const threads = await emailService.listThreads({ limit: args.limit })
           return formatThreads(threads)
@@ -50,6 +51,7 @@ export const searchEmailTool: ToolFactory = (define, ctx) =>
         name: 'search_email',
         kind: 'read',
         title: `Search email "${truncate(args.query, 40)}"`,
+        args,
         async run() {
           const threads = await emailService.search({ query: args.query, limit: args.limit })
           return formatThreads(threads)
@@ -73,6 +75,7 @@ export const readEmailTool: ToolFactory = (define, ctx) =>
         name: 'read_email',
         kind: 'read',
         title: `Read email ${truncate(args.messageId, 24)}`,
+        args,
         async run() {
           const message = await emailService.readMessage(args.messageId)
           return {
@@ -108,6 +111,7 @@ export const summarizeEmailThreadTool: ToolFactory = (define, ctx) =>
         name: 'summarize_thread',
         kind: 'read',
         title: `Summarize email thread ${truncate(args.threadId, 24)}`,
+        args,
         async run() {
           const summary = await emailService.summarizeThread(args.threadId)
           return { modelResult: summary, detail: truncate(summary, 80) }
@@ -131,6 +135,7 @@ export const findEmailAttachmentsTool: ToolFactory = (define, ctx) =>
         name: 'find_attachments',
         kind: 'read',
         title: `Find email attachments ${truncate(args.threadId, 24)}`,
+        args,
         async run() {
           const attachments = await emailService.listAttachments(args.threadId)
           if (attachments.length === 0) {
@@ -176,6 +181,7 @@ export const draftEmailTool: ToolFactory = (define, ctx) =>
         name: 'draft_email',
         kind: 'read',
         title: `Draft email to ${args.to.join(', ')}`,
+        args,
         run() {
           return Promise.resolve(formatDraft(emailService.createDraft(args)))
         }
@@ -207,6 +213,7 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
         name: 'send_email',
         kind: 'write',
         title: `Send email to ${args.to.join(', ')}`,
+        args,
         confirmDetail: [
           `To: ${args.to.join(', ')}`,
           args.cc?.length ? `Cc: ${args.cc.join(', ')}` : null,
@@ -253,6 +260,7 @@ export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'save_email_attachment',
         kind: 'write',
         title: `Save email attachment to ${args.path}`,
+        args,
         confirmDetail: `Save attachment ${args.attachmentId} from message ${args.messageId} to ${args.path}`,
         risk: 'safe',
         touch: { path: args.path, action: 'write' },

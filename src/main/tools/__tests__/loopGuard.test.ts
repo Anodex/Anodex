@@ -4,6 +4,7 @@ import {
   LOOP_GUARD_LIMIT,
   checkLoopGuard,
   createLoopGuardState,
+  loopGuardKey,
   loopGuardMessage
 } from '../loopGuard'
 
@@ -76,6 +77,78 @@ describe('checkLoopGuard', () => {
 
     const pastThreshold = checkLoopGuard(state, 'load_skill', 'Load skill "x"')
     expect(pastThreshold.shouldAbort).toBe(true)
+  })
+
+  it('only counts consecutive repeats — a different call in between resets the streak', () => {
+    const state = createLoopGuardState()
+    for (let i = 0; i < LOOP_GUARD_LIMIT; i++) {
+      checkLoopGuard(state, 'run_command', 'npm test')
+    }
+    // A distinct call in between — e.g. a real edit — resets the streak, so
+    // the model can legitimately keep re-running the same command after
+    // each fix without ever tripping the guard.
+    checkLoopGuard(state, 'write_file', '{"path":"a.ts"}')
+    const result = checkLoopGuard(state, 'run_command', 'npm test')
+    expect(result.blocked).toBe(false)
+    expect(result.count).toBe(1)
+  })
+
+  it('still blocks truly consecutive repeats with nothing in between', () => {
+    const state = createLoopGuardState()
+    for (let i = 0; i < LOOP_GUARD_LIMIT; i++) {
+      checkLoopGuard(state, 'run_command', 'npm test')
+    }
+    const result = checkLoopGuard(state, 'run_command', 'npm test')
+    expect(result.blocked).toBe(true)
+  })
+})
+
+describe('loopGuardKey', () => {
+  it('produces the same key for arguments in a different order', () => {
+    const a = loopGuardKey({ args: { path: 'a.ts', content: 'x' }, title: 'irrelevant' })
+    const b = loopGuardKey({ args: { content: 'x', path: 'a.ts' }, title: 'irrelevant' })
+    expect(a).toBe(b)
+  })
+
+  it('produces different keys when the actual arguments differ, even with the same title', () => {
+    const a = loopGuardKey({ args: { path: 'a.ts', content: 'one' }, title: 'Write a.ts' })
+    const b = loopGuardKey({ args: { path: 'a.ts', content: 'two' }, title: 'Write a.ts' })
+    expect(a).not.toBe(b)
+  })
+
+  it('falls back to title when args is not provided', () => {
+    expect(loopGuardKey({ title: 'List changes' })).toBe('List changes')
+  })
+
+  it('falls back to title, not args, only when args is genuinely absent — an empty object still counts', () => {
+    const withEmptyArgs = loopGuardKey({ args: {}, title: 'Some title' })
+    const withoutArgs = loopGuardKey({ title: 'Some title' })
+    expect(withEmptyArgs).not.toBe(withoutArgs)
+  })
+})
+
+describe('checkLoopGuard combined with loopGuardKey — the concrete scenario both reviews flagged', () => {
+  it('does not block four different edits to the same file in a row', () => {
+    const state = createLoopGuardState()
+    const edits = ['one', 'two', 'three', 'four']
+    for (const content of edits) {
+      const key = loopGuardKey({ args: { path: 'foo.ts', content }, title: 'Write foo.ts' })
+      const result = checkLoopGuard(state, 'write_file', key)
+      expect(result.blocked).toBe(false)
+    }
+  })
+
+  it('does block four identical edits (same path, same content) in a row', () => {
+    const state = createLoopGuardState()
+    let last: ReturnType<typeof checkLoopGuard> | undefined
+    for (let i = 0; i < 4; i++) {
+      const key = loopGuardKey({
+        args: { path: 'foo.ts', content: 'same' },
+        title: 'Write foo.ts'
+      })
+      last = checkLoopGuard(state, 'write_file', key)
+    }
+    expect(last?.blocked).toBe(true)
   })
 })
 

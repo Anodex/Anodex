@@ -39,6 +39,7 @@ export const fetchUrlTool: ToolFactory = (define, ctx) =>
         name: 'fetch_url',
         kind: 'web',
         title: `Fetch ${truncate(args.url, 60)}`,
+        args,
         async run() {
           const response = await fetchUrl(args.url, ctx.signal)
           const text = convert(response, {

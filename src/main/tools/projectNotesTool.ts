@@ -86,6 +86,7 @@ export const updateProjectNotesTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'update_project_notes',
         kind: 'write',
         title: `Update ${PROJECT_NOTES_FILENAME}`,
+        args,
         confirmDetail: `Add to ${PROJECT_NOTES_FILENAME}:\n\n${args.note}`,
         risk: 'safe',
         touch: { path: PROJECT_NOTES_FILENAME, action: 'write' },

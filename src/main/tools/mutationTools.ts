@@ -44,6 +44,7 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
           name: 'write_file',
           kind: 'write',
           title: `Write ${args.path}`,
+          args,
           risk: 'safe',
           touch: { path: args.path, action: 'write' }
         },
@@ -92,6 +93,7 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
           name: 'edit_file',
           kind: 'write',
           title: `Edit ${args.path}`,
+          args,
           risk: 'safe',
           touch: { path: args.path, action: 'write' }
         },
@@ -191,6 +193,7 @@ export const patchFileTool: WorkspaceToolFactory = (define, ctx) =>
           name: 'patch_file',
           kind: 'write',
           title: `Patch ${args.path}`,
+          args,
           risk: 'safe',
           touch: { path: args.path, action: 'write' }
         },
@@ -254,6 +257,7 @@ export const deleteFileTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'delete_file',
         kind: 'write',
         title: `Delete ${args.path}`,
+        args,
         confirmDetail: `Delete file ${args.path}`,
         risk: 'sensitive',
         touch: { path: args.path, action: 'delete' },
@@ -289,6 +293,7 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'move_file',
         kind: 'write',
         title: `Move ${args.sourcePath} → ${args.targetPath}`,
+        args,
         confirmDetail: `Move ${args.sourcePath} to ${args.targetPath}`,
         risk: 'safe',
         touch: { path: args.targetPath, action: 'move' },

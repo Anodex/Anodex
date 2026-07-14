@@ -292,6 +292,23 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
     expect(requests).toHaveLength(3)
   })
 
+  it('does not block a guarded tool sharing a title when args differ — the write_file scenario', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'ask' as const, confirm }
+
+    // Same path (and thus same title, "Write foo.ts"), four different
+    // contents in a row — exactly the concrete scenario both independent
+    // reviews of this codebase flagged as wrongly blocked by a title-only key.
+    for (const content of ['one', 'two', 'three', 'four']) {
+      const result = await runGuardedTool(ctx, {
+        ...guardedSpec('Write foo.ts'),
+        args: { path: 'foo.ts', content }
+      })
+      expect(result).not.toContain('loop')
+    }
+    expect(requests).toHaveLength(4)
+  })
+
   it('force-aborts generation once a blocked read-tool call keeps repeating', async () => {
     const abortGeneration = vi.fn()
     const ctx = { ...createMockContext(root), abortGeneration }

@@ -33,6 +33,7 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
         name: 'finish_goal',
         kind: 'plan',
         title: 'Finish goal',
+        args,
         run() {
           const summary = truncate(args.summary.trim(), MAX_SUMMARY_CHARS)
           if (!summary) throw new Error('summary was empty.')

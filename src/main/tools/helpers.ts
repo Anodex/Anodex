@@ -4,7 +4,7 @@ import type { FileTouchAction } from '@shared/projectMemory.types'
 import type { Plan } from '@shared/plan.types'
 import type { ToolRuntimeContext } from './types'
 import { needsTurnGate, resolvePermission } from './permissions'
-import { checkLoopGuard, loopGuardMessage } from './loopGuard'
+import { checkLoopGuard, loopGuardKey, loopGuardMessage } from './loopGuard'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 
@@ -64,6 +64,15 @@ interface ReadToolSpec {
   name: string
   kind: ToolKind
   title: string
+  /**
+   * The tool handler's own parsed arguments — used as the loop guard's call
+   * -identity fingerprint (see `loopGuardKey` in `loopGuard.ts`) so it can
+   * tell apart calls that share a title (e.g. the same file path with
+   * different new content) from genuine repeats. Falls back to `title` when
+   * omitted, which is coarser — pass this whenever the tool takes more than
+   * the single value already fully captured in its title.
+   */
+  args?: unknown
   /** When set and a project is active, records this (or these) path(s) in project memory on success. */
   touch?: FileTouch | FileTouch[]
   /**
@@ -106,7 +115,7 @@ interface GuardedToolSpec extends ReadToolSpec {
 export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): Promise<string> {
   const id = randomUUID()
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, spec.title)
+  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
   if (loopGuard.blocked) {
     const message = loopGuardMessage(spec.name, loopGuard.count, loopGuard.shouldAbort)
     ctx.emit({
@@ -200,7 +209,7 @@ export async function runGuardedTool(
 ): Promise<string> {
   const id = randomUUID()
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, spec.title)
+  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
   if (loopGuard.blocked) {
     const message = loopGuardMessage(spec.name, loopGuard.count, loopGuard.shouldAbort)
     ctx.emit({
@@ -305,7 +314,10 @@ interface PreparedGuardedCall<TData> {
  */
 export async function runGuardedToolWithPrepare<TData>(
   ctx: ToolRuntimeContext,
-  spec: Pick<GuardedToolSpec, 'name' | 'kind' | 'title' | 'risk' | 'touch' | 'forceConfirm'>,
+  spec: Pick<
+    GuardedToolSpec,
+    'name' | 'kind' | 'title' | 'risk' | 'touch' | 'forceConfirm' | 'args'
+  >,
   prepare: () => Promise<PreparedGuardedCall<TData>>,
   run: (data: TData) => Promise<ToolOutcome>
 ): Promise<string> {

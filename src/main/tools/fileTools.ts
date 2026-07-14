@@ -42,6 +42,7 @@ export const listDirectoryTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'list_directory',
         kind: 'read',
         title: `List ${requested}`,
+        args,
         async run() {
           const dir = resolveInWorkspace(ctx.workspaceRoot, requested)
           const entries = await readdir(dir, { withFileTypes: true })
@@ -93,6 +94,7 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'read_file',
         kind: 'read',
         title: `Read ${args.path}`,
+        args,
         touch: { path: args.path, action: 'read' },
         // Full file content, not a bounded summary — cap at the same size
         // limit already enforced on disk reads (MAX_FILE_BYTES), not the
@@ -138,6 +140,7 @@ export const searchFilesTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'search_files',
         kind: 'read',
         title: `Search "${args.query}"`,
+        args,
         async run() {
           const start = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
           const results: string[] = []
@@ -181,6 +184,7 @@ export const findFilesTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'find_files',
         kind: 'read',
         title: `Find "${args.query}"`,
+        args,
         async run() {
           const query = args.query.trim()
           if (!query) throw new Error('query was empty.')
@@ -226,6 +230,7 @@ export const getFileInfoTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'get_file_info',
         kind: 'read',
         title: `Info ${args.path}`,
+        args,
         async run() {
           const target = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const info = await stat(target)
@@ -272,6 +277,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'read_file_range',
         kind: 'read',
         title: `Read ${args.path} lines ${args.startLine}-${args.endLine ?? '…'}`,
+        args,
         touch: { path: args.path, action: 'read' },
         // See read_file's modelResultCap comment — a 200-line range of long
         // lines (minified/generated code, long strings) can still exceed the
@@ -327,6 +333,7 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'read_multiple_files',
         kind: 'read',
         title: `Read ${args.paths.length} file(s)`,
+        args,
         touch: readTouches,
         // See read_file's modelResultCap comment — this tool already budgets
         // its own MAX_BATCH_TOTAL_BYTES across files; don't let the generic

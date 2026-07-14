@@ -34,6 +34,7 @@ export const gitCommitSummaryTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'git_commit_summary',
         kind: 'read',
         title: args.staged ? 'Draft commit message for staged changes' : 'Draft commit message',
+        args,
         async run() {
           const cwd = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
           const status = await runGit('status --short', cwd, ctx.signal)

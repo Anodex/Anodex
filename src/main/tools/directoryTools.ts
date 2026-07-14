@@ -20,6 +20,7 @@ export const createDirectoryTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'create_directory',
         kind: 'write',
         title: `Create ${args.path}`,
+        args,
         confirmDetail: `Create directory ${args.path}`,
         risk: 'trivial',
         async run() {
@@ -50,6 +51,7 @@ export const deleteDirectoryTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'delete_directory',
         kind: 'write',
         title: `Delete ${args.path}`,
+        args,
         confirmDetail: `Delete empty directory ${args.path}`,
         risk: 'sensitive',
         async run() {

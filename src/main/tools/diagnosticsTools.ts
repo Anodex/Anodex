@@ -50,6 +50,7 @@ export const runProjectCheckTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'run_project_check',
         kind: 'command',
         title: `Check: ${args.kind}`,
+        args,
         confirmDetail: describeCheck(args.kind, args.command),
         risk: 'sensitive',
         async run() {

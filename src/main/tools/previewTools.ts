@@ -31,6 +31,7 @@ export const previewHtmlTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'preview_html',
         kind: 'read',
         title: `Preview ${args.path}`,
+        args,
         touch: { path: args.path, action: 'read' },
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)

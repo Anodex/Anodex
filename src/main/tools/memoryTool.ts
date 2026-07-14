@@ -80,6 +80,7 @@ export const rememberFactTool: ToolFactory = (define, ctx) =>
           name: 'remember_fact',
           kind: 'write',
           title: 'Remember fact',
+          args,
           risk: 'safe',
           // Only ever force *on*: omitting this when the setting is off lets
           // the normal permission-mode decision apply as usual (including

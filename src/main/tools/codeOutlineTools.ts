@@ -48,6 +48,7 @@ export const codeOutlineTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'code_outline',
         kind: 'read',
         title: `Outline ${args.path?.trim() || '.'}`,
+        args,
         async run() {
           const requested = args.path?.trim() || '.'
           const root = resolveInWorkspace(ctx.workspaceRoot, requested)

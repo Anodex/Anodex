@@ -41,6 +41,7 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'run_command',
         kind: 'command',
         title: `Run: ${args.command}`,
+        args,
         confirmDetail: describeCommand(args.command, ctx.commandShell, args.timeoutMs),
         risk: classifyCommandRisk(args.command),
         async run() {

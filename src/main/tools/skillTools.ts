@@ -22,6 +22,7 @@ export const findSkillTool: ToolFactory = (define, ctx) =>
         name: 'find_skill',
         kind: 'read',
         title: `Find skill "${args.query}"`,
+        args,
         run() {
           const skills = skillStore.list(ctx.workspaceRoot)
           if (skills.length === 0) {
@@ -70,6 +71,7 @@ export const loadSkillTool: ToolFactory = (define, ctx) =>
         name: 'load_skill',
         kind: 'read',
         title: `Load skill "${args.name}"`,
+        args,
         run() {
           const skill = skillStore.get(args.name, ctx.workspaceRoot)
           if (!skill) {

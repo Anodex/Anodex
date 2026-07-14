@@ -27,6 +27,7 @@ export const gitStatusTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'git_status',
         kind: 'read',
         title: 'Git status',
+        args,
         async run() {
           const cwd = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
           const { stdout, stderr, code } = await runGit(['status', '--short'], cwd, ctx.signal)
@@ -62,6 +63,7 @@ export const gitDiffTool: WorkspaceToolFactory = (define, ctx) =>
         name: 'git_diff',
         kind: 'read',
         title: args.staged ? 'Git diff --staged' : 'Git diff',
+        args,
         async run() {
           const cwd = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
           const flags = args.staged ? ['diff', '--staged'] : ['diff']

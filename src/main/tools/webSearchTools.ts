@@ -28,6 +28,7 @@ export const webSearchTool: ToolFactory = (define, ctx) =>
         name: 'web_search',
         kind: 'web',
         title: `Search "${truncate(args.query, 40)}"`,
+        args,
         confirmDetail: `Search the web for: ${args.query}`,
         risk: 'sensitive',
         forceConfirm: ctx.webSearch.requireApproval,
