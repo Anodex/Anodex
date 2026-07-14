@@ -91,4 +91,57 @@ describe('serializeChangeFile', () => {
 
     expect(reparsed.tasks).toEqual([])
   })
+
+  it('collapses a multiline title to one line instead of corrupting the frontmatter', () => {
+    const serialized = serializeChangeFile({
+      title: 'Add dark mode\nwith a bogus continuation line',
+      status: 'proposed',
+      why: 'Reason.',
+      tasks: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    })
+
+    // Must not throw — a raw embedded newline would otherwise either break
+    // frontmatter parsing outright or get read back as a bogus extra field.
+    const reparsed = parseChangeFile(serialized, '/changes/x/proposal.md')
+    expect(reparsed.title).toBe('Add dark mode with a bogus continuation line')
+    expect(reparsed.status).toBe('proposed')
+  })
+
+  it('collapses a multiline task title instead of corrupting later task positions', () => {
+    const serialized = serializeChangeFile({
+      title: 'X',
+      status: 'proposed',
+      why: 'Reason.',
+      tasks: [
+        { title: 'First line\nSecond line', done: false },
+        { title: 'A real second task', done: false }
+      ],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    })
+    const reparsed = parseChangeFile(serialized, '/changes/x/proposal.md')
+
+    expect(reparsed.tasks).toEqual([
+      { title: 'First line Second line', done: false },
+      { title: 'A real second task', done: false }
+    ])
+  })
+
+  it('keeps a "why" paragraph containing a heading-shaped line instead of truncating it', () => {
+    const serialized = serializeChangeFile({
+      title: 'X',
+      status: 'proposed',
+      why: 'Some context.\n\n## Migration plan\n\nStep one, then step two.',
+      tasks: [{ title: 'Do the thing', done: false }],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    })
+    const reparsed = parseChangeFile(serialized, '/changes/x/proposal.md')
+
+    expect(reparsed.why).toContain('## Migration plan')
+    expect(reparsed.why).toContain('Step one, then step two.')
+    expect(reparsed.tasks).toEqual([{ title: 'Do the thing', done: false }])
+  })
 })

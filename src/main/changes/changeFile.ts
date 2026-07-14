@@ -11,6 +11,8 @@ export interface ParsedChange {
 
 const FRONTMATTER_DELIMITER = '---'
 const VALID_STATUSES: ChangeStatus[] = ['proposed', 'in_progress', 'done', 'archived']
+/** The only headings `parseSection` treats as section boundaries — see its doc comment. */
+const KNOWN_SECTION_HEADERS = ['## Why', '## Tasks']
 
 /**
  * Parses a change proposal markdown file: a `---`-delimited frontmatter block
@@ -48,10 +50,10 @@ export function parseChangeFile(raw: string, filePath: string): ParsedChange {
 /** Serializes a change back to the same markdown shape `parseChangeFile` reads. */
 export function serializeChangeFile(change: ParsedChange): string {
   const taskLines = change.tasks
-    .map((task) => `- [${task.done ? 'x' : ' '}] ${task.title}`)
+    .map((task) => `- [${task.done ? 'x' : ' '}] ${sanitizeSingleLine(task.title)}`)
     .join('\n')
   return `---
-title: ${change.title}
+title: ${sanitizeSingleLine(change.title)}
 status: ${change.status}
 createdAt: ${change.createdAt}
 updatedAt: ${change.updatedAt}
@@ -65,6 +67,23 @@ ${change.why.trim()}
 
 ${taskLines}
 `
+}
+
+/**
+ * Collapse a value that must round-trip through a single physical line — a
+ * frontmatter field or a `- [ ] <title>` checkbox — to one line. Without
+ * this, model- or user-supplied text containing a raw newline (e.g. a title
+ * pasted from a multi-line goal) breaks the format it's embedded in: an
+ * embedded frontmatter continuation line either fails `parseFrontmatterFields`
+ * outright (no ":" on that line) or, worse, is silently read back as a bogus
+ * extra field; an embedded checkbox continuation line just fails the task
+ * regex and vanishes, shifting every later task's 1-based position.
+ */
+function sanitizeSingleLine(text: string): string {
+  return text
+    .replace(/\r\n|\r|\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function splitFrontmatter(raw: string, filePath: string): { frontmatter: string; body: string } {
@@ -102,13 +121,21 @@ function requireField(fields: Record<string, string>, key: string, filePath: str
   return value
 }
 
-/** Extract a `## <name>` section's body text, up to the next `## ` heading or end of file. */
+/**
+ * Extract a `## <name>` section's body text, up to the next *known* section
+ * heading (`## Why` / `## Tasks`) or end of file. Deliberately checks against
+ * `KNOWN_SECTION_HEADERS` rather than "any line starting with `## `" — the
+ * `why` field is freeform prose the model writes, and it can legitimately
+ * contain its own `## Something` heading-shaped line (e.g. explaining a
+ * migration plan); treating that as a section boundary silently truncated
+ * the real content at that line.
+ */
 function parseSection(body: string, name: string): string {
   const lines = body.replace(/\r\n/g, '\n').split('\n')
   const startIndex = lines.findIndex((line) => line.trim() === `## ${name}`)
   if (startIndex === -1) return ''
   const rest = lines.slice(startIndex + 1)
-  const endIndex = rest.findIndex((line) => line.trim().startsWith('## '))
+  const endIndex = rest.findIndex((line) => KNOWN_SECTION_HEADERS.includes(line.trim()))
   const section = endIndex === -1 ? rest : rest.slice(0, endIndex)
   return section.join('\n').trim()
 }
