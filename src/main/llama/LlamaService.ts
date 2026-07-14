@@ -129,6 +129,14 @@ const STALLED_INTENT_NUDGE_PROMPT =
 /** The dynamically-imported `node-llama-cpp` module (ESM-only). */
 type LlamaModule = typeof import('node-llama-cpp')
 
+/**
+ * Thrown by `generate()` when the single shared local engine is already busy
+ * with an unrelated generation (e.g. an interactive chat) — exported so
+ * callers like `AgentRunService` can recognize this specific, recoverable
+ * contention case rather than treating it as a genuine run failure.
+ */
+export const GENERATION_IN_PROGRESS_ERROR = 'A response is already being generated.'
+
 export interface GenerateParams {
   conversationId: string
   /** Assistant message id, used to route tool activity to the right turn. */
@@ -346,7 +354,7 @@ class LlamaService extends EventEmitter {
       throw new Error('No model is loaded. Load a model from the Models tab first.')
     }
     if (this.generating) {
-      throw new Error('A response is already being generated.')
+      throw new Error(GENERATION_IN_PROGRESS_ERROR)
     }
 
     // Take the lock before any awaited setup touches the shared context/session.

@@ -9,6 +9,7 @@ import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
+import { GENERATION_IN_PROGRESS_ERROR } from '../llama/LlamaService'
 import { createLogger } from '../utils/logger'
 import { agentRunStore } from './AgentRunStore'
 import {
@@ -212,6 +213,26 @@ class AgentRunService {
       )
     } catch (error) {
       log.error('Agent run failed:', run.id, error)
+      // The shared local engine was busy with something else (e.g. the user
+      // mid-chat elsewhere) when this run's turn tried to generate — not a
+      // real failure of the run itself. For a plan-reviewed run specifically,
+      // landing this in a terminal 'error' would be unrecoverable:
+      // approvePlan() only accepts status === 'needs-review', so the already
+      // -reviewed plan and its planning tokens would be stranded with no way
+      // back (the generic "Retry with these settings" action creates a brand
+      // new run and re-spends the planning turn(s) from scratch). Revert to
+      // needs-review instead so the user can just approve again once the
+      // engine is free.
+      if (
+        error instanceof Error &&
+        error.message === GENERATION_IN_PROGRESS_ERROR &&
+        run.requirePlan &&
+        run.plan
+      ) {
+        agentRunStore.update(run.id, { status: 'needs-review' })
+        this.broadcastRunsChanged()
+        return
+      }
       this.finish(
         run.id,
         conversation.id,
