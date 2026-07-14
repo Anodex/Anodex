@@ -58,6 +58,47 @@ export function buildRunEnabledTools(
 const PLANNING_TOOLS = ['find_skill', 'load_skill', 'write_plan']
 
 /**
+ * Whether `runLoop` should refuse to start even its first execution turn —
+ * checked once, before the loop, in addition to the ordinary post-turn
+ * `budgetExceededReason` check already inside it. Two gaps that check alone
+ * left open, both stemming from planning turns/tokens (see
+ * `runPlanningPhase`) being spent against this same budget before this loop
+ * ever runs:
+ *
+ * - `startTurn > run.maxTurns`: planning alone already used up every
+ *   available turn (e.g. `maxTurns: 1` with `requirePlan: true`). The `for`
+ *   loop's own bound (`turn <= run.maxTurns`) would then never be true, so it
+ *   falls through to the generic "Stopped after N turns without finishing"
+ *   message — worded as if N turns of real work had been attempted, when
+ *   execution never got to run even once.
+ * - token/time budget already exhausted by planning: the post-turn check
+ *   only fires *after* a turn's generation completes, so without this, the
+ *   first execution turn would still run in full — potentially spending a
+ *   lot more before the loop had a chance to stop.
+ *
+ * Exported as a pure function for the same reason as `buildRunEnabledTools`:
+ * testable without the rest of `AgentRunService`'s IPC/generation machinery.
+ */
+export function runPreflightReason(
+  run: Pick<
+    AgentRun,
+    'limitsEnabled' | 'maxTurns' | 'maxTokens' | 'maxDurationMinutes' | 'createdAt'
+  >,
+  startTurn: number,
+  tokensUsedSoFar: number,
+  elapsedMs: number
+): string | null {
+  if (!run.limitsEnabled) return null
+  if (startTurn > run.maxTurns) {
+    return (
+      `Stopped: the ${run.maxTurns}-turn budget was already used during plan review, ` +
+      'before execution could start. Increase the turn limit and try again.'
+    )
+  }
+  return budgetExceededReason(run, tokensUsedSoFar, elapsedMs)
+}
+
+/**
  * How often (in turns) a still-running run surfaces a progress toast, regardless of
  * whether `limitsEnabled` is on — this is deliberately unconditional so an unlimited
  * run stays visible without needing to be stopped to find out what it's doing.
@@ -155,6 +196,22 @@ class AgentRunService {
     let plan = run.plan
 
     try {
+      // A plan-reviewed run's planning phase already spent turns/tokens
+      // against this exact same budget (see `runPlanningPhase`) before this
+      // loop ever starts — see `runPreflightReason`'s doc comment for why
+      // that needs a check here, before the loop, and not just the
+      // post-turn one already further down.
+      const preflightReason = runPreflightReason(
+        run,
+        startTurn,
+        tokensUsed,
+        Date.now() - run.createdAt
+      )
+      if (preflightReason) {
+        this.finish(run.id, conversation.id, 'stopped', null, preflightReason)
+        return
+      }
+
       for (let turn = startTurn; run.limitsEnabled ? turn <= run.maxTurns : true; turn++) {
         turnsUsed = turn
         const prompt =
