@@ -5,6 +5,7 @@ import { createId } from '../lib/id'
 import { playChime } from '../lib/sound'
 import { notifyDesktop } from '../lib/notifications'
 import { logDiagnostic } from './diagnosticsStore'
+import { appendPendingConfirmation, removePendingConfirmation } from './pendingConfirmations'
 
 export type AppView = 'chat' | 'settings' | 'scheduler' | 'agent' | 'critical-thinking' | 'email'
 export type ToastKind = 'info' | 'success' | 'error'
@@ -33,8 +34,14 @@ interface UiState {
   settingsSection: SettingsSection
   toasts: Toast[]
   readConversationAt: Record<string, number>
-  /** A write/command approval awaiting the user's decision, if any. */
-  pendingConfirmation: ToolConfirmRequest | null
+  /**
+   * Write/command approvals awaiting the user's decision. A queue, not a
+   * single slot — node-llama-cpp (and the cloud providers) can genuinely
+   * invoke multiple guarded tool calls concurrently within one turn when a
+   * model emits several calls at once, so more than one can be pending at
+   * the same time.
+   */
+  pendingConfirmations: ToolConfirmRequest[]
   setView: (view: AppView) => void
   /** Switch to the settings view, optionally jumping straight to a specific section (defaults to 'profile'). */
   openSettings: (section?: SettingsSection) => void
@@ -43,8 +50,8 @@ interface UiState {
   markConversationUnread: (conversationId: string, updatedAt: number) => void
   notify: (toast: Omit<Toast, 'id'>) => void
   dismissToast: (id: string) => void
-  setPendingConfirmation: (request: ToolConfirmRequest | null) => void
-  resolveConfirmation: (response: ToolConfirmResponse) => void
+  addPendingConfirmation: (request: ToolConfirmRequest) => void
+  resolveConfirmation: (id: string, response: ToolConfirmResponse) => void
 }
 
 const READ_MARKERS_KEY = 'anodex:readConversationAt'
@@ -76,7 +83,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   settingsSection: 'profile',
   toasts: [],
   readConversationAt: loadReadMarkers(),
-  pendingConfirmation: null,
+  pendingConfirmations: [],
 
   setView: (view) => set({ view }),
 
@@ -103,13 +110,17 @@ export const useUiStore = create<UiState>((set, get) => ({
     })
   },
 
-  setPendingConfirmation: (request) => set({ pendingConfirmation: request }),
+  addPendingConfirmation: (request) =>
+    set((state) => ({
+      pendingConfirmations: appendPendingConfirmation(state.pendingConfirmations, request)
+    })),
 
-  resolveConfirmation: (response) => {
-    const pending = get().pendingConfirmation
-    if (!pending) return
-    void anodex.tools.respondConfirmation(pending.id, response)
-    set({ pendingConfirmation: null })
+  resolveConfirmation: (id, response) => {
+    if (!get().pendingConfirmations.some((p) => p.id === id)) return
+    void anodex.tools.respondConfirmation(id, response)
+    set((state) => ({
+      pendingConfirmations: removePendingConfirmation(state.pendingConfirmations, id)
+    }))
   },
 
   notify: (toast) => {

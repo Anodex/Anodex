@@ -75,7 +75,7 @@ export function useAnodexBridge(): void {
       useChatStore.getState().applyToolActivity(event)
     )
     const offConfirm = anodex.tools.onConfirmRequest((request) => {
-      useUiStore.getState().setPendingConfirmation(request)
+      useUiStore.getState().addPendingConfirmation(request)
       if (shouldShowDesktopToast()) {
         playChime('attention')
         notifyDesktop('Approval needed', request.title)
@@ -113,7 +113,9 @@ export function useAnodexBridge(): void {
     // conversation that run produced, instead of just focusing whatever view
     // already happened to be showing.
     const offToastOpenConversation = anodex.toast.onOpenConversation((conversationId) => {
-      const conversation = useChatStore.getState().conversations.find((c) => c.id === conversationId)
+      const conversation = useChatStore
+        .getState()
+        .conversations.find((c) => c.id === conversationId)
       void useProjectStore.getState().setActive(conversation?.projectId ?? null)
       void useChatStore.getState().selectConversation(conversationId)
       useUiStore.getState().setView('chat')
