@@ -282,6 +282,20 @@ class AgentRunService {
       let turnsUsed = 1
       let tokensUsed = first.tokens
 
+      // A real user Stop (or any internal stop other than the loop guard's
+      // own, recoverable one) must end the run immediately, not fall through
+      // to the retry below — retrying against a signal that's already
+      // aborted produces no plan either, and previously reported "Could not
+      // produce a plan for review" (status: error) for what was actually a
+      // deliberate user action, not a failure. A loop-guard stop is exempt:
+      // it already produces no plan, so the existing "no plan yet, retry
+      // once" logic is the right response either way.
+      if (first.stopped && first.stopReason !== 'loop-guard') {
+        agentRunStore.update(run.id, { turnsUsed, tokensUsed })
+        this.finish(run.id, conversation.id, 'stopped', null, 'Run was stopped.')
+        return
+      }
+
       if (!plan) {
         const retry = await this.runTurn(
           conversation,
@@ -293,6 +307,11 @@ class AgentRunService {
         )
         turnsUsed = 2
         tokensUsed += retry.tokens
+        if (retry.stopped && retry.stopReason !== 'loop-guard') {
+          agentRunStore.update(run.id, { turnsUsed, tokensUsed })
+          this.finish(run.id, conversation.id, 'stopped', null, 'Run was stopped.')
+          return
+        }
         plan = retry.plan
       }
 
