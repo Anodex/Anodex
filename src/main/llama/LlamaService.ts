@@ -37,6 +37,7 @@ import { planManualContextCompaction } from '@shared/contextProjection'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import { createLoopGuardState } from '../tools/loopGuard'
+import { confirmRacingAbort } from '../tools/confirmRacingAbort'
 import {
   assembleModelContext,
   mergeContextSummaries,
@@ -423,6 +424,7 @@ class LlamaService extends EventEmitter {
     // Filled in below once `genController` exists — see `buildToolFunctions`'s
     // doc comment for why this can't just be passed in directly.
     const abortBox: { current: (() => void) | null } = { current: null }
+    const signalBox: { current: AbortSignal | null } = { current: null }
     try {
       functions = await this.buildToolFunctions(
         params,
@@ -442,7 +444,8 @@ class LlamaService extends EventEmitter {
           }
           params.tools?.onActivity(call)
         },
-        abortBox
+        abortBox,
+        signalBox
       )
     } catch (error) {
       this.generating = false
@@ -488,6 +491,10 @@ class LlamaService extends EventEmitter {
       loopGuardAborted = true
       genController.abort()
     }
+    // Same reasoning — lets the confirm wrapper (see `buildToolFunctions`'s
+    // `confirm` field) race a pending confirmation against this generation's
+    // own abort, not just the caller's outer signal.
+    signalBox.current = genController.signal
     // A real user stop takes priority in the reported reason even if the
     // loop guard also fired around the same moment — vanishingly unlikely,
     // but "the user asked to stop" is the more actionable thing to report.
@@ -1158,18 +1165,21 @@ class LlamaService extends EventEmitter {
 
   /**
    * Build the workspace tool set for a generation, or `undefined` if disabled.
-   * `abortBox` is a mutable box the caller fills in with the real abort
-   * function once `genController` exists — `buildToolFunctions` runs before
-   * that, so the box lets the loop guard reach it anyway (same pattern as
-   * `plan`/`turnGate` below, just resolved slightly later than those).
+   * `abortBox` and `signalBox` are mutable boxes the caller fills in once
+   * `genController` exists — `buildToolFunctions` runs before that, so the
+   * boxes let the loop guard (and, via `signalBox`, the confirm wrapper
+   * below) reach it anyway (same pattern as `plan`/`turnGate` below, just
+   * resolved slightly later than those).
    */
   private async buildToolFunctions(
     params: GenerateParams,
     onActivity: (call: ToolCall) => void,
-    abortBox: { current: (() => void) | null }
+    abortBox: { current: (() => void) | null },
+    signalBox: { current: AbortSignal | null }
   ): Promise<Record<string, ToolFunction> | undefined> {
     if (!params.tools) return undefined
     const nlc = await this.getModule()
+    const rawConfirm = params.tools.confirm
     return buildTools(nlc.defineChatSessionFunction, {
       conversationId: params.conversationId,
       messageId: params.messageId,
@@ -1196,7 +1206,17 @@ class LlamaService extends EventEmitter {
       abortGeneration: () => abortBox.current?.(),
       signal: params.signal,
       emit: onActivity,
-      confirm: params.tools.confirm
+      // `rawConfirm` only observes the caller's own outer/per-conversation
+      // signal (e.g. `chat.handlers.ts`'s `controller.signal`), which has no
+      // visibility into this generation's own internal abort (the loop guard,
+      // or the pre-existing fabricated-turn guard). Without this wrapper, a
+      // confirm card for a call still waiting on the user can outlive the
+      // generation entirely — approving it later would run `spec.run()`
+      // (e.g. a real file write) into a turn that already ended, with no
+      // model left to see the result. Racing against `signalBox`'s signal
+      // (set to `genController.signal` below, once it exists) settles the
+      // confirm as denied the moment this generation ends, however it ends.
+      confirm: (request) => confirmRacingAbort(rawConfirm, request, signalBox)
     })
   }
 
