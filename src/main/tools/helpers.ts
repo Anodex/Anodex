@@ -3,7 +3,7 @@ import type { ToolCallDiff, ToolCallPreview, ToolKind, ToolRisk } from '@shared/
 import type { FileTouchAction } from '@shared/projectMemory.types'
 import type { Plan } from '@shared/plan.types'
 import type { ToolRuntimeContext } from './types'
-import { resolvePermission } from './permissions'
+import { needsTurnGate, resolvePermission } from './permissions'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 
@@ -180,8 +180,9 @@ export async function runGuardedTool(
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
 
   try {
-    const needsConfirm =
-      spec.forceConfirm ?? resolvePermission(ctx.permissionMode, spec.risk) === 'confirm'
+    const permissionDecision = resolvePermission(ctx.permissionMode, spec.risk)
+    const gatedByTurnStart = needsTurnGate(ctx.permissionMode, spec.risk, ctx.turnGate.approved)
+    const needsConfirm = spec.forceConfirm ?? (permissionDecision === 'confirm' || gatedByTurnStart)
     if (needsConfirm) {
       const response = await ctx.confirm({
         id: randomUUID(),
@@ -192,7 +193,8 @@ export async function runGuardedTool(
         title: spec.title,
         detail: spec.confirmDetail,
         risk: spec.risk,
-        diff: spec.confirmDiff
+        diff: spec.confirmDiff,
+        turnGate: gatedByTurnStart
       })
       if (!response.approved) {
         ctx.emit({
@@ -205,6 +207,7 @@ export async function runGuardedTool(
         })
         return composeDenialMessage(response.reason)
       }
+      ctx.turnGate.approved = true
     }
 
     const { modelResult, detail, diff, preview } = await spec.run()

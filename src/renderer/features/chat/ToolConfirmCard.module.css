@@ -1,11 +1,25 @@
 .card {
+  position: relative;
   margin-bottom: var(--space-2);
   padding: var(--space-3) var(--space-4);
+  overflow: hidden;
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  animation: pop 140ms var(--ease);
+  animation: approvalCardIn var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.9;
+  animation: approvalEdgePulse 1.8s ease-in-out infinite;
 }
 
 .header {
@@ -13,6 +27,7 @@
   align-items: center;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
+  animation: approvalContentIn var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
 }
 
 .badge {
@@ -58,6 +73,12 @@
   border-radius: var(--radius-sm);
 }
 
+.turnGateNote {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
 .detail {
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -78,6 +99,9 @@
   margin-bottom: var(--space-3);
   max-height: 220px;
   overflow: auto;
+  transform-origin: 50% 0;
+  animation: approvalContentIn var(--motion-long, 420ms) var(--ease-emphasized, var(--ease)) 60ms
+    both;
 }
 
 .actions {
@@ -85,6 +109,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
+  animation: approvalContentIn var(--motion-medium, 220ms) var(--ease-out, ease-out) 100ms both;
 }
 
 .deny,
@@ -171,9 +196,23 @@
   color: var(--text-faint);
 }
 
-@keyframes pop {
+@keyframes approvalCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+}
+
+@keyframes approvalContentIn {
   from {
     opacity: 0;
     transform: translateY(4px);
+  }
+}
+
+@keyframes approvalEdgePulse {
+  50% {
+    opacity: 0.45;
+    box-shadow: 0 0 16px rgba(79, 140, 255, 0.5);
   }
 }

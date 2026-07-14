@@ -51,6 +51,12 @@ export interface ToolRuntimeContext {
    * result without needing separate storage.
    */
   plan: { current: Plan | null }
+  /**
+   * Mutable per-generation flag: has this turn's first untethered-mode gate
+   * already been approved? Shared by every tool call in this generation, same
+   * pattern as `plan` above — set once, read/written by `runGuardedTool`.
+   */
+  turnGate: { approved: boolean }
   signal?: AbortSignal
   /** Report a tool call's progress to the UI. */
   emit: (call: ToolCall) => void

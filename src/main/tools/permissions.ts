@@ -21,6 +21,25 @@ export function resolvePermission(mode: PermissionMode, risk: ToolRisk): Permiss
   return 'auto'
 }
 
+/**
+ * Whether an `untethered`-mode call needs the once-per-turn "first action"
+ * gate, on top of `resolvePermission`'s own risk-based decision. Only
+ * relevant when `resolvePermission` alone would've said `'auto'` — a
+ * destructive call already always confirms regardless of this.
+ */
+export function needsTurnGate(
+  mode: PermissionMode,
+  risk: ToolRisk,
+  turnGateApproved: boolean
+): boolean {
+  return (
+    mode === 'untethered' &&
+    risk !== 'trivial' &&
+    resolvePermission(mode, risk) !== 'confirm' &&
+    !turnGateApproved
+  )
+}
+
 /** Patterns that mark a shell command as destructive regardless of permission mode. */
 const DESTRUCTIVE_COMMAND_PATTERNS: RegExp[] = [
   /\brm\s+(-\w*r\w*f\w*|-\w*f\w*r\w*)\b/i, // rm -rf / rm -fr (and combined flags)

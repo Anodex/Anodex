@@ -75,6 +75,9 @@ class OpenAiProvider implements LlmProvider {
           // A mutable box, not the plan value itself — shared by every tool
           // call in this generation, matching LlamaService's own wiring.
           plan: { current: params.tools.plan },
+          // Fresh every generation call, no seeding needed (unlike `plan`) —
+          // see `ToolRuntimeContext.turnGate`'s doc comment.
+          turnGate: { approved: false },
           signal: params.signal,
           emit: params.tools.onActivity,
           confirm: params.tools.confirm

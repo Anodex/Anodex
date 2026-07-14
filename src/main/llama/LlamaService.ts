@@ -1108,6 +1108,9 @@ class LlamaService extends EventEmitter {
       // in this generation so `update_plan_step` sees `write_plan`'s result
       // within the same turn (see `ToolRuntimeContext.plan`'s doc comment).
       plan: { current: params.tools.plan },
+      // Fresh every generation call, no seeding needed (unlike `plan`) — see
+      // `ToolRuntimeContext.turnGate`'s doc comment.
+      turnGate: { approved: false },
       signal: params.signal,
       emit: onActivity,
       confirm: params.tools.confirm

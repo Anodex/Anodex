@@ -50,6 +50,12 @@ export function ToolConfirmCard(): JSX.Element | null {
         {pending.risk === 'destructive' && <span className={styles.riskBadge}>Destructive</span>}
       </div>
 
+      {pending.turnGate && (
+        <p className={styles.turnGateNote}>
+          Approving lets the rest of this turn continue without asking again.
+        </p>
+      )}
+
       {pending.diff ? (
         <div className={styles.diffWrap}>
           <DiffView
