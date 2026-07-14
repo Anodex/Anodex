@@ -52,6 +52,16 @@ interface UiState {
   dismissToast: (id: string) => void
   addPendingConfirmation: (request: ToolConfirmRequest) => void
   resolveConfirmation: (id: string, response: ToolConfirmResponse) => void
+  /**
+   * Drop a pending confirmation the main process already settled on its own
+   * (generation aborted while the prompt was open) — unlike
+   * `resolveConfirmation`, this does NOT call back to main: main is the one
+   * that told us about it, so answering it again would just be a no-op
+   * there, and if this were routed through `resolveConfirmation` a user who
+   * clicks the now-stale card afterward would silently do nothing instead of
+   * the card simply not being there.
+   */
+  dismissCancelledConfirmation: (id: string) => void
 }
 
 const READ_MARKERS_KEY = 'anodex:readConversationAt'
@@ -118,6 +128,13 @@ export const useUiStore = create<UiState>((set, get) => ({
   resolveConfirmation: (id, response) => {
     if (!get().pendingConfirmations.some((p) => p.id === id)) return
     void anodex.tools.respondConfirmation(id, response)
+    set((state) => ({
+      pendingConfirmations: removePendingConfirmation(state.pendingConfirmations, id)
+    }))
+  },
+
+  dismissCancelledConfirmation: (id) => {
+    if (!get().pendingConfirmations.some((p) => p.id === id)) return
     set((state) => ({
       pendingConfirmations: removePendingConfirmation(state.pendingConfirmations, id)
     }))

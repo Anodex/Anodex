@@ -81,6 +81,12 @@ export function useAnodexBridge(): void {
         notifyDesktop('Approval needed', request.title)
       }
     })
+    // Main already answered this request on its own (the generation was
+    // aborted while it was still awaiting a decision) — drop the now-dead
+    // card instead of leaving an approval prompt no click will ever resolve.
+    const offConfirmCancelled = anodex.tools.onConfirmCancelled((id) => {
+      useUiStore.getState().dismissCancelledConfirmation(id)
+    })
     const offProviderUsage = anodex.provider.onUsageChanged((snapshot) =>
       useProviderUsageStore.getState().setSnapshot(snapshot)
     )
@@ -129,6 +135,7 @@ export function useAnodexBridge(): void {
       offDownloadProgress()
       offToolActivity()
       offConfirm()
+      offConfirmCancelled()
       offProviderUsage()
       offHistoryCompacted()
       offSchedulerTasks()

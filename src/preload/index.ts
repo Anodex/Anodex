@@ -59,7 +59,8 @@ const api: AnodexApi = {
       ipcRenderer.invoke(IpcChannel.Tools.confirmResponse, id, response),
     onActivity: (listener) => subscribe<ToolActivityEvent>(IpcChannel.Tools.activity, listener),
     onConfirmRequest: (listener) =>
-      subscribe<ToolConfirmRequest>(IpcChannel.Tools.confirmRequest, listener)
+      subscribe<ToolConfirmRequest>(IpcChannel.Tools.confirmRequest, listener),
+    onConfirmCancelled: (listener) => subscribe<string>(IpcChannel.Tools.confirmCancelled, listener)
   },
   skills: {
     list: (projectId) => ipcRenderer.invoke(IpcChannel.Skills.list, projectId),

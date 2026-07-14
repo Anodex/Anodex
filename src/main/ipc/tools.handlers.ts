@@ -59,18 +59,35 @@ export function requestToolConfirmation(
       resolve({ approved: false })
       return
     }
-    const settle = (response: ToolConfirmResponse): void => {
-      if (!pendingConfirmations.has(request.id)) return
+    /** Returns whether this call actually settled the request (false if it was already answered). */
+    const settle = (response: ToolConfirmResponse): boolean => {
+      if (!pendingConfirmations.has(request.id)) return false
       pendingConfirmations.delete(request.id)
       if (response.approved && response.remember && request.risk !== 'destructive') {
         rememberedToolApprovals.add(approvalKey(request.toolName, request.conversationId))
       }
       resolve(response)
+      return true
     }
     pendingConfirmations.set(request.id, settle)
     signal?.addEventListener(
       'abort',
-      () => settle({ approved: false, reason: 'The generation was cancelled.' }),
+      () => {
+        const settledHere = settle({
+          approved: false,
+          reason: 'The generation was cancelled.'
+        })
+        // The renderer's own card for this request is now showing a dead
+        // prompt — the main side has already answered on its behalf, so a
+        // later click on "Approve"/"Deny" would silently no-op (the id is
+        // gone from `pendingConfirmations` above). Tell it to drop the card
+        // instead of leaving it sitting there forever. Only when this abort
+        // is what actually settled it — if the user already answered before
+        // the abort fired, their own click already removed the card client-side.
+        if (settledHere && !sender.isDestroyed()) {
+          sender.send(IpcChannel.Tools.confirmCancelled, request.id)
+        }
+      },
       { once: true }
     )
     sender.send(IpcChannel.Tools.confirmRequest, request)

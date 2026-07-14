@@ -127,7 +127,14 @@ export const IpcChannel = {
     /** main → renderer: a tool call started/updated. */
     activity: 'tools:activity',
     /** main → renderer: approval is required before a write/command runs. */
-    confirmRequest: 'tools:confirm-request'
+    confirmRequest: 'tools:confirm-request',
+    /**
+     * main → renderer: a pending confirm request was already settled on the
+     * main side (generation aborted while it was still awaiting an answer)
+     * — the renderer must drop its card instead of leaving a dead prompt
+     * sitting in `pendingConfirmations` forever.
+     */
+    confirmCancelled: 'tools:confirm-cancelled'
   },
   Skills: {
     list: 'skills:list',
@@ -344,6 +351,8 @@ export interface AnodexApi {
     respondConfirmation(id: string, response: ToolConfirmResponse): Promise<void>
     onActivity(listener: (event: ToolActivityEvent) => void): () => void
     onConfirmRequest(listener: (request: ToolConfirmRequest) => void): () => void
+    /** A pending confirm request was already settled on the main side — drop its card. */
+    onConfirmCancelled(listener: (id: string) => void): () => void
   }
   skills: {
     /** List project + personal skill metadata for lightweight renderer discovery. */

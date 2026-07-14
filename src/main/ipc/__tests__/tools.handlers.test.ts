@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron'
 import { afterEach, describe, expect, it } from 'vitest'
+import { IpcChannel } from '@shared/ipc'
 import type { ToolConfirmRequest } from '@shared/tools.types'
 import {
   requestToolConfirmation,
@@ -75,6 +76,51 @@ describe('tool approval handling', () => {
     expect(sender.sent).toHaveLength(2)
     resolvePendingConfirmationForTests(turnGated.id, { approved: true })
     await expect(turnGatedResult).resolves.toEqual({ approved: true })
+  })
+
+  it('tells the renderer to drop the card when the generation is aborted mid-prompt', async () => {
+    const sent: Array<{ channel: string; payload: unknown }> = []
+    const sender = {
+      isDestroyed: () => false,
+      send: (channel: string, payload: unknown) => {
+        sent.push({ channel, payload })
+      }
+    } as unknown as WebContents
+
+    const controller = new AbortController()
+    const pending = request('will-be-aborted', 'edit_file', 'sensitive')
+    const result = requestToolConfirmation(sender, pending, controller.signal)
+
+    controller.abort()
+
+    await expect(result).resolves.toEqual({
+      approved: false,
+      reason: 'The generation was cancelled.'
+    })
+    const cancelledMessages = sent.filter((s) => s.channel === IpcChannel.Tools.confirmCancelled)
+    expect(cancelledMessages).toEqual([
+      { channel: IpcChannel.Tools.confirmCancelled, payload: 'will-be-aborted' }
+    ])
+  })
+
+  it('does not send a cancellation message for a request the user already answered', async () => {
+    const sent: Array<{ channel: string; payload: unknown }> = []
+    const sender = {
+      isDestroyed: () => false,
+      send: (channel: string, payload: unknown) => {
+        sent.push({ channel, payload })
+      }
+    } as unknown as WebContents
+
+    const controller = new AbortController()
+    const pending = request('already-answered', 'edit_file', 'sensitive')
+    const result = requestToolConfirmation(sender, pending, controller.signal)
+    resolvePendingConfirmationForTests(pending.id, { approved: true })
+    await result
+
+    controller.abort()
+
+    expect(sent.some((s) => s.channel === IpcChannel.Tools.confirmCancelled)).toBe(false)
   })
 })
 
