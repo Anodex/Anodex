@@ -99,9 +99,39 @@ export function updateChangeTaskMarkdown(
 }
 
 /**
+ * `archive/<date>-<slug>/`, disambiguated with a `-2`, `-3`, ... suffix on
+ * collision — same reasoning as `uniqueSlug()` above. Two *different* active
+ * changes can end up with the same slug over time (a slug only has to be
+ * unique among currently-active changes — see `uniqueSlug`'s own existence
+ * check — so once the first "add-dark-mode" is archived and removed from the
+ * active directory, a later, unrelated change can legitimately reuse that
+ * same slug). Without disambiguation, archiving a second change with a
+ * reused slug on the same calendar day would silently overwrite the first
+ * change's archived record, since `mkdirSync(..., { recursive: true })`
+ * doesn't complain about an existing directory.
+ */
+function uniqueArchiveDir(workspaceRoot: string, dateStamp: string, slug: string): string {
+  const base = `${dateStamp}-${slug}`
+  let name = base
+  let attempt = 2
+  while (existsSync(join(projectChangesDir(workspaceRoot), ARCHIVE_DIR_NAME, name))) {
+    name = `${base}-${attempt}`
+    attempt++
+  }
+  return join(projectChangesDir(workspaceRoot), ARCHIVE_DIR_NAME, name)
+}
+
+/**
  * Move a change's directory into `archive/<date>-<slug>/` and fold it into
  * the project's living spec (`.anodex/SPEC.md`) — the archive step from the
  * original propose → apply → archive workflow this feature is based on.
+ *
+ * Ordered so that a failure partway through never loses the change entirely:
+ * the archived copy is written and folded into SPEC.md *before* the active
+ * directory is removed. If either of those earlier steps throws, the change
+ * is untouched and still active — visible in `list_changes`, safe to retry —
+ * rather than the active copy having already been deleted with no record of
+ * it ever having reached the spec.
  */
 export function archiveChangeMarkdown(workspaceRoot: string, slug: string): Change {
   const filePath = changeProposalPath(workspaceRoot, slug)
@@ -111,11 +141,7 @@ export function archiveChangeMarkdown(workspaceRoot: string, slug: string): Chan
   const parsed = parseChangeFile(readFileSync(filePath, 'utf-8'), filePath)
 
   const dateStamp = new Date().toISOString().slice(0, 10)
-  const archiveDir = join(
-    projectChangesDir(workspaceRoot),
-    ARCHIVE_DIR_NAME,
-    `${dateStamp}-${slug}`
-  )
+  const archiveDir = uniqueArchiveDir(workspaceRoot, dateStamp, slug)
   mkdirSync(archiveDir, { recursive: true })
   const archived = {
     ...parsed,
@@ -125,8 +151,8 @@ export function archiveChangeMarkdown(workspaceRoot: string, slug: string): Chan
   const archivedFilePath = join(archiveDir, 'proposal.md')
   writeFileSync(archivedFilePath, serializeChangeFile(archived), 'utf-8')
 
-  rmSync(join(projectChangesDir(workspaceRoot), slug), { recursive: true, force: true })
   appendToSpec(workspaceRoot, { title: parsed.title, why: parsed.why, tasks: parsed.tasks })
+  rmSync(join(projectChangesDir(workspaceRoot), slug), { recursive: true, force: true })
 
   return { slug, filePath: archivedFilePath, ...archived }
 }

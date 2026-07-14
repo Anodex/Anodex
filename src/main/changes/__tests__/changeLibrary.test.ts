@@ -205,4 +205,48 @@ describe('archiveChangeMarkdown', () => {
     )
     expect(existsSync(victimMarker)).toBe(true)
   })
+
+  it('disambiguates an archive directory collision when a slug is reused', () => {
+    const workspaceRoot = makeTempDir()
+    createChangeMarkdown(workspaceRoot, 'Add dark mode', 'First change.', ['Step one'])
+    archiveChangeMarkdown(workspaceRoot, 'add-dark-mode')
+
+    // The slug is free again — uniqueSlug only checks *active* changes, and
+    // the first change's active directory was just removed by the archive
+    // above — so a later, unrelated change can legitimately reuse it.
+    const second = createChangeMarkdown(workspaceRoot, 'Add dark mode', 'Second change.', [
+      'Step two'
+    ])
+    expect(second.slug).toBe('add-dark-mode')
+    const archivedSecond = archiveChangeMarkdown(workspaceRoot, 'add-dark-mode')
+
+    const dateStamp = new Date().toISOString().slice(0, 10)
+    const archiveBase = join(workspaceRoot, '.anodex', 'changes', 'archive')
+    const firstArchived = readFileSync(
+      join(archiveBase, `${dateStamp}-add-dark-mode`, 'proposal.md'),
+      'utf-8'
+    )
+    const secondArchived = readFileSync(
+      join(archiveBase, `${dateStamp}-add-dark-mode-2`, 'proposal.md'),
+      'utf-8'
+    )
+    expect(firstArchived).toContain('First change.')
+    expect(secondArchived).toContain('Second change.')
+    expect(archivedSecond.filePath).toContain('add-dark-mode-2')
+  })
+
+  it('leaves the change active if folding it into SPEC.md fails partway through', () => {
+    const workspaceRoot = makeTempDir()
+    createChangeMarkdown(workspaceRoot, 'Add dark mode', 'Why.', ['Step one'])
+    // Force appendToSpec's write to fail: make the SPEC.md path a directory
+    // instead of a file, so writeFileSync/appendFileSync throw EISDIR.
+    mkdirSync(join(workspaceRoot, '.anodex', 'SPEC.md'), { recursive: true })
+
+    expect(() => archiveChangeMarkdown(workspaceRoot, 'add-dark-mode')).toThrow()
+    // The active change must survive the failed archive attempt — it was
+    // never removed, since removal now happens only after the spec append
+    // (and the archive-copy write) succeed.
+    expect(listChanges(workspaceRoot)).toHaveLength(1)
+    expect(existsSync(changeProposalPath(workspaceRoot, 'add-dark-mode'))).toBe(true)
+  })
 })
