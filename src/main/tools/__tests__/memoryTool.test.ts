@@ -212,6 +212,9 @@ describe('remember_fact tool', () => {
       ...createMockContext('/workspace'),
       projectId: 'project-1',
       permissionMode: 'full' as const,
+      // Pre-approved so this test isolates confirmBeforeSaving's own effect from
+      // the separate full-mode "first action" turn gate (see permissions.test.ts).
+      turnGate: { approved: true },
       memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false },
       confirm
     }

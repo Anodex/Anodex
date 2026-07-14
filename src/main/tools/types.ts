@@ -52,9 +52,11 @@ export interface ToolRuntimeContext {
    */
   plan: { current: Plan | null }
   /**
-   * Mutable per-generation flag: has this turn's first untethered-mode gate
-   * already been approved? Shared by every tool call in this generation, same
-   * pattern as `plan` above — set once, read/written by `runGuardedTool`.
+   * Mutable per-generation flag: has this turn's first "would otherwise
+   * auto-run" gate (see `needsTurnGate` in `permissions.ts`, applies to
+   * `full`/`untethered` mode) already been approved? Shared by every tool
+   * call in this generation, same pattern as `plan` above — set once,
+   * read/written by `runGuardedTool`.
    */
   turnGate: { approved: boolean }
   signal?: AbortSignal

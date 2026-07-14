@@ -43,10 +43,20 @@ describe('needsTurnGate', () => {
     expect(needsTurnGate('untethered', 'destructive', false)).toBe(false)
   })
 
-  it('never applies outside untethered mode, regardless of approval state', () => {
+  it('also gates the first safe call in full mode, since that tier auto-runs there too', () => {
+    expect(needsTurnGate('full', 'safe', false)).toBe(true)
+    expect(needsTurnGate('full', 'safe', true)).toBe(false)
+  })
+
+  it('never gates full-mode sensitive/destructive — those already confirm every time', () => {
+    expect(needsTurnGate('full', 'sensitive', false)).toBe(false)
+    expect(needsTurnGate('full', 'destructive', false)).toBe(false)
+  })
+
+  it('never applies to ask mode at any risk — every call already confirms there', () => {
     expect(needsTurnGate('ask', 'safe', false)).toBe(false)
-    expect(needsTurnGate('full', 'safe', false)).toBe(false)
-    expect(needsTurnGate('ask', 'sensitive', true)).toBe(false)
+    expect(needsTurnGate('ask', 'sensitive', false)).toBe(false)
+    expect(needsTurnGate('ask', 'destructive', true)).toBe(false)
   })
 })
 

@@ -6,8 +6,8 @@ import { changeStore } from '../changes/ChangeStore'
  * propose_change — create a new persisted change proposal (why + a task
  * checklist), stored at `.anodex/changes/<slug>/proposal.md` so it survives
  * this conversation. Goes through `runGuardedTool` like any write tool, so it
- * automatically gets the untethered-mode turn gate and batch-review UI for
- * free — no separate wiring needed.
+ * automatically gets the full/untethered-mode turn gate and batch-review UI
+ * for free — no separate wiring needed.
  */
 export const proposeChangeTool: WorkspaceToolFactory = (define, ctx) =>
   define({

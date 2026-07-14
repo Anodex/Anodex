@@ -85,9 +85,10 @@ export interface ToolConfirmRequest {
   risk: ToolRisk
   /** Before/after content for a file write/edit, so the prompt can render a real diff instead of a raw text preview. */
   diff?: ToolCallDiff
-  /** True when this prompt exists specifically because of the untethered-mode
-   * once-per-turn gate (not a normal risk-based confirm) — lets the UI explain
-   * that approving covers the rest of this turn, not just this one action. */
+  /** True when this prompt exists specifically because of the once-per-turn
+   * "first action" gate (full/untethered mode, not a normal risk-based
+   * confirm) — lets the UI explain that approving covers the rest of this
+   * turn, not just this one action. */
   turnGate?: boolean
 }
 

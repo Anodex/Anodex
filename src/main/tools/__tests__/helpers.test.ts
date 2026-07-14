@@ -77,7 +77,7 @@ describe('recordTouch (exercised via runReadTool)', () => {
   })
 })
 
-describe('runGuardedTool — untethered turn gate', () => {
+describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
   const root = 'C:\\workspace'
 
   function guardedSpec(risk: 'trivial' | 'safe' | 'sensitive' | 'destructive') {
@@ -112,16 +112,26 @@ describe('runGuardedTool — untethered turn gate', () => {
     expect(ctx.turnGate.approved).toBe(true)
   })
 
-  it('leaves ask/full mode behavior unchanged — every guarded call still confirms', async () => {
-    for (const mode of ['ask', 'full'] as const) {
-      const { requests, confirm } = captureConfirmations()
-      const ctx = { ...createMockContext(root), permissionMode: mode, confirm }
+  it('leaves ask mode behavior unchanged — every guarded call still confirms', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'ask' as const, confirm }
 
-      await runGuardedTool(ctx, guardedSpec('safe'))
-      await runGuardedTool(ctx, guardedSpec('safe'))
+    await runGuardedTool(ctx, guardedSpec('safe'))
+    await runGuardedTool(ctx, guardedSpec('safe'))
 
-      expect(requests).toHaveLength(mode === 'ask' ? 2 : 0)
-    }
+    expect(requests).toHaveLength(2)
+  })
+
+  it('also gates the first safe call in full mode, same as untethered', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
+
+    await runGuardedTool(ctx, guardedSpec('safe'))
+    await runGuardedTool(ctx, guardedSpec('safe'))
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0].turnGate).toBe(true)
+    expect(ctx.turnGate.approved).toBe(true)
   })
 
   it('never gates trivial-risk calls, even in untethered mode', async () => {
