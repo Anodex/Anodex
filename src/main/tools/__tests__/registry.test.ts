@@ -13,7 +13,11 @@ const PROJECT_WORKSPACE_TOOLS = [
   'delete_directory',
   'run_command',
   'run_project_check',
-  'update_project_notes'
+  'update_project_notes',
+  'propose_change',
+  'update_change_task',
+  'archive_change',
+  'list_changes'
 ]
 
 const READ_ONLY_WORKSPACE_TOOLS = [

@@ -54,6 +54,7 @@ import type {
   UpdateScheduledTaskRequest
 } from './scheduledTask.types'
 import type { AgentRun, CreateAgentRunRequest } from './agentRun.types'
+import type { ChangeSummary } from './change.types'
 import type {
   SkillDeleteRequest,
   SkillDocument,
@@ -133,6 +134,10 @@ export const IpcChannel = {
     read: 'skills:read',
     save: 'skills:save',
     delete: 'skills:delete'
+  },
+  Changes: {
+    /** List a project's active (non-archived) change proposals. */
+    list: 'changes:list'
   },
   Projects: {
     list: 'projects:list',
@@ -349,6 +354,10 @@ export interface AnodexApi {
     save(request: SkillSaveRequest): Promise<SkillSummary>
     /** Delete one editable skill markdown document. */
     delete(request: SkillDeleteRequest): Promise<void>
+  }
+  changes: {
+    /** List a project's active (non-archived) change proposals. */
+    list(projectId?: string | null): Promise<ChangeSummary[]>
   }
   projects: {
     list(): Promise<ProjectsState>

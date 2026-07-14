@@ -7,6 +7,7 @@ import { FileViewerPanel } from '../file-viewer/FileViewerPanel'
 import { useWorkspaceDock } from './useWorkspaceDock'
 import { DOCK_PANELS } from './workspaceDockTypes'
 import { PlanPanel } from './panels/PlanPanel'
+import { ChangesPanel } from './panels/ChangesPanel'
 import { FilesPanel } from './panels/FilesPanel'
 import { ActivityPanel } from './panels/ActivityPanel'
 import { OutputsPanel } from './panels/OutputsPanel'
@@ -15,6 +16,7 @@ import styles from './WorkspaceDock.module.css'
 
 const PANEL_COMPONENTS = {
   plan: PlanPanel,
+  changes: ChangesPanel,
   files: FilesPanel,
   activity: ActivityPanel,
   outputs: OutputsPanel,
@@ -23,6 +25,7 @@ const PANEL_COMPONENTS = {
 
 const PANEL_LABELS: Record<keyof typeof PANEL_COMPONENTS, string> = {
   plan: 'Plan panel',
+  changes: 'Changes panel',
   files: 'File tree',
   activity: 'Activity panel',
   outputs: 'Outputs panel',

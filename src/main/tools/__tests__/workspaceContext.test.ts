@@ -184,6 +184,24 @@ describe('buildWorkspaceContext', () => {
     const context = buildWorkspaceContext(workspace, null)
     expect(context).not.toContain('ANODEX.md')
   })
+
+  it('includes .anodex/SPEC.md content when present', async () => {
+    await mkdir(join(workspace, '.anodex'), { recursive: true })
+    await writeFile(
+      join(workspace, '.anodex', 'SPEC.md'),
+      '# Project spec\n\n## Add dark mode\n\nUsers asked for it.\n'
+    )
+
+    const context = buildWorkspaceContext(workspace, null)
+
+    expect(context).toContain('Add dark mode')
+    expect(context).toContain('living spec')
+  })
+
+  it('omits the spec section when .anodex/SPEC.md does not exist', () => {
+    const context = buildWorkspaceContext(workspace, null)
+    expect(context).not.toContain('living spec')
+  })
 })
 
 describe('project-memory retrieval ranking', () => {

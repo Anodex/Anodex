@@ -67,6 +67,9 @@ const api: AnodexApi = {
     save: (request) => ipcRenderer.invoke(IpcChannel.Skills.save, request),
     delete: (request) => ipcRenderer.invoke(IpcChannel.Skills.delete, request)
   },
+  changes: {
+    list: (projectId) => ipcRenderer.invoke(IpcChannel.Changes.list, projectId)
+  },
   system: {
     getInfo: () => ipcRenderer.invoke(IpcChannel.System.getInfo),
     getHardwareInfo: () => ipcRenderer.invoke(IpcChannel.System.getHardwareInfo),

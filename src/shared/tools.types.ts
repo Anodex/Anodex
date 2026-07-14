@@ -278,6 +278,33 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'propose_change',
+    kind: 'write',
+    description:
+      'Propose a persisted change (why + a task checklist) that survives the conversation (asks for approval). Requires an open project.',
+    requiresProject: true
+  },
+  {
+    name: 'update_change_task',
+    kind: 'write',
+    description:
+      'Mark a persisted change’s task done or not done (asks for approval). Requires an open project.',
+    requiresProject: true
+  },
+  {
+    name: 'archive_change',
+    kind: 'write',
+    description:
+      'Archive a finished change into the project’s living spec (asks for approval). Requires an open project.',
+    requiresProject: true
+  },
+  {
+    name: 'list_changes',
+    kind: 'read',
+    description: "List this project's active change proposals. Requires an open project.",
+    requiresProject: true
+  },
+  {
     name: 'remember_fact',
     kind: 'write',
     description:

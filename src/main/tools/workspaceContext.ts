@@ -23,6 +23,8 @@ const MAX_ACTIVITY_FILES = 8
 const MAX_ACTIVITY_SUMMARIES = 3
 /** Tail-sliced, not head — newest notes land at the end of the file, unlike a README. */
 const NOTES_CHARS = 800
+/** Tail-sliced, same reasoning as `NOTES_CHARS` — newest archived changes land at the end. */
+const SPEC_CHARS = 800
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -198,6 +200,14 @@ function build(root: string): string {
     lines.push(notes)
   }
 
+  const spec = specExcerpt(root)
+  if (spec) {
+    lines.push(
+      "This project's living spec (from .anodex/SPEC.md, built from archived change proposals, most recent last):"
+    )
+    lines.push(spec)
+  }
+
   const text = lines.join('\n')
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS)}\n…` : text
 }
@@ -239,6 +249,19 @@ function projectNotesExcerpt(root: string): string | null {
     const text = readFileSync(path, 'utf-8').trim()
     if (!text) return null
     return text.length > NOTES_CHARS ? `…${text.slice(-NOTES_CHARS)}` : text
+  } catch {
+    return null
+  }
+}
+
+/** The tail of `.anodex/SPEC.md`, if present — newest archived changes first via the caller's framing. */
+function specExcerpt(root: string): string | null {
+  const path = join(root, '.anodex', 'SPEC.md')
+  if (!existsSync(path)) return null
+  try {
+    const text = readFileSync(path, 'utf-8').trim()
+    if (!text) return null
+    return text.length > SPEC_CHARS ? `…${text.slice(-SPEC_CHARS)}` : text
   } catch {
     return null
   }

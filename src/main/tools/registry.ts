@@ -35,6 +35,12 @@ import { writePlanTool, updatePlanStepTool } from './planTools'
 import { updateProjectNotesTool } from './projectNotesTool'
 import { rememberFactTool } from './memoryTool'
 import { findSkillTool, loadSkillTool } from './skillTools'
+import {
+  proposeChangeTool,
+  updateChangeTaskTool,
+  archiveChangeTool,
+  listChangesTool
+} from './changeTools'
 import { finishGoalTool } from './agentTools'
 import {
   draftEmailTool,
@@ -83,7 +89,11 @@ const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   delete_directory: deleteDirectoryTool,
   run_command: runCommandTool,
   run_project_check: runProjectCheckTool,
-  update_project_notes: updateProjectNotesTool
+  update_project_notes: updateProjectNotesTool,
+  propose_change: proposeChangeTool,
+  update_change_task: updateChangeTaskTool,
+  archive_change: archiveChangeTool,
+  list_changes: listChangesTool
 }
 
 /**
