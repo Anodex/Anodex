@@ -22,6 +22,20 @@ describe('slugify', () => {
   it('falls back to "change" for a title with no usable characters', () => {
     expect(slugify('!!!')).toBe('change')
   })
+
+  it('never ends in a dash, even when the length cap lands exactly on a separator', () => {
+    // 63 letters then a space+word — the untruncated string has no trailing
+    // dash to trim, but slicing to 64 chars cuts right after the separator.
+    const title = 'a'.repeat(63) + ' ' + 'b'.repeat(10)
+    const slug = slugify(title)
+    expect(slug.endsWith('-')).toBe(false)
+    expect(slug.length).toBeLessThanOrEqual(64)
+  })
+
+  it('stays within the 64-character cap for a very long title', () => {
+    const slug = slugify('word '.repeat(50))
+    expect(slug.length).toBeLessThanOrEqual(64)
+  })
 })
 
 describe('assertValidSlug', () => {
@@ -73,6 +87,25 @@ describe('createChangeMarkdown', () => {
     const second = createChangeMarkdown(workspaceRoot, 'Add dark mode', 'Second.', [])
 
     expect(second.slug).toBe('add-dark-mode-2')
+  })
+
+  it('disambiguates a collision on an already-64-character base without exceeding the cap', () => {
+    const workspaceRoot = makeTempDir()
+    const longTitle = 'a'.repeat(64)
+    const first = createChangeMarkdown(workspaceRoot, longTitle, 'First.', [])
+    expect(first.slug.length).toBeLessThanOrEqual(64)
+
+    const second = createChangeMarkdown(workspaceRoot, longTitle, 'Second.', [])
+    expect(second.slug).not.toBe(first.slug)
+    expect(second.slug.length).toBeLessThanOrEqual(64)
+    expect(second.slug.endsWith('-2')).toBe(true)
+  })
+
+  it('creates a change from a title that truncates to a trailing-dash boundary', () => {
+    const workspaceRoot = makeTempDir()
+    const title = 'a'.repeat(63) + ' ' + 'b'.repeat(10)
+
+    expect(() => createChangeMarkdown(workspaceRoot, title, 'Why.', [])).not.toThrow()
   })
 })
 

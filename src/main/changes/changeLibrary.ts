@@ -2,11 +2,26 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, appendFileS
 import { join } from 'node:path'
 import type { Change, ChangeTask } from '@shared/change.types'
 import { parseChangeFile, serializeChangeFile } from './changeFile'
-import { projectChangesDir, changeProposalPath, ARCHIVE_DIR_NAME } from './changeCatalog'
+import {
+  projectChangesDir,
+  changeProposalPath,
+  ARCHIVE_DIR_NAME,
+  MAX_SLUG_LENGTH
+} from './changeCatalog'
 
 const SPEC_FILENAME = 'SPEC.md'
 
-/** Lowercase-dash slug from a title; appends `-2`, `-3`, ... on collision. */
+/**
+ * Lowercase-dash slug from a title; appends `-2`, `-3`, ... on collision (see
+ * `uniqueSlug` below). Trims trailing dashes both before *and* after the
+ * length cap — trimming only before it can't catch a dash that the cap
+ * itself lands on (e.g. a 63-char run of one word followed by a separator:
+ * the untruncated string has no trailing dash to trim, but slicing to 64
+ * chars cuts right after that separator and produces one). Left untrimmed,
+ * that slug would fail `assertValidSlug()` in `changeCatalog.ts`, which only
+ * accepts slugs `slugify()` itself could produce — this function is exactly
+ * what's supposed to produce them.
+ */
 export function slugify(title: string): string {
   const base =
     title
@@ -14,16 +29,28 @@ export function slugify(title: string): string {
       .trim()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
-      .slice(0, 64) || 'change'
+      .slice(0, MAX_SLUG_LENGTH)
+      .replace(/-+$/g, '') || 'change'
   return base
 }
 
+/**
+ * Appends `-2`, `-3`, ... on collision, reserving room for the suffix so the
+ * result never exceeds `MAX_SLUG_LENGTH` — a naive `${base}-${attempt}` can
+ * overflow the cap when `base` is already at (or near) the limit, which
+ * would make `changeProposalPath()` below reject a slug this function was
+ * specifically trying to make unique, turning an ordinary title collision
+ * into a hard failure instead of an "-2" suffix.
+ */
 function uniqueSlug(workspaceRoot: string, title: string): string {
   const base = slugify(title)
   let slug = base
   let attempt = 2
   while (existsSync(changeProposalPath(workspaceRoot, slug))) {
-    slug = `${base}-${attempt}`
+    const suffix = `-${attempt}`
+    const trimmedBase =
+      base.slice(0, MAX_SLUG_LENGTH - suffix.length).replace(/-+$/g, '') || 'change'
+    slug = `${trimmedBase}${suffix}`
     attempt++
   }
   return slug

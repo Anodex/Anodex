@@ -17,6 +17,15 @@ export function projectChangesDir(workspaceRoot: string): string {
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /**
+ * Shared with `slugify()`/`uniqueSlug()` in `changeLibrary.ts` — both the
+ * generator and this validator must agree on the cap, or a slug the
+ * generator legitimately produces (e.g. a 64-character base plus a `-2`
+ * collision suffix) gets rejected by the very validator meant to accept
+ * anything `slugify()` could have produced.
+ */
+export const MAX_SLUG_LENGTH = 64
+
+/**
  * Reject anything that isn't a slug `slugify()` itself could have produced.
  * `update_change_task`/`archive_change` take a slug straight from the model
  * as a plain string argument, which then gets joined into filesystem paths —
@@ -29,7 +38,7 @@ const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
  * path-confinement check is needed on top of it.
  */
 export function assertValidSlug(slug: string): void {
-  if (!SLUG_PATTERN.test(slug) || slug.length > 64) {
+  if (!SLUG_PATTERN.test(slug) || slug.length > MAX_SLUG_LENGTH) {
     throw new Error(`"${slug}" is not a valid change slug. Use list_changes to see valid slugs.`)
   }
 }
