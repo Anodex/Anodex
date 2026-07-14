@@ -87,14 +87,19 @@ const MAX_FALLBACK_ROUNDS = 8
  * (verified directly: qwen2.5-coder-7b described new file content in a code
  * block without ever calling a tool) and a fabricated third-person outcome
  * (verified directly: the same model later invented "The user denied adding
- * the function" in a turn with zero tool calls). One retry only; if it
- * narrates again, that's treated as the model's real answer rather than
- * looped on indefinitely.
+ * the function" in a turn with zero tool calls). Deliberately names no
+ * specific tool — unlike the original version of this prompt, which said
+ * "call write_file or edit_file", wrongly steering toward file-edit tools
+ * even in a turn about a completely different tool (observed directly:
+ * `propose_change`/`update_change_task`/`archive_change` narrated the same
+ * way, where naming write_file/edit_file would have been actively wrong
+ * guidance). One retry only; if it narrates again, that's treated as the
+ * model's real answer rather than looped on indefinitely.
  */
 const INTENT_NUDGE_PROMPT =
   'You described an outcome — a change, an approval, or a denial — that did not ' +
   'actually happen this turn; no tool was called. If you intend to make the change, ' +
-  "call write_file or edit_file now with the exact content. If you can't or the task " +
+  "call the appropriate tool now to do it for real. If you can't or the task " +
   "is blocked, say so plainly instead of describing something that didn't happen."
 
 const TOOL_BYPASS_NUDGE_PROMPT =
@@ -648,19 +653,24 @@ class LlamaService extends EventEmitter {
             )
           }
 
-          // The bypass/unacted-intent/fabricated-outcome nudges explicitly
-          // instruct the model to call write_file/edit_file/patch_file by
-          // name, so they only fire when one of those tools is actually
-          // registered for this chat. The stalled-intent nudge is generic —
-          // it names no specific tool — so it can fire whenever any tool at
-          // all is available, since the stall isn't limited to edit tools.
-          const needsEditToolNudge =
-            (isToolBypass ||
-              (!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
-              (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent))) &&
-            hasEditTool
-          const needsGenericNudge = isStalledIntent && Boolean(activeFunctions)
-          const needsActionNudge = needsEditToolNudge || needsGenericNudge
+          // The bypass nudge explicitly instructs the model to call
+          // write_file/edit_file/patch_file by name, so it only fires when
+          // one of those tools is actually registered for this chat — it's
+          // specifically about dumping code in chat instead of using an edit
+          // tool, which only makes sense when an edit tool exists. The
+          // unacted-intent/fabricated-outcome and stalled-intent nudges are
+          // both generic — neither names a specific tool — so they can fire
+          // whenever any tool at all is available: a false completion claim
+          // or a stall isn't limited to edit tools (observed directly with
+          // propose_change/update_change_task/archive_change, not just
+          // write_file/edit_file).
+          const needsToolBypassNudge = isToolBypass && hasEditTool
+          const needsUnactedIntentNudge =
+            (!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
+            (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent))
+          const needsGenericNudge =
+            (needsUnactedIntentNudge || isStalledIntent) && Boolean(activeFunctions)
+          const needsActionNudge = needsToolBypassNudge || needsGenericNudge
 
           // Content the model already produced this round is never silently
           // dropped, even when nudging for a retry — a false-positive nudge
@@ -680,11 +690,11 @@ class LlamaService extends EventEmitter {
           // Give it one chance to actually act.
           if (needsActionNudge && !usedIntentNudge) {
             usedIntentNudge = true
-            prompt = needsEditToolNudge
-              ? isToolBypass
-                ? TOOL_BYPASS_NUDGE_PROMPT
-                : INTENT_NUDGE_PROMPT
-              : STALLED_INTENT_NUDGE_PROMPT
+            prompt = needsToolBypassNudge
+              ? TOOL_BYPASS_NUDGE_PROMPT
+              : needsUnactedIntentNudge
+                ? INTENT_NUDGE_PROMPT
+                : STALLED_INTENT_NUDGE_PROMPT
             continue
           }
           break

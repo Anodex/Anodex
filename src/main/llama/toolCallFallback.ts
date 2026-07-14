@@ -283,7 +283,7 @@ export function looksLikeFabricatedOutcome(text: string): boolean {
  * for "add a feature". Used against the *user's* prompt, not the reply.
  */
 const ACTION_REQUEST_RE =
-  /\b(?:add|create|edit|include|insert|modify|patch|put|replace|update|write|check|run|search|list|verify|test|fix|remember|delete|move|rename|refactor)\b/i
+  /\b(?:add|create|edit|include|insert|modify|patch|put|replace|update|write|check|run|search|list|verify|test|fix|remember|delete|move|rename|refactor|propose|archive|mark)\b/i
 
 /**
  * True when the user's message asked for a concrete action and *no tool call

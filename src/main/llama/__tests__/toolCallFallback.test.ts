@@ -261,6 +261,30 @@ describe('looksLikeStalledIntent', () => {
     ).toBe(true)
   })
 
+  it('detects a stalled propose/archive/mark request (the persisted-changes tools)', () => {
+    // Regression test: observed live, three separate times in one session —
+    // the model narrated calling propose_change/update_change_task/
+    // archive_change without ever actually invoking them, and this detector
+    // didn't catch it because "propose"/"archive"/"mark" weren't in
+    // ACTION_REQUEST_RE at all, so the request wasn't recognized as
+    // action-shaped in the first place.
+    expect(
+      looksLikeStalledIntent(
+        "Sure, I'll propose that change now.",
+        'Propose a change for this project called "Add a README".'
+      )
+    ).toBe(true)
+    expect(
+      looksLikeStalledIntent(
+        "I'll archive that change for you.",
+        'Archive the change add-a-readme.'
+      )
+    ).toBe(true)
+    expect(looksLikeStalledIntent('Marking that task as done now.', 'Mark task 1 as done.')).toBe(
+      true
+    )
+  })
+
   it('does not flag a genuine clarifying question', () => {
     expect(
       looksLikeStalledIntent(
