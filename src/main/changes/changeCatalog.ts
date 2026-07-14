@@ -13,7 +13,29 @@ export function projectChangesDir(workspaceRoot: string): string {
   return join(workspaceRoot, '.anodex', 'changes')
 }
 
+/** Matches `slugify()`'s own output shape — lowercase alnum segments joined by single dashes. */
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/**
+ * Reject anything that isn't a slug `slugify()` itself could have produced.
+ * `update_change_task`/`archive_change` take a slug straight from the model
+ * as a plain string argument, which then gets joined into filesystem paths —
+ * unlike every other workspace tool, that join never goes through
+ * `resolveInWorkspace()`. A crafted slug like `"..\\..\\outside"` would
+ * otherwise resolve outside the workspace, and `archiveChangeMarkdown`'s
+ * `rmSync` would recursively delete whatever it points at. The pattern only
+ * allows lowercase letters, digits, and single dashes — no `.`, `/`, or `\`
+ * is representable at all, so this alone is sufficient; no separate
+ * path-confinement check is needed on top of it.
+ */
+export function assertValidSlug(slug: string): void {
+  if (!SLUG_PATTERN.test(slug) || slug.length > 64) {
+    throw new Error(`"${slug}" is not a valid change slug. Use list_changes to see valid slugs.`)
+  }
+}
+
 export function changeProposalPath(workspaceRoot: string, slug: string): string {
+  assertValidSlug(slug)
   return join(projectChangesDir(workspaceRoot), slug, 'proposal.md')
 }
 

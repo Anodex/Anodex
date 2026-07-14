@@ -1,8 +1,8 @@
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { changeProposalPath, listChanges } from '../changeCatalog'
+import { assertValidSlug, changeProposalPath, listChanges } from '../changeCatalog'
 import {
   archiveChangeMarkdown,
   createChangeMarkdown,
@@ -21,6 +21,32 @@ describe('slugify', () => {
 
   it('falls back to "change" for a title with no usable characters', () => {
     expect(slugify('!!!')).toBe('change')
+  })
+})
+
+describe('assertValidSlug', () => {
+  it('accepts anything slugify() could produce', () => {
+    expect(() => assertValidSlug('add-dark-mode')).not.toThrow()
+    expect(() => assertValidSlug('add-dark-mode-2')).not.toThrow()
+    expect(() => assertValidSlug('change')).not.toThrow()
+  })
+
+  it('rejects path traversal segments', () => {
+    expect(() => assertValidSlug('..')).toThrow(/not a valid change slug/)
+    expect(() => assertValidSlug('..\\..\\outside')).toThrow(/not a valid change slug/)
+    expect(() => assertValidSlug('../../outside')).toThrow(/not a valid change slug/)
+  })
+
+  it('rejects absolute-looking paths and separators', () => {
+    expect(() => assertValidSlug('C:\\Windows')).toThrow(/not a valid change slug/)
+    expect(() => assertValidSlug('foo/bar')).toThrow(/not a valid change slug/)
+    expect(() => assertValidSlug('foo\\bar')).toThrow(/not a valid change slug/)
+  })
+
+  it('rejects empty, uppercase, and overlong slugs', () => {
+    expect(() => assertValidSlug('')).toThrow(/not a valid change slug/)
+    expect(() => assertValidSlug('Add-Dark-Mode')).toThrow(/not a valid change slug/)
+    expect(() => assertValidSlug('a'.repeat(65))).toThrow(/not a valid change slug/)
   })
 })
 
@@ -85,6 +111,13 @@ describe('updateChangeTaskMarkdown', () => {
       /has no task at position 6/
     )
   })
+
+  it('rejects a traversal slug instead of resolving outside the workspace', () => {
+    const workspaceRoot = makeTempDir()
+    expect(() => updateChangeTaskMarkdown(workspaceRoot, '..\\..\\outside', 0, true)).toThrow(
+      /not a valid change slug/
+    )
+  })
 })
 
 describe('archiveChangeMarkdown', () => {
@@ -119,5 +152,24 @@ describe('archiveChangeMarkdown', () => {
     expect(() => archiveChangeMarkdown(makeTempDir(), 'does-not-exist')).toThrow(
       /No change named "does-not-exist"/
     )
+  })
+
+  it('rejects a traversal slug and never deletes anything outside the workspace', () => {
+    // A directory that would be the rmSync target if the traversal worked —
+    // a sibling of the temp workspace, i.e. genuinely outside it.
+    const parent = mkdtempSync(join(tmpdir(), 'anodex-change-library-outside-'))
+    const victimMarker = join(parent, 'victim.txt')
+    writeFileSync(victimMarker, 'do not delete me')
+
+    const workspaceRoot = makeTempDir()
+    const changesDir = join(workspaceRoot, '.anodex', 'changes')
+    mkdirSync(changesDir, { recursive: true })
+    // Relative traversal from workspaceRoot/.anodex/changes/<slug> up to `parent`.
+    const traversalSlug = '..\\..\\..\\' + dirname(victimMarker).split(/[\\/]/).pop()
+
+    expect(() => archiveChangeMarkdown(workspaceRoot, traversalSlug)).toThrow(
+      /not a valid change slug/
+    )
+    expect(existsSync(victimMarker)).toBe(true)
   })
 })
