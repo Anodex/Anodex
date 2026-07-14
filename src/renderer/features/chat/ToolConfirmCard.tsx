@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import { useUiStore } from '../../stores/uiStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useChatStore } from '../../stores/chatStore'
+import { confirmationsForConversation } from '../../stores/pendingConfirmations'
 import { Icon } from '../../components/Icon'
 import { DiffView } from './DiffView'
 import { DiffStat } from './ToolCallCard'
@@ -15,46 +17,50 @@ import styles from './ToolConfirmCard.module.css'
  * concurrently within one turn, so this renders one card for a single pending
  * request (unchanged from before) or a batch view with per-item and
  * approve-all/deny-all actions when more than one is pending at once.
+ *
+ * `pendingConfirmations` itself is a single global queue shared across every
+ * conversation, though — nothing stops a second conversation from adding its
+ * own request to it while the user is looking at a different one. Filtered
+ * to the conversation actually on screen so a mixed batch never renders (the
+ * cards carry no per-conversation label, so it would look like one batch)
+ * and "Approve all"/"Deny all" can never reach into a conversation the user
+ * isn't even looking at.
  */
 export function ToolConfirmCard(): JSX.Element | null {
   const pendingConfirmations = useUiStore((s) => s.pendingConfirmations)
+  const activeConversationId = useChatStore((s) => s.activeId)
   const resolve = useUiStore((s) => s.resolveConfirmation)
   const diffViewMode = useSettingsStore((s) => s.settings?.appearance.diffView ?? 'unified')
 
-  if (pendingConfirmations.length === 0) return null
+  const visible = confirmationsForConversation(pendingConfirmations, activeConversationId)
+  if (visible.length === 0) return null
 
-  const isBatch = pendingConfirmations.length > 1
+  const isBatch = visible.length > 1
 
   return (
     <div className={styles.stack}>
       {isBatch && (
         <div className={styles.batchHeader}>
-          <span className={styles.batchTitle}>
-            {pendingConfirmations.length} changes want your approval
-          </span>
+          <span className={styles.batchTitle}>{visible.length} changes want your approval</span>
           <div className={styles.batchActions}>
             <button
               type="button"
               className={styles.batchDeny}
-              onClick={() =>
-                pendingConfirmations.forEach((request) => resolve(request.id, { approved: false }))
-              }
+              onClick={() => visible.forEach((request) => resolve(request.id, { approved: false }))}
             >
               Deny all
             </button>
             <button
               type="button"
               className={styles.batchApprove}
-              onClick={() =>
-                pendingConfirmations.forEach((request) => resolve(request.id, { approved: true }))
-              }
+              onClick={() => visible.forEach((request) => resolve(request.id, { approved: true }))}
             >
               Approve all
             </button>
           </div>
         </div>
       )}
-      {pendingConfirmations.map((request) => (
+      {visible.map((request) => (
         <ConfirmItem
           key={request.id}
           request={request}
