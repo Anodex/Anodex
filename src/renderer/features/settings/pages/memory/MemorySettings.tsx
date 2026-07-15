@@ -28,6 +28,8 @@ const KIND_LABEL: Record<MemoryKind, string> = {
   open_task: 'Open task'
 }
 
+type ScopeFilter = 'all' | 'personal' | 'project'
+
 export function MemorySettings(): JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const update = useSettingsStore((s) => s.update)
@@ -38,6 +40,8 @@ export function MemorySettings(): JSX.Element {
   const [entries, setEntries] = useState<MemoryEntry[]>([])
   const [loaded, setLoaded] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all')
+  const [memorySearch, setMemorySearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [deletingEntry, setDeletingEntry] = useState<MemoryEntry | null>(null)
@@ -59,6 +63,9 @@ export function MemorySettings(): JSX.Element {
   useEffect(() => {
     void load()
     setDraftScope(activeProjectId ? 'project' : 'global')
+    if (!activeProjectId) {
+      setScopeFilter((current) => (current === 'project' ? 'all' : current))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId])
 
@@ -68,9 +75,20 @@ export function MemorySettings(): JSX.Element {
   const scopeLabel = (entry: MemoryEntry): string =>
     entry.scope.type === 'global' ? 'Global' : 'Project'
 
-  const visible = entries.filter((e) => showArchived || !e.archived)
-  const projectEntries = visible.filter((e) => e.scope.type === 'project')
-  const globalEntries = visible.filter((e) => e.scope.type === 'global')
+  const visible = entries.filter((entry) => showArchived || !entry.archived)
+  const searchQuery = memorySearch.trim().toLowerCase()
+  const filteredEntries = visible.filter((entry) => {
+    const matchesScope =
+      scopeFilter === 'all' ||
+      (scopeFilter === 'personal' && entry.scope.type === 'global') ||
+      (scopeFilter === 'project' && entry.scope.type === 'project')
+    const matchesSearch =
+      !searchQuery ||
+      entry.text.toLowerCase().includes(searchQuery) ||
+      KIND_LABEL[entry.kind].toLowerCase().includes(searchQuery)
+    return matchesScope && matchesSearch
+  })
+  const activeEntryCount = entries.filter((entry) => !entry.archived).length
 
   const startEdit = (entry: MemoryEntry): void => {
     setEditingId(entry.id)
@@ -201,6 +219,34 @@ export function MemorySettings(): JSX.Element {
         <p className={pageStyles.sectionDesc}>
           Turning a scope off stops it being read or written, but never deletes stored memories.
         </p>
+        <div className={styles.statusGrid}>
+          <div className={styles.statusCard}>
+            <span className={styles.statusLabel}>Personal memory</span>
+            <span className={styles.statusValue}>
+              <span
+                className={`${styles.statusDot} ${settings.memory.personalEnabled ? styles.statusDotActive : ''}`}
+              />
+              {settings.memory.personalEnabled ? 'Active' : 'Off'}
+            </span>
+          </div>
+          <div className={styles.statusCard}>
+            <span className={styles.statusLabel}>Project memory</span>
+            <span className={styles.statusValue}>
+              <span
+                className={`${styles.statusDot} ${activeProjectId && settings.memory.crossChatEnabled ? styles.statusDotActive : ''}`}
+              />
+              {activeProjectId
+                ? settings.memory.crossChatEnabled
+                  ? 'Active'
+                  : 'Off'
+                : 'No project selected'}
+            </span>
+          </div>
+          <div className={styles.statusCard}>
+            <span className={styles.statusLabel}>Stored memories</span>
+            <span className={styles.statusValue}>{activeEntryCount} active</span>
+          </div>
+        </div>
         <SettingRow
           label="Cross-chat memory"
           description="Recall project-scoped memories across every conversation in this project."
@@ -322,21 +368,51 @@ export function MemorySettings(): JSX.Element {
         </div>
       </section>
 
-      {activeProjectId && (
-        <section className={pageStyles.section}>
-          <h2 className={pageStyles.sectionTitle}>Project memory</h2>
-          <p className={pageStyles.sectionDesc}>
-            Scoped to <strong>{activeProject?.name ?? 'this project'}</strong> — recalled across
-            every chat in it, not just this one.
-          </p>
-          {renderList(projectEntries, 'No project memories yet.')}
-        </section>
-      )}
-
       <section className={pageStyles.section}>
-        <h2 className={pageStyles.sectionTitle}>Personal memory</h2>
-        <p className={pageStyles.sectionDesc}>Recalled in every project.</p>
-        {renderList(globalEntries, 'No personal memories yet.')}
+        <div className={styles.libraryHead}>
+          <div>
+            <h2 className={pageStyles.sectionTitle}>Memory library</h2>
+            <p className={pageStyles.sectionDesc}>
+              Review, pin, edit, archive, or remove what Anodex remembers.
+            </p>
+          </div>
+          <div className={styles.scopeFilters} aria-label="Memory scope filter">
+            <button
+              type="button"
+              className={`${styles.scopeFilter} ${scopeFilter === 'all' ? styles.scopeFilterActive : ''}`}
+              onClick={() => setScopeFilter('all')}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className={`${styles.scopeFilter} ${scopeFilter === 'personal' ? styles.scopeFilterActive : ''}`}
+              onClick={() => setScopeFilter('personal')}
+            >
+              Personal
+            </button>
+            {activeProjectId && (
+              <button
+                type="button"
+                className={`${styles.scopeFilter} ${scopeFilter === 'project' ? styles.scopeFilterActive : ''}`}
+                onClick={() => setScopeFilter('project')}
+              >
+                Project
+              </button>
+            )}
+          </div>
+        </div>
+        <div className={styles.libraryToolbar}>
+          <TextControl
+            value={memorySearch}
+            onChange={setMemorySearch}
+            placeholder="Search memories"
+          />
+          <span className={styles.libraryCount}>
+            {filteredEntries.length} {filteredEntries.length === 1 ? 'memory' : 'memories'}
+          </span>
+        </div>
+        {renderList(filteredEntries, 'No memories match the current filters.')}
       </section>
 
       {!loaded && <p className={styles.emptyText}>Loading…</p>}
