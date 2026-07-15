@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anodex Settings &mdash; General sample</title>
+    <link rel="stylesheet" href="settings-shell.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+      <symbol id="i-user" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20c.7-4 3-6 7-6s6.3 2 7 6" />
+      </symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24">
+        <path
+          d="M12 3a9 9 0 1 0 0 18h1.2a2 2 0 0 0 1.5-3.3 2 2 0 0 1 1.5-3.3H18A3 3 0 0 0 21 11a9 9 0 0 0-9-8Z"
+        />
+        <circle cx="7.5" cy="10" r=".7" />
+        <circle cx="10" cy="6.8" r=".7" />
+        <circle cx="15" cy="7.2" r=".7" />
+      </symbol>
+      <symbol id="i-memory" viewBox="0 0 24 24">
+        <path d="m12 3 8 4-8 4-8-4 8-4Z" />
+        <path d="m4 12 8 4 8-4M4 17l8 4 8-4" />
+      </symbol>
+      <symbol id="i-general" viewBox="0 0 24 24">
+        <path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4" />
+        <circle cx="16" cy="6" r="2" />
+        <circle cx="9" cy="12" r="2" />
+        <circle cx="14" cy="18" r="2" />
+      </symbol>
+      <symbol id="i-tools" viewBox="0 0 24 24">
+        <path d="m14.5 5.5 4-2 2 2-2 4-3 1-5 5" />
+        <path d="m13 18-2 2-7-7 2-2 7 7Z" />
+      </symbol>
+      <symbol id="i-cpu" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <rect x="9" y="9" width="6" height="6" />
+        <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
+      </symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m4 7 8 6 8-6" />
+      </symbol>
+      <symbol id="i-archive" viewBox="0 0 24 24">
+        <path d="M4 8h16v12H4V8ZM3 4h18v4H3V4Z" />
+        <path d="M9 12h6" />
+      </symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6" /></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v6M12 7h.01" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
+    </svg>
+
+    <main class="settings-frame" aria-label="Anodex General settings visual sample">
+      <header class="settings-topbar">
+        <div class="settings-title-wrap">
+          <h1 class="settings-title">Settings</h1>
+          <span class="settings-subtitle">Configure Anodex and the local engine</span>
+        </div>
+        <button class="icon-button" type="button" aria-label="Close settings">
+          <svg class="inline-icon"><use href="#i-close" /></svg>
+        </button>
+      </header>
+
+      <div class="settings-layout">
+        <aside class="settings-sidebar">
+          <div class="nav-scroll">
+            <nav aria-label="Settings sections">
+              <section class="nav-group">
+                <p class="nav-label">Personal</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-user" /></svg>Profile
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-palette" /></svg>Appearance
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-memory" /></svg>Memory
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">Workspace</p>
+                <button class="nav-item active" type="button">
+                  <svg class="nav-icon"><use href="#i-general" /></svg>General
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-tools" /></svg>Tools &amp; Skills
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">Connections</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-cpu" /></svg>AI &amp; Models
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-mail" /></svg>Email
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">System</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-archive" /></svg>Archive
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-activity" /></svg>Diagnostics
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-info" /></svg>About
+                </button>
+              </section>
+            </nav>
+          </div>
+          <footer class="sidebar-footer">
+            <div class="local-pill"><span class="status-dot"></span>Local data only</div>
+          </footer>
+        </aside>
+
+        <div class="settings-content">
+          <article class="settings-page">
+            <header class="page-header">
+              <div>
+                <p class="page-kicker">Workspace</p>
+                <h2 class="page-heading">General</h2>
+                <p class="page-description">Everyday application behavior and notifications.</p>
+              </div>
+            </header>
+
+            <section class="settings-section first">
+              <h3 class="section-heading">Notifications</h3>
+              <p class="section-description">
+                Choose when Anodex should alert you outside the app.
+              </p>
+              <div class="setting-list">
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Desktop notifications</div>
+                    <div class="setting-help">
+                      Notify when long generations or model loads finish.
+                    </div>
+                  </div>
+                  <div class="control-column">
+                    <button
+                      class="toggle-control"
+                      type="button"
+                      role="switch"
+                      aria-checked="false"
+                      aria-label="Desktop notifications"
+                    ></button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3 class="section-heading">Notification behavior</h3>
+              <p class="section-description">
+                These events use the desktop notification preference above.
+              </p>
+              <div class="account-layout">
+                <div class="account-card">
+                  <h4 class="account-card-title">Completion events</h4>
+                  <div class="account-line">
+                    <span>Long generation finished</span
+                    ><span class="account-value">Enabled by preference</span>
+                  </div>
+                  <div class="account-line">
+                    <span>Model load finished</span
+                    ><span class="account-value">Enabled by preference</span>
+                  </div>
+                </div>
+                <div class="account-card">
+                  <h4 class="account-card-title">Delivery</h4>
+                  <div class="account-line">
+                    <span>Provider</span><span class="account-value">Windows</span>
+                  </div>
+                  <div class="account-line">
+                    <span>Stored notification history</span><span class="account-value">None</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </article>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      document.querySelectorAll('.toggle-control').forEach((toggle) => {
+        toggle.addEventListener('click', () => {
+          toggle.classList.toggle('on')
+          toggle.setAttribute('aria-checked', String(toggle.classList.contains('on')))
+        })
+      })
+    </script>
+  </body>
+</html>
