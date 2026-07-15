@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anodex Settings &mdash; Tools &amp; Skills sample</title>
+    <link rel="stylesheet" href="settings-shell.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+      <symbol id="i-user" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20c.7-4 3-6 7-6s6.3 2 7 6" />
+      </symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24">
+        <path
+          d="M12 3a9 9 0 1 0 0 18h1.2a2 2 0 0 0 1.5-3.3 2 2 0 0 1 1.5-3.3H18A3 3 0 0 0 21 11a9 9 0 0 0-9-8Z"
+        />
+        <circle cx="7.5" cy="10" r=".7" />
+        <circle cx="10" cy="6.8" r=".7" />
+        <circle cx="15" cy="7.2" r=".7" />
+      </symbol>
+      <symbol id="i-memory" viewBox="0 0 24 24">
+        <path d="m12 3 8 4-8 4-8-4 8-4Z" />
+        <path d="m4 12 8 4 8-4M4 17l8 4 8-4" />
+      </symbol>
+      <symbol id="i-general" viewBox="0 0 24 24">
+        <path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4" />
+        <circle cx="16" cy="6" r="2" />
+        <circle cx="9" cy="12" r="2" />
+        <circle cx="14" cy="18" r="2" />
+      </symbol>
+      <symbol id="i-tools" viewBox="0 0 24 24">
+        <path d="m14.5 5.5 4-2 2 2-2 4-3 1-5 5" />
+        <path d="m13 18-2 2-7-7 2-2 7 7Z" />
+      </symbol>
+      <symbol id="i-cpu" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <rect x="9" y="9" width="6" height="6" />
+        <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
+      </symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m4 7 8 6 8-6" />
+      </symbol>
+      <symbol id="i-archive" viewBox="0 0 24 24">
+        <path d="M4 8h16v12H4V8ZM3 4h18v4H3V4Z" />
+        <path d="M9 12h6" />
+      </symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6" /></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v6M12 7h.01" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
+    </svg>
+
+    <main class="settings-frame" aria-label="Anodex Tools and Skills settings visual sample">
+      <header class="settings-topbar">
+        <div class="settings-title-wrap">
+          <h1 class="settings-title">Settings</h1>
+          <span class="settings-subtitle">Configure Anodex and the local engine</span>
+        </div>
+        <button class="icon-button" type="button" aria-label="Close settings">
+          <svg class="inline-icon"><use href="#i-close" /></svg>
+        </button>
+      </header>
+
+      <div class="settings-layout">
+        <aside class="settings-sidebar">
+          <div class="nav-scroll">
+            <nav aria-label="Settings sections">
+              <section class="nav-group">
+                <p class="nav-label">Personal</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-user" /></svg>Profile
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-palette" /></svg>Appearance
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-memory" /></svg>Memory
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">Workspace</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-general" /></svg>General
+                </button>
+                <button class="nav-item active" type="button">
+                  <svg class="nav-icon"><use href="#i-tools" /></svg>Tools &amp; Skills
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">Connections</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-cpu" /></svg>AI &amp; Models
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-mail" /></svg>Email
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">System</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-archive" /></svg>Archive
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-activity" /></svg>Diagnostics
+                </button>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-info" /></svg>About
+                </button>
+              </section>
+            </nav>
+          </div>
+          <footer class="sidebar-footer">
+            <div class="local-pill"><span class="status-dot"></span>Local data only</div>
+          </footer>
+        </aside>
+
+        <div class="settings-content">
+          <article class="settings-page">
+            <header class="page-header">
+              <div>
+                <p class="page-kicker">Workspace</p>
+                <h2 class="page-heading">Tools &amp; Skills</h2>
+                <p class="page-description">
+                  Control assistant access, reusable personal workflows, terminal behavior, and web
+                  search.
+                </p>
+              </div>
+            </header>
+
+            <section class="settings-section first">
+              <h3 class="section-heading">Permissions</h3>
+              <p class="section-description">
+                Choose how much autonomy tools have over your machine.
+              </p>
+              <div class="setting-list">
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Permission mode</div>
+                    <div class="setting-help">Prompt before writes and shell commands.</div>
+                  </div>
+                  <div class="control-column">
+                    <select class="select-control" aria-label="Permission mode">
+                      <option selected>Ask every time</option>
+                      <option>Allow writes, ask commands</option>
+                      <option>Untethered</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Confirm destructive actions</div>
+                    <div class="setting-help">
+                      Confirm before delete, overwrite, reset, or destructive tool operations.
+                    </div>
+                  </div>
+                  <div class="control-column">
+                    <button
+                      class="toggle-control on"
+                      type="button"
+                      role="switch"
+                      aria-checked="true"
+                      aria-label="Confirm destructive actions"
+                    ></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Default shell</div>
+                    <div class="setting-help">Shell used by the run_command tool.</div>
+                  </div>
+                  <div class="control-column">
+                    <input class="text-control" aria-label="Default shell" value="powershell" />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3 class="section-heading">Assistant tools</h3>
+              <p class="section-description">
+                Tools read and change files only inside the project selected in the sidebar.
+              </p>
+              <div class="setting-list">
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Active workspace</div>
+                    <div class="setting-help">C:\Users\Owner\Desktop\Anodex4</div>
+                  </div>
+                  <div class="control-column"></div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Enable tools</div>
+                    <div class="setting-help">Master switch for all assistant tools.</div>
+                  </div>
+                  <div class="control-column">
+                    <button
+                      class="toggle-control on"
+                      type="button"
+                      role="switch"
+                      aria-checked="true"
+                      aria-label="Enable tools"
+                    ></button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tool-status-grid">
+                <div class="tool-status-card ready">
+                  <span class="tool-status-label">Tools</span
+                  ><span class="tool-status-value"><span class="status-dot"></span>Enabled</span>
+                </div>
+                <div class="tool-status-card ready">
+                  <span class="tool-status-label">Project access</span
+                  ><span class="tool-status-value"><span class="status-dot"></span>Ready</span>
+                </div>
+                <div class="tool-status-card attention">
+                  <span class="tool-status-label">Web search</span
+                  ><span class="tool-status-value"
+                    ><span class="status-dot attention"></span>Disabled</span
+                  >
+                </div>
+                <div class="tool-status-card ready">
+                  <span class="tool-status-label">Approvals</span
+                  ><span class="tool-status-value"><span class="status-dot"></span>Ask</span>
+                </div>
+              </div>
+
+              <details class="settings-disclosure">
+                <summary>
+                  <span>Availability details</span
+                  ><span class="disclosure-hint">Why tools may be hidden</span>
+                </summary>
+                <div class="availability-list">
+                  <div class="availability-row">
+                    <span class="availability-name"
+                      ><span class="status-dot"></span>Workspace tools</span
+                    ><span>Available inside the active project folder.</span>
+                  </div>
+                  <div class="availability-row">
+                    <span class="availability-name"
+                      ><span class="status-dot"></span>Memory tools</span
+                    ><span>Personal and project memory are enabled.</span>
+                  </div>
+                  <div class="availability-row">
+                    <span class="availability-name"
+                      ><span class="status-dot attention"></span>Web search</span
+                    ><span>Select a provider below to enable web_search.</span>
+                  </div>
+                </div>
+              </details>
+
+              <details class="settings-disclosure">
+                <summary>
+                  <span>Tool catalog</span><span class="disclosure-hint">42 tools</span>
+                </summary>
+                <input
+                  class="tool-catalog-search"
+                  placeholder="Filter tools by name, kind, or project requirement"
+                />
+                <div class="tool-catalog-list">
+                  <div class="tool-catalog-row">
+                    <code class="tool-catalog-name">read_file</code
+                    ><span class="tool-kind read">read</span
+                    ><span>Read text from a workspace file.</span>
+                  </div>
+                  <div class="tool-catalog-row">
+                    <code class="tool-catalog-name">apply_patch</code
+                    ><span class="tool-kind write">write</span
+                    ><span>Apply a targeted patch inside the project.</span>
+                  </div>
+                  <div class="tool-catalog-row">
+                    <code class="tool-catalog-name">run_command</code
+                    ><span class="tool-kind command">command</span
+                    ><span>Run a command using the configured shell.</span>
+                  </div>
+                </div>
+              </details>
+            </section>
+
+            <section class="settings-section">
+              <div class="skill-section-head">
+                <div>
+                  <h3 class="section-heading">Personal skills</h3>
+                  <p class="section-description">
+                    Reusable markdown workflows available in every project and general chat.
+                  </p>
+                </div>
+                <button class="btn" type="button">New personal skill</button>
+              </div>
+              <div class="skill-toolbar">
+                <input
+                  class="skill-search"
+                  aria-label="Search personal skills"
+                  placeholder="Search personal skills"
+                /><span class="skill-project-hint">Pinning to Anodex4</span>
+              </div>
+              <div class="skill-list">
+                <div class="skill-row">
+                  <div>
+                    <div class="skill-name">code-review</div>
+                    <div class="skill-description">
+                      Review a change for correctness, safety, and maintainability.
+                    </div>
+                  </div>
+                  <div class="skill-actions">
+                    <button class="skill-action active" type="button">Pinned</button
+                    ><button class="skill-action" type="button">Duplicate</button
+                    ><button class="skill-action" type="button">Delete</button>
+                  </div>
+                </div>
+                <div class="skill-row">
+                  <div>
+                    <div class="skill-name">research-brief</div>
+                    <div class="skill-description">
+                      Collect evidence and produce a concise decision brief.
+                    </div>
+                  </div>
+                  <div class="skill-actions">
+                    <button class="skill-action" type="button">Pin</button
+                    ><button class="skill-action" type="button">Duplicate</button
+                    ><button class="skill-action" type="button">Delete</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3 class="section-heading">Web search</h3>
+              <p class="section-description">
+                Choose the provider used by the assistant's web_search tool.
+              </p>
+              <div class="setting-list">
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Provider</div>
+                    <div class="setting-help">Web search is disabled.</div>
+                  </div>
+                  <div class="control-column">
+                    <select
+                      class="select-control"
+                      id="webProvider"
+                      aria-label="Web search provider"
+                    >
+                      <option value="none" selected>Disabled</option>
+                      <option value="searxng">SearXNG (self-hosted)</option>
+                      <option value="brave">Brave Search</option>
+                      <option value="tavily">Tavily</option>
+                      <option value="google">Google Programmable Search</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row conditional-setting" id="apiKeyRow">
+                  <div>
+                    <div class="setting-label">API key</div>
+                    <div class="setting-help">
+                      Stored locally using the operating system credential store.
+                    </div>
+                  </div>
+                  <div class="control-column">
+                    <input
+                      class="text-control"
+                      type="password"
+                      aria-label="Web search API key"
+                      placeholder="Paste API key"
+                    />
+                  </div>
+                </div>
+                <div class="setting-row conditional-setting" id="approvalRow">
+                  <div>
+                    <div class="setting-label">Require approval</div>
+                    <div class="setting-help">Ask before each web search query.</div>
+                  </div>
+                  <div class="control-column">
+                    <button
+                      class="toggle-control on"
+                      type="button"
+                      role="switch"
+                      aria-checked="true"
+                      aria-label="Require web search approval"
+                    ></button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </article>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      document.querySelectorAll('.toggle-control').forEach((toggle) => {
+        toggle.addEventListener('click', () => {
+          toggle.classList.toggle('on')
+          toggle.setAttribute('aria-checked', String(toggle.classList.contains('on')))
+        })
+      })
+      document.getElementById('webProvider').addEventListener('change', (event) => {
+        const enabled = event.target.value !== 'none'
+        const needsKey = ['brave', 'tavily', 'google'].includes(event.target.value)
+        document.getElementById('apiKeyRow').classList.toggle('visible', needsKey)
+        document.getElementById('approvalRow').classList.toggle('visible', enabled)
+      })
+    </script>
+  </body>
+</html>
