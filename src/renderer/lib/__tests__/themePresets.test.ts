@@ -25,6 +25,7 @@ function makeAppearance(overrides: Partial<AppearanceSettings>): AppearanceSetti
     reducedMotion: false,
     compactMode: false,
     diffView: 'unified',
+    chatBackground: 'deepField',
     ...overrides
   }
 }

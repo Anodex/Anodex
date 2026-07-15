@@ -62,7 +62,8 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       soundEffects: false,
       reducedMotion: false,
       compactMode: false,
-      diffView: 'unified'
+      diffView: 'unified',
+      chatBackground: 'deepField'
     },
     general: {
       defaultWorkspace: null,

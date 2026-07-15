@@ -2,8 +2,8 @@ import { useChatStore } from '../../stores/chatStore'
 import { getActiveProject, useProjectStore } from '../../stores/projectStore'
 import { PageHeader } from '../../components/PageHeader'
 import { MessageList } from './MessageList'
+import { ChatBackground } from './ChatBackground'
 import { ChatComposer } from './ChatComposer'
-import { ChatConstellation } from './ChatConstellation'
 import { ChatEmptyState } from './ChatEmptyState'
 import styles from './ChatView.module.css'
 
@@ -24,7 +24,7 @@ export function ChatView(): JSX.Element {
           <>
             {/* Mounted on .body, not inside the empty state, so the scene
                 fills the full panel — including behind the composer. */}
-            <ChatConstellation />
+            <ChatBackground />
             <ChatEmptyState />
           </>
         )}

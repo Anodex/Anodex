@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
-import styles from './ChatConstellation.module.css'
+import { glowSprite, lerp, rampAt, rgba, type Rgb } from './backgroundCanvas'
+import styles from './ChatBackground.module.css'
 
 interface Node3D {
   x: number
@@ -87,8 +88,6 @@ interface Meteor {
   life: number
 }
 
-type Rgb = [number, number, number]
-
 interface ScenePalette {
   /** Node/link color ramp, cyan → blue → violet. */
   ramp: [Rgb, Rgb, Rgb]
@@ -154,36 +153,20 @@ const PALETTES: Record<'dark' | 'light', ScenePalette> = {
   }
 }
 
-const DENSITY = 150 // nodes per 1440×900 of container
+const DENSITY = 150 // nodes per 1440×900 of container, at 'balanced'
 const LINK_DIST_3D = 0.3 // world units; lattice slab is 2.3 × 2 × 1.6
 const FOV = 2.4
 const MOUSE_RADIUS = 220
 const MAX_PULSES = 140
 const MAX_SPARKS = 380
 
-const rgba = (c: Rgb, a: number): string => `rgba(${c[0]},${c[1]},${c[2]},${a})`
-const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
-const mixColor = (a: Rgb, b: Rgb, t: number): Rgb => [
-  lerp(a[0], b[0], t) | 0,
-  lerp(a[1], b[1], t) | 0,
-  lerp(a[2], b[2], t) | 0
-]
-const rampAt = (ramp: [Rgb, Rgb, Rgb], t: number): Rgb =>
-  t < 0.5 ? mixColor(ramp[0], ramp[1], t * 2) : mixColor(ramp[1], ramp[2], (t - 0.5) * 2)
-
-/** Pre-rendered radial-gradient glow sprite; far cheaper than shadowBlur. */
-function glowSprite(color: Rgb, size: number): HTMLCanvasElement {
-  const c = document.createElement('canvas')
-  c.width = c.height = size
-  const g = c.getContext('2d')
-  if (!g) return c
-  const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-  grad.addColorStop(0, rgba(color, 0.85))
-  grad.addColorStop(0.35, rgba(color, 0.28))
-  grad.addColorStop(1, rgba(color, 0))
-  g.fillStyle = grad
-  g.fillRect(0, 0, size, size)
-  return c
+const DENSITY_MODES = ['calm', 'balanced', 'dense'] as const
+type DensityMode = (typeof DENSITY_MODES)[number]
+const DENSITY_FACTOR: Record<DensityMode, number> = { calm: 0.6, balanced: 1, dense: 1.5 }
+const DENSITY_LABEL: Record<DensityMode, string> = {
+  calm: 'Calm',
+  balanced: 'Balanced',
+  dense: 'Dense'
 }
 
 /**
@@ -212,11 +195,25 @@ function glowSprite(color: Rgb, size: number): HTMLCanvasElement {
  * which the app's blanket CSS reduced-motion rule can't touch) by rendering a
  * single static frame instead of animating. Follows the Appearance theme mode,
  * including live OS changes while in 'system' mode.
+ *
+ * Small pill controls in the panel's bottom-right corner cycle the node
+ * density (Calm / Balanced / Dense) and pause/resume the animation; both are
+ * per-session, not persisted.
  */
 export function ChatConstellation(): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reducedMotion = useSettingsStore((s) => s.settings?.appearance.reducedMotion ?? false)
   const themeMode = useSettingsStore((s) => s.settings?.appearance.themeMode ?? 'dark')
+
+  const [density, setDensity] = useState<DensityMode>('balanced')
+  const [paused, setPaused] = useState(false)
+  // The effect re-runs on density/theme changes; a ref (not the state) tells
+  // the rebuilt scene whether to stay paused without re-running on toggle.
+  const pausedRef = useRef(false)
+  const setRunningRef = useRef<((running: boolean) => void) | null>(null)
+
+  const motionDisabled =
+    reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -288,7 +285,7 @@ export function ChatConstellation(): JSX.Element {
     let raf = 0
 
     const makeNodes = (): void => {
-      const count = Math.round((DENSITY * width * height) / (1440 * 900))
+      const count = Math.round((DENSITY * DENSITY_FACTOR[density] * width * height) / (1440 * 900))
       nodes = Array.from({ length: Math.max(50, count) }, () => ({
         x: (Math.random() * 2 - 1) * 1.15,
         y: (Math.random() * 2 - 1) * 1.0,
@@ -366,7 +363,9 @@ export function ChatConstellation(): JSX.Element {
       makeNodes()
       makeStars()
       if (!blobs.length) makeBlobs()
-      if (staticOnly) drawFrame(true)
+      // Repaint immediately whenever the loop isn't running (reduced motion
+      // or paused), so a resize never leaves a blank canvas behind.
+      if (!raf) drawFrame(true)
     }
 
     // ------------------------------------------------------- projection
@@ -824,13 +823,18 @@ export function ChatConstellation(): JSX.Element {
     }
     const onVisibilityChange = (): void => {
       if (document.hidden) stopLoop()
-      else startLoop()
+      else if (!pausedRef.current) startLoop()
+    }
+
+    setRunningRef.current = (running) => {
+      if (running) startLoop()
+      else stopLoop()
     }
 
     buildSprites()
     resize()
-    if (staticOnly) drawFrame(true)
-    else startLoop()
+    if (staticOnly || pausedRef.current) drawFrame(true)
+    if (!staticOnly && !pausedRef.current) startLoop()
 
     const resizeObserver = new ResizeObserver(resize)
     resizeObserver.observe(container)
@@ -842,6 +846,7 @@ export function ChatConstellation(): JSX.Element {
 
     return () => {
       stopLoop()
+      setRunningRef.current = null
       resizeObserver.disconnect()
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerdown', onPointerDown)
@@ -849,7 +854,41 @@ export function ChatConstellation(): JSX.Element {
       systemDark.removeEventListener('change', onSchemeChange)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [reducedMotion, themeMode])
+  }, [reducedMotion, themeMode, density])
 
-  return <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
+  const cycleDensity = (): void => {
+    setDensity((d) => DENSITY_MODES[(DENSITY_MODES.indexOf(d) + 1) % DENSITY_MODES.length])
+  }
+
+  const togglePause = (): void => {
+    const nextPaused = !pausedRef.current
+    pausedRef.current = nextPaused
+    setPaused(nextPaused)
+    setRunningRef.current?.(!nextPaused)
+  }
+
+  return (
+    <>
+      <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
+      <div className={styles.controls}>
+        <button
+          type="button"
+          className={styles.controlButton}
+          onClick={cycleDensity}
+          title="Cycle background density"
+        >
+          {DENSITY_LABEL[density]}
+        </button>
+        <button
+          type="button"
+          className={styles.controlButton}
+          onClick={togglePause}
+          disabled={motionDisabled}
+          title={motionDisabled ? 'Motion is off (reduced motion)' : 'Pause or resume the scene'}
+        >
+          {paused ? 'Play' : 'Pause'}
+        </button>
+      </div>
+    </>
+  )
 }

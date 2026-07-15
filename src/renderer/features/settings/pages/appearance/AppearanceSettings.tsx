@@ -18,6 +18,11 @@ const THEME_OPTIONS = [
   { label: 'Custom colors', value: 'dark:custom' }
 ]
 
+const CHAT_BACKGROUND_OPTIONS = [
+  { label: 'Deep field (constellation)', value: 'deepField' },
+  { label: 'Silicon bloom (circuit board)', value: 'siliconBloom' }
+]
+
 const FONT_OPTIONS = [
   { label: 'System', value: 'system' },
   { label: 'Sans-serif', value: 'sans' },
@@ -137,6 +142,20 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
             />
           </div>
         )}
+
+        <SettingRow
+          label="Chat background"
+          description="Animated scene behind an empty chat. Deep field is a drifting 3D constellation; Silicon bloom is a living circuit board that etches itself. Both follow the theme and respect reduced motion."
+          control={
+            <SelectControl
+              value={appearance.chatBackground}
+              options={CHAT_BACKGROUND_OPTIONS}
+              onChange={(value) =>
+                update({ chatBackground: value as typeof appearance.chatBackground })
+              }
+            />
+          }
+        />
       </section>
 
       <section className={pageStyles.section}>

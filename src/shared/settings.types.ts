@@ -89,6 +89,8 @@ export interface AppearanceSettings {
   compactMode: boolean
   /** How file-edit diffs render in the chat transcript. */
   diffView: 'unified' | 'sideBySide'
+  /** Animated scene behind an empty chat. */
+  chatBackground: 'deepField' | 'siliconBloom'
 }
 
 /**
