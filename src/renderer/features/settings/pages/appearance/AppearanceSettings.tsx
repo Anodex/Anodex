@@ -9,11 +9,13 @@ interface AppearanceSettingsProps {
   update: (patch: Partial<AppSettings['appearance']>) => void
 }
 
-const PRESET_OPTIONS = [
-  { label: 'Midnight', value: 'midnight' },
-  { label: 'Slate', value: 'slate' },
-  { label: 'Obsidian', value: 'obsidian' },
-  { label: 'Custom', value: 'custom' }
+const THEME_OPTIONS = [
+  { label: 'Anodex', value: 'dark:midnight' },
+  { label: 'Slate', value: 'dark:slate' },
+  { label: 'Obsidian', value: 'dark:obsidian' },
+  { label: 'Anodex Light', value: 'light:midnight' },
+  { label: 'Follow system', value: 'system:midnight' },
+  { label: 'Custom colors', value: 'dark:custom' }
 ]
 
 const FONT_OPTIONS = [
@@ -40,6 +42,10 @@ const DIFF_VIEW_OPTIONS = [
 
 export function AppearanceSettings({ settings, update }: AppearanceSettingsProps): JSX.Element {
   const { appearance } = settings
+  const selectedTheme =
+    appearance.themeMode === 'dark'
+      ? `dark:${appearance.presetTheme}`
+      : `${appearance.themeMode}:midnight`
 
   return (
     <div className={pageStyles.page}>
@@ -53,32 +59,20 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
         <h2 className={pageStyles.sectionTitle}>Theme</h2>
         <p className={pageStyles.sectionDesc}>Choose the look and feel of Anodex.</p>
 
-        <div className={styles.modeGrid}>
-          <ModeButton
-            label="Dark"
-            active={appearance.themeMode === 'dark'}
-            onClick={() => update({ themeMode: 'dark' })}
-          />
-          <ModeButton
-            label="Light"
-            active={appearance.themeMode === 'light'}
-            onClick={() => update({ themeMode: 'light' })}
-          />
-          <ModeButton
-            label="System"
-            active={appearance.themeMode === 'system'}
-            onClick={() => update({ themeMode: 'system' })}
-          />
-        </div>
-
         <SettingRow
-          label="Preset"
-          description="Curated colour palettes for dark mode (light mode always uses its own fixed palette). Select Custom to edit individual colours."
+          label="Theme"
+          description="Anodex is the default. Dark, light, adaptive, and custom themes share one list so new palettes can be added without changing the layout."
           control={
             <SelectControl
-              value={appearance.presetTheme}
-              options={PRESET_OPTIONS}
-              onChange={(value) => update({ presetTheme: value as typeof appearance.presetTheme })}
+              value={selectedTheme}
+              options={THEME_OPTIONS}
+              onChange={(value) => {
+                const [themeMode, presetTheme] = value.split(':') as [
+                  typeof appearance.themeMode,
+                  typeof appearance.presetTheme
+                ]
+                update({ themeMode, presetTheme })
+              }}
             />
           }
         />
@@ -233,26 +227,6 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
         />
       </section>
     </div>
-  )
-}
-
-function ModeButton({
-  label,
-  active,
-  onClick
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      className={`${styles.modeButton} ${active ? styles.modeButtonActive : ''}`}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   )
 }
 

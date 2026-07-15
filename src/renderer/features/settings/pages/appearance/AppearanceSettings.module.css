@@ -27,38 +27,6 @@
   color: var(--text-muted);
 }
 
-.modeGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-3);
-  margin-bottom: var(--space-5);
-}
-
-.modeButton {
-  padding: var(--space-3);
-  font-weight: 500;
-  color: var(--text-muted);
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition:
-    color var(--transition-fast),
-    border-color var(--transition-fast),
-    background var(--transition-fast);
-}
-
-.modeButton:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-}
-
-.modeButtonActive {
-  color: var(--text-on-accent);
-  background: var(--accent);
-  border-color: transparent;
-}
-
 .colorGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
