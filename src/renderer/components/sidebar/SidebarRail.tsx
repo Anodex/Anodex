@@ -3,19 +3,17 @@ import { useModelStore } from '../../stores/modelStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore } from '../../stores/uiStore'
+import { useSidebarCollapse } from '../../stores/sidebarCollapseStore'
+import { useCreateProject } from '../../hooks/useCreateProject'
 import { isChatReady } from '../../lib/chatReadiness'
 import { Icon } from '../Icon'
 import { StatusDot } from '../ui/StatusDot'
 import styles from './SidebarRail.module.css'
 
-interface SidebarRailProps {
-  onExpand: () => void
-}
-
 /** Icon-only sidebar for narrow windows. Global nav still navigates directly;
  *  anything that needs the project/chat list opens the full sidebar as a
  *  temporary overlay instead of permanently squeezing the chat area. */
-export function SidebarRail({ onExpand }: SidebarRailProps): JSX.Element {
+export function SidebarRail(): JSX.Element {
   const view = useUiStore((s) => s.view)
   const setView = useUiStore((s) => s.setView)
   const openSettings = useUiStore((s) => s.openSettings)
@@ -27,6 +25,8 @@ export function SidebarRail({ onExpand }: SidebarRailProps): JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const engineStatus = useModelStore((s) => s.engine.status)
   const ready = isChatReady(settings, engineStatus)
+  const expandSidebar = useSidebarCollapse((s) => s.expand)
+  const handleCreateProject = useCreateProject()
 
   const handleNewChat = (): void => {
     void setActiveProject(null)
@@ -36,18 +36,6 @@ export function SidebarRail({ onExpand }: SidebarRailProps): JSX.Element {
 
   return (
     <div className={styles.rail}>
-      <button
-        type="button"
-        className={styles.railButton}
-        onClick={onExpand}
-        aria-label="Expand sidebar"
-        title="Expand sidebar"
-      >
-        <Icon name="panel-right" size={16} />
-      </button>
-
-      <div className={styles.railDivider} />
-
       <button
         type="button"
         className={`${styles.railButton} ${view === 'scheduler' ? styles.railButtonActive : ''}`}
@@ -89,7 +77,7 @@ export function SidebarRail({ onExpand }: SidebarRailProps): JSX.Element {
         <button
           type="button"
           className={styles.railButton}
-          onClick={onExpand}
+          onClick={expandSidebar}
           aria-label={`Current project: ${activeProject.name}`}
           title={activeProject.name}
         >
@@ -98,6 +86,16 @@ export function SidebarRail({ onExpand }: SidebarRailProps): JSX.Element {
       )}
 
       <div className={styles.railSpacer} />
+
+      <button
+        type="button"
+        className={styles.railButton}
+        onClick={() => void handleCreateProject()}
+        aria-label="New project"
+        title="New project"
+      >
+        <Icon name="folder-plus" size={16} />
+      </button>
 
       <button
         type="button"

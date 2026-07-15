@@ -34,6 +34,7 @@ export type IconName =
   | 'search'
   | 'more-vertical'
   | 'panel-right'
+  | 'panel-left'
   | 'minimize'
   | 'maximize'
   | 'restore'
@@ -222,6 +223,12 @@ const GLYPHS: Record<IconName, ReactNode> = {
     <>
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <line x1="15" y1="3" x2="15" y2="21" />
+    </>
+  ),
+  'panel-left': (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="9" y1="3" x2="9" y2="21" />
     </>
   ),
   minimize: <line x1="5" y1="12" x2="19" y2="12" />,

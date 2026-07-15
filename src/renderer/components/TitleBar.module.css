@@ -132,6 +132,11 @@
   -webkit-app-region: no-drag;
 }
 
+.activeToggle {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .separator {
   width: 1px;
   height: 20px;

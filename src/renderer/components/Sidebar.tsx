@@ -7,8 +7,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import type { Project } from '@shared/project.types'
 import type { Conversation } from '@shared/conversation.types'
 import { Icon } from './Icon'
-import { anodex } from '../lib/anodex'
-import { notifyError } from '../stores/uiStore'
+import { useCreateProject } from '../hooks/useCreateProject'
 import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
 import { SidebarSearch } from './sidebar/SidebarSearch'
 import { SidebarSection } from './sidebar/SidebarSection'
@@ -50,12 +49,12 @@ export function Sidebar(): JSX.Element {
 
   const projects = useProjectStore((s) => s.projects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
-  const createProject = useProjectStore((s) => s.create)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const updateProject = useProjectStore((s) => s.update)
   const openProjectFolder = useProjectStore((s) => s.openFolder)
   const deleteProject = useProjectStore((s) => s.delete)
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
+  const handleCreateProject = useCreateProject()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [projectsExpanded, setProjectsExpanded] = useState(true)
@@ -170,19 +169,6 @@ export function Sidebar(): JSX.Element {
     if (conversation.id === activeConversationId) return false
     const readAt = readConversationAt[conversation.id]
     return Boolean(readAt && conversation.updatedAt > readAt)
-  }
-
-  const handleCreateProject = async (): Promise<void> => {
-    const result = await anodex.tools.pickWorkspace()
-    if (!result.ok) {
-      notifyError('Could not select folder', result.error.message)
-      return
-    }
-    const folderPath = result.value
-    if (!folderPath) return
-    const name = folderPath.split(/[/\\]/).pop() ?? 'New project'
-    await createProject({ name, folderPath })
-    setView('chat')
   }
 
   const handleRenameProject = (project: Project, name: string): void => {

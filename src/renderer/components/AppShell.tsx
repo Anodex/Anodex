@@ -6,6 +6,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { useChatStore } from '../stores/chatStore'
 import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
 import { useWorkspaceDock } from '../features/workspace-dock/useWorkspaceDock'
+import { useSidebarCollapse, SIDEBAR_COLLAPSE_BREAKPOINT } from '../stores/sidebarCollapseStore'
 import { useTheme } from '../hooks/useTheme'
 import { Sidebar } from './Sidebar'
 import { SidebarRail } from './sidebar/SidebarRail'
@@ -36,8 +37,9 @@ const RESIZE_STEP_LARGE = 48
 const NARROW_BREAKPOINT = 960
 // Narrower still — even the minimum sidebar width starts crowding out the
 // chat, so it collapses to an icon rail; the full sidebar becomes a
-// temporary overlay instead.
-const SIDEBAR_COLLAPSE_BREAKPOINT = 760
+// temporary overlay instead. Shared with the title-bar toggle button, which
+// needs to know whether "expand" can dock the sidebar back open or has to
+// fall back to a temporary overlay.
 
 function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): string {
   if (view === 'scheduler') return 'Scheduled tasks'
@@ -71,10 +73,12 @@ export function AppShell(): JSX.Element {
   const dockOpen = useWorkspaceDock((s) => s.open)
   const setDockOpen = useWorkspaceDock((s) => s.setOpen)
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_BREAKPOINT)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
-    () => window.innerWidth < SIDEBAR_COLLAPSE_BREAKPOINT
-  )
-  const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false)
+  const isAutoCollapsed = useSidebarCollapse((s) => s.autoCollapsed)
+  const isManuallyCollapsed = useSidebarCollapse((s) => s.manuallyCollapsed)
+  const sidebarOverlayOpen = useSidebarCollapse((s) => s.overlayOpen)
+  const setAutoCollapsed = useSidebarCollapse((s) => s.setAutoCollapsed)
+  const setSidebarOverlayOpen = useSidebarCollapse((s) => s.setOverlayOpen)
+  const isSidebarCollapsed = isAutoCollapsed || isManuallyCollapsed
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       return Number(localStorage.getItem(SIDEBAR_KEY)) || 248
@@ -92,6 +96,12 @@ export function AppShell(): JSX.Element {
   const resizing = useRef<'sidebar' | 'dock' | null>(null)
   const startX = useRef(0)
   const startWidth = useRef(0)
+  // `.shell`'s grid-template-columns transition is meant to animate the
+  // sidebar/dock *toggling* open and closed — but grid-template-columns is
+  // also what a live resize drag changes every pointermove, so without this
+  // it fights the drag: the column visibly lags behind the cursor and
+  // rubber-bands into place instead of tracking it 1:1.
+  const [isResizingLive, setIsResizingLive] = useState(false)
   useTheme({ appearance })
 
   useEffect(() => {
@@ -122,6 +132,7 @@ export function AppShell(): JSX.Element {
       resizing.current = 'sidebar'
       startX.current = e.clientX
       startWidth.current = sidebarWidth
+      setIsResizingLive(true)
       document.body.style.cursor = 'col-resize'
       document.body.style.userSelect = 'none'
     },
@@ -134,6 +145,7 @@ export function AppShell(): JSX.Element {
       resizing.current = 'dock'
       startX.current = e.clientX
       startWidth.current = dockWidth
+      setIsResizingLive(true)
       document.body.style.cursor = 'col-resize'
       document.body.style.userSelect = 'none'
     },
@@ -215,16 +227,14 @@ export function AppShell(): JSX.Element {
   useEffect(() => {
     const handleResize = (): void => {
       setIsNarrow(window.innerWidth < NARROW_BREAKPOINT)
-      const collapsed = window.innerWidth < SIDEBAR_COLLAPSE_BREAKPOINT
-      setIsSidebarCollapsed(collapsed)
-      if (!collapsed) setSidebarOverlayOpen(false)
+      setAutoCollapsed(window.innerWidth < SIDEBAR_COLLAPSE_BREAKPOINT)
       setSidebarWidth((width) => clampSidebarWidth(width))
       setDockWidth((width) => clampDockWidth(width))
     }
     handleResize()
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [clampDockWidth, clampSidebarWidth])
+  }, [clampDockWidth, clampSidebarWidth, setAutoCollapsed])
 
   useEffect(() => {
     if (!sidebarOverlayOpen) return
@@ -233,7 +243,7 @@ export function AppShell(): JSX.Element {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [sidebarOverlayOpen])
+  }, [sidebarOverlayOpen, setSidebarOverlayOpen])
 
   useEffect(() => {
     const handleMove = (e: PointerEvent) => {
@@ -249,6 +259,7 @@ export function AppShell(): JSX.Element {
     const handleUp = () => {
       if (!resizing.current) return
       resizing.current = null
+      setIsResizingLive(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
@@ -262,7 +273,7 @@ export function AppShell(): JSX.Element {
 
   return (
     <div
-      className={`${styles.shell} ${dockOpen && !isNarrow ? styles.shellDockOpen : ''} ${isSidebarCollapsed ? styles.shellSidebarCollapsed : ''}`}
+      className={`${styles.shell} ${dockOpen && !isNarrow ? styles.shellDockOpen : ''} ${isSidebarCollapsed ? styles.shellSidebarCollapsed : ''} ${isResizingLive ? styles.shellResizing : ''}`}
       style={
         {
           '--sidebar-width': `${sidebarWidth}px`,
@@ -278,7 +289,7 @@ export function AppShell(): JSX.Element {
       <div className={styles.sidebar}>
         {isSidebarCollapsed ? (
           <ErrorBoundary label="Sidebar rail">
-            <SidebarRail onExpand={() => setSidebarOverlayOpen(true)} />
+            <SidebarRail />
           </ErrorBoundary>
         ) : (
           <>

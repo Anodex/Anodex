@@ -35,8 +35,13 @@ export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1240,
     height: 820,
-    minWidth: 940,
-    minHeight: 620,
+    // The renderer's own layout collapses gracefully well below this (sidebar
+    // rail at <760px width, composer/approval cards cap and scroll instead of
+    // pushing out the transcript below ~640px height) — this floor only needs
+    // to keep the smallest usable frame: a collapsed sidebar rail plus a
+    // legible main content column.
+    minWidth: 480,
+    minHeight: 480,
     show: false,
     backgroundColor: BACKGROUND_COLOR,
     autoHideMenuBar: true,

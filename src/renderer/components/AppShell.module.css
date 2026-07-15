@@ -15,6 +15,14 @@
   grid-template-columns: 52px 1fr;
 }
 
+/* A live sidebar/dock resize drag changes grid-template-columns on every
+   pointermove — the same property `.shell`'s transition above animates for
+   the open/close *toggle*. Without suppressing it here, the transition fights
+   the drag and the column lags behind the cursor instead of tracking it. */
+.shellResizing {
+  transition: none;
+}
+
 .titleBar {
   grid-column: 1 / -1;
   grid-row: 1;

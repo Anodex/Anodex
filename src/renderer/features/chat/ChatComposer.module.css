@@ -1,5 +1,9 @@
 .composer {
+  display: flex;
+  flex-direction: column;
   flex-shrink: 0;
+  min-height: 0;
+  max-height: 100%;
   max-width: 800px;
   width: 100%;
   margin: 0 auto;
@@ -10,6 +14,20 @@
 
 .composer.dragActive {
   background: var(--accent-soft);
+}
+
+/* Approval cards, the workspace/context strip, the queued-message list, and
+   attachments all live here. Left unbounded, a tall diff (or a batch of
+   several) could grow taller than the window and — because `.composer` is
+   `flex-shrink: 0` in the chat column — push the transcript above it down to
+   nothing, with the Apply/Deny buttons scrolled out of reach behind
+   `.main`'s `overflow: hidden`. Capping this section and letting it scroll
+   internally keeps the transcript and the input row always on screen. */
+.composerTop {
+  flex-shrink: 1;
+  min-height: 0;
+  max-height: min(48vh, 520px);
+  overflow-y: auto;
 }
 
 .attachments {
@@ -437,4 +455,14 @@
   text-align: center;
   font-size: var(--text-xs);
   color: var(--text-faint);
+}
+
+/* On a short window every row of chrome competes with the transcript for
+   space. The hint line is the lowest-priority row here — drop it first,
+   mirroring how the sidebar collapses to a rail before the chat gets
+   crowded horizontally (see AppShell's SIDEBAR_COLLAPSE_BREAKPOINT). */
+@media (max-height: 640px) {
+  .hint {
+    display: none;
+  }
 }

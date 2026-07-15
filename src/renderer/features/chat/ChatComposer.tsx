@@ -345,137 +345,139 @@ export function ChatComposer(): JSX.Element {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <ToolConfirmCard />
-      <WorkspaceControl />
+      <div className={styles.composerTop}>
+        <ToolConfirmCard />
+        <WorkspaceControl />
 
-      {showContextPanel && (
-        <ContextTransparencyPanel
-          projectName={activeProject?.name ?? null}
-          toolsEnabled={toolsEnabled}
-          hasProjectInstructions={Boolean(activeProject?.instructions)}
-          pinnedSkillNames={activeSkillNames}
-          attachmentCount={attachments.length}
-          hasContextSnapshot={Boolean(activeConversation?.context?.activeSnapshot)}
-        />
-      )}
+        {showContextPanel && (
+          <ContextTransparencyPanel
+            projectName={activeProject?.name ?? null}
+            toolsEnabled={toolsEnabled}
+            hasProjectInstructions={Boolean(activeProject?.instructions)}
+            pinnedSkillNames={activeSkillNames}
+            attachmentCount={attachments.length}
+            hasContextSnapshot={Boolean(activeConversation?.context?.activeSnapshot)}
+          />
+        )}
 
-      {pendingQueue.length > 0 && activeConversation && (
-        <div className={styles.pendingWrap}>
-          <button
-            type="button"
-            className={styles.pendingSummary}
-            onClick={() => setQueueExpanded((value) => !value)}
-            aria-expanded={queueExpanded}
-          >
-            <Icon name="clock" size={12} />
-            <span className={styles.pendingSummaryText}>
-              {pendingQueue.length} message{pendingQueue.length === 1 ? '' : 's'} queued
-            </span>
-            <Icon
-              name="chevron-down"
-              size={12}
-              className={`${styles.pendingChevron} ${queueExpanded ? styles.pendingChevronOpen : ''}`}
-            />
-          </button>
-
-          {queueExpanded && (
-            <div className={styles.pendingQueue}>
-              {pendingQueue.map((item) => (
-                <div key={item.id} className={styles.pendingItem}>
-                  <Icon name="clock" size={12} />
-                  <span className={styles.pendingText}>
-                    {item.text || `${item.attachments.length} file(s) attached`}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.pendingRemove}
-                    onClick={() => removeQueuedMessage(activeConversation.id, item.id)}
-                    aria-label="Remove queued message"
-                    title="Remove — won't be sent"
-                  >
-                    <Icon name="close" size={11} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {attachments.length > 0 && (
-        <div className={styles.attachments}>
-          {attachments.map((attachment) => (
-            <div key={attachment.path} className={styles.attachment} title={attachment.path}>
-              <FileTypeIcon fileName={attachment.name} size={13} />
-              <span className={styles.attachmentName}>{attachment.name}</span>
-              <span className={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</span>
-              <button
-                type="button"
-                className={styles.attachmentRemove}
-                onClick={() => removeAttachment(attachment.path)}
-                aria-label={`Remove ${attachment.name}`}
-                title="Remove"
-              >
-                <Icon name="close" size={11} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {showSlashSuggestions && (
-        <div className={styles.commandMenu} role="listbox" aria-label="Slash commands">
-          <div className={styles.commandMenuHeader}>Slash commands</div>
-          {slashSuggestions.map((command, index) => (
+        {pendingQueue.length > 0 && activeConversation && (
+          <div className={styles.pendingWrap}>
             <button
-              key={command.name}
               type="button"
-              className={`${styles.commandItem} ${index === activeSlashIndex ? styles.commandItemActive : ''}`}
+              className={styles.pendingSummary}
+              onClick={() => setQueueExpanded((value) => !value)}
+              aria-expanded={queueExpanded}
+            >
+              <Icon name="clock" size={12} />
+              <span className={styles.pendingSummaryText}>
+                {pendingQueue.length} message{pendingQueue.length === 1 ? '' : 's'} queued
+              </span>
+              <Icon
+                name="chevron-down"
+                size={12}
+                className={`${styles.pendingChevron} ${queueExpanded ? styles.pendingChevronOpen : ''}`}
+              />
+            </button>
+
+            {queueExpanded && (
+              <div className={styles.pendingQueue}>
+                {pendingQueue.map((item) => (
+                  <div key={item.id} className={styles.pendingItem}>
+                    <Icon name="clock" size={12} />
+                    <span className={styles.pendingText}>
+                      {item.text || `${item.attachments.length} file(s) attached`}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.pendingRemove}
+                      onClick={() => removeQueuedMessage(activeConversation.id, item.id)}
+                      aria-label="Remove queued message"
+                      title="Remove — won't be sent"
+                    >
+                      <Icon name="close" size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {attachments.length > 0 && (
+          <div className={styles.attachments}>
+            {attachments.map((attachment) => (
+              <div key={attachment.path} className={styles.attachment} title={attachment.path}>
+                <FileTypeIcon fileName={attachment.name} size={13} />
+                <span className={styles.attachmentName}>{attachment.name}</span>
+                <span className={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</span>
+                <button
+                  type="button"
+                  className={styles.attachmentRemove}
+                  onClick={() => removeAttachment(attachment.path)}
+                  aria-label={`Remove ${attachment.name}`}
+                  title="Remove"
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showSlashSuggestions && (
+          <div className={styles.commandMenu} role="listbox" aria-label="Slash commands">
+            <div className={styles.commandMenuHeader}>Slash commands</div>
+            {slashSuggestions.map((command, index) => (
+              <button
+                key={command.name}
+                type="button"
+                className={`${styles.commandItem} ${index === activeSlashIndex ? styles.commandItemActive : ''}`}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  selectSlashCommand(command.name)
+                }}
+                role="option"
+                aria-selected={index === activeSlashIndex}
+              >
+                <span className={styles.commandName}>/{command.name}</span>
+                <span className={styles.commandDescription}>{command.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {visibleSkillSuggestion && !generating && (
+          <div className={styles.skillHint}>
+            <Icon name="sparkle" size={13} />
+            <span className={styles.skillHintText}>
+              Relevant {visibleSkillSuggestion.scope} skill:{' '}
+              <strong>{visibleSkillSuggestion.name}</strong>
+            </span>
+            <button
+              type="button"
+              className={styles.skillHintAction}
               onMouseDown={(event) => {
                 event.preventDefault()
-                selectSlashCommand(command.name)
+                applySuggestedSkill(visibleSkillSuggestion.name)
               }}
-              role="option"
-              aria-selected={index === activeSlashIndex}
             >
-              <span className={styles.commandName}>/{command.name}</span>
-              <span className={styles.commandDescription}>{command.description}</span>
+              Use
             </button>
-          ))}
-        </div>
-      )}
-
-      {visibleSkillSuggestion && !generating && (
-        <div className={styles.skillHint}>
-          <Icon name="sparkle" size={13} />
-          <span className={styles.skillHintText}>
-            Relevant {visibleSkillSuggestion.scope} skill:{' '}
-            <strong>{visibleSkillSuggestion.name}</strong>
-          </span>
-          <button
-            type="button"
-            className={styles.skillHintAction}
-            onMouseDown={(event) => {
-              event.preventDefault()
-              applySuggestedSkill(visibleSkillSuggestion.name)
-            }}
-          >
-            Use
-          </button>
-          <button
-            type="button"
-            className={styles.skillHintDismiss}
-            aria-label="Dismiss skill suggestion"
-            title="Dismiss"
-            onMouseDown={(event) => {
-              event.preventDefault()
-              setDismissedSkillName(visibleSkillSuggestion.name)
-            }}
-          >
-            <Icon name="close" size={11} />
-          </button>
-        </div>
-      )}
+            <button
+              type="button"
+              className={styles.skillHintDismiss}
+              aria-label="Dismiss skill suggestion"
+              title="Dismiss"
+              onMouseDown={(event) => {
+                event.preventDefault()
+                setDismissedSkillName(visibleSkillSuggestion.name)
+              }}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className={`${styles.inputRow} ${!ready ? styles.disabled : ''}`}>
         <button
