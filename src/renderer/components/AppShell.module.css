@@ -1,18 +1,22 @@
+/* The dock column is always present in the template — even when the dock is
+   closed, it's just sized to 0 (see `--dock-width` in AppShell.tsx) — rather
+   than being added/removed by swapping in a 2-track vs. 3-track template.
+   Browsers can only animate `grid-template-columns` between templates with
+   the *same* track count; a 2↔3 track change can't be interpolated and
+   instead jumps straight to the end state partway through the transition,
+   which is what made the title bar's window controls appear to "jump" when
+   the dock opened — they don't actually move, but the layout beneath them
+   discontinuously snapping mid-transition reads as a jump. */
 .shell {
   display: grid;
   grid-template-rows: var(--titlebar-height) 1fr;
-  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-columns: var(--sidebar-width) 1fr var(--dock-width, 0px);
   height: 100%;
   overflow: hidden;
 }
 
-.shellDockOpen {
-  grid-template-rows: var(--titlebar-height) 1fr;
-  grid-template-columns: var(--sidebar-width) 1fr var(--dock-width, 380px);
-}
-
 .shellSidebarCollapsed {
-  grid-template-columns: 52px 1fr;
+  grid-template-columns: 52px 1fr var(--dock-width, 0px);
 }
 
 /* A live sidebar/dock resize drag changes grid-template-columns on every
@@ -56,6 +60,7 @@
      happens inside WorkspaceDock's own `overflow-y: auto` body instead. */
   min-height: 0;
   overflow: hidden;
+  grid-column: 3;
   grid-row: 2 / -1;
 }
 

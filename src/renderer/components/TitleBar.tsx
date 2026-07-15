@@ -109,6 +109,7 @@ export function TitleBar(): JSX.Element {
               className={styles.control}
               onClick={() => void anodex.windowControls.minimize()}
               aria-label="Minimize"
+              title="Minimize"
             >
               <Icon name="minimize" size={12} />
             </button>
@@ -117,6 +118,7 @@ export function TitleBar(): JSX.Element {
               className={styles.control}
               onClick={() => void anodex.windowControls.maximize()}
               aria-label={maximized ? 'Restore' : 'Maximize'}
+              title={maximized ? 'Restore' : 'Maximize'}
             >
               <Icon name={maximized ? 'restore' : 'maximize'} size={12} />
             </button>
@@ -125,6 +127,7 @@ export function TitleBar(): JSX.Element {
               className={`${styles.control} ${styles.close}`}
               onClick={() => void anodex.windowControls.close()}
               aria-label="Close"
+              title="Close"
             >
               <Icon name="close" size={12} />
             </button>

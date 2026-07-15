@@ -271,13 +271,19 @@ export function AppShell(): JSX.Element {
     }
   }, [clampDockWidth, clampSidebarWidth])
 
+  // The dock's grid column only reserves real width when it's actually
+  // docked (open and not floating over a narrow window) — otherwise it
+  // collapses to 0 so the always-3-column template (see AppShell.module.css)
+  // reads as "no dock" without needing a separate 2-column template.
+  const dockColumnWidth = dockOpen && !isNarrow ? dockWidth : 0
+
   return (
     <div
-      className={`${styles.shell} ${dockOpen && !isNarrow ? styles.shellDockOpen : ''} ${isSidebarCollapsed ? styles.shellSidebarCollapsed : ''} ${isResizingLive ? styles.shellResizing : ''}`}
+      className={`${styles.shell} ${isSidebarCollapsed ? styles.shellSidebarCollapsed : ''} ${isResizingLive ? styles.shellResizing : ''}`}
       style={
         {
           '--sidebar-width': `${sidebarWidth}px`,
-          '--dock-width': `${dockWidth}px`
+          '--dock-width': `${dockColumnWidth}px`
         } as React.CSSProperties
       }
     >
