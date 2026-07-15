@@ -19,8 +19,6 @@ import {
   getAppliedSkillName,
   getSkillSuggestions
 } from '../../lib/skillSuggestions'
-import { WorkspaceControl } from './WorkspaceControl'
-import { ContextTransparencyPanel } from './ContextTransparencyPanel'
 import { ContextMeter } from './ContextMeter'
 import { ToolConfirmCard } from './ToolConfirmCard'
 import {
@@ -41,6 +39,9 @@ const MAX_ATTACHMENTS = 10
 // update depth exceeded".
 const EMPTY_QUEUE: PendingMessage[] = []
 const EMPTY_SKILL_NAMES: string[] = []
+
+/** Order matters: least → most permissive, mirroring the Settings page. */
+const PERMISSION_MODES: PermissionMode[] = ['ask', 'full', 'untethered']
 
 function permissionIcon(mode: PermissionMode): IconName {
   if (mode === 'untethered') return 'unlock-keyhole'
@@ -70,8 +71,10 @@ export function ChatComposer(): JSX.Element {
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [dismissedSkillName, setDismissedSkillName] = useState<string | null>(null)
   const [queueExpanded, setQueueExpanded] = useState(false)
+  const [permOpen, setPermOpen] = useState(false)
   const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const permMenuRef = useRef<HTMLDivElement>(null)
 
   const activeConversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const sendMessage = useChatStore((s) => s.sendMessage)
@@ -84,7 +87,7 @@ export function ChatComposer(): JSX.Element {
   const compactConversation = useChatStore((s) => s.compactConversation)
   const engine = useModelStore((s) => s.engine)
   const settings = useSettingsStore((s) => s.settings)
-  const toolsEnabled = settings?.tools.enabled ?? true
+  const updateSettings = useSettingsStore((s) => s.update)
   const permissionMode = settings?.general.permissionMode ?? 'ask'
   const projects = useProjectStore((s) => s.projects)
   const activeProject = projects.find((project) => project.id === activeConversation?.projectId)
@@ -141,15 +144,6 @@ export function ChatComposer(): JSX.Element {
     skillSuggestions.find(
       (skill) => skill.name !== dismissedSkillName && skill.name !== appliedSkillName
     ) ?? null
-  const activeSkillNames = pinnedSkillNames.filter((name) =>
-    skills.some((skill) => skill.name === name)
-  )
-  const showContextPanel =
-    ready &&
-    (Boolean(activeProject) ||
-      activeSkillNames.length > 0 ||
-      attachments.length > 0 ||
-      Boolean(activeConversation?.context?.activeSnapshot))
 
   useEffect(() => {
     let cancelled = false
@@ -168,6 +162,24 @@ export function ChatComposer(): JSX.Element {
   useEffect(() => {
     if (pendingQueue.length === 0) setQueueExpanded(false)
   }, [pendingQueue.length])
+
+  useEffect(() => {
+    if (!permOpen) return
+    function handleClickOutside(event: MouseEvent): void {
+      if (!permMenuRef.current?.contains(event.target as Node)) setPermOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [permOpen])
+
+  const togglePermMenu = (): void => {
+    setPermOpen((value) => !value)
+  }
+
+  const selectPermissionMode = (mode: PermissionMode): void => {
+    void updateSettings({ general: { permissionMode: mode } })
+    setPermOpen(false)
+  }
 
   const resetHeight = (): void => {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -347,18 +359,6 @@ export function ChatComposer(): JSX.Element {
     >
       <div className={styles.composerTop}>
         <ToolConfirmCard />
-        <WorkspaceControl />
-
-        {showContextPanel && (
-          <ContextTransparencyPanel
-            projectName={activeProject?.name ?? null}
-            toolsEnabled={toolsEnabled}
-            hasProjectInstructions={Boolean(activeProject?.instructions)}
-            pinnedSkillNames={activeSkillNames}
-            attachmentCount={attachments.length}
-            hasContextSnapshot={Boolean(activeConversation?.context?.activeSnapshot)}
-          />
-        )}
 
         {pendingQueue.length > 0 && activeConversation && (
           <div className={styles.pendingWrap}>
@@ -479,18 +479,7 @@ export function ChatComposer(): JSX.Element {
         )}
       </div>
 
-      <div className={`${styles.inputRow} ${!ready ? styles.disabled : ''}`}>
-        <button
-          type="button"
-          className={`${styles.action} ${styles.attach}`}
-          onClick={() => void handleAttachClick()}
-          disabled={!ready || attachments.length >= MAX_ATTACHMENTS}
-          title="Attach files"
-          aria-label="Attach files"
-        >
-          <Icon name="paperclip" size={16} />
-        </button>
-
+      <div className={`${styles.inputShell} ${!ready ? styles.disabled : ''}`}>
         <textarea
           ref={textareaRef}
           className={styles.textarea}
@@ -517,61 +506,106 @@ export function ChatComposer(): JSX.Element {
           onKeyDown={handleKeyDown}
         />
 
-        {generating && !hasContent ? (
+        <div className={styles.inputBottom}>
           <button
-            className={`${styles.action} ${styles.stop}`}
-            onClick={() => void stopGeneration()}
-            title="Stop generating"
-            aria-label="Stop generating"
+            type="button"
+            className={styles.ghostAction}
+            onClick={() => void handleAttachClick()}
+            disabled={!ready || attachments.length >= MAX_ATTACHMENTS}
+            title="Attach files"
+            aria-label="Attach files"
           >
-            <Icon name="stop" size={15} />
+            <Icon name="paperclip" size={15} />
           </button>
-        ) : generating ? (
+
+          <div className={styles.permMenu} ref={permMenuRef}>
+            <button
+              type="button"
+              className={`${styles.permTrigger} ${styles[`permActive${permissionLabel(permissionMode)}`]}`}
+              onClick={togglePermMenu}
+              title={`Permission mode: ${permissionLabel(permissionMode)} — ${permissionDescription(permissionMode)}`}
+              aria-label={`Permission mode: ${permissionLabel(permissionMode)}`}
+              aria-haspopup="menu"
+              aria-expanded={permOpen}
+            >
+              <Icon name={permissionIcon(permissionMode)} size={14} />
+            </button>
+
+            {permOpen && (
+              <div className={styles.permDropdown} role="menu" aria-label="Permission mode">
+                {PERMISSION_MODES.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={permissionMode === mode}
+                    className={styles.permItem}
+                    onClick={() => selectPermissionMode(mode)}
+                  >
+                    <Icon
+                      name={permissionIcon(mode)}
+                      size={14}
+                      className={styles[`permItemIcon${permissionLabel(mode)}`]}
+                    />
+                    <span className={styles.permItemText}>
+                      <span className={styles.permItemLabel}>{permissionLabel(mode)}</span>
+                      <span className={styles.permItemDesc}>{permissionDescription(mode)}</span>
+                    </span>
+                    {permissionMode === mode && (
+                      <Icon name="check" size={13} className={styles.permItemCheck} />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className={styles.meterSlot}>
+            <ContextMeter className={styles.contextMeter} />
+          </div>
+
           <button
-            className={`${styles.action} ${styles.send}`}
-            onClick={submit}
-            disabled={!canQueue}
-            title="Send after the current reply finishes"
-            aria-label="Queue message"
+            type="button"
+            className={styles.ghostAction}
+            onClick={() => void compact()}
+            disabled={!canCompact}
+            title="Compact chat context"
+            aria-label="Compact chat context"
           >
-            <Icon name="send" size={16} />
+            <Icon name={compacting ? 'refresh' : 'archive'} size={13} />
           </button>
-        ) : (
-          <button
-            className={`${styles.action} ${styles.send}`}
-            onClick={submit}
-            disabled={!canSend}
-            title="Send message"
-            aria-label="Send message"
-          >
-            <Icon name="send" size={16} />
-          </button>
-        )}
-      </div>
-      <div className={styles.contextRow}>
-        <button
-          type="button"
-          className={styles.compactAction}
-          onClick={() => void compact()}
-          disabled={!canCompact}
-          title="Compact chat context"
-          aria-label="Compact chat context"
-        >
-          <Icon name={compacting ? 'refresh' : 'archive'} size={13} />
-        </button>
-        <ContextMeter className={styles.contextMeter} />
-        <span
-          className={[
-            styles.permissionBadge,
-            styles[`permission${permissionLabel(permissionMode)}`]
-          ].join(' ')}
-          title={`Permission mode: ${permissionLabel(permissionMode)} - ${permissionDescription(
-            permissionMode
-          )}`}
-          aria-label={`Permission mode: ${permissionLabel(permissionMode)}`}
-        >
-          <Icon name={permissionIcon(permissionMode)} size={13} />
-        </span>
+
+          {generating && !hasContent ? (
+            <button
+              className={`${styles.action} ${styles.stop}`}
+              onClick={() => void stopGeneration()}
+              title="Stop generating"
+              aria-label="Stop generating"
+            >
+              <Icon name="stop" size={15} />
+            </button>
+          ) : generating ? (
+            <button
+              className={`${styles.action} ${styles.send}`}
+              onClick={submit}
+              disabled={!canQueue}
+              title="Send after the current reply finishes"
+              aria-label="Queue message"
+            >
+              <Icon name="send" size={16} />
+            </button>
+          ) : (
+            <button
+              className={`${styles.action} ${styles.send}`}
+              onClick={submit}
+              disabled={!canSend}
+              title="Send message"
+              aria-label="Send message"
+            >
+              <Icon name="send" size={16} />
+            </button>
+          )}
+        </div>
       </div>
       <div className={styles.hint}>
         {generating
