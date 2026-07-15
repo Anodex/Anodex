@@ -483,16 +483,24 @@
                       <strong class="score-good">96 / 100</strong><small>Excellent</small>
                     </div>
                     <div role="cell">
-                      <div class="reliability-hover">
+                      <div class="reliability-hover" data-fabrications="0">
                         <button
                           class="reliability-detail-button"
                           type="button"
                           aria-describedby="qwenReliabilityPopover"
-                          aria-label="Qwen tool reliability: 92 out of 100. Hover for details."
+                          aria-haspopup="dialog"
+                          aria-label="Qwen tool reliability: 92 out of 100. Hover for the full list or click to expand."
+                          data-reliability-trigger
                         >
-                          <strong>92 / 100</strong><small>48 outcomes</small>
+                          <strong>92 / 100</strong
+                          ><small>48 outcomes &middot; click to expand</small>
                         </button>
-                        <div class="reliability-popover" id="qwenReliabilityPopover" role="tooltip">
+                        <div
+                          class="reliability-popover"
+                          id="qwenReliabilityPopover"
+                          role="dialog"
+                          aria-label="Qwen2.5 Coder 7B full tool reliability list"
+                        >
                           <div class="reliability-popover-head">
                             <div>
                               <span>Observed tool reliability</span>
@@ -500,15 +508,30 @@
                             </div>
                             <span class="reliability-popover-score">92</span>
                           </div>
-                          <div class="reliability-popover-grid">
-                            <div><span>read_file</span><strong>12 / 12</strong></div>
-                            <div><span>write_file</span><strong>10 / 11</strong></div>
-                            <div><span>run_command</span><strong>8 / 9</strong></div>
-                            <div><span>search_files</span><strong>9 / 10</strong></div>
-                            <div><span>edit_file</span><strong>5 / 6</strong></div>
+                          <div
+                            class="reliability-popover-scroll"
+                            tabindex="0"
+                            aria-label="All 10 observed tools. Scroll for the complete list."
+                          >
+                            <div class="reliability-popover-grid">
+                              <div><span>read_file</span><strong>8 / 8</strong></div>
+                              <div><span>write_file</span><strong>6 / 7</strong></div>
+                              <div><span>run_command</span><strong>5 / 6</strong></div>
+                              <div><span>search_files</span><strong>6 / 6</strong></div>
+                              <div><span>edit_file</span><strong>5 / 6</strong></div>
+                              <div><span>list_directory</span><strong>4 / 4</strong></div>
+                              <div><span>git_status</span><strong>3 / 3</strong></div>
+                              <div><span>git_diff</span><strong>3 / 3</strong></div>
+                              <div><span>fetch_url</span><strong>2 / 3</strong></div>
+                              <div><span>create_directory</span><strong>2 / 2</strong></div>
+                            </div>
+                            <div class="reliability-popover-foot">
+                              <span>Fabricated outcomes</span><strong>0</strong>
+                            </div>
                           </div>
-                          <div class="reliability-popover-foot">
-                            <span>Fabricated outcomes</span><strong>0</strong>
+                          <div class="reliability-popover-actions">
+                            <span>Scroll here or open the full report</span>
+                            <button type="button" data-reliability-expand>Expand</button>
                           </div>
                         </div>
                       </div>
@@ -521,19 +544,23 @@
                       <strong class="score-good">91 / 100</strong><small>Excellent</small>
                     </div>
                     <div role="cell">
-                      <div class="reliability-hover">
+                      <div class="reliability-hover" data-fabrications="0">
                         <button
                           class="reliability-detail-button"
                           type="button"
                           aria-describedby="llamaReliabilityPopover"
-                          aria-label="Llama tool reliability: 84 out of 100. Hover for details."
+                          aria-haspopup="dialog"
+                          aria-label="Llama tool reliability: 84 out of 100. Hover for the full list or click to expand."
+                          data-reliability-trigger
                         >
-                          <strong>84 / 100</strong><small>19 outcomes</small>
+                          <strong>84 / 100</strong
+                          ><small>19 outcomes &middot; click to expand</small>
                         </button>
                         <div
                           class="reliability-popover"
                           id="llamaReliabilityPopover"
-                          role="tooltip"
+                          role="dialog"
+                          aria-label="Llama 3.1 8B full tool reliability list"
                         >
                           <div class="reliability-popover-head">
                             <div>
@@ -542,14 +569,24 @@
                             </div>
                             <span class="reliability-popover-score">84</span>
                           </div>
-                          <div class="reliability-popover-grid">
-                            <div><span>read_file</span><strong>5 / 5</strong></div>
-                            <div><span>write_file</span><strong>4 / 5</strong></div>
-                            <div><span>run_command</span><strong>3 / 4</strong></div>
-                            <div><span>search_files</span><strong>4 / 5</strong></div>
+                          <div
+                            class="reliability-popover-scroll"
+                            tabindex="0"
+                            aria-label="All 4 observed tools. Scroll for the complete list."
+                          >
+                            <div class="reliability-popover-grid">
+                              <div><span>read_file</span><strong>5 / 5</strong></div>
+                              <div><span>write_file</span><strong>4 / 5</strong></div>
+                              <div><span>run_command</span><strong>3 / 4</strong></div>
+                              <div><span>search_files</span><strong>4 / 5</strong></div>
+                            </div>
+                            <div class="reliability-popover-foot">
+                              <span>Fabricated outcomes</span><strong>0</strong>
+                            </div>
                           </div>
-                          <div class="reliability-popover-foot">
-                            <span>Fabricated outcomes</span><strong>0</strong>
+                          <div class="reliability-popover-actions">
+                            <span>Scroll here or open the full report</span>
+                            <button type="button" data-reliability-expand>Expand</button>
                           </div>
                         </div>
                       </div>
@@ -1089,6 +1126,53 @@
       </div>
     </main>
 
+    <div class="reliability-dialog-backdrop" id="reliabilityDialog" hidden>
+      <section
+        class="reliability-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reliabilityDialogTitle"
+        tabindex="-1"
+      >
+        <header class="reliability-dialog-head">
+          <div>
+            <span>Observed tool reliability</span>
+            <h3 id="reliabilityDialogTitle">Model reliability</h3>
+            <p>Every tool this model has attempted on this computer.</p>
+          </div>
+          <button type="button" data-reliability-close aria-label="Close reliability report">
+            &times;
+          </button>
+        </header>
+        <div class="reliability-dialog-summary">
+          <div><span>Reliability score</span><strong data-dialog-score>—</strong></div>
+          <div><span>Observed outcomes</span><strong data-dialog-outcomes>—</strong></div>
+          <div><span>Tools observed</span><strong data-dialog-tools>—</strong></div>
+          <div><span>Fabrications</span><strong data-dialog-fabrications>—</strong></div>
+        </div>
+        <div class="reliability-dialog-table" role="table">
+          <div class="reliability-dialog-table-head" role="row">
+            <span role="columnheader">Tool</span>
+            <span role="columnheader">Successful</span>
+            <span role="columnheader">Errors</span>
+            <span role="columnheader">Rate</span>
+          </div>
+          <div
+            class="reliability-dialog-rows"
+            data-dialog-rows
+            tabindex="0"
+            aria-label="Scrollable reliability results"
+          ></div>
+        </div>
+        <footer class="reliability-dialog-foot">
+          <p>
+            Denied calls are excluded. Results come from this user&rsquo;s actual tool outcomes.
+          </p>
+          <button type="button" data-reliability-close>Done</button>
+        </footer>
+      </section>
+    </div>
+
     <script>
       const tabs = [...document.querySelectorAll('[data-model-tab]')]
       const panels = [...document.querySelectorAll('[data-model-panel]')]
@@ -1110,6 +1194,93 @@
       tabs.forEach((tab) => tab.addEventListener('click', () => showTab(tab.dataset.modelTab)))
       document.querySelectorAll('[data-open-tab]').forEach((button) => {
         button.addEventListener('click', () => showTab(button.dataset.openTab))
+      })
+
+      const reliabilityDialogBackdrop = document.getElementById('reliabilityDialog')
+      const reliabilityDialog = reliabilityDialogBackdrop.querySelector('.reliability-dialog')
+      const reliabilityDialogRows = reliabilityDialog.querySelector('[data-dialog-rows]')
+      let activeReliabilityTrigger = null
+
+      function getReliabilityTools(container) {
+        return [...container.querySelectorAll('.reliability-popover-grid > div')].map((row) => {
+          const tool = row.querySelector('span').textContent.trim()
+          const [successes, total] = row
+            .querySelector('strong')
+            .textContent.split('/')
+            .map((value) => Number(value.trim()))
+          return {
+            tool,
+            successes,
+            errors: total - successes,
+            rate: total === 0 ? 0 : Math.round((successes / total) * 100)
+          }
+        })
+      }
+
+      function openReliabilityDialog(container) {
+        const trigger = container.querySelector('[data-reliability-trigger]')
+        const tools = getReliabilityTools(container)
+        const modelName = container.querySelector('.reliability-popover-head strong').textContent
+        const score = container.querySelector('.reliability-popover-score').textContent
+        const outcomes = trigger.querySelector('small').textContent.match(/\d+/)?.[0] ?? '0'
+
+        activeReliabilityTrigger = trigger
+        trigger.setAttribute('aria-expanded', 'true')
+        document.getElementById('reliabilityDialogTitle').textContent = modelName
+        reliabilityDialog.querySelector('[data-dialog-score]').textContent = `${score} / 100`
+        reliabilityDialog.querySelector('[data-dialog-outcomes]').textContent = outcomes
+        reliabilityDialog.querySelector('[data-dialog-tools]').textContent = String(tools.length)
+        reliabilityDialog.querySelector('[data-dialog-fabrications]').textContent =
+          container.dataset.fabrications ?? '0'
+        reliabilityDialogRows.replaceChildren()
+
+        tools.forEach(({ tool, successes, errors, rate }) => {
+          const row = document.createElement('div')
+          row.setAttribute('role', 'row')
+          ;[
+            [tool, 'strong'],
+            [String(successes), 'span'],
+            [String(errors), 'span'],
+            [`${rate}%`, 'strong']
+          ].forEach(([value, tagName]) => {
+            const cell = document.createElement(tagName)
+            cell.setAttribute('role', 'cell')
+            cell.textContent = value
+            row.append(cell)
+          })
+          reliabilityDialogRows.append(row)
+        })
+
+        reliabilityDialogBackdrop.hidden = false
+        window.requestAnimationFrame(() => reliabilityDialog.focus())
+      }
+
+      function closeReliabilityDialog() {
+        reliabilityDialogBackdrop.hidden = true
+        activeReliabilityTrigger?.setAttribute('aria-expanded', 'false')
+        activeReliabilityTrigger?.focus()
+        activeReliabilityTrigger = null
+      }
+
+      document.querySelectorAll('.reliability-hover').forEach((container) => {
+        const trigger = container.querySelector('[data-reliability-trigger]')
+        trigger.setAttribute('aria-expanded', 'false')
+        trigger.addEventListener('click', () => openReliabilityDialog(container))
+        container
+          .querySelector('[data-reliability-expand]')
+          .addEventListener('click', () => openReliabilityDialog(container))
+      })
+
+      reliabilityDialog.querySelectorAll('[data-reliability-close]').forEach((button) => {
+        button.addEventListener('click', closeReliabilityDialog)
+      })
+      reliabilityDialogBackdrop.addEventListener('mousedown', (event) => {
+        if (event.target === reliabilityDialogBackdrop) closeReliabilityDialog()
+      })
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !reliabilityDialogBackdrop.hidden) {
+          closeReliabilityDialog()
+        }
       })
 
       const providerAssetPath = '../../../src/renderer/assets/providers/'

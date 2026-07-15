@@ -1971,9 +1971,9 @@ select {
   top: calc(100% + 8px);
   left: -10px;
   z-index: 40;
-  width: 270px;
-  padding: 12px;
-  pointer-events: none;
+  width: 300px;
+  overflow: hidden;
+  pointer-events: auto;
   visibility: hidden;
   background: #151a26;
   border: 1px solid var(--accent-border);
@@ -2018,7 +2018,7 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 10px;
+  padding: 12px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -2057,7 +2057,20 @@ select {
 .reliability-popover-grid {
   display: grid;
   gap: 2px;
-  padding: 8px 0;
+  padding: 8px 10px;
+}
+
+.reliability-popover-scroll {
+  max-height: 190px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.reliability-popover-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .reliability-popover-grid > div,
@@ -2084,13 +2097,242 @@ select {
 }
 
 .reliability-popover-foot {
-  padding-top: 9px;
+  margin: 0 10px 8px;
+  padding: 9px 7px 5px;
   border-top: 1px solid var(--border);
   border-radius: 0;
 }
 
 .reliability-popover-foot strong {
   color: var(--green);
+}
+
+.reliability-popover-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.reliability-popover-actions span {
+  color: var(--text-faint);
+  font-size: 8px;
+}
+
+.reliability-popover-actions button,
+.reliability-dialog-foot button {
+  min-height: 26px;
+  padding: 0 10px;
+  color: #061019;
+  font-size: 8px;
+  font-weight: 750;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
+
+.reliability-popover-actions button:hover,
+.reliability-dialog-foot button:hover {
+  filter: brightness(1.08);
+}
+
+.reliability-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  padding: 20px;
+  background: rgba(4, 7, 13, 0.76);
+  backdrop-filter: blur(4px);
+  place-items: center;
+}
+
+.reliability-dialog-backdrop[hidden] {
+  display: none;
+}
+
+.reliability-dialog {
+  display: grid;
+  width: min(620px, calc(100vw - 40px));
+  max-height: min(700px, calc(100vh - 40px));
+  overflow: hidden;
+  background: #151a26;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.56);
+}
+
+.reliability-dialog:focus {
+  outline: none;
+}
+
+.reliability-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reliability-dialog-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.reliability-dialog-head span {
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.reliability-dialog-head h3,
+.reliability-dialog-head p {
+  margin: 0;
+}
+
+.reliability-dialog-head h3 {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.reliability-dialog-head p {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.reliability-dialog-head > button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  place-items: center;
+}
+
+.reliability-dialog-head > button:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.reliability-dialog-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 18px;
+  background: rgba(78, 225, 255, 0.04);
+  border-bottom: 1px solid var(--border);
+}
+
+.reliability-dialog-summary > div {
+  display: grid;
+  gap: 3px;
+}
+
+.reliability-dialog-summary span {
+  color: var(--text-faint);
+  font-size: 8px;
+}
+
+.reliability-dialog-summary strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.reliability-dialog-table {
+  min-height: 0;
+  margin: 14px 18px 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.reliability-dialog-table-head,
+.reliability-dialog-rows > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px 54px 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+}
+
+.reliability-dialog-table-head {
+  color: var(--text-faint);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: var(--bg-input);
+  border-bottom: 1px solid var(--border);
+}
+
+.reliability-dialog-table-head > :not(:first-child),
+.reliability-dialog-rows > div > :not(:first-child) {
+  text-align: right;
+}
+
+.reliability-dialog-rows {
+  max-height: min(350px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.reliability-dialog-rows:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.reliability-dialog-rows > div {
+  min-height: 38px;
+  color: var(--text-muted);
+  font-size: 9px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reliability-dialog-rows > div:last-child {
+  border-bottom: 0;
+}
+
+.reliability-dialog-rows > div:nth-child(even) {
+  background: rgba(21, 26, 38, 0.64);
+}
+
+.reliability-dialog-rows > div strong:first-child {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reliability-dialog-rows > div strong:last-child {
+  color: var(--green);
+}
+
+.reliability-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 18px 16px;
+}
+
+.reliability-dialog-foot p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 8px;
 }
 
 .support-pill {
