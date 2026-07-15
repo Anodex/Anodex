@@ -7,7 +7,7 @@ import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { useChatStore } from '../../../../stores/chatStore'
 import { useProjectStore } from '../../../../stores/projectStore'
 import { anodex } from '../../../../lib/anodex'
-import { SelectControl, TextControl } from '../../controls'
+import { SelectControl } from '../../controls'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './ArchiveSettings.module.css'
 
@@ -81,7 +81,13 @@ export function ArchiveSettings(): JSX.Element {
   }, [archivedChats, kindFilter, projectFilter, projectsById, query])
 
   const selectedCount = selectedChats.size + selectedProjects.size
-  const hasArchivedItems = archivedChats.length + archivedProjects.length > 0
+  const archivedItemCount = archivedChats.length + archivedProjects.length
+  const hasArchivedItems = archivedItemCount > 0
+  const latestArchivedAt = Math.max(
+    0,
+    ...archivedChats.map((chat) => chat.archivedAt ?? chat.updatedAt),
+    ...archivedProjects.map((project) => project.archivedAt ?? project.updatedAt)
+  )
   const allVisibleSelected =
     visibleChats.length + visibleProjects.length > 0 &&
     visibleChats.every((chat) => selectedChats.has(chat.id)) &&
@@ -144,46 +150,55 @@ export function ArchiveSettings(): JSX.Element {
 
   return (
     <div className={pageStyles.page}>
-      <header className={pageStyles.pageHeader}>
-        <p className={pageStyles.pageKicker}>System</p>
-        <h1 className={pageStyles.pageTitle}>Archive</h1>
-        <p className={pageStyles.pageDesc}>
-          Restore archived chats and projects or permanently remove them.
-        </p>
+      <header className={`${pageStyles.pageHeader} ${styles.pageHeader}`}>
+        <div>
+          <p className={pageStyles.pageKicker}>System</p>
+          <h1 className={pageStyles.pageTitle}>Archive</h1>
+          <p className={pageStyles.pageDesc}>
+            Restore archived chats and projects or permanently remove them.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={conversationCount === 0}
+          iconLeft={<Icon name="archive" size={15} />}
+          onClick={() => setConfirmingArchiveAll(true)}
+        >
+          Archive all chats
+        </Button>
       </header>
 
-      <section className={pageStyles.section}>
+      <div className={styles.summaryGrid} aria-label="Archive summary">
+        <SummaryStat label="Archived items" value={String(archivedItemCount)} />
+        <SummaryStat label="Projects" value={String(archivedProjects.length)} />
+        <SummaryStat label="Chats" value={String(archivedChats.length)} />
+        <SummaryStat
+          label="Last archived"
+          value={latestArchivedAt ? formatShortDate(latestArchivedAt) : '—'}
+        />
+      </div>
+
+      <section className={`${pageStyles.section} ${styles.section}`}>
         <div className={styles.sectionHead}>
           <div>
             <h2 className={pageStyles.sectionTitle}>Archived items</h2>
             <p className={pageStyles.sectionDesc}>
-              Restore archived chats and projects, or permanently delete selected items.
+              Restoring returns an item to the sidebar. Permanent deletion cannot be undone.
             </p>
-          </div>
-          <div className={styles.sectionActions}>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={conversationCount === 0}
-              iconLeft={<Icon name="archive" size={15} />}
-              onClick={() => setConfirmingArchiveAll(true)}
-            >
-              Archive all chats
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={selectedCount === 0}
-              iconLeft={<Icon name="trash" size={15} />}
-              onClick={() => setConfirmingDelete(true)}
-            >
-              Delete selected
-            </Button>
           </div>
         </div>
 
         <div className={styles.toolbar}>
-          <TextControl value={query} placeholder="Search archive" onChange={setQuery} />
+          <label className={styles.searchField}>
+            <Icon name="search" size={14} />
+            <input
+              value={query}
+              placeholder="Search archive"
+              aria-label="Search archive"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
           <SelectControl
             value={kindFilter}
             options={[
@@ -213,58 +228,104 @@ export function ArchiveSettings(): JSX.Element {
                 <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} />
                 Select visible
               </label>
-              <span>{selectedCount} selected</span>
+              <div className={styles.bulkActions}>
+                <span>{selectedCount} selected</span>
+                <Button
+                  className={styles.deleteButton}
+                  variant="ghost"
+                  size="sm"
+                  disabled={selectedCount === 0}
+                  iconLeft={<Icon name="trash" size={14} />}
+                  onClick={() => setConfirmingDelete(true)}
+                >
+                  Delete selected
+                </Button>
+              </div>
             </div>
 
-            {visibleProjects.map((project) => (
-              <article key={project.id} className={styles.item}>
-                <input
-                  type="checkbox"
-                  checked={selectedProjects.has(project.id)}
-                  onChange={() => setSelectedProjects((prev) => toggleSetValue(prev, project.id))}
-                  aria-label={`Select ${project.name}`}
-                />
-                <Icon name="folder" size={16} />
-                <div className={styles.itemMain}>
-                  <div className={styles.itemTitle}>{project.name}</div>
-                  <div className={styles.itemMeta}>
-                    Project - {formatDate(project.archivedAt ?? project.updatedAt)}
-                  </div>
-                  <div className={styles.itemPath}>{project.folderPath}</div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => void restoreProject(project.id)}>
-                  Restore
-                </Button>
-              </article>
-            ))}
-
-            {visibleChats.map((chat) => {
-              const project = chat.projectId ? projectsById.get(chat.projectId) : null
-              return (
-                <article key={chat.id} className={styles.item}>
-                  <input
-                    type="checkbox"
-                    checked={selectedChats.has(chat.id)}
-                    onChange={() => setSelectedChats((prev) => toggleSetValue(prev, chat.id))}
-                    aria-label={`Select ${chat.title}`}
-                  />
-                  <Icon name="chat" size={16} />
-                  <div className={styles.itemMain}>
-                    <div className={styles.itemTitle}>{chat.title}</div>
-                    <div className={styles.itemMeta}>
-                      {project?.name ?? 'General chat'} -{' '}
-                      {formatDate(chat.archivedAt ?? chat.updatedAt)}
+            {visibleProjects.length > 0 && (
+              <div className={styles.itemGroup}>
+                <div className={styles.groupLabel}>Projects</div>
+                {visibleProjects.map((project) => (
+                  <article key={project.id} className={styles.item}>
+                    <input
+                      className={styles.itemCheckbox}
+                      type="checkbox"
+                      checked={selectedProjects.has(project.id)}
+                      onChange={() =>
+                        setSelectedProjects((prev) => toggleSetValue(prev, project.id))
+                      }
+                      aria-label={`Select ${project.name}`}
+                    />
+                    <span className={`${styles.itemIcon} ${styles.projectIcon}`}>
+                      <Icon name="folder" size={16} />
+                    </span>
+                    <div className={styles.itemMain}>
+                      <div className={styles.itemTitle}>{project.name}</div>
+                      <div className={styles.itemMeta}>
+                        <span className={`${styles.kindPill} ${styles.projectPill}`}>Project</span>
+                        <span>Archived {formatDate(project.archivedAt ?? project.updatedAt)}</span>
+                      </div>
+                      <div className={styles.itemPath}>{project.folderPath}</div>
                     </div>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => void restoreChat(chat.id)}>
-                    Restore
-                  </Button>
-                </article>
-              )
-            })}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconLeft={<Icon name="restore" size={14} />}
+                      onClick={() => void restoreProject(project.id)}
+                    >
+                      Restore
+                    </Button>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            {visibleChats.length > 0 && (
+              <div className={styles.itemGroup}>
+                <div className={styles.groupLabel}>Chats</div>
+                {visibleChats.map((chat) => {
+                  const project = chat.projectId ? projectsById.get(chat.projectId) : null
+                  return (
+                    <article key={chat.id} className={styles.item}>
+                      <input
+                        className={styles.itemCheckbox}
+                        type="checkbox"
+                        checked={selectedChats.has(chat.id)}
+                        onChange={() => setSelectedChats((prev) => toggleSetValue(prev, chat.id))}
+                        aria-label={`Select ${chat.title}`}
+                      />
+                      <span className={`${styles.itemIcon} ${styles.chatIcon}`}>
+                        <Icon name="chat" size={16} />
+                      </span>
+                      <div className={styles.itemMain}>
+                        <div className={styles.itemTitle}>{chat.title}</div>
+                        <div className={styles.itemMeta}>
+                          <span className={`${styles.kindPill} ${styles.chatPill}`}>Chat</span>
+                          <span>{project?.name ?? 'General chat'}</span>
+                          <span>Archived {formatDate(chat.archivedAt ?? chat.updatedAt)}</span>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        iconLeft={<Icon name="restore" size={14} />}
+                        onClick={() => void restoreChat(chat.id)}
+                      >
+                        Restore
+                      </Button>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
 
             {visibleChats.length + visibleProjects.length === 0 && (
-              <div className={styles.noResults}>No archived items match the current filters.</div>
+              <div className={styles.noResults}>
+                <Icon name="search" size={24} />
+                <strong>No archived items found</strong>
+                <span>Try changing the search or filters.</span>
+              </div>
             )}
           </div>
         )}
@@ -302,6 +363,15 @@ export function ArchiveSettings(): JSX.Element {
   )
 }
 
+function SummaryStat({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <div className={styles.summaryStat}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
 function toggleSetValue(values: Set<string>, value: string): Set<string> {
   const next = new Set(values)
   if (next.has(value)) next.delete(value)
@@ -320,5 +390,12 @@ function formatDate(timestamp: number): string {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit'
+  }).format(timestamp)
+}
+
+function formatShortDate(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric'
   }).format(timestamp)
 }
