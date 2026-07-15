@@ -38,6 +38,10 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
 
   const [filter, setFilter] = useState<DiagnosticEntry['severity'] | 'all'>('all')
   const filtered = filter === 'all' ? entries : entries.filter((entry) => entry.severity === filter)
+  const errorCount = entries.filter((entry) => entry.severity === 'error').length
+  const warningCount = entries.filter((entry) => entry.severity === 'warning').length
+  const infoCount = entries.filter((entry) => entry.severity === 'info').length
+  const status = errorCount > 0 ? 'attention' : warningCount > 0 ? 'warning' : 'healthy'
 
   const handleExport = (): void => {
     const blob = new Blob([exportText()], { type: 'text/plain' })
@@ -51,108 +55,234 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
 
   return (
     <div className={pageStyles.page}>
-      <header className={pageStyles.pageHeader}>
-        <p className={pageStyles.pageKicker}>System</p>
-        <h1 className={pageStyles.pageTitle}>Diagnostics</h1>
-        <p className={pageStyles.pageDesc}>
-          Runtime events, errors, and warnings from the local engine and tools.
-        </p>
+      <header className={`${pageStyles.pageHeader} ${styles.pageHeader}`}>
+        <div>
+          <p className={pageStyles.pageKicker}>System</p>
+          <h1 className={pageStyles.pageTitle}>Diagnostics</h1>
+          <p className={pageStyles.pageDesc}>
+            Runtime events, errors, and warnings from the local engine and assistant tools.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={entries.length === 0}
+          iconLeft={<Icon name="download" size={14} />}
+          onClick={handleExport}
+        >
+          Export log
+        </Button>
       </header>
 
-      <section className={pageStyles.section}>
-        <h2 className={pageStyles.sectionTitle}>Logging</h2>
-        <p className={pageStyles.sectionDesc}>Control local diagnostic detail and retention.</p>
+      <div className={styles.summaryGrid} aria-label="Diagnostics summary">
+        <SummaryCard
+          label="Status"
+          value={
+            status === 'attention'
+              ? 'Needs attention'
+              : status === 'warning'
+                ? 'Warnings present'
+                : 'Healthy'
+          }
+          detail={
+            errorCount > 0
+              ? `${errorCount} unresolved error${errorCount === 1 ? '' : 's'}`
+              : warningCount > 0
+                ? `${warningCount} warning${warningCount === 1 ? '' : 's'} to review`
+                : 'No errors or warnings'
+          }
+          tone={status}
+        />
+        <SummaryCard
+          label="Errors"
+          value={String(errorCount)}
+          detail="Require review"
+          tone="error"
+        />
+        <SummaryCard
+          label="Warnings"
+          value={String(warningCount)}
+          detail="May affect behavior"
+          tone="warning"
+        />
+        <SummaryCard
+          label="Stored locally"
+          value={`${entries.length} / ${diagnostics.maxEntries.toLocaleString()}`}
+          detail="Newest entries retained"
+        />
+      </div>
 
-        <SettingRow
-          label="Verbose logging"
-          description="Include extra debug detail in the diagnostics log."
-          control={
-            <ToggleControl
-              checked={diagnostics.verbose}
-              onChange={(value) => update({ verbose: value })}
-            />
-          }
-        />
-        <SettingRow
-          label="Clear on restart"
-          description="Remove info-level entries when the app starts."
-          control={
-            <ToggleControl
-              checked={diagnostics.clearOnRestart}
-              onChange={(value) => update({ clearOnRestart: value })}
-            />
-          }
-        />
-        <SettingRow
-          label="Max entries"
-          description="Maximum number of recent entries to keep locally."
-          control={
-            <SelectControl
-              value={String(diagnostics.maxEntries)}
-              options={[
-                { label: '100', value: '100' },
-                { label: '250', value: '250' },
-                { label: '500', value: '500' },
-                { label: '1,000', value: '1000' }
-              ]}
-              onChange={(value) => update({ maxEntries: Number(value) })}
-            />
-          }
-        />
+      <section className={`${pageStyles.section} ${styles.section}`}>
+        <h2 className={pageStyles.sectionTitle}>Logging</h2>
+        <p className={pageStyles.sectionDesc}>
+          Control how much diagnostic information Anodex keeps locally.
+        </p>
+
+        <div className={styles.settingList}>
+          <SettingRow
+            label="Verbose logging"
+            description="Include extra debug detail in new diagnostic entries."
+            control={
+              <ToggleControl
+                checked={diagnostics.verbose}
+                onChange={(value) => update({ verbose: value })}
+              />
+            }
+          />
+          <SettingRow
+            label="Clear informational entries on restart"
+            description="Errors and warnings remain available for troubleshooting."
+            control={
+              <ToggleControl
+                checked={diagnostics.clearOnRestart}
+                onChange={(value) => update({ clearOnRestart: value })}
+              />
+            }
+          />
+          <SettingRow
+            label="History limit"
+            description="Oldest entries are removed when the log reaches this limit."
+            control={
+              <SelectControl
+                value={String(diagnostics.maxEntries)}
+                options={[
+                  { label: '100 entries', value: '100' },
+                  { label: '250 entries', value: '250' },
+                  { label: '500 entries', value: '500' },
+                  { label: '1,000 entries', value: '1000' }
+                ]}
+                onChange={(value) => update({ maxEntries: Number(value) })}
+              />
+            }
+          />
+        </div>
+
+        <div className={styles.localNote}>
+          <Icon name="check" size={13} />
+          <span>Diagnostic entries stay on this computer unless you export the log.</span>
+        </div>
       </section>
 
-      <section className={pageStyles.section}>
+      <section className={`${pageStyles.section} ${styles.section}`}>
         <div className={styles.logHead}>
-          <div className={styles.logFilters}>
-            <SelectControl
-              value={filter}
-              options={SEVERITY_FILTER}
-              onChange={(value) => setFilter(value as DiagnosticEntry['severity'] | 'all')}
-            />
-            <span className={styles.count}>{filtered.length} entries</span>
+          <div>
+            <h2 className={pageStyles.sectionTitle}>Recent events</h2>
+            <p className={pageStyles.sectionDesc}>
+              Select an event to see technical detail and a suggested next step.
+            </p>
           </div>
-          <div className={styles.logActions}>
-            <Button variant="ghost" size="sm" onClick={() => clear()}>
-              Clear
-            </Button>
-            <Button variant="secondary" size="sm" onClick={handleExport}>
-              Export
-            </Button>
-          </div>
+          <Button
+            className={styles.clearButton}
+            variant="ghost"
+            size="sm"
+            disabled={entries.length === 0}
+            iconLeft={<Icon name="trash" size={14} />}
+            onClick={() => clear()}
+          >
+            Clear log
+          </Button>
+        </div>
+
+        <div className={styles.filters} role="tablist" aria-label="Diagnostic severity filter">
+          {SEVERITY_FILTER.map((option) => {
+            const count =
+              option.value === 'all'
+                ? entries.length
+                : option.value === 'error'
+                  ? errorCount
+                  : option.value === 'warning'
+                    ? warningCount
+                    : infoCount
+            const active = filter === option.value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`${styles.filterButton} ${active ? styles.filterActive : ''}`}
+                onClick={() => setFilter(option.value)}
+              >
+                {option.label}
+                <span>{count}</span>
+              </button>
+            )
+          })}
         </div>
 
         {filtered.length === 0 ? (
           <div className={styles.empty}>
-            <Icon name="check" size={24} />
-            <p>No diagnostics entries match the current filter.</p>
+            <span className={styles.emptyIcon}>
+              <Icon name="check" size={16} />
+            </span>
+            <strong>No matching diagnostic entries</strong>
+            <p>New runtime events will appear here.</p>
           </div>
         ) : (
           <ul className={styles.list}>
-            {filtered.map((entry) => (
+            {filtered.map((entry, index) => (
               <li key={entry.id} className={`${styles.entry} ${styles[entry.severity]}`}>
-                <div className={styles.entryTop}>
-                  <span className={styles.severity}>{entry.severity.toUpperCase()}</span>
-                  <span className={styles.category}>{CATEGORY_LABELS[entry.category]}</span>
-                  <span className={styles.time}>{new Date(entry.timestamp).toLocaleString()}</span>
-                  <button
-                    type="button"
-                    className={styles.removeButton}
-                    onClick={() => remove(entry.id)}
-                    aria-label="Remove entry"
-                  >
-                    <Icon name="close" size={14} />
-                  </button>
-                </div>
-                <p className={styles.message}>{entry.message}</p>
-                {entry.detail && <p className={styles.detail}>{entry.detail}</p>}
-                {entry.suggestedFix && (
-                  <p className={styles.fix}>Suggested fix: {entry.suggestedFix}</p>
-                )}
+                <details open={index === 0}>
+                  <summary>
+                    <span className={styles.severity}>
+                      <Icon name={entry.severity === 'info' ? 'info' : 'alert'} size={11} />
+                      {entry.severity}
+                    </span>
+                    <span className={styles.entryMain}>
+                      <strong>{entry.message}</strong>
+                      <small>{CATEGORY_LABELS[entry.category]}</small>
+                    </span>
+                    <time>{new Date(entry.timestamp).toLocaleString()}</time>
+                    <Icon name="chevron-down" size={14} />
+                  </summary>
+                  <div className={styles.entryDetail}>
+                    <p>{entry.detail ?? 'No additional technical detail was recorded.'}</p>
+                    {entry.suggestedFix && (
+                      <div className={styles.fix}>
+                        <strong>Suggested fix</strong>
+                        <span>{entry.suggestedFix}</span>
+                      </div>
+                    )}
+                  </div>
+                </details>
+                <button
+                  type="button"
+                  className={styles.removeButton}
+                  onClick={() => remove(entry.id)}
+                  aria-label={`Remove ${entry.message}`}
+                >
+                  <Icon name="close" size={13} />
+                </button>
               </li>
             ))}
           </ul>
         )}
       </section>
+    </div>
+  )
+}
+
+function SummaryCard({
+  label,
+  value,
+  detail,
+  tone = 'neutral'
+}: {
+  label: string
+  value: string
+  detail: string
+  tone?: 'neutral' | 'attention' | 'warning' | 'healthy' | 'error'
+}): JSX.Element {
+  return (
+    <div className={`${styles.summaryCard} ${styles[tone]}`}>
+      <span>{label}</span>
+      <strong>
+        {(tone === 'attention' || tone === 'warning' || tone === 'healthy') && (
+          <i aria-hidden="true" />
+        )}
+        {value}
+      </strong>
+      <small>{detail}</small>
     </div>
   )
 }

@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anodex Settings &mdash; Diagnostics sample</title>
+    <link rel="stylesheet" href="settings-shell.css" />
+    <link rel="stylesheet" href="diagnostics.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+      <symbol id="i-user" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20c.7-4 3-6 7-6s6.3 2 7 6" />
+      </symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24">
+        <path
+          d="M12 3a9 9 0 1 0 0 18h1.2a2 2 0 0 0 1.5-3.3 2 2 0 0 1 1.5-3.3H18A3 3 0 0 0 21 11a9 9 0 0 0-9-8Z"
+        />
+        <circle cx="7.5" cy="10" r=".7" />
+        <circle cx="10" cy="6.8" r=".7" />
+        <circle cx="15" cy="7.2" r=".7" />
+      </symbol>
+      <symbol id="i-memory" viewBox="0 0 24 24">
+        <path d="m12 3 8 4-8 4-8-4 8-4Z" />
+        <path d="m4 12 8 4 8-4M4 17l8 4 8-4" />
+      </symbol>
+      <symbol id="i-general" viewBox="0 0 24 24">
+        <path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4" />
+        <circle cx="16" cy="6" r="2" />
+        <circle cx="9" cy="12" r="2" />
+        <circle cx="14" cy="18" r="2" />
+      </symbol>
+      <symbol id="i-tools" viewBox="0 0 24 24">
+        <path d="m14.5 5.5 4-2 2 2-2 4-3 1-5 5" />
+        <path d="m13 18-2 2-7-7 2-2 7 7Z" />
+      </symbol>
+      <symbol id="i-cpu" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <rect x="9" y="9" width="6" height="6" />
+        <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
+      </symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m4 7 8 6 8-6" />
+      </symbol>
+      <symbol id="i-archive" viewBox="0 0 24 24">
+        <path d="M4 8h16v12H4V8ZM3 4h18v4H3V4Z" />
+        <path d="M9 12h6" />
+      </symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6" /></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v6M12 7h.01" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5M5 20h14" />
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24">
+        <path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24">
+        <path d="M12 3 2.7 20h18.6L12 3Z" />
+        <path d="M12 9v5M12 17h.01" />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4" /></symbol>
+    </svg>
+
+    <main class="settings-frame" aria-label="Anodex Diagnostics settings visual sample">
+      <header class="settings-topbar">
+        <div class="settings-title-wrap">
+          <h1 class="settings-title">Settings</h1>
+          <span class="settings-subtitle">Configure Anodex and the local engine</span>
+        </div>
+        <button class="icon-button" type="button" aria-label="Close settings">
+          <svg class="inline-icon"><use href="#i-close" /></svg>
+        </button>
+      </header>
+
+      <div class="settings-layout">
+        <aside class="settings-sidebar">
+          <div class="nav-scroll">
+            <nav aria-label="Settings sections">
+              <section class="nav-group">
+                <p class="nav-label">Personal</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-user" /></svg>Profile</button
+                ><button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-palette" /></svg>Appearance</button
+                ><button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-memory" /></svg>Memory
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">Workspace</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-general" /></svg>General</button
+                ><button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-tools" /></svg>Tools &amp; Skills
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">Connections</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-cpu" /></svg>AI &amp; Models</button
+                ><button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-mail" /></svg>Email
+                </button>
+              </section>
+              <section class="nav-group">
+                <p class="nav-label">System</p>
+                <button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-archive" /></svg>Archive</button
+                ><button class="nav-item active" type="button">
+                  <svg class="nav-icon"><use href="#i-activity" /></svg>Diagnostics</button
+                ><button class="nav-item" type="button">
+                  <svg class="nav-icon"><use href="#i-info" /></svg>About
+                </button>
+              </section>
+            </nav>
+          </div>
+          <footer class="sidebar-footer">
+            <div class="local-pill"><span class="status-dot"></span>Local data only</div>
+          </footer>
+        </aside>
+
+        <div class="settings-content">
+          <article class="settings-page diagnostics-settings-page">
+            <header class="page-header diagnostics-page-header">
+              <div>
+                <p class="page-kicker">System</p>
+                <h2 class="page-heading">Diagnostics</h2>
+                <p class="page-description">
+                  Runtime events, errors, and warnings from the local engine and assistant tools.
+                </p>
+              </div>
+              <button class="btn" type="button" id="exportLog">
+                <svg class="inline-icon"><use href="#i-download" /></svg><span>Export log</span>
+              </button>
+            </header>
+
+            <section class="diagnostics-summary" aria-label="Diagnostics summary">
+              <div class="diagnostic-summary-card attention">
+                <span>Status</span><strong><i></i>Needs attention</strong
+                ><small>2 unresolved errors</small>
+              </div>
+              <div class="diagnostic-summary-card error">
+                <span>Errors</span><strong id="errorCount">2</strong><small>Require review</small>
+              </div>
+              <div class="diagnostic-summary-card warning">
+                <span>Warnings</span><strong id="warningCount">2</strong
+                ><small>May affect behavior</small>
+              </div>
+              <div class="diagnostic-summary-card">
+                <span>Stored locally</span
+                ><strong><b id="entryCount">5</b> / <b id="limitCount">250</b></strong
+                ><small>Newest entries retained</small>
+              </div>
+            </section>
+
+            <section class="settings-section first diagnostics-section">
+              <div class="section-head">
+                <div>
+                  <h3 class="section-heading">Logging</h3>
+                  <p class="section-description">
+                    Control how much diagnostic information Anodex keeps locally.
+                  </p>
+                </div>
+              </div>
+              <div class="setting-list diagnostics-setting-list">
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Verbose logging</div>
+                    <div class="setting-help">
+                      Include extra debug detail in new diagnostic entries.
+                    </div>
+                  </div>
+                  <div class="control-column">
+                    <button
+                      class="toggle-control"
+                      type="button"
+                      role="switch"
+                      aria-checked="false"
+                      aria-label="Verbose logging"
+                    ></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">Clear informational entries on restart</div>
+                    <div class="setting-help">
+                      Errors and warnings remain available for troubleshooting.
+                    </div>
+                  </div>
+                  <div class="control-column">
+                    <button
+                      class="toggle-control on"
+                      type="button"
+                      role="switch"
+                      aria-checked="true"
+                      aria-label="Clear informational entries on restart"
+                    ></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <div class="setting-label">History limit</div>
+                    <div class="setting-help">
+                      Oldest entries are removed when the log reaches this limit.
+                    </div>
+                  </div>
+                  <div class="control-column">
+                    <select
+                      class="select-control"
+                      id="historyLimit"
+                      aria-label="Diagnostics history limit"
+                    >
+                      <option value="100">100 entries</option>
+                      <option value="250" selected>250 entries</option>
+                      <option value="500">500 entries</option>
+                      <option value="1000">1,000 entries</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="diagnostics-local-note">
+                <svg class="inline-icon"><use href="#i-check" /></svg
+                ><span>Diagnostic entries stay on this computer unless you export the log.</span>
+              </div>
+            </section>
+
+            <section class="settings-section diagnostics-section">
+              <div class="section-head event-log-head">
+                <div>
+                  <h3 class="section-heading">Recent events</h3>
+                  <p class="section-description">
+                    Select an event to see technical detail and a suggested next step.
+                  </p>
+                </div>
+                <button class="btn ghost diagnostics-clear" type="button" id="clearLog">
+                  <svg class="inline-icon"><use href="#i-trash" /></svg>Clear log
+                </button>
+              </div>
+
+              <div
+                class="diagnostic-filter-bar"
+                role="tablist"
+                aria-label="Diagnostic severity filter"
+              >
+                <button
+                  class="diagnostic-filter active"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  data-filter="all"
+                >
+                  All <span>5</span>
+                </button>
+                <button
+                  class="diagnostic-filter"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  data-filter="error"
+                >
+                  Errors <span>2</span>
+                </button>
+                <button
+                  class="diagnostic-filter"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  data-filter="warning"
+                >
+                  Warnings <span>2</span>
+                </button>
+                <button
+                  class="diagnostic-filter"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  data-filter="info"
+                >
+                  Info <span>1</span>
+                </button>
+              </div>
+
+              <div class="diagnostic-list" id="diagnosticList">
+                <details class="diagnostic-entry error" data-severity="error" open>
+                  <summary>
+                    <span class="diagnostic-severity"
+                      ><svg class="inline-icon"><use href="#i-alert" /></svg>Error</span
+                    ><span class="diagnostic-entry-main"
+                      ><strong>Model failed to load</strong><small>Model</small></span
+                    ><time>Today, 10:42 AM</time
+                    ><svg class="diagnostic-chevron"><use href="#i-chevron" /></svg>
+                  </summary>
+                  <div class="diagnostic-entry-detail">
+                    <p>Could not allocate the requested KV cache for Qwen2.5 Coder 14B.</p>
+                    <code>Requested context: 32,768 tokens &middot; Available VRAM: 11.4 GB</code>
+                    <div class="diagnostic-fix">
+                      <strong>Suggested fix</strong
+                      ><span>Lower the context size to 16K or select a smaller model.</span>
+                    </div>
+                  </div>
+                </details>
+                <details class="diagnostic-entry error" data-severity="error">
+                  <summary>
+                    <span class="diagnostic-severity"
+                      ><svg class="inline-icon"><use href="#i-alert" /></svg>Error</span
+                    ><span class="diagnostic-entry-main"
+                      ><strong>OpenAI request failed</strong><small>Provider</small></span
+                    ><time>Yesterday, 8:16 PM</time
+                    ><svg class="diagnostic-chevron"><use href="#i-chevron" /></svg>
+                  </summary>
+                  <div class="diagnostic-entry-detail">
+                    <p>The provider rejected the request because no valid API key was available.</p>
+                    <div class="diagnostic-fix">
+                      <strong>Suggested fix</strong
+                      ><span>Reconnect the provider in AI &amp; Models.</span>
+                    </div>
+                  </div>
+                </details>
+                <details class="diagnostic-entry warning" data-severity="warning">
+                  <summary>
+                    <span class="diagnostic-severity"
+                      ><svg class="inline-icon"><use href="#i-alert" /></svg>Warning</span
+                    ><span class="diagnostic-entry-main"
+                      ><strong>Tool call required confirmation</strong
+                      ><small>Permission</small></span
+                    ><time>Yesterday, 6:04 PM</time
+                    ><svg class="diagnostic-chevron"><use href="#i-chevron" /></svg>
+                  </summary>
+                  <div class="diagnostic-entry-detail">
+                    <p>run_command was paused until the destructive action was reviewed.</p>
+                  </div>
+                </details>
+                <details class="diagnostic-entry warning" data-severity="warning">
+                  <summary>
+                    <span class="diagnostic-severity"
+                      ><svg class="inline-icon"><use href="#i-alert" /></svg>Warning</span
+                    ><span class="diagnostic-entry-main"
+                      ><strong>Context size reduced automatically</strong
+                      ><small>Runtime</small></span
+                    ><time>Jul 13, 4:22 PM</time
+                    ><svg class="diagnostic-chevron"><use href="#i-chevron" /></svg>
+                  </summary>
+                  <div class="diagnostic-entry-detail">
+                    <p>
+                      The local engine loaded at 8K instead of the requested 16K to avoid an
+                      out-of-memory error.
+                    </p>
+                  </div>
+                </details>
+                <details class="diagnostic-entry info" data-severity="info">
+                  <summary>
+                    <span class="diagnostic-severity"
+                      ><svg class="inline-icon"><use href="#i-info" /></svg>Info</span
+                    ><span class="diagnostic-entry-main"
+                      ><strong>Hardware profile refreshed</strong><small>General</small></span
+                    ><time>Jul 13, 4:18 PM</time
+                    ><svg class="diagnostic-chevron"><use href="#i-chevron" /></svg>
+                  </summary>
+                  <div class="diagnostic-entry-detail">
+                    <p>Detected 32 GB RAM and NVIDIA RTX 4070 with 12 GB VRAM.</p>
+                  </div>
+                </details>
+              </div>
+
+              <div class="diagnostic-empty" id="diagnosticEmpty" hidden>
+                <span
+                  ><svg class="inline-icon"><use href="#i-check" /></svg></span
+                ><strong>No matching diagnostic entries</strong>
+                <p>New runtime events will appear here.</p>
+              </div>
+            </section>
+          </article>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      document.querySelectorAll('.toggle-control').forEach((toggle) => {
+        toggle.addEventListener('click', () => {
+          toggle.classList.toggle('on')
+          toggle.setAttribute('aria-checked', String(toggle.classList.contains('on')))
+        })
+      })
+
+      document.getElementById('historyLimit').addEventListener('change', (event) => {
+        document.getElementById('limitCount').textContent = Number(
+          event.target.value
+        ).toLocaleString()
+      })
+
+      document.querySelectorAll('.diagnostic-filter').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll('.diagnostic-filter').forEach((item) => {
+            const active = item === button
+            item.classList.toggle('active', active)
+            item.setAttribute('aria-selected', String(active))
+          })
+          const entries = [...document.querySelectorAll('.diagnostic-entry')]
+          entries.forEach((entry) => {
+            entry.hidden =
+              button.dataset.filter !== 'all' && entry.dataset.severity !== button.dataset.filter
+          })
+          document.getElementById('diagnosticEmpty').hidden = entries.some((entry) => !entry.hidden)
+        })
+      })
+
+      document.getElementById('clearLog').addEventListener('click', () => {
+        document.querySelectorAll('.diagnostic-entry').forEach((entry) => entry.remove())
+        document.getElementById('diagnosticEmpty').hidden = false
+        document.getElementById('entryCount').textContent = '0'
+        document.getElementById('errorCount').textContent = '0'
+        document.getElementById('warningCount').textContent = '0'
+        document
+          .querySelectorAll('.diagnostic-filter span')
+          .forEach((count) => (count.textContent = '0'))
+      })
+
+      document.getElementById('exportLog').addEventListener('click', (event) => {
+        event.currentTarget.querySelector('span').textContent = 'Exported'
+        window.setTimeout(
+          () => (event.currentTarget.querySelector('span').textContent = 'Export log'),
+          1200
+        )
+      })
+    </script>
+  </body>
+</html>
