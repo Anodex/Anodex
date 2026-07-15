@@ -10,6 +10,7 @@ import { conversationStore } from '../conversations/ConversationStore'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
 import { GENERATION_IN_PROGRESS_ERROR } from '../llama/LlamaService'
+import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
 import { agentRunStore } from './AgentRunStore'
 import {
@@ -313,9 +314,18 @@ class AgentRunService {
   /**
    * The planning-only phase for a `requirePlan: true` run: one turn (plus one
    * bounded retry if the model didn't call `write_plan`) restricted to
-   * `PLANNING_TOOLS`, then pauses in `needs-review` for a human to approve or
-   * reject via `approvePlan`/`rejectPlan` — never falls through into the
-   * normal turn loop itself.
+   * `PLANNING_TOOLS`, then normally pauses in `needs-review` for a human to
+   * approve or reject via `approvePlan`/`rejectPlan`.
+   *
+   * Under the `untethered` permission mode, though, there is no "human"
+   * step to pause for — every individual tool call an agent run makes
+   * already runs unattended regardless of this global setting (see
+   * `runTurn`'s `permissionModeOverride: 'untethered'` and its own doc
+   * comment on why), so pausing here for a manual click was the one place
+   * `requirePlan: true` didn't actually match "fully autonomous." The plan
+   * is still generated and shown (`AgentRun.plan`, surfaced in the
+   * Workspace Dock) exactly as before; it's just approved immediately
+   * instead of waiting.
    */
   private async runPlanningPhase(run: AgentRun, conversation: Conversation): Promise<void> {
     this.runningRunId = run.id
@@ -325,6 +335,11 @@ class AgentRunService {
 
     const planningTools = new Set(PLANNING_TOOLS)
     const providerOverride = { provider: run.provider, model: run.model ?? undefined }
+    // Read once, before the try block runs any generation — `runLoop` (via
+    // `approvePlan`) re-checks its own preflight budget on the way in, so
+    // there's no risk of auto-approving into a run that's actually already
+    // out of turns/tokens.
+    let autoApprove = false
 
     try {
       const first = await this.runTurn(
@@ -381,6 +396,7 @@ class AgentRunService {
 
       agentRunStore.update(run.id, { status: 'needs-review', plan })
       this.broadcastRunsChanged()
+      autoApprove = settingsStore.get().general.permissionMode === 'untethered'
     } catch (error) {
       log.error('Plan review phase failed:', run.id, error)
       this.finish(
@@ -394,6 +410,15 @@ class AgentRunService {
       this.runningRunId = null
       this.activeController = null
     }
+
+    // Deliberately outside the try/finally above: `approvePlan` re-acquires
+    // the same `runningRunId`/`activeController` lock `runPlanningPhase` just
+    // released in `finally`, so calling it any earlier — e.g. from inside the
+    // try block, before that `finally` has run — would have `runLoop`
+    // overwrite the lock and then have this method's own `finally` clobber it
+    // right back to null out from under an execution loop that's actually
+    // still running.
+    if (autoApprove) this.approvePlan(run.id)
   }
 
   /**
