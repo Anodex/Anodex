@@ -79,6 +79,31 @@
   font-size: var(--text-sm);
 }
 
+.advanced {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.advancedSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.advancedSummary span:last-child {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
 @media (max-width: 640px) {
   .statusCard {
     align-items: flex-start;

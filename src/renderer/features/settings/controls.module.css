@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  width: 220px;
+  width: 260px;
 }
 
 .slider {
@@ -39,7 +39,7 @@
 }
 
 .select {
-  width: 180px;
+  width: 260px;
   padding: var(--space-2) var(--space-3);
   color: var(--text);
   background: var(--bg-input);
@@ -90,7 +90,7 @@
 
 .text {
   width: 100%;
-  max-width: 360px;
+  max-width: 260px;
   padding: var(--space-2) var(--space-3);
   color: var(--text);
   font-family: var(--font-mono);

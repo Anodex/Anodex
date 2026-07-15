@@ -100,18 +100,12 @@ export interface AppearanceSettings {
 export type PermissionMode = 'ask' | 'full' | 'untethered'
 
 export interface GeneralSettings {
-  /** Default folder scanned for projects / workspace root. */
-  projectFolder: string | null
   /** Default workspace to reopen on launch. */
   defaultWorkspace: string | null
-  /** Whether to reopen previous chats on startup. */
-  startupBehavior: 'reopen' | 'empty'
   /** Master permission mode; see {@link PermissionMode}. */
   permissionMode: PermissionMode
   /** Show desktop notifications for long-running tasks. */
   desktopNotifications: boolean
-  /** Auto-save chats and workspace state. */
-  autoSave: boolean
   /** Show a confirmation dialog before destructive actions. */
   confirmDestructive: boolean
   /** Default shell used by the run_command tool. */

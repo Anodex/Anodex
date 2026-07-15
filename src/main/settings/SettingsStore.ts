@@ -63,7 +63,9 @@ class SettingsStore {
       return defaults
     }
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as DeepPartial<AppSettings> & {
+      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Record<string, unknown>
+      const retired = stripRetiredGeneralSettings(parsed)
+      const raw = retired.settings as DeepPartial<AppSettings> & {
         ui?: { systemPrompt?: string }
       }
       // Merge over defaults so missing/added fields are always populated.
@@ -73,11 +75,11 @@ class SettingsStore {
       // its migrated text) only ever needs handling once — left on disk, it
       // would silently re-trigger on every future load (see the migration
       // function's own comment), undoing a later Reset of the new field.
-      if (raw.ui?.systemPrompt !== undefined) {
+      if (raw.ui?.systemPrompt !== undefined || retired.changed) {
         try {
           this.persist(migrated)
         } catch (error) {
-          log.error('Failed to persist assistant-style migration:', error)
+          log.error('Failed to persist settings migration:', error)
         }
       }
       return withDecryptedSecrets(migrated)
@@ -95,6 +97,27 @@ class SettingsStore {
   private ensureDir(dir: string): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   }
+}
+
+/**
+ * Removes General fields that were previously displayed but never affected
+ * application behavior. Keeping them in an existing settings.json would make
+ * them look like supported hidden settings and allow a later save to carry
+ * them forward indefinitely.
+ */
+export function stripRetiredGeneralSettings(settings: Record<string, unknown>): {
+  settings: Record<string, unknown>
+  changed: boolean
+} {
+  if (!isPlainObject(settings.general)) return { settings, changed: false }
+
+  const general = { ...settings.general }
+  const retiredKeys = ['startupBehavior', 'projectFolder', 'autoSave']
+  const changed = retiredKeys.some((key) => key in general)
+  if (!changed) return { settings, changed: false }
+
+  for (const key of retiredKeys) delete general[key]
+  return { settings: { ...settings, general }, changed: true }
 }
 
 /**

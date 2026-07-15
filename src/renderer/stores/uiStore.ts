@@ -14,6 +14,7 @@ export type SettingsSection =
   | 'appearance'
   | 'general'
   | 'projects'
+  | 'tools-skills'
   | 'archive'
   | 'memory'
   | 'email'

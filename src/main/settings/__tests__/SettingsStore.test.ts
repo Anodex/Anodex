@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppSettings } from '@shared/settings.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
-import { migrateLegacyAssistantStyle, validatePatch } from '../SettingsStore'
+import {
+  migrateLegacyAssistantStyle,
+  stripRetiredGeneralSettings,
+  validatePatch
+} from '../SettingsStore'
 
 const baseSettings = () => createDefaultSettings('/models')
 
@@ -74,6 +78,30 @@ describe('migrateLegacyAssistantStyle', () => {
   it('strips the legacy field even when it is only whitespace', () => {
     const migrated = migrateLegacyAssistantStyle(baseSettings(), { ui: { systemPrompt: '   ' } })
     expect((migrated.ui as unknown as Record<string, unknown>).systemPrompt).toBeUndefined()
+  })
+})
+
+describe('stripRetiredGeneralSettings', () => {
+  it('removes inactive General fields while preserving supported settings', () => {
+    const result = stripRetiredGeneralSettings({
+      general: {
+        startupBehavior: 'reopen',
+        projectFolder: '/projects',
+        autoSave: true,
+        permissionMode: 'ask'
+      }
+    })
+
+    expect(result.changed).toBe(true)
+    expect(result.settings.general).toEqual({ permissionMode: 'ask' })
+  })
+
+  it('leaves settings unchanged when retired fields are absent', () => {
+    const settings = { general: { permissionMode: 'ask' } }
+    const result = stripRetiredGeneralSettings(settings)
+
+    expect(result.changed).toBe(false)
+    expect(result.settings).toBe(settings)
   })
 })
 

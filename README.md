@@ -105,20 +105,22 @@ it can actually take.
   “Relevant skill” hint when the active project/personal catalog appears to
   match your request. Choosing **Use** prepends a concise instruction to use that
   skill without adding persistent composer clutter.
-- **Pinned project skills:** Settings → Projects lets you pin skills for the
-  active project. Pinned skills are auto-loaded into the project prompt and shown
-  in the compact context summary above the composer.
+- **Pinned project skills:** each project's sidebar action menu opens its
+  contextual settings for project-scoped skills; Settings → Tools & Skills
+  manages personal skills and can pin them to the active project. Pinned skills
+  are auto-loaded into the project prompt and shown in the compact context
+  summary above the composer.
 - **Context transparency:** project chats show a collapsed-by-default context row
   summarizing active project, project instructions, pinned skills, attachments,
   compaction summary state, and tool availability.
 - **Skill draft helper:** assistant replies that used tools expose a subtle
   **Draft skill** footer action that opens a reviewable markdown skill draft in
-  Settings → Projects, so the user can edit before saving.
-- **Skill library/editor:** Settings → Projects includes a collapsed skill
-  library where you can search project/personal skills, pin them, create starter
-  skill markdown, duplicate existing skills, delete stale skills, edit the body,
-  and save back to the right skill folder.
-- **Tool health dashboard:** Settings → General shows compact tool readiness cards
+  the active project's contextual settings, so the user can edit before saving.
+- **Skill library/editor:** Project settings in the sidebar contain the project
+  skill library; Settings → Tools & Skills contains the global personal library, which
+  works without an active project. Both support search, starter markdown,
+  duplication, deletion, editing, and pin controls where applicable.
+- **Tool health dashboard:** Settings → Tools & Skills shows compact tool readiness cards
   for master enablement, project-scoped tool availability, web search, and
   approval mode, plus collapsed availability details explaining hidden tools; the
   searchable full tool catalog is collapsed by default.
@@ -202,19 +204,29 @@ input/output split per model underneath.
 
 ## Settings
 
-- **Profile** — your name/avatar/email/plan-tier display, the token-activity
-  usage page, and local-only account status.
+- **Profile** — your name/avatar/email/plan-tier display, token activity,
+  local-only account status, and global assistant voice/tone preferences.
 - **Appearance** — Dark/Light/System theme, curated dark-mode color presets
   (a full custom palette editor too), font family/size, density, diff-view
   style (unified vs. side-by-side), sound effects, reduced motion, compact
   mode.
-- **General** — permission mode, other global behavior toggles.
-- **Projects** — manage saved projects and their instructions.
-- **AI & Models** — the local engine control center: load/unload, hardware
+- **Memory** — structured project/personal memory, past-chat recall controls,
+  and manual memory management.
+- **General** — everyday application behavior and desktop notifications.
+- **Tools & Skills** — permission mode, terminal shell, tool health/catalog,
+  web search provider, and the global personal skill library.
+- **AI & Models** — local and cloud model control: load/unload, providers, hardware
   panel, recommended-model strip, installed-models table with fit + reliability
-  scores, in-catalog search/download.
-- **Diagnostics** — surfaces real errors/warnings for troubleshooting.
+  scores, in-catalog search/download, and response-generation defaults.
+- **Email** — Gmail connection, sync scope, and advanced OAuth setup.
+- **Archive** — restore or permanently remove archived chats/projects and bulk
+  archive active conversations.
+- **Diagnostics** — persistent local errors/warnings with configurable detail,
+  startup cleanup, and retention limits.
 - **About** — version info, hardware spec summary, and update status.
+
+Projects are managed directly from the left sidebar. Each project's action menu
+owns folder access, renaming, archiving, instructions, and project-specific skills.
 
 ## Auto-update
 

@@ -101,8 +101,8 @@ function DailyCapInput({
 const FALLBACK_MAX_GPU_LAYERS = 128
 
 /**
- * "Local model control center" — engine status, detected hardware, model
- * recommendations, downloaded models, and runtime defaults. Split across this
+ * Model and provider control center — engine status, detected hardware, model
+ * recommendations, downloaded models, providers, and generation defaults. Split across this
  * folder's files: this component just handles top-level state and layout,
  * with each panel and the scoring math in its own file (see `scoring.ts`).
  */
@@ -266,6 +266,10 @@ export function AiModelsSettings(): JSX.Element {
     !!engine.contextSize &&
     engine.contextSize < settings.model.contextSize
   const contextMemoryWarning = !!hardware && ctxSizeWarning(hardware, settings.model.contextSize)
+  const effectiveContextSize =
+    engine.status === 'ready' && engine.contextSize
+      ? engine.contextSize
+      : settings.model.contextSize
 
   const gpuMode =
     settings.model.gpuLayers === 'auto' ? 'auto' : settings.model.gpuLayers === 0 ? 'cpu' : 'custom'
@@ -279,10 +283,9 @@ export function AiModelsSettings(): JSX.Element {
       <div className={styles.pageIntro}>
         <div>
           <p className={styles.eyebrow}>AI & Models</p>
-          <h1 className={styles.pageTitle}>Local model control center</h1>
+          <h1 className={styles.pageTitle}>Models & providers</h1>
           <p className={styles.pageDesc}>
-            Control Anodex&apos;s local engine, computer hardware profile, model recommendations,
-            downloaded models, and runtime defaults.
+            Manage the local engine, cloud providers, model recommendations, and response defaults.
           </p>
         </div>
         <div className={styles.introActions}>
@@ -441,6 +444,63 @@ export function AiModelsSettings(): JSX.Element {
                 a real, hardware-based number, not an estimate.
               </div>
             )}
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionTitleRow}>
+          <div>
+            <p className={styles.sectionKicker}>Response defaults</p>
+            <h2 className={styles.sectionTitle}>Response generation</h2>
+            <p className={styles.sectionDesc}>
+              Sampling controls for local models and the reply-length ceiling used by every
+              provider.
+            </p>
+          </div>
+        </div>
+
+        <div className={styles.defaultsPanel}>
+          <SettingRow
+            label="Temperature"
+            description="Local models only. Higher values vary wording and choices; lower values stay more focused."
+            control={
+              <RangeControl
+                value={settings.generation.temperature}
+                min={0}
+                max={1.5}
+                step={0.05}
+                format={(value) => value.toFixed(2)}
+                onChange={(value) => void update({ generation: { temperature: value } })}
+              />
+            }
+          />
+          <SettingRow
+            label="Top-p"
+            description="Local models only. Limits sampling to the most likely token choices."
+            control={
+              <RangeControl
+                value={settings.generation.topP}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(value) => value.toFixed(2)}
+                onChange={(value) => void update({ generation: { topP: value } })}
+              />
+            }
+          />
+          <SettingRow
+            label="Max response tokens"
+            description="Upper bound for each reply across local, Anthropic, and OpenAI providers."
+            control={
+              <RangeControl
+                value={Math.min(settings.generation.maxTokens, effectiveContextSize)}
+                min={128}
+                max={effectiveContextSize}
+                step={128}
+                onChange={(value) => void update({ generation: { maxTokens: value } })}
+              />
+            }
+          />
         </div>
       </section>
 

@@ -44,7 +44,7 @@ workspace-confined where possible, mutating actions are approval-gated, calls ar
 visible in the transcript, diffs/HTML previews are surfaced inline, and the
 catalog is parity-tested against runtime registration. The biggest opportunities
 are not "more random tools," but tools that reduce repeated multi-call loops and
-make tool output easier to review. Settings → General now includes a compact tool
+make tool output easier to review. Settings → Tools & Skills now includes a compact tool
 health dashboard (enablement, project readiness, web search, approvals), collapsed
 availability details for conditional tools, and keeps the searchable full catalog
 collapsed by default.
@@ -104,12 +104,12 @@ Remaining follow-ups:
 
 - **Skill authoring helper** — assistant replies that used tools expose a subtle
   **Draft skill** action that opens reviewable markdown directly in the compact
-  Settings → Projects library/editor, where it can be edited and saved as a
+  active project's sidebar settings, where it can be edited and saved as a
   project skill.
-- **Library/editor UI** — compact version built in Settings → Projects:
-  collapsed library, search, pin controls, markdown editor, starter templates,
-  duplicate/delete actions, and project/personal save paths. Future passes can add
-  richer validation previews.
+- **Library/editor UI** — split by scope: contextual project settings opened
+  from the sidebar manage project skills, while Settings → Tools & Skills manages personal skills without
+  requiring an active project and can pin them to the active project. Both include
+  search, markdown editing, starter templates, and duplicate/delete actions.
 - **Draft-to-editor handoff** — built: the assistant footer opens generated
   markdown directly in the project skill editor. Future polish can add a
   project/personal scope chooser before opening the editor.

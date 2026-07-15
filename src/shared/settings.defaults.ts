@@ -65,12 +65,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       diffView: 'unified'
     },
     general: {
-      projectFolder: null,
       defaultWorkspace: null,
-      startupBehavior: 'reopen',
       permissionMode: 'ask',
       desktopNotifications: false,
-      autoSave: true,
       confirmDestructive: true,
       defaultShell: 'powershell'
     },

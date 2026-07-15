@@ -6,6 +6,7 @@ import { AnodexLogo } from '../../../../components/AnodexLogo'
 import { Icon } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
 import { updateStatusText } from './updateStatusText'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './AboutSettings.module.css'
 
 export function AboutSettings(): JSX.Element {
@@ -22,8 +23,14 @@ export function AboutSettings(): JSX.Element {
   }, [])
 
   return (
-    <div className={styles.page}>
-      <section className={styles.section}>
+    <div className={pageStyles.page}>
+      <header className={pageStyles.pageHeader}>
+        <p className={pageStyles.pageKicker}>System</p>
+        <h1 className={pageStyles.pageTitle}>About</h1>
+        <p className={pageStyles.pageDesc}>Version, platform information, updates, and credits.</p>
+      </header>
+
+      <section className={pageStyles.section}>
         <div className={styles.brand}>
           <AnodexLogo size={48} />
           <div>
@@ -62,9 +69,9 @@ export function AboutSettings(): JSX.Element {
         </div>
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Updates</h2>
-        <p className={styles.sectionDesc}>{updateStatusText(updateStatus)}</p>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Updates</h2>
+        <p className={pageStyles.sectionDesc}>{updateStatusText(updateStatus)}</p>
         <div className={styles.updateAction}>
           {updateStatus.state === 'downloaded' ? (
             <Button
@@ -91,9 +98,9 @@ export function AboutSettings(): JSX.Element {
         </div>
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Credits</h2>
-        <p className={styles.sectionDesc}>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Credits</h2>
+        <p className={pageStyles.sectionDesc}>
           Built with Electron, React, node-llama-cpp, and llama.cpp. Thank you to the open-source
           communities that make local AI possible.
         </p>

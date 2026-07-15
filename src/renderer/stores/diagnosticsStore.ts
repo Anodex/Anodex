@@ -1,11 +1,22 @@
 import { create } from 'zustand'
-import type { DiagnosticEntry } from '@shared/settings.types'
+import type { DiagnosticEntry, DiagnosticSettings } from '@shared/settings.types'
 import { createId } from '../lib/id'
+
+const STORAGE_KEY = 'anodex:diagnostics'
+const DEFAULT_MAX_ENTRIES = 250
+
+let runtimeSettings: DiagnosticSettings = {
+  maxEntries: DEFAULT_MAX_ENTRIES,
+  clearOnRestart: true,
+  verbose: false
+}
+
+type NewDiagnosticEntry = Omit<DiagnosticEntry, 'id' | 'timestamp'>
 
 interface DiagnosticsState {
   entries: DiagnosticEntry[]
   /** Add a new diagnostic entry, trimming the oldest when over limit. */
-  add: (entry: Omit<DiagnosticEntry, 'id' | 'timestamp'>) => void
+  add: (entry: NewDiagnosticEntry) => void
   /** Remove a single entry by id. */
   remove: (id: string) => void
   /** Clear all entries or filter by category. */
@@ -14,31 +25,73 @@ interface DiagnosticsState {
   exportText: () => string
 }
 
-const MAX_ENTRIES = 250
+function loadEntries(): DiagnosticEntry[] {
+  try {
+    if (typeof localStorage === 'undefined') return []
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isDiagnosticEntry)
+  } catch {
+    return []
+  }
+}
 
-/** In-memory collection of runtime diagnostic events for the Diagnostics page. */
+function saveEntries(entries: DiagnosticEntry[]): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+    }
+  } catch {
+    /* Local persistence is best-effort; diagnostics must never break the app. */
+  }
+}
+
+function isDiagnosticEntry(value: unknown): value is DiagnosticEntry {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Partial<DiagnosticEntry>
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.timestamp === 'number' &&
+    (entry.severity === 'error' || entry.severity === 'warning' || entry.severity === 'info') &&
+    (entry.category === 'model' ||
+      entry.category === 'provider' ||
+      entry.category === 'file' ||
+      entry.category === 'permission' ||
+      entry.category === 'runtime' ||
+      entry.category === 'general') &&
+    typeof entry.message === 'string'
+  )
+}
+
+function commitEntries(entries: DiagnosticEntry[]): { entries: DiagnosticEntry[] } {
+  saveEntries(entries)
+  return { entries }
+}
+
+/** Locally persisted collection of runtime events for the Diagnostics page. */
 export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
-  entries: [],
+  entries: loadEntries(),
 
   add: (entry) => {
     const diagnostic: DiagnosticEntry = {
       ...entry,
+      detail: runtimeSettings.verbose ? entry.detail : undefined,
       id: createId('diag'),
       timestamp: Date.now()
     }
     set((state) => {
       const next = [diagnostic, ...state.entries]
-      if (next.length > MAX_ENTRIES) next.length = MAX_ENTRIES
-      return { entries: next }
+      if (next.length > runtimeSettings.maxEntries) next.length = runtimeSettings.maxEntries
+      return commitEntries(next)
     })
   },
 
-  remove: (id) => set((state) => ({ entries: state.entries.filter((e) => e.id !== id) })),
+  remove: (id) => set((state) => commitEntries(state.entries.filter((entry) => entry.id !== id))),
 
   clear: (category) =>
-    set((state) => ({
-      entries: category ? state.entries.filter((e) => e.category !== category) : []
-    })),
+    set((state) =>
+      commitEntries(category ? state.entries.filter((entry) => entry.category !== category) : [])
+    ),
 
   exportText: () => {
     return get()
@@ -51,6 +104,22 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
       .join('\n\n')
   }
 }))
+
+/** Apply persisted Diagnostics settings to the live log. */
+export function configureDiagnostics(settings: DiagnosticSettings, onStartup = false): void {
+  runtimeSettings = {
+    ...settings,
+    maxEntries: Math.max(1, Math.floor(settings.maxEntries))
+  }
+
+  useDiagnosticsStore.setState((state) => {
+    const retained =
+      onStartup && runtimeSettings.clearOnRestart
+        ? state.entries.filter((entry) => entry.severity !== 'info')
+        : state.entries
+    return commitEntries(retained.slice(0, runtimeSettings.maxEntries))
+  })
+}
 
 /** Convenience helper to log a runtime error from anywhere in the renderer. */
 export function logDiagnostic(

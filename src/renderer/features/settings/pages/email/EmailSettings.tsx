@@ -7,6 +7,7 @@ import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, TextControl, ToggleControl } from '../../controls'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './EmailSettings.module.css'
 
 const SYNC_OPTIONS = [
@@ -76,12 +77,18 @@ export function EmailSettings(): JSX.Element {
   }
 
   return (
-    <div className={styles.page}>
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Email</h2>
-        <p className={styles.sectionDesc}>
+    <div className={pageStyles.page}>
+      <header className={pageStyles.pageHeader}>
+        <p className={pageStyles.pageKicker}>Connections</p>
+        <h1 className={pageStyles.pageTitle}>Email</h1>
+        <p className={pageStyles.pageDesc}>
           Connect Gmail so Anodex can search, summarize, draft, and send email with approval.
         </p>
+      </header>
+
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Gmail connection</h2>
+        <p className={pageStyles.sectionDesc}>Connection status, sync scope, and account setup.</p>
 
         <div className={styles.statusCard}>
           <div className={styles.statusIcon}>
@@ -125,33 +132,37 @@ export function EmailSettings(): JSX.Element {
             />
           }
         />
-        <SettingRow
-          label="OAuth Client ID"
-          description="Create a Google OAuth Desktop app client and paste its Client ID here."
-          control={
-            <TextControl
-              value={gmail.oauthClientId}
-              placeholder="Google OAuth Client ID"
-              onChange={(oauthClientId) =>
-                void update({ email: { gmail: { oauthClientId } } })
-              }
-            />
-          }
-        />
-        <SettingRow
-          label="OAuth Client Secret"
-          description="Desktop app client secret from Google Cloud. Stored locally."
-          control={
-            <TextControl
-              type="password"
-              value={gmail.oauthClientSecret}
-              placeholder="Google OAuth Client Secret"
-              onChange={(oauthClientSecret) =>
-                void update({ email: { gmail: { oauthClientSecret } } })
-              }
-            />
-          }
-        />
+        <details className={styles.advanced}>
+          <summary className={styles.advancedSummary}>
+            <span>Advanced OAuth setup</span>
+            <span>Google Desktop app credentials</span>
+          </summary>
+          <SettingRow
+            label="OAuth Client ID"
+            description="Create a Google OAuth Desktop app client and paste its Client ID here."
+            control={
+              <TextControl
+                value={gmail.oauthClientId}
+                placeholder="Google OAuth Client ID"
+                onChange={(oauthClientId) => void update({ email: { gmail: { oauthClientId } } })}
+              />
+            }
+          />
+          <SettingRow
+            label="OAuth Client Secret"
+            description="Desktop app client secret from Google Cloud. Stored locally."
+            control={
+              <TextControl
+                type="password"
+                value={gmail.oauthClientSecret}
+                placeholder="Google OAuth Client Secret"
+                onChange={(oauthClientSecret) =>
+                  void update({ email: { gmail: { oauthClientSecret } } })
+                }
+              />
+            }
+          />
+        </details>
         <SettingRow
           label="Sync scope"
           description="Metadata keeps the local cache smaller; full messages enable body search and summaries."

@@ -5,6 +5,7 @@ import { Icon } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, ToggleControl } from '../../controls'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './DiagnosticsSettings.module.css'
 
 interface DiagnosticsSettingsProps {
@@ -49,12 +50,18 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
   }
 
   return (
-    <div className={styles.page}>
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Diagnostics</h2>
-        <p className={styles.sectionDesc}>
+    <div className={pageStyles.page}>
+      <header className={pageStyles.pageHeader}>
+        <p className={pageStyles.pageKicker}>System</p>
+        <h1 className={pageStyles.pageTitle}>Diagnostics</h1>
+        <p className={pageStyles.pageDesc}>
           Runtime events, errors, and warnings from the local engine and tools.
         </p>
+      </header>
+
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Logging</h2>
+        <p className={pageStyles.sectionDesc}>Control local diagnostic detail and retention.</p>
 
         <SettingRow
           label="Verbose logging"
@@ -78,7 +85,7 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
         />
         <SettingRow
           label="Max entries"
-          description="Maximum number of recent entries to keep in memory."
+          description="Maximum number of recent entries to keep locally."
           control={
             <SelectControl
               value={String(diagnostics.maxEntries)}
@@ -94,7 +101,7 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
         />
       </section>
 
-      <section className={styles.section}>
+      <section className={pageStyles.section}>
         <div className={styles.logHead}>
           <div className={styles.logFilters}>
             <SelectControl

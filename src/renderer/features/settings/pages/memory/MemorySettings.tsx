@@ -9,6 +9,7 @@ import { Button } from '../../../../components/ui/Button'
 import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, TextControl, ToggleControl } from '../../controls'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './MemorySettings.module.css'
 
 const KIND_OPTIONS: { label: string; value: MemoryKind }[] = [
@@ -185,13 +186,20 @@ export function MemorySettings(): JSX.Element {
   )
 
   return (
-    <div className={styles.page}>
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Memory</h2>
-        <p className={styles.sectionDesc}>
+    <div className={pageStyles.page}>
+      <header className={pageStyles.pageHeader}>
+        <p className={pageStyles.pageKicker}>Personal</p>
+        <h1 className={pageStyles.pageTitle}>Memory</h1>
+        <p className={pageStyles.pageDesc}>
           Durable facts the assistant remembers across conversations — conventions, gotchas,
-          preferences, open tasks. Turning a scope off stops it being read or written, but never
-          deletes what&apos;s already stored.
+          preferences, and open tasks.
+        </p>
+      </header>
+
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Memory controls</h2>
+        <p className={pageStyles.sectionDesc}>
+          Turning a scope off stops it being read or written, but never deletes stored memories.
         </p>
         <SettingRow
           label="Cross-chat memory"
@@ -230,9 +238,9 @@ export function MemorySettings(): JSX.Element {
         />
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Past chat recall</h2>
-        <p className={styles.sectionDesc}>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Past chat recall</h2>
+        <p className={pageStyles.sectionDesc}>
           Automatically surfaces relevant excerpts from other conversations when they lexically
           match what you&apos;re asking — no search tool call needed. Always shown to you as a
           &quot;Past chats used&quot; card so you can see (and open) exactly what was recalled.
@@ -281,9 +289,9 @@ export function MemorySettings(): JSX.Element {
         />
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Add a memory</h2>
-        <p className={styles.sectionDesc}>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Add a memory</h2>
+        <p className={pageStyles.sectionDesc}>
           The assistant usually adds these itself via the remember_fact tool. Add one by hand to
           seed memory without a conversation.
         </p>
@@ -315,9 +323,9 @@ export function MemorySettings(): JSX.Element {
       </section>
 
       {activeProjectId && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Project memory</h2>
-          <p className={styles.sectionDesc}>
+        <section className={pageStyles.section}>
+          <h2 className={pageStyles.sectionTitle}>Project memory</h2>
+          <p className={pageStyles.sectionDesc}>
             Scoped to <strong>{activeProject?.name ?? 'this project'}</strong> — recalled across
             every chat in it, not just this one.
           </p>
@@ -325,9 +333,9 @@ export function MemorySettings(): JSX.Element {
         </section>
       )}
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Personal memory</h2>
-        <p className={styles.sectionDesc}>Recalled in every project.</p>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Personal memory</h2>
+        <p className={pageStyles.sectionDesc}>Recalled in every project.</p>
         {renderList(globalEntries, 'No personal memories yet.')}
       </section>
 

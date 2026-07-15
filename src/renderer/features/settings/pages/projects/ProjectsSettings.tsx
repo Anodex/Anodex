@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Project } from '@shared/project.types'
-import type { SkillDocument, SkillScope, SkillSummary } from '@shared/skill.types'
+import type { SkillDocument, SkillSummary } from '@shared/skill.types'
 import { duplicateSkillMarkdown, nextSkillCopyName } from '../../../../lib/skillLibraryActions'
+import { createSkillTemplate } from '../../../../lib/skillTemplate'
 import {
   consumePendingSkillEditorDraft,
   pendingSkillEditorDraftName
@@ -9,28 +9,22 @@ import {
 import { useProjectStore, getActiveProject } from '../../../../stores/projectStore'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { anodex } from '../../../../lib/anodex'
-import { Icon } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
 import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
-import { TextControl } from '../../controls'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './ProjectsSettings.module.css'
 
 export function ProjectsSettings(): JSX.Element {
   const projects = useProjectStore((s) => s.projects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const activeProject = getActiveProject(projects, activeProjectId)
-  const create = useProjectStore((s) => s.create)
   const update = useProjectStore((s) => s.update)
-  const remove = useProjectStore((s) => s.delete)
-  const setActive = useProjectStore((s) => s.setActive)
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
 
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
   const [instructionsDraft, setInstructionsDraft] = useState('')
-  const [deletingProject, setDeletingProject] = useState<Project | null>(null)
   const [deletingSkill, setDeletingSkill] = useState<SkillSummary | null>(null)
   const [skillCatalog, setSkillCatalog] = useState<SkillSummary[]>([])
+  const [personalSkillNames, setPersonalSkillNames] = useState<string[]>([])
   const [skillSearch, setSkillSearch] = useState('')
   const [editingSkill, setEditingSkill] = useState<SkillDocument | null>(null)
   const [skillDraft, setSkillDraft] = useState('')
@@ -46,10 +40,14 @@ export function ProjectsSettings(): JSX.Element {
   const loadSkills = useCallback(async (): Promise<void> => {
     if (!activeProjectIdForSkills) {
       setSkillCatalog([])
+      setPersonalSkillNames([])
       return
     }
     const skills = await anodex.skills.list(activeProjectIdForSkills)
-    setSkillCatalog(skills)
+    setSkillCatalog(skills.filter((skill) => skill.scope === 'project'))
+    setPersonalSkillNames(
+      skills.filter((skill) => skill.scope === 'personal').map((skill) => skill.name)
+    )
   }, [activeProjectIdForSkills])
 
   useEffect(() => {
@@ -78,34 +76,6 @@ export function ProjectsSettings(): JSX.Element {
     }
   }, [activeProjectIdForSkills])
 
-  const startCreate = async (): Promise<void> => {
-    const result = await anodex.tools.pickWorkspace()
-    if (!result.ok) return
-    const folderPath = result.value
-    if (!folderPath) return
-    const name = folderPath.split(/[/\\]/).pop() ?? 'New project'
-    await create({ name, folderPath })
-  }
-
-  const startEdit = (project: Project): void => {
-    setEditingId(project.id)
-    setEditName(project.name)
-  }
-
-  const saveEdit = async (id: string): Promise<void> => {
-    const trimmed = editName.trim()
-    if (trimmed) await update(id, { name: trimmed })
-    setEditingId(null)
-  }
-
-  const handleDelete = (project: Project): void => {
-    if (!confirmDestructive) {
-      void remove(project.id)
-      return
-    }
-    setDeletingProject(project)
-  }
-
   const togglePinnedSkill = async (skillName: string): Promise<void> => {
     if (!activeProject) return
     const pinned = activeProject.pinnedSkillNames
@@ -131,11 +101,11 @@ export function ProjectsSettings(): JSX.Element {
     }
   }
 
-  const startNewSkill = (scope: SkillScope): void => {
-    const name = scope === 'project' ? 'project-workflow' : 'personal-workflow'
+  const startNewSkill = (): void => {
+    const name = 'project-workflow'
     setSkillError(null)
-    setEditingSkill({ name, scope, content: newSkillTemplate(name) })
-    setSkillDraft(newSkillTemplate(name))
+    setEditingSkill({ name, scope: 'project', content: createSkillTemplate(name) })
+    setSkillDraft(createSkillTemplate(name))
   }
 
   const saveSkill = async (): Promise<void> => {
@@ -203,9 +173,7 @@ export function ProjectsSettings(): JSX.Element {
         scope: skill.scope,
         name: skill.name
       })
-      const sameNameInOtherScope = skillCatalog.some(
-        (item) => item.name === skill.name && item.scope !== skill.scope
-      )
+      const sameNameInOtherScope = personalSkillNames.includes(skill.name)
       if (!sameNameInOtherScope && activeProject.pinnedSkillNames.includes(skill.name)) {
         await update(activeProject.id, {
           pinnedSkillNames: activeProject.pinnedSkillNames.filter((name) => name !== skill.name)
@@ -231,89 +199,24 @@ export function ProjectsSettings(): JSX.Element {
       .toLowerCase()
       .includes(query)
   })
+  const pinnedProjectSkillCount = activeProject
+    ? skillCatalog.filter((skill) => activeProject.pinnedSkillNames.includes(skill.name)).length
+    : 0
 
   return (
-    <div className={styles.page}>
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <div>
-            <h2 className={styles.sectionTitle}>Projects</h2>
-            <p className={styles.sectionDesc}>
-              Each project links a folder that scopes the assistant&apos;s tools. Switching projects
-              changes the active workspace.
-            </p>
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            iconLeft={<Icon name="folder-plus" size={15} />}
-            onClick={() => void startCreate()}
-          >
-            Link folder
-          </Button>
-        </div>
-
-        {projects.length === 0 ? (
-          <div className={styles.empty}>
-            <Icon name="folder" size={28} />
-            <p className={styles.emptyTitle}>No projects yet</p>
-            <p className={styles.emptyText}>
-              Link a folder to create your first project. You can then start chats scoped to that
-              folder.
-            </p>
-          </div>
-        ) : (
-          <ul className={styles.list}>
-            {projects.map((project) => (
-              <li
-                key={project.id}
-                className={`${styles.item} ${project.id === activeProjectId ? styles.itemActive : ''}`}
-              >
-                <div className={styles.itemMain}>
-                  {editingId === project.id ? (
-                    <div className={styles.editRow}>
-                      <TextControl value={editName} onChange={setEditName} />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => void saveEdit(project.id)}
-                      >
-                        Save
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className={styles.itemName}>{project.name}</div>
-                      <div className={styles.itemPath}>{project.folderPath}</div>
-                    </>
-                  )}
-                </div>
-                <div className={styles.itemActions}>
-                  {project.id !== activeProjectId && (
-                    <Button variant="ghost" size="sm" onClick={() => void setActive(project.id)}>
-                      Activate
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="sm" onClick={() => startEdit(project)}>
-                    Rename
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(project)}>
-                    Archive
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+    <div className={pageStyles.page}>
+      <header className={pageStyles.pageHeader}>
+        <p className={pageStyles.pageKicker}>Workspace</p>
+        <h1 className={pageStyles.pageTitle}>Project settings</h1>
+        <p className={pageStyles.pageDesc}>
+          Instructions and reusable workflows for the project selected in the sidebar.
+        </p>
+      </header>
 
       {activeProject && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Active project</h2>
-          <p className={styles.sectionDesc}>
+        <section className={pageStyles.section}>
+          <h2 className={pageStyles.sectionTitle}>{activeProject.name}</h2>
+          <p className={pageStyles.sectionDesc}>
             The assistant&apos;s tools are currently scoped to <strong>{activeProject.name}</strong>
             .
           </p>
@@ -356,12 +259,10 @@ export function ProjectsSettings(): JSX.Element {
           >
             <summary className={styles.skillsSummary}>
               <span>
-                Skill library
-                {activeProject.pinnedSkillNames.length > 0
-                  ? ` · ${activeProject.pinnedSkillNames.length} pinned`
-                  : ''}
+                Project skills
+                {pinnedProjectSkillCount > 0 ? ` · ${pinnedProjectSkillCount} project pinned` : ''}
               </span>
-              <span className={styles.skillsSummaryHint}>Browse, pin, and edit skills</span>
+              <span className={styles.skillsSummaryHint}>Browse, pin, and edit project skills</span>
             </summary>
             <div className={styles.skillLibraryToolbar}>
               <input
@@ -370,18 +271,14 @@ export function ProjectsSettings(): JSX.Element {
                 placeholder="Search skills"
                 onChange={(event) => setSkillSearch(event.target.value)}
               />
-              <Button variant="ghost" size="sm" onClick={() => startNewSkill('project')}>
+              <Button variant="ghost" size="sm" onClick={startNewSkill}>
                 New project skill
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => startNewSkill('personal')}>
-                New personal skill
               </Button>
             </div>
             {skillError && <div className={styles.skillError}>{skillError}</div>}
             {skillCatalog.length === 0 ? (
               <p className={styles.instructionsHint}>
-                No project or personal skills found yet. Create a project skill here or add markdown
-                skills under `.anodex/skills`.
+                No project skills found yet. Create one here or add markdown under `.anodex/skills`.
               </p>
             ) : (
               <div className={styles.skillList}>
@@ -468,19 +365,13 @@ export function ProjectsSettings(): JSX.Element {
         </section>
       )}
 
-      {deletingProject && (
-        <ConfirmDialog
-          title="Archive project?"
-          message="The project and its chats will move to Settings → Archive."
-          detail={deletingProject.name}
-          confirmLabel="Archive"
-          icon="archive"
-          onCancel={() => setDeletingProject(null)}
-          onConfirm={() => {
-            void remove(deletingProject.id)
-            setDeletingProject(null)
-          }}
-        />
+      {!activeProject && (
+        <section className={pageStyles.section}>
+          <h2 className={pageStyles.sectionTitle}>No project selected</h2>
+          <p className={pageStyles.sectionDesc}>
+            Choose a project&apos;s action menu in the sidebar, then select Project settings.
+          </p>
+        </section>
       )}
 
       {deletingSkill && (
@@ -496,30 +387,4 @@ export function ProjectsSettings(): JSX.Element {
       )}
     </div>
   )
-}
-
-function newSkillTemplate(name: string): string {
-  return `---
-name: ${name}
-description: Describe when to use this workflow.
-keywords: []
-tools: []
----
-
-# ${name}
-
-## When to use
-
-Use this skill when...
-
-## Steps
-
-1. Inspect the relevant context.
-2. Make the smallest safe change.
-3. Verify the result.
-
-## Pitfalls
-
-- Keep this focused on one reusable workflow class.
-`
 }

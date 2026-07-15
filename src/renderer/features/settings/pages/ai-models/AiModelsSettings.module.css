@@ -26,7 +26,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--accent);
 }
 
 .pageTitle {
@@ -60,7 +60,7 @@
 }
 
 .section {
-  padding: var(--space-5) 0;
+  padding: var(--space-6) 0;
   border-top: 1px solid var(--border);
 }
 

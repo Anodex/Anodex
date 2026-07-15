@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { Project } from '@shared/project.types'
 import { Icon } from '../Icon'
 import { TextPromptDialog } from '../ui/TextPromptDialog'
+import { useProjectStore } from '../../stores/projectStore'
+import { useUiStore } from '../../stores/uiStore'
 import styles from './ProjectActionsMenu.module.css'
 
 interface ProjectActionsMenuProps {
@@ -42,6 +44,14 @@ export function ProjectActionsMenu({
     onOpenProjectFolder(project.id)
   }
 
+  const handleProjectSettings = (): void => {
+    setOpen(false)
+    void (async () => {
+      await useProjectStore.getState().setActive(project.id)
+      useUiStore.getState().openSettings('projects')
+    })()
+  }
+
   const handleDelete = (): void => {
     setOpen(false)
     onDelete(project)
@@ -70,6 +80,10 @@ export function ProjectActionsMenu({
           <button type="button" className={styles.item} onClick={handleOpenProjectFolder}>
             <Icon name="folder" size={14} />
             <span>Open in Explorer</span>
+          </button>
+          <button type="button" className={styles.item} onClick={handleProjectSettings}>
+            <Icon name="sliders" size={14} />
+            <span>Project settings</span>
           </button>
           <button type="button" className={styles.item} onClick={handleRename}>
             <Icon name="pencil" size={14} />

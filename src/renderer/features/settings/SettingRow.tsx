@@ -16,7 +16,9 @@ export function SettingRow({ label, description, control }: SettingRowProps): JS
         <div className={styles.label}>{label}</div>
         {description && <div className={styles.description}>{description}</div>}
       </div>
-      <div className={styles.control}>{control}</div>
+      <div className={`${styles.control} ${control == null ? styles.controlEmpty : ''}`}>
+        {control}
+      </div>
     </div>
   )
 }

@@ -6,6 +6,7 @@ import { formatCompactNumber, formatDay, formatDuration, formatHourRange } from 
 import { TokenActivityChartSection } from './TokenActivityChartSection'
 import { UsageHeatmap } from './UsageHeatmap'
 import { useUsageProfile } from './useUsageProfile'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './UsageActivitySection.module.css'
 
 function describeInsight(insight: UsageInsight): string {
@@ -49,7 +50,7 @@ export function UsageActivitySection(): JSX.Element {
   const { profile, loading, refresh } = useUsageProfile()
 
   return (
-    <section className={styles.section}>
+    <section className={pageStyles.section}>
       <div className={styles.headerRow}>
         <div>
           <h2 className={styles.sectionTitle}>Token Activity</h2>

@@ -1,13 +1,15 @@
 import { useRef, type ChangeEvent } from 'react'
-import type { AppSettings } from '@shared/settings.types'
+import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, TextControl, ToggleControl } from '../../controls'
 import { UsageActivitySection } from './UsageActivitySection'
+import { AssistantStyleSection } from './AssistantStyleSection'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './ProfileSettings.module.css'
 
 interface ProfileSettingsProps {
   settings: AppSettings
-  update: (patch: Partial<AppSettings['profile']>) => void
+  update: (patch: DeepPartial<AppSettings>) => Promise<void>
 }
 
 const PLAN_OPTIONS = [
@@ -26,53 +28,63 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result as string
-      update({ avatarBase64: result })
+      void update({ profile: { avatarBase64: result } })
     }
     reader.readAsDataURL(file)
   }
 
   return (
-    <div className={styles.page}>
-      <div className={styles.hero}>
-        <button
-          type="button"
-          className={styles.heroAvatar}
-          onClick={() => fileInputRef.current?.click()}
-          aria-label="Change avatar"
-        >
-          {profile.avatarBase64 ? (
-            <img src={profile.avatarBase64} alt="" className={styles.avatarImage} />
-          ) : (
-            <span className={styles.avatarInitials}>{initials(profile.displayName)}</span>
-          )}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className={styles.fileInput}
-          onChange={handleAvatarChange}
-        />
-        {profile.avatarBase64 && (
+    <div className={pageStyles.page}>
+      <header className={pageStyles.pageHeader}>
+        <p className={pageStyles.pageKicker}>Personal</p>
+        <h1 className={pageStyles.pageTitle}>Profile</h1>
+        <p className={pageStyles.pageDesc}>
+          Your identity, local account status, assistant preferences, and token activity.
+        </p>
+      </header>
+
+      <section className={pageStyles.section}>
+        <div className={styles.hero}>
           <button
             type="button"
-            className={styles.removeAvatar}
-            onClick={() => update({ avatarBase64: null })}
+            className={styles.heroAvatar}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Change avatar"
           >
-            Remove photo
+            {profile.avatarBase64 ? (
+              <img src={profile.avatarBase64} alt="" className={styles.avatarImage} />
+            ) : (
+              <span className={styles.avatarInitials}>{initials(profile.displayName)}</span>
+            )}
           </button>
-        )}
-        <h2 className={styles.heroName}>{profile.displayName || 'Anonymous'}</h2>
-        <p className={styles.heroMeta}>
-          {profile.email || 'No email set'} · {planLabel(profile.planTier)}
-        </p>
-      </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className={styles.fileInput}
+            onChange={handleAvatarChange}
+          />
+          {profile.avatarBase64 && (
+            <button
+              type="button"
+              className={styles.removeAvatar}
+              onClick={() => void update({ profile: { avatarBase64: null } })}
+            >
+              Remove photo
+            </button>
+          )}
+          <h2 className={styles.heroName}>{profile.displayName || 'Anonymous'}</h2>
+          <p className={styles.heroMeta}>
+            {profile.email || 'No email set'} · {planLabel(profile.planTier)}
+          </p>
+        </div>
+      </section>
 
       <UsageActivitySection />
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Edit profile</h2>
-        <p className={styles.sectionDesc}>How Anodex identifies you in the workspace.</p>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Edit profile</h2>
+        <p className={pageStyles.sectionDesc}>How Anodex identifies you in the workspace.</p>
 
         <SettingRow
           label="Display name"
@@ -81,7 +93,7 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
             <TextControl
               value={profile.displayName}
               placeholder="Your name"
-              onChange={(value) => update({ displayName: value })}
+              onChange={(value) => void update({ profile: { displayName: value } })}
             />
           }
         />
@@ -92,7 +104,7 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
             <TextControl
               value={profile.email}
               placeholder="you@example.com"
-              onChange={(value) => update({ email: value })}
+              onChange={(value) => void update({ profile: { email: value } })}
             />
           }
         />
@@ -103,15 +115,17 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
             <SelectControl
               value={profile.planTier}
               options={PLAN_OPTIONS}
-              onChange={(value) => update({ planTier: value as typeof profile.planTier })}
+              onChange={(value) =>
+                void update({ profile: { planTier: value as typeof profile.planTier } })
+              }
             />
           }
         />
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Account</h2>
-        <p className={styles.sectionDesc}>Local-first status and data sync controls.</p>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Account</h2>
+        <p className={pageStyles.sectionDesc}>Local-first status and data sync controls.</p>
         <SettingRow
           label="Data sync"
           description={syncDescription(profile.syncStatus)}
@@ -123,7 +137,9 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
                 { label: 'Syncing', value: 'syncing' },
                 { label: 'Synced', value: 'synced' }
               ]}
-              onChange={(value) => update({ syncStatus: value as typeof profile.syncStatus })}
+              onChange={(value) =>
+                void update({ profile: { syncStatus: value as typeof profile.syncStatus } })
+              }
             />
           }
         />
@@ -133,11 +149,18 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
           control={
             <ToggleControl
               checked={profile.accountStatus === 'active'}
-              onChange={(value) => update({ accountStatus: value ? 'active' : 'inactive' })}
+              onChange={(value) =>
+                void update({ profile: { accountStatus: value ? 'active' : 'inactive' } })
+              }
             />
           }
         />
       </section>
+
+      <AssistantStyleSection
+        value={settings.assistantStyle.globalStyle}
+        update={(value) => void update({ assistantStyle: { globalStyle: value } })}
+      />
     </div>
   )
 }

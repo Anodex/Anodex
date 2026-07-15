@@ -8,12 +8,15 @@ import { useChatStore } from '../../../../stores/chatStore'
 import { useProjectStore } from '../../../../stores/projectStore'
 import { anodex } from '../../../../lib/anodex'
 import { SelectControl, TextControl } from '../../controls'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './ArchiveSettings.module.css'
 
 type KindFilter = 'all' | 'chats' | 'projects'
 
 export function ArchiveSettings(): JSX.Element {
   const refreshConversations = useChatStore((s) => s.refreshConversations)
+  const conversationCount = useChatStore((s) => s.conversations.length)
+  const archiveAllConversations = useChatStore((s) => s.deleteAllConversations)
   const refreshProjects = useProjectStore((s) => s.load)
 
   const [archivedChats, setArchivedChats] = useState<Conversation[]>([])
@@ -25,6 +28,7 @@ export function ArchiveSettings(): JSX.Element {
   const [selectedChats, setSelectedChats] = useState<Set<string>>(() => new Set())
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(() => new Set())
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [confirmingArchiveAll, setConfirmingArchiveAll] = useState(false)
 
   const reload = async (): Promise<void> => {
     const [chats, projects, activeState] = await Promise.all([
@@ -124,6 +128,11 @@ export function ArchiveSettings(): JSX.Element {
     await reload()
   }
 
+  const archiveAll = async (): Promise<void> => {
+    await archiveAllConversations()
+    await reload()
+  }
+
   const projectOptions = [
     { label: 'All projects', value: 'all' },
     { label: 'General chats', value: 'general' },
@@ -134,24 +143,43 @@ export function ArchiveSettings(): JSX.Element {
   ]
 
   return (
-    <div className={styles.page}>
-      <section className={styles.section}>
+    <div className={pageStyles.page}>
+      <header className={pageStyles.pageHeader}>
+        <p className={pageStyles.pageKicker}>System</p>
+        <h1 className={pageStyles.pageTitle}>Archive</h1>
+        <p className={pageStyles.pageDesc}>
+          Restore archived chats and projects or permanently remove them.
+        </p>
+      </header>
+
+      <section className={pageStyles.section}>
         <div className={styles.sectionHead}>
           <div>
-            <h2 className={styles.sectionTitle}>Archive</h2>
-            <p className={styles.sectionDesc}>
+            <h2 className={pageStyles.sectionTitle}>Archived items</h2>
+            <p className={pageStyles.sectionDesc}>
               Restore archived chats and projects, or permanently delete selected items.
             </p>
           </div>
-          <Button
-            variant="danger"
-            size="sm"
-            disabled={selectedCount === 0}
-            iconLeft={<Icon name="trash" size={15} />}
-            onClick={() => setConfirmingDelete(true)}
-          >
-            Delete selected
-          </Button>
+          <div className={styles.sectionActions}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={conversationCount === 0}
+              iconLeft={<Icon name="archive" size={15} />}
+              onClick={() => setConfirmingArchiveAll(true)}
+            >
+              Archive all chats
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={selectedCount === 0}
+              iconLeft={<Icon name="trash" size={15} />}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              Delete selected
+            </Button>
+          </div>
         </div>
 
         <div className={styles.toolbar}>
@@ -252,6 +280,21 @@ export function ArchiveSettings(): JSX.Element {
           onConfirm={() => {
             setConfirmingDelete(false)
             void deleteSelected()
+          }}
+        />
+      )}
+
+      {confirmingArchiveAll && (
+        <ConfirmDialog
+          title="Archive all chats?"
+          message="This moves every active conversation here, where it can be restored or permanently deleted."
+          detail={`${conversationCount} conversation${conversationCount === 1 ? '' : 's'}`}
+          confirmLabel="Archive all"
+          icon="archive"
+          onCancel={() => setConfirmingArchiveAll(false)}
+          onConfirm={() => {
+            setConfirmingArchiveAll(false)
+            void archiveAll()
           }}
         />
       )}

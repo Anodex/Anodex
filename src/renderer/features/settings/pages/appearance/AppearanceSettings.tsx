@@ -1,6 +1,7 @@
 import type { AppSettings } from '@shared/settings.types'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, ToggleControl } from '../../controls'
+import pageStyles from '../../SettingsPage.module.css'
 import styles from './AppearanceSettings.module.css'
 
 interface AppearanceSettingsProps {
@@ -41,10 +42,16 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
   const { appearance } = settings
 
   return (
-    <div className={styles.page}>
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Theme</h2>
-        <p className={styles.sectionDesc}>Choose the look and feel of Anodex.</p>
+    <div className={pageStyles.page}>
+      <header className={pageStyles.pageHeader}>
+        <p className={pageStyles.pageKicker}>Personal</p>
+        <h1 className={pageStyles.pageTitle}>Appearance</h1>
+        <p className={pageStyles.pageDesc}>Theme, typography, density, code views, and motion.</p>
+      </header>
+
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Theme</h2>
+        <p className={pageStyles.sectionDesc}>Choose the look and feel of Anodex.</p>
 
         <div className={styles.modeGrid}>
           <ModeButton
@@ -138,9 +145,9 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
         )}
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Typography & density</h2>
-        <p className={styles.sectionDesc}>Fine-tune readability and spacing.</p>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Typography & density</h2>
+        <p className={pageStyles.sectionDesc}>Fine-tune readability and spacing.</p>
         <SettingRow
           label="Font"
           description="Preferred UI font family."
@@ -176,9 +183,9 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
         />
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Code & diffs</h2>
-        <p className={styles.sectionDesc}>How file changes render in the chat transcript.</p>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Code & diffs</h2>
+        <p className={pageStyles.sectionDesc}>How file changes render in the chat transcript.</p>
         <SettingRow
           label="Diff view"
           description="Unified shows one column with additions and removals inline. Side by side shows the old and new versions next to each other."
@@ -192,8 +199,8 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
         />
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Motion & sound</h2>
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Motion & sound</h2>
         <SettingRow
           label="Sound effects"
           description="Play subtle sounds for completions and errors."
