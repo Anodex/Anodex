@@ -28,17 +28,9 @@ describe('resolvePermission', () => {
 })
 
 describe('needsTurnGate', () => {
-  it('gates the first safe/sensitive call in untethered mode', () => {
-    expect(needsTurnGate('untethered', 'safe', false)).toBe(true)
-    expect(needsTurnGate('untethered', 'sensitive', false)).toBe(true)
-  })
-
-  it('no longer gates once the turn is already approved', () => {
-    expect(needsTurnGate('untethered', 'safe', true)).toBe(false)
-    expect(needsTurnGate('untethered', 'sensitive', true)).toBe(false)
-  })
-
-  it('never gates trivial or destructive risk — those are resolvePermission’s own job', () => {
+  it('never gates untethered mode — that tier is meant to run with almost no prompts', () => {
+    expect(needsTurnGate('untethered', 'safe', false)).toBe(false)
+    expect(needsTurnGate('untethered', 'sensitive', false)).toBe(false)
     expect(needsTurnGate('untethered', 'trivial', false)).toBe(false)
     expect(needsTurnGate('untethered', 'destructive', false)).toBe(false)
   })

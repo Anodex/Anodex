@@ -77,7 +77,7 @@ describe('recordTouch (exercised via runReadTool)', () => {
   })
 })
 
-describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
+describe('runGuardedTool — first-action turn gate (full mode only)', () => {
   const root = 'C:\\workspace'
 
   function guardedSpec(risk: 'trivial' | 'safe' | 'sensitive' | 'destructive') {
@@ -91,9 +91,9 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
     }
   }
 
-  it('gates the first safe call in untethered mode, with turnGate: true on the request', async () => {
+  it('gates the first safe call in full mode, with turnGate: true on the request', async () => {
     const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+    const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
 
     await runGuardedTool(ctx, guardedSpec('safe'))
 
@@ -103,10 +103,10 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
 
   it('does not re-gate a second guarded call in the same turn once approved', async () => {
     const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+    const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
 
     await runGuardedTool(ctx, guardedSpec('safe'))
-    await runGuardedTool(ctx, guardedSpec('sensitive'))
+    await runGuardedTool(ctx, guardedSpec('safe'))
 
     expect(requests).toHaveLength(1)
     expect(ctx.turnGate.approved).toBe(true)
@@ -122,21 +122,9 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
     expect(requests).toHaveLength(2)
   })
 
-  it('also gates the first safe call in full mode, same as untethered', async () => {
+  it('never gates trivial-risk calls, even in full mode', async () => {
     const { requests, confirm } = captureConfirmations()
     const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
-
-    await runGuardedTool(ctx, guardedSpec('safe'))
-    await runGuardedTool(ctx, guardedSpec('safe'))
-
-    expect(requests).toHaveLength(1)
-    expect(requests[0].turnGate).toBe(true)
-    expect(ctx.turnGate.approved).toBe(true)
-  })
-
-  it('never gates trivial-risk calls, even in untethered mode', async () => {
-    const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
 
     await runGuardedTool(ctx, guardedSpec('trivial'))
 
@@ -145,7 +133,7 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
 
   it('still always confirms destructive calls, gate or no gate', async () => {
     const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+    const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
 
     await runGuardedTool(ctx, guardedSpec('safe'))
     await runGuardedTool(ctx, guardedSpec('destructive'))
@@ -156,7 +144,7 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
 
   it("forceConfirm: false does not bypass the turn gate (web_search's bug)", async () => {
     const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+    const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
 
     await runGuardedTool(ctx, { ...guardedSpec('safe'), forceConfirm: false })
 
@@ -166,7 +154,7 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
 
   it('forceConfirm: true still forces its own confirmation, unaffected by the fix', async () => {
     const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+    const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
 
     await runGuardedTool(ctx, { ...guardedSpec('trivial'), forceConfirm: true })
 
@@ -175,7 +163,7 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
 
   it('approving an unrelated forced confirmation does not satisfy the turn gate', async () => {
     const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+    const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
 
     // Forced independently of risk/mode — not the turn's own checkpoint.
     await runGuardedTool(ctx, { ...guardedSpec('trivial'), forceConfirm: true })
@@ -189,7 +177,7 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
 
   it('approving a destructive confirmation does not satisfy the turn gate either', async () => {
     const { requests, confirm } = captureConfirmations()
-    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+    const ctx = { ...createMockContext(root), permissionMode: 'full' as const, confirm }
 
     await runGuardedTool(ctx, guardedSpec('destructive'))
     expect(ctx.turnGate.approved).toBe(false)
@@ -197,6 +185,42 @@ describe('runGuardedTool — first-action turn gate (full/untethered)', () => {
     await runGuardedTool(ctx, guardedSpec('safe'))
     expect(requests).toHaveLength(2)
     expect(requests[1].turnGate).toBe(true)
+  })
+})
+
+describe('runGuardedTool — untethered mode has almost no prompts', () => {
+  const root = 'C:\\workspace'
+
+  function guardedSpec(risk: 'trivial' | 'safe' | 'sensitive' | 'destructive') {
+    return {
+      name: 'write_file',
+      kind: 'write' as const,
+      title: 'Write file',
+      confirmDetail: 'foo.ts',
+      risk,
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    }
+  }
+
+  it('never gates the first safe/sensitive call — no turn-gate checkpoint at all', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+
+    await runGuardedTool(ctx, guardedSpec('safe'))
+    await runGuardedTool(ctx, guardedSpec('sensitive'))
+
+    expect(requests).toHaveLength(0)
+  })
+
+  it('still always confirms destructive calls', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'untethered' as const, confirm }
+
+    await runGuardedTool(ctx, guardedSpec('safe'))
+    await runGuardedTool(ctx, guardedSpec('destructive'))
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0].turnGate).toBeFalsy()
   })
 })
 

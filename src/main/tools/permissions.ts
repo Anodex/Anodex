@@ -23,12 +23,13 @@ export function resolvePermission(mode: PermissionMode, risk: ToolRisk): Permiss
 
 /**
  * Whether a call needs the once-per-turn "first action" gate, on top of
- * `resolvePermission`'s own risk-based decision. Applies to `full` and
- * `untethered` — the two modes that have a risk tier which silently
- * auto-runs today (`full`: `safe`; `untethered`: `safe`/`sensitive`) — by
- * gating whichever tier `resolvePermission` itself would've said `'auto'`
- * for under the active mode. Never relevant for `ask`, since every
- * non-trivial call already confirms there — nothing left to gate.
+ * `resolvePermission`'s own risk-based decision. Applies only to `full` —
+ * the mode where a risk tier (`safe`) silently auto-runs but the user still
+ * wants a single per-turn heads-up before that starts. `untethered` is meant
+ * to run with almost no prompts, so it skips this gate entirely and relies
+ * solely on `resolvePermission` (which still confirms `destructive` every
+ * time). Never relevant for `ask`, since every non-trivial call already
+ * confirms there — nothing left to gate.
  */
 export function needsTurnGate(
   mode: PermissionMode,
@@ -36,7 +37,7 @@ export function needsTurnGate(
   turnGateApproved: boolean
 ): boolean {
   return (
-    (mode === 'untethered' || mode === 'full') &&
+    mode === 'full' &&
     risk !== 'trivial' &&
     resolvePermission(mode, risk) !== 'confirm' &&
     !turnGateApproved
