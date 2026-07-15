@@ -1,9 +1,6 @@
-import { useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import type { ModelInfo } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
-import { computeReliabilityScore } from '@shared/modelReliability.types'
 import { inferModelFamily } from '@shared/recommendedModels'
 import { useModelStore } from '../../../../stores/modelStore'
 import { formatBytes } from '../../../../lib/format'
@@ -11,6 +8,7 @@ import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { ModelLogo } from '../../../../components/ModelLogo'
 import { basename, scoreInstalledModel, type InstalledModelScore } from './scoring'
+import { ReliabilityScore } from './ReliabilityScore'
 import styles from './AiModelsSettings.module.css'
 
 /** Every downloaded model, each with a hardware-fit score and a usage-based reliability score. */
@@ -193,7 +191,7 @@ function InstalledModelRow({
         )}
       </td>
       <td>
-        <ReliabilityCell record={reliability} />
+        <ReliabilityScore record={reliability} modelName={model.name} />
       </td>
       <td>
         <div className={styles.sizeCell}>
@@ -262,77 +260,6 @@ function ScoreStack({
         />
       </div>
       <div className={`${styles.scoreNote} ${fit ? styles[`fit${fit}`] : ''}`}>{note}</div>
-    </div>
-  )
-}
-
-/**
- * Usage-based reliability score, distinct from the hardware-fit score — a
- * model can be a great fit and still be unreliable at actually finishing
- * tasks. Hovering shows the per-tool breakdown behind the number, so a poor
- * score is explainable rather than just a number to distrust blindly.
- * Positioned via a portal (not CSS `position: absolute` in place) because the
- * settings modal only allows vertical scrolling — an in-place popover would
- * get clipped by the table's own row/cell overflow rather than sitting above
- * everything else.
- */
-function ReliabilityCell({ record }: { record: ModelReliabilityRecord | undefined }): JSX.Element {
-  const anchorRef = useRef<HTMLDivElement>(null)
-  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null)
-  const score = computeReliabilityScore(record)
-  const toolEntries = record ? Object.entries(record.byTool) : []
-
-  const showPopover = (): void => {
-    const rect = anchorRef.current?.getBoundingClientRect()
-    if (rect) setPopoverPos({ top: rect.bottom + 6, left: rect.left })
-  }
-
-  if (score === null) {
-    return <span className={styles.muted}>No usage yet</span>
-  }
-
-  return (
-    <div
-      ref={anchorRef}
-      className={styles.reliabilityAnchor}
-      onMouseEnter={showPopover}
-      onMouseLeave={() => setPopoverPos(null)}
-    >
-      <ScoreStack
-        score={score}
-        note={`${toolEntries.length} tool${toolEntries.length === 1 ? '' : 's'} used`}
-      />
-      {popoverPos &&
-        createPortal(
-          <div
-            className={styles.reliabilityPopover}
-            style={{ top: popoverPos.top, left: popoverPos.left }}
-          >
-            <div className={styles.reliabilityPopoverTitle}>Reliability by tool</div>
-            {toolEntries.length === 0 ? (
-              <div className={styles.reliabilityRow}>No tool calls recorded yet.</div>
-            ) : (
-              toolEntries.map(([tool, stats]) => {
-                const total = stats.successes + stats.errors
-                const pct = total > 0 ? Math.round((stats.successes / total) * 100) : 0
-                return (
-                  <div key={tool} className={styles.reliabilityRow}>
-                    <span>{tool}</span>
-                    <span>
-                      {stats.successes}/{total} ({pct}%)
-                    </span>
-                  </div>
-                )
-              })
-            )}
-            {record && record.fabrications > 0 && (
-              <div className={styles.reliabilityFabrication}>
-                Claimed an unactioned outcome {record.fabrications}×
-              </div>
-            )}
-          </div>,
-          document.body
-        )}
     </div>
   )
 }

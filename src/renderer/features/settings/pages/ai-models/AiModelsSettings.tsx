@@ -4,8 +4,6 @@ import type { ModelSettingsRecommendation } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import { recommendModel } from '@shared/modelRecommendation'
 import { CONTEXT_SIZE_LADDER, formatContextSizeLabel } from '@shared/contextSizes'
-import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
-import { OPENAI_MODELS } from '@shared/openaiModels'
 import { useModelStore } from '../../../../stores/modelStore'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { useUiStore } from '../../../../stores/uiStore'
@@ -13,14 +11,15 @@ import { anodex } from '../../../../lib/anodex'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
-import { RangeControl, SelectControl, TextControl } from '../../controls'
+import { RangeControl, SelectControl } from '../../controls'
 import { Spinner } from '../../../../components/ui/Spinner'
 import { EnginePanel } from './EnginePanel'
 import { HardwarePanel } from './HardwarePanel'
 import { RecommendedModelStrip } from './RecommendedModelStrip'
 import { DiscoverModelsPanel } from './DiscoverModelsPanel'
 import { InstalledModelsList } from './InstalledModelsList'
-import { ApiKeyField } from './ApiKeyField'
+import { CompatibilitySummary } from './CompatibilitySummary'
+import { ProviderConnectionsPanel } from './ProviderConnectionsPanel'
 import { ctxSizeWarning, scoreInstalledModel } from './scoring'
 import styles from './AiModelsSettings.module.css'
 
@@ -35,64 +34,14 @@ const GPU_OPTIONS = [
   { label: 'Custom', value: 'custom' }
 ]
 
-const CHAT_PROVIDER_OPTIONS = [
-  { label: 'Local model', value: 'local' },
-  { label: 'Claude (Anthropic)', value: 'anthropic' },
-  { label: 'ChatGPT / Codex (OpenAI)', value: 'openai' }
+type AiModelsTab = 'models' | 'compatibility' | 'providers' | 'advanced'
+
+const AI_MODEL_TABS: Array<{ id: AiModelsTab; label: string }> = [
+  { id: 'models', label: 'Models' },
+  { id: 'compatibility', label: 'Compatibility' },
+  { id: 'providers', label: 'Providers' },
+  { id: 'advanced', label: 'Advanced' }
 ]
-
-const ANTHROPIC_MODEL_OPTIONS = ANTHROPIC_MODELS.map((model) => ({
-  label: model.label,
-  value: model.id
-}))
-
-const OPENAI_MODEL_OPTIONS = OPENAI_MODELS.map((model) => ({
-  label: model.label,
-  value: model.id
-}))
-
-/**
- * Parse a daily-cap text field: empty clears the cap (`null`), a positive
- * integer sets it. Anything else (negative, zero, non-numeric) is treated as
- * not-yet-valid and ignored rather than committed, so a half-typed number
- * doesn't wipe out the field's own previous value mid-keystroke.
- */
-function parseDailyCapInput(value: string): number | null | undefined {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : undefined
-}
-
-/**
- * A daily-cap text field backed by local state, not the settings value
- * directly. `onCommit` persists over IPC, which is async — a plain
- * controlled input bound straight to `settings...dailyTokenCap` re-renders
- * with the still-stale value between keystrokes and drops fast typing (e.g.
- * typing "100" quickly leaves only "1" committed). Local state renders every
- * keystroke immediately; `value` only seeds it once, on mount, since nothing
- * else edits this field concurrently in a single-window desktop app.
- */
-function DailyCapInput({
-  value,
-  onCommit
-}: {
-  value: number | null
-  onCommit: (cap: number | null) => void
-}): JSX.Element {
-  const [text, setText] = useState(value?.toString() ?? '')
-  return (
-    <TextControl
-      value={text}
-      placeholder="No cap"
-      onChange={(next) => {
-        setText(next)
-        const cap = parseDailyCapInput(next)
-        if (cap !== undefined) onCommit(cap)
-      }}
-    />
-  )
-}
 
 /** Ceiling for the custom layer slider when the loaded model's real layer
  * count isn't known yet (nothing loaded, or a model just switched). Comfortably
@@ -119,6 +68,7 @@ export function AiModelsSettings(): JSX.Element {
 
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [loadingHardware, setLoadingHardware] = useState(true)
+  const [activeTab, setActiveTab] = useState<AiModelsTab>('models')
   const [search, setSearch] = useState('')
   const [reliability, setReliability] = useState<ModelReliabilityRecord[]>([])
   const [fileRecommendation, setFileRecommendation] = useState<ModelSettingsRecommendation | null>(
@@ -282,10 +232,10 @@ export function AiModelsSettings(): JSX.Element {
     <div className={styles.page}>
       <div className={styles.pageIntro}>
         <div>
-          <p className={styles.eyebrow}>AI & Models</p>
-          <h1 className={styles.pageTitle}>Models & providers</h1>
+          <p className={styles.eyebrow}>Connections</p>
+          <h1 className={styles.pageTitle}>AI &amp; Models</h1>
           <p className={styles.pageDesc}>
-            Manage the local engine, cloud providers, model recommendations, and response defaults.
+            Choose what powers chat, manage local models, and tune performance when needed.
           </p>
         </div>
         <div className={styles.introActions}>
@@ -308,325 +258,264 @@ export function AiModelsSettings(): JSX.Element {
         </div>
       </div>
 
-      <EnginePanel
-        engine={engine}
-        modelCount={models.length}
-        contextSize={settings.model.contextSize}
-        gpuLayers={settings.model.gpuLayers}
-        fileRecommendation={fileRecommendation}
-        recommendingFile={recommendingFile}
-        onAddModel={() => void addModel()}
-        onOpenModelsFolder={() => void anodex.settings.openModelsDir()}
-        onUnload={() => void unloadModel()}
-        onRecommendForModel={recommendForLoadedModel}
-        onApplyFileRecommendation={applyFileRecommendation}
-        onDismissFileRecommendation={() => setFileRecommendation(null)}
-      />
+      <div className={styles.modelTabs} role="tablist" aria-label="AI and model settings sections">
+        {AI_MODEL_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            className={activeTab === tab.id ? styles.modelTabActive : undefined}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      <HardwarePanel
-        hardware={hardware}
-        loading={loadingHardware}
-        recommendation={recommendation}
-        onApplyRecommendation={applyRecommendation}
-        onRedetect={redetectHardware}
-      />
+      {activeTab === 'models' && (
+        <div className={styles.tabPanel} role="tabpanel">
+          <EnginePanel
+            engine={engine}
+            modelCount={models.length}
+            contextSize={settings.model.contextSize}
+            gpuLayers={settings.model.gpuLayers}
+            fileRecommendation={fileRecommendation}
+            recommendingFile={recommendingFile}
+            onAddModel={() => void addModel()}
+            onOpenModelsFolder={() => void anodex.settings.openModelsDir()}
+            onUnload={() => void unloadModel()}
+            onRecommendForModel={recommendForLoadedModel}
+            onApplyFileRecommendation={applyFileRecommendation}
+            onDismissFileRecommendation={() => setFileRecommendation(null)}
+          />
 
-      <RecommendedModelStrip
-        hardware={hardware}
-        loading={loadingHardware}
-        recommendation={recommendation}
-        installedModels={models}
-        reliability={reliabilityByModelId}
-      />
+          <RecommendedModelStrip
+            hardware={hardware}
+            loading={loadingHardware}
+            recommendation={recommendation}
+            installedModels={models}
+            reliability={reliabilityByModelId}
+          />
 
-      <DiscoverModelsPanel installedModels={models} />
+          <DiscoverModelsPanel installedModels={models} />
 
-      <InstalledModelsList
-        models={filteredModels}
-        totalModels={models.length}
-        hardware={hardware}
-        search={search}
-        lastModelPath={lastModelPath}
-        bestInstalledId={bestInstalled?.model.id ?? null}
-        reliability={reliabilityByModelId}
-        onSearch={setSearch}
-        onRefresh={() => {
-          void refresh()
-          loadReliability()
-        }}
-        onAddModel={() => void addModel()}
-        onOpenModelsFolder={() => void anodex.settings.openModelsDir()}
-      />
-
-      <section className={styles.section}>
-        <div className={styles.sectionTitleRow}>
-          <div>
-            <p className={styles.sectionKicker}>Model defaults</p>
-            <h2 className={styles.sectionTitle}>Runtime settings</h2>
-            <p className={styles.sectionDesc}>Defaults used whenever Anodex loads a local model.</p>
-          </div>
+          <InstalledModelsList
+            models={filteredModels}
+            totalModels={models.length}
+            hardware={hardware}
+            search={search}
+            lastModelPath={lastModelPath}
+            bestInstalledId={bestInstalled?.model.id ?? null}
+            reliability={reliabilityByModelId}
+            onSearch={setSearch}
+            onRefresh={() => {
+              void refresh()
+              loadReliability()
+            }}
+            onAddModel={() => void addModel()}
+            onOpenModelsFolder={() => void anodex.settings.openModelsDir()}
+          />
         </div>
+      )}
 
-        <div className={styles.defaultsPanel}>
-          <SettingRow
-            label="Context size"
-            description="How much conversation and project context the model can consider at once."
-            control={
-              <SelectControl
-                value={String(settings.model.contextSize)}
-                options={CONTEXT_OPTIONS}
-                onChange={(value) => void update({ model: { contextSize: Number(value) } })}
-              />
-            }
+      {activeTab === 'compatibility' && (
+        <div className={styles.tabPanel} role="tabpanel">
+          <HardwarePanel
+            hardware={hardware}
+            loading={loadingHardware}
+            recommendation={recommendation}
+            onApplyRecommendation={applyRecommendation}
+            onRedetect={redetectHardware}
           />
-          {contextWasDownsized && (
-            <div className={styles.engineInfo}>
-              Running at {engine.contextSize?.toLocaleString()} tokens — smaller than the setting
-              because the model or memory could not support the full value.
-            </div>
-          )}
-          {!contextWasDownsized && engine.status === 'ready' && engine.contextSize && (
-            <div className={styles.engineInfo}>
-              Running at {engine.contextSize.toLocaleString()} tokens
-            </div>
-          )}
-          {contextMemoryWarning && (
-            <div className={styles.ctxWarning}>
-              This context size may exceed available memory. Lower it if model loading fails.
-            </div>
-          )}
-          {!contextWasDownsized && !contextMemoryWarning && settings.model.contextSize >= 32768 && (
-            <div className={styles.hintLine}>
-              <span className={styles.hintDot} />
-              Large sizes only help if the model itself was trained for a context this long — check
-              the model card.
-            </div>
-          )}
-          <SettingRow
-            label="GPU acceleration"
-            description="Offload model layers to the GPU when Anodex detects a supported device."
-            control={
-              <SelectControl
-                value={gpuMode}
-                options={GPU_OPTIONS}
-                onChange={(value) => {
-                  if (value === 'auto') void update({ model: { gpuLayers: 'auto' } })
-                  else if (value === 'cpu') void update({ model: { gpuLayers: 0 } })
-                  else void update({ model: { gpuLayers: customGpuLayersStart } })
-                }}
-              />
-            }
+          <CompatibilitySummary
+            engine={engine}
+            hardware={hardware}
+            reliability={reliabilityByModelId}
           />
-          {gpuMode === 'custom' && (
-            <SettingRow
-              label="Layers on GPU"
-              description="Exact number of layers to offload. Higher uses more VRAM."
-              control={
-                <RangeControl
-                  value={
-                    typeof settings.model.gpuLayers === 'number' ? settings.model.gpuLayers : 0
-                  }
-                  min={0}
-                  max={gpuLayersMax}
-                  step={1}
-                  onChange={(value) => void update({ model: { gpuLayers: value } })}
-                />
-              }
-            />
-          )}
-          {engine.status === 'ready' &&
-            engine.gpuLayersUsed !== undefined &&
-            engine.gpuLayersTotal !== undefined && (
-              <div className={styles.hintLine}>
-                <span className={styles.hintDot} />
-                {gpuMode === 'auto' ? 'Auto is' : 'The loaded model is'} currently offloading{' '}
-                {engine.gpuLayersUsed} of {engine.gpuLayersTotal} layers to the GPU for this model —
-                a real, hardware-based number, not an estimate.
+          <InstalledModelsList
+            models={filteredModels}
+            totalModels={models.length}
+            hardware={hardware}
+            search={search}
+            lastModelPath={lastModelPath}
+            bestInstalledId={bestInstalled?.model.id ?? null}
+            reliability={reliabilityByModelId}
+            onSearch={setSearch}
+            onRefresh={() => {
+              void refresh()
+              loadReliability()
+            }}
+            onAddModel={() => void addModel()}
+            onOpenModelsFolder={() => void anodex.settings.openModelsDir()}
+          />
+        </div>
+      )}
+
+      {activeTab === 'providers' && (
+        <div className={styles.tabPanel} role="tabpanel">
+          <ProviderConnectionsPanel
+            settings={settings}
+            activeModelName={engine.model?.name ?? null}
+            onUpdate={update}
+            onOpenModels={() => setActiveTab('models')}
+          />
+        </div>
+      )}
+
+      {activeTab === 'advanced' && (
+        <div className={styles.tabPanel} role="tabpanel">
+          <section className={styles.section}>
+            <div className={styles.sectionTitleRow}>
+              <div>
+                <p className={styles.sectionKicker}>Model defaults</p>
+                <h2 className={styles.sectionTitle}>Runtime settings</h2>
+                <p className={styles.sectionDesc}>
+                  Defaults used whenever Anodex loads a local model.
+                </p>
               </div>
-            )}
-        </div>
-      </section>
+            </div>
 
-      <section className={styles.section}>
-        <div className={styles.sectionTitleRow}>
-          <div>
-            <p className={styles.sectionKicker}>Response defaults</p>
-            <h2 className={styles.sectionTitle}>Response generation</h2>
-            <p className={styles.sectionDesc}>
-              Sampling controls for local models and the reply-length ceiling used by every
-              provider.
-            </p>
-          </div>
-        </div>
-
-        <div className={styles.defaultsPanel}>
-          <SettingRow
-            label="Temperature"
-            description="Local models only. Higher values vary wording and choices; lower values stay more focused."
-            control={
-              <RangeControl
-                value={settings.generation.temperature}
-                min={0}
-                max={1.5}
-                step={0.05}
-                format={(value) => value.toFixed(2)}
-                onChange={(value) => void update({ generation: { temperature: value } })}
-              />
-            }
-          />
-          <SettingRow
-            label="Top-p"
-            description="Local models only. Limits sampling to the most likely token choices."
-            control={
-              <RangeControl
-                value={settings.generation.topP}
-                min={0}
-                max={1}
-                step={0.05}
-                format={(value) => value.toFixed(2)}
-                onChange={(value) => void update({ generation: { topP: value } })}
-              />
-            }
-          />
-          <SettingRow
-            label="Max response tokens"
-            description="Upper bound for each reply across local, Anthropic, and OpenAI providers."
-            control={
-              <RangeControl
-                value={Math.min(settings.generation.maxTokens, effectiveContextSize)}
-                min={128}
-                max={effectiveContextSize}
-                step={128}
-                onChange={(value) => void update({ generation: { maxTokens: value } })}
-              />
-            }
-          />
-        </div>
-      </section>
-
-      <section className={styles.section}>
-        <div className={styles.sectionTitleRow}>
-          <div>
-            <p className={styles.sectionKicker}>Cloud models</p>
-            <h2 className={styles.sectionTitle}>Claude &amp; ChatGPT / Codex</h2>
-            <p className={styles.sectionDesc}>
-              Anodex stays local-first by default. Switch to a cloud provider for chat replies when
-              you want a larger model instead — your API key is stored locally, the same as the web
-              search provider keys.
-            </p>
-          </div>
-        </div>
-
-        <div className={styles.defaultsPanel}>
-          <SettingRow
-            label="Chat provider"
-            description="Which backend generates assistant replies."
-            control={
-              <SelectControl
-                value={settings.provider.active}
-                options={CHAT_PROVIDER_OPTIONS}
-                onChange={(value) =>
-                  void update({ provider: { active: value as 'local' | 'anthropic' | 'openai' } })
-                }
-              />
-            }
-          />
-          {settings.provider.active === 'anthropic' && (
-            <>
+            <div className={styles.defaultsPanel}>
               <SettingRow
-                label="API key"
-                description="Your Anthropic API key, from your Anthropic Console account."
-                control={
-                  <ApiKeyField
-                    provider="anthropic"
-                    value={settings.provider.anthropic.apiKey}
-                    model={settings.provider.anthropic.model}
-                    placeholder="sk-ant-..."
-                    onChange={(value) =>
-                      void update({ provider: { anthropic: { apiKey: value } } })
-                    }
-                  />
-                }
-              />
-              <SettingRow
-                label="Model"
-                description="Claude model used for chat generations."
+                label="Context size"
+                description="How much conversation and project context the model can consider at once."
                 control={
                   <SelectControl
-                    value={settings.provider.anthropic.model}
-                    options={ANTHROPIC_MODEL_OPTIONS}
-                    onChange={(value) => void update({ provider: { anthropic: { model: value } } })}
+                    value={String(settings.model.contextSize)}
+                    options={CONTEXT_OPTIONS}
+                    onChange={(value) => void update({ model: { contextSize: Number(value) } })}
                   />
                 }
               />
-              <SettingRow
-                label="Daily token cap"
-                description="Optional self-imposed budget in tokens/day. Anodex warns when you're near or over it — it never blocks a message."
-                control={
-                  <DailyCapInput
-                    value={settings.provider.anthropic.dailyTokenCap}
-                    onCommit={(cap) =>
-                      void update({ provider: { anthropic: { dailyTokenCap: cap } } })
-                    }
-                  />
-                }
-              />
-              {!settings.provider.anthropic.apiKey.trim() && (
-                <div className={styles.hintLine}>
-                  <span className={styles.hintDot} />
-                  Add an API key above to start chatting with Claude.
+              {contextWasDownsized && (
+                <div className={styles.engineInfo}>
+                  Running at {engine.contextSize?.toLocaleString()} tokens — smaller than the
+                  setting because the model or memory could not support the full value.
                 </div>
               )}
-            </>
-          )}
-          {settings.provider.active === 'openai' && (
-            <>
+              {!contextWasDownsized && engine.status === 'ready' && engine.contextSize && (
+                <div className={styles.engineInfo}>
+                  Running at {engine.contextSize.toLocaleString()} tokens
+                </div>
+              )}
+              {contextMemoryWarning && (
+                <div className={styles.ctxWarning}>
+                  This context size may exceed available memory. Lower it if model loading fails.
+                </div>
+              )}
+              {!contextWasDownsized &&
+                !contextMemoryWarning &&
+                settings.model.contextSize >= 32768 && (
+                  <div className={styles.hintLine}>
+                    <span className={styles.hintDot} />
+                    Large sizes only help if the model itself was trained for a context this long —
+                    check the model card.
+                  </div>
+                )}
               <SettingRow
-                label="API key"
-                description="Your OpenAI API key, from your OpenAI platform account."
-                control={
-                  <ApiKeyField
-                    provider="openai"
-                    value={settings.provider.openai.apiKey}
-                    model={settings.provider.openai.model}
-                    placeholder="sk-..."
-                    onChange={(value) => void update({ provider: { openai: { apiKey: value } } })}
-                  />
-                }
-              />
-              <SettingRow
-                label="Model"
-                description="OpenAI model used for chat generations — including Codex, tuned for coding."
+                label="GPU acceleration"
+                description="Offload model layers to the GPU when Anodex detects a supported device."
                 control={
                   <SelectControl
-                    value={settings.provider.openai.model}
-                    options={OPENAI_MODEL_OPTIONS}
-                    onChange={(value) => void update({ provider: { openai: { model: value } } })}
+                    value={gpuMode}
+                    options={GPU_OPTIONS}
+                    onChange={(value) => {
+                      if (value === 'auto') void update({ model: { gpuLayers: 'auto' } })
+                      else if (value === 'cpu') void update({ model: { gpuLayers: 0 } })
+                      else void update({ model: { gpuLayers: customGpuLayersStart } })
+                    }}
+                  />
+                }
+              />
+              {gpuMode === 'custom' && (
+                <SettingRow
+                  label="Layers on GPU"
+                  description="Exact number of layers to offload. Higher uses more VRAM."
+                  control={
+                    <RangeControl
+                      value={
+                        typeof settings.model.gpuLayers === 'number' ? settings.model.gpuLayers : 0
+                      }
+                      min={0}
+                      max={gpuLayersMax}
+                      step={1}
+                      onChange={(value) => void update({ model: { gpuLayers: value } })}
+                    />
+                  }
+                />
+              )}
+              {engine.status === 'ready' &&
+                engine.gpuLayersUsed !== undefined &&
+                engine.gpuLayersTotal !== undefined && (
+                  <div className={styles.hintLine}>
+                    <span className={styles.hintDot} />
+                    {gpuMode === 'auto' ? 'Auto is' : 'The loaded model is'} currently offloading{' '}
+                    {engine.gpuLayersUsed} of {engine.gpuLayersTotal} layers to the GPU for this
+                    model — a real, hardware-based number, not an estimate.
+                  </div>
+                )}
+            </div>
+          </section>
+
+          <section className={styles.section}>
+            <div className={styles.sectionTitleRow}>
+              <div>
+                <p className={styles.sectionKicker}>Response defaults</p>
+                <h2 className={styles.sectionTitle}>Response generation</h2>
+                <p className={styles.sectionDesc}>
+                  Sampling controls for local models and the reply-length ceiling used by every
+                  provider.
+                </p>
+              </div>
+            </div>
+
+            <div className={styles.defaultsPanel}>
+              <SettingRow
+                label="Temperature"
+                description="Local models only. Higher values vary wording and choices; lower values stay more focused."
+                control={
+                  <RangeControl
+                    value={settings.generation.temperature}
+                    min={0}
+                    max={1.5}
+                    step={0.05}
+                    format={(value) => value.toFixed(2)}
+                    onChange={(value) => void update({ generation: { temperature: value } })}
                   />
                 }
               />
               <SettingRow
-                label="Daily token cap"
-                description="Optional self-imposed budget in tokens/day. Anodex warns when you're near or over it — it never blocks a message."
+                label="Top-p"
+                description="Local models only. Limits sampling to the most likely token choices."
                 control={
-                  <DailyCapInput
-                    value={settings.provider.openai.dailyTokenCap}
-                    onCommit={(cap) =>
-                      void update({ provider: { openai: { dailyTokenCap: cap } } })
-                    }
+                  <RangeControl
+                    value={settings.generation.topP}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    format={(value) => value.toFixed(2)}
+                    onChange={(value) => void update({ generation: { topP: value } })}
                   />
                 }
               />
-              {!settings.provider.openai.apiKey.trim() && (
-                <div className={styles.hintLine}>
-                  <span className={styles.hintDot} />
-                  Add an API key above to start chatting with ChatGPT / Codex.
-                </div>
-              )}
-            </>
-          )}
+              <SettingRow
+                label="Max response tokens"
+                description="Upper bound for each reply across local, Anthropic, and OpenAI providers."
+                control={
+                  <RangeControl
+                    value={Math.min(settings.generation.maxTokens, effectiveContextSize)}
+                    min={128}
+                    max={effectiveContextSize}
+                    step={128}
+                    onChange={(value) => void update({ generation: { maxTokens: value } })}
+                  />
+                }
+              />
+            </div>
+          </section>
         </div>
-      </section>
+      )}
     </div>
   )
 }
