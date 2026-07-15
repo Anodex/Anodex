@@ -11,7 +11,6 @@ import { Icon } from '../../components/Icon'
 import { ModelLogo } from '../../components/ModelLogo'
 import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/scoring'
 import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
-import { ChatConstellation } from './ChatConstellation'
 import styles from './ChatEmptyState.module.css'
 
 const SUGGESTIONS = [
@@ -29,7 +28,6 @@ export function ChatEmptyState(): JSX.Element {
 
   return (
     <div className={styles.empty}>
-      <ChatConstellation />
       <div className={styles.hero}>
         <AnodexLogo variant="icon" size={72} className={styles.heroIcon} />
         <h2 className={styles.heading}>How can I help you build?</h2>

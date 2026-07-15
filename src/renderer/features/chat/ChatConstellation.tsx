@@ -202,8 +202,10 @@ function glowSprite(color: Rgb, size: number): HTMLCanvasElement {
  * from real controls layered above it.
  *
  * Sized to its parent via ResizeObserver rather than the window, since it
- * lives inside the chat panel, not full-bleed. Mounted only for the lifetime
- * of `ChatEmptyState` — unmounting (chat starting) tears the animation down.
+ * lives inside the chat panel, not full-bleed. Mounted by `ChatView` directly
+ * on the panel body (behind both the empty state and the composer, via
+ * negative z-index) and only while the conversation is empty — unmounting
+ * (chat starting) tears the animation down.
  *
  * Respects the existing Appearance > "Reduced motion" setting in addition to
  * the OS-level `prefers-reduced-motion` media query (this is a canvas loop,

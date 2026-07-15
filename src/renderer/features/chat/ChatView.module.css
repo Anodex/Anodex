@@ -3,4 +3,10 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  /* Anchor + stacking context for the constellation canvas, so its negative
+     z-index stays behind the empty state and composer but can't escape
+     behind this panel's own ancestors. */
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
 }
