@@ -2,11 +2,13 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 4px var(--space-3);
+  padding: 5px var(--space-3);
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  transition: border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .icon {
@@ -14,18 +16,36 @@
 }
 
 .track {
+  position: relative;
+  display: flex;
+  gap: 1px;
   flex: 1;
-  height: 5px;
+  height: 6px;
   background: var(--bg-input);
   border-radius: 999px;
   overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--border-strong) 35%, transparent);
 }
 
-.fill {
+/* Breakdown segments — one hue per warning level (set below), with opacity
+   distinguishing what fills the window: system prompt, recent history, and
+   the tokens reserved for the model's response. */
+.seg {
   height: 100%;
-  border-radius: 999px;
   transition: width 420ms var(--ease);
+}
+
+.segSystem {
+  opacity: 1;
+}
+
+.segHistory {
+  opacity: 0.55;
+}
+
+.segReserved {
+  opacity: 0.22;
 }
 
 .label {
@@ -46,34 +66,36 @@
 .low .icon {
   color: var(--text-faint);
 }
-.low .fill {
-  background: linear-gradient(90deg, var(--accent-blue), var(--accent-violet));
+.low .seg {
+  background: var(--accent);
 }
 .low .label {
   color: var(--text-muted);
 }
 
 .mid {
-  border-color: rgba(245, 166, 35, 0.3);
+  border-color: color-mix(in srgb, var(--warn) 34%, var(--border));
+  background: color-mix(in srgb, var(--warn-soft) 26%, var(--bg-surface));
 }
 .mid .icon {
   color: var(--warn);
 }
-.mid .fill {
-  background: linear-gradient(90deg, var(--warn), #ffcf6b);
+.mid .seg {
+  background: var(--warn);
 }
 .mid .label {
   color: var(--warn);
 }
 
 .high {
-  border-color: rgba(240, 90, 90, 0.35);
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+  background: color-mix(in srgb, var(--danger-soft) 28%, var(--bg-surface));
 }
 .high .icon {
   color: var(--danger);
 }
-.high .fill {
-  background: linear-gradient(90deg, var(--danger), #ff8a8a);
+.high .seg {
+  background: var(--danger);
   animation: pulse 1.6s ease-in-out infinite;
 }
 .high .label {

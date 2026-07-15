@@ -29,7 +29,9 @@ folder.
   enabled).
 - A visible **task-phase indicator** (Inspecting / Editing / Verifying /
   Responding) derived from a message's own tool-call sequence, so you can see
-  at a glance what a turn is actually doing.
+  at a glance what a turn is actually doing. Tool-heavy turns use subtle motion
+  on phase headers, running rows, and diff/approval reveals so long work feels
+  live without adding bulky cards.
 - **Context compaction**: long conversations don't crash when they outgrow the
   model's context window. Older turns are summarized by the model itself
   (on a separate, isolated context — never the active conversation's) and
@@ -208,7 +210,8 @@ input/output split per model underneath.
   local-only account status, and global assistant voice/tone preferences.
 - **Appearance** — Dark/Light/System theme, curated dark-mode color presets
   (a full custom palette editor too), font family/size, density, diff-view
-  style (unified vs. side-by-side), sound effects, reduced motion, compact
+  style (unified vs. side-by-side), optional interface click and task-status
+  sounds with selectable palettes and volume control, reduced motion, compact
   mode.
 - **Memory** — structured project/personal memory, past-chat recall controls,
   and manual memory management.

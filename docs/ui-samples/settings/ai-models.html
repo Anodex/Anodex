@@ -665,7 +665,9 @@
                         data-provider="openai"
                         data-provider-group="direct"
                       >
-                        <span class="provider-logo openai">O</span>
+                        <span class="provider-logo openai" aria-hidden="true"
+                          ><img src="../../../src/renderer/assets/providers/openai.svg" alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>OpenAI</strong><small>Direct API</small></span
                         >
@@ -677,7 +679,9 @@
                         data-provider="anthropic"
                         data-provider-group="direct"
                       >
-                        <span class="provider-logo anthropic">A</span>
+                        <span class="provider-logo anthropic" aria-hidden="true"
+                          ><img src="../../../src/renderer/assets/providers/anthropic.svg" alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>Anthropic</strong><small>Claude models</small></span
                         >
@@ -689,7 +693,9 @@
                         data-provider="google"
                         data-provider-group="direct"
                       >
-                        <span class="provider-logo google">G</span>
+                        <span class="provider-logo google" aria-hidden="true"
+                          ><img src="../../../src/renderer/assets/providers/google.svg" alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>Google AI</strong><small>Gemini models</small></span
                         >
@@ -701,7 +707,9 @@
                         data-provider="xai"
                         data-provider-group="direct"
                       >
-                        <span class="provider-logo xai">x</span>
+                        <span class="provider-logo xai" aria-hidden="true"
+                          ><img src="../../../src/renderer/assets/providers/xai.svg" alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>xAI</strong><small>Grok models</small></span
                         >
@@ -713,7 +721,9 @@
                         data-provider="deepseek"
                         data-provider-group="direct"
                       >
-                        <span class="provider-logo deepseek-provider">D</span>
+                        <span class="provider-logo deepseek-provider" aria-hidden="true"
+                          ><img src="../../../src/renderer/assets/providers/deepseek.svg" alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>DeepSeek</strong><small>Direct API</small></span
                         >
@@ -725,7 +735,9 @@
                         data-provider="mistral"
                         data-provider-group="direct"
                       >
-                        <span class="provider-logo mistral">M</span>
+                        <span class="provider-logo mistral" aria-hidden="true"
+                          ><img src="../../../src/renderer/assets/providers/mistral.svg" alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>Mistral AI</strong><small>Direct API</small></span
                         >
@@ -737,7 +749,9 @@
                         data-provider="groq"
                         data-provider-group="cloud"
                       >
-                        <span class="provider-logo groq">G</span>
+                        <span class="provider-logo groq" aria-hidden="true"
+                          ><img src="../../../src/renderer/assets/providers/groq.svg" alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>Groq</strong><small>Fast inference</small></span
                         >
@@ -749,7 +763,9 @@
                         data-provider="openrouter"
                         data-provider-group="cloud"
                       >
-                        <span class="provider-logo openrouter">OR</span>
+                        <span class="provider-logo openrouter" aria-hidden="true"
+                          ><img src="../../../src/renderer/assets/providers/openrouter.svg" alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>OpenRouter</strong><small>Model gateway</small></span
                         >
@@ -761,7 +777,11 @@
                         data-provider="azure"
                         data-provider-group="cloud"
                       >
-                        <span class="provider-logo azure">Az</span>
+                        <span class="provider-logo azure" aria-hidden="true"
+                          ><img
+                            src="../../../src/renderer/assets/providers/azure-openai.svg"
+                            alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>Azure OpenAI</strong><small>Enterprise cloud</small></span
                         >
@@ -773,7 +793,11 @@
                         data-provider="bedrock"
                         data-provider-group="cloud"
                       >
-                        <span class="provider-logo bedrock">AWS</span>
+                        <span class="provider-logo bedrock" aria-hidden="true"
+                          ><img
+                            src="../../../src/renderer/assets/providers/amazon-bedrock.svg"
+                            alt=""
+                        /></span>
                         <span class="provider-list-copy"
                           ><strong>Amazon Bedrock</strong><small>Enterprise cloud</small></span
                         >
@@ -784,7 +808,12 @@
 
                   <div class="provider-detail" aria-live="polite">
                     <div class="provider-detail-head">
-                      <span class="provider-logo openai large" id="providerDetailLogo">O</span>
+                      <span
+                        class="provider-logo openai large"
+                        id="providerDetailLogo"
+                        aria-hidden="true"
+                        ><img src="../../../src/renderer/assets/providers/openai.svg" alt=""
+                      /></span>
                       <div>
                         <h4 id="providerDetailName">OpenAI</h4>
                         <p id="providerDetailMeta">Direct API &middot; Not connected</p>
@@ -1083,6 +1112,7 @@
         button.addEventListener('click', () => showTab(button.dataset.openTab))
       })
 
+      const providerAssetPath = '../../../src/renderer/assets/providers/'
       const providerDefinitions = {
         local: {
           name: 'Local model',
@@ -1099,7 +1129,7 @@
         openai: {
           name: 'OpenAI',
           meta: 'Direct API · Not connected',
-          logo: 'O',
+          logoSrc: `${providerAssetPath}openai.svg`,
           logoClass: 'openai',
           description: 'Connect directly to OpenAI for GPT and Codex models.',
           capabilities: ['Chat', 'Vision', 'Tools', 'Streaming'],
@@ -1110,7 +1140,7 @@
         anthropic: {
           name: 'Anthropic',
           meta: 'Direct API · Not connected',
-          logo: 'A',
+          logoSrc: `${providerAssetPath}anthropic.svg`,
           logoClass: 'anthropic',
           description: 'Connect directly to Anthropic for Claude models.',
           capabilities: ['Chat', 'Vision', 'Tools', 'Long context'],
@@ -1121,7 +1151,7 @@
         google: {
           name: 'Google AI',
           meta: 'Direct API · Not connected',
-          logo: 'G',
+          logoSrc: `${providerAssetPath}google.svg`,
           logoClass: 'google',
           description: 'Connect Google AI Studio for Gemini models.',
           capabilities: ['Chat', 'Vision', 'Tools', 'Long context'],
@@ -1132,7 +1162,7 @@
         xai: {
           name: 'xAI',
           meta: 'Direct API · Not connected',
-          logo: 'x',
+          logoSrc: `${providerAssetPath}xai.svg`,
           logoClass: 'xai',
           description: 'Connect directly to xAI for Grok models.',
           capabilities: ['Chat', 'Vision', 'Tools', 'Streaming'],
@@ -1143,7 +1173,7 @@
         deepseek: {
           name: 'DeepSeek',
           meta: 'Direct API · Not connected',
-          logo: 'D',
+          logoSrc: `${providerAssetPath}deepseek.svg`,
           logoClass: 'deepseek-provider',
           description: 'Connect directly to DeepSeek for chat and reasoning models.',
           capabilities: ['Chat', 'Reasoning', 'Tools', 'Streaming'],
@@ -1154,7 +1184,7 @@
         mistral: {
           name: 'Mistral AI',
           meta: 'Direct API · Not connected',
-          logo: 'M',
+          logoSrc: `${providerAssetPath}mistral.svg`,
           logoClass: 'mistral',
           description: 'Connect directly to Mistral AI models and services.',
           capabilities: ['Chat', 'Tools', 'Reasoning', 'Streaming'],
@@ -1165,7 +1195,7 @@
         groq: {
           name: 'Groq',
           meta: 'Fast inference · Not connected',
-          logo: 'G',
+          logoSrc: `${providerAssetPath}groq.svg`,
           logoClass: 'groq',
           description: 'Use Groq-hosted open models with low-latency inference.',
           capabilities: ['Chat', 'Tools', 'Open models', 'Fast'],
@@ -1176,7 +1206,7 @@
         openrouter: {
           name: 'OpenRouter',
           meta: 'Model gateway · Not connected',
-          logo: 'OR',
+          logoSrc: `${providerAssetPath}openrouter.svg`,
           logoClass: 'openrouter',
           description: 'Access models from many vendors through one compatible API.',
           capabilities: ['Many vendors', 'Fallbacks', 'Tools', 'Streaming'],
@@ -1187,7 +1217,7 @@
         azure: {
           name: 'Azure OpenAI',
           meta: 'Enterprise cloud · Not connected',
-          logo: 'Az',
+          logoSrc: `${providerAssetPath}azure-openai.svg`,
           logoClass: 'azure',
           description: 'Connect an Azure OpenAI resource and deployment.',
           capabilities: ['Enterprise', 'Deployments', 'Tools', 'Private network'],
@@ -1198,7 +1228,7 @@
         bedrock: {
           name: 'Amazon Bedrock',
           meta: 'Enterprise cloud · Not connected',
-          logo: 'AWS',
+          logoSrc: `${providerAssetPath}amazon-bedrock.svg`,
           logoClass: 'bedrock',
           description: 'Use foundation models available through Amazon Bedrock.',
           capabilities: ['Enterprise', 'Many vendors', 'IAM', 'Regions'],
@@ -1223,7 +1253,16 @@
           item.classList.toggle('selected', item.dataset.provider === name)
         })
         providerDetailLogo.className = `provider-logo ${provider.logoClass} large`
-        providerDetailLogo.textContent = provider.logo
+        providerDetailLogo.replaceChildren()
+        if (provider.logoSrc) {
+          const logoImage = document.createElement('img')
+          logoImage.src = provider.logoSrc
+          logoImage.alt = ''
+          logoImage.draggable = false
+          providerDetailLogo.append(logoImage)
+        } else {
+          providerDetailLogo.textContent = provider.logo
+        }
         document.getElementById('providerDetailName').textContent = provider.name
         document.getElementById('providerDetailMeta').textContent = provider.meta
         document.getElementById('providerDetailDescription').textContent = provider.description

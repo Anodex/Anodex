@@ -13,6 +13,9 @@
   grid-template-columns: var(--sidebar-width) 1fr var(--dock-width, 0px);
   height: 100%;
   overflow: hidden;
+  transition:
+    grid-template-columns var(--motion-medium, 220ms) var(--ease-emphasized, var(--ease)),
+    grid-template-rows var(--motion-medium, 220ms) var(--ease-emphasized, var(--ease));
 }
 
 .shellSidebarCollapsed {

@@ -9,7 +9,8 @@ import type {
   LlamaChatSession,
   ChatHistoryItem,
   ChatModelFunctionCall,
-  LlamaChatResponseChunk
+  LlamaChatResponseChunk,
+  LlamaChatResponseFunctionCallParamsChunk
 } from 'node-llama-cpp'
 import type {
   EngineState,
@@ -55,6 +56,7 @@ import {
   type FallbackToolCall
 } from './toolCallFallback'
 import { stripLeakedChannelTokens, stripSubstantialCodeFences } from '@shared/toolCallText'
+import { PendingToolCallTracker } from './pendingToolCalls'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
@@ -425,6 +427,9 @@ class LlamaService extends EventEmitter {
     // doc comment for why this can't just be passed in directly.
     const abortBox: { current: (() => void) | null } = { current: null }
     const signalBox: { current: AbortSignal | null } = { current: null }
+    // Streams provisional "running" cards while the model is still generating
+    // a write/edit call's params (see PendingToolCallTracker's doc comment).
+    const pendingToolCalls = new PendingToolCallTracker()
     try {
       functions = await this.buildToolFunctions(
         params,
@@ -445,7 +450,8 @@ class LlamaService extends EventEmitter {
           params.tools?.onActivity(call)
         },
         abortBox,
-        signalBox
+        signalBox,
+        (name) => pendingToolCalls.claim(name)
       )
     } catch (error) {
       this.generating = false
@@ -564,7 +570,17 @@ class LlamaService extends EventEmitter {
                 genController.abort()
               }
             }
-          }
+          },
+          // Surface write/edit calls the moment their params start generating
+          // — the disk write itself is milliseconds, but generating a file's
+          // content can take the bulk of the turn, and without this the card
+          // (and its running animation) only exists for that final blink.
+          onFunctionCallParamsChunk: functions
+            ? (chunk: LlamaChatResponseFunctionCallParamsChunk) => {
+                const update = pendingToolCalls.onParamsChunk(round, chunk)
+                if (update) params.tools?.onActivity(update)
+              }
+            : undefined
         }
 
         // Reactive safety net: node-llama-cpp's own built-in context-shift
@@ -616,6 +632,11 @@ class LlamaService extends EventEmitter {
           session = await this.recompactSession(params, 'reactive')
           meta = await session.promptWithMeta(prompt, promptOptions)
         }
+
+        // Any provisional card whose call never executed this round (aborted
+        // mid-generation) must not be left spinning; settle it as interrupted
+        // now, before the fallback path below could mistakenly claim its id.
+        for (const call of pendingToolCalls.sweep(round)) params.tools?.onActivity(call)
 
         // Aborting mid-stream can also resolve (rather than throw) with the
         // partial text already streamed — handle the fabricated-turn cut here
@@ -822,6 +843,9 @@ class LlamaService extends EventEmitter {
       }
       throw error
     } finally {
+      // Hard throws skip the per-round sweep above — settle any provisional
+      // cards still unclaimed so nothing is left spinning in the transcript.
+      for (const call of pendingToolCalls.sweepAll()) params.tools?.onActivity(call)
       params.signal?.removeEventListener('abort', forwardAbort)
       this.generating = false
       this.emitState()
@@ -1175,7 +1199,8 @@ class LlamaService extends EventEmitter {
     params: GenerateParams,
     onActivity: (call: ToolCall) => void,
     abortBox: { current: (() => void) | null },
-    signalBox: { current: AbortSignal | null }
+    signalBox: { current: AbortSignal | null },
+    claimPendingToolCallId: (name: string) => string | undefined
   ): Promise<Record<string, ToolFunction> | undefined> {
     if (!params.tools) return undefined
     const nlc = await this.getModule()
@@ -1206,6 +1231,7 @@ class LlamaService extends EventEmitter {
       abortGeneration: () => abortBox.current?.(),
       signal: params.signal,
       emit: onActivity,
+      claimPendingToolCallId,
       // `rawConfirm` only observes the caller's own outer/per-conversation
       // signal (e.g. `chat.handlers.ts`'s `controller.signal`), which has no
       // visibility into this generation's own internal abort (the loop guard,

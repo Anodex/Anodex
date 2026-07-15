@@ -2,6 +2,16 @@ import { useMemo, useState } from 'react'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
+import amazonBedrockLogo from '../../../../assets/providers/amazon-bedrock.svg'
+import anthropicLogo from '../../../../assets/providers/anthropic.svg'
+import azureOpenAiLogo from '../../../../assets/providers/azure-openai.svg'
+import deepSeekLogo from '../../../../assets/providers/deepseek.svg'
+import googleLogo from '../../../../assets/providers/google.svg'
+import groqLogo from '../../../../assets/providers/groq.svg'
+import mistralLogo from '../../../../assets/providers/mistral.svg'
+import openAiLogo from '../../../../assets/providers/openai.svg'
+import openRouterLogo from '../../../../assets/providers/openrouter.svg'
+import xAiLogo from '../../../../assets/providers/xai.svg'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
@@ -28,6 +38,7 @@ interface ProviderDefinition {
   id: ProviderId
   name: string
   shortName: string
+  logoSrc?: string
   category: 'local' | 'direct' | 'cloud'
   meta: string
   description: string
@@ -50,6 +61,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'openai',
     name: 'OpenAI',
     shortName: 'O',
+    logoSrc: openAiLogo,
     category: 'direct',
     meta: 'Direct API',
     description: 'Connect directly to OpenAI for GPT and Codex models.',
@@ -60,6 +72,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'anthropic',
     name: 'Anthropic',
     shortName: 'A',
+    logoSrc: anthropicLogo,
     category: 'direct',
     meta: 'Claude models',
     description: 'Connect directly to Anthropic for Claude models.',
@@ -70,6 +83,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'google',
     name: 'Google AI',
     shortName: 'G',
+    logoSrc: googleLogo,
     category: 'direct',
     meta: 'Gemini models',
     description: 'Direct access to Google Gemini models.',
@@ -80,6 +94,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'xai',
     name: 'xAI',
     shortName: 'x',
+    logoSrc: xAiLogo,
     category: 'direct',
     meta: 'Grok models',
     description: 'Direct access to xAI Grok models.',
@@ -90,6 +105,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'deepseek',
     name: 'DeepSeek',
     shortName: 'D',
+    logoSrc: deepSeekLogo,
     category: 'direct',
     meta: 'Direct API',
     description: 'Direct access to DeepSeek reasoning and coding models.',
@@ -100,6 +116,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'mistral',
     name: 'Mistral AI',
     shortName: 'M',
+    logoSrc: mistralLogo,
     category: 'direct',
     meta: 'Direct API',
     description: 'Direct access to Mistral and Codestral models.',
@@ -110,6 +127,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'groq',
     name: 'Groq',
     shortName: 'G',
+    logoSrc: groqLogo,
     category: 'cloud',
     meta: 'Fast inference',
     description: 'Hosted high-speed inference for supported open models.',
@@ -120,6 +138,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'openrouter',
     name: 'OpenRouter',
     shortName: 'OR',
+    logoSrc: openRouterLogo,
     category: 'cloud',
     meta: 'Model gateway',
     description: 'Use one connection to access models from many providers.',
@@ -130,6 +149,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'azure',
     name: 'Azure OpenAI',
     shortName: 'Az',
+    logoSrc: azureOpenAiLogo,
     category: 'cloud',
     meta: 'Enterprise cloud',
     description: 'Connect an Azure OpenAI resource and deployment.',
@@ -140,6 +160,7 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'bedrock',
     name: 'Amazon Bedrock',
     shortName: 'AWS',
+    logoSrc: amazonBedrockLogo,
     category: 'cloud',
     meta: 'Enterprise cloud',
     description: 'Use supported foundation models through an AWS account.',
@@ -197,6 +218,23 @@ function activeProviderDefinition(settings: AppSettings): ProviderDefinition {
   return PROVIDERS.find((provider) => provider.id === settings.provider.active) ?? PROVIDERS[0]
 }
 
+function ProviderLogo({ provider }: { provider: ProviderDefinition }): JSX.Element {
+  return (
+    <span
+      className={`${styles.providerLogo} ${styles[`providerLogo${provider.id}`]} ${
+        provider.logoSrc ? styles.providerLogoOfficial : ''
+      }`}
+      aria-hidden="true"
+    >
+      {provider.logoSrc ? (
+        <img src={provider.logoSrc} alt="" draggable={false} />
+      ) : (
+        provider.shortName
+      )}
+    </span>
+  )
+}
+
 export function ProviderConnectionsPanel({
   settings,
   activeModelName,
@@ -251,9 +289,7 @@ export function ProviderConnectionsPanel({
         </div>
 
         <div className={styles.activeProviderCard}>
-          <span className={`${styles.providerLogo} ${styles[`providerLogo${active.id}`]}`}>
-            {active.shortName}
-          </span>
+          <ProviderLogo provider={active} />
           <div className={styles.activeProviderIdentity}>
             <span>Active provider</span>
             <strong>{active.name}</strong>
@@ -330,11 +366,7 @@ export function ProviderConnectionsPanel({
                     }`}
                     onClick={() => setSelectedId(provider.id)}
                   >
-                    <span
-                      className={`${styles.providerLogo} ${styles[`providerLogo${provider.id}`]}`}
-                    >
-                      {provider.shortName}
-                    </span>
+                    <ProviderLogo provider={provider} />
                     <span className={styles.providerListIdentity}>
                       <strong>{provider.name}</strong>
                       <small>{provider.meta}</small>
@@ -363,9 +395,7 @@ export function ProviderConnectionsPanel({
 
           <div className={styles.providerDetail}>
             <div className={styles.providerDetailHead}>
-              <span className={`${styles.providerLogo} ${styles[`providerLogo${selected.id}`]}`}>
-                {selected.shortName}
-              </span>
+              <ProviderLogo provider={selected} />
               <div>
                 <h3>{selected.name}</h3>
                 <p>

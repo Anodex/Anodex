@@ -52,7 +52,7 @@ export function SidebarRail(): JSX.Element {
         aria-label="Agent"
         title="Agent"
       >
-        <Icon name="wand" size={16} />
+        <Icon name="bot" size={16} />
       </button>
       <button
         type="button"
@@ -61,7 +61,7 @@ export function SidebarRail(): JSX.Element {
         aria-label="Critical Thinking"
         title="Critical Thinking"
       >
-        <Icon name="globe" size={16} />
+        <Icon name="insight" size={16} />
       </button>
       <button
         type="button"

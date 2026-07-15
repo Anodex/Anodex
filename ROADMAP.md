@@ -149,6 +149,17 @@ are not quite "tools" or "skills":
 - **Project health dashboard** — lightweight panel combining git status, latest
   test/check result, open TODOs from plans, recently changed files, and active
   scheduled/agent runs. Keep it in the Workspace Dock, not the composer.
+- **Animation / motion polish system** — first production pass built across chat
+  messages, tool phase groups, tool rows, approval cards, diffs, current-request
+  rail, sidebar rows, and composer overlays. Notes live in
+  `docs/ANIMATION_EXPLORATION.md`. Keep future motion restrained, token-based,
+  and accessible via existing reduced-motion handling.
+- **AI experience improvements** — the first visual sample set was discarded;
+  revisit this with a different direction before implementation. Better next
+  candidates are likely less dashboard-like and more embedded in the existing
+  chat/workspace flow: checked outcomes inside each assistant turn, subtle
+  context provenance on demand, and project-state guidance in the Workspace
+  Dock rather than new standalone panels.
 
 ### 1. File rollback on message edit
 

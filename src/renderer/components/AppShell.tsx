@@ -53,7 +53,7 @@ function renderMainView(view: ReturnType<typeof useUiStore.getState>['view']): J
   if (view === 'scheduler') return <SchedulerView />
   if (view === 'agent') return <AgentView />
   if (view === 'critical-thinking') {
-    return <PlaceholderView icon="globe" title="Critical Thinking" />
+    return <PlaceholderView icon="insight" title="Critical Thinking" />
   }
   if (view === 'email') return <EmailView />
   return <ChatView />

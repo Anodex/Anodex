@@ -1,10 +1,46 @@
+/* "Comet" ring: the arc grows and shrinks as it orbits, so the spinner reads
+   as effort rather than plain rotation. */
 .spinner {
-  animation: spin 0.7s linear infinite;
+  animation: spin 1.5s linear infinite;
   flex-shrink: 0;
+}
+
+.arc {
+  animation: comet 1.4s ease-in-out infinite;
+}
+
+/* Brand-moment variant: a runner lapping the Anodex hexagon. */
+.hex {
+  flex-shrink: 0;
+}
+
+.hexRunner {
+  animation: hexTrace 1.3s linear infinite;
 }
 
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes comet {
+  0% {
+    stroke-dasharray: 6 94;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 62 38;
+    stroke-dashoffset: -26;
+  }
+  100% {
+    stroke-dasharray: 6 94;
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes hexTrace {
+  to {
+    stroke-dashoffset: -100;
   }
 }

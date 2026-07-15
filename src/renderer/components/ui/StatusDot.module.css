@@ -7,9 +7,19 @@
   background: var(--text-faint);
 }
 
+/* The dot stays solid (state never "turns off"); a halo ripples outward instead. */
 .running {
+  position: relative;
   background: var(--accent);
-  animation: statusPulse 1.4s ease-in-out infinite;
+}
+
+.running::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  animation: statusHalo 2.2s var(--ease-out) infinite;
 }
 
 .success {
@@ -28,12 +38,14 @@
   background: var(--text-faint);
 }
 
-@keyframes statusPulse {
-  0%,
-  100% {
-    opacity: 1;
+@keyframes statusHalo {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
   }
-  50% {
-    opacity: 0.35;
+  70%,
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
   }
 }

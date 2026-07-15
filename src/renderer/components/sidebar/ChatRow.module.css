@@ -60,6 +60,9 @@
   white-space: nowrap;
 }
 
+/* Scanning beam under the title while the assistant is responding. Sweeps
+   back and forth (`alternate`) rather than looping one way — the reversal is
+   what reads as "working" at this size. */
 .runTrack {
   position: relative;
   height: 4px;
@@ -337,23 +340,6 @@
   white-space: nowrap;
 }
 
-.detailStatusDot {
-  width: 10px;
-  height: 10px;
-  flex-shrink: 0;
-  border-radius: 50%;
-}
-
-.detailStatusDot.ready {
-  background: var(--success);
-}
-
-.detailStatusDot.running {
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--text-muted);
-  animation: spin 850ms linear infinite;
-}
-
 @keyframes activeRowSettle {
   from {
     box-shadow: inset 0 0 0 0 transparent;
@@ -372,12 +358,6 @@
   from {
     opacity: 0;
     transform: translateX(-6px) scale(0.985);
-  }
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 

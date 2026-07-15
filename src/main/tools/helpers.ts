@@ -113,7 +113,7 @@ interface GuardedToolSpec extends ReadToolSpec {
  * rather than throwing (which would abort the whole generation).
  */
 export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): Promise<string> {
-  const id = randomUUID()
+  const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
   if (loopGuard.blocked) {
@@ -218,7 +218,7 @@ export async function runGuardedTool(
   ctx: ToolRuntimeContext,
   spec: GuardedToolSpec
 ): Promise<string> {
-  const id = randomUUID()
+  const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
   if (loopGuard.blocked) {

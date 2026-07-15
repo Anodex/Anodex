@@ -210,7 +210,7 @@ export function AgentView(): JSX.Element {
 
       {runs.length === 0 ? (
         <div className={styles.empty}>
-          <Icon name="wand" size={40} className={styles.emptyIcon} />
+          <Icon name="bot" size={40} className={styles.emptyIcon} />
           <p>No agent runs yet.</p>
         </div>
       ) : visibleRuns.length === 0 ? (

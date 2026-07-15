@@ -1,0 +1,298 @@
+/**
+ * Anodex chat UI samples — shared shell.
+ *
+ * Unlike the settings samples, the tokens here are copied VERBATIM from
+ * src/renderer/styles/theme.css (dark) and global.css (light overrides), so
+ * every class in these pages translates 1:1 into the app's CSS Modules.
+ * Anything that exists only for the sample page (the desk background, the
+ * window frame, the theme toggle, the notes bar) uses --sample-* names or a
+ * .sample-* class prefix and is NOT meant to ship.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Surfaces (theme.css, verbatim) ---- */
+  --bg-base: #080808;
+  --bg-app: #0c0c0c;
+  --bg-surface: #111111;
+  --bg-surface-2: #161616;
+  --bg-elevated: #1c1c1c;
+  --bg-input: #0f0f0f;
+
+  /* ---- Borders ---- */
+  --border: #1f1f1f;
+  --border-strong: #2a2a2a;
+  --border-focus: #4f8cff;
+
+  /* ---- Text ---- */
+  --text: #f0f0f0;
+  --text-muted: #a0a0a0;
+  --text-faint: #606060;
+  --text-on-accent: #ffffff;
+
+  /* ---- Accent + status ---- */
+  --accent: #4f8cff;
+  --accent-hover: #3d7be8;
+  --accent-soft: rgba(79, 140, 255, 0.12);
+  --accent-violet: #7c5cff;
+  --success: #3ccf7a;
+  --success-soft: rgba(60, 207, 122, 0.12);
+  --warn: #f5a623;
+  --warn-soft: rgba(245, 166, 35, 0.12);
+  --danger: #f05a5a;
+  --danger-soft: rgba(240, 90, 90, 0.12);
+  --code-inline-text: #a5d6ff;
+
+  /* ---- Shadows / radii / spacing / type / motion ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', ui-monospace, Consolas,
+    'Liberation Mono', monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: 120ms var(--ease);
+  --transition: 180ms var(--ease);
+  --motion-medium: 220ms;
+
+  /* ---- Sample-only chrome ---- */
+  --sample-desk: #050505;
+}
+
+/* Light mode — global.css [data-theme-mode='light'], verbatim. */
+[data-theme-mode='light'] {
+  color-scheme: light;
+  --bg-base: #f5f5f7;
+  --bg-app: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #f2f2f5;
+  --bg-elevated: #e8e8ec;
+  --bg-input: #ffffff;
+  --border: #e2e2e6;
+  --border-strong: #d4d4d8;
+  --border-focus: #4f8cff;
+  --text: #111111;
+  --text-muted: #6b6b6b;
+  --text-faint: #a0a0a0;
+  --text-on-accent: #ffffff;
+  --code-inline-text: #1a56db;
+
+  --sample-desk: #e6e6ea;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--sample-desk);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Scrollbars — matches global.css */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.inline-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ================= Sample-only window chrome ================= */
+
+.sample-frame {
+  display: flex;
+  flex-direction: column;
+  width: 1240px;
+  height: 800px;
+  overflow: hidden;
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.sample-titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 38px; /* --titlebar-height */
+  padding: 0 var(--space-3) 0 var(--space-4);
+  flex-shrink: 0;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.sample-titlebar .brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-on-accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-violet));
+  border-radius: 5px;
+}
+
+.sample-titlebar .crumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.crumb .sep {
+  opacity: 0.6;
+}
+
+.crumb .here {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.win-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.win-buttons span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+}
+
+.sample-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Theme toggle + notes bar (sample-only) */
+.sample-toolbar {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+}
+
+.sample-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-md);
+}
+
+.sample-theme-toggle:hover {
+  color: var(--text);
+}
+
+.sample-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  max-width: 1240px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+
+.sample-notes strong {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.sample-notes span::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 7px;
+  vertical-align: 2px;
+  background: var(--accent);
+  border-radius: 50%;
+}

@@ -140,6 +140,10 @@ export function MessageList({
         <div className={styles.inner}>
           {messages.map((message, index) => (
             <div key={message.id}>
+              {(index === 0 ||
+                !isSameCalendarDay(messages[index - 1].createdAt, message.createdAt)) && (
+                <div className={styles.dayDivider}>{formatDayLabel(message.createdAt)}</div>
+              )}
               <div
                 ref={(node) => {
                   messageRefs.current[message.id] = node
@@ -193,6 +197,30 @@ export function MessageList({
 interface UserScrollRailProps {
   markers: UserMarker[]
   onSelect: (messageId: string) => void
+}
+
+function isSameCalendarDay(a: number, b: number): boolean {
+  const dateA = new Date(a)
+  const dateB = new Date(b)
+  return (
+    dateA.getFullYear() === dateB.getFullYear() &&
+    dateA.getMonth() === dateB.getMonth() &&
+    dateA.getDate() === dateB.getDate()
+  )
+}
+
+/** "Today", "Yesterday", or a short local date for older days. */
+function formatDayLabel(timestamp: number): string {
+  const now = Date.now()
+  if (isSameCalendarDay(timestamp, now)) return 'Today'
+  if (isSameCalendarDay(timestamp, now - 24 * 60 * 60 * 1000)) return 'Yesterday'
+  const date = new Date(timestamp)
+  return date.toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() !== new Date(now).getFullYear() ? { year: 'numeric' } : {})
+  })
 }
 
 function findPreviousUserContent(messages: ChatMessage[], index: number): string | undefined {

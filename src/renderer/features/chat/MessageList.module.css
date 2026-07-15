@@ -19,6 +19,26 @@
   padding: var(--space-4) var(--space-6) var(--space-8);
 }
 
+.dayDivider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.dayDivider::before,
+.dayDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 .currentRequest {
   position: absolute;
   z-index: 4;
@@ -38,10 +58,16 @@
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(12px);
   cursor: pointer;
+  animation: currentRequestIn var(--motion-long, 420ms) var(--ease-out, ease-out) both;
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .currentRequest:hover {
   border-color: var(--border-focus);
+  transform: translateX(-50%) translateY(-1px);
 }
 
 .currentRequestLabel {
@@ -141,6 +167,8 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   pointer-events: none;
+  transform-origin: 0 50%;
+  animation: railPreviewIn var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
 }
 
 .userRailPreview strong {
@@ -231,12 +259,15 @@
   cursor: pointer;
   transition:
     color var(--transition-fast),
-    background var(--transition-fast);
+    background var(--transition-fast),
+    transform var(--transition-fast);
+  animation: jumpButtonIn var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
 }
 
 .jumpButton:hover {
   color: var(--text);
   background: var(--bg-elevated);
+  transform: translateX(-50%) translateY(-2px);
 }
 
 .jumpDot {
@@ -248,4 +279,32 @@
   border-radius: 50%;
   background: var(--accent);
   border: 2px solid var(--bg-app);
+  animation: jumpDotPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes currentRequestIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px);
+  }
+}
+
+@keyframes railPreviewIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px) translateY(-50%) scale(0.985);
+  }
+}
+
+@keyframes jumpButtonIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px) scale(0.96);
+  }
+}
+
+@keyframes jumpDotPulse {
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
 }

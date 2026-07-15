@@ -1,4 +1,5 @@
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -9,7 +10,8 @@
   transition:
     border-color var(--transition-fast),
     background var(--transition-fast),
-    box-shadow var(--transition-fast);
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .expanded {
@@ -43,11 +45,20 @@
   background: color-mix(in srgb, var(--bg-surface-2) 54%, transparent);
 }
 
+/* Status node sitting on the group's timeline rail (see ToolCallGroup's
+   .callList::before) — solid bg so it masks the line passing behind it. */
 .icon {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-shrink: 0;
+  align-items: center;
   justify-content: center;
+  width: 18px;
+  height: 18px;
   color: var(--text-muted);
+  background: var(--bg-surface);
+  border-radius: 50%;
 }
 
 .actionLabel {
@@ -89,6 +100,9 @@
 .chevron {
   flex-shrink: 0;
   color: var(--text-faint);
+  transition:
+    transform var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .diffStat {
@@ -110,6 +124,8 @@
 
 .diffWrap {
   border-top: 1px solid var(--border);
+  transform-origin: 50% 0;
+  animation: revealDiff var(--motion-long, 420ms) var(--ease-emphasized, var(--ease)) both;
 }
 
 .running {
@@ -117,6 +133,20 @@
   border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
   border-radius: var(--radius-sm);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Comet bar along the bottom edge while the tool runs. */
+.running::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 34%;
+  height: 2px;
+  pointer-events: none;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: runningSweep 1.15s var(--ease) infinite;
 }
 
 .running .icon {
@@ -149,6 +179,23 @@
 .denied .icon,
 .denied .actionLabel {
   color: var(--warn);
+}
+
+@keyframes revealDiff {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scaleY(0.985);
+  }
+}
+
+@keyframes runningSweep {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(400%);
+  }
 }
 
 @container (max-width: 640px) {

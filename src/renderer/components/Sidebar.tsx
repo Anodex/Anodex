@@ -225,7 +225,7 @@ export function Sidebar(): JSX.Element {
                 onClick={() => setView('agent')}
                 aria-current={view === 'agent' ? 'page' : undefined}
               >
-                <Icon name="wand" size={14} className={styles.navItemIcon} />
+                <Icon name="bot" size={14} className={styles.navItemIcon} />
                 <span>Agent</span>
               </button>
 
@@ -237,7 +237,7 @@ export function Sidebar(): JSX.Element {
                 onClick={() => setView('critical-thinking')}
                 aria-current={view === 'critical-thinking' ? 'page' : undefined}
               >
-                <Icon name="globe" size={14} className={styles.navItemIcon} />
+                <Icon name="insight" size={14} className={styles.navItemIcon} />
                 <span>Critical Thinking</span>
               </button>
 

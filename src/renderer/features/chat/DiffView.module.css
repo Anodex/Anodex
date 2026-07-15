@@ -6,6 +6,8 @@
   background: var(--bg-base);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  transform-origin: 50% 0;
+  animation: diffPanelIn var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
 }
 
 .sideBySide {
@@ -27,6 +29,7 @@
   gap: var(--space-2);
   padding: 1px var(--space-2);
   white-space: pre;
+  animation: diffLineIn var(--motion-short, 160ms) var(--ease-out, ease-out) both;
 }
 
 .lineNumber {
@@ -118,4 +121,18 @@
 .lineText :global(.hljs-name),
 .lineText :global(.hljs-tag) {
   color: var(--info);
+}
+
+@keyframes diffPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scaleY(0.99);
+  }
+}
+
+@keyframes diffLineIn {
+  from {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
 }

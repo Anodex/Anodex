@@ -114,6 +114,21 @@ describe('validatePatch', () => {
     const patch = { assistantStyle: { globalStyle: 'x'.repeat(MAX_ASSISTANT_STYLE_CHARS + 1) } }
     expect(() => validatePatch(patch)).toThrow(/assistantStyle.globalStyle/)
   })
+
+  it('accepts supported sound themes and rejects unknown ones', () => {
+    expect(() => validatePatch({ appearance: { soundTheme: 'sciFi' } })).not.toThrow()
+    expect(() => validatePatch({ appearance: { soundTheme: 'orchestra' } } as never)).toThrow(
+      /appearance.soundTheme/
+    )
+  })
+
+  it('accepts sound volume from 0 to 100 and rejects out-of-range values', () => {
+    expect(() => validatePatch({ appearance: { soundVolume: 0 } })).not.toThrow()
+    expect(() => validatePatch({ appearance: { soundVolume: 100 } })).not.toThrow()
+    expect(() => validatePatch({ appearance: { soundVolume: 101 } })).toThrow(
+      /appearance.soundVolume/
+    )
+  })
 })
 
 describe('SettingsStore.update validation', () => {
@@ -155,6 +170,18 @@ describe('SettingsStore.update validation', () => {
     settingsStore.init()
     expect(() => settingsStore.update({ model: { gpuLayers: 12 } })).not.toThrow()
     expect(() => settingsStore.update({ model: { gpuLayers: 'auto' } })).not.toThrow()
+  })
+
+  it('persists the selected sound theme and volume across sessions', async () => {
+    const first = await import('../SettingsStore')
+    first.settingsStore.init()
+    first.settingsStore.update({ appearance: { soundTheme: 'sciFi', soundVolume: 35 } })
+
+    vi.resetModules()
+    const second = await import('../SettingsStore')
+    second.settingsStore.init()
+    expect(second.settingsStore.get().appearance.soundTheme).toBe('sciFi')
+    expect(second.settingsStore.get().appearance.soundVolume).toBe(35)
   })
 })
 

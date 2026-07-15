@@ -14,6 +14,6 @@ export const DOCK_PANELS: DockPanelConfig[] = [
   { id: 'changes', label: 'Changes', icon: 'layers' },
   { id: 'files', label: 'Files', icon: 'folder', shortcut: 'Ctrl+Shift+F' },
   { id: 'activity', label: 'Activity', icon: 'activity' },
-  { id: 'outputs', label: 'Outputs', icon: 'monitor' },
-  { id: 'terminal', label: 'Terminal', icon: 'monitor', shortcut: 'Ctrl+Shift+T' }
+  { id: 'outputs', label: 'Outputs', icon: 'file' },
+  { id: 'terminal', label: 'Terminal', icon: 'terminal', shortcut: 'Ctrl+Shift+T' }
 ]

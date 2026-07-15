@@ -1214,10 +1214,12 @@
   width: 34px;
   height: 34px;
   flex-shrink: 0;
+  overflow: hidden;
   color: white;
   font-size: var(--text-xs);
   font-weight: 760;
   background: var(--accent);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   place-items: center;
 }
@@ -1226,47 +1228,38 @@
   background: #6f7de8;
 }
 
-.providerLogoopenai {
-  background: #159779;
+.providerLogoOfficial {
+  color: #151515;
+  background: #f4f2ed;
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(18, 19, 23, 0.04);
 }
 
-.providerLogoanthropic {
-  color: #291b15;
-  background: #d8a275;
+.providerLogoOfficial img {
+  display: block;
+  width: auto;
+  max-width: 23px;
+  height: auto;
+  max-height: 23px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
 }
 
-.providerLogogoogle {
-  background: #5668e7;
+.providerLogoxai img {
+  max-width: 25px;
+  max-height: 14px;
 }
 
-.providerLogoxai {
-  background: #232630;
+.providerLogoanthropic img,
+.providerLogomistral img {
+  max-width: 24px;
+  max-height: 18px;
 }
 
-.providerLogodeepseek {
-  background: #3e70da;
-}
-
-.providerLogomistral {
-  color: #2c1d0a;
-  background: #f18a2d;
-}
-
-.providerLogogroq {
-  background: #d44c65;
-}
-
-.providerLogoopenrouter {
-  background: #7559df;
-}
-
-.providerLogoazure {
-  background: #208aca;
-}
-
-.providerLogobedrock {
-  color: #251a08;
-  background: #e8a43a;
+.providerLogoopenrouter img {
+  max-width: 24px;
+  max-height: 20px;
 }
 
 .activeProviderIdentity {
@@ -1448,6 +1441,16 @@
 .providerListItem .providerLogo {
   width: 30px;
   height: 30px;
+}
+
+.providerListItem .providerLogoOfficial img {
+  max-width: 21px;
+  max-height: 21px;
+}
+
+.providerListItem .providerLogoxai img {
+  max-width: 22px;
+  max-height: 12px;
 }
 
 .providerListIdentity {

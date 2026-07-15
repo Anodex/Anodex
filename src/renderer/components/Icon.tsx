@@ -54,31 +54,34 @@ export type IconName =
   | 'clock'
   | 'layers'
   | 'globe'
-  | 'wand'
   | 'archive'
   | 'calendar'
   | 'mail'
+  | 'bot'
+  | 'plug'
+  | 'terminal'
+  | 'lightbulb'
+  | 'wrench'
+  | 'zap'
+  | 'git-branch'
+  | 'diff'
+  | 'insight'
 
 const GLYPHS: Record<IconName, ReactNode> = {
-  chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
+  /* Speech bubble with the system's signature 45° facet on the top-right corner. */
+  chat: <path d="M3 5a2 2 0 0 1 2-2h11l5 5v7a2 2 0 0 1-2 2H7l-4 4V5z" />,
+  /* Hexagonal cell that reads as an isometric cube — package semantics, brand geometry. */
   models: (
     <>
-      <path d="M21 8v8l-9 5-9-5V8l9-5z" />
-      <path d="M3 8l9 5 9-5" />
-      <path d="M12 13v8" />
+      <path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9L12 3z" />
+      <path d="M4.2 7.5 12 12l7.8-4.5M12 12v9" />
     </>
   ),
+  /* Hex nut: mechanical "settings" in the logo's geometry. */
   settings: (
     <>
-      <line x1="4" y1="21" x2="4" y2="14" />
-      <line x1="4" y1="10" x2="4" y2="3" />
-      <line x1="12" y1="21" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12" y2="3" />
-      <line x1="20" y1="21" x2="20" y2="16" />
-      <line x1="20" y1="12" x2="20" y2="3" />
-      <line x1="1" y1="14" x2="7" y2="14" />
-      <line x1="9" y1="8" x2="15" y2="8" />
-      <line x1="17" y1="16" x2="23" y2="16" />
+      <path d="M16.5 4.2h-9L3 12l4.5 7.8h9L21 12l-4.5-7.8z" />
+      <circle cx="12" cy="12" r="3.5" />
     </>
   ),
   plus: (
@@ -89,8 +92,8 @@ const GLYPHS: Record<IconName, ReactNode> = {
   ),
   send: (
     <>
-      <path d="M22 2 11 13" />
-      <path d="M22 2l-7 20-4-9-9-4z" />
+      <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+      <path d="m21.854 2.147-10.94 10.939" />
     </>
   ),
   stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />,
@@ -102,9 +105,7 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
     </>
   ),
-  folder: (
-    <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.5l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
-  ),
+  folder: <path d="M2 6a2 2 0 0 1 2-2h4.5l2 2H20a2 2 0 0 1 2 2v8l-4 4H4a2 2 0 0 1-2-2V6z" />,
   refresh: (
     <>
       <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
@@ -134,11 +135,17 @@ const GLYPHS: Record<IconName, ReactNode> = {
   ),
   copy: (
     <>
-      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M9 11a2 2 0 0 1 2-2h6l5 5v6a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2z" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </>
   ),
-  sparkle: <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />,
+  /* One clean four-point star plus a single satellite dot — reads at 18px. */
+  sparkle: (
+    <>
+      <path d="M12 2.5c.7 5 4.5 8.8 9.5 9.5-5 .7-8.8 4.5-9.5 9.5-.7-5-4.5-8.8-9.5-9.5 5-.7 8.8-4.5 9.5-9.5z" />
+      <circle cx="20" cy="4" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
   power: (
     <>
       <path d="M12 2v10" />
@@ -152,11 +159,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <line x1="12" y1="8" x2="12.01" y2="8" />
     </>
   ),
+  /* Linked nodes — network/search. `globe` keeps the meridian drawing for locale. */
   web: (
     <>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="2" y1="12" x2="22" y2="12" />
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+      <circle cx="12" cy="5" r="2.5" />
+      <circle cx="5" cy="19" r="2.5" />
+      <circle cx="19" cy="19" r="2.5" />
+      <path d="M10.7 7.6 6.3 16.4M13.3 7.6l4.4 8.8M7.8 19h8.4" />
     </>
   ),
   user: (
@@ -165,11 +174,11 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <circle cx="12" cy="7" r="4" />
     </>
   ),
+  /* Contrast circle — literally depicts what Appearance toggles (dark / light). */
   palette: (
     <>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 7a5 5 0 1 0 5 5" />
-      <path d="M12 2v2M12 22v2M2 12h2M22 12h2" />
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a9 9 0 0 1 0 18V3z" fill="currentColor" stroke="none" />
     </>
   ),
   sliders: (
@@ -201,9 +210,8 @@ const GLYPHS: Record<IconName, ReactNode> = {
   'chevron-right': <path d="m9 18 6-6-6-6" />,
   'folder-plus': (
     <>
-      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.5l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
-      <line x1="12" y1="11" x2="12" y2="17" />
-      <line x1="9" y1="14" x2="15" y2="14" />
+      <path d="M2 6a2 2 0 0 1 2-2h4.5l2 2H20a2 2 0 0 1 2 2v8l-4 4H4a2 2 0 0 1-2-2V6z" />
+      <path d="M12 10v6M9 13h6" />
     </>
   ),
   search: (
@@ -290,9 +298,9 @@ const GLYPHS: Record<IconName, ReactNode> = {
   ),
   image: (
     <>
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <circle cx="8.5" cy="8.5" r="1.5" />
-      <path d="M21 15l-5-5L5 21" />
+      <path d="M3 5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5z" />
+      <circle cx="8.5" cy="9" r="1.5" />
+      <path d="M21 15.5l-4.5-4.5L5 21" />
     </>
   ),
   circle: <circle cx="12" cy="12" r="9" />,
@@ -337,14 +345,6 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M16.5 4.5a15 15 0 0 1 0 15" />
     </>
   ),
-  wand: (
-    <>
-      <path d="M21 3 3 21" />
-      <path d="m15 3 3 3" />
-      <path d="M9 15l-6 6" />
-      <path d="M21 9l-6 6" />
-    </>
-  ),
   archive: (
     <>
       <rect x="3" y="4" width="18" height="4" rx="1" />
@@ -364,6 +364,65 @@ const GLYPHS: Record<IconName, ReactNode> = {
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="m3 7 9 6 9-6" />
+    </>
+  ),
+  /* Hexagonal head, antenna, two eyes — the Anodex take on a robot. */
+  bot: (
+    <>
+      <path d="M12 2v3" />
+      <path d="M8 5h8l4 7.5L16 20H8l-4-7.5L8 5z" />
+      <path d="M9.5 11.5v2M14.5 11.5v2" />
+    </>
+  ),
+  /* Plug — integrations / MCP. Replaces the Lucide puzzle, which muddied at 18px. */
+  plug: (
+    <>
+      <path d="M9 2v4M15 2v4M7 6h10v5a5 5 0 0 1-10 0V6z" />
+      <path d="M12 16v6" />
+    </>
+  ),
+  terminal: (
+    <>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </>
+  ),
+  lightbulb: (
+    <>
+      <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+    </>
+  ),
+  wrench: (
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+  ),
+  zap: <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />,
+  'git-branch': (
+    <>
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </>
+  ),
+  diff: (
+    <>
+      <path d="M12 4v6M9 7h6" />
+      <path d="M9 17h6" />
+      <path d="M4 12h16" strokeDasharray="2 3" />
+    </>
+  ),
+  /* Magnifier with the AI spark in the lens — critical thinking / deep research. */
+  insight: (
+    <>
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      <path
+        d="M11 7.3c.3 2 1.7 3.4 3.7 3.7-2 .3-3.4 1.7-3.7 3.7-.3-2-1.7-3.4-3.7-3.7 2-.3 3.4-1.7 3.7-3.7z"
+        fill="currentColor"
+        stroke="none"
+      />
     </>
   )
 }

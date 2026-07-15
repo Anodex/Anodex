@@ -1,6 +1,7 @@
 import type { AppSettings } from '@shared/settings.types'
+import { playInterfaceSound, previewSoundTheme, previewSoundVolume } from '../../../../lib/sound'
 import { SettingRow } from '../../SettingRow'
-import { SelectControl, ToggleControl } from '../../controls'
+import { RangeControl, SelectControl, ToggleControl } from '../../controls'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './AppearanceSettings.module.css'
 
@@ -45,8 +46,22 @@ const DIFF_VIEW_OPTIONS = [
   { label: 'Side by side', value: 'sideBySide' }
 ]
 
+const SOUND_THEME_OPTIONS = [
+  { label: 'Soft — warm and subtle', value: 'soft' },
+  { label: 'Crisp — short and precise', value: 'crisp' },
+  { label: 'Glass — airy and melodic', value: 'glass' },
+  { label: 'Retro — quiet 8-bit cues', value: 'retro' },
+  { label: 'Sci-fi pulse — rising electronic cue', value: 'sciFi' }
+]
+
+const DEFAULT_SOUND_VOLUME = 70
+
 export function AppearanceSettings({ settings, update }: AppearanceSettingsProps): JSX.Element {
   const { appearance } = settings
+  // A renderer hot-reload can briefly retain a settings object created before
+  // soundVolume existed. The main-process defaults migrate it on a full load;
+  // this fallback keeps the live Settings UI valid in the meantime.
+  const soundVolume = appearance.soundVolume ?? DEFAULT_SOUND_VOLUME
   const selectedTheme =
     appearance.themeMode === 'dark'
       ? `dark:${appearance.presetTheme}`
@@ -216,14 +231,59 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
         <h2 className={pageStyles.sectionTitle}>Motion & sound</h2>
         <SettingRow
           label="Sound effects"
-          description="Play subtle sounds for completions and errors."
+          description="Play subtle feedback for clicks, navigation, completions, approvals, and errors."
           control={
             <ToggleControl
               checked={appearance.soundEffects}
-              onChange={(value) => update({ soundEffects: value })}
+              onChange={(value) => {
+                update({ soundEffects: value })
+                if (value) {
+                  playInterfaceSound('toggle', {
+                    preview: true,
+                    theme: appearance.soundTheme,
+                    volume: soundVolume
+                  })
+                }
+              }}
             />
           }
         />
+        {appearance.soundEffects && (
+          <SettingRow
+            label="Sound style"
+            description="Choose a sound palette. Selecting one plays a short preview."
+            control={
+              <SelectControl
+                value={appearance.soundTheme}
+                options={SOUND_THEME_OPTIONS}
+                onChange={(value) => {
+                  const soundTheme = value as typeof appearance.soundTheme
+                  update({ soundTheme })
+                  previewSoundTheme(soundTheme)
+                }}
+              />
+            }
+          />
+        )}
+        {appearance.soundEffects && (
+          <SettingRow
+            label="Sound volume"
+            description="Adjust the level of interface feedback and status chimes."
+            control={
+              <RangeControl
+                value={soundVolume}
+                min={0}
+                max={100}
+                step={5}
+                format={(value) => `${value}%`}
+                onChange={(soundVolume) => {
+                  update({ soundVolume })
+                  previewSoundVolume(appearance.soundTheme, soundVolume)
+                }}
+              />
+            }
+          />
+        )}
         <SettingRow
           label="Reduced motion"
           description="Minimise animations and transitions."

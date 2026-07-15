@@ -59,6 +59,8 @@ export interface ProfileSettings {
   syncStatus: 'local' | 'syncing' | 'synced'
 }
 
+export type SoundTheme = 'soft' | 'crisp' | 'glass' | 'retro' | 'sciFi'
+
 export interface AppearanceSettings {
   /** Overall theme mode. */
   themeMode: 'dark' | 'light' | 'system'
@@ -81,8 +83,12 @@ export interface AppearanceSettings {
   fontSize: 'small' | 'medium' | 'large'
   /** UI density. */
   density: 'compact' | 'comfortable'
-  /** Play subtle sound effects on task completion / errors. */
+  /** Play subtle interface feedback and task/approval/error chimes. */
   soundEffects: boolean
+  /** Synthesized sound palette used for interface feedback and chimes. */
+  soundTheme: SoundTheme
+  /** Master sound level as a percentage from 0 to 100. */
+  soundVolume: number
   /** Reduce animations and transitions. */
   reducedMotion: boolean
   /** Compact sidebar / header mode. */

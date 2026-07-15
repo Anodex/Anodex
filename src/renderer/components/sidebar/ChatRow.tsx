@@ -4,6 +4,7 @@ import type { Conversation } from '../../stores/chatStore'
 import { formatRelativeTime } from '../../lib/time'
 import { notifyError } from '../../stores/uiStore'
 import { Icon } from '../Icon'
+import { StatusDot } from '../ui/StatusDot'
 import { TextPromptDialog } from '../ui/TextPromptDialog'
 import styles from './ChatRow.module.css'
 
@@ -107,7 +108,7 @@ export function ChatRow({
           <Icon name="clock" size={12} className={styles.scheduledIcon} />
         )}
         {conversation.origin === 'agent' && (
-          <Icon name="wand" size={12} className={styles.scheduledIcon} />
+          <Icon name="bot" size={12} className={styles.scheduledIcon} />
         )}
         <span className={styles.titleWrap}>
           <span className={styles.title}>{conversation.title}</span>
@@ -370,7 +371,7 @@ function ChatDetailCard({
         </button>
       )}
       <div className={styles.detailLine}>
-        <span className={`${styles.detailStatusDot} ${running ? styles.running : styles.ready}`} />
+        <StatusDot tone={running ? 'running' : 'success'} />
         <span>{running ? 'Assistant is responding' : 'Ready'}</span>
       </div>
     </div>

@@ -61,7 +61,7 @@ export function EnginePanel({
           <div className={styles.engineIdentity}>
             <div className={styles.engineChip}>
               {loading ? (
-                <Spinner size={18} />
+                <Spinner size={18} variant="hex" />
               ) : engine.model ? (
                 <ModelLogo family={inferModelFamily(engine.model.name)} size={20} />
               ) : (

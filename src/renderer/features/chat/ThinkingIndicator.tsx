@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Icon } from '../../components/Icon'
 import styles from './MessageBubble.module.css'
 
 const THINKING_PHRASES = [
@@ -73,27 +74,49 @@ function nextShuffle(avoidFirst: string | undefined): string[] {
 }
 
 /**
- * Cycles through status phrases with a shimmer sweep while a reply has no
- * content yet. Reshuffles on every full pass through the list (rather than
- * looping one fixed order) so long-running tasks don't read as a canned loop.
+ * Composed thinking indicator: a breathing accent sparkle beside status
+ * phrases that shimmer and crossfade. Reshuffles on every full pass through
+ * the list (rather than looping one fixed order) so long-running tasks don't
+ * read as a canned loop. The outgoing phrase is kept in state so it can
+ * animate up and out while the next one rises in.
  */
 export function ThinkingIndicator(): JSX.Element {
-  const [state, setState] = useState(() => ({ queue: shuffled(THINKING_PHRASES), index: 0 }))
+  const [state, setState] = useState(() => ({
+    queue: shuffled(THINKING_PHRASES),
+    index: 0,
+    prev: null as string | null
+  }))
 
   useEffect(() => {
     const id = window.setInterval(() => {
       setState((prev) => {
+        const leaving = prev.queue[prev.index]
         const index = prev.index + 1
-        if (index < prev.queue.length) return { queue: prev.queue, index }
-        return { queue: nextShuffle(prev.queue[prev.queue.length - 1]), index: 0 }
+        if (index < prev.queue.length) return { queue: prev.queue, index, prev: leaving }
+        return { queue: nextShuffle(prev.queue[prev.queue.length - 1]), index: 0, prev: leaving }
       })
     }, 2000)
     return () => window.clearInterval(id)
   }, [])
 
+  const phrase = state.queue[state.index]
   return (
-    <span className={styles.thinking} aria-label="Generating">
-      {state.queue[state.index]}
+    <span className={styles.thinkingRow} aria-label="Generating">
+      <Icon name="sparkle" size={15} className={styles.thinkingSparkle} />
+      <span className={styles.thinkingStack}>
+        {state.prev !== null && (
+          <span
+            key={`out-${state.index}-${state.prev}`}
+            className={`${styles.thinking} ${styles.phraseOut}`}
+            aria-hidden="true"
+          >
+            {state.prev}
+          </span>
+        )}
+        <span key={phrase} className={`${styles.thinking} ${styles.phraseIn}`}>
+          {phrase}
+        </span>
+      </span>
     </span>
   )
 }

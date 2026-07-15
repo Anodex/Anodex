@@ -81,6 +81,14 @@ export interface ToolRuntimeContext {
   signal?: AbortSignal
   /** Report a tool call's progress to the UI. */
   emit: (call: ToolCall) => void
+  /**
+   * Take over the transcript card pre-emitted while the model was still
+   * generating this call's params (see `PendingToolCallTracker`), so this
+   * call's own running/success/error emits update that card in place instead
+   * of adding a second one. Undefined (or a miss) means nothing was
+   * pre-emitted — use a fresh id.
+   */
+  claimPendingToolCallId?: (name: string) => string | undefined
   /** Ask the user to approve a write/command; resolves to their decision. */
   confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
 }

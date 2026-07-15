@@ -96,6 +96,8 @@
   white-space: nowrap;
 }
 
+/* Same back-and-forth scanning beam as ChatRow's — shown on a collapsed
+   project when any chat inside it is running. */
 .runTrack {
   position: relative;
   height: 4px;

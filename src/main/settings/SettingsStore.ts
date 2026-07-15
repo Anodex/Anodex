@@ -328,6 +328,21 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
     }
   }
 
+  if (patch.appearance?.soundTheme !== undefined) {
+    if (!['soft', 'crisp', 'glass', 'retro', 'sciFi'].includes(patch.appearance.soundTheme)) {
+      throw new Error('appearance.soundTheme must be "soft", "crisp", "glass", "retro", or "sciFi"')
+    }
+  }
+  if (patch.appearance?.soundVolume !== undefined) {
+    if (
+      !isFiniteNumber(patch.appearance.soundVolume) ||
+      patch.appearance.soundVolume < 0 ||
+      patch.appearance.soundVolume > 100
+    ) {
+      throw new Error('appearance.soundVolume must be a finite number between 0 and 100')
+    }
+  }
+
   if (patch.webSearch?.resultCount !== undefined) {
     if (!isFiniteNumber(patch.webSearch.resultCount) || patch.webSearch.resultCount < 0) {
       throw new Error('webSearch.resultCount must be a non-negative finite number')

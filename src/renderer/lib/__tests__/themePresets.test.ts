@@ -22,6 +22,8 @@ function makeAppearance(overrides: Partial<AppearanceSettings>): AppearanceSetti
     fontSize: 'medium',
     density: 'comfortable',
     soundEffects: false,
+    soundTheme: 'soft',
+    soundVolume: 70,
     reducedMotion: false,
     compactMode: false,
     diffView: 'unified',

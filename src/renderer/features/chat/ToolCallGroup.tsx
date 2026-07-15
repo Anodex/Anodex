@@ -27,7 +27,9 @@ export function ToolCallGroup({
     `${calls.length} ${calls.length === 1 ? 'action' : 'actions'}`,
     runningCount > 0 ? `${runningCount} running` : null,
     failedCount > 0 ? `${failedCount} failed` : null
-  ].filter(Boolean).join(' · ')
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <section className={`${styles.group} ${expanded ? styles.expanded : styles.collapsed}`}>
@@ -46,6 +48,15 @@ export function ToolCallGroup({
         <span className={styles.label}>{TASK_PHASE_LABEL[phase]}</span>
         <span className={styles.groupMeta}>{groupMeta}</span>
       </button>
+      {/* A collapsed group hides its cards, so a running call inside has
+          nowhere to show its own progress — the header carries the signal
+          instead. Expanded, the card's own bar does the job. */}
+      {!expanded && runningCount > 0 && (
+        <span className={styles.runTrack} aria-hidden="true">
+          <span className={styles.runHalo} />
+          <span className={styles.runCore} />
+        </span>
+      )}
       {expanded && (
         <div className={styles.callList}>
           {calls.map((call) => (

@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
+import { OPENAI_MODELS } from '@shared/openaiModels'
 import { estimateProjectedContextUsage } from '@shared/contextProjection'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
@@ -13,11 +15,29 @@ function formatTokenCount(tokens: number): string {
 /** Shows the estimated model-facing context projection for the active conversation. */
 export function ContextMeter({ className }: { className?: string } = {}): JSX.Element | null {
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
-  const engine = useModelStore((s) => s.engine)
+  const engineContextSize = useModelStore((s) => s.engine.contextSize)
+  const providerActive = useSettingsStore((s) => s.settings?.provider.active)
+  const anthropicModel = useSettingsStore((s) => s.settings?.provider.anthropic.model)
+  const openaiModel = useSettingsStore((s) => s.settings?.provider.openai.model)
   const systemPrompt = useSettingsStore((s) => s.settings?.assistantStyle.globalStyle)
 
+  // `engine.contextSize` only reflects the local llama engine — cloud
+  // providers never touch it, so switching to Anthropic/OpenAI left the
+  // meter pinned to whatever the local model's window last was (or hidden,
+  // if no local model had ever been loaded this session). Use each
+  // provider's own known context window instead, mirroring what
+  // `contextAssembler.ts`'s `boundHistoryForCloudProvider` actually sends.
+  const contextSize = useMemo(() => {
+    if (providerActive === 'anthropic') {
+      return ANTHROPIC_MODELS.find((m) => m.id === anthropicModel)?.contextWindowTokens
+    }
+    if (providerActive === 'openai') {
+      return OPENAI_MODELS.find((m) => m.id === openaiModel)?.contextWindowTokens
+    }
+    return engineContextSize
+  }, [providerActive, anthropicModel, openaiModel, engineContextSize])
+
   const info = useMemo(() => {
-    const contextSize = engine.contextSize
     if (!contextSize || !conversation || conversation.messages.length === 0) return null
 
     return estimateProjectedContextUsage({
@@ -25,7 +45,7 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
       contextSize,
       systemPrompt
     })
-  }, [conversation, engine.contextSize, systemPrompt])
+  }, [conversation, contextSize, systemPrompt])
 
   if (!info) return null
 
@@ -49,6 +69,16 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
     )
   }
 
+  // Stacked breakdown of the same projection the tooltip describes: system
+  // prompt, recent history, and the response reservation, as slices of the
+  // context window. Their widths sum to `pct` by construction (see
+  // `estimateProjectedContextUsage`).
+  const segments = [
+    { kind: 'segSystem', tokens: info.systemTokens },
+    { kind: 'segHistory', tokens: info.historyTokens },
+    { kind: 'segReserved', tokens: info.reservedTokens }
+  ].filter((segment) => segment.tokens > 0)
+
   return (
     <div
       className={[styles.meter, styles[level], className].filter(Boolean).join(' ')}
@@ -56,7 +86,13 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
     >
       <Icon name="activity" size={12} className={styles.icon} />
       <div className={styles.track}>
-        <div className={styles.fill} style={{ width: `${info.pct}%` }} />
+        {segments.map((segment) => (
+          <div
+            key={segment.kind}
+            className={`${styles.seg} ${styles[segment.kind]}`}
+            style={{ width: `${(segment.tokens / info.contextSize) * 100}%` }}
+          />
+        ))}
       </div>
       <span className={styles.label}>
         ~{formatTokenCount(info.usedTokens)}
