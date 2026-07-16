@@ -1,4 +1,5 @@
 .meter {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -9,6 +10,15 @@
   transition:
     background var(--transition-fast),
     border-color var(--transition-fast);
+}
+
+.meter:focus {
+  outline: none;
+}
+
+.meter:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .icon {
@@ -60,6 +70,119 @@
   color: var(--text-faint);
 }
 
+.popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  z-index: 20;
+  width: min(280px, calc(100vw - 32px));
+  padding: var(--space-3);
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(5px) scale(0.98);
+  transform-origin: right bottom;
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.popover::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: var(--space-4);
+  width: 10px;
+  height: 10px;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
+  transform: translateY(-5px) rotate(45deg);
+}
+
+.meter:hover .popover,
+.meter:focus .popover,
+.meter:focus-within .popover {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.popoverHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.popoverHeader strong {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.popoverRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 5px 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.popoverRow span {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.popoverRow strong {
+  flex-shrink: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+.swatchSystem {
+  opacity: 1;
+}
+
+.swatchHistory {
+  opacity: 0.55;
+}
+
+.swatchReserved {
+  opacity: 0.22;
+}
+
+.popoverNote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
 .low {
   border-color: var(--border);
 }
@@ -67,6 +190,9 @@
   color: var(--text-faint);
 }
 .low .seg {
+  background: var(--accent);
+}
+.low .swatch {
   background: var(--accent);
 }
 .low .label {
@@ -83,6 +209,9 @@
 .mid .seg {
   background: var(--warn);
 }
+.mid .swatch {
+  background: var(--warn);
+}
 .mid .label {
   color: var(--warn);
 }
@@ -97,6 +226,9 @@
 .high .seg {
   background: var(--danger);
   animation: pulse 1.6s ease-in-out infinite;
+}
+.high .swatch {
+  background: var(--danger);
 }
 .high .label {
   color: var(--danger);

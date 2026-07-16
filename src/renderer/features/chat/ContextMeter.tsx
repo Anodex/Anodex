@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import { estimateProjectedContextUsage } from '@shared/contextProjection'
@@ -14,6 +14,7 @@ function formatTokenCount(tokens: number): string {
 
 /** Shows the estimated model-facing context projection for the active conversation. */
 export function ContextMeter({ className }: { className?: string } = {}): JSX.Element | null {
+  const detailsId = useId()
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const engineContextSize = useModelStore((s) => s.engine.contextSize)
   const providerActive = useSettingsStore((s) => s.settings?.provider.active)
@@ -50,6 +51,7 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   if (!info) return null
 
   const level = info.pct >= 90 ? 'high' : info.pct >= 70 ? 'mid' : 'low'
+  const unusedTokens = Math.max(0, info.contextSize - info.usedTokens)
   const summary = [
     `projected ${info.usedTokens.toLocaleString()} / ${info.contextSize.toLocaleString()} tokens`,
     `${info.systemTokens.toLocaleString()} system`,
@@ -82,7 +84,9 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   return (
     <div
       className={[styles.meter, styles[level], className].filter(Boolean).join(' ')}
-      title={`${summary.join(' | ')} (${info.pct}% of context window)`}
+      tabIndex={0}
+      aria-describedby={detailsId}
+      aria-label={`${summary.join(', ')}, ${info.pct}% of context window`}
     >
       <Icon name="activity" size={12} className={styles.icon} />
       <div className={styles.track}>
@@ -98,6 +102,59 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
         ~{formatTokenCount(info.usedTokens)}
         <span className={styles.labelMuted}> / {formatTokenCount(info.contextSize)}</span>
       </span>
+
+      <div id={detailsId} className={styles.popover} role="tooltip">
+        <div className={styles.popoverHeader}>
+          <span>Context window</span>
+          <strong>{info.pct}% full</strong>
+        </div>
+
+        <div className={styles.popoverRow}>
+          <span>Used tokens</span>
+          <strong>{info.usedTokens.toLocaleString()}</strong>
+        </div>
+        <div className={styles.popoverRow}>
+          <span>
+            <i className={`${styles.swatch} ${styles.swatchSystem}`} />
+            System prompt
+          </span>
+          <strong>{info.systemTokens.toLocaleString()}</strong>
+        </div>
+        <div className={styles.popoverRow}>
+          <span>
+            <i className={`${styles.swatch} ${styles.swatchHistory}`} />
+            Recent history
+          </span>
+          <strong>{info.historyTokens.toLocaleString()}</strong>
+        </div>
+        <div className={styles.popoverRow}>
+          <span>
+            <i className={`${styles.swatch} ${styles.swatchReserved}`} />
+            Reserved reply room
+          </span>
+          <strong>{info.reservedTokens.toLocaleString()}</strong>
+        </div>
+        <div className={styles.popoverRow}>
+          <span>Unused window</span>
+          <strong>{unusedTokens.toLocaleString()}</strong>
+        </div>
+
+        {(info.snapshotApplied || info.omittedTurns > 0) && (
+          <div className={styles.popoverNote}>
+            {info.snapshotApplied && (
+              <span>
+                {info.snapshotTokens.toLocaleString()} snapshot tokens from {info.snapshotTurns}{' '}
+                compacted turn{info.snapshotTurns === 1 ? '' : 's'}.
+              </span>
+            )}
+            {info.omittedTurns > 0 && (
+              <span>
+                {info.omittedTurns} older turn{info.omittedTurns === 1 ? '' : 's'} would compact.
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
