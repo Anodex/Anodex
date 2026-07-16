@@ -19,6 +19,7 @@ import { EmailView } from '../features/email/EmailView'
 import { CriticalThinkingView } from '../features/critical-thinking/CriticalThinkingView'
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
+import { useWorkspaceDockProjectId } from '../features/workspace-dock/useWorkspaceDockAvailability'
 import { ContextMenu } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
 import styles from './AppShell.module.css'
@@ -70,6 +71,8 @@ export function AppShell(): JSX.Element {
   const newConversation = useChatStore((s) => s.newConversation)
   const dockOpen = useWorkspaceDock((s) => s.open)
   const setDockOpen = useWorkspaceDock((s) => s.setOpen)
+  const dockProjectId = useWorkspaceDockProjectId()
+  const dockVisible = dockOpen && Boolean(dockProjectId)
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_BREAKPOINT)
   const isAutoCollapsed = useSidebarCollapse((s) => s.autoCollapsed)
   const isManuallyCollapsed = useSidebarCollapse((s) => s.manuallyCollapsed)
@@ -152,14 +155,14 @@ export function AppShell(): JSX.Element {
 
   const clampSidebarWidth = useCallback(
     (value: number, currentDockWidth = dockWidth): number => {
-      const reservedDock = dockOpen ? currentDockWidth : 0
+      const reservedDock = dockVisible ? currentDockWidth : 0
       const dynamicMax = Math.max(
         MIN_SIDEBAR,
         Math.min(MAX_SIDEBAR, window.innerWidth - reservedDock - MIN_MAIN)
       )
       return Math.min(dynamicMax, Math.max(MIN_SIDEBAR, value))
     },
-    [dockOpen, dockWidth]
+    [dockVisible, dockWidth]
   )
 
   const clampDockWidth = useCallback(
@@ -175,7 +178,7 @@ export function AppShell(): JSX.Element {
 
   const sidebarDynamicMax = Math.max(
     MIN_SIDEBAR,
-    Math.min(MAX_SIDEBAR, window.innerWidth - (dockOpen ? dockWidth : 0) - MIN_MAIN)
+    Math.min(MAX_SIDEBAR, window.innerWidth - (dockVisible ? dockWidth : 0) - MIN_MAIN)
   )
   const dockDynamicMax = Math.max(
     MIN_DOCK,
@@ -273,7 +276,7 @@ export function AppShell(): JSX.Element {
   // docked (open and not floating over a narrow window) — otherwise it
   // collapses to 0 so the always-3-column template (see AppShell.module.css)
   // reads as "no dock" without needing a separate 2-column template.
-  const dockColumnWidth = dockOpen && !isNarrow ? dockWidth : 0
+  const dockColumnWidth = dockVisible && !isNarrow ? dockWidth : 0
 
   return (
     <div
@@ -328,10 +331,10 @@ export function AppShell(): JSX.Element {
           </ErrorBoundary>
         </div>
       )}
-      {dockOpen && isNarrow && (
+      {dockVisible && isNarrow && (
         <div className={styles.dockBackdrop} onClick={() => setDockOpen(false)} />
       )}
-      {dockOpen && (
+      {dockVisible && (
         <div className={`${styles.dockWrap} ${isNarrow ? styles.dockWrapFloating : ''}`}>
           <div
             className={styles.dockHandle}

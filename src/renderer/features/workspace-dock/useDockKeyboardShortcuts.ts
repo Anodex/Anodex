@@ -2,10 +2,11 @@ import { useEffect } from 'react'
 import { useWorkspaceDock } from './useWorkspaceDock'
 
 /** Registers global keyboard shortcuts for toggling dock panels. */
-export function useDockKeyboardShortcuts(): void {
+export function useDockKeyboardShortcuts(enabled: boolean): void {
   const togglePanel = useWorkspaceDock((s) => s.togglePanel)
 
   useEffect(() => {
+    if (!enabled) return
     const handleKey = (event: KeyboardEvent): void => {
       if (!event.ctrlKey || !event.shiftKey) return
       const key = event.key.toUpperCase()
@@ -22,5 +23,5 @@ export function useDockKeyboardShortcuts(): void {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [togglePanel])
+  }, [enabled, togglePanel])
 }

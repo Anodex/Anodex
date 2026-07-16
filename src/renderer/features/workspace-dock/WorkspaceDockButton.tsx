@@ -3,16 +3,18 @@ import { Icon } from '../../components/Icon'
 import { IconButton } from '../../components/ui/IconButton'
 import { useWorkspaceDock } from './useWorkspaceDock'
 import { useDockKeyboardShortcuts } from './useDockKeyboardShortcuts'
+import { useWorkspaceDockProjectId } from './useWorkspaceDockAvailability'
 import { WorkspaceDockDropdown } from './WorkspaceDockDropdown'
 import styles from './WorkspaceDockButton.module.css'
 
 /** Top-right dock icon button. Click toggles the dock open/closed directly;
  *  hovering reveals the panel-selector dropdown instead of requiring a click,
  *  so picking which panels show doesn't fight with the open/close action. */
-export function WorkspaceDockButton(): JSX.Element {
+export function WorkspaceDockButton(): JSX.Element | null {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dockOpen = useWorkspaceDock((s) => s.open)
   const setDockOpen = useWorkspaceDock((s) => s.setOpen)
+  const dockProjectId = useWorkspaceDockProjectId()
   const containerRef = useRef<HTMLDivElement>(null)
   // The dropdown renders a few px below the button (see `top: calc(100% +
   // 4px)` in its own CSS) so there's a small gap that isn't over any element
@@ -22,7 +24,7 @@ export function WorkspaceDockButton(): JSX.Element {
   // cursor time to cross that gap without needing pixel-perfect movement.
   const closeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useDockKeyboardShortcuts()
+  useDockKeyboardShortcuts(Boolean(dockProjectId))
 
   useEffect(() => {
     if (!dropdownOpen) return
@@ -39,6 +41,15 @@ export function WorkspaceDockButton(): JSX.Element {
     }
   }, [])
 
+  useEffect(() => {
+    if (dockProjectId) return
+    setDropdownOpen(false)
+    if (closeTimeout.current) {
+      clearTimeout(closeTimeout.current)
+      closeTimeout.current = null
+    }
+  }, [dockProjectId])
+
   const openDropdown = (): void => {
     if (closeTimeout.current) {
       clearTimeout(closeTimeout.current)
@@ -50,6 +61,8 @@ export function WorkspaceDockButton(): JSX.Element {
   const scheduleCloseDropdown = (): void => {
     closeTimeout.current = setTimeout(() => setDropdownOpen(false), 200)
   }
+
+  if (!dockProjectId) return null
 
   return (
     <div
