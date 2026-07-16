@@ -54,6 +54,13 @@ export interface RunGenerationIo {
    */
   providerOverride?: { provider: 'local' | 'anthropic' | 'openai'; model?: string }
   signal?: AbortSignal
+  /**
+   * Whether project/personal memory and past-chat recall may be injected into
+   * this generation. Defaults to true. Evidence-only workflows such as
+   * Critical Thinking disable it so uncited remembered text cannot silently
+   * become part of a web-sourced report.
+   */
+  includeReferenceContext?: boolean
 }
 
 export interface RunGenerationResult {
@@ -217,10 +224,13 @@ export async function runGeneration(
     : undefined
 
   const hasWorkspaceTools = settings.tools.enabled && Boolean(workspaceRoot)
-  const memory = buildMemoryContext(activeProject?.id ?? null, request.prompt, {
-    crossChatEnabled: settings.memory.crossChatEnabled,
-    personalEnabled: settings.memory.personalEnabled
-  })
+  const includeReferenceContext = io.includeReferenceContext !== false
+  const memory = includeReferenceContext
+    ? buildMemoryContext(activeProject?.id ?? null, request.prompt, {
+        crossChatEnabled: settings.memory.crossChatEnabled,
+        personalEnabled: settings.memory.personalEnabled
+      })
+    : null
 
   // Resolved once and reused below for cloud-provider gating (transcript
   // recall, context bounding, before generation) and stats attribution
@@ -229,14 +239,16 @@ export async function runGeneration(
   const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
   const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
 
-  const transcriptRecall = buildTranscriptRecallContext({
-    conversationId: request.conversationId,
-    projectId: activeProject?.id ?? null,
-    query: request.prompt,
-    settings: settings.transcriptRecall,
-    allowedForProvider:
-      effectiveProviderId === 'local' || settings.transcriptRecall.cloudProviderEnabled
-  })
+  const transcriptRecall = includeReferenceContext
+    ? buildTranscriptRecallContext({
+        conversationId: request.conversationId,
+        projectId: activeProject?.id ?? null,
+        query: request.prompt,
+        settings: settings.transcriptRecall,
+        allowedForProvider:
+          effectiveProviderId === 'local' || settings.transcriptRecall.cloudProviderEnabled
+      })
+    : null
 
   const activeSkillContext =
     activeProject && activeProject.pinnedSkillNames.length > 0

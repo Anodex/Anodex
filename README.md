@@ -61,6 +61,24 @@ folder.
 - Switching between a project chat and a general chat correctly resets
   workspace/tool scoping — nothing about one leaks into the other.
 
+## Critical Thinking
+
+Critical Thinking is Anodex's dedicated deep-research workflow for questions
+that need more than a quick web lookup:
+
+- It first produces a structured research plan that you can edit and approve
+  before any web research begins.
+- The approved run is structurally limited to web search, public-page reading,
+  and updating its own plan. It cannot edit project files, run commands, send
+  email, save memory, or call connected MCP tools.
+- Search queries, pages read, sources found, plan progress, and report writing
+  stay visible while the run works; you can stop it at any time.
+- The final Markdown report includes clickable inline citations, a source trail,
+  and explicit limits/open questions. Reports persist locally across restarts.
+
+Critical Thinking uses the active local/cloud model and the web-search provider
+configured in Settings → Tools.
+
 ## AI workspace tools
 
 When a project is open, the assistant gets a set of tools confined to that

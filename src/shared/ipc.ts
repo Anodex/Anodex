@@ -54,6 +54,12 @@ import type {
   UpdateScheduledTaskRequest
 } from './scheduledTask.types'
 import type { AgentRun, CreateAgentRunRequest } from './agentRun.types'
+import type {
+  ApproveCriticalThinkingRequest,
+  CreateCriticalThinkingRequest,
+  CriticalThinkingRun,
+  CriticalThinkingStreamChunk
+} from './criticalThinking.types'
 import type { ChangeSummary } from './change.types'
 import type {
   SkillDeleteRequest,
@@ -263,6 +269,17 @@ export const IpcChannel = {
     rejectPlan: 'agent:reject-plan',
     /** main → renderer broadcast whenever a run changes (create/turn/finish/delete). */
     runsChanged: 'agent:runs-changed'
+  },
+  CriticalThinking: {
+    list: 'critical-thinking:list',
+    create: 'critical-thinking:create',
+    approve: 'critical-thinking:approve',
+    stop: 'critical-thinking:stop',
+    delete: 'critical-thinking:delete',
+    /** main → renderer tokens for the report currently being written. */
+    stream: 'critical-thinking:stream',
+    /** main → renderer whenever a plan, activity, source, or status changes. */
+    runsChanged: 'critical-thinking:runs-changed'
   },
   Email: {
     getStatus: 'email:get-status',
@@ -534,6 +551,15 @@ export interface AnodexApi {
     approvePlan(id: string): Promise<void>
     rejectPlan(id: string): Promise<void>
     onRunsChanged(listener: (runs: AgentRun[]) => void): () => void
+  }
+  criticalThinking: {
+    list(): Promise<CriticalThinkingRun[]>
+    create(request: CreateCriticalThinkingRequest): Promise<CriticalThinkingRun>
+    approve(id: string, request: ApproveCriticalThinkingRequest): Promise<CriticalThinkingRun>
+    stop(id: string): Promise<void>
+    delete(id: string): Promise<void>
+    onStream(listener: (chunk: CriticalThinkingStreamChunk) => void): () => void
+    onRunsChanged(listener: (runs: CriticalThinkingRun[]) => void): () => void
   }
   email: {
     getStatus(): Promise<Result<EmailConnectionStatus>>

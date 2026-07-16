@@ -20,6 +20,8 @@ import { emailAuthStore } from './email/EmailAuthStore'
 import { skillStore } from './skills/SkillStore'
 import { agentRunStore } from './agents/AgentRunStore'
 import { agentRunService } from './agents/AgentRunService'
+import { criticalThinkingStore } from './criticalThinking/CriticalThinkingStore'
+import { criticalThinkingService } from './criticalThinking/CriticalThinkingService'
 import { mcpServerStore } from './mcp/McpServerStore'
 import { mcpAuthStore } from './mcp/McpAuthStore'
 import { mcpManager } from './mcp/McpManager'
@@ -63,6 +65,7 @@ if (!app.requestSingleInstanceLock()) {
       emailAuthStore.init()
       skillStore.init()
       agentRunStore.init()
+      criticalThinkingStore.init()
       schedulerStore.init()
       schedulerService.init()
       setKeepAwake(settingsStore.get().scheduler.keepAwake)
@@ -97,6 +100,7 @@ if (!app.requestSingleInstanceLock()) {
     abortAllChatGenerations()
     schedulerService.stop()
     agentRunService.stopAll()
+    criticalThinkingService.stopAll()
     cancelAllDownloads()
     closeToast()
     llamaService.unload().catch((error) => {

@@ -7,6 +7,10 @@ import type { UpdateStatus } from '@shared/update.types'
 import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
 import type { ScheduledTask } from '@shared/scheduledTask.types'
 import type { AgentRun } from '@shared/agentRun.types'
+import type {
+  CriticalThinkingRun,
+  CriticalThinkingStreamChunk
+} from '@shared/criticalThinking.types'
 import type { McpServerState } from '@shared/mcp.types'
 
 /**
@@ -182,6 +186,17 @@ const api: AnodexApi = {
     approvePlan: (id) => ipcRenderer.invoke(IpcChannel.Agent.approvePlan, id),
     rejectPlan: (id) => ipcRenderer.invoke(IpcChannel.Agent.rejectPlan, id),
     onRunsChanged: (listener) => subscribe<AgentRun[]>(IpcChannel.Agent.runsChanged, listener)
+  },
+  criticalThinking: {
+    list: () => ipcRenderer.invoke(IpcChannel.CriticalThinking.list),
+    create: (request) => ipcRenderer.invoke(IpcChannel.CriticalThinking.create, request),
+    approve: (id, request) => ipcRenderer.invoke(IpcChannel.CriticalThinking.approve, id, request),
+    stop: (id) => ipcRenderer.invoke(IpcChannel.CriticalThinking.stop, id),
+    delete: (id) => ipcRenderer.invoke(IpcChannel.CriticalThinking.delete, id),
+    onStream: (listener) =>
+      subscribe<CriticalThinkingStreamChunk>(IpcChannel.CriticalThinking.stream, listener),
+    onRunsChanged: (listener) =>
+      subscribe<CriticalThinkingRun[]>(IpcChannel.CriticalThinking.runsChanged, listener)
   },
   email: {
     getStatus: () => ipcRenderer.invoke(IpcChannel.Email.getStatus),

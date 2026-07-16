@@ -23,6 +23,7 @@ import { registerChangeHandlers } from './change.handlers'
 import { registerTerminalHandlers } from './terminal.handlers'
 import { registerSchedulerHandlers } from './scheduler.handlers'
 import { registerAgentHandlers } from './agent.handlers'
+import { registerCriticalThinkingHandlers } from './criticalThinking.handlers'
 import { registerEmailHandlers } from './email.handlers'
 import { registerMcpHandlers } from './mcp.handlers'
 import { registerGithubHandlers } from './github.handlers'
@@ -54,6 +55,7 @@ export function registerIpcHandlers(): void {
   registerTerminalHandlers()
   registerSchedulerHandlers()
   registerAgentHandlers()
+  registerCriticalThinkingHandlers()
   registerEmailHandlers()
   registerGithubHandlers()
   registerMcpHandlers()

@@ -16,7 +16,7 @@ import { ChatView } from '../features/chat/ChatView'
 import { SchedulerView } from '../features/scheduler/SchedulerView'
 import { AgentView } from '../features/agent/AgentView'
 import { EmailView } from '../features/email/EmailView'
-import { PlaceholderView } from '../features/placeholder/PlaceholderView'
+import { CriticalThinkingView } from '../features/critical-thinking/CriticalThinkingView'
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
 import { ContextMenu } from './ContextMenu'
@@ -52,9 +52,7 @@ function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): str
 function renderMainView(view: ReturnType<typeof useUiStore.getState>['view']): JSX.Element {
   if (view === 'scheduler') return <SchedulerView />
   if (view === 'agent') return <AgentView />
-  if (view === 'critical-thinking') {
-    return <PlaceholderView icon="insight" title="Critical Thinking" />
-  }
+  if (view === 'critical-thinking') return <CriticalThinkingView />
   if (view === 'email') return <EmailView />
   return <ChatView />
 }

@@ -9,6 +9,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { useProviderUsageStore } from '../stores/providerUsageStore'
 import { useSchedulerStore } from '../stores/schedulerStore'
 import { useAgentStore } from '../stores/agentStore'
+import { useCriticalThinkingStore } from '../stores/criticalThinkingStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useMcpStore } from '../stores/mcpStore'
 import { useUiStore } from '../stores/uiStore'
@@ -116,6 +117,12 @@ export function useAnodexBridge(): void {
       // its chat/badge shows up without a manual reload.
       void useChatStore.getState().refreshConversations()
     })
+    const offCriticalThinkingStream = anodex.criticalThinking.onStream(({ runId, token }) => {
+      useCriticalThinkingStore.getState().appendToken(runId, token)
+    })
+    const offCriticalThinkingRuns = anodex.criticalThinking.onRunsChanged((runs) => {
+      useCriticalThinkingStore.getState().setRuns(runs)
+    })
     const offMcpStatus = anodex.mcp.onStatusChanged((state) => {
       useMcpStore.getState().setStatus(state)
     })
@@ -144,6 +151,8 @@ export function useAnodexBridge(): void {
       offHistoryCompacted()
       offSchedulerTasks()
       offAgentRuns()
+      offCriticalThinkingStream()
+      offCriticalThinkingRuns()
       offMcpStatus()
       offToastOpenConversation()
     }
@@ -163,6 +172,7 @@ async function hydrate(): Promise<void> {
   useProviderUsageStore.getState().setAll(usage)
   await useSchedulerStore.getState().load()
   await useAgentStore.getState().load()
+  await useCriticalThinkingStore.getState().load()
   await useMcpStore.getState().load()
 }
 
