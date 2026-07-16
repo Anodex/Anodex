@@ -267,6 +267,99 @@
   gap: var(--space-2);
 }
 
+.reportSplitButton {
+  position: relative;
+  display: inline-flex;
+}
+
+.reportSplitMain,
+.reportSplitToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  color: var(--text);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.reportSplitMain {
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  font-size: var(--text-base);
+  font-weight: 500;
+  border-right: 0;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.reportSplitToggle {
+  width: 30px;
+  padding: 0;
+  color: var(--text-muted);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.reportSplitMain:hover,
+.reportSplitToggle:not(:disabled):hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+
+.reportSplitMain:focus-visible,
+.reportSplitToggle:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.reportSplitToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.reportExportMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-popover);
+  width: 100%;
+  min-width: 100%;
+  padding: 5px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 42%), var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.reportExportMenu button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  color: var(--text);
+  font-size: var(--text-sm);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.reportExportMenu button:hover,
+.reportExportMenu button:focus-visible {
+  color: var(--text-on-accent);
+  background: var(--accent);
+  outline: none;
+}
+
 .iconButton {
   display: flex;
   align-items: center;

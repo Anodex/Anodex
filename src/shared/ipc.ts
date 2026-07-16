@@ -57,6 +57,8 @@ import type { AgentRun, CreateAgentRunRequest } from './agentRun.types'
 import type {
   ApproveCriticalThinkingRequest,
   CreateCriticalThinkingRequest,
+  ExportCriticalThinkingPdfRequest,
+  ExportCriticalThinkingPdfResult,
   CriticalThinkingRun,
   CriticalThinkingStreamChunk
 } from './criticalThinking.types'
@@ -276,6 +278,7 @@ export const IpcChannel = {
     approve: 'critical-thinking:approve',
     stop: 'critical-thinking:stop',
     delete: 'critical-thinking:delete',
+    exportPdf: 'critical-thinking:export-pdf',
     /** main → renderer tokens for the report currently being written. */
     stream: 'critical-thinking:stream',
     /** main → renderer whenever a plan, activity, source, or status changes. */
@@ -558,6 +561,7 @@ export interface AnodexApi {
     approve(id: string, request: ApproveCriticalThinkingRequest): Promise<CriticalThinkingRun>
     stop(id: string): Promise<void>
     delete(id: string): Promise<void>
+    exportPdf(request: ExportCriticalThinkingPdfRequest): Promise<ExportCriticalThinkingPdfResult>
     onStream(listener: (chunk: CriticalThinkingStreamChunk) => void): () => void
     onRunsChanged(listener: (runs: CriticalThinkingRun[]) => void): () => void
   }

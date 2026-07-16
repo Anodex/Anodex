@@ -1,4 +1,6 @@
 import { Fragment, type ReactNode } from 'react'
+import { CriticalThinkingChart } from './CriticalThinkingChart'
+import { parseCriticalThinkingChart } from './criticalThinkingCharts'
 import styles from './CriticalThinkingReport.module.css'
 
 function renderInline(text: string, keyBase: string): ReactNode[] {
@@ -66,6 +68,12 @@ export function CriticalThinkingReport({ report }: { report: string }): JSX.Elem
       index++
       while (index < lines.length && !/^```/.test(lines[index])) code.push(lines[index++])
       if (index < lines.length) index++
+      const chart =
+        fence[1].toLowerCase() === 'chart' ? parseCriticalThinkingChart(code.join('\n')) : null
+      if (chart) {
+        blocks.push(<CriticalThinkingChart key={key++} spec={chart} />)
+        continue
+      }
       blocks.push(
         <pre key={key++} className={styles.codeBlock} data-language={fence[1] || undefined}>
           <code>{code.join('\n')}</code>
@@ -153,5 +161,9 @@ export function CriticalThinkingReport({ report }: { report: string }): JSX.Elem
     blocks.push(<p key={key++}>{renderInline(paragraph.join(' '), `p${key}`)}</p>)
   }
 
-  return <article className={styles.report}>{blocks}</article>
+  return (
+    <article className={styles.report} data-critical-thinking-report>
+      {blocks}
+    </article>
+  )
 }

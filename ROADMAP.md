@@ -290,8 +290,9 @@ not correctness or security — lowest priority item on this whole list.
 - **Critical Thinking core workflow (2026-07-16)** — shipped the renamed,
   Anodex-native deep-research surface with editable plan review, web-only
   execution, live plan/activity/source progress, stop support, persisted reports,
-  linked citations, and focused source/persistence tests. Connected sources,
-  export formats, and mid-run follow-up steering are deliberate future passes.
+  linked citations, evidence-cited bar/line/pie charts, PDF export, and focused
+  source/persistence tests. Connected sources and mid-run follow-up steering are
+  deliberate future passes.
 
 - **Security/dependency hardening pass (2026-07-10)** — settings patch schema
   validation, API keys moved to OS credential storage (`safeStorage`), SSRF

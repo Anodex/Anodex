@@ -1,6 +1,7 @@
 import type { GenerationStats } from './chat.types'
 import type { Plan } from './plan.types'
 import type { ToolCallStatus } from './tools.types'
+import type { Result } from './result'
 
 export type CriticalThinkingStatus =
   'planning' | 'needs-review' | 'researching' | 'done' | 'stopped' | 'error'
@@ -52,3 +53,12 @@ export interface CriticalThinkingStreamChunk {
   runId: string
   token: string
 }
+
+/** Rendered report markup sent to main for a report-only PDF export. */
+export interface ExportCriticalThinkingPdfRequest {
+  question: string
+  reportHtml: string
+}
+
+/** A null path means the user closed the save dialog without exporting. */
+export type ExportCriticalThinkingPdfResult = Result<string | null>

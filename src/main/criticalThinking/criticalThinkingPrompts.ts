@@ -37,6 +37,11 @@ Research requirements:
 Report requirements:
 - Use a descriptive title, a short executive summary, organized findings, and a clear conclusion or recommendation.
 - Cite claims inline with clickable Markdown links in the form [Source title](https://example.com/page).
+- When a quantitative comparison materially improves understanding, include an evidence-backed bar, line, or pie chart using a fenced chart block with strict JSON in this shape:
+  \`\`\`chart
+  {"type":"bar","title":"Descriptive title","labels":["A","B"],"datasets":[{"label":"Series","values":[12,18]}],"unit":"%","source":"[Source title](https://example.com/data)","note":"Optional context"}
+  \`\`\`
+- Use 2 to 12 labels and no more than 4 datasets. Pie charts require exactly one dataset, at most 8 labels, and non-negative values. Every chart value must be traceable to the cited source. Do not add a chart when the data is sparse, incomparable, or uncertain.
 - Include a final "Sources" section listing the most important sources, plus a short "Limits and open questions" section.
 - Never invent a source, quotation, statistic, date, or URL.`
 }

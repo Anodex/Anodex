@@ -193,6 +193,7 @@ const api: AnodexApi = {
     approve: (id, request) => ipcRenderer.invoke(IpcChannel.CriticalThinking.approve, id, request),
     stop: (id) => ipcRenderer.invoke(IpcChannel.CriticalThinking.stop, id),
     delete: (id) => ipcRenderer.invoke(IpcChannel.CriticalThinking.delete, id),
+    exportPdf: (request) => ipcRenderer.invoke(IpcChannel.CriticalThinking.exportPdf, request),
     onStream: (listener) =>
       subscribe<CriticalThinkingStreamChunk>(IpcChannel.CriticalThinking.stream, listener),
     onRunsChanged: (listener) =>

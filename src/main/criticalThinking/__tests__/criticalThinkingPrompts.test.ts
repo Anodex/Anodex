@@ -29,6 +29,8 @@ describe('Critical Thinking prompts', () => {
     expect(prompt).toContain('Open promising sources with fetch_url')
     expect(prompt).toContain('Cross-check important claims')
     expect(prompt).toContain('[Source title](https://example.com/page)')
+    expect(prompt).toContain('```chart')
+    expect(prompt).toContain('Every chart value must be traceable')
     expect(prompt).toContain('Find primary evidence')
   })
 })

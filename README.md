@@ -74,7 +74,10 @@ that need more than a quick web lookup:
 - Search queries, pages read, sources found, plan progress, and report writing
   stay visible while the run works; you can stop it at any time.
 - The final Markdown report includes clickable inline citations, a source trail,
-  and explicit limits/open questions. Reports persist locally across restarts.
+  and explicit limits/open questions. Evidence-backed bar, line, and pie charts
+  are rendered when quantitative comparison is useful.
+- Reports persist locally across restarts and can be copied as Markdown or
+  exported as a polished, report-only PDF with citations and charts intact.
 
 Critical Thinking uses the active local/cloud model and the web-search provider
 configured in Settings → Tools.

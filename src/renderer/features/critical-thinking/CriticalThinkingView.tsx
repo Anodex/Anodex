@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type {
   CriticalThinkingActivity,
   CriticalThinkingRun,
@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
 import { formatRelativeTime } from '../../lib/time'
 import { isChatReady } from '../../lib/chatReadiness'
+import { anodex } from '../../lib/anodex'
 import { useCriticalThinkingStore } from '../../stores/criticalThinkingStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -107,6 +108,85 @@ function ActivityTimeline({ activities }: { activities: CriticalThinkingActivity
   )
 }
 
+interface ReportSplitButtonProps {
+  copied: boolean
+  exportingPdf: boolean
+  onCopy: () => void
+  onExportPdf: () => void
+}
+
+function ReportSplitButton(props: ReportSplitButtonProps): JSX.Element {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const toggleRef = useRef<HTMLButtonElement>(null)
+  const pdfItemRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    pdfItemRef.current?.focus()
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      setMenuOpen(false)
+      toggleRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [menuOpen])
+
+  return (
+    <div className={styles.reportSplitButton} ref={rootRef}>
+      <button
+        type="button"
+        className={styles.reportSplitMain}
+        onClick={() => {
+          setMenuOpen(false)
+          props.onCopy()
+        }}
+        aria-label="Copy report"
+      >
+        <Icon name={props.copied ? 'check' : 'copy'} size={14} />
+        <span>{props.copied ? 'Copied' : 'Copy report'}</span>
+      </button>
+      <button
+        ref={toggleRef}
+        type="button"
+        className={styles.reportSplitToggle}
+        onClick={() => setMenuOpen((open) => !open)}
+        aria-label="Report export options"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        disabled={props.exportingPdf}
+      >
+        {props.exportingPdf ? <Spinner size={13} /> : <Icon name="chevron-down" size={13} />}
+      </button>
+      {menuOpen && (
+        <div className={styles.reportExportMenu} role="menu" aria-label="Report export options">
+          <button
+            ref={pdfItemRef}
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false)
+              props.onExportPdf()
+            }}
+          >
+            <Icon name="download" size={14} />
+            <span>Save as PDF</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function CriticalThinkingView(): JSX.Element {
   const runs = useCriticalThinkingStore((state) => state.runs)
   const selectedId = useCriticalThinkingStore((state) => state.selectedId)
@@ -127,6 +207,8 @@ export function CriticalThinkingView(): JSX.Element {
   const [draftPlan, setDraftPlan] = useState<Plan | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const reportRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setDraftPlan(selected?.plan ? clonePlan(selected.plan) : null)
@@ -202,6 +284,28 @@ export function CriticalThinkingView(): JSX.Element {
     setCopied(true)
     notify({ kind: 'success', title: 'Report copied' })
     setTimeout(() => setCopied(false), 1800)
+  }
+
+  const exportPdf = async (): Promise<void> => {
+    if (!selected?.report || !reportRef.current || exportingPdf) return
+    setExportingPdf(true)
+    try {
+      const result = await anodex.criticalThinking.exportPdf({
+        question: selected.question,
+        reportHtml: reportRef.current.innerHTML
+      })
+      if (!result.ok) {
+        notify({ kind: 'error', title: 'PDF export failed', message: result.error.message })
+        return
+      }
+      if (result.value) {
+        notify({ kind: 'success', title: 'PDF report saved', message: result.value })
+      }
+    } catch {
+      notify({ kind: 'error', title: 'PDF export failed', message: 'The export did not finish.' })
+    } finally {
+      setExportingPdf(false)
+    }
   }
 
   return (
@@ -317,6 +421,8 @@ export function CriticalThinkingView(): JSX.Element {
               draftPlan={draftPlan}
               submitting={submitting}
               copied={copied}
+              exportingPdf={exportingPdf}
+              reportRef={reportRef}
               onUpdatePlanTitle={updatePlanTitle}
               onUpdatePlanStep={updatePlanStep}
               onRemovePlanStep={removePlanStep}
@@ -326,6 +432,7 @@ export function CriticalThinkingView(): JSX.Element {
               onRetry={() => startNew(selected.question)}
               onDelete={() => void deleteRun(selected.id)}
               onCopy={() => void copyReport()}
+              onExportPdf={() => void exportPdf()}
             />
           )}
         </main>
@@ -339,6 +446,8 @@ interface RunDetailProps {
   draftPlan: Plan | null
   submitting: boolean
   copied: boolean
+  exportingPdf: boolean
+  reportRef: RefObject<HTMLDivElement>
   onUpdatePlanTitle: (title: string) => void
   onUpdatePlanStep: (index: number, title: string) => void
   onRemovePlanStep: (index: number) => void
@@ -348,6 +457,7 @@ interface RunDetailProps {
   onRetry: () => void
   onDelete: () => void
   onCopy: () => void
+  onExportPdf: () => void
 }
 
 function RunDetail(props: RunDetailProps): JSX.Element {
@@ -376,13 +486,12 @@ function RunDetail(props: RunDetailProps): JSX.Element {
             </Button>
           )}
           {!active && run.report && (
-            <Button
-              variant="secondary"
-              iconLeft={<Icon name={props.copied ? 'check' : 'copy'} size={14} />}
-              onClick={props.onCopy}
-            >
-              {props.copied ? 'Copied' : 'Copy report'}
-            </Button>
+            <ReportSplitButton
+              copied={props.copied}
+              exportingPdf={props.exportingPdf}
+              onCopy={props.onCopy}
+              onExportPdf={props.onExportPdf}
+            />
           )}
           {!active && (
             <button
@@ -476,7 +585,9 @@ function RunDetail(props: RunDetailProps): JSX.Element {
               <div className={styles.writingLabel}>
                 <Spinner size={12} /> Writing report
               </div>
-              <CriticalThinkingReport report={run.report} />
+              <div ref={props.reportRef}>
+                <CriticalThinkingReport report={run.report} />
+              </div>
             </section>
           ) : (
             <div className={styles.researchHint}>
@@ -495,7 +606,9 @@ function RunDetail(props: RunDetailProps): JSX.Element {
             </div>
           )}
           <section className={styles.reportCard}>
-            <CriticalThinkingReport report={run.report} />
+            <div ref={props.reportRef}>
+              <CriticalThinkingReport report={run.report} />
+            </div>
           </section>
           <Sources run={run} />
         </>
