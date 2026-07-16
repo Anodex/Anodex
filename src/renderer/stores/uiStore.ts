@@ -18,6 +18,8 @@ export type SettingsSection =
   | 'archive'
   | 'memory'
   | 'email'
+  | 'github'
+  | 'mcp'
   | 'ai-models'
   | 'diagnostics'
   | 'about'

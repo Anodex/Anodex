@@ -73,6 +73,7 @@ class OpenAiProvider implements LlmProvider {
           email: params.tools.email,
           memory: params.tools.memory,
           enabledTools: params.tools.enabledTools ?? null,
+          mcpTools: params.tools.mcpTools,
           // A mutable box, not the plan value itself — shared by every tool
           // call in this generation, matching LlamaService's own wiring.
           plan: { current: params.tools.plan },

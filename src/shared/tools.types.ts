@@ -3,7 +3,7 @@
 import type { Plan } from './plan.types'
 
 /** Category of a tool, used for icons and approval behaviour. */
-export type ToolKind = 'read' | 'write' | 'command' | 'web' | 'plan'
+export type ToolKind = 'read' | 'write' | 'command' | 'web' | 'plan' | 'mcp'
 
 /**
  * How risky a guarded tool call is, used by the permission system to decide
@@ -76,7 +76,7 @@ export interface ToolConfirmRequest {
   conversationId: string
   messageId: string
   toolName: string
-  kind: 'write' | 'command' | 'web'
+  kind: 'write' | 'command' | 'web' | 'mcp'
   /** Short title, e.g. `Run command`. */
   title: string
   /** The specifics: the command string or the target file + preview. */

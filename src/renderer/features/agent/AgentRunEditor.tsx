@@ -23,13 +23,14 @@ import styles from './AgentRunEditor.module.css'
 
 type RunProvider = 'local' | 'anthropic' | 'openai'
 
-const KIND_ORDER: ToolKind[] = ['web', 'read', 'write', 'command', 'plan']
+const KIND_ORDER: ToolKind[] = ['web', 'read', 'write', 'command', 'plan', 'mcp']
 const KIND_LABELS: Record<ToolKind, string> = {
   web: 'Web',
   read: 'Read files',
   write: 'Edit files',
   command: 'Run commands',
-  plan: 'Planning'
+  plan: 'Planning',
+  mcp: 'MCP servers'
 }
 /** Shown under a risky group — there's no one present to click an approval prompt during a run. */
 const KIND_RISK_NOTE: Partial<Record<ToolKind, string>> = {

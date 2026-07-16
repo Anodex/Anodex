@@ -7,6 +7,7 @@ import type { UpdateStatus } from '@shared/update.types'
 import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
 import type { ScheduledTask } from '@shared/scheduledTask.types'
 import type { AgentRun } from '@shared/agentRun.types'
+import type { McpServerState } from '@shared/mcp.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -192,6 +193,29 @@ const api: AnodexApi = {
     readMessage: (id) => ipcRenderer.invoke(IpcChannel.Email.readMessage, id),
     createDraft: (request) => ipcRenderer.invoke(IpcChannel.Email.createDraft, request),
     send: (request) => ipcRenderer.invoke(IpcChannel.Email.send, request)
+  },
+  github: {
+    getState: (projectId) => ipcRenderer.invoke(IpcChannel.Github.getState, projectId),
+    connect: (request, projectId) =>
+      ipcRenderer.invoke(IpcChannel.Github.connect, request, projectId),
+    disconnect: (projectId) => ipcRenderer.invoke(IpcChannel.Github.disconnect, projectId),
+    detectRepository: (projectId) =>
+      ipcRenderer.invoke(IpcChannel.Github.detectRepository, projectId)
+  },
+  mcp: {
+    list: () => ipcRenderer.invoke(IpcChannel.Mcp.list),
+    add: (config, credentials) => ipcRenderer.invoke(IpcChannel.Mcp.add, config, credentials),
+    update: (id, patch, credentials) =>
+      ipcRenderer.invoke(IpcChannel.Mcp.update, id, patch, credentials),
+    remove: (id) => ipcRenderer.invoke(IpcChannel.Mcp.remove, id),
+    setEnabled: (id, enabled) => ipcRenderer.invoke(IpcChannel.Mcp.setEnabled, id, enabled),
+    setStaticToken: (id, token) => ipcRenderer.invoke(IpcChannel.Mcp.setStaticToken, id, token),
+    connect: (id) => ipcRenderer.invoke(IpcChannel.Mcp.connect, id),
+    testConnection: (config) => ipcRenderer.invoke(IpcChannel.Mcp.testConnection, config),
+    disconnectAuth: (id) => ipcRenderer.invoke(IpcChannel.Mcp.disconnectAuth, id),
+    getStatuses: () => ipcRenderer.invoke(IpcChannel.Mcp.getStatuses),
+    listTools: () => ipcRenderer.invoke(IpcChannel.Mcp.listTools),
+    onStatusChanged: (listener) => subscribe<McpServerState>(IpcChannel.Mcp.statusChanged, listener)
   }
 }
 

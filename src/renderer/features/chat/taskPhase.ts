@@ -21,7 +21,11 @@ export interface ToolCallGroup {
 /** Phase a single tool call belongs to, based on its kind and position in the run. */
 function phaseForCall(call: ToolCall, editSeen: boolean): TaskPhase {
   if (call.kind === 'read' || call.kind === 'web' || call.kind === 'plan') return 'inspecting'
-  if (call.kind === 'write') return 'editing'
+  // MCP tools are external, dynamically-discovered actions (fixed 'sensitive'
+  // risk, same reasoning as a file write) — grouped with editing rather than
+  // assumed read-only, since Anodex has no way to know which MCP tools mutate
+  // something and which don't.
+  if (call.kind === 'write' || call.kind === 'mcp') return 'editing'
   // A command run after at least one edit is verification (build/test/lint);
   // one run before any edit is just the model orienting itself (inspecting).
   return editSeen ? 'verifying' : 'inspecting'
@@ -38,7 +42,7 @@ class PhaseGrouper {
 
   next(call: ToolCall): TaskPhase {
     const phase = phaseForCall(call, this.editSeen)
-    if (call.kind === 'write') this.editSeen = true
+    if (call.kind === 'write' || call.kind === 'mcp') this.editSeen = true
     return phase
   }
 }

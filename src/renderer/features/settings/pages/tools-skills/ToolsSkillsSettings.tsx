@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { TOOL_CATALOG } from '@shared/tools.types'
+import { useMemo, useState } from 'react'
+import { TOOL_CATALOG, type ToolCatalogEntry } from '@shared/tools.types'
 import {
   buildToolAvailabilityDetails,
   buildToolHealthSummary,
@@ -7,6 +7,7 @@ import {
   type ToolHealthTone
 } from '../../../../lib/toolHealth'
 import { useSettingsStore } from '../../../../stores/settingsStore'
+import { useMcpStore } from '../../../../stores/mcpStore'
 import { StatusDot, type StatusTone } from '../../../../components/ui/StatusDot'
 import { SettingRow } from '../../SettingRow'
 import { RangeControl, SelectControl, TextControl, ToggleControl } from '../../controls'
@@ -46,7 +47,26 @@ const PROVIDER_HINTS: Record<string, string> = {
 export function ToolsSkillsSettings(): JSX.Element {
   const settings = useSettingsStore((state) => state.settings)
   const update = useSettingsStore((state) => state.update)
+  const mcpTools = useMcpStore((state) => state.tools)
   const [toolSearch, setToolSearch] = useState('')
+
+  // Merges the static built-in catalog with whatever's actually discovered
+  // from connected MCP servers right now, so this list reflects what's really
+  // callable instead of silently omitting MCP tools (they're dynamic, so they
+  // can never be part of the static TOOL_CATALOG array).
+  const fullCatalog = useMemo<ToolCatalogEntry[]>(
+    () => [
+      ...TOOL_CATALOG,
+      ...mcpTools.map(
+        (tool): ToolCatalogEntry => ({
+          name: tool.qualifiedName,
+          kind: 'mcp',
+          description: `[${tool.serverName}] ${tool.description || tool.toolName}`
+        })
+      )
+    ],
+    [mcpTools]
+  )
 
   if (!settings) return <></>
 
@@ -65,7 +85,7 @@ export function ToolsSkillsSettings(): JSX.Element {
     memoryCrossChatEnabled: settings.memory.crossChatEnabled,
     memoryPersonalEnabled: settings.memory.personalEnabled
   })
-  const filteredTools = filterToolCatalog(TOOL_CATALOG, toolSearch)
+  const filteredTools = filterToolCatalog(fullCatalog, toolSearch)
 
   return (
     <div className={pageStyles.page}>
@@ -179,7 +199,7 @@ export function ToolsSkillsSettings(): JSX.Element {
         <details className={styles.disclosure}>
           <summary className={styles.summary}>
             <span>Tool catalog</span>
-            <span className={styles.summaryHint}>{TOOL_CATALOG.length} tools</span>
+            <span className={styles.summaryHint}>{fullCatalog.length} tools</span>
           </summary>
           <input
             className={styles.catalogSearch}

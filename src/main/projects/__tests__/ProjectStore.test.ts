@@ -41,4 +41,11 @@ describe('normalizeProject', () => {
         .pinnedSkillNames
     ).toEqual(['code-review'])
   })
+
+  it('normalizes a linked GitHub repository URL', () => {
+    expect(
+      normalizeProject(makeProject({ githubRepository: 'https://github.com/openai/codex.git' }))
+        .githubRepository
+    ).toBe('openai/codex')
+  })
 })

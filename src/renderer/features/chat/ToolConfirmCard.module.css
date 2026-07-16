@@ -109,6 +109,11 @@
   background: var(--info-soft);
 }
 
+.mcp {
+  color: var(--accent-violet);
+  background: var(--accent-violet-soft);
+}
+
 .title {
   font-size: var(--text-sm);
   font-weight: 600;

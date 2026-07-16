@@ -14,7 +14,8 @@ const KIND_ICON: Record<ToolCall['kind'], IconName> = {
   write: 'copy',
   command: 'cpu',
   web: 'web',
-  plan: 'sparkle'
+  plan: 'sparkle',
+  mcp: 'plug'
 }
 
 function statusIcon(call: ToolCall): IconName {

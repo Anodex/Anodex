@@ -45,7 +45,8 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     turnGate: { approved: false },
     loopGuard: createLoopGuardState(),
     emit: () => {},
-    confirm: () => Promise.resolve({ approved: true })
+    confirm: () => Promise.resolve({ approved: true }),
+    mcpTools: []
   }
 }
 

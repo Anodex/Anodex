@@ -12,6 +12,7 @@ import { settingsStore } from '../settings/SettingsStore'
 import { conversationStore } from '../conversations/ConversationStore'
 import { projectMemoryStore } from './ProjectMemoryStore'
 import { memoryStore } from '../memory/MemoryStore'
+import { normalizeGithubRepository } from '../github/repository'
 
 const log = createLogger('projects')
 
@@ -38,6 +39,9 @@ export function normalizeProject(
   return {
     ...project,
     pinnedSkillNames: normalizePinnedSkillNames(project.pinnedSkillNames),
+    githubRepository: project.githubRepository
+      ? (normalizeGithubRepository(project.githubRepository) ?? undefined)
+      : undefined,
     archived: project.archived ?? false
   }
 }
@@ -115,6 +119,11 @@ class ProjectStore {
         request.pinnedSkillNames !== undefined
           ? normalizePinnedSkillNames(request.pinnedSkillNames)
           : project.pinnedSkillNames,
+      githubRepository: Object.prototype.hasOwnProperty.call(request, 'githubRepository')
+        ? request.githubRepository
+          ? (normalizeGithubRepository(request.githubRepository) ?? undefined)
+          : undefined
+        : project.githubRepository,
       updatedAt: Date.now()
     }
     state.projects[index] = next
@@ -207,6 +216,7 @@ class ProjectStore {
           return (
             project.archived === undefined ||
             project.pinnedSkillNames === undefined ||
+            project.githubRepository !== normalized.githubRepository ||
             normalizePinnedSkillNames(project.pinnedSkillNames).join('\0') !==
               normalized.pinnedSkillNames.join('\0')
           )

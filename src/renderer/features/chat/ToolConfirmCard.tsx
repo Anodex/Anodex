@@ -180,10 +180,10 @@ function ConfirmItem({
 }
 
 const KIND_CONFIG: Record<
-  'write' | 'command' | 'web',
+  'write' | 'command' | 'web' | 'mcp',
   {
-    icon: 'copy' | 'cpu' | 'web'
-    style: 'write' | 'command' | 'web'
+    icon: 'copy' | 'cpu' | 'web' | 'plug'
+    style: 'write' | 'command' | 'web' | 'mcp'
     title: string
     approveLabel: string
   }
@@ -198,6 +198,12 @@ const KIND_CONFIG: Record<
     icon: 'cpu',
     style: 'command',
     title: 'Run command?',
+    approveLabel: 'Run'
+  },
+  mcp: {
+    icon: 'plug',
+    style: 'mcp',
+    title: 'Run MCP tool?',
     approveLabel: 'Run'
   },
   web: {

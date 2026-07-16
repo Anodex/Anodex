@@ -1,0 +1,146 @@
+.modal {
+  composes: card from '../../../../components/ui/Overlay.module.css';
+  width: 100%;
+  max-width: 480px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  color: var(--accent-violet);
+  background: var(--accent-violet-soft);
+  border-radius: var(--radius-md);
+}
+
+.title {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.preset {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--accent-violet);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  background: var(--accent-violet-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.preset:hover {
+  border-color: var(--accent-violet);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.textarea {
+  width: 100%;
+  padding: var(--space-3);
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  resize: vertical;
+  transition: border-color var(--transition-fast);
+}
+
+.textarea:focus {
+  border-color: var(--border-focus);
+}
+
+.typeToggle {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.typeToggle button {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.typeActive {
+  color: var(--text) !important;
+  background: var(--bg-elevated) !important;
+  border-color: var(--accent) !important;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.cancel,
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 var(--space-3);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+}
+
+.cancel {
+  color: var(--text);
+  background: var(--bg-surface-2);
+  border-color: var(--border);
+}
+
+.cancel:hover {
+  background: var(--bg-elevated);
+}
+
+.confirm {
+  color: var(--text-on-accent);
+  background: var(--accent);
+}
+
+.confirm:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -13,6 +13,8 @@ import { AboutSettings } from './pages/about/AboutSettings'
 import { ProjectsSettings } from './pages/projects/ProjectsSettings'
 import { MemorySettings } from './pages/memory/MemorySettings'
 import { EmailSettings } from './pages/email/EmailSettings'
+import { McpSettings } from './pages/mcp/McpSettings'
+import { GithubSettings } from './pages/github/GithubSettings'
 import { ArchiveSettings } from './pages/archive/ArchiveSettings'
 import { ToolsSkillsSettings } from './pages/tools-skills/ToolsSkillsSettings'
 import styles from './SettingsView.module.css'
@@ -48,7 +50,9 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Connections',
     items: [
       { id: 'ai-models', label: 'AI & Models', icon: <Icon name="cpu" size={18} /> },
-      { id: 'email', label: 'Email', icon: <Icon name="mail" size={18} /> }
+      { id: 'email', label: 'Email', icon: <Icon name="mail" size={18} /> },
+      { id: 'github', label: 'GitHub', icon: <Icon name="git-branch" size={18} /> },
+      { id: 'mcp', label: 'MCP Servers', icon: <Icon name="plug" size={18} /> }
     ]
   },
   {
@@ -133,6 +137,8 @@ export function SettingsView(): JSX.Element {
               {section === 'tools-skills' && <ToolsSkillsSettings />}
               {section === 'ai-models' && <AiModelsSettings />}
               {section === 'email' && <EmailSettings />}
+              {section === 'github' && <GithubSettings />}
+              {section === 'mcp' && <McpSettings />}
               {section === 'archive' && <ArchiveSettings />}
               {section === 'diagnostics' && (
                 <DiagnosticsSettings

@@ -1,0 +1,175 @@
+.statusCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.statusIcon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+}
+
+.statusText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.statusText strong,
+.repositoryHeading strong {
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.statusText span,
+.repositoryHeading span,
+.repositoryCard small {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.tokenControl {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.helpLink {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+
+.helpLink:hover {
+  text-decoration: underline;
+}
+
+.toolsets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.toolset {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  color: var(--text-muted);
+  text-align: left;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.toolset:hover,
+.toolsetSelected {
+  border-color: var(--accent);
+}
+
+.toolsetSelected {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.toolset > span:last-child,
+.repositoryHeading > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.toolset strong {
+  font-size: var(--text-sm);
+}
+
+.toolset small {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.check {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.toolsetSelected .check {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.primaryAction {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+.repositoryCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.repositoryHeading,
+.repositoryControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.repositoryControls > :first-child {
+  flex: 1;
+}
+
+.emptyProject {
+  padding: var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+  background: var(--bg-surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 720px) {
+  .toolsets {
+    grid-template-columns: 1fr;
+  }
+
+  .statusCard,
+  .repositoryHeading,
+  .repositoryControls,
+  .tokenControl {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

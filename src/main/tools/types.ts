@@ -2,6 +2,7 @@ import type { ChatSessionModelFunction } from 'node-llama-cpp'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
+import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { LoopGuardState } from './loopGuard'
 
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
@@ -91,6 +92,13 @@ export interface ToolRuntimeContext {
   claimPendingToolCallId?: (name: string) => string | undefined
   /** Ask the user to approve a write/command; resolves to their decision. */
   confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
+  /**
+   * Tools discovered from currently-connected MCP servers, resolved once per
+   * generation from `mcpManager`'s cache (see `runGeneration.ts`) — discovery
+   * itself happens at server-connect time, not per generation, so reading
+   * this list is synchronous.
+   */
+  mcpTools: McpToolDescriptor[]
 }
 
 /** Runtime context guaranteed to have a workspace, for workspace-scoped tools. */

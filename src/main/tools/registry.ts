@@ -42,6 +42,7 @@ import {
   listChangesTool
 } from './changeTools'
 import { finishGoalTool } from './agentTools'
+import { buildMcpToolFunction } from './mcpTools'
 import {
   draftEmailTool,
   findEmailAttachmentsTool,
@@ -195,6 +196,16 @@ export function buildTools(
   // ever offers it).
   if (ctx.enabledTools !== null && isEnabled('finish_goal')) {
     tools.finish_goal = finishGoalTool(define, ctx)
+  }
+
+  // MCP tools are workspace-independent, like web tools — a connected server
+  // is available in any chat, project or not. Each one still goes through
+  // `isEnabled` so the existing enable/disable + scheduled-task tool-set
+  // restriction machinery covers them for free, same as everything else.
+  for (const descriptor of ctx.mcpTools) {
+    if (isEnabled(descriptor.qualifiedName)) {
+      tools[descriptor.qualifiedName] = buildMcpToolFunction(define, ctx, descriptor)
+    }
   }
 
   return tools

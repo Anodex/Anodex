@@ -89,6 +89,29 @@ folder (path traversal outside it is blocked):
 - **Memory:** `remember_fact` saves approved global or project-scoped facts
   when memory is enabled.
 
+## GitHub and MCP integrations
+
+Settings → GitHub connects Anodex to GitHub's official hosted MCP server with a
+fine-grained personal access token. The token is encrypted with Electron
+`safeStorage` and never returned to the renderer after it is saved. GitHub runs
+read-only by default; repository, issue, pull-request, and Actions toolsets can
+be enabled independently. Turning off read-only exposes write tools, but every
+GitHub mutation still requires explicit approval regardless of the global
+permission mode.
+
+An active project can be linked to an `owner/repository` target manually or by
+detecting its `origin` git remote. The link is added to that project's model
+context so GitHub tools use the right repository without repeatedly asking.
+
+Settings → MCP Servers remains the advanced, provider-neutral surface for local
+stdio and remote Streamable HTTP servers. Tools are discovered dynamically and
+work with local, OpenAI, and Anthropic models. Remote bearer tokens, OAuth
+records, and local-server environment values are encrypted in the OS credential
+store; only non-secret configuration and environment-variable names are kept in
+the MCP server config. Generic MCP calls are treated as sensitive because server
+annotations are hints, while the trusted GitHub preset can distinguish verified
+reads from approval-gated writes and destructive actions.
+
 ## Skills
 
 Anodex has a lightweight markdown skill catalog for reusable workflows. Skills
@@ -222,6 +245,10 @@ input/output split per model underneath.
   panel, recommended-model strip, installed-models table with fit + reliability
   scores, in-catalog search/download, and response-generation defaults.
 - **Email** — Gmail connection, sync scope, and advanced OAuth setup.
+- **GitHub** — official hosted MCP connection, read-only/toolset controls, and
+  active-project repository linking.
+- **MCP Servers** — advanced local/remote MCP server configuration, connection
+  status, and discovered-tool inspection.
 - **Archive** — restore or permanently remove archived chats/projects and bulk
   archive active conversations.
 - **Diagnostics** — persistent local errors/warnings with configurable detail,
@@ -246,7 +273,8 @@ public releases mirror, a small relay service, or making the repo public).
 Local-first by design: model inference, conversations, projects, and
 settings all stay on your machine. The only network calls are ones you
 explicitly opt into (web search, fetching a URL the model was asked to read,
-downloading a model, or checking for app updates).
+connected email/GitHub/MCP providers, downloading a model, or checking for app
+updates).
 
 ## Tech stack
 

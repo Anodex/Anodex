@@ -11,6 +11,8 @@ export interface Project {
   instructions?: string
   /** Skill names that should be treated as active by default for this project. */
   pinnedSkillNames: string[]
+  /** Optional `owner/repository` used as the default target for GitHub MCP tools. */
+  githubRepository?: string
   createdAt: number
   updatedAt: number
   /** Archived projects are hidden from the sidebar until restored from Settings. */
@@ -28,5 +30,5 @@ export interface ProjectsState {
 export type CreateProjectRequest = Pick<Project, 'name' | 'folderPath'> &
   Partial<Pick<Project, 'instructions'>>
 export type UpdateProjectRequest = Partial<
-  Pick<Project, 'name' | 'folderPath' | 'instructions' | 'pinnedSkillNames'>
+  Pick<Project, 'name' | 'folderPath' | 'instructions' | 'pinnedSkillNames' | 'githubRepository'>
 >

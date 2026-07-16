@@ -27,6 +27,7 @@ import { buildTranscriptRecallContext } from '../recall/transcriptRecallContext'
 import { skillStore } from '../skills/SkillStore'
 import { buildActiveSkillContext } from '../skills/activeSkillContext'
 import { parseRunCommandVerification } from '../tools/commandTools'
+import { mcpManager } from '../mcp/McpManager'
 import { chatEvents } from './chatEvents'
 
 /**
@@ -184,6 +185,10 @@ export async function runGeneration(
         },
         plan: request.plan ?? null,
         enabledTools: io.enabledTools ?? null,
+        // Discovery already happened at server-connect time, not here — this
+        // is a synchronous read of McpManager's cache, so it never delays a
+        // generation the way a live per-turn tool-list fetch would.
+        mcpTools: mcpManager.listTools(),
         onActivity: (call: ToolCall) => {
           hadToolActivity = true
           // Only tally terminal, actually-executed calls, matching the same
@@ -242,7 +247,7 @@ export async function runGeneration(
     hasWorkspaceTools,
     hasProject: Boolean(activeProject),
     assistantStyle: settings.assistantStyle.globalStyle,
-    projectRules: activeProject?.instructions ?? null,
+    projectRules: composeProjectRules(activeProject?.instructions, activeProject?.githubRepository),
     activeSkillContext,
     workspaceContext:
       hasWorkspaceTools && workspaceRoot
@@ -377,4 +382,17 @@ export async function runGeneration(
     transcriptRecallUsed: transcriptRecall?.results,
     context: contextUpdate
   }
+}
+
+function composeProjectRules(
+  instructions: string | undefined,
+  githubRepository: string | undefined
+): string | null {
+  const parts = [instructions?.trim()]
+  if (githubRepository) {
+    parts.push(
+      `The active project is linked to the GitHub repository ${githubRepository}. Use that owner/repository as the default target for GitHub tools unless the user names another repository.`
+    )
+  }
+  return parts.filter((part): part is string => Boolean(part)).join('\n\n') || null
 }

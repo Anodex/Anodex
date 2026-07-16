@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { createServer, type Server, type ServerResponse } from 'node:http'
-import { shell } from 'electron'
 import type {
   EmailAttachmentSummary,
   EmailConnectionStatus,
@@ -14,6 +12,7 @@ import type {
 } from '@shared/email.types'
 import { settingsStore } from '../settings/SettingsStore'
 import { emailAuthStore } from './EmailAuthStore'
+import { runLoopbackAuthorization } from '../oauth/loopbackServer'
 
 const MAX_EMAIL_RESULTS = 20
 const AUTH_TIMEOUT_MS = 120_000
@@ -339,71 +338,25 @@ class EmailService {
 
 async function waitForOAuthCode(clientId: string): Promise<{ code: string; redirectUri: string }> {
   const state = randomUUID()
-  const { server, port } = await createLoopbackServer()
-  const redirectUri = `http://127.0.0.1:${port}`
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: GMAIL_SCOPES.join(' '),
-    access_type: 'offline',
-    prompt: 'consent',
-    state
+  const { params, redirectUri } = await runLoopbackAuthorization({
+    expectedState: state,
+    timeoutMs: AUTH_TIMEOUT_MS,
+    buildAuthorizationUrl: (redirectUri) => {
+      const authParams = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: GMAIL_SCOPES.join(' '),
+        access_type: 'offline',
+        prompt: 'consent',
+        state
+      })
+      return `${GOOGLE_AUTH_URL}?${authParams.toString()}`
+    }
   })
-
-  const codePromise = new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(
-      () => reject(new Error('Timed out waiting for Gmail authorization.')),
-      AUTH_TIMEOUT_MS
-    )
-
-    server.on('request', (req, res) => {
-      const url = new URL(req.url ?? '/', redirectUri)
-      const incomingState = url.searchParams.get('state')
-      const error = url.searchParams.get('error')
-      const code = url.searchParams.get('code')
-
-      if (error) {
-        sendOAuthResponse(res, 'Gmail authorization was cancelled.')
-        clearTimeout(timeout)
-        reject(new Error(`Gmail authorization failed: ${error}`))
-        return
-      }
-      if (!code || incomingState !== state) {
-        sendOAuthResponse(res, 'Invalid Gmail authorization response.')
-        return
-      }
-
-      sendOAuthResponse(res, 'Gmail connected. You can return to Anodex.')
-      clearTimeout(timeout)
-      resolve(code)
-    })
-  }).finally(() => {
-    server.close()
-  })
-
-  await shell.openExternal(`${GOOGLE_AUTH_URL}?${params.toString()}`)
-  return { code: await codePromise, redirectUri }
-}
-
-function createLoopbackServer(): Promise<{ server: Server; port: number }> {
-  const server = createServer()
-  return new Promise((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address()
-      if (!address || typeof address === 'string') {
-        reject(new Error('Could not start Gmail OAuth callback server.'))
-        return
-      }
-      resolve({ server, port: address.port })
-    })
-  })
-}
-
-function sendOAuthResponse(res: ServerResponse, message: string): void {
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-  res.end(`<html><body><h1>${escapeHtml(message)}</h1></body></html>`)
+  const code = params.get('code')
+  if (!code) throw new Error('Gmail authorization response was missing a code.')
+  return { code, redirectUri }
 }
 
 async function exchangeCodeForToken(code: string, redirectUri: string): Promise<GmailToken> {
@@ -586,14 +539,6 @@ function decodeBase64UrlBuffer(value: string): Buffer {
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}...` : text
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 export const emailService = new EmailService()

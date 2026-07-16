@@ -10,6 +10,7 @@ import { useProviderUsageStore } from '../stores/providerUsageStore'
 import { useSchedulerStore } from '../stores/schedulerStore'
 import { useAgentStore } from '../stores/agentStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useMcpStore } from '../stores/mcpStore'
 import { useUiStore } from '../stores/uiStore'
 
 /**
@@ -115,6 +116,9 @@ export function useAnodexBridge(): void {
       // its chat/badge shows up without a manual reload.
       void useChatStore.getState().refreshConversations()
     })
+    const offMcpStatus = anodex.mcp.onStatusChanged((state) => {
+      useMcpStore.getState().setStatus(state)
+    })
     // Clicking a scheduled-task toast asks the main window to open the
     // conversation that run produced, instead of just focusing whatever view
     // already happened to be showing.
@@ -140,6 +144,7 @@ export function useAnodexBridge(): void {
       offHistoryCompacted()
       offSchedulerTasks()
       offAgentRuns()
+      offMcpStatus()
       offToastOpenConversation()
     }
   }, [])
@@ -158,6 +163,7 @@ async function hydrate(): Promise<void> {
   useProviderUsageStore.getState().setAll(usage)
   await useSchedulerStore.getState().load()
   await useAgentStore.getState().load()
+  await useMcpStore.getState().load()
 }
 
 /**

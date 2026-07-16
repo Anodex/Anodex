@@ -24,7 +24,10 @@ import { registerTerminalHandlers } from './terminal.handlers'
 import { registerSchedulerHandlers } from './scheduler.handlers'
 import { registerAgentHandlers } from './agent.handlers'
 import { registerEmailHandlers } from './email.handlers'
+import { registerMcpHandlers } from './mcp.handlers'
+import { registerGithubHandlers } from './github.handlers'
 import { registerContextMenuHandlers } from '../contextMenu'
+import { mcpManager } from '../mcp/McpManager'
 
 /**
  * Register every IPC handler and wire engine state broadcasts.
@@ -52,6 +55,8 @@ export function registerIpcHandlers(): void {
   registerSchedulerHandlers()
   registerAgentHandlers()
   registerEmailHandlers()
+  registerGithubHandlers()
+  registerMcpHandlers()
   registerContextMenuHandlers()
 
   // Push engine state changes to every open renderer window.
@@ -80,6 +85,13 @@ export function registerIpcHandlers(): void {
   providerUsageStore.on('change', (snapshot) => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send(IpcChannel.Provider.usageChanged, snapshot)
+    }
+  })
+
+  // Push MCP server connection status changes to every open renderer window.
+  mcpManager.on('statusChanged', (state) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Mcp.statusChanged, state)
     }
   })
 }

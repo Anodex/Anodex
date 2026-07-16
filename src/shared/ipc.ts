@@ -72,6 +72,15 @@ import type {
   EmailSendRequest,
   EmailThreadSummary
 } from './email.types'
+import type {
+  McpNewServerConfig,
+  McpServerConfig,
+  McpServerCredentials,
+  McpServerPatch,
+  McpServerState,
+  McpToolDescriptor
+} from './mcp.types'
+import type { GithubConnectRequest, GithubConnectionState } from './github.types'
 
 export const IpcChannel = {
   Models: {
@@ -265,6 +274,30 @@ export const IpcChannel = {
     readMessage: 'email:read-message',
     createDraft: 'email:create-draft',
     send: 'email:send'
+  },
+  Github: {
+    getState: 'github:get-state',
+    connect: 'github:connect',
+    disconnect: 'github:disconnect',
+    detectRepository: 'github:detect-repository'
+  },
+  Mcp: {
+    list: 'mcp:list',
+    add: 'mcp:add',
+    update: 'mcp:update',
+    remove: 'mcp:remove',
+    setEnabled: 'mcp:set-enabled',
+    setStaticToken: 'mcp:set-static-token',
+    /** Re-runs the connection (including OAuth if needed) for an already-saved server. */
+    connect: 'mcp:connect',
+    /** Attempts a connection without persisting it into the live tool set. */
+    testConnection: 'mcp:test-connection',
+    /** Clears stored credentials (static token or OAuth tokens) for a server. */
+    disconnectAuth: 'mcp:disconnect-auth',
+    getStatuses: 'mcp:get-statuses',
+    listTools: 'mcp:list-tools',
+    /** main → renderer broadcast whenever a server's connection status changes. */
+    statusChanged: 'mcp:status-changed'
   }
 } as const
 
@@ -512,5 +545,42 @@ export interface AnodexApi {
     readMessage(id: string): Promise<Result<EmailMessage>>
     createDraft(request: EmailDraftRequest): Promise<Result<EmailDraft>>
     send(request: EmailSendRequest): Promise<Result<void>>
+  }
+  github: {
+    getState(projectId?: string | null): Promise<Result<GithubConnectionState>>
+    connect(
+      request: GithubConnectRequest,
+      projectId?: string | null
+    ): Promise<Result<GithubConnectionState>>
+    disconnect(projectId?: string | null): Promise<Result<GithubConnectionState>>
+    detectRepository(projectId: string): Promise<Result<string | null>>
+  }
+  mcp: {
+    list(): Promise<McpServerConfig[]>
+    add(
+      config: McpNewServerConfig,
+      credentials?: McpServerCredentials
+    ): Promise<Result<McpServerConfig>>
+    update(
+      id: string,
+      patch: McpServerPatch,
+      credentials?: McpServerCredentials
+    ): Promise<Result<McpServerConfig>>
+    remove(id: string): Promise<Result<void>>
+    setEnabled(id: string, enabled: boolean): Promise<Result<McpServerConfig>>
+    /** Stores a pasted bearer token for a remote server and reconnects using it instead of OAuth. */
+    setStaticToken(id: string, token: string): Promise<Result<void>>
+    /** Re-runs the connection (including OAuth if needed) for an already-saved server. */
+    connect(id: string): Promise<Result<void>>
+    /** Attempts a connection without persisting it into the live tool set — for a "Test connection" action. */
+    testConnection(
+      config: McpServerConfig
+    ): Promise<Result<{ ok: true; toolCount: number } | { ok: false; error: string }>>
+    /** Clears stored credentials (static token or OAuth tokens) so the next connect starts fresh. */
+    disconnectAuth(id: string): Promise<Result<void>>
+    getStatuses(): Promise<McpServerState[]>
+    /** Every tool currently discovered across all connected servers. */
+    listTools(): Promise<McpToolDescriptor[]>
+    onStatusChanged(listener: (state: McpServerState) => void): () => void
   }
 }

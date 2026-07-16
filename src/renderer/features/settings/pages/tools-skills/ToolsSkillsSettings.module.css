@@ -177,6 +177,11 @@
   background: rgba(124, 92, 255, 0.1);
 }
 
+.mcp {
+  color: var(--accent-violet);
+  background: var(--accent-violet-soft);
+}
+
 .toolDesc {
   font-size: var(--text-sm);
 }

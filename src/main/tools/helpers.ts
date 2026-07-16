@@ -254,7 +254,10 @@ export async function runGuardedTool(
         conversationId: ctx.conversationId,
         messageId: ctx.messageId,
         toolName: spec.name,
-        kind: spec.kind === 'command' || spec.kind === 'web' ? spec.kind : 'write',
+        kind:
+          spec.kind === 'command' || spec.kind === 'web' || spec.kind === 'mcp'
+            ? spec.kind
+            : 'write',
         title: spec.title,
         detail: spec.confirmDetail,
         risk: spec.risk,

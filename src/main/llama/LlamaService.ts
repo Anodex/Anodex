@@ -31,6 +31,7 @@ import type { ConversationContext } from '@shared/context.types'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
+import type { McpToolDescriptor } from '@shared/mcp.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
@@ -178,6 +179,8 @@ export interface GenerateParams {
     plan: Plan | null
     /** Restricts which tools get registered at all; null = unrestricted (normal chat). */
     enabledTools?: Set<string> | null
+    /** Tools discovered from currently-connected MCP servers (see `ToolRuntimeContext.mcpTools`). */
+    mcpTools: McpToolDescriptor[]
     onActivity: (call: ToolCall) => void
     confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
   }
@@ -1216,6 +1219,7 @@ class LlamaService extends EventEmitter {
       email: params.tools.email,
       memory: params.tools.memory,
       enabledTools: params.tools.enabledTools ?? null,
+      mcpTools: params.tools.mcpTools,
       // A mutable box, not the plan value itself — shared by every tool call
       // in this generation so `update_plan_step` sees `write_plan`'s result
       // within the same turn (see `ToolRuntimeContext.plan`'s doc comment).

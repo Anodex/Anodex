@@ -20,6 +20,9 @@ import { emailAuthStore } from './email/EmailAuthStore'
 import { skillStore } from './skills/SkillStore'
 import { agentRunStore } from './agents/AgentRunStore'
 import { agentRunService } from './agents/AgentRunService'
+import { mcpServerStore } from './mcp/McpServerStore'
+import { mcpAuthStore } from './mcp/McpAuthStore'
+import { mcpManager } from './mcp/McpManager'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('main')
@@ -63,6 +66,11 @@ if (!app.requestSingleInstanceLock()) {
       schedulerStore.init()
       schedulerService.init()
       setKeepAwake(settingsStore.get().scheduler.keepAwake)
+      mcpServerStore.init()
+      mcpAuthStore.init()
+      // Connects enabled servers in the background — never blocks startup on
+      // a slow or dead MCP server (see McpManager.init's doc comment).
+      mcpManager.init()
       registerIpcHandlers()
       createMainWindow()
       setTimeout(() => void updateService.check(), STARTUP_UPDATE_CHECK_DELAY_MS)
@@ -93,6 +101,11 @@ if (!app.requestSingleInstanceLock()) {
     closeToast()
     llamaService.unload().catch((error) => {
       log.error('Error unloading model on quit:', error)
+    })
+    // Local MCP servers spawn child processes — disconnect them so none are
+    // orphaned after the app exits.
+    mcpManager.disconnectAll().catch((error) => {
+      log.error('Error disconnecting MCP servers on quit:', error)
     })
   })
 }
