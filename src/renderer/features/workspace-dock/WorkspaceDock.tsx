@@ -9,6 +9,7 @@ import { DOCK_PANELS } from './workspaceDockTypes'
 import { PlanPanel } from './panels/PlanPanel'
 import { ChangesPanel } from './panels/ChangesPanel'
 import { CheckpointsPanel } from './panels/CheckpointsPanel'
+import { GitPanel } from './panels/GitPanel'
 import { FilesPanel } from './panels/FilesPanel'
 import { ActivityPanel } from './panels/ActivityPanel'
 import { OutputsPanel } from './panels/OutputsPanel'
@@ -19,6 +20,7 @@ const PANEL_COMPONENTS = {
   plan: PlanPanel,
   changes: ChangesPanel,
   checkpoints: CheckpointsPanel,
+  git: GitPanel,
   files: FilesPanel,
   activity: ActivityPanel,
   outputs: OutputsPanel,
@@ -29,6 +31,7 @@ const PANEL_LABELS: Record<keyof typeof PANEL_COMPONENTS, string> = {
   plan: 'Plan panel',
   changes: 'Changes panel',
   checkpoints: 'Checkpoint history',
+  git: 'Git panel',
   files: 'File tree',
   activity: 'Activity panel',
   outputs: 'Outputs panel',

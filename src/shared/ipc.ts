@@ -89,12 +89,15 @@ import type {
   McpToolDescriptor
 } from './mcp.types'
 import type { GithubConnectRequest, GithubConnectionState } from './github.types'
+import type { GitWorkspaceStatus } from './git.types'
 import type {
   CheckpointPreview,
   CheckpointHistoryEntry,
   CheckpointRequest,
   RestoreCheckpointRequest,
   RestoreCheckpointResult,
+  RollbackCheckpointsRequest,
+  RollbackCheckpointsResult,
   UndoCheckpointRequest,
   UndoCheckpointResult
 } from './checkpoint.types'
@@ -180,7 +183,9 @@ export const IpcChannel = {
     /** Restore the files changed by one assistant message back to their before-state. */
     restore: 'checkpoints:restore',
     /** Reapply the AI turn after a checkpoint restore. */
-    undo: 'checkpoints:undo'
+    undo: 'checkpoints:undo',
+    /** Restore discarded assistant turns in reverse transcript order. */
+    rollback: 'checkpoints:rollback'
   },
   Projects: {
     list: 'projects:list',
@@ -320,6 +325,10 @@ export const IpcChannel = {
     disconnect: 'github:disconnect',
     detectRepository: 'github:detect-repository'
   },
+  Git: {
+    getStatus: 'git:get-status',
+    init: 'git:init'
+  },
   Mcp: {
     list: 'mcp:list',
     add: 'mcp:add',
@@ -449,6 +458,8 @@ export interface AnodexApi {
     restore(request: RestoreCheckpointRequest): Promise<Result<RestoreCheckpointResult>>
     /** Reapply the AI turn after a checkpoint restore. */
     undo(request: UndoCheckpointRequest): Promise<Result<UndoCheckpointResult>>
+    /** Restore all checkpointed changes discarded by a past-message edit. */
+    rollback(request: RollbackCheckpointsRequest): Promise<Result<RollbackCheckpointsResult>>
   }
   projects: {
     list(): Promise<ProjectsState>
@@ -613,6 +624,10 @@ export interface AnodexApi {
     ): Promise<Result<GithubConnectionState>>
     disconnect(projectId?: string | null): Promise<Result<GithubConnectionState>>
     detectRepository(projectId: string): Promise<Result<string | null>>
+  }
+  git: {
+    getStatus(projectId: string): Promise<Result<GitWorkspaceStatus>>
+    init(projectId: string): Promise<Result<GitWorkspaceStatus>>
   }
   mcp: {
     list(): Promise<McpServerConfig[]>

@@ -80,7 +80,8 @@ const api: AnodexApi = {
     list: (projectId) => ipcRenderer.invoke(IpcChannel.Checkpoints.list, projectId),
     inspect: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.inspect, request),
     restore: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.restore, request),
-    undo: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.undo, request)
+    undo: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.undo, request),
+    rollback: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.rollback, request)
   },
   system: {
     getInfo: () => ipcRenderer.invoke(IpcChannel.System.getInfo),
@@ -223,6 +224,10 @@ const api: AnodexApi = {
     disconnect: (projectId) => ipcRenderer.invoke(IpcChannel.Github.disconnect, projectId),
     detectRepository: (projectId) =>
       ipcRenderer.invoke(IpcChannel.Github.detectRepository, projectId)
+  },
+  git: {
+    getStatus: (projectId) => ipcRenderer.invoke(IpcChannel.Git.getStatus, projectId),
+    init: (projectId) => ipcRenderer.invoke(IpcChannel.Git.init, projectId)
   },
   mcp: {
     list: () => ipcRenderer.invoke(IpcChannel.Mcp.list),

@@ -28,6 +28,7 @@ import { registerCriticalThinkingHandlers } from './criticalThinking.handlers'
 import { registerEmailHandlers } from './email.handlers'
 import { registerMcpHandlers } from './mcp.handlers'
 import { registerGithubHandlers } from './github.handlers'
+import { registerGitHandlers } from './git.handlers'
 import { registerContextMenuHandlers } from '../contextMenu'
 import { mcpManager } from '../mcp/McpManager'
 
@@ -60,6 +61,7 @@ export function registerIpcHandlers(): void {
   registerCriticalThinkingHandlers()
   registerEmailHandlers()
   registerGithubHandlers()
+  registerGitHandlers()
   registerMcpHandlers()
   registerContextMenuHandlers()
 
