@@ -1,0 +1,637 @@
+:root {
+  color-scheme: dark;
+  --bg-base: #080808;
+  --bg-app: #0c0c0c;
+  --bg-surface: #111111;
+  --bg-surface-2: #161616;
+  --bg-elevated: #1c1c1c;
+  --bg-input: #0f0f0f;
+  --border: #1f1f1f;
+  --border-strong: #2a2a2a;
+  --accent: #4f8cff;
+  --accent-violet: #7c5cff;
+  --success: #3ccf7a;
+  --danger: #f05a5a;
+  --text: #f0f0f0;
+  --text-muted: #a0a0a0;
+  --text-faint: #606060;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --ease-launch: cubic-bezier(0.6, 0, 0.9, 0.4);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  color: var(--text);
+  background: var(--bg-app);
+  font-family: var(--font-sans);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.preview-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  min-width: 320px;
+  overflow: hidden;
+  background: #050505;
+}
+
+.boot-stage,
+.app-reveal {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------- Boot stage ---------- */
+
+.boot-stage {
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+  background: radial-gradient(120% 90% at 50% 44%, #0a0c12 0%, #060708 58%, #050506 100%);
+  transition:
+    opacity 520ms var(--ease-out),
+    visibility 520ms var(--ease-out);
+}
+
+.boot-stage.is-complete {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#starfield {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  width: 100%;
+  height: 100%;
+}
+
+/* Edges darken during the jump so the tunnel stays dimensional, not chaotic */
+.warp-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.55) 100%);
+  transition: opacity 420ms var(--ease-out);
+}
+
+.boot-stage.is-igniting .warp-vignette,
+.boot-stage.is-jumping .warp-vignette {
+  opacity: 1;
+}
+
+/* The mark's engine glow — the receding logo collapses into this point of light */
+.vanish-point {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  width: 14px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: 0;
+  background: #ffffff;
+  box-shadow:
+    0 0 22px rgba(255, 255, 255, 0.85),
+    0 0 54px rgba(79, 140, 255, 0.7),
+    0 0 110px rgba(124, 92, 255, 0.4);
+  transform: translate(-50%, -50%) scale(0.15);
+}
+
+.boot-stage.is-jumping .vanish-point {
+  animation: bloomOut 1500ms var(--ease-emphasized) 450ms forwards;
+}
+
+/* Barely-there full-frame wash so the cut to the app isn't harsh — not a flash */
+.jump-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  background: #dfe9ff;
+}
+
+.boot-stage.is-jumping .jump-flash {
+  animation: afterglow 600ms ease-out 1250ms forwards;
+}
+
+.brand-lockup {
+  position: relative;
+  display: grid;
+  place-items: center;
+  transform: translateY(-4px);
+  animation: bootBreath 3400ms ease-in-out infinite;
+  will-change: transform, opacity, filter;
+}
+
+.boot-stage.is-igniting .brand-lockup {
+  animation: logoPrime 280ms var(--ease-out) forwards;
+}
+
+.boot-stage.is-jumping .brand-lockup {
+  animation: logoChase 1300ms var(--ease-launch) forwards;
+}
+
+.boot-stage.is-error .brand-lockup {
+  animation: none;
+  filter: saturate(0.55) brightness(0.72);
+  transition: filter 700ms var(--ease-out);
+}
+
+.startup-logo {
+  width: clamp(92px, 12vw, 136px);
+  height: auto;
+  filter: drop-shadow(0 0 22px rgba(79, 140, 255, 0.16));
+}
+
+.startup-status {
+  position: absolute;
+  bottom: clamp(42px, 7vh, 76px);
+  left: 50%;
+  display: flex;
+  min-width: min(380px, calc(100vw - 48px));
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  transform: translateX(-50%);
+  transition: opacity 220ms var(--ease-out);
+}
+
+.boot-stage.is-igniting .startup-status,
+.boot-stage.is-jumping .startup-status,
+.boot-stage.is-error .startup-status {
+  opacity: 0;
+}
+
+.status-dots,
+.status-dots::before,
+.status-dots::after {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dotPulse 1100ms ease-in-out infinite;
+}
+
+.status-dots {
+  position: relative;
+  margin-top: 9px;
+}
+
+.status-dots::before,
+.status-dots::after {
+  position: absolute;
+  top: 0;
+  content: '';
+}
+
+.status-dots::before {
+  left: 9px;
+  animation-delay: 140ms;
+}
+
+.status-dots::after {
+  left: 18px;
+  animation-delay: 280ms;
+}
+
+/* ---------- Failure settles quietly: no jump, just recovery ---------- */
+
+.startup-error {
+  position: absolute;
+  bottom: clamp(34px, 6vh, 64px);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 0 24px;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 340ms var(--ease-out) 220ms;
+}
+
+.boot-stage.is-error .startup-error {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.error-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.error-title::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.error-detail {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.error-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.error-actions button {
+  padding: 7px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  background: rgba(17, 17, 17, 0.72);
+}
+
+.error-actions button:hover {
+  background: var(--bg-elevated);
+}
+
+.error-actions button.primary {
+  border-color: rgba(79, 140, 255, 0.5);
+}
+
+/* ---------- App reveal ---------- */
+
+.app-reveal {
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(190px, 248px) 1fr;
+  opacity: 0;
+  transform: scale(0.985);
+  filter: blur(5px);
+  background: var(--bg-app);
+  transition:
+    opacity 720ms var(--ease-out),
+    transform 720ms var(--ease-out),
+    filter 720ms var(--ease-out);
+}
+
+.app-reveal.is-visible {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+  transition-delay: 720ms;
+}
+
+.sidebar {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px 14px;
+  border-right: 1px solid var(--border);
+  background: #080808;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.primary-action {
+  height: 34px;
+  border: 1px solid rgba(79, 140, 255, 0.44);
+  border-radius: 6px;
+  color: white;
+  background: rgba(79, 140, 255, 0.16);
+}
+
+.sidebar-section {
+  display: grid;
+  gap: 6px;
+}
+
+.section-label {
+  padding: 0 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.project-row,
+.chat-row {
+  overflow: hidden;
+  padding: 8px 9px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.project-row.active {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.workspace {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 64px 1fr auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--border);
+  background: #0c0c0c;
+}
+
+.eyebrow {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.model-pill {
+  min-width: max-content;
+  padding: 6px 9px;
+  border: 1px solid rgba(60, 207, 122, 0.28);
+  border-radius: 999px;
+  color: #b9f4d0;
+  background: rgba(60, 207, 122, 0.1);
+  font-size: 12px;
+}
+
+.chat-surface {
+  display: grid;
+  align-content: end;
+  gap: 16px;
+  padding: 28px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px), var(--bg-base);
+  background-size: 32px 32px;
+}
+
+.message {
+  max-width: min(680px, 86%);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--bg-surface);
+  line-height: 1.45;
+}
+
+.message.user {
+  justify-self: end;
+  border-color: rgba(79, 140, 255, 0.26);
+  background: rgba(79, 140, 255, 0.1);
+}
+
+.message.assistant {
+  justify-self: start;
+}
+
+.composer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 16px 28px 22px;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-faint);
+}
+
+.composer span {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer button,
+.preview-controls button {
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.composer button {
+  padding: 7px 12px;
+}
+
+/* ---------- Preview harness ---------- */
+
+.preview-controls {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview-controls button,
+.preview-controls .rm-toggle {
+  padding: 8px 11px;
+  color: rgba(240, 240, 240, 0.86);
+  background: rgba(17, 17, 17, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.preview-controls .rm-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.preview-controls .rm-toggle input {
+  accent-color: var(--accent);
+}
+
+/* ---------- Motion ---------- */
+
+@keyframes bootBreath {
+  0%,
+  100% {
+    transform: translateY(-4px) scale(1);
+  }
+
+  50% {
+    transform: translateY(-7px) scale(1.014);
+  }
+}
+
+@keyframes dotPulse {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes logoPrime {
+  to {
+    transform: translateY(-4px) scale(1.045);
+    filter: brightness(1.1);
+  }
+}
+
+/* The mark banks and pulls away from the viewer — you're chasing it into the point */
+@keyframes logoChase {
+  0% {
+    opacity: 1;
+    filter: blur(0) brightness(1.1);
+    transform: translate(0, -4px) scale(1.045);
+  }
+
+  30% {
+    opacity: 1;
+    filter: blur(0.4px) brightness(1.22);
+    transform: translate(7px, -13px) scale(0.74);
+  }
+
+  78% {
+    opacity: 0.85;
+    filter: blur(1.4px) brightness(1.4);
+  }
+
+  100% {
+    opacity: 0;
+    filter: blur(2.5px) brightness(1.5);
+    transform: translate(0, -2px) scale(0.005);
+  }
+}
+
+@keyframes bloomOut {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.15);
+  }
+
+  42% {
+    opacity: 0.92;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  70% {
+    opacity: 0.75;
+    transform: translate(-50%, -50%) scale(1.5);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.3);
+  }
+}
+
+@keyframes afterglow {
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  35% {
+    opacity: 0.14;
+  }
+}
+
+/* Manual reduced-motion toggle mirrors the system preference */
+.preview-shell.rm .brand-lockup,
+.preview-shell.rm .status-dots,
+.preview-shell.rm .status-dots::before,
+.preview-shell.rm .status-dots::after {
+  animation: none;
+}
+
+@media (max-width: 760px) {
+  .app-reveal {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .topbar {
+    padding: 0 16px;
+  }
+
+  .chat-surface {
+    padding: 18px;
+  }
+
+  .composer {
+    margin: 12px 16px 18px;
+  }
+
+  .preview-controls {
+    right: 12px;
+    bottom: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

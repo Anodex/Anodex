@@ -12,6 +12,7 @@ import { useAgentStore } from '../stores/agentStore'
 import { useCriticalThinkingStore } from '../stores/criticalThinkingStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useMcpStore } from '../stores/mcpStore'
+import { useStartupStore } from '../stores/startupStore'
 import { useUiStore } from '../stores/uiStore'
 
 /**
@@ -58,10 +59,25 @@ export function useAnodexBridge(): void {
     let cancelled = false
     let restoreTimer: ReturnType<typeof setTimeout> | undefined
 
-    void hydrate().then(() => {
-      if (cancelled) return
-      restoreTimer = setTimeout(() => void restoreLastModel(), STARTUP_MODEL_LOAD_DELAY_MS)
-    })
+    void hydrate()
+      .then(() => {
+        if (cancelled) return
+        // Readiness for the startup overlay is hydrate() resolving — the
+        // deferred model load below is deliberately NOT part of it (model
+        // loading must never block app entry; the model status chip in the
+        // sidebar carries any load still in flight).
+        useStartupStore.getState().setReady()
+        restoreTimer = setTimeout(() => void restoreLastModel(), STARTUP_MODEL_LOAD_DELAY_MS)
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        useStartupStore
+          .getState()
+          .setError(
+            "Couldn't finish starting Anodex",
+            error instanceof Error ? error.message : String(error)
+          )
+      })
 
     // Live subscriptions.
     const offStream = anodex.chat.onStream(({ conversationId, messageId, token }) =>
@@ -160,20 +176,55 @@ export function useAnodexBridge(): void {
 }
 
 async function hydrate(): Promise<void> {
+  const status = (text: string): void => useStartupStore.getState().setStatus(text)
+
+  status('Loading settings')
   await useSettingsStore.getState().load()
+  // Detected before autoConfigureFromHardware flips the flag: a first launch
+  // gets the slightly longer, more cinematic startup sequence.
+  if (useSettingsStore.getState().settings?.model.autoConfigured === false) {
+    useStartupStore.getState().markFirstLaunch()
+  }
+
+  status('Restoring workspace')
   await useProjectStore.getState().load()
   await useChatStore.getState().load()
   await reconcileActiveProject()
+
+  status('Checking local models')
   await autoConfigureFromHardware()
   await useModelStore.getState().refresh()
   const state = await anodex.models.getState()
   useModelStore.getState().setEngineState(state)
+
+  status('Connecting services')
   const usage = await anodex.provider.getUsageSnapshot()
   useProviderUsageStore.getState().setAll(usage)
   await useSchedulerStore.getState().load()
   await useAgentStore.getState().load()
   await useCriticalThinkingStore.getState().load()
   await useMcpStore.getState().load()
+}
+
+/**
+ * Re-run the startup hydration after a failure, from the overlay's
+ * "Try again" action. A successful retry also schedules the deferred model
+ * restore that the original mount-time path would have scheduled.
+ */
+export async function retryStartup(): Promise<void> {
+  useStartupStore.getState().beginAttempt()
+  try {
+    await hydrate()
+    useStartupStore.getState().setReady()
+    setTimeout(() => void restoreLastModel(), STARTUP_MODEL_LOAD_DELAY_MS)
+  } catch (error) {
+    useStartupStore
+      .getState()
+      .setError(
+        "Couldn't finish starting Anodex",
+        error instanceof Error ? error.message : String(error)
+      )
+  }
 }
 
 /**

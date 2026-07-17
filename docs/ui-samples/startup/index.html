@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anodex Startup Jump Preview</title>
+    <link rel="stylesheet" href="./startup-preview.css" />
+  </head>
+  <body>
+    <main class="preview-shell" id="previewShell" aria-label="Anodex startup animation preview">
+      <section class="boot-stage" id="bootStage">
+        <canvas id="starfield" aria-hidden="true"></canvas>
+        <div class="warp-vignette" aria-hidden="true"></div>
+        <div class="vanish-point" aria-hidden="true"></div>
+        <div class="jump-flash" aria-hidden="true"></div>
+
+        <div class="brand-lockup" id="brandLockup">
+          <img
+            class="startup-logo"
+            src="../../../src/renderer/assets/title-logo.png"
+            alt="Anodex"
+            width="132"
+            height="132"
+          />
+        </div>
+
+        <div class="startup-status" aria-live="polite">
+          <span id="statusText">Starting local core</span>
+          <span class="status-dots" aria-hidden="true"></span>
+        </div>
+
+        <div class="startup-error" id="startupError" role="alert">
+          <span class="error-title" id="errorTitle">Couldn't restore your workspace</span>
+          <span class="error-detail" id="errorDetail">The conversation store didn't respond in time.</span>
+          <div class="error-actions">
+            <button type="button" class="primary" id="retryButton">Try again</button>
+            <button type="button" id="settingsButton">Open Settings</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="app-reveal" id="appReveal" aria-label="Anodex app shell preview">
+        <aside class="sidebar">
+          <div class="sidebar-brand">
+            <img src="../../../src/renderer/assets/title-logo.png" alt="" width="24" height="24" />
+            <span>Anodex</span>
+          </div>
+          <button class="primary-action">New chat</button>
+          <div class="sidebar-section">
+            <span class="section-label">Projects</span>
+            <div class="project-row active">Anodex4</div>
+            <div class="project-row">Local models</div>
+          </div>
+          <div class="sidebar-section">
+            <span class="section-label">Recent</span>
+            <div class="chat-row">Startup animation concept</div>
+            <div class="chat-row">Tool polish pass</div>
+            <div class="chat-row">Model setup notes</div>
+          </div>
+        </aside>
+
+        <div class="workspace">
+          <header class="topbar">
+            <div>
+              <span class="eyebrow">Project Chat</span>
+              <h1>Anodex4</h1>
+            </div>
+            <div class="model-pill">Local model ready</div>
+          </header>
+
+          <div class="chat-surface">
+            <div class="message user">Make startup feel like entering Anodex.</div>
+            <div class="message assistant">
+              Welcome aboard. Workspace tools are ready, the model is warm, and your project is
+              open.
+            </div>
+          </div>
+
+          <form class="composer">
+            <span>Ask Anodex anything...</span>
+            <button type="button" aria-label="Send">Send</button>
+          </form>
+        </div>
+      </section>
+
+      <div class="preview-controls">
+        <button id="replayButton" type="button">Replay</button>
+        <button id="jumpButton" type="button">Ready now</button>
+        <button id="failButton" type="button">Fail</button>
+        <label class="rm-toggle"><input type="checkbox" id="rmToggle" /> Reduced motion</label>
+      </div>
+    </main>
+
+    <script src="./startup-preview.js"></script>
+  </body>
+</html>

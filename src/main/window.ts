@@ -6,8 +6,12 @@ import { createLogger } from './utils/logger'
 
 const log = createLogger('window')
 
-/** Background colour matches the app shell so there is no white flash on launch. */
-const BACKGROUND_COLOR = '#0A0E1A'
+/**
+ * Background colour matches the startup overlay's deep-space gradient (see
+ * `StartupOverlay.module.css`) so the first painted frame is seamless — no
+ * flash between the native window appearing and the renderer's first paint.
+ */
+const BACKGROUND_COLOR = '#060708'
 
 /**
  * Tracked so a toast window (a separate, always-on-top `BrowserWindow`, see

@@ -1,0 +1,517 @@
+/*
+ * Startup overlay. Deliberately single-theme: this is deep space, the one
+ * surface that stays cinematic-dark in both app themes. Brand hues reference
+ * theme tokens where they are solid colours; the glow/starlight alphas are
+ * scene-specific literals derived from --accent (#4f8cff) and
+ * --accent-violet (#7c5cff).
+ *
+ * The engine drives choreography via data attributes on `.stage`:
+ *   data-state = arriving | drifting | charging | jumping | error
+ *   data-complete (present) = overlay fading out over the revealed app
+ */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+  pointer-events: auto;
+  background: radial-gradient(120% 90% at 50% 44%, #0a0c12 0%, #060708 58%, #050506 100%);
+  transition:
+    opacity 480ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stage[data-complete] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.stars {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  width: 100%;
+  height: 100%;
+}
+
+/* Edges darken during the jump so the tunnel stays dimensional, not chaotic */
+.vignette {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 38%, rgba(0, 0, 0, 0.6) 100%);
+  transition: opacity 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stage[data-state='charging'] .vignette,
+.stage[data-state='jumping'] .vignette {
+  opacity: 1;
+}
+
+/* Engine light: dies down on arrival, blooms again when the mark jumps away */
+.vanishPoint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  width: 14px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: 0;
+  background: #ffffff;
+  box-shadow:
+    0 0 22px rgba(255, 255, 255, 0.85),
+    0 0 54px rgba(79, 140, 255, 0.7),
+    0 0 110px rgba(124, 92, 255, 0.4);
+  transform: translate(-50%, -50%) scale(0.15);
+}
+
+.stage[data-state='arriving'] .vanishPoint {
+  animation: bloomIn 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stage[data-state='jumping'] .vanishPoint {
+  animation: bloomOut 1400ms cubic-bezier(0.2, 0, 0, 1) 360ms forwards;
+}
+
+/* One thin ring racing outward as the light barrier breaks */
+.shockwave {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  width: 12px;
+  aspect-ratio: 1;
+  margin: -6px 0 0 -6px;
+  border: 1.5px solid rgba(150, 180, 255, 0.55);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stage[data-state='jumping'] .shockwave {
+  animation: shock 750ms cubic-bezier(0.16, 1, 0.3, 1) 180ms forwards;
+}
+
+/* Barely-there wash so the cut into the app isn't harsh — never a flash */
+.flash {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  background: #dfe9ff;
+}
+
+.stage[data-state='jumping'] .flash {
+  animation: afterglow 500ms ease-out 1050ms forwards;
+}
+
+/* ---------- The mark ---------- */
+
+.lockup {
+  position: relative;
+  display: grid;
+  place-items: center;
+  transform: translateY(-4px);
+  animation: bootBreath 3400ms ease-in-out infinite;
+  will-change: transform, opacity, filter;
+}
+
+.stage[data-state='arriving'] .lockup {
+  animation: markArrive 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.stage[data-state='charging'] .lockup {
+  animation: logoPrime 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stage[data-state='jumping'] .lockup {
+  animation: logoChase 1150ms cubic-bezier(0.6, 0, 0.9, 0.4) forwards;
+}
+
+.stage[data-state='error'] .lockup {
+  animation: none;
+  filter: saturate(0.55) brightness(0.72);
+  transition: filter 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.halo {
+  position: absolute;
+  width: 340%;
+  aspect-ratio: 1;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(79, 140, 255, 0.1) 0%,
+    rgba(124, 92, 255, 0.05) 35%,
+    transparent 62%
+  );
+  animation: haloBreath 5200ms ease-in-out infinite;
+}
+
+.stage[data-state='charging'] .halo {
+  animation: haloTighten 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.markWrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.logo {
+  display: block;
+  width: clamp(92px, 12vw, 136px);
+  height: auto;
+  filter: drop-shadow(0 0 22px rgba(79, 140, 255, 0.16));
+}
+
+/* Specular sweep, masked to the logo silhouette (mask url set inline) */
+.sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    65deg,
+    transparent 42%,
+    rgba(255, 255, 255, 0.34) 50%,
+    transparent 58%
+  );
+  background-size: 260% 100%;
+  background-position: 130% 0;
+  background-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  animation: sheenSweep 7200ms ease-in-out infinite;
+}
+
+/* ---------- Status ---------- */
+
+.status {
+  position: absolute;
+  bottom: clamp(42px, 7vh, 76px);
+  left: 50%;
+  display: flex;
+  min-width: min(380px, calc(100vw - 48px));
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: 13px;
+  transform: translateX(-50%);
+  transition: opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stage[data-state='charging'] .status,
+.stage[data-state='jumping'] .status,
+.stage[data-state='error'] .status {
+  opacity: 0;
+}
+
+.dots,
+.dots::before,
+.dots::after {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dotPulse 1100ms ease-in-out infinite;
+}
+
+.dots {
+  position: relative;
+  margin-top: 9px;
+}
+
+.dots::before,
+.dots::after {
+  position: absolute;
+  top: 0;
+  content: '';
+}
+
+.dots::before {
+  left: 9px;
+  animation-delay: 140ms;
+}
+
+.dots::after {
+  left: 18px;
+  animation-delay: 280ms;
+}
+
+/* ---------- Failure settles quietly: no jump, just recovery ---------- */
+
+.errorPanel {
+  position: absolute;
+  bottom: clamp(34px, 6vh, 64px);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 0 var(--space-6);
+  text-align: center;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition:
+    opacity 340ms cubic-bezier(0.16, 1, 0.3, 1) 220ms,
+    visibility 340ms cubic-bezier(0.16, 1, 0.3, 1) 220ms;
+}
+
+.stage[data-state='error'] .errorPanel {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.errorTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.errorTitle::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.errorDetail {
+  max-width: min(520px, calc(100vw - 48px));
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.errorActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.errorActions button {
+  padding: 7px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  background: rgba(17, 17, 17, 0.72);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.errorActions button:hover {
+  background: var(--bg-elevated);
+}
+
+.errorActions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.errorActions .errorPrimary {
+  border-color: rgba(79, 140, 255, 0.5);
+}
+
+/* ---------- Stardust carried through the door ---------- */
+
+.settle {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ---------- Motion ---------- */
+
+@keyframes bootBreath {
+  0%,
+  100% {
+    transform: translateY(-4px) scale(1);
+  }
+
+  50% {
+    transform: translateY(-7px) scale(1.014);
+  }
+}
+
+@keyframes markArrive {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(-4px) scale(1.12);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(-4px) scale(1);
+  }
+}
+
+@keyframes bloomIn {
+  0% {
+    opacity: 0.85;
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.1);
+  }
+}
+
+@keyframes haloBreath {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes haloTighten {
+  to {
+    opacity: 1;
+    transform: scale(0.72);
+  }
+}
+
+@keyframes sheenSweep {
+  0%,
+  76% {
+    background-position: 130% 0;
+  }
+
+  90%,
+  100% {
+    background-position: -30% 0;
+  }
+}
+
+@keyframes dotPulse {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes logoPrime {
+  to {
+    transform: translateY(-4px) scale(1.05);
+    filter: brightness(1.12);
+  }
+}
+
+/* The mark banks and pulls away from the viewer — you chase it into the point */
+@keyframes logoChase {
+  0% {
+    opacity: 1;
+    filter: blur(0) brightness(1.12);
+    transform: translate(0, -4px) scale(1.05);
+  }
+
+  30% {
+    opacity: 1;
+    filter: blur(0.4px) brightness(1.24);
+    transform: translate(7px, -13px) scale(0.72);
+  }
+
+  78% {
+    opacity: 0.85;
+    filter: blur(1.4px) brightness(1.4);
+  }
+
+  100% {
+    opacity: 0;
+    filter: blur(2.5px) brightness(1.5);
+    transform: translate(0, -2px) scale(0.005);
+  }
+}
+
+@keyframes bloomOut {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.15);
+  }
+
+  42% {
+    opacity: 0.92;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  70% {
+    opacity: 0.75;
+    transform: translate(-50%, -50%) scale(1.5);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.3);
+  }
+}
+
+@keyframes shock {
+  0% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(95);
+  }
+}
+
+@keyframes afterglow {
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  35% {
+    opacity: 0.12;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lockup,
+  .halo,
+  .sheen,
+  .dots,
+  .dots::before,
+  .dots::after {
+    animation: none !important;
+  }
+}
