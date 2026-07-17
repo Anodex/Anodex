@@ -125,4 +125,17 @@ describe('listWorkspaceFiles', () => {
 
     expect(nodes).toEqual([expect.objectContaining({ type: 'file', name: 'index.js' })])
   })
+
+  it('hides .anodex/checkpoints (internal UUID-named snapshots) but keeps the rest of .anodex', async () => {
+    await mkdir(join(workspace, '.anodex', 'checkpoints', 'c_deadbeef'), { recursive: true })
+    await writeFile(join(workspace, '.anodex', 'checkpoints', 'c_deadbeef', 'm_abc.json'), 'x')
+    await mkdir(join(workspace, '.anodex', 'skills'), { recursive: true })
+    await writeFile(join(workspace, '.anodex', 'skills', 'code-review.md'), 'x')
+
+    const nodes = await listWorkspaceFiles(workspace, null)
+
+    const anodex = nodes[0] as Extract<WorkspaceTreeNode, { type: 'folder' }>
+    expect(anodex).toMatchObject({ type: 'folder', name: '.anodex' })
+    expect(anodex.children).toEqual([expect.objectContaining({ type: 'folder', name: 'skills' })])
+  })
 })

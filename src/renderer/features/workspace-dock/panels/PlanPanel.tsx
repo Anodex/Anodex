@@ -46,10 +46,20 @@ function PlanStepRow({ step, index }: { step: PlanStep; index: number }): JSX.El
         <StepStatusIcon status={step.status} />
       </span>
       <span className={styles.stepTitle}>
-        {index + 1}. {step.title}
+        {index + 1}. {stripLeadingOrdinal(step.title)}
       </span>
     </li>
   )
+}
+
+/**
+ * Models sometimes write their own "1. "/"2) " prefix into a step title even
+ * though `write_plan`'s schema just asks for a short description — the row
+ * already renders its own `index + 1`, so a model-written prefix would
+ * otherwise show up doubled (e.g. "1. 1. Add sound effects...").
+ */
+function stripLeadingOrdinal(title: string): string {
+  return title.replace(/^\d+[.)]\s+/, '')
 }
 
 function StepStatusIcon({ status }: { status: PlanStepStatus }): JSX.Element {

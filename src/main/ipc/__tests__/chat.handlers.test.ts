@@ -184,4 +184,31 @@ describe('chat IPC handlers', () => {
     })
     await secondSend
   })
+
+  it('translates node-llama-cpp\'s raw "Object is disposed" error into an ask-to-retry message', async () => {
+    registerChatHandlers()
+    const handler = mocks.handlers.get(IpcChannel.Chat.send)
+
+    mocks.generate.mockReset()
+    mocks.generate.mockRejectedValue(new Error('Object is disposed'))
+
+    const result = await handler?.({ sender: { isDestroyed: () => false, send: vi.fn() } }, {
+      conversationId: 'c1',
+      messageId: 'm1',
+      projectId: null,
+      systemPrompt: '',
+      context: undefined,
+      history: [],
+      prompt: 'hi',
+      plan: null
+    } satisfies ChatRequest)
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'chat.generation-interrupted' }
+    })
+    const message = (result as { error: { message: string } }).error.message
+    expect(message).not.toContain('Object is disposed')
+    expect(message).toContain('reloaded')
+  })
 })

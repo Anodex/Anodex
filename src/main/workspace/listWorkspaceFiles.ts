@@ -9,6 +9,15 @@ import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 const MAX_FILES = 500
 
 /**
+ * Checkpoint snapshots (`.anodex/checkpoints/<hash>/...`) are internal,
+ * UUID-named blobs — never something a user browsing the Files panel wants
+ * to see mixed in with their real project files (the Workspace Dock's
+ * Checkpoints panel is the real UI for this data). The rest of `.anodex`
+ * (skills, notes) stays visible; only this one subdirectory is excluded.
+ */
+const CHECKPOINTS_DIR = '.anodex/checkpoints'
+
+/**
  * How much slack to give between a file's real mtime and the AI's recorded
  * write timestamp before treating a later mtime as a sign the user (not the
  * AI) touched it since. Generous, since the two clocks/timestamps aren't
@@ -66,11 +75,13 @@ async function walk(
 
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue
+      const path = toWorkspaceRelative(root, full)
+      if (path === CHECKPOINTS_DIR) continue
       const children = await walk(full, root, memory, budget)
       if (children.length === 0) continue
       nodes.push({
         type: 'folder',
-        path: toWorkspaceRelative(root, full),
+        path,
         name: entry.name,
         children
       })

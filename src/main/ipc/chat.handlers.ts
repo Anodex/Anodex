@@ -70,6 +70,19 @@ export function registerChatHandlers(): void {
           message
         )
       }
+      // node-llama-cpp (via lifecycle-utils' DisposedError) throws this exact,
+      // internal-sounding string when the model's session/context gets torn
+      // down mid-generation — e.g. switching or unloading the model while a
+      // reply is still streaming. Not something the user did wrong, and not
+      // safely auto-retryable here, so surface it as a plain ask-to-retry
+      // instead of the raw native error text.
+      if (message === 'Object is disposed') {
+        return err(
+          'chat.generation-interrupted',
+          'The model was reloaded or unloaded while generating a reply. Send your message again once it finishes loading.',
+          message
+        )
+      }
       return err('chat.generation-failed', message)
     } finally {
       // Only clear the slot if it's still ours — an overlapping send may have
