@@ -14,6 +14,7 @@ import { MessageContent } from './MessageContent'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ToolCallGroup } from './ToolCallGroup'
 import { CheckpointDialog } from './CheckpointDialog'
+import { EditMessageDialog } from './EditMessageDialog'
 import { buildRenderSegments, messageBlocks } from './taskPhase'
 import styles from './MessageBubble.module.css'
 
@@ -35,9 +36,15 @@ export function MessageBubble({
   const openSettings = useUiStore((s) => s.openSettings)
   const notify = useUiStore((s) => s.notify)
   const activeConversationId = useChatStore((s) => s.activeId)
+  const conversationStreaming = useChatStore((state) =>
+    state.conversations
+      .find((conversation) => conversation.id === state.activeId)
+      ?.messages.some((item) => item.streaming)
+  )
   const [copied, setCopied] = useState(false)
   const [draftOpened, setDraftOpened] = useState(false)
   const [checkpointOpen, setCheckpointOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const showCopy = !message.streaming && message.content.length > 0
   const showSkillDraft =
     !isUser &&
@@ -158,6 +165,23 @@ export function MessageBubble({
       {showFooter ? (
         <div className={styles.footer}>
           {isUser && <span className={styles.footerTime}>{formatClock(message.createdAt)}</span>}
+          {isUser && (
+            <button
+              type="button"
+              className={styles.copyButton}
+              onClick={() => setEditOpen(true)}
+              disabled={conversationStreaming}
+              aria-label="Edit message"
+              title={
+                conversationStreaming
+                  ? 'Stop the current reply before editing'
+                  : 'Edit and regenerate from this message'
+              }
+            >
+              <Icon name="pencil" size={12} />
+              Edit
+            </button>
+          )}
           {showCopy && (
             <button
               type="button"
@@ -205,6 +229,14 @@ export function MessageBubble({
           conversationId={activeConversationId}
           messageId={message.id}
           onClose={() => setCheckpointOpen(false)}
+        />
+      )}
+      {editOpen && (
+        <EditMessageDialog
+          messageId={message.id}
+          content={message.content}
+          hasAttachments={Boolean(message.attachments?.length)}
+          onClose={() => setEditOpen(false)}
         />
       )}
     </div>

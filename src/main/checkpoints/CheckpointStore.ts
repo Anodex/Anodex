@@ -7,6 +7,7 @@ import type {
   CheckpointHistoryEntry,
   CheckpointPreview,
   CheckpointSummary,
+  RollbackCheckpointsResult,
   RestoreCheckpointResult,
   UndoCheckpointResult
 } from '@shared/checkpoint.types'
@@ -160,6 +161,88 @@ class CheckpointStore {
     return { restoredFiles, conflicts: [], checkpoint: toSummary(restored) }
   }
 
+  rollback(
+    workspaceRoot: string,
+    conversationId: string,
+    messageIds: string[],
+    options: { excludePaths?: string[]; force?: boolean } = {}
+  ): RollbackCheckpointsResult {
+    const excluded = new Set(options.excludePaths ?? [])
+    const entries = [...new Set(messageIds)]
+      .map((messageId) => {
+        const filePath = checkpointPath(workspaceRoot, conversationId, messageId)
+        const checkpoint = this.readFile(filePath)
+        return checkpoint ? { filePath, checkpoint } : null
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .reverse()
+
+    const skippedFiles = new Set<string>()
+    const pending = entries.map(({ filePath, checkpoint }) => {
+      const restored = new Set(checkpoint.restoredPaths ?? [])
+      const changes = checkpoint.changes.filter((change) => {
+        if (restored.has(change.path)) return false
+        if (!excluded.has(change.path)) return true
+        skippedFiles.add(change.path)
+        return false
+      })
+      return { filePath, checkpoint, restored, changes }
+    })
+
+    // Check against a virtual workspace so overlapping edits are validated in
+    // the same newest-to-oldest order they will be restored.
+    const virtualStates = new Map<string, Buffer | null>()
+    const conflicts = new Set<string>()
+    for (const entry of pending) {
+      for (const change of entry.changes) {
+        const actual = virtualStates.has(change.path)
+          ? (virtualStates.get(change.path) ?? null)
+          : readState(workspaceRoot, change.path)
+        const expected = decodeState(change.after, change.afterEncoding)
+        if (!statesEqual(actual, expected)) conflicts.add(change.path)
+        virtualStates.set(change.path, decodeState(change.before, change.beforeEncoding))
+      }
+    }
+
+    if (conflicts.size > 0 && !options.force) {
+      return {
+        rolledBackMessages: [],
+        restoredFiles: [],
+        skippedFiles: [...skippedFiles],
+        conflicts: [...conflicts]
+      }
+    }
+
+    const restoredFiles = new Set<string>()
+    const rolledBackMessages: string[] = []
+    for (const entry of pending) {
+      if (entry.changes.length === 0) continue
+      for (const change of entry.changes) {
+        writeState(workspaceRoot, change.path, change.before, change.beforeEncoding)
+        entry.restored.add(change.path)
+        restoredFiles.add(change.path)
+      }
+
+      const allRestored = entry.checkpoint.changes.every((change) =>
+        entry.restored.has(change.path)
+      )
+      const restored: PersistedCheckpoint = {
+        ...entry.checkpoint,
+        restoredAt: allRestored ? (entry.checkpoint.restoredAt ?? Date.now()) : undefined,
+        restoredPaths: [...entry.restored]
+      }
+      writeJsonAtomic(entry.filePath, restored)
+      rolledBackMessages.push(entry.checkpoint.messageId)
+    }
+
+    return {
+      rolledBackMessages,
+      restoredFiles: [...restoredFiles],
+      skippedFiles: [...skippedFiles],
+      conflicts: []
+    }
+  }
+
   undoRestore(
     workspaceRoot: string,
     conversationId: string,
@@ -283,6 +366,23 @@ function hasStateConflict(
   if (expected === null) return existsSync(target)
   if (!existsSync(target)) return true
   return !readFileSync(target).equals(decodeContent(expected, encoding))
+}
+
+function readState(workspaceRoot: string, path: string): Buffer | null {
+  const target = resolveInWorkspace(workspaceRoot, path)
+  return existsSync(target) ? readFileSync(target) : null
+}
+
+function decodeState(
+  content: string | null,
+  encoding: CheckpointContentEncoding = 'utf8'
+): Buffer | null {
+  return content === null ? null : decodeContent(content, encoding)
+}
+
+function statesEqual(left: Buffer | null, right: Buffer | null): boolean {
+  if (left === null || right === null) return left === right
+  return left.equals(right)
 }
 
 function writeState(

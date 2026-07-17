@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { HistoryCompactionEvent } from '@shared/chat.types'
+import type { ChatAttachment, HistoryCompactionEvent } from '@shared/chat.types'
 import type {
   CheckpointPreview,
   CheckpointSummary,
@@ -21,6 +21,7 @@ import { buildPromptWithAttachments, type ComposerAttachment } from '../lib/atta
 import { reconcileMessageBlocks } from '../features/chat/reconcileMessageBlocks'
 import { quarantineStreamingToolPayload } from '../features/chat/streamingToolPayload'
 import { isChatReady } from '../lib/chatReadiness'
+import { buildMessageEditBranch } from '../features/chat/messageEdit'
 
 export type { Conversation }
 
@@ -30,6 +31,14 @@ export interface PendingMessage {
   text: string
   attachments: ComposerAttachment[]
 }
+
+export interface MessageEditOptions {
+  forceRollback?: boolean
+  keepPaths?: string[]
+}
+
+export type MessageEditResult =
+  { status: 'completed' } | { status: 'conflict'; conflicts: string[] } | { status: 'failed' }
 
 interface ChatState {
   conversations: Conversation[]
@@ -65,6 +74,12 @@ interface ChatState {
     attachments?: ComposerAttachment[],
     conversationIdOverride?: string
   ) => Promise<void>
+  /** Replace a past user turn, roll back discarded file changes, and regenerate. */
+  editMessage: (
+    messageId: string,
+    text: string,
+    options?: MessageEditOptions
+  ) => Promise<MessageEditResult>
   /** Queue a message onto the active conversation while it's still generating. */
   queueMessage: (text: string, attachments?: ComposerAttachment[]) => void
   /** Cancel a queued message before it's auto-sent. */
@@ -222,24 +237,7 @@ export const useChatStore = create<ChatState>()(
       const trimmed = text.trim()
       if (!trimmed && attachments.length === 0) return
 
-      const engine = useModelStore.getState().engine
-      const settingsForReadyCheck = useSettingsStore.getState().settings
-      if (!isChatReady(settingsForReadyCheck, engine.status)) {
-        const providerActive = settingsForReadyCheck?.provider.active
-        if (providerActive === 'anthropic' || providerActive === 'openai') {
-          const providerLabel = providerActive === 'anthropic' ? 'Claude' : 'OpenAI'
-          notifyError(
-            'No API key configured',
-            `Add a ${providerLabel} API key in Settings → AI & Models to start chatting.`
-          )
-        } else {
-          notifyError(
-            'No model loaded',
-            'Load a model in Settings → AI & Models to start chatting.'
-          )
-        }
-        return
-      }
+      if (!ensureChatReady()) return
 
       const conversationId = conversationIdOverride ?? get().activeId ?? get().newConversation()
       if (!conversationId) return
@@ -383,6 +381,80 @@ export const useChatStore = create<ChatState>()(
         })
         void get().sendMessage(next.text, next.attachments, conversationId)
       }
+    },
+
+    editMessage: async (messageId, text, options = {}) => {
+      const conversationId = get().activeId
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+      const branch = conversation ? buildMessageEditBranch(conversation, messageId) : null
+      const trimmed = text.trim()
+      if (!conversation || !branch || (!trimmed && !branch.target.attachments?.length)) {
+        return { status: 'failed' }
+      }
+      if (conversation.messages.some((message) => message.streaming)) {
+        useUiStore.getState().notify({
+          kind: 'info',
+          title: 'Reply still in progress',
+          message: 'Stop the current reply before editing an earlier message.'
+        })
+        return { status: 'failed' }
+      }
+      if (!ensureChatReady()) return { status: 'failed' }
+
+      let attachments = await rehydrateAttachments(branch.target.attachments ?? [])
+      if (!attachments) return { status: 'failed' }
+      let workspaceRolledBack = false
+
+      if (conversation.projectId && branch.discardedAssistantMessageIds.length > 0) {
+        const rollback = await anodex.checkpoints
+          .rollback({
+            projectId: conversation.projectId,
+            conversationId: conversation.id,
+            messageIds: branch.discardedAssistantMessageIds,
+            excludePaths: options.keepPaths,
+            force: options.forceRollback
+          })
+          .catch((error: unknown) => {
+            notifyError(
+              'Could not edit message',
+              error instanceof Error ? error.message : 'The rollback request failed.'
+            )
+            return null
+          })
+        if (!rollback) return { status: 'failed' }
+        if (!rollback.ok) {
+          notifyError('Could not edit message', rollback.error.message)
+          return { status: 'failed' }
+        }
+        if (rollback.value.conflicts.length > 0) {
+          return { status: 'conflict', conflicts: rollback.value.conflicts }
+        }
+        if (rollback.value.rolledBackMessages.length > 0) {
+          workspaceRolledBack = true
+          window.dispatchEvent(new Event('anodex:checkpoints-changed'))
+        }
+      }
+
+      if (workspaceRolledBack && branch.target.attachments?.length) {
+        const refreshedAttachments = await rehydrateAttachments(branch.target.attachments)
+        if (refreshedAttachments) attachments = refreshedAttachments
+      }
+
+      const updatedAt = Date.now()
+      set((state) => {
+        const current = state.conversations.find((item) => item.id === conversation.id)
+        if (!current) return
+        current.messages = branch.retainedMessages
+        if (branch.clearContext) current.context = null
+        current.updatedAt = updatedAt
+        state.pendingMessages[conversation.id] = []
+      })
+
+      const updated = get().conversations.find((item) => item.id === conversation.id)
+      if (!updated) return { status: 'failed' }
+      await persistConversation(updated)
+      await get().sendMessage(trimmed, attachments, conversation.id)
+      return { status: 'completed' }
     },
 
     queueMessage: (text, attachments = []) => {
@@ -671,6 +743,61 @@ export const useChatStore = create<ChatState>()(
     }
   }))
 )
+
+function ensureChatReady(): boolean {
+  const engine = useModelStore.getState().engine
+  const settings = useSettingsStore.getState().settings
+  if (isChatReady(settings, engine.status)) return true
+
+  const provider = settings?.provider.active
+  if (provider === 'anthropic' || provider === 'openai') {
+    const providerLabel = provider === 'anthropic' ? 'Claude' : 'OpenAI'
+    notifyError(
+      'No API key configured',
+      `Add a ${providerLabel} API key in Settings → AI & Models to start chatting.`
+    )
+  } else {
+    notifyError('No model loaded', 'Load a model in Settings → AI & Models to start chatting.')
+  }
+  return false
+}
+
+async function rehydrateAttachments(
+  attachments: ChatAttachment[]
+): Promise<ComposerAttachment[] | null> {
+  try {
+    return await Promise.all(
+      attachments.map(async (attachment) => {
+        let readPath = attachment.path
+        if (!isAbsolutePath(readPath)) {
+          const resolved = await anodex.workspace.getAbsolutePath(readPath)
+          if (!resolved.ok) throw new Error(resolved.error.message)
+          readPath = resolved.value
+        }
+
+        const result = await anodex.attachments.readFile(readPath)
+        if (!result.ok) throw new Error(result.error.message)
+        return {
+          path: attachment.path,
+          name: attachment.name,
+          content: result.value.content,
+          sizeBytes: result.value.sizeBytes,
+          truncated: result.value.truncated
+        }
+      })
+    )
+  } catch (error) {
+    notifyError(
+      'Could not reopen attachment',
+      error instanceof Error ? error.message : 'The original attachment is no longer available.'
+    )
+    return null
+  }
+}
+
+function isAbsolutePath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('/') || path.startsWith('\\\\')
+}
 
 async function generateConversationTitle({
   conversationId,

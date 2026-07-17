@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type {
   CheckpointRequest,
+  RollbackCheckpointsRequest,
   RestoreCheckpointRequest,
   UndoCheckpointRequest
 } from '@shared/checkpoint.types'
@@ -71,6 +72,25 @@ export function registerCheckpointHandlers(): void {
       )
     } catch (error) {
       return err('checkpoint.undo-failed', 'Could not undo that restore.', toErrorMessage(error))
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Checkpoints.rollback, (_event, request: RollbackCheckpointsRequest) => {
+    const project = projectStore.getState().projects.find((item) => item.id === request.projectId)
+    if (!project) return err('checkpoint.no-project', 'That project is no longer available.')
+    try {
+      return ok(
+        checkpointStore.rollback(project.folderPath, request.conversationId, request.messageIds, {
+          excludePaths: request.excludePaths,
+          force: request.force
+        })
+      )
+    } catch (error) {
+      return err(
+        'checkpoint.rollback-failed',
+        'Could not roll back the discarded turns.',
+        toErrorMessage(error)
+      )
     }
   })
 }

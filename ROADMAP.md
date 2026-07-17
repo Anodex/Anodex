@@ -140,7 +140,11 @@ are not quite "tools" or "skills":
   footer opens a changed-file review with before/after diffs, selective restore,
   and conflict detection for files edited again after the turn. The Workspace
   Dock now includes project-wide checkpoint history and conflict-checked undo
-  restore. Future polish can add binary/attachment coverage.
+  restore. Binary files overwritten, deleted, moved, or saved from email are
+  snapshotted byte-for-byte. Editing an earlier user message now restores all
+  discarded checkpoints newest-first before truncating and regenerating, with
+  an explicit keep-newer/restore-all conflict review. Future polish can move
+  very large binary payloads into sidecar blob storage.
 - **Model capability labels** — surface which models are good at tool use,
   coding, long context, JSON/tool-call reliability, and speed. Reliability
   scoring exists; the missing piece is turning it into actionable guidance at
@@ -167,21 +171,7 @@ are not quite "tools" or "skills":
   context provenance on demand, and project-state guidance in the Workspace
   Dock rather than new standalone panels.
 
-### 1. File rollback on message edit
-
-Editing a past user message and regenerating already truncates chat history
-from that point (in scope, built). What's deferred: also _reverting the actual
-file writes/edits_ the discarded turn made on disk, so editing a message
-doesn't leave stray file changes from the abandoned attempt. Needs a real
-snapshot-before-write mechanism (capture a file's content right before the AI
-edits it, keyed to the turn) — a mini undo-stack, not a small add-on.
-Deliberately scoped out of the base edit/regenerate feature to avoid building
-a versioning system prematurely. If picked up: hook into the same tool-call
-execution path as `ProjectMemoryStore`'s `filesTouched` tracking (already
-knows which files a turn wrote to), but add actual content snapshots, which
-that store doesn't currently keep.
-
-### 2. Batch diff review for multi-file turns
+### 1. Batch diff review for multi-file turns
 
 Today, when a turn touches several files, each `write_file`/`edit_file` call
 gets its own separate `ToolConfirmModal` approval, one at a time, as the model
@@ -198,7 +188,7 @@ of order as the user reviews, or (b) a bigger architecture change where the
 model proposes all edits before any execute. (a) is the smaller change and
 fits the existing per-call confirm design.
 
-### 3. Smarter/semantic code search
+### 2. Smarter/semantic code search
 
 `search_files` (`fileTools.ts`) is literal, case-insensitive substring
 matching only — works for "find this exact string," not "where is X handled
@@ -208,7 +198,7 @@ persistent vector index of the workspace, kept in sync as files change.
 Meaningfully bigger than the other backlog items — treat as a "someday," not a
 small follow-up.
 
-### 4. Vision support (multimodal image understanding)
+### 3. Vision support (multimodal image understanding)
 
 Whether a vision-capable local model could actually _see_ an attached/dropped
 image. Checked directly against `node_modules`: `node-llama-cpp` (pinned
@@ -227,7 +217,7 @@ thumbnails in the composer/message bubbles (today's attach chips are
 text-file-shaped, no preview), and a way to tell the user whether their
 _currently loaded_ model is vision-capable at all before they try.
 
-### 5. User-defined slash-command shortcuts
+### 4. User-defined slash-command shortcuts
 
 Type `/test` and it expands to a full prompt like "run the test suite and
 summarize any failures"; `/review` triggers a structured code-review prompt;
@@ -240,7 +230,7 @@ IPC/main-process work needed if shortcuts are stored in existing `AppSettings`
 client-side in `chatStore.ts`/`ChatComposer.tsx` before `sendMessage` is
 called.
 
-### 6. AI-generated commit messages
+### 5. AI-generated commit messages
 
 A "generate a commit message from my staged changes" action — `git_status` and
 `git_diff` are already wired up as AI tools, so the underlying data already
@@ -250,7 +240,7 @@ exists. Smallest idea on this list. Could be as simple as a button somewhere
 or IPC needed, since `git_diff({staged: true})` already exists. The main open
 question is just _where_ this button/action lives in the UI.
 
-### 7. Auto-update against the private `Anodex/Anodex` repo
+### 6. Auto-update against the private `Anodex/Anodex` repo
 
 Auto-update itself is fully built and working (`src/main/updates/
 UpdateService.ts`, GitHub-provider `electron-updater`, manual Check/Download/
@@ -278,12 +268,12 @@ not a bug, until one of these is chosen:
    Explicitly low priority — "we will hold off... this will prob be the last
    thing we figure out."
 
-### 8. Renderer bundle code-splitting
+### 7. Renderer bundle code-splitting
 
 Production build reports a ~1.4 MB single JS chunk. Plain perf/DX improvement,
 not correctness or security — lowest priority item on this whole list.
 
-### 9. Broader test coverage
+### 8. Broader test coverage
 
 - Tests for `ModelStatusMenu` (cloud-model quick-switch dropdown with usage
   gauges) — shipped without dedicated tests.
@@ -304,6 +294,17 @@ not correctness or security — lowest priority item on this whole list.
 - **Checkpoint history and undo restore (2026-07-16)** - added project-wide
   history to the Workspace Dock and a conflict-checked way to reapply files from
   the AI turn after restoring them.
+
+- **Binary checkpoint coverage (2026-07-16)** - binary overwrites, deletes,
+  moves, and saved email attachments now preserve exact bytes, use byte-level
+  conflict detection, and show size metadata instead of exposing encoded
+  payloads as fake text diffs.
+
+- **Message edit rollback (2026-07-16)** - editing an earlier user message now
+  rolls discarded assistant checkpoints back newest-first before truncating the
+  chat and regenerating. Conflict review can preserve newer files or explicitly
+  restore all discarded changes, and compacted context is invalidated when its
+  summarized history is edited.
 
 - **Critical Thinking core workflow (2026-07-16)** — shipped the renamed,
   Anodex-native deep-research surface with editable plan review, web-only

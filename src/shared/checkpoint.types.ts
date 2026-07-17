@@ -64,3 +64,22 @@ export interface UndoCheckpointResult {
   conflicts: string[]
   checkpoint: CheckpointSummary
 }
+
+export interface RollbackCheckpointsRequest {
+  projectId: string
+  conversationId: string
+  /** Assistant message ids in transcript order, oldest first. */
+  messageIds: string[]
+  /** Paths to leave untouched across every discarded checkpoint. */
+  excludePaths?: string[]
+  /** Restore even when the current workspace no longer matches the checkpoint chain. */
+  force?: boolean
+}
+
+export interface RollbackCheckpointsResult {
+  rolledBackMessages: string[]
+  restoredFiles: string[]
+  skippedFiles: string[]
+  /** No files are changed when this is non-empty unless force was requested. */
+  conflicts: string[]
+}

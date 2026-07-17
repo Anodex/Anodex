@@ -273,4 +273,108 @@ describe('CheckpointStore', () => {
     checkpointStore.undoRestore(root, 'c1', 'm1')
     expect(readFileSync(file)).toEqual(after)
   })
+
+  it('rolls overlapping discarded turns back in reverse transcript order', () => {
+    const root = workspace()
+    const file = join(root, 'app.ts')
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'app.ts',
+      before: 'original',
+      after: 'first edit'
+    })
+    checkpointStore.recordChange(root, 'c1', 'm2', {
+      path: 'app.ts',
+      before: 'first edit',
+      after: 'second edit'
+    })
+    writeFileSync(file, 'second edit', 'utf-8')
+
+    const result = checkpointStore.rollback(root, 'c1', ['m1', 'm2'])
+
+    expect(result).toEqual({
+      rolledBackMessages: ['m2', 'm1'],
+      restoredFiles: ['app.ts'],
+      skippedFiles: [],
+      conflicts: []
+    })
+    expect(readFileSync(file, 'utf-8')).toBe('original')
+    expect(checkpointStore.getSummary(root, 'c1', 'm1')?.restoredAt).toEqual(expect.any(Number))
+    expect(checkpointStore.getSummary(root, 'c1', 'm2')?.restoredAt).toEqual(expect.any(Number))
+  })
+
+  it('does not partially roll back discarded turns when a file has newer work', () => {
+    const root = workspace()
+    writeFileSync(join(root, 'safe.txt'), 'after safe', 'utf-8')
+    writeFileSync(join(root, 'conflict.txt'), 'newer user work', 'utf-8')
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'safe.txt',
+      before: 'before safe',
+      after: 'after safe'
+    })
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'conflict.txt',
+      before: 'before conflict',
+      after: 'after conflict'
+    })
+
+    const result = checkpointStore.rollback(root, 'c1', ['m1'])
+
+    expect(result).toMatchObject({
+      rolledBackMessages: [],
+      restoredFiles: [],
+      conflicts: ['conflict.txt']
+    })
+    expect(readFileSync(join(root, 'safe.txt'), 'utf-8')).toBe('after safe')
+    expect(readFileSync(join(root, 'conflict.txt'), 'utf-8')).toBe('newer user work')
+  })
+
+  it('can keep conflicting files while rolling back every safe discarded change', () => {
+    const root = workspace()
+    writeFileSync(join(root, 'safe.txt'), 'after safe', 'utf-8')
+    writeFileSync(join(root, 'conflict.txt'), 'newer user work', 'utf-8')
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'safe.txt',
+      before: 'before safe',
+      after: 'after safe'
+    })
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'conflict.txt',
+      before: 'before conflict',
+      after: 'after conflict'
+    })
+
+    const result = checkpointStore.rollback(root, 'c1', ['m1'], {
+      excludePaths: ['conflict.txt']
+    })
+
+    expect(result).toEqual({
+      rolledBackMessages: ['m1'],
+      restoredFiles: ['safe.txt'],
+      skippedFiles: ['conflict.txt'],
+      conflicts: []
+    })
+    expect(readFileSync(join(root, 'safe.txt'), 'utf-8')).toBe('before safe')
+    expect(readFileSync(join(root, 'conflict.txt'), 'utf-8')).toBe('newer user work')
+    expect(checkpointStore.getSummary(root, 'c1', 'm1')).toMatchObject({
+      restoredFiles: ['safe.txt'],
+      restoredAt: undefined
+    })
+  })
+
+  it('can explicitly overwrite newer work while rolling discarded turns back', () => {
+    const root = workspace()
+    const file = join(root, 'app.ts')
+    writeFileSync(file, 'newer user work', 'utf-8')
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'app.ts',
+      before: 'original',
+      after: 'assistant edit'
+    })
+
+    const result = checkpointStore.rollback(root, 'c1', ['m1'], { force: true })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.restoredFiles).toEqual(['app.ts'])
+    expect(readFileSync(file, 'utf-8')).toBe('original')
+  })
 })

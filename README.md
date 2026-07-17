@@ -51,7 +51,11 @@ folder.
   message footer opens a review dialog with created/modified/deleted labels,
   before/after diffs, and selective restore. Files changed again after the AI
   turn are flagged and excluded from the default selection so newer work is
-  never overwritten without an explicit choice.
+  never overwritten without an explicit choice. Binary files overwritten,
+  deleted, moved, or saved from email are retained byte-for-byte and reviewed
+  by file size. Editing an earlier user message rolls discarded assistant
+  checkpoints back newest-first before regenerating; conflicts can keep newer
+  files or explicitly restore the earlier state.
 
 ## Projects
 
