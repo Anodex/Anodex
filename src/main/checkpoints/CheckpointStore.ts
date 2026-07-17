@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import type {
   CheckpointFileChange,
   CheckpointFileChangeKind,
+  CheckpointContentEncoding,
   CheckpointHistoryEntry,
   CheckpointPreview,
   CheckpointSummary,
@@ -96,14 +97,22 @@ class CheckpointStore {
     const restored = new Set(checkpoint.restoredPaths ?? [])
     return {
       ...toSummary(checkpoint),
-      files: checkpoint.changes.map((change) => ({
-        ...change,
-        kind: changeKind(change),
-        restored: restored.has(change.path),
-        conflicted: restored.has(change.path)
-          ? false
-          : hasStateConflict(workspaceRoot, change.path, change.after)
-      }))
+      files: checkpoint.changes.map((change) => {
+        const binary = isBinaryChange(change)
+        return {
+          path: change.path,
+          kind: changeKind(change),
+          before: binary ? null : change.before,
+          after: binary ? null : change.after,
+          binary,
+          beforeSize: contentSize(change.before, change.beforeEncoding),
+          afterSize: contentSize(change.after, change.afterEncoding),
+          restored: restored.has(change.path),
+          conflicted: restored.has(change.path)
+            ? false
+            : hasStateConflict(workspaceRoot, change.path, change.after, change.afterEncoding)
+        }
+      })
     }
   }
 
@@ -126,7 +135,9 @@ class CheckpointStore {
       (change) => selectedPaths.has(change.path) && !restoredPaths.has(change.path)
     )
     const conflicts = selectedChanges
-      .filter((change) => hasStateConflict(workspaceRoot, change.path, change.after))
+      .filter((change) =>
+        hasStateConflict(workspaceRoot, change.path, change.after, change.afterEncoding)
+      )
       .map((change) => change.path)
     if (conflicts.length > 0 && !options.force) {
       return { restoredFiles: [], conflicts, checkpoint: toSummary(checkpoint) }
@@ -134,13 +145,7 @@ class CheckpointStore {
 
     const restoredFiles: string[] = []
     for (const change of selectedChanges) {
-      const target = resolveInWorkspace(workspaceRoot, change.path)
-      if (change.before === null) {
-        rmSync(target, { force: true })
-      } else {
-        mkdirSync(dirname(target), { recursive: true })
-        writeFileSync(target, change.before, 'utf-8')
-      }
+      writeState(workspaceRoot, change.path, change.before, change.beforeEncoding)
       restoredFiles.push(change.path)
       restoredPaths.add(change.path)
     }
@@ -174,7 +179,9 @@ class CheckpointStore {
       (change) => selectedPaths.has(change.path) && restoredPaths.has(change.path)
     )
     const conflicts = selectedChanges
-      .filter((change) => hasStateConflict(workspaceRoot, change.path, change.before))
+      .filter((change) =>
+        hasStateConflict(workspaceRoot, change.path, change.before, change.beforeEncoding)
+      )
       .map((change) => change.path)
     if (conflicts.length > 0 && !options.force) {
       return { undoneFiles: [], conflicts, checkpoint: toSummary(checkpoint) }
@@ -182,7 +189,7 @@ class CheckpointStore {
 
     const undoneFiles: string[] = []
     for (const change of selectedChanges) {
-      writeState(workspaceRoot, change.path, change.after)
+      writeState(workspaceRoot, change.path, change.after, change.afterEncoding)
       restoredPaths.delete(change.path)
       undoneFiles.push(change.path)
     }
@@ -235,7 +242,13 @@ function upsertChange(
   const original = changes[index]
   return [
     ...changes.slice(0, index),
-    { path: next.path, before: original.before, after: next.after },
+    {
+      path: next.path,
+      before: original.before,
+      after: next.after,
+      beforeEncoding: original.beforeEncoding,
+      afterEncoding: next.afterEncoding
+    },
     ...changes.slice(index + 1)
   ]
 }
@@ -260,21 +273,48 @@ function changeKind(change: CheckpointFileChange): CheckpointFileChangeKind {
   return 'modified'
 }
 
-function hasStateConflict(workspaceRoot: string, path: string, expected: string | null): boolean {
+function hasStateConflict(
+  workspaceRoot: string,
+  path: string,
+  expected: string | null,
+  encoding: CheckpointContentEncoding = 'utf8'
+): boolean {
   const target = resolveInWorkspace(workspaceRoot, path)
   if (expected === null) return existsSync(target)
   if (!existsSync(target)) return true
-  return readFileSync(target, 'utf-8') !== expected
+  return !readFileSync(target).equals(decodeContent(expected, encoding))
 }
 
-function writeState(workspaceRoot: string, path: string, content: string | null): void {
+function writeState(
+  workspaceRoot: string,
+  path: string,
+  content: string | null,
+  encoding: CheckpointContentEncoding = 'utf8'
+): void {
   const target = resolveInWorkspace(workspaceRoot, path)
   if (content === null) {
     rmSync(target, { force: true })
     return
   }
   mkdirSync(dirname(target), { recursive: true })
-  writeFileSync(target, content, 'utf-8')
+  writeFileSync(target, decodeContent(content, encoding))
+}
+
+function decodeContent(content: string, encoding: CheckpointContentEncoding): Buffer {
+  return Buffer.from(content, encoding === 'base64' ? 'base64' : 'utf-8')
+}
+
+function contentSize(
+  content: string | null,
+  encoding: CheckpointContentEncoding = 'utf8'
+): number | null {
+  return content === null
+    ? null
+    : Buffer.byteLength(content, encoding === 'base64' ? 'base64' : 'utf-8')
+}
+
+function isBinaryChange(change: CheckpointFileChange): boolean {
+  return change.beforeEncoding === 'base64' || change.afterEncoding === 'base64'
 }
 
 function isCheckpointChange(value: unknown): value is CheckpointFileChange {
@@ -283,8 +323,14 @@ function isCheckpointChange(value: unknown): value is CheckpointFileChange {
   return (
     typeof candidate.path === 'string' &&
     (typeof candidate.before === 'string' || candidate.before === null) &&
-    (typeof candidate.after === 'string' || candidate.after === null)
+    (typeof candidate.after === 'string' || candidate.after === null) &&
+    isEncoding(candidate.beforeEncoding) &&
+    isEncoding(candidate.afterEncoding)
   )
+}
+
+function isEncoding(value: unknown): value is CheckpointContentEncoding | undefined {
+  return value === undefined || value === 'utf8' || value === 'base64'
 }
 
 export const checkpointStore = new CheckpointStore()

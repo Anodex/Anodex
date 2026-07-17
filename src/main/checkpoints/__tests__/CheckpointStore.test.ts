@@ -241,4 +241,36 @@ describe('CheckpointStore', () => {
     expect(forced).toMatchObject({ undoneFiles: ['app.ts'], conflicts: [] })
     expect(readFileSync(file, 'utf-8')).toBe('after')
   })
+
+  it('restores and reapplies binary contents byte-for-byte without exposing base64 in previews', () => {
+    const root = workspace()
+    const file = join(root, 'image.bin')
+    const before = Buffer.from([0, 1, 2, 3, 255, 128])
+    const after = Buffer.from([0, 9, 8, 7, 6, 5, 4])
+    writeFileSync(file, after)
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'image.bin',
+      before: before.toString('base64'),
+      after: after.toString('base64'),
+      beforeEncoding: 'base64',
+      afterEncoding: 'base64'
+    })
+
+    const preview = checkpointStore.inspect(root, 'c1', 'm1').files[0]
+    expect(preview).toMatchObject({
+      path: 'image.bin',
+      binary: true,
+      before: null,
+      after: null,
+      beforeSize: before.length,
+      afterSize: after.length,
+      conflicted: false
+    })
+
+    checkpointStore.restore(root, 'c1', 'm1')
+    expect(readFileSync(file)).toEqual(before)
+
+    checkpointStore.undoRestore(root, 'c1', 'm1')
+    expect(readFileSync(file)).toEqual(after)
+  })
 })

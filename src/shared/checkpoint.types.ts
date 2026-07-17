@@ -1,9 +1,12 @@
 export type CheckpointFileChangeKind = 'created' | 'modified' | 'deleted'
+export type CheckpointContentEncoding = 'utf8' | 'base64'
 
 export interface CheckpointFileChange {
   path: string
   before: string | null
   after: string | null
+  beforeEncoding?: CheckpointContentEncoding
+  afterEncoding?: CheckpointContentEncoding
 }
 
 export interface CheckpointSummary {
@@ -24,8 +27,14 @@ export interface CheckpointRequest {
   messageId: string
 }
 
-export interface CheckpointFilePreview extends CheckpointFileChange {
+export interface CheckpointFilePreview {
+  path: string
   kind: CheckpointFileChangeKind
+  before: string | null
+  after: string | null
+  binary: boolean
+  beforeSize: number | null
+  afterSize: number | null
   conflicted: boolean
   restored: boolean
 }

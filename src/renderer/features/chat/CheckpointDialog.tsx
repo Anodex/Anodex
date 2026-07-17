@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CheckpointFilePreview, CheckpointPreview } from '@shared/checkpoint.types'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
+import { formatBytes } from '../../lib/format'
 import { Overlay } from '../../components/ui/Overlay'
 import { Spinner } from '../../components/ui/Spinner'
 import { useChatStore } from '../../stores/chatStore'
@@ -248,14 +249,31 @@ function CheckpointFileRow({
       </div>
       {expanded && (
         <div className={styles.diffWrap}>
-          <DiffView
-            before={file.before ?? ''}
-            after={file.after ?? ''}
-            mode={diffMode}
-            path={file.path}
-          />
+          {file.binary ? (
+            <div className={styles.binaryPreview}>
+              <Icon name="file" size={16} />
+              <div>
+                <strong>Binary snapshot</strong>
+                <span>
+                  Before: {formatSnapshotSize(file.beforeSize)} · After:{' '}
+                  {formatSnapshotSize(file.afterSize)}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <DiffView
+              before={file.before ?? ''}
+              after={file.after ?? ''}
+              mode={diffMode}
+              path={file.path}
+            />
+          )}
         </div>
       )}
     </div>
   )
+}
+
+function formatSnapshotSize(size: number | null): string {
+  return size === null ? 'not present' : formatBytes(size)
 }

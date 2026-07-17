@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmailDraft, EmailDraftRequest, EmailSendRequest } from '@shared/email.types'
 import { draftEmailTool, saveEmailAttachmentTool, sendEmailTool } from '../emailTools'
+import { checkpointStore } from '../../checkpoints/CheckpointStore'
 import { captureConfirmations, createMockContext, createMockDefine } from './test-helpers'
 
 const createDraftMock = vi.fn<(request: EmailDraftRequest) => EmailDraft>()
@@ -107,10 +108,13 @@ describe('email tools', () => {
   it('saves an email attachment into the workspace with approval', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'anodex-email-attachment-'))
     try {
+      const original = Buffer.from([0, 10, 20, 30, 255])
+      const attachment = Buffer.from([0, 80, 68, 70, 200, 100])
+      await writeFile(join(workspace, 'report.pdf'), original)
       getAttachmentMock.mockResolvedValue({
         filename: 'report.pdf',
         mimeType: 'application/pdf',
-        data: Buffer.from('pdf bytes')
+        data: attachment
       })
       const { requests, confirm } = captureConfirmations()
       const ctx = { ...createMockContext(workspace), projectId: 'project-1', confirm }
@@ -121,13 +125,24 @@ describe('email tools', () => {
       const result = await tool.handler({
         messageId: 'message-1',
         attachmentId: 'attachment-1',
-        path: 'downloads/report.pdf'
+        path: 'report.pdf'
       })
 
       expect(result).toContain('Saved attachment report.pdf')
-      expect(await readFile(join(workspace, 'downloads', 'report.pdf'), 'utf-8')).toBe('pdf bytes')
+      expect(await readFile(join(workspace, 'report.pdf'))).toEqual(attachment)
       expect(requests).toHaveLength(1)
       expect(requests[0]).toMatchObject({ toolName: 'save_email_attachment', kind: 'write' })
+
+      const preview = checkpointStore.inspect(workspace, 'test-conversation', 'test-message')
+      expect(preview.files[0]).toMatchObject({
+        path: 'report.pdf',
+        kind: 'modified',
+        binary: true,
+        beforeSize: original.length,
+        afterSize: attachment.length
+      })
+      checkpointStore.restore(workspace, 'test-conversation', 'test-message')
+      expect(await readFile(join(workspace, 'report.pdf'))).toEqual(original)
     } finally {
       await rm(workspace, { recursive: true, force: true })
     }

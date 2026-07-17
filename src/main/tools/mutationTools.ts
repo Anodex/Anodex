@@ -4,6 +4,7 @@ import type { ToolCallDiff } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runGuardedToolWithPrepare } from './helpers'
+import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
 
 const PREVIEW_CHARS = 400
 const MAX_PATCH_REPLACEMENTS = 20
@@ -54,22 +55,35 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
           const beforeExists = await access(file)
             .then(() => true)
             .catch(() => false)
-          const before = beforeExists ? await readFile(file, 'utf-8') : ''
+          const beforeState = beforeExists ? encodeCheckpointBuffer(await readFile(file)) : null
+          const beforeText = beforeState?.encoding === 'utf8' ? beforeState.data : ''
           return {
             confirmDetail: `Write ${args.content.length} characters to ${args.path}:\n\n${preview(args.content)}`,
-            confirmDiff: diffOrUndefined(relativePath, before, args.content),
-            data: { file, relativePath, before, beforeExists }
+            confirmDiff:
+              beforeState?.encoding === 'base64'
+                ? undefined
+                : diffOrUndefined(relativePath, beforeText, args.content),
+            data: { file, relativePath, beforeState, beforeText }
           }
         },
-        async ({ file, relativePath, before, beforeExists }) => {
+        async ({ file, relativePath, beforeState, beforeText }) => {
           await mkdir(dirname(file), { recursive: true })
           await writeFile(file, args.content, 'utf-8')
           return {
             modelResult: `Wrote ${args.content.length} characters to ${relativePath}.`,
             detail: `${args.content.length} chars`,
-            diff: diffOrUndefined(relativePath, before, args.content),
+            diff:
+              beforeState?.encoding === 'base64'
+                ? undefined
+                : diffOrUndefined(relativePath, beforeText, args.content),
             checkpointChanges: [
-              { path: relativePath, before: beforeExists ? before : null, after: args.content }
+              {
+                path: relativePath,
+                before: beforeState?.data ?? null,
+                after: args.content,
+                beforeEncoding: beforeState?.encoding,
+                afterEncoding: 'utf8'
+              }
             ]
           }
         }
@@ -260,7 +274,7 @@ export const deleteFileTool: WorkspaceToolFactory = (define, ctx) =>
         async () => {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
-          const before = textFromBuffer(await readFile(file))
+          const before = encodeCheckpointBuffer(await readFile(file))
           return {
             confirmDetail: `Delete file ${args.path}`,
             data: { file, relativePath, before }
@@ -271,7 +285,14 @@ export const deleteFileTool: WorkspaceToolFactory = (define, ctx) =>
           return {
             modelResult: `Deleted ${relativePath}.`,
             detail: 'deleted',
-            checkpointChanges: before === null ? [] : [{ path: relativePath, before, after: null }]
+            checkpointChanges: [
+              {
+                path: relativePath,
+                before: before.data,
+                after: null,
+                beforeEncoding: before.encoding
+              }
+            ]
           }
         }
       )
@@ -309,11 +330,13 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
           const target = resolveInWorkspace(ctx.workspaceRoot, args.targetPath)
           const sourceRelativePath = toWorkspaceRelative(ctx.workspaceRoot, source)
           const targetRelativePath = toWorkspaceRelative(ctx.workspaceRoot, target)
-          const sourceBefore = textFromBuffer(await readFile(source))
+          const sourceBefore = encodeCheckpointBuffer(await readFile(source))
           const targetBeforeExists = await access(target)
             .then(() => true)
             .catch(() => false)
-          const targetBefore = targetBeforeExists ? textFromBuffer(await readFile(target)) : null
+          const targetBefore = targetBeforeExists
+            ? encodeCheckpointBuffer(await readFile(target))
+            : null
           return {
             confirmDetail: `Move ${args.sourcePath} to ${args.targetPath}`,
             data: {
@@ -339,13 +362,21 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
           return {
             modelResult: `Moved ${sourceRelativePath} to ${targetRelativePath}.`,
             detail: 'moved',
-            checkpointChanges:
-              sourceBefore === null
-                ? []
-                : [
-                    { path: sourceRelativePath, before: sourceBefore, after: null },
-                    { path: targetRelativePath, before: targetBefore, after: sourceBefore }
-                  ]
+            checkpointChanges: [
+              {
+                path: sourceRelativePath,
+                before: sourceBefore.data,
+                after: null,
+                beforeEncoding: sourceBefore.encoding
+              },
+              {
+                path: targetRelativePath,
+                before: targetBefore?.data ?? null,
+                after: sourceBefore.data,
+                beforeEncoding: targetBefore?.encoding,
+                afterEncoding: sourceBefore.encoding
+              }
+            ]
           }
         }
       )
@@ -353,10 +384,6 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
 
 function preview(text: string): string {
   return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}...` : text
-}
-
-function textFromBuffer(buffer: Buffer): string | null {
-  return buffer.includes(0) ? null : buffer.toString('utf-8')
 }
 
 function describeOldText(oldText: string): string {

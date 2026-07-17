@@ -1,10 +1,11 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { EmailDraft, EmailDraftRequest, EmailThreadSummary } from '@shared/email.types'
 import type { ToolFactory, WorkspaceToolFactory } from './types'
 import { runGuardedTool, runReadTool } from './helpers'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { emailService } from '../email/EmailService'
+import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
 
 const MAX_BODY_PREVIEW = 700
 
@@ -266,13 +267,27 @@ export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
         touch: { path: args.path, action: 'write' },
         async run() {
           const destination = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          const beforeExists = await access(destination)
+            .then(() => true)
+            .catch(() => false)
+          const before = beforeExists ? encodeCheckpointBuffer(await readFile(destination)) : null
           const attachment = await emailService.getAttachment(args.messageId, args.attachmentId)
+          const after = encodeCheckpointBuffer(attachment.data)
           await mkdir(dirname(destination), { recursive: true })
           await writeFile(destination, attachment.data)
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, destination)
           return {
             modelResult: `Saved attachment ${attachment.filename} (${attachment.mimeType}, ${attachment.data.length} bytes) to ${relativePath}.`,
-            detail: `${attachment.filename} → ${relativePath}`
+            detail: `${attachment.filename} → ${relativePath}`,
+            checkpointChanges: [
+              {
+                path: relativePath,
+                before: before?.data ?? null,
+                after: after.data,
+                beforeEncoding: before?.encoding,
+                afterEncoding: after.encoding
+              }
+            ]
           }
         }
       })

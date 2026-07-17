@@ -3,7 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ToolCall, ToolConfirmRequest } from '@shared/tools.types'
-import { editFileTool, patchFileTool, writeFileTool } from '../mutationTools'
+import {
+  deleteFileTool,
+  editFileTool,
+  moveFileTool,
+  patchFileTool,
+  writeFileTool
+} from '../mutationTools'
+import { checkpointStore } from '../../checkpoints/CheckpointStore'
 import {
   captureCalls,
   captureConfirmations,
@@ -137,6 +144,81 @@ describe('edit_file', () => {
 
     expect(result).toContain('changed since this edit was proposed')
     expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('hello world, edited elsewhere')
+  })
+})
+
+describe('binary mutation checkpoints', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-binary-checkpoint-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  it('checkpoints and restores a deleted binary file', async () => {
+    const original = Buffer.from([0, 1, 2, 255, 128, 64])
+    await writeFile(join(workspace, 'asset.bin'), original)
+    const ctx = { ...createMockContext(workspace), projectId: 'project-1' }
+    const tool = deleteFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string }) => Promise<string>
+    }
+
+    await tool.handler({ path: 'asset.bin' })
+
+    const preview = checkpointStore.inspect(workspace, 'test-conversation', 'test-message')
+    expect(preview.files[0]).toMatchObject({
+      path: 'asset.bin',
+      kind: 'deleted',
+      binary: true,
+      beforeSize: original.length
+    })
+    checkpointStore.restore(workspace, 'test-conversation', 'test-message')
+    expect(await readFile(join(workspace, 'asset.bin'))).toEqual(original)
+  })
+
+  it('checkpoints and restores both sides of a binary move', async () => {
+    const original = Buffer.from([0, 10, 20, 30, 255])
+    await writeFile(join(workspace, 'source.bin'), original)
+    const ctx = { ...createMockContext(workspace), projectId: 'project-1' }
+    const tool = moveFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { sourcePath: string; targetPath: string }) => Promise<string>
+    }
+
+    await tool.handler({ sourcePath: 'source.bin', targetPath: 'nested/target.bin' })
+
+    const preview = checkpointStore.inspect(workspace, 'test-conversation', 'test-message')
+    expect(preview.files).toMatchObject([
+      { path: 'source.bin', kind: 'deleted', binary: true },
+      { path: 'nested/target.bin', kind: 'created', binary: true }
+    ])
+    checkpointStore.restore(workspace, 'test-conversation', 'test-message')
+    expect(await readFile(join(workspace, 'source.bin'))).toEqual(original)
+    await expect(readFile(join(workspace, 'nested', 'target.bin'))).rejects.toThrow()
+  })
+
+  it('preserves binary bytes when write_file overwrites an existing asset', async () => {
+    const original = Buffer.from([0, 200, 100, 50, 25])
+    await writeFile(join(workspace, 'asset.bin'), original)
+    const ctx = { ...createMockContext(workspace), projectId: 'project-1' }
+    const tool = writeFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; content: string }) => Promise<string>
+    }
+
+    await tool.handler({ path: 'asset.bin', content: 'text replacement' })
+
+    const preview = checkpointStore.inspect(workspace, 'test-conversation', 'test-message')
+    expect(preview.files[0]).toMatchObject({
+      path: 'asset.bin',
+      kind: 'modified',
+      binary: true,
+      beforeSize: original.length,
+      afterSize: Buffer.byteLength('text replacement')
+    })
+    checkpointStore.restore(workspace, 'test-conversation', 'test-message')
+    expect(await readFile(join(workspace, 'asset.bin'))).toEqual(original)
   })
 })
 
