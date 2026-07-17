@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ModelInfo } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
@@ -7,6 +8,7 @@ import { formatBytes } from '../../../../lib/format'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { ModelLogo } from '../../../../components/ModelLogo'
+import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { basename, scoreInstalledModel, type InstalledModelScore } from './scoring'
 import { ReliabilityScore } from './ReliabilityScore'
 import styles from './AiModelsSettings.module.css'
@@ -155,6 +157,9 @@ function InstalledModelRow({
   const pendingPath = useModelStore((s) => s.pendingPath)
   const loadModel = useModelStore((s) => s.loadModel)
   const unloadModel = useModelStore((s) => s.unloadModel)
+  const deleteModel = useModelStore((s) => s.deleteModel)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const isCurrent = engine.model?.path === model.path
   const isReady = isCurrent && engine.status === 'ready'
@@ -212,28 +217,54 @@ function InstalledModelRow({
             </span>
           )}
           {!isReady && isLast && <span className={styles.lastTag}>Last used</span>}
-          {isReady ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              iconLeft={<Icon name="power" size={14} />}
-              onClick={() => void unloadModel()}
+          <div className={styles.rowActions}>
+            {isReady ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                iconLeft={<Icon name="power" size={14} />}
+                onClick={() => void unloadModel()}
+              >
+                Unload
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                loading={isLoadingThis}
+                disabled={otherBusy}
+                onClick={() => void loadModel(model)}
+              >
+                {isLoadingThis ? 'Loading…' : 'Load'}
+              </Button>
+            )}
+            <button
+              type="button"
+              className={styles.deleteModelButton}
+              title="Delete model from disk"
+              aria-label={`Delete ${model.name} from disk`}
+              disabled={isLoadingThis || deleting}
+              onClick={() => setConfirmingDelete(true)}
             >
-              Unload
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              size="sm"
-              loading={isLoadingThis}
-              disabled={otherBusy}
-              onClick={() => void loadModel(model)}
-            >
-              {isLoadingThis ? 'Loading…' : 'Load'}
-            </Button>
-          )}
+              <Icon name="trash" size={14} />
+            </button>
+          </div>
         </div>
       </td>
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Permanently delete this model?"
+          message="This removes the model file from your computer's disk. It can't be undone, and you'll need to download it again to use it."
+          detail={`${model.name} · ${formatBytes(model.sizeBytes)}`}
+          confirmLabel="Delete from disk"
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => {
+            setConfirmingDelete(false)
+            setDeleting(true)
+            void deleteModel(model).finally(() => setDeleting(false))
+          }}
+        />
+      )}
     </tr>
   )
 }

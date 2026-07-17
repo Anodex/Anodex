@@ -108,6 +108,8 @@ export const IpcChannel = {
     add: 'models:add',
     load: 'models:load',
     unload: 'models:unload',
+    /** Permanently removes a model file from disk. */
+    delete: 'models:delete',
     getState: 'models:get-state',
     /** main → renderer broadcast when engine state changes. */
     stateChanged: 'models:state-changed',
@@ -385,6 +387,8 @@ export interface AnodexApi {
     add(): Promise<Result<ModelInfo | null>>
     load(options: ModelLoadOptions): Promise<Result<EngineState>>
     unload(): Promise<Result<EngineState>>
+    /** Permanently deletes the model file at `path` from disk. Unloads it first if active. */
+    delete(path: string): Promise<Result<null>>
     getState(): Promise<EngineState>
     onStateChanged(listener: (state: EngineState) => void): () => void
     /** Download a recommended model into the models directory. */

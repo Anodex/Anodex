@@ -18,6 +18,7 @@ interface ModelState {
   addModel: () => Promise<void>
   loadModel: (model: ModelInfo) => Promise<void>
   unloadModel: () => Promise<void>
+  deleteModel: (model: ModelInfo) => Promise<void>
   downloadModel: (model: RecommendedModel) => Promise<void>
   cancelDownload: (modelId: string) => void
   /** Called by the IPC bridge when the engine broadcasts a new state. */
@@ -78,6 +79,19 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const result = await anodex.models.unload()
     if (result.ok) set({ engine: result.value })
     else notifyError('Failed to unload model', result.error.message)
+  },
+
+  deleteModel: async (model) => {
+    const result = await anodex.models.delete(model.path)
+    if (!result.ok) {
+      notifyError('Could not delete model', result.error.detail ?? result.error.message)
+      return
+    }
+    if (get().engine.model?.path === model.path) {
+      set({ engine: { status: 'unloaded', generating: false } })
+    }
+    await get().refresh()
+    useUiStore.getState().notify({ kind: 'success', title: 'Model deleted', message: model.name })
   },
 
   downloadModel: async (model) => {

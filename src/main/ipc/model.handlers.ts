@@ -1,4 +1,5 @@
 import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron'
+import { rm } from 'fs/promises'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ModelLoadOptions } from '@shared/model.types'
@@ -66,6 +67,26 @@ export function registerModelHandlers(): void {
       return ok(await llamaService.unload())
     } catch (error) {
       return err('models.unload-failed', 'Failed to unload the model.', toErrorMessage(error))
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Models.delete, async (_event, path: string) => {
+    try {
+      if (llamaService.getState().model?.path === path) {
+        await llamaService.unload()
+      }
+      await rm(path, { force: true })
+
+      const settings = settingsStore.get()
+      if (settings.addedModelPaths.includes(path) || settings.lastModelPath === path) {
+        settingsStore.update({
+          addedModelPaths: settings.addedModelPaths.filter((p) => p !== path),
+          lastModelPath: settings.lastModelPath === path ? undefined : settings.lastModelPath
+        })
+      }
+      return ok(null)
+    } catch (error) {
+      return err('models.delete-failed', 'Could not delete the model file.', toErrorMessage(error))
     }
   })
 

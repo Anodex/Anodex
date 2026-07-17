@@ -24,6 +24,7 @@ const api: AnodexApi = {
     add: () => ipcRenderer.invoke(IpcChannel.Models.add),
     load: (options) => ipcRenderer.invoke(IpcChannel.Models.load, options),
     unload: () => ipcRenderer.invoke(IpcChannel.Models.unload),
+    delete: (path) => ipcRenderer.invoke(IpcChannel.Models.delete, path),
     getState: () => ipcRenderer.invoke(IpcChannel.Models.getState),
     onStateChanged: (listener) => subscribe<EngineState>(IpcChannel.Models.stateChanged, listener),
     download: (model) => ipcRenderer.invoke(IpcChannel.Models.download, model),
