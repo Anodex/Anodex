@@ -57,7 +57,7 @@ export function Sidebar(): JSX.Element {
   const handleCreateProject = useCreateProject()
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [projectsExpanded, setProjectsExpanded] = useState(true)
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(true)
   const [chatsExpanded, setChatsExpanded] = useState(true)
   const [chatSortMode, setChatSortMode] = useState<ChatSortMode>('recent')
   const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({})
@@ -115,15 +115,17 @@ export function Sidebar(): JSX.Element {
     }
   }, [chatSortMode, conversations, projects, searchQuery])
 
-  // Pin the active project above the Projects list so it reads as "where you
-  // are" rather than one peer among many. Skip the split while searching —
-  // a flat filtered list is clearer there than a hierarchy.
+  // Keep the active project first inside Workspace so "where you are" and
+  // "what else is available" live in one predictable group.
   const activeProjectEntry = !searching
     ? (filteredProjects.find((p) => p.project.id === activeProjectId) ?? null)
     : null
-  const otherProjects = activeProjectEntry
+  const remainingProjects = activeProjectEntry
     ? filteredProjects.filter((p) => p.project.id !== activeProjectId)
     : filteredProjects
+  const workspaceProjects = activeProjectEntry
+    ? [activeProjectEntry, ...remainingProjects]
+    : remainingProjects
 
   const isProjectExpanded = (projectId: string): boolean =>
     searching || expandedProjectIds[projectId] !== false
@@ -188,7 +190,7 @@ export function Sidebar(): JSX.Element {
   }
 
   const handleExpandAllProjects = (): void => {
-    setProjectsExpanded(true)
+    setWorkspaceExpanded(true)
     setExpandedProjectIds(Object.fromEntries(filteredProjects.map((p) => [p.project.id, true])))
   }
 
@@ -252,38 +254,11 @@ export function Sidebar(): JSX.Element {
               </button>
             </div>
 
-            {activeProjectEntry && (
-              <div className={styles.activeProjectPin}>
-                <div className={styles.activeProjectLabel}>Current project</div>
-                <ProjectRow
-                  project={activeProjectEntry.project}
-                  conversations={activeProjectEntry.conversations}
-                  active
-                  expanded={isProjectExpanded(activeProjectEntry.project.id)}
-                  activeConversationId={activeConversationId}
-                  running={activeProjectEntry.conversations.some(isConversationRunning)}
-                  unread={activeProjectEntry.conversations.some(isConversationUnread)}
-                  readConversationAt={readConversationAt}
-                  onToggle={() => toggleProject(activeProjectEntry.project.id)}
-                  onNewChat={handleNewChat}
-                  onSelectConversation={handleSelectConversation}
-                  onRenameConversation={(id, title) => void renameConversation(id, title)}
-                  onMarkConversationUnread={(id, updatedAt) =>
-                    markConversationUnread(id, updatedAt)
-                  }
-                  onDeleteConversation={handleDeleteConversation}
-                  onOpenProjectFolder={(id) => void openProjectFolder(id)}
-                  onRename={handleRenameProject}
-                  onDelete={handleDeleteProject}
-                />
-              </div>
-            )}
-
             <SidebarSection
-              title={activeProjectEntry ? 'Other projects' : 'Projects'}
+              title="Workspace"
               icon="folder"
-              expanded={searching || projectsExpanded}
-              onToggle={() => setProjectsExpanded((v) => !v)}
+              expanded={searching || workspaceExpanded}
+              onToggle={() => setWorkspaceExpanded((v) => !v)}
               actions={
                 <div className={styles.headerActions}>
                   {hasExpandedProjects && (
@@ -309,12 +284,12 @@ export function Sidebar(): JSX.Element {
                 </div>
               }
             >
-              {otherProjects.length === 0 ? (
+              {workspaceProjects.length === 0 ? (
                 <div className={styles.sectionEmpty}>
-                  <p>{activeProjectEntry ? 'No other projects' : 'No projects yet'}</p>
+                  <p>No projects yet</p>
                 </div>
               ) : (
-                otherProjects.map(({ project, conversations: projectConversations }) => (
+                workspaceProjects.map(({ project, conversations: projectConversations }) => (
                   <ProjectRow
                     key={project.id}
                     project={project}
