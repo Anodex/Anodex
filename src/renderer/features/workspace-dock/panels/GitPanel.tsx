@@ -222,11 +222,21 @@ export function GitPanel(): JSX.Element {
       : !status.remote
         ? 'Add a remote before pushing.'
         : undefined
+  const syncLabel = status.upstream
+    ? status.ahead > 0 || status.behind > 0
+      ? `${status.ahead} ahead / ${status.behind} behind`
+      : 'up to date'
+    : status.remote
+      ? 'no upstream'
+      : 'local only'
+  const remoteLabel = status.upstream ?? status.remote ?? 'no remote'
+  const headLabel = status.headSha ? `HEAD ${status.headSha}` : 'no commits yet'
+  const pushLabel = status.upstream ? 'Push' : status.remote ? 'Publish' : 'Push'
 
   return (
     <WorkspaceDockPanel title="Git">
       <div className={styles.statusCard}>
-        <div className={styles.statusHeader}>
+        <div className={styles.commandHeader}>
           <div className={styles.branchMenuWrap} ref={menuRef}>
             <button
               type="button"
@@ -321,62 +331,55 @@ export function GitPanel(): JSX.Element {
             )}
           </div>
 
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Refresh git status"
-            onClick={() => void refresh()}
-          >
-            <Icon name="refresh" size={13} />
-          </button>
+          <div className={styles.commandActions}>
+            <span className={styles.syncPill}>
+              <span className={status.upstream ? styles.syncDotReady : styles.syncDotMuted} />
+              {syncLabel}
+            </span>
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Refresh git status"
+              onClick={() => void refresh()}
+            >
+              <Icon name="refresh" size={13} />
+            </button>
+          </div>
         </div>
 
-        <div className={styles.metaGrid}>
-          <div className={styles.metaItem}>
-            <span>Remote</span>
-            <strong>{status.upstream ?? status.remote ?? 'none'}</strong>
-          </div>
-          <div className={styles.metaItem}>
-            <span>Sync</span>
+        <div className={styles.repoContext}>
+          <span>{remoteLabel}</span>
+          <span>{headLabel}</span>
+        </div>
+
+        <div className={hasChanges ? styles.changeBarDirty : styles.changeBarClean}>
+          <div className={styles.changeText}>
             <strong>
-              {status.upstream
-                ? `${status.ahead} ahead / ${status.behind} behind`
-                : status.remote
-                  ? 'no upstream'
-                  : 'local only'}
-            </strong>
-          </div>
-          <div className={styles.metaItem}>
-            <span>Head</span>
-            <strong>{status.headSha ?? 'unborn'}</strong>
-          </div>
-        </div>
-
-        <div className={styles.changeSummary}>
-          <div className={hasChanges ? styles.changeBadgeDirty : styles.changeBadgeClean}>
-            <Icon name={hasChanges ? 'diff' : 'check'} size={13} />
-            <span>
               {hasChanges
                 ? `${status.filesChanged} file${status.filesChanged === 1 ? '' : 's'} changed`
                 : 'Working tree clean'}
-            </span>
+            </strong>
+            {hasChanges ? (
+              <span>
+                {status.staged > 0 && `${status.staged} staged`}
+                {status.staged > 0 && (status.unstaged > 0 || status.untracked > 0) && ' · '}
+                {status.unstaged > 0 && `${status.unstaged} unstaged`}
+                {status.unstaged > 0 && status.untracked > 0 && ' · '}
+                {status.untracked > 0 && `${status.untracked} untracked`}
+              </span>
+            ) : (
+              <span>No uncommitted changes</span>
+            )}
           </div>
-          {hasChanges && (
-            <div className={styles.changeCounts}>
-              {status.staged > 0 && <span>{status.staged} staged</span>}
-              {status.unstaged > 0 && <span>{status.unstaged} unstaged</span>}
-              {status.untracked > 0 && <span>{status.untracked} untracked</span>}
-              {hasTrackedStats && (
-                <span>
-                  {status.insertions > 0 && (
-                    <strong className={styles.insertions}>+{status.insertions}</strong>
-                  )}
-                  {status.deletions > 0 && (
-                    <strong className={styles.deletions}>-{status.deletions}</strong>
-                  )}
-                </span>
+          {hasTrackedStats && (
+            <span className={styles.deltaStat}>
+              {status.insertions > 0 && (
+                <strong className={styles.insertions}>+{status.insertions}</strong>
               )}
-            </div>
+              {status.deletions > 0 && (
+                <strong className={styles.deletions}>-{status.deletions}</strong>
+              )}
+            </span>
           )}
         </div>
 
@@ -390,7 +393,9 @@ export function GitPanel(): JSX.Element {
             disabled={!hasChanges}
           />
           <span className={styles.commitHint}>
-            Commit all stages tracked and untracked files before committing.
+            {hasChanges
+              ? 'Commit all stages tracked and untracked files before committing.'
+              : 'No changes to commit.'}
           </span>
         </div>
 
@@ -412,7 +417,7 @@ export function GitPanel(): JSX.Element {
             onClick={requestPush}
           >
             {pushing ? <Spinner size={13} /> : <Icon name="send" size={13} />}
-            Push
+            {pushLabel}
           </button>
         </div>
       </div>
