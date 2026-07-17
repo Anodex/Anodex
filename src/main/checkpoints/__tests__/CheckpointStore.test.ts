@@ -1,12 +1,13 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { checkpointStore } from '../CheckpointStore'
 
 let roots: string[] = []
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const root of roots) rmSync(root, { recursive: true, force: true })
   roots = []
 })
@@ -152,5 +153,92 @@ describe('CheckpointStore', () => {
     const second = checkpointStore.restore(root, 'c1', 'm1', { paths: ['two.txt'] })
     expect(second.checkpoint.restoredFiles).toEqual(['one.txt', 'two.txt'])
     expect(second.checkpoint.restoredAt).toEqual(expect.any(Number))
+  })
+
+  it('lists project checkpoint history newest first', () => {
+    const root = workspace()
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValueOnce(100).mockReturnValueOnce(200)
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'one.txt',
+      before: 'before',
+      after: 'after'
+    })
+    checkpointStore.recordChange(root, 'c2', 'm2', {
+      path: 'two.txt',
+      before: null,
+      after: 'created'
+    })
+    now.mockRestore()
+
+    const history = checkpointStore.list(root)
+
+    expect(history).toHaveLength(2)
+    expect(history.map((entry) => entry.messageId)).toEqual(['m2', 'm1'])
+    expect(history[0].changedFiles).toEqual(['two.txt'])
+    expect(typeof history[0].createdAt).toBe('number')
+  })
+
+  it('undoes a restore by reapplying the checkpoint after-state', () => {
+    const root = workspace()
+    const file = join(root, 'app.ts')
+    writeFileSync(file, 'after', 'utf-8')
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'app.ts',
+      before: 'before',
+      after: 'after'
+    })
+    checkpointStore.restore(root, 'c1', 'm1')
+
+    const result = checkpointStore.undoRestore(root, 'c1', 'm1')
+
+    expect(result).toMatchObject({ undoneFiles: ['app.ts'], conflicts: [] })
+    expect(result.checkpoint.restoredFiles).toEqual([])
+    expect(result.checkpoint.restoredAt).toBeUndefined()
+    expect(readFileSync(file, 'utf-8')).toBe('after')
+  })
+
+  it('undoes restore states for files that were created or deleted by the turn', () => {
+    const root = workspace()
+    const created = join(root, 'created.txt')
+    const deleted = join(root, 'deleted.txt')
+    writeFileSync(created, 'created by turn', 'utf-8')
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'created.txt',
+      before: null,
+      after: 'created by turn'
+    })
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'deleted.txt',
+      before: 'deleted by turn',
+      after: null
+    })
+    checkpointStore.restore(root, 'c1', 'm1')
+
+    checkpointStore.undoRestore(root, 'c1', 'm1')
+
+    expect(readFileSync(created, 'utf-8')).toBe('created by turn')
+    expect(existsSync(deleted)).toBe(false)
+  })
+
+  it('blocks undo when a restored file changed again unless overwrite is explicit', () => {
+    const root = workspace()
+    const file = join(root, 'app.ts')
+    writeFileSync(file, 'after', 'utf-8')
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'app.ts',
+      before: 'before',
+      after: 'after'
+    })
+    checkpointStore.restore(root, 'c1', 'm1')
+    writeFileSync(file, 'new work after restore', 'utf-8')
+
+    const blocked = checkpointStore.undoRestore(root, 'c1', 'm1')
+    expect(blocked).toMatchObject({ undoneFiles: [], conflicts: ['app.ts'] })
+    expect(readFileSync(file, 'utf-8')).toBe('new work after restore')
+
+    const forced = checkpointStore.undoRestore(root, 'c1', 'm1', { force: true })
+    expect(forced).toMatchObject({ undoneFiles: ['app.ts'], conflicts: [] })
+    expect(readFileSync(file, 'utf-8')).toBe('after')
   })
 })

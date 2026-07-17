@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type {
   CheckpointFileChange,
   CheckpointFileChangeKind,
+  CheckpointHistoryEntry,
   CheckpointPreview,
   CheckpointSummary,
-  RestoreCheckpointResult
+  RestoreCheckpointResult,
+  UndoCheckpointResult
 } from '@shared/checkpoint.types'
 import { writeJsonAtomic } from '../utils/atomicWrite'
 import { resolveInWorkspace } from '../tools/workspace'
@@ -67,6 +69,28 @@ class CheckpointStore {
     return checkpoint ? toSummary(checkpoint) : null
   }
 
+  list(workspaceRoot: string): CheckpointHistoryEntry[] {
+    const root = checkpointDir(workspaceRoot)
+    if (!existsSync(root)) return []
+
+    const checkpoints: CheckpointHistoryEntry[] = []
+    for (const conversation of readdirSync(root, { withFileTypes: true })) {
+      if (!conversation.isDirectory()) continue
+      const conversationDir = join(root, conversation.name)
+      for (const file of readdirSync(conversationDir, { withFileTypes: true })) {
+        if (!file.isFile() || !file.name.endsWith('.json')) continue
+        try {
+          const checkpoint = this.readFile(join(conversationDir, file.name))
+          if (checkpoint) checkpoints.push(toHistoryEntry(checkpoint))
+        } catch {
+          // One damaged checkpoint should not hide the rest of the project history.
+        }
+      }
+    }
+
+    return checkpoints.sort((left, right) => right.createdAt - left.createdAt)
+  }
+
   inspect(workspaceRoot: string, conversationId: string, messageId: string): CheckpointPreview {
     const checkpoint = this.requireCheckpoint(workspaceRoot, conversationId, messageId)
     const restored = new Set(checkpoint.restoredPaths ?? [])
@@ -76,7 +100,9 @@ class CheckpointStore {
         ...change,
         kind: changeKind(change),
         restored: restored.has(change.path),
-        conflicted: restored.has(change.path) ? false : hasConflict(workspaceRoot, change)
+        conflicted: restored.has(change.path)
+          ? false
+          : hasStateConflict(workspaceRoot, change.path, change.after)
       }))
     }
   }
@@ -100,7 +126,7 @@ class CheckpointStore {
       (change) => selectedPaths.has(change.path) && !restoredPaths.has(change.path)
     )
     const conflicts = selectedChanges
-      .filter((change) => hasConflict(workspaceRoot, change))
+      .filter((change) => hasStateConflict(workspaceRoot, change.path, change.after))
       .map((change) => change.path)
     if (conflicts.length > 0 && !options.force) {
       return { restoredFiles: [], conflicts, checkpoint: toSummary(checkpoint) }
@@ -127,6 +153,47 @@ class CheckpointStore {
     }
     writeJsonAtomic(filePath, restored)
     return { restoredFiles, conflicts: [], checkpoint: toSummary(restored) }
+  }
+
+  undoRestore(
+    workspaceRoot: string,
+    conversationId: string,
+    messageId: string,
+    options: { paths?: string[]; force?: boolean } = {}
+  ): UndoCheckpointResult {
+    const filePath = checkpointPath(workspaceRoot, conversationId, messageId)
+    const checkpoint = this.requireCheckpoint(workspaceRoot, conversationId, messageId)
+    const restoredPaths = new Set(checkpoint.restoredPaths ?? [])
+    const requestedPaths = options.paths ?? [...restoredPaths]
+    const knownPaths = new Set(checkpoint.changes.map((change) => change.path))
+    const unknownPath = requestedPaths.find((path) => !knownPaths.has(path))
+    if (unknownPath) throw new Error(`File "${unknownPath}" is not part of this checkpoint.`)
+
+    const selectedPaths = new Set(requestedPaths)
+    const selectedChanges = checkpoint.changes.filter(
+      (change) => selectedPaths.has(change.path) && restoredPaths.has(change.path)
+    )
+    const conflicts = selectedChanges
+      .filter((change) => hasStateConflict(workspaceRoot, change.path, change.before))
+      .map((change) => change.path)
+    if (conflicts.length > 0 && !options.force) {
+      return { undoneFiles: [], conflicts, checkpoint: toSummary(checkpoint) }
+    }
+
+    const undoneFiles: string[] = []
+    for (const change of selectedChanges) {
+      writeState(workspaceRoot, change.path, change.after)
+      restoredPaths.delete(change.path)
+      undoneFiles.push(change.path)
+    }
+
+    const undone: PersistedCheckpoint = {
+      ...checkpoint,
+      restoredAt: undoneFiles.length > 0 ? undefined : checkpoint.restoredAt,
+      restoredPaths: [...restoredPaths]
+    }
+    writeJsonAtomic(filePath, undone)
+    return { undoneFiles, conflicts: [], checkpoint: toSummary(undone) }
   }
 
   private requireCheckpoint(
@@ -183,17 +250,31 @@ function toSummary(checkpoint: PersistedCheckpoint): CheckpointSummary {
   }
 }
 
+function toHistoryEntry(checkpoint: PersistedCheckpoint): CheckpointHistoryEntry {
+  return { ...toSummary(checkpoint), createdAt: checkpoint.createdAt }
+}
+
 function changeKind(change: CheckpointFileChange): CheckpointFileChangeKind {
   if (change.before === null) return 'created'
   if (change.after === null) return 'deleted'
   return 'modified'
 }
 
-function hasConflict(workspaceRoot: string, change: CheckpointFileChange): boolean {
-  const target = resolveInWorkspace(workspaceRoot, change.path)
-  if (change.after === null) return existsSync(target)
+function hasStateConflict(workspaceRoot: string, path: string, expected: string | null): boolean {
+  const target = resolveInWorkspace(workspaceRoot, path)
+  if (expected === null) return existsSync(target)
   if (!existsSync(target)) return true
-  return readFileSync(target, 'utf-8') !== change.after
+  return readFileSync(target, 'utf-8') !== expected
+}
+
+function writeState(workspaceRoot: string, path: string, content: string | null): void {
+  const target = resolveInWorkspace(workspaceRoot, path)
+  if (content === null) {
+    rmSync(target, { force: true })
+    return
+  }
+  mkdirSync(dirname(target), { recursive: true })
+  writeFileSync(target, content, 'utf-8')
 }
 
 function isCheckpointChange(value: unknown): value is CheckpointFileChange {

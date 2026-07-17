@@ -10,12 +10,14 @@ import { DiffView } from './DiffView'
 import styles from './CheckpointDialog.module.css'
 
 interface CheckpointDialogProps {
+  projectId?: string
   conversationId: string
   messageId: string
   onClose: () => void
 }
 
 export function CheckpointDialog({
+  projectId,
   conversationId,
   messageId,
   onClose
@@ -32,7 +34,7 @@ export function CheckpointDialog({
 
   useEffect(() => {
     let active = true
-    void inspectCheckpoint(conversationId, messageId).then((result) => {
+    void inspectCheckpoint(conversationId, messageId, projectId).then((result) => {
       if (!active) return
       setPreview(result)
       setSelected(
@@ -45,7 +47,7 @@ export function CheckpointDialog({
     return () => {
       active = false
     }
-  }, [conversationId, inspectCheckpoint, messageId])
+  }, [conversationId, inspectCheckpoint, messageId, projectId])
 
   const remainingFiles = preview?.files.filter((file) => !file.restored) ?? []
   const safeFiles = remainingFiles.filter((file) => !file.conflicted)
@@ -78,7 +80,8 @@ export function CheckpointDialog({
         conversationId,
         messageId,
         selected,
-        selectedConflicts.length > 0
+        selectedConflicts.length > 0,
+        projectId
       )
       if (!result) return
       if (result.conflicts.length > 0) {
@@ -98,9 +101,10 @@ export function CheckpointDialog({
         return
       }
 
-      const refreshed = await inspectCheckpoint(conversationId, messageId)
+      const refreshed = await inspectCheckpoint(conversationId, messageId, projectId)
       if (refreshed) setPreview(refreshed)
       setSelected([])
+      window.dispatchEvent(new Event('anodex:checkpoints-changed'))
     } finally {
       setRestoring(false)
     }

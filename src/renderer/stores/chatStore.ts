@@ -1,7 +1,11 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { HistoryCompactionEvent } from '@shared/chat.types'
-import type { CheckpointPreview, RestoreCheckpointResult } from '@shared/checkpoint.types'
+import type {
+  CheckpointPreview,
+  CheckpointSummary,
+  RestoreCheckpointResult
+} from '@shared/checkpoint.types'
 import type { Conversation } from '@shared/conversation.types'
 import { TOOL_CATALOG, type ToolActivityEvent } from '@shared/tools.types'
 import { stripToolCallText } from '@shared/toolCallText'
@@ -77,15 +81,23 @@ interface ChatState {
   /** Inspect file changes and conflicts for one assistant message checkpoint. */
   inspectCheckpoint: (
     conversationId: string,
-    messageId: string
+    messageId: string,
+    projectIdOverride?: string
   ) => Promise<CheckpointPreview | null>
   /** Restore selected file changes made by one assistant message checkpoint. */
   restoreCheckpoint: (
     conversationId: string,
     messageId: string,
     paths: string[],
-    force?: boolean
+    force?: boolean,
+    projectIdOverride?: string
   ) => Promise<RestoreCheckpointResult | null>
+  /** Keep a persisted message summary aligned with checkpoint actions from outside chat. */
+  syncCheckpointSummary: (
+    conversationId: string,
+    messageId: string,
+    checkpoint: CheckpointSummary
+  ) => void
 }
 
 const DEFAULT_TITLE = 'New chat'
@@ -579,14 +591,13 @@ export const useChatStore = create<ChatState>()(
       }
     },
 
-    inspectCheckpoint: async (conversationId, messageId) => {
+    inspectCheckpoint: async (conversationId, messageId, projectIdOverride) => {
       const conversation = get().conversations.find((item) => item.id === conversationId)
-      if (!conversation?.projectId) return null
-      const message = conversation.messages.find((item) => item.id === messageId)
-      if (!message?.checkpoint) return null
+      const projectId = projectIdOverride ?? conversation?.projectId
+      if (!projectId) return null
 
       const result = await anodex.checkpoints.inspect({
-        projectId: conversation.projectId,
+        projectId,
         conversationId,
         messageId
       })
@@ -597,14 +608,19 @@ export const useChatStore = create<ChatState>()(
       return result.value
     },
 
-    restoreCheckpoint: async (conversationId, messageId, paths, force = false) => {
+    restoreCheckpoint: async (
+      conversationId,
+      messageId,
+      paths,
+      force = false,
+      projectIdOverride
+    ) => {
       const conversation = get().conversations.find((item) => item.id === conversationId)
-      if (!conversation?.projectId) return null
-      const message = conversation.messages.find((item) => item.id === messageId)
-      if (!message?.checkpoint) return null
+      const projectId = projectIdOverride ?? conversation?.projectId
+      if (!projectId) return null
 
       const result = await anodex.checkpoints.restore({
-        projectId: conversation.projectId,
+        projectId,
         conversationId,
         messageId,
         paths,
@@ -636,6 +652,22 @@ export const useChatStore = create<ChatState>()(
         })
       }
       return result.value
+    },
+
+    syncCheckpointSummary: (conversationId, messageId, checkpoint) => {
+      let changed = false
+      const updatedAt = Date.now()
+      set((state) => {
+        const conversation = state.conversations.find((item) => item.id === conversationId)
+        const message = conversation?.messages.find((item) => item.id === messageId)
+        if (!conversation || !message) return
+        message.checkpoint = checkpoint
+        conversation.updatedAt = updatedAt
+        changed = true
+      })
+      if (!changed) return
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+      if (conversation) void persistConversation(conversation)
     }
   }))
 )

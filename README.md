@@ -215,7 +215,7 @@ looks like `rm -rf` or a force-push always confirms regardless of mode.
 
 ## Workspace Dock
 
-A side panel with four tabs alongside the chat:
+A side panel with configurable sections alongside the chat:
 
 - **Plan** — the model's current task list for the conversation, live.
 - **Files** — every file in the project, each attributed to you or the AI
@@ -226,6 +226,8 @@ A side panel with four tabs alongside the chat:
 - **Activity** — a live feed of tool calls as they happen.
 - **Outputs** — anything the model has produced worth surfacing outside the
   chat transcript.
+- **Checkpoints** - project-wide history for AI file changes, with review,
+  selective restore, and conflict-checked undo restore actions.
 
 ## Local model engine
 

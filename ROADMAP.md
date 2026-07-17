@@ -138,8 +138,9 @@ are not quite "tools" or "skills":
   First and second passes shipped: assistant turns that mutate text files
   persist per-message snapshots under `.anodex/checkpoints`; the assistant
   footer opens a changed-file review with before/after diffs, selective restore,
-  and conflict detection for files edited again after the turn. Future polish
-  can add binary/attachment coverage and Workspace Dock checkpoint history.
+  and conflict detection for files edited again after the turn. The Workspace
+  Dock now includes project-wide checkpoint history and conflict-checked undo
+  restore. Future polish can add binary/attachment coverage.
 - **Model capability labels** — surface which models are good at tool use,
   coding, long context, JSON/tool-call reliability, and speed. Reliability
   scoring exists; the missing piece is turning it into actionable guidance at
@@ -299,6 +300,11 @@ not correctness or security — lowest priority item on this whole list.
 - **Checkpoint / restore safety and review (2026-07-16)** - added changed-file
   classification, before/after preview, per-file selection, partial restore
   tracking, and explicit conflict warnings before newer work can be overwritten.
+
+- **Checkpoint history and undo restore (2026-07-16)** - added project-wide
+  history to the Workspace Dock and a conflict-checked way to reapply files from
+  the AI turn after restoring them.
+
 - **Critical Thinking core workflow (2026-07-16)** — shipped the renamed,
   Anodex-native deep-research surface with editable plan review, web-only
   execution, live plan/activity/source progress, stop support, persisted reports,

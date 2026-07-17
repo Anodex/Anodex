@@ -14,6 +14,10 @@ export interface CheckpointSummary {
   restoredAt?: number
 }
 
+export interface CheckpointHistoryEntry extends CheckpointSummary {
+  createdAt: number
+}
+
 export interface CheckpointRequest {
   projectId: string
   conversationId: string
@@ -37,6 +41,17 @@ export interface RestoreCheckpointRequest extends CheckpointRequest {
 
 export interface RestoreCheckpointResult {
   restoredFiles: string[]
+  conflicts: string[]
+  checkpoint: CheckpointSummary
+}
+
+export interface UndoCheckpointRequest extends CheckpointRequest {
+  paths: string[]
+  force?: boolean
+}
+
+export interface UndoCheckpointResult {
+  undoneFiles: string[]
   conflicts: string[]
   checkpoint: CheckpointSummary
 }

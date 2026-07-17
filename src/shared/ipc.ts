@@ -91,9 +91,12 @@ import type {
 import type { GithubConnectRequest, GithubConnectionState } from './github.types'
 import type {
   CheckpointPreview,
+  CheckpointHistoryEntry,
   CheckpointRequest,
   RestoreCheckpointRequest,
-  RestoreCheckpointResult
+  RestoreCheckpointResult,
+  UndoCheckpointRequest,
+  UndoCheckpointResult
 } from './checkpoint.types'
 
 export const IpcChannel = {
@@ -170,10 +173,14 @@ export const IpcChannel = {
     list: 'changes:list'
   },
   Checkpoints: {
+    /** List a project's checkpoints, newest first. */
+    list: 'checkpoints:list',
     /** Inspect changed files and detect edits made after a checkpoint was captured. */
     inspect: 'checkpoints:inspect',
     /** Restore the files changed by one assistant message back to their before-state. */
-    restore: 'checkpoints:restore'
+    restore: 'checkpoints:restore',
+    /** Reapply the AI turn after a checkpoint restore. */
+    undo: 'checkpoints:undo'
   },
   Projects: {
     list: 'projects:list',
@@ -434,10 +441,14 @@ export interface AnodexApi {
     list(projectId?: string | null): Promise<ChangeSummary[]>
   }
   checkpoints: {
+    /** List a project's checkpoints, newest first. */
+    list(projectId: string): Promise<Result<CheckpointHistoryEntry[]>>
     /** Inspect changed files and detect edits made after a checkpoint was captured. */
     inspect(request: CheckpointRequest): Promise<Result<CheckpointPreview>>
     /** Restore the files changed by one assistant message back to their before-state. */
     restore(request: RestoreCheckpointRequest): Promise<Result<RestoreCheckpointResult>>
+    /** Reapply the AI turn after a checkpoint restore. */
+    undo(request: UndoCheckpointRequest): Promise<Result<UndoCheckpointResult>>
   }
   projects: {
     list(): Promise<ProjectsState>
