@@ -5,12 +5,26 @@ import type { GitWorkspaceStatus } from '@shared/git.types'
 
 const GIT_TIMEOUT_MS = 10_000
 
-function runGit(args: string[], cwd: string): Promise<string | null> {
+interface GitCommandResult {
+  ok: boolean
+  stdout: string
+  stderr: string
+}
+
+function runGitCommand(args: string[], cwd: string): Promise<GitCommandResult> {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd, timeout: GIT_TIMEOUT_MS, windowsHide: true }, (error, stdout) =>
-      resolve(error ? null : stdout)
+    execFile(
+      'git',
+      args,
+      { cwd, timeout: GIT_TIMEOUT_MS, windowsHide: true },
+      (error, stdout, stderr) => resolve({ ok: !error, stdout, stderr })
     )
   })
+}
+
+async function runGit(args: string[], cwd: string): Promise<string | null> {
+  const result = await runGitCommand(args, cwd)
+  return result.ok ? result.stdout : null
 }
 
 function parseShortstat(output: string): { insertions: number; deletions: number } {
@@ -46,4 +60,46 @@ export async function getGitWorkspaceStatus(folderPath: string): Promise<GitWork
 export async function initGitRepo(folderPath: string): Promise<GitWorkspaceStatus> {
   await runGit(['init'], folderPath)
   return getGitWorkspaceStatus(folderPath)
+}
+
+export async function createBranch(folderPath: string, name: string): Promise<GitWorkspaceStatus> {
+  const result = await runGitCommand(['checkout', '-b', name], folderPath)
+  if (!result.ok) throw new Error(result.stderr.trim() || 'Could not create the branch.')
+  return getGitWorkspaceStatus(folderPath)
+}
+
+export async function listBranches(folderPath: string): Promise<string[]> {
+  const output = await runGit(['branch', '--format=%(refname:short)'], folderPath)
+  if (!output) return []
+  return output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+export async function switchBranch(folderPath: string, name: string): Promise<GitWorkspaceStatus> {
+  const result = await runGitCommand(['checkout', name], folderPath)
+  if (!result.ok) throw new Error(result.stderr.trim() || 'Could not switch branches.')
+  return getGitWorkspaceStatus(folderPath)
+}
+
+export async function commitAll(folderPath: string, message: string): Promise<GitWorkspaceStatus> {
+  const staged = await runGitCommand(['add', '-A'], folderPath)
+  if (!staged.ok) throw new Error(staged.stderr.trim() || 'Could not stage changes.')
+
+  const commit = await runGitCommand(['commit', '-m', message], folderPath)
+  if (!commit.ok) {
+    throw new Error(commit.stderr.trim() || commit.stdout.trim() || 'Could not commit.')
+  }
+  return getGitWorkspaceStatus(folderPath)
+}
+
+export async function pushBranch(folderPath: string): Promise<void> {
+  const hasUpstream = await runGitCommand(
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+    folderPath
+  )
+  const args = hasUpstream.ok ? ['push'] : ['push', '--set-upstream', 'origin', 'HEAD']
+  const result = await runGitCommand(args, folderPath)
+  if (!result.ok) throw new Error(result.stderr.trim() || 'Could not push.')
 }

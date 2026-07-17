@@ -227,7 +227,14 @@ const api: AnodexApi = {
   },
   git: {
     getStatus: (projectId) => ipcRenderer.invoke(IpcChannel.Git.getStatus, projectId),
-    init: (projectId) => ipcRenderer.invoke(IpcChannel.Git.init, projectId)
+    init: (projectId) => ipcRenderer.invoke(IpcChannel.Git.init, projectId),
+    createBranch: (projectId, name) =>
+      ipcRenderer.invoke(IpcChannel.Git.createBranch, projectId, name),
+    listBranches: (projectId) => ipcRenderer.invoke(IpcChannel.Git.listBranches, projectId),
+    switchBranch: (projectId, name) =>
+      ipcRenderer.invoke(IpcChannel.Git.switchBranch, projectId, name),
+    commit: (projectId, message) => ipcRenderer.invoke(IpcChannel.Git.commit, projectId, message),
+    push: (projectId) => ipcRenderer.invoke(IpcChannel.Git.push, projectId)
   },
   mcp: {
     list: () => ipcRenderer.invoke(IpcChannel.Mcp.list),

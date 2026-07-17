@@ -327,7 +327,12 @@ export const IpcChannel = {
   },
   Git: {
     getStatus: 'git:get-status',
-    init: 'git:init'
+    init: 'git:init',
+    createBranch: 'git:create-branch',
+    listBranches: 'git:list-branches',
+    switchBranch: 'git:switch-branch',
+    commit: 'git:commit',
+    push: 'git:push'
   },
   Mcp: {
     list: 'mcp:list',
@@ -628,6 +633,11 @@ export interface AnodexApi {
   git: {
     getStatus(projectId: string): Promise<Result<GitWorkspaceStatus>>
     init(projectId: string): Promise<Result<GitWorkspaceStatus>>
+    createBranch(projectId: string, name: string): Promise<Result<GitWorkspaceStatus>>
+    listBranches(projectId: string): Promise<Result<string[]>>
+    switchBranch(projectId: string, name: string): Promise<Result<GitWorkspaceStatus>>
+    commit(projectId: string, message: string): Promise<Result<GitWorkspaceStatus>>
+    push(projectId: string): Promise<Result<void>>
   }
   mcp: {
     list(): Promise<McpServerConfig[]>
