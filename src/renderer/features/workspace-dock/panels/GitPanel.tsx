@@ -156,12 +156,24 @@ export function GitPanel(): JSX.Element {
         return
       }
       notify({ kind: 'success', title: 'Pushed', message: status?.branch ?? undefined })
+      await refresh()
     } finally {
       setPushing(false)
     }
   }
 
   const requestPush = (): void => {
+    if (!status?.canPush) {
+      notifyError(
+        'Cannot push yet',
+        !status?.branch
+          ? 'Check out a branch first.'
+          : !status.headSha
+            ? 'Create a commit first.'
+            : 'Add a remote first.'
+      )
+      return
+    }
     if (confirmDestructive) {
       setConfirmingPush(true)
       return
@@ -201,132 +213,192 @@ export function GitPanel(): JSX.Element {
   const filteredBranches = (branches ?? []).filter((name) =>
     name.toLowerCase().includes(branchFilter.trim().toLowerCase())
   )
+  const hasChanges = status.filesChanged > 0
+  const hasTrackedStats = status.insertions > 0 || status.deletions > 0
+  const pushDisabledReason = !status.branch
+    ? 'Check out a branch before pushing.'
+    : !status.headSha
+      ? 'Create a commit before pushing.'
+      : !status.remote
+        ? 'Add a remote before pushing.'
+        : undefined
 
   return (
     <WorkspaceDockPanel title="Git">
-      <div className={styles.status}>
-        <div className={styles.branchMenuWrap} ref={menuRef}>
+      <div className={styles.statusCard}>
+        <div className={styles.statusHeader}>
+          <div className={styles.branchMenuWrap} ref={menuRef}>
+            <button
+              type="button"
+              className={styles.branchButton}
+              onClick={() => (menuOpen ? closeMenu() : void openMenu())}
+            >
+              <Icon name="git-branch" size={14} className={styles.branchIcon} />
+              <span>{status.branch ?? 'detached HEAD'}</span>
+              <Icon name="chevron-down" size={12} className={styles.branchChevron} />
+            </button>
+
+            {menuOpen && (
+              <div className={styles.branchMenu}>
+                <div className={styles.branchSearch}>
+                  <Icon name="search" size={13} className={styles.branchSearchIcon} />
+                  <input
+                    type="text"
+                    className={styles.branchSearchInput}
+                    placeholder="Search branches"
+                    value={branchFilter}
+                    onChange={(e) => setBranchFilter(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+
+                <div className={styles.branchList}>
+                  {branches === null ? (
+                    <div className={styles.branchListLoading}>
+                      <Spinner size={13} />
+                    </div>
+                  ) : filteredBranches.length === 0 ? (
+                    <div className={styles.branchEmpty}>No matching branches</div>
+                  ) : (
+                    filteredBranches.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        className={styles.branchItem}
+                        disabled={switchingBranch !== null}
+                        onClick={() => void switchTo(name)}
+                      >
+                        <Icon name="git-branch" size={13} className={styles.branchItemIcon} />
+                        <span className={styles.branchItemName}>{name}</span>
+                        {switchingBranch === name ? (
+                          <Spinner size={12} />
+                        ) : (
+                          name === status.branch && (
+                            <Icon name="check" size={13} className={styles.branchItemCheck} />
+                          )
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                <div className={styles.branchMenuFooter}>
+                  {creatingBranch ? (
+                    <div className={styles.branchForm}>
+                      <input
+                        type="text"
+                        className={styles.input}
+                        placeholder="branch-name"
+                        value={newBranchName}
+                        onChange={(e) => setNewBranchName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void createBranch()
+                          if (e.key === 'Escape') setCreatingBranch(false)
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        className={styles.smallButton}
+                        disabled={!newBranchName.trim() || branching}
+                        onClick={() => void createBranch()}
+                      >
+                        {branching ? <Spinner size={12} /> : 'Create'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.createBranchRow}
+                      onClick={() => setCreatingBranch(true)}
+                    >
+                      <Icon name="plus" size={13} />
+                      Create and checkout branch
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
-            className={styles.branchButton}
-            onClick={() => (menuOpen ? closeMenu() : void openMenu())}
+            className={styles.iconButton}
+            aria-label="Refresh git status"
+            onClick={() => void refresh()}
           >
-            <Icon name="git-branch" size={14} className={styles.branchIcon} />
-            <span>{status.branch ?? 'detached HEAD'}</span>
-            <Icon name="chevron-down" size={12} className={styles.branchChevron} />
+            <Icon name="refresh" size={13} />
           </button>
+        </div>
 
-          {menuOpen && (
-            <div className={styles.branchMenu}>
-              <div className={styles.branchSearch}>
-                <Icon name="search" size={13} className={styles.branchSearchIcon} />
-                <input
-                  type="text"
-                  className={styles.branchSearchInput}
-                  placeholder="Search branches"
-                  value={branchFilter}
-                  onChange={(e) => setBranchFilter(e.target.value)}
-                  autoFocus
-                />
-              </div>
+        <div className={styles.metaGrid}>
+          <div className={styles.metaItem}>
+            <span>Remote</span>
+            <strong>{status.upstream ?? status.remote ?? 'none'}</strong>
+          </div>
+          <div className={styles.metaItem}>
+            <span>Sync</span>
+            <strong>
+              {status.upstream
+                ? `${status.ahead} ahead / ${status.behind} behind`
+                : status.remote
+                  ? 'no upstream'
+                  : 'local only'}
+            </strong>
+          </div>
+          <div className={styles.metaItem}>
+            <span>Head</span>
+            <strong>{status.headSha ?? 'unborn'}</strong>
+          </div>
+        </div>
 
-              <div className={styles.branchList}>
-                {branches === null ? (
-                  <div className={styles.branchListLoading}>
-                    <Spinner size={13} />
-                  </div>
-                ) : filteredBranches.length === 0 ? (
-                  <div className={styles.branchEmpty}>No matching branches</div>
-                ) : (
-                  filteredBranches.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      className={styles.branchItem}
-                      disabled={switchingBranch !== null}
-                      onClick={() => void switchTo(name)}
-                    >
-                      <Icon name="git-branch" size={13} className={styles.branchItemIcon} />
-                      <span className={styles.branchItemName}>{name}</span>
-                      {switchingBranch === name ? (
-                        <Spinner size={12} />
-                      ) : (
-                        name === status.branch && (
-                          <Icon name="check" size={13} className={styles.branchItemCheck} />
-                        )
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
-
-              <div className={styles.branchMenuFooter}>
-                {creatingBranch ? (
-                  <div className={styles.branchForm}>
-                    <input
-                      type="text"
-                      className={styles.input}
-                      placeholder="branch-name"
-                      value={newBranchName}
-                      onChange={(e) => setNewBranchName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void createBranch()
-                        if (e.key === 'Escape') setCreatingBranch(false)
-                      }}
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      className={styles.smallButton}
-                      disabled={!newBranchName.trim() || branching}
-                      onClick={() => void createBranch()}
-                    >
-                      {branching ? <Spinner size={12} /> : 'Create'}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className={styles.createBranchRow}
-                    onClick={() => setCreatingBranch(true)}
-                  >
-                    <Icon name="plus" size={13} />
-                    Create and checkout new branch...
-                  </button>
-                )}
-              </div>
+        <div className={styles.changeSummary}>
+          <div className={hasChanges ? styles.changeBadgeDirty : styles.changeBadgeClean}>
+            <Icon name={hasChanges ? 'diff' : 'check'} size={13} />
+            <span>
+              {hasChanges
+                ? `${status.filesChanged} file${status.filesChanged === 1 ? '' : 's'} changed`
+                : 'Working tree clean'}
+            </span>
+          </div>
+          {hasChanges && (
+            <div className={styles.changeCounts}>
+              {status.staged > 0 && <span>{status.staged} staged</span>}
+              {status.unstaged > 0 && <span>{status.unstaged} unstaged</span>}
+              {status.untracked > 0 && <span>{status.untracked} untracked</span>}
+              {hasTrackedStats && (
+                <span>
+                  {status.insertions > 0 && (
+                    <strong className={styles.insertions}>+{status.insertions}</strong>
+                  )}
+                  {status.deletions > 0 && (
+                    <strong className={styles.deletions}>-{status.deletions}</strong>
+                  )}
+                </span>
+              )}
             </div>
           )}
         </div>
 
-        {status.filesChanged === 0 ? (
-          <span className={styles.clean}>No uncommitted changes</span>
-        ) : (
-          <div className={styles.diffStat}>
-            <span className={styles.filesChanged}>
-              {status.filesChanged} file{status.filesChanged === 1 ? '' : 's'} changed
-            </span>
-            {status.insertions > 0 && (
-              <span className={styles.insertions}>+{status.insertions}</span>
-            )}
-            {status.deletions > 0 && <span className={styles.deletions}>-{status.deletions}</span>}
-          </div>
-        )}
-
-        <textarea
-          className={styles.commitInput}
-          placeholder="Commit message"
-          rows={2}
-          value={commitMessage}
-          onChange={(e) => setCommitMessage(e.target.value)}
-          disabled={status.filesChanged === 0}
-        />
+        <div className={styles.commitBox}>
+          <textarea
+            className={styles.commitInput}
+            placeholder="Commit message"
+            rows={2}
+            value={commitMessage}
+            onChange={(e) => setCommitMessage(e.target.value)}
+            disabled={!hasChanges}
+          />
+          <span className={styles.commitHint}>
+            Commit all stages tracked and untracked files before committing.
+          </span>
+        </div>
 
         <div className={styles.actions}>
           <button
             type="button"
             className={styles.primaryButton}
-            disabled={!commitMessage.trim() || status.filesChanged === 0 || committing}
+            disabled={!commitMessage.trim() || !hasChanges || committing}
             onClick={() => void commit()}
           >
             {committing ? <Spinner size={13} /> : <Icon name="save" size={13} />}
@@ -335,7 +407,8 @@ export function GitPanel(): JSX.Element {
           <button
             type="button"
             className={styles.smallButton}
-            disabled={pushing}
+            disabled={pushing || !status.canPush}
+            title={pushDisabledReason}
             onClick={requestPush}
           >
             {pushing ? <Spinner size={13} /> : <Icon name="send" size={13} />}
@@ -348,7 +421,7 @@ export function GitPanel(): JSX.Element {
         <ConfirmDialog
           title="Push to remote?"
           message="This uploads your local commits to the remote repository."
-          detail={status.branch ?? undefined}
+          detail={status.upstream ?? `${status.remote ?? 'remote'}/${status.branch ?? 'HEAD'}`}
           confirmLabel="Push"
           icon="send"
           onCancel={() => setConfirmingPush(false)}
