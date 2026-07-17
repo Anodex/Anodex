@@ -6,7 +6,7 @@ import { MessageBubble } from './MessageBubble'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
-import { shouldPinCurrentRequest } from './messageTimeline'
+import { findLatestUserRequest, shouldPinCurrentRequest } from './messageTimeline'
 import styles from './MessageList.module.css'
 
 /** Distance (px) from the bottom within which we keep auto-scrolling. */
@@ -71,13 +71,18 @@ export function MessageList({
 
     setUserMarkers(markers)
 
-    const activeEntry = entries.find((entry) => entry.message.id === activeId)
-    const activeMarker = markers.find((marker) => marker.message.id === activeId) ?? null
+    // The rail's active marker follows the section nearest the scroll anchor,
+    // but "Current request" must always mean the newest user turn. Keeping
+    // those concepts separate prevents an older prompt from staying pinned
+    // after the user sends a follow-up lower in the transcript.
+    const currentRequest = findLatestUserRequest(messages)
+    const currentEntry = entries.find((entry) => entry.message.id === currentRequest?.id)
+    const currentMarker = markers.find((marker) => marker.message.id === currentRequest?.id) ?? null
     setPinnedRequest(
-      activeEntry &&
-        activeMarker &&
-        shouldPinCurrentRequest({ messageTop: activeEntry.offsetTop, scrollTop: el.scrollTop })
-        ? activeMarker
+      currentEntry &&
+        currentMarker &&
+        shouldPinCurrentRequest({ messageTop: currentEntry.offsetTop, scrollTop: el.scrollTop })
+        ? currentMarker
         : null
     )
   }, [messages])

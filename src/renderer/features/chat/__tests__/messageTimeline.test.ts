@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { shouldPinCurrentRequest } from '../messageTimeline'
+import { findLatestUserRequest, shouldPinCurrentRequest } from '../messageTimeline'
+
+describe('findLatestUserRequest', () => {
+  it('selects a new follow-up instead of the older request at the scroll anchor', () => {
+    const messages = [
+      { id: 'request-1', role: 'user' },
+      { id: 'reply-1', role: 'assistant' },
+      { id: 'request-2', role: 'user' },
+      { id: 'reply-2', role: 'assistant' }
+    ]
+
+    expect(findLatestUserRequest(messages)?.id).toBe('request-2')
+  })
+
+  it('returns null when the transcript has no user request', () => {
+    expect(findLatestUserRequest([{ id: 'system', role: 'system' }])).toBeNull()
+  })
+})
 
 describe('shouldPinCurrentRequest', () => {
   it('does not pin the current request while its message is still in view', () => {
