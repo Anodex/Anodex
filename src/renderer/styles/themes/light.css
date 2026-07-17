@@ -1,0 +1,74 @@
+/**
+ * "Anodex Light" — the default light palette.
+ *
+ * Deliberately not a stark white-on-black-text theme: surfaces are a soft,
+ * warm off-white rather than pure #ffffff, and body text is a warm charcoal
+ * rather than near-black, so the theme doesn't read as a harsh glare next to
+ * Anodex's near-black dark mode. Still comfortably high-contrast for text.
+ *
+ * This is the fallback light palette — it applies whenever `data-preset-
+ * theme` isn't a preset with its own light rendition (see
+ * `./light-slate.css`, selected via a higher-specificity rule when
+ * `data-preset-theme="slate"`).
+ *
+ * Presets/custom colours (`../../lib/themePresets.ts`) only ever style dark
+ * mode's *background/text/border* palette by default — light mode is its own
+ * fixed set of palettes, deliberately decoupled from the dark accent/surface
+ * math, so a dark-tuned colour can never leak through and break light-mode
+ * contrast (see `useTheme.ts` for why that's enforced at the JS level too,
+ * not just here).
+ *
+ * The actual values live in the --light-* variables below so the explicit
+ * 'light' mode and the OS-driven 'system + prefers-color-scheme: light' case
+ * can't drift apart from each other.
+ */
+:root {
+  --light-bg-base: #f2f0eb;
+  --light-bg-app: #f9f8f5;
+  --light-bg-surface: #f9f8f5;
+  --light-bg-surface-2: #f0eee8;
+  --light-bg-elevated: #e9e6df;
+  --light-bg-input: #f9f8f5;
+  --light-border: #e3e0d8;
+  --light-border-strong: #d1cdc2;
+  --light-text: #23211d;
+  --light-text-muted: #6f6a60;
+  --light-text-faint: #a29c8f;
+  --light-text-on-accent: #ffffff;
+  /* The dark-mode pastel blue reads as near-invisible on a light surface. */
+  --light-code-inline-text: #1a56db;
+}
+
+[data-theme-mode='light'] {
+  --bg-base: var(--light-bg-base);
+  --bg-app: var(--light-bg-app);
+  --bg-surface: var(--light-bg-surface);
+  --bg-surface-2: var(--light-bg-surface-2);
+  --bg-elevated: var(--light-bg-elevated);
+  --bg-input: var(--light-bg-input);
+  --border: var(--light-border);
+  --border-strong: var(--light-border-strong);
+  --text: var(--light-text);
+  --text-muted: var(--light-text-muted);
+  --text-faint: var(--light-text-faint);
+  --text-on-accent: var(--light-text-on-accent);
+  --code-inline-text: var(--light-code-inline-text);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme-mode='system'] {
+    --bg-base: var(--light-bg-base);
+    --bg-app: var(--light-bg-app);
+    --bg-surface: var(--light-bg-surface);
+    --bg-surface-2: var(--light-bg-surface-2);
+    --bg-elevated: var(--light-bg-elevated);
+    --bg-input: var(--light-bg-input);
+    --border: var(--light-border);
+    --border-strong: var(--light-border-strong);
+    --text: var(--light-text);
+    --text-muted: var(--light-text-muted);
+    --text-faint: var(--light-text-faint);
+    --text-on-accent: var(--light-text-on-accent);
+    --code-inline-text: var(--light-code-inline-text);
+  }
+}

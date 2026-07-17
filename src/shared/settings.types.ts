@@ -63,11 +63,15 @@ export interface ProfileSettings {
 export type SoundTheme = 'soft' | 'crisp' | 'glass' | 'retro' | 'sciFi'
 
 export interface AppearanceSettings {
-  /** Overall theme mode. */
-  themeMode: 'dark' | 'light' | 'system'
-  /** Named preset; 'custom' uses `customTheme`. */
-  presetTheme: 'midnight' | 'slate' | 'obsidian' | 'custom'
-  /** Custom CSS variables used when `presetTheme` is 'custom'. */
+  /**
+   * The active theme. Each value is a complete, independent palette — there
+   * is no separate light/dark "mode" layered on top; picking a different
+   * theme from the list is the only thing that changes the look. 'system'
+   * is the one special case: it watches the OS light/dark preference and
+   * automatically switches between 'midnight' and 'midnightLight'.
+   */
+  theme: 'midnight' | 'midnightLight' | 'slate' | 'slateLight' | 'obsidian' | 'system' | 'custom'
+  /** Custom CSS variables used when `theme` is 'custom'. */
   customTheme: {
     primary: string
     accent: string

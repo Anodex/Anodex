@@ -12,12 +12,13 @@ interface AppearanceSettingsProps {
 }
 
 const THEME_OPTIONS = [
-  { label: 'Anodex', value: 'dark:midnight' },
-  { label: 'Slate', value: 'dark:slate' },
-  { label: 'Obsidian', value: 'dark:obsidian' },
-  { label: 'Anodex Light', value: 'light:midnight' },
-  { label: 'Follow system', value: 'system:midnight' },
-  { label: 'Custom colors', value: 'dark:custom' }
+  { label: 'Anodex', value: 'midnight' },
+  { label: 'Slate', value: 'slate' },
+  { label: 'Obsidian', value: 'obsidian' },
+  { label: 'Anodex Light', value: 'midnightLight' },
+  { label: 'Slate Light', value: 'slateLight' },
+  { label: 'Follow system', value: 'system' },
+  { label: 'Custom colors', value: 'custom' }
 ]
 
 const CHAT_BACKGROUND_OPTIONS = [
@@ -67,10 +68,6 @@ export function AppearanceSettings({
   // soundVolume existed. The main-process defaults migrate it on a full load;
   // this fallback keeps the live Settings UI valid in the meantime.
   const soundVolume = appearance.soundVolume ?? DEFAULT_SOUND_VOLUME
-  const selectedTheme =
-    appearance.themeMode === 'dark'
-      ? `dark:${appearance.presetTheme}`
-      : `${appearance.themeMode}:midnight`
 
   return (
     <div className={pageStyles.page}>
@@ -91,20 +88,14 @@ export function AppearanceSettings({
           description="Anodex is the default. Dark, light, adaptive, and custom themes share one list so new palettes can be added without changing the layout."
           control={
             <SelectControl
-              value={selectedTheme}
+              value={appearance.theme}
               options={THEME_OPTIONS}
-              onChange={(value) => {
-                const [themeMode, presetTheme] = value.split(':') as [
-                  typeof appearance.themeMode,
-                  typeof appearance.presetTheme
-                ]
-                update({ themeMode, presetTheme })
-              }}
+              onChange={(value) => update({ theme: value as typeof appearance.theme })}
             />
           }
         />
 
-        {appearance.presetTheme === 'custom' && (
+        {appearance.theme === 'custom' && (
           <div className={styles.colorGrid}>
             <ColorSwatch
               label="Primary"

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { AppearanceSettings } from '@shared/settings.types'
-import { customThemeVariables, resolveThemeVariables, THEME_PRESETS } from '../themePresets'
+import {
+  basePresetOf,
+  customThemeVariables,
+  resolveThemeVariables,
+  themeModeOf,
+  THEME_PRESETS
+} from '../themePresets'
 
 const customTheme: AppearanceSettings['customTheme'] = {
   primary: '#111111',
@@ -15,8 +21,7 @@ const customTheme: AppearanceSettings['customTheme'] = {
 
 function makeAppearance(overrides: Partial<AppearanceSettings>): AppearanceSettings {
   return {
-    themeMode: 'dark',
-    presetTheme: 'midnight',
+    theme: 'midnight',
     customTheme,
     font: 'system',
     fontSize: 'medium',
@@ -48,18 +53,54 @@ describe('customThemeVariables', () => {
   })
 })
 
+describe('themeModeOf', () => {
+  it('treats midnight/slate/obsidian/custom as dark', () => {
+    expect(themeModeOf('midnight')).toBe('dark')
+    expect(themeModeOf('slate')).toBe('dark')
+    expect(themeModeOf('obsidian')).toBe('dark')
+    expect(themeModeOf('custom')).toBe('dark')
+  })
+
+  it('treats the Light variants as light', () => {
+    expect(themeModeOf('midnightLight')).toBe('light')
+    expect(themeModeOf('slateLight')).toBe('light')
+  })
+
+  it('treats system as its own case', () => {
+    expect(themeModeOf('system')).toBe('system')
+  })
+})
+
+describe('basePresetOf', () => {
+  it('pairs each theme with its base preset', () => {
+    expect(basePresetOf('midnight')).toBe('midnight')
+    expect(basePresetOf('midnightLight')).toBe('midnight')
+    expect(basePresetOf('slate')).toBe('slate')
+    expect(basePresetOf('slateLight')).toBe('slate')
+    expect(basePresetOf('obsidian')).toBe('obsidian')
+  })
+
+  it('pairs system with midnight, the one theme it switches between', () => {
+    expect(basePresetOf('system')).toBe('midnight')
+  })
+})
+
 describe('resolveThemeVariables', () => {
   it('returns the matching named preset for midnight/slate/obsidian', () => {
-    expect(resolveThemeVariables(makeAppearance({ presetTheme: 'slate' }))).toEqual(
-      THEME_PRESETS.slate
-    )
-    expect(resolveThemeVariables(makeAppearance({ presetTheme: 'obsidian' }))).toEqual(
+    expect(resolveThemeVariables(makeAppearance({ theme: 'slate' }))).toEqual(THEME_PRESETS.slate)
+    expect(resolveThemeVariables(makeAppearance({ theme: 'obsidian' }))).toEqual(
       THEME_PRESETS.obsidian
     )
   })
 
-  it('derives variables from customTheme when presetTheme is custom', () => {
-    const result = resolveThemeVariables(makeAppearance({ presetTheme: 'custom' }))
+  it('resolves system to the midnight preset (its dark pairing)', () => {
+    expect(resolveThemeVariables(makeAppearance({ theme: 'system' }))).toEqual(
+      THEME_PRESETS.midnight
+    )
+  })
+
+  it('derives variables from customTheme when theme is custom', () => {
+    const result = resolveThemeVariables(makeAppearance({ theme: 'custom' }))
     expect(result).toEqual(customThemeVariables(customTheme))
   })
 })

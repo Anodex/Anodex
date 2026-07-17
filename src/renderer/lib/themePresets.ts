@@ -1,70 +1,56 @@
 import type { AppearanceSettings } from '@shared/settings.types'
+import type { ThemeVariables } from './themes/types'
+import { midnightTheme } from './themes/midnight'
+import { slateTheme } from './themes/slate'
+import { obsidianTheme } from './themes/obsidian'
 
-/** The CSS custom properties a preset or a custom theme controls. */
-export interface ThemeVariables {
-  '--bg-base': string
-  '--bg-app': string
-  '--bg-surface': string
-  '--bg-surface-2': string
-  '--bg-elevated': string
-  '--bg-input': string
-  '--border': string
-  '--border-strong': string
-  '--text': string
-  '--text-muted': string
-  '--accent': string
-  '--accent-hover': string
+export type { ThemeVariables }
+export type ThemeChoice = AppearanceSettings['theme']
+
+/**
+ * Named dark palettes, one file per theme under `./themes/`. Applied as
+ * inline overrides by `../hooks/useTheme.ts` for every dark `ThemeChoice`
+ * ('midnight', 'slate', 'obsidian', and 'system' when the OS is dark).
+ *
+ * To add a new one: create `./themes/<name>.ts` exporting a `ThemeVariables`
+ * const (see `./themes/slate.ts` for the shape), import and add it below,
+ * extend the `theme` union in `src/shared/settings.types.ts`, add it to
+ * `basePresetOf`/`themeModeOf` below if it needs a light rendition too (see
+ * `../styles/themes/light-slate.css` for that pattern), and add an option to
+ * the theme dropdown in
+ * `features/settings/pages/appearance/AppearanceSettings.tsx`.
+ */
+export const THEME_PRESETS: Record<'midnight' | 'slate' | 'obsidian', ThemeVariables> = {
+  midnight: midnightTheme,
+  slate: slateTheme,
+  obsidian: obsidianTheme
 }
 
 /**
- * Named dark-mode palettes. `midnight` matches `theme.css`'s own `:root`
- * defaults exactly, so selecting it is equivalent to applying no override at
- * all — kept as an explicit entry anyway so the three presets are switched
- * through the same code path instead of `midnight` being a special case.
+ * Whether a `ThemeChoice` renders dark or light. 'system' isn't resolvable
+ * here — it depends on live OS state, so callers (`useTheme.ts`,
+ * `ChatConstellation.tsx`, `ChatCircuit.tsx`) treat it as its own third case
+ * and watch `prefers-color-scheme` themselves.
  */
-export const THEME_PRESETS: Record<'midnight' | 'slate' | 'obsidian', ThemeVariables> = {
-  midnight: {
-    '--bg-base': '#080808',
-    '--bg-app': '#0c0c0c',
-    '--bg-surface': '#111111',
-    '--bg-surface-2': '#161616',
-    '--bg-elevated': '#1c1c1c',
-    '--bg-input': '#0f0f0f',
-    '--border': '#1f1f1f',
-    '--border-strong': '#2a2a2a',
-    '--text': '#f0f0f0',
-    '--text-muted': '#a0a0a0',
-    '--accent': '#4f8cff',
-    '--accent-hover': '#3d7be8'
-  },
-  slate: {
-    '--bg-base': '#0a0d12',
-    '--bg-app': '#0d1117',
-    '--bg-surface': '#12161d',
-    '--bg-surface-2': '#171c25',
-    '--bg-elevated': '#1d232e',
-    '--bg-input': '#0f1319',
-    '--border': '#232935',
-    '--border-strong': '#2e3644',
-    '--text': '#e8ebf0',
-    '--text-muted': '#8b93a3',
-    '--accent': '#5b9bd5',
-    '--accent-hover': '#4a87c2'
-  },
-  obsidian: {
-    '--bg-base': '#0a0808',
-    '--bg-app': '#0d0b0b',
-    '--bg-surface': '#141010',
-    '--bg-surface-2': '#1a1414',
-    '--bg-elevated': '#201919',
-    '--bg-input': '#0f0c0c',
-    '--border': '#2a2222',
-    '--border-strong': '#362c2c',
-    '--text': '#f0ece8',
-    '--text-muted': '#a89e96',
-    '--accent': '#7c5cff',
-    '--accent-hover': '#6b4de6'
-  }
+export function themeModeOf(theme: ThemeChoice): 'dark' | 'light' | 'system' {
+  if (theme === 'system') return 'system'
+  if (theme === 'midnightLight' || theme === 'slateLight') return 'light'
+  return 'dark'
+}
+
+/**
+ * The base preset identity a `ThemeChoice` renders with. Drives both which
+ * dark preset's inline overrides apply (`THEME_PRESETS[...]`, dark themes
+ * only) and which light CSS palette wins via selector specificity (light
+ * themes only — see `../styles/themes/light-slate.css`). 'custom' isn't a
+ * real preset key; callers branch on it before consulting this. 'system'
+ * always pairs with 'midnight', matching the one light/dark pair it's wired
+ * to switch between.
+ */
+export function basePresetOf(theme: ThemeChoice): keyof typeof THEME_PRESETS {
+  if (theme === 'slate' || theme === 'slateLight') return 'slate'
+  if (theme === 'obsidian') return 'obsidian'
+  return 'midnight'
 }
 
 /** Derives the same variable set from the user's custom colour picks. */
@@ -88,11 +74,13 @@ export function customThemeVariables(
 }
 
 /**
- * Resolves the palette a `presetTheme` selection should apply in dark mode.
- * Pure so it's unit-testable independent of the DOM-mutating effect that
- * consumes it.
+ * Resolves the palette a dark `theme` selection should apply as inline
+ * overrides. Only meaningful when `themeModeOf(appearance.theme)` (with
+ * 'system' resolved against live OS state first) is 'dark' — light themes
+ * are handled entirely by CSS instead, never inline overrides. Pure so it's
+ * unit-testable independent of the DOM-mutating effect that consumes it.
  */
 export function resolveThemeVariables(appearance: AppearanceSettings): ThemeVariables {
-  if (appearance.presetTheme === 'custom') return customThemeVariables(appearance.customTheme)
-  return THEME_PRESETS[appearance.presetTheme]
+  if (appearance.theme === 'custom') return customThemeVariables(appearance.customTheme)
+  return THEME_PRESETS[basePresetOf(appearance.theme)]
 }

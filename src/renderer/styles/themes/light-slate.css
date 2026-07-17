@@ -1,0 +1,60 @@
+/**
+ * "Slate Light" — the second light palette, cool blue-grey instead of
+ * "Anodex Light"'s warm off-white. Pairs by name with the dark Slate preset
+ * but is its own independently-tuned light palette, not a lightened version
+ * of dark Slate's exact hues.
+ *
+ * Wins over ./light.css's fallback palette via selector specificity when
+ * `data-preset-theme="slate"` (set by `../../hooks/useTheme.ts`) — no
+ * !important or source-order dependency needed.
+ */
+:root {
+  --light-slate-bg-base: #eaeef3;
+  --light-slate-bg-app: #f5f7fa;
+  --light-slate-bg-surface: #f5f7fa;
+  --light-slate-bg-surface-2: #eceef2;
+  --light-slate-bg-elevated: #e2e6ec;
+  --light-slate-bg-input: #f5f7fa;
+  --light-slate-border: #dbe0e7;
+  --light-slate-border-strong: #c6ccd6;
+  --light-slate-text: #1d2530;
+  --light-slate-text-muted: #5c6673;
+  --light-slate-text-faint: #939aa6;
+  --light-slate-text-on-accent: #ffffff;
+  /* Same reasoning as light.css's --light-code-inline-text. */
+  --light-slate-code-inline-text: #1a56db;
+}
+
+[data-theme-mode='light'][data-preset-theme='slate'] {
+  --bg-base: var(--light-slate-bg-base);
+  --bg-app: var(--light-slate-bg-app);
+  --bg-surface: var(--light-slate-bg-surface);
+  --bg-surface-2: var(--light-slate-bg-surface-2);
+  --bg-elevated: var(--light-slate-bg-elevated);
+  --bg-input: var(--light-slate-bg-input);
+  --border: var(--light-slate-border);
+  --border-strong: var(--light-slate-border-strong);
+  --text: var(--light-slate-text);
+  --text-muted: var(--light-slate-text-muted);
+  --text-faint: var(--light-slate-text-faint);
+  --text-on-accent: var(--light-slate-text-on-accent);
+  --code-inline-text: var(--light-slate-code-inline-text);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme-mode='system'][data-preset-theme='slate'] {
+    --bg-base: var(--light-slate-bg-base);
+    --bg-app: var(--light-slate-bg-app);
+    --bg-surface: var(--light-slate-bg-surface);
+    --bg-surface-2: var(--light-slate-bg-surface-2);
+    --bg-elevated: var(--light-slate-bg-elevated);
+    --bg-input: var(--light-slate-bg-input);
+    --border: var(--light-slate-border);
+    --border-strong: var(--light-slate-border-strong);
+    --text: var(--light-slate-text);
+    --text-muted: var(--light-slate-text-muted);
+    --text-faint: var(--light-slate-text-faint);
+    --text-on-accent: var(--light-slate-text-on-accent);
+    --code-inline-text: var(--light-slate-code-inline-text);
+  }
+}

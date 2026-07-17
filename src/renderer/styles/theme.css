@@ -1,61 +1,19 @@
 /**
- * Anodex design tokens.
+ * Anodex structural design tokens — shadows, radii, spacing, typography,
+ * motion, layout, and z-index. Shared across every color theme.
  *
- * The palette is taken from the Anodex logo: a near-black navy field, a
- * cyan → blue → violet gradient for the "A" mark, and cool blue glows on the
- * hexagon edges. Everything visual references these variables so the identity
- * stays consistent and a future light theme is a matter of overriding tokens.
+ * Color tokens (surfaces/borders/text/accents/status) live in ./themes/ —
+ * see themes/midnight.css for the default dark palette and themes/light.css
+ * for the fixed light palette. Presets like Slate/Obsidian aren't CSS files;
+ * they're applied at runtime by ../lib/themePresets.ts, because an inline
+ * style always needs to win over light.css's stylesheet rule regardless of
+ * selector specificity (see useTheme.ts for why).
  */
 
+@import './themes/midnight.css';
+
 :root {
-  /* Surfaces — neutral dark greys, flatter and more professional */
-  --bg-base: #080808;
-  --bg-app: #0c0c0c;
-  --bg-surface: #111111;
-  --bg-surface-2: #161616;
-  --bg-elevated: #1c1c1c;
-  --bg-input: #0f0f0f;
-
-  /* Borders & dividers */
-  --border: #1f1f1f;
-  --border-strong: #2a2a2a;
-  --border-focus: #4f8cff;
-
-  /* Text */
-  --text: #f0f0f0;
-  --text-muted: #a0a0a0;
-  --text-faint: #606060;
-  --text-on-accent: #ffffff;
-
-  /* Brand accents — single muted blue, no rainbow gradients */
-  --accent-cyan: #4f8cff;
-  --accent-blue: #4f8cff;
-  --accent-violet: #7c5cff;
-  --accent-violet-soft: rgba(124, 92, 255, 0.12);
-  --accent: #4f8cff;
-  --accent-hover: #3d7be8;
-  --accent-soft: rgba(79, 140, 255, 0.12);
-  --accent-gradient: #4f8cff;
-  --accent-gradient-soft: rgba(79, 140, 255, 0.12);
-
-  /* Status */
-  --success: #3ccf7a;
-  --success-soft: rgba(60, 207, 122, 0.12);
-  --warn: #f5a623;
-  --warn-soft: rgba(245, 166, 35, 0.12);
-  --danger: #f05a5a;
-  --danger-hover: #d64d4d;
-  --danger-soft: rgba(240, 90, 90, 0.12);
-  --info: #4f8cff;
-  --info-soft: rgba(79, 140, 255, 0.12);
-
-  /* Inline `<code>` text in chat markdown — needs its own token since it must
-     stay readable against `--bg-base` in both light and dark mode. */
-  --code-inline-text: #a5d6ff;
-
-  /* Glows & shadows — minimal, no neon glows */
-  --glow-accent: none;
-  --glow-violet: none;
+  /* Shadows — minimal, no neon glows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
@@ -84,6 +42,7 @@
     'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', ui-monospace, Consolas,
     'Liberation Mono', monospace;
 
+  --text-2xs: 10px;
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 13px;

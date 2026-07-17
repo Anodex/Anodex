@@ -7,6 +7,7 @@ import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import {
   migrateLegacyAssistantStyle,
+  migrateLegacyThemeMode,
   stripRetiredGeneralSettings,
   validatePatch
 } from '../SettingsStore'
@@ -78,6 +79,66 @@ describe('migrateLegacyAssistantStyle', () => {
   it('strips the legacy field even when it is only whitespace', () => {
     const migrated = migrateLegacyAssistantStyle(baseSettings(), { ui: { systemPrompt: '   ' } })
     expect((migrated.ui as unknown as Record<string, unknown>).systemPrompt).toBeUndefined()
+  })
+})
+
+describe('migrateLegacyThemeMode', () => {
+  it('does nothing when there are no legacy fields', () => {
+    const settings = baseSettings()
+    const migrated = migrateLegacyThemeMode(settings, {})
+    expect(migrated).toBe(settings)
+    expect(migrated.appearance.theme).toBe('midnight')
+  })
+
+  it('maps dark + a named preset straight across', () => {
+    const migrated = migrateLegacyThemeMode(baseSettings(), {
+      appearance: { themeMode: 'dark', presetTheme: 'slate' }
+    })
+    expect(migrated.appearance.theme).toBe('slate')
+  })
+
+  it('maps dark + custom straight across', () => {
+    const migrated = migrateLegacyThemeMode(baseSettings(), {
+      appearance: { themeMode: 'dark', presetTheme: 'custom' }
+    })
+    expect(migrated.appearance.theme).toBe('custom')
+  })
+
+  it('maps light + midnight to midnightLight', () => {
+    const migrated = migrateLegacyThemeMode(baseSettings(), {
+      appearance: { themeMode: 'light', presetTheme: 'midnight' }
+    })
+    expect(migrated.appearance.theme).toBe('midnightLight')
+  })
+
+  it('maps light + slate to slateLight', () => {
+    const migrated = migrateLegacyThemeMode(baseSettings(), {
+      appearance: { themeMode: 'light', presetTheme: 'slate' }
+    })
+    expect(migrated.appearance.theme).toBe('slateLight')
+  })
+
+  it('maps light + obsidian to the default midnightLight (no Obsidian light variant)', () => {
+    const migrated = migrateLegacyThemeMode(baseSettings(), {
+      appearance: { themeMode: 'light', presetTheme: 'obsidian' }
+    })
+    expect(migrated.appearance.theme).toBe('midnightLight')
+  })
+
+  it('maps system to the flat system entry regardless of the old preset', () => {
+    const migrated = migrateLegacyThemeMode(baseSettings(), {
+      appearance: { themeMode: 'system', presetTheme: 'slate' }
+    })
+    expect(migrated.appearance.theme).toBe('system')
+  })
+
+  it('strips the legacy fields so they do not linger in appearance', () => {
+    const migrated = migrateLegacyThemeMode(baseSettings(), {
+      appearance: { themeMode: 'dark', presetTheme: 'obsidian' }
+    })
+    const appearance = migrated.appearance as unknown as Record<string, unknown>
+    expect(appearance.themeMode).toBeUndefined()
+    expect(appearance.presetTheme).toBeUndefined()
   })
 })
 

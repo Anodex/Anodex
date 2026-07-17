@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { themeModeOf } from '../../lib/themePresets'
 import { glowSprite, lerp, rampAt, rgba, type Rgb } from './backgroundCanvas'
 import styles from './ChatBackground.module.css'
 
@@ -153,7 +154,7 @@ const MAX_SPARKS = 260
 export function ChatCircuit(): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reducedMotion = useSettingsStore((s) => s.settings?.appearance.reducedMotion ?? false)
-  const themeMode = useSettingsStore((s) => s.settings?.appearance.themeMode ?? 'dark')
+  const themeMode = useSettingsStore((s) => themeModeOf(s.settings?.appearance.theme ?? 'midnight'))
 
   const [paused, setPaused] = useState(false)
   // The effect re-runs on theme changes; a ref (not the state) tells the

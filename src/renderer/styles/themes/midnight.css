@@ -1,0 +1,59 @@
+/**
+ * "Midnight" — Anodex's default dark palette, shown in Settings as "Anodex".
+ *
+ * The palette is taken from the Anodex logo: a near-black navy field, a
+ * cyan → blue → violet gradient for the "A" mark, and cool blue glows on the
+ * hexagon edges. Everything visual references these variables so the identity
+ * stays consistent.
+ *
+ * These are the :root fallback values — how the app looks before
+ * `useTheme.ts` applies any inline override for Slate/Obsidian/Custom. The
+ * bg/border/text/accent values here are mirrored as the JS `midnight` preset
+ * in `../../lib/themes/midnight.ts` so re-selecting "Anodex" is a no-op.
+ */
+:root {
+  /* Surfaces — neutral dark greys, flatter and more professional */
+  --bg-base: #080808;
+  --bg-app: #0c0c0c;
+  --bg-surface: #111111;
+  --bg-surface-2: #161616;
+  --bg-elevated: #1c1c1c;
+  --bg-input: #0f0f0f;
+
+  /* Borders & dividers. --border-focus isn't part of the preset/light
+     override sets (see ThemeVariables in lib/themes/types.ts) — it stays
+     this color in every theme. */
+  --border: #1f1f1f;
+  --border-strong: #2a2a2a;
+  --border-focus: #4f8cff;
+
+  /* Text */
+  --text: #f0f0f0;
+  --text-muted: #a0a0a0;
+  --text-faint: #606060;
+  --text-on-accent: #ffffff;
+
+  /* Brand accents — single muted blue, no rainbow gradients */
+  --accent-violet: #7c5cff;
+  --accent-violet-soft: rgba(124, 92, 255, 0.12);
+  --accent-green: #74f0a8;
+  --accent-green-soft: rgba(116, 240, 168, 0.12);
+  --accent: #4f8cff;
+  --accent-hover: #3d7be8;
+  --accent-soft: rgba(79, 140, 255, 0.12);
+
+  /* Status */
+  --success: #3ccf7a;
+  --success-soft: rgba(60, 207, 122, 0.12);
+  --warn: #f5a623;
+  --warn-soft: rgba(245, 166, 35, 0.12);
+  --danger: #f05a5a;
+  --danger-hover: #d64d4d;
+  --danger-soft: rgba(240, 90, 90, 0.12);
+  --info: #4f8cff;
+  --info-soft: rgba(79, 140, 255, 0.12);
+
+  /* Inline `<code>` text in chat markdown — needs its own token since it must
+     stay readable against `--bg-base` in both light and dark mode. */
+  --code-inline-text: #a5d6ff;
+}

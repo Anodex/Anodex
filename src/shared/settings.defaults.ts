@@ -44,8 +44,7 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       syncStatus: 'local'
     },
     appearance: {
-      themeMode: 'dark',
-      presetTheme: 'midnight',
+      theme: 'midnight',
       customTheme: {
         primary: '#4f8cff',
         accent: '#7aa7ff',

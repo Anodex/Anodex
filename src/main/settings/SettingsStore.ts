@@ -67,15 +67,19 @@ class SettingsStore {
       const retired = stripRetiredGeneralSettings(parsed)
       const raw = retired.settings as DeepPartial<AppSettings> & {
         ui?: { systemPrompt?: string }
+        appearance?: { themeMode?: string; presetTheme?: string }
       }
       // Merge over defaults so missing/added fields are always populated.
       const merged = deepMerge(defaults, raw)
-      const migrated = migrateLegacyAssistantStyle(merged, raw)
-      // Persist right away so the stray legacy field (and, on the first pass,
-      // its migrated text) only ever needs handling once — left on disk, it
-      // would silently re-trigger on every future load (see the migration
-      // function's own comment), undoing a later Reset of the new field.
-      if (raw.ui?.systemPrompt !== undefined || retired.changed) {
+      const migrated = migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw)
+      // Persist right away so the stray legacy fields (and, on the first pass,
+      // their migrated values) only ever need handling once — left on disk,
+      // they would silently re-trigger on every future load (see the
+      // migration functions' own comments), undoing a later Reset of the new
+      // fields.
+      const legacyThemeFieldsPresent =
+        raw.appearance?.themeMode !== undefined || raw.appearance?.presetTheme !== undefined
+      if (raw.ui?.systemPrompt !== undefined || legacyThemeFieldsPresent || retired.changed) {
         try {
           this.persist(migrated)
         } catch (error) {
@@ -156,6 +160,52 @@ export function migrateLegacyAssistantStyle(
       globalStyle: legacy.slice(0, MAX_ASSISTANT_STYLE_CHARS)
     }
   }
+}
+
+/**
+ * One-time migration: `appearance.themeMode` + `appearance.presetTheme` (a
+ * separate overall dark/light/system mode, plus which named preset to apply
+ * within it) were replaced by a single flat `appearance.theme` field —
+ * Anodex no longer treats light/dark as a mode layered on top of a preset,
+ * each theme is its own complete, independent choice. An existing user's old
+ * `{themeMode, presetTheme}` pair is translated into the equivalent new
+ * value automatically on first load after upgrading, and the retired fields
+ * are stripped so they don't linger in `settings.json` forever. Exported for
+ * unit testing; operates on plain data, no store/disk access of its own.
+ */
+export function migrateLegacyThemeMode(
+  settings: AppSettings,
+  raw: DeepPartial<AppSettings> & { appearance?: { themeMode?: string; presetTheme?: string } }
+): AppSettings {
+  const legacyMode = raw.appearance?.themeMode
+  const legacyPreset = raw.appearance?.presetTheme
+  if (legacyMode === undefined && legacyPreset === undefined) return settings
+
+  // `deepMerge` carries these forward onto `settings.appearance` even though
+  // `AppearanceSettings` no longer declares them (see `deepMerge`'s doc
+  // comment) — strip them here so this only ever needs handling once per
+  // legacy install, same reasoning as `migrateLegacyAssistantStyle` above.
+  const appearance = { ...(settings.appearance as unknown as Record<string, unknown>) }
+  delete appearance.themeMode
+  delete appearance.presetTheme
+  const cleaned = { ...settings, appearance: appearance as unknown as AppSettings['appearance'] }
+
+  return {
+    ...cleaned,
+    appearance: { ...cleaned.appearance, theme: resolveLegacyTheme(legacyMode, legacyPreset) }
+  }
+}
+
+function resolveLegacyTheme(
+  legacyMode: string | undefined,
+  legacyPreset: string | undefined
+): AppSettings['appearance']['theme'] {
+  if (legacyMode === 'system') return 'system'
+  if (legacyMode === 'light') return legacyPreset === 'slate' ? 'slateLight' : 'midnightLight'
+  if (legacyPreset === 'slate' || legacyPreset === 'obsidian' || legacyPreset === 'custom') {
+    return legacyPreset
+  }
+  return 'midnight'
 }
 
 /** Marks a value in `settings.json` as encrypted by `safeStorage`, vs. legacy plaintext. */
