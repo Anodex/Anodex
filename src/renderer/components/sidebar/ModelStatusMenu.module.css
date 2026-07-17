@@ -164,7 +164,7 @@
 }
 
 .gaugeFill.accent {
-  background: var(--accent-blue);
+  background: var(--accent);
 }
 .gaugeFill.warn {
   background: var(--warn);

@@ -72,7 +72,7 @@
 
 .currentRequestLabel {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -144,13 +144,21 @@
 }
 
 .userRailMarkerActive {
-  background: linear-gradient(90deg, var(--accent-violet), rgba(124, 92, 255, 0.2));
-  box-shadow: 0 0 10px rgba(124, 92, 255, 0.45);
+  background: linear-gradient(
+    90deg,
+    var(--accent-violet),
+    color-mix(in srgb, var(--accent-violet) 20%, transparent)
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent-violet) 45%, transparent);
 }
 
 .userRailMarkerHovered {
-  background: linear-gradient(90deg, var(--accent-green, #74f0a8), rgba(116, 240, 168, 0.2));
-  box-shadow: 0 0 10px rgba(116, 240, 168, 0.45);
+  background: linear-gradient(
+    90deg,
+    var(--accent-green),
+    color-mix(in srgb, var(--accent-green) 20%, transparent)
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent-green) 45%, transparent);
 }
 
 .userRailPreview {

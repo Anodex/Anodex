@@ -69,7 +69,7 @@
 
 .statusDotActive {
   background: var(--success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent);
+  box-shadow: 0 0 0 3px var(--success-soft);
 }
 
 .addRow {
