@@ -28,7 +28,6 @@
 .globalNav {
   padding-bottom: var(--space-2);
   margin-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border);
 }
 
 .navItem {
