@@ -40,14 +40,9 @@
 
 .active {
   color: var(--text);
-  background: color-mix(in srgb, var(--accent-soft) 36%, var(--bg-surface-2));
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--bg-surface-2);
+  box-shadow: none;
   animation: activeRowSettle var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
-}
-
-.active .title {
-  font-weight: 600;
-  color: var(--text);
 }
 
 .titleWrap {
