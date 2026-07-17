@@ -96,6 +96,10 @@ configured in Settings → Tools.
 When a project is open, the assistant gets a set of tools confined to that
 folder (path traversal outside it is blocked):
 
+Settings → Tools can disable individual built-in tools for normal chats. This
+removes their schemas from the model's context as well as preventing calls;
+agent runs and scheduled tasks keep their own explicit per-run tool selections.
+
 - **Read (never need approval):** `list_directory`, `read_file`,
   `read_file_range`, `read_multiple_files`, `get_file_info`, `search_files`,
   `find_files`, `code_outline` (compact imports/exported-symbol map),
@@ -160,9 +164,8 @@ it can actually take.
   “Relevant skill” hint when the active project/personal catalog appears to
   match your request. Choosing **Use** prepends a concise instruction to use that
   skill without adding persistent composer clutter.
-- **Pinned project skills:** each project's sidebar action menu opens its
-  contextual settings for project-scoped skills; Settings → Tools & Skills
-  manages personal skills and can pin them to the active project. Pinned skills
+- **Pinned project skills:** Settings → Skills contains project-scoped skills
+  and personal skills, and can pin either kind to the active project. Pinned skills
   are auto-loaded into the project prompt and shown in the compact context
   summary above the composer.
 - **Context transparency:** project chats show a collapsed-by-default context row
@@ -171,11 +174,11 @@ it can actually take.
 - **Skill draft helper:** assistant replies that used tools expose a subtle
   **Draft skill** footer action that opens a reviewable markdown skill draft in
   the active project's contextual settings, so the user can edit before saving.
-- **Skill library/editor:** Project settings in the sidebar contain the project
-  skill library; Settings → Tools & Skills contains the global personal library, which
-  works without an active project. Both support search, starter markdown,
+- **Skill library/editor:** Settings → Skills contains the active project's
+  skill library and the global personal library, which works without an active
+  project. Both support search, starter markdown,
   duplication, deletion, editing, and pin controls where applicable.
-- **Tool health dashboard:** Settings → Tools & Skills shows compact tool readiness cards
+- **Tool health dashboard:** Settings → Tools shows compact tool readiness cards
   for master enablement, project-scoped tool availability, web search, and
   approval mode, plus collapsed availability details explaining hidden tools; the
   searchable full tool catalog is collapsed by default.
@@ -266,13 +269,14 @@ input/output split per model underneath.
 - **Appearance** — Dark/Light/System theme, curated dark-mode color presets
   (a full custom palette editor too), font family/size, density, diff-view
   style (unified vs. side-by-side), optional interface click and task-status
-  sounds with selectable palettes and volume control, reduced motion, compact
-  mode.
+  sounds with selectable palettes and volume control, desktop notifications,
+  reduced motion, compact mode.
 - **Memory** — structured project/personal memory, past-chat recall controls,
   and manual memory management.
-- **General** — everyday application behavior and desktop notifications.
-- **Tools & Skills** — permission mode, terminal shell, tool health/catalog,
-  web search provider, and the global personal skill library.
+- **Skills** — project instructions, project skills, and the global personal
+  skill library.
+- **Tools** — permission mode, terminal shell, tool health/catalog, and web
+  search provider.
 - **AI & Models** — local and cloud model control: load/unload, providers, hardware
   panel, recommended-model strip, installed-models table with fit + reliability
   scores, in-catalog search/download, and response-generation defaults.

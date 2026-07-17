@@ -79,7 +79,7 @@ export function EmailSettings(): JSX.Element {
   return (
     <div className={pageStyles.page}>
       <header className={pageStyles.pageHeader}>
-        <p className={pageStyles.pageKicker}>Connections</p>
+        <p className={pageStyles.pageKicker}>AI & Connections</p>
         <h1 className={pageStyles.pageTitle}>Email</h1>
         <p className={pageStyles.pageDesc}>
           Connect Gmail so Anodex can search, summarize, draft, and send email with approval.

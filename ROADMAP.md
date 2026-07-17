@@ -44,25 +44,16 @@ workspace-confined where possible, mutating actions are approval-gated, calls ar
 visible in the transcript, diffs/HTML previews are surfaced inline, and the
 catalog is parity-tested against runtime registration. The biggest opportunities
 are not "more random tools," but tools that reduce repeated multi-call loops and
-make tool output easier to review. Settings → Tools & Skills now includes a compact tool
+make tool output easier to review. Settings → Tools now includes a compact tool
 health dashboard (enablement, project readiness, web search, approvals), collapsed
 availability details for conditional tools, and keeps the searchable full catalog
 collapsed by default.
 
 Remaining tool-side opportunities:
 
-- **Structured diagnostics/test tool** — wrap common project checks (`npm test`,
-  `npm run typecheck`, `npm run lint`) and return parsed failures, touched test
-  files, duration, and pass/fail state instead of a raw `run_command` blob. Keep
-  `run_command` for escape hatches; use this for the common verify loop.
-- **Workspace outline/code-map tool** — return symbols/imports/exports for a
-  file or folder so the model can orient itself without reading entire source
-  files. Start with TypeScript via the compiler API or ts-morph, then expand
-  only if needed.
 - **Git commit-assist tool/action** — build on existing `git_status`/`git_diff`
-  to produce a commit summary/message and optionally stage selected files. The
-  roadmap already has the UI question open; tool-level support would make it
-  more reliable than asking the model to chain raw git calls every time.
+  and `git_commit_summary`; the remaining question is whether to add guarded,
+  selected-file staging or keep commits as an explicit user action.
 - **Batch file-change review** — already listed below as a bigger approval-flow
   feature. It remains the best UI-side improvement for tool-heavy turns: group
   proposed edits into one review instead of modal/card fatigue across many
@@ -75,13 +66,15 @@ Remaining tool-side opportunities:
   for install/test/lint/build/dev-server tasks, with command templates stored
   per project. This gives users predictable approvals without weakening the
   existing shell risk model.
-- **Attachment/file artifact tools** — email tools can find attachments but not
-  save/open them into the workspace. A guarded `save_email_attachment` tool
-  would make the email integration more useful without letting the model send or
-  mutate mail silently.
+  Latest review notes:
 
-Latest review notes:
-
+- `run_project_check`, `code_outline`, `git_commit_summary`, and
+  `save_email_attachment` are built and cataloged; they are no longer backlog
+  items.
+- Normal chats now support persisted per-tool opt-outs in Settings → Tools.
+  Disabled schemas are omitted entirely, while agent and scheduled runs retain
+  their explicit allowlists. Semantic/RAG tool routing remains deliberately
+  deferred until real context measurements justify that infrastructure.
 - The Settings tool catalog is searchable and reports cataloged tools rather than
   implying every conditional/email/web tool is active in the current chat.
 - Tool health now has compact collapsed availability details for project, web,
@@ -106,10 +99,10 @@ Remaining follow-ups:
   **Draft skill** action that opens reviewable markdown directly in the compact
   active project's sidebar settings, where it can be edited and saved as a
   project skill.
-- **Library/editor UI** — split by scope: contextual project settings opened
-  from the sidebar manage project skills, while Settings → Tools & Skills manages personal skills without
-  requiring an active project and can pin them to the active project. Both include
-  search, markdown editing, starter templates, and duplicate/delete actions.
+- **Library/editor UI** — Settings → Skills manages project skills and personal
+  skills together, while personal skills still work without requiring an active
+  project and can be pinned to the active project. Both include search, markdown
+  editing, starter templates, and duplicate/delete actions.
 - **Draft-to-editor handoff** — built: the assistant footer opens generated
   markdown directly in the project skill editor. Future polish can add a
   project/personal scope chooser before opening the editor.

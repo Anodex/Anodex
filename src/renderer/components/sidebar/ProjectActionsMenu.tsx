@@ -82,8 +82,8 @@ export function ProjectActionsMenu({
             <span>Open in Explorer</span>
           </button>
           <button type="button" className={styles.item} onClick={handleProjectSettings}>
-            <Icon name="sliders" size={14} />
-            <span>Project settings</span>
+            <Icon name="lightbulb" size={14} />
+            <span>Project skills</span>
           </button>
           <button type="button" className={styles.item} onClick={handleRename}>
             <Icon name="pencil" size={14} />

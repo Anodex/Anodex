@@ -61,7 +61,7 @@ describe('migrateLegacyAssistantStyle', () => {
   })
 
   it('truncates an overlong legacy value to the new cap', () => {
-    const legacy = 'x'.repeat(2000)
+    const legacy = 'x'.repeat(MAX_ASSISTANT_STYLE_CHARS + 500)
     const migrated = migrateLegacyAssistantStyle(baseSettings(), { ui: { systemPrompt: legacy } })
     expect(migrated.assistantStyle.globalStyle.length).toBe(MAX_ASSISTANT_STYLE_CHARS)
   })
@@ -127,6 +127,14 @@ describe('validatePatch', () => {
     expect(() => validatePatch({ appearance: { soundVolume: 100 } })).not.toThrow()
     expect(() => validatePatch({ appearance: { soundVolume: 101 } })).toThrow(
       /appearance.soundVolume/
+    )
+  })
+
+  it('accepts a built-in tool opt-out list and rejects malformed entries', () => {
+    expect(() => validatePatch({ tools: { disabledTools: ['run_command'] } })).not.toThrow()
+    expect(() => validatePatch({ tools: { disabledTools: [''] } })).toThrow(/tools.disabledTools/)
+    expect(() => validatePatch({ tools: { disabledTools: 'run_command' } } as never)).toThrow(
+      /tools.disabledTools/
     )
   })
 })

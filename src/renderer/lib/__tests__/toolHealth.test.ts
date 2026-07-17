@@ -19,12 +19,13 @@ describe('buildToolHealthSummary', () => {
       buildToolHealthSummary({
         catalog: CATALOG,
         toolsEnabled: true,
+        disabledToolCount: 0,
         workspaceRoot: 'C:/repo',
         permissionMode: 'ask',
         webSearchProvider: 'brave'
       })
     ).toEqual([
-      { label: 'Tools', value: '4 cataloged', tone: 'ready' },
+      { label: 'Tools', value: '4/4 enabled', tone: 'ready' },
       { label: 'Project tools', value: '2 ready', tone: 'ready' },
       { label: 'Web search', value: 'brave', tone: 'ready' },
       { label: 'Approvals', value: 'Ask every time', tone: 'attention' }
@@ -36,6 +37,7 @@ describe('buildToolHealthSummary', () => {
       buildToolHealthSummary({
         catalog: CATALOG,
         toolsEnabled: false,
+        disabledToolCount: 0,
         workspaceRoot: null,
         permissionMode: 'full',
         webSearchProvider: 'none'

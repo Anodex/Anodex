@@ -11,6 +11,7 @@ import { useSettingsStore } from '../../../../stores/settingsStore'
 import { anodex } from '../../../../lib/anodex'
 import { Button } from '../../../../components/ui/Button'
 import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
+import { PersonalSkillsSection } from '../tools-skills/PersonalSkillsSection'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './ProjectsSettings.module.css'
 
@@ -206,10 +207,10 @@ export function ProjectsSettings(): JSX.Element {
   return (
     <div className={pageStyles.page}>
       <header className={pageStyles.pageHeader}>
-        <p className={pageStyles.pageKicker}>Workspace</p>
-        <h1 className={pageStyles.pageTitle}>Project settings</h1>
+        <p className={pageStyles.pageKicker}>Assistant</p>
+        <h1 className={pageStyles.pageTitle}>Skills</h1>
         <p className={pageStyles.pageDesc}>
-          Instructions and reusable workflows for the project selected in the sidebar.
+          Manage project-specific workflows and personal skills from one place.
         </p>
       </header>
 
@@ -369,10 +370,12 @@ export function ProjectsSettings(): JSX.Element {
         <section className={pageStyles.section}>
           <h2 className={pageStyles.sectionTitle}>No project selected</h2>
           <p className={pageStyles.sectionDesc}>
-            Choose a project&apos;s action menu in the sidebar, then select Project settings.
+            Select a project in the sidebar to edit project instructions and project skills here.
           </p>
         </section>
       )}
+
+      <PersonalSkillsSection />
 
       {deletingSkill && (
         <ConfirmDialog

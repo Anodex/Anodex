@@ -232,7 +232,7 @@ export function AiModelsSettings(): JSX.Element {
     <div className={styles.page}>
       <div className={styles.pageIntro}>
         <div>
-          <p className={styles.eyebrow}>Connections</p>
+          <p className={styles.eyebrow}>AI &amp; Connections</p>
           <h1 className={styles.pageTitle}>AI &amp; Models</h1>
           <p className={styles.pageDesc}>
             Choose what powers chat, manage local models, and tune performance when needed.

@@ -25,12 +25,13 @@ export interface UiSettings {
 }
 
 /**
- * Modest hard cap on `AssistantStyleSettings.globalStyle` — durable voice/
- * tone guidance should stay short, not grow into a second project-
- * instructions field. Exported so the Settings UI can show a live counter
- * against the same real limit that gets enforced.
+ * Hard cap on `AssistantStyleSettings.globalStyle` — durable voice/tone
+ * guidance can hold a full custom personality, but should still stay well
+ * below project instructions or pasted reference material. Exported so the
+ * Settings UI can show a live counter against the same real limit that gets
+ * enforced.
  */
-export const MAX_ASSISTANT_STYLE_CHARS = 1200
+export const MAX_ASSISTANT_STYLE_CHARS = 6000
 
 export interface AssistantStyleSettings {
   /**
@@ -128,6 +129,11 @@ export interface WorkspaceSettings {
 export interface ToolSettings {
   /** Master switch for the AI tool system. */
   enabled: boolean
+  /**
+   * Built-in tools excluded from normal interactive chats. Headless agent and
+   * scheduled runs keep using their own explicit allowlists instead.
+   */
+  disabledTools: string[]
 }
 
 export interface AnthropicProviderSettings {

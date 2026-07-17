@@ -69,6 +69,7 @@ class AnthropicProvider implements LlmProvider {
           email: params.tools.email,
           memory: params.tools.memory,
           enabledTools: params.tools.enabledTools ?? null,
+          disabledTools: params.tools.disabledTools,
           mcpTools: params.tools.mcpTools,
           // A mutable box, not the plan value itself — shared by every tool
           // call in this generation, matching LlamaService's own wiring.

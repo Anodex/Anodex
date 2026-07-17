@@ -46,6 +46,8 @@ export interface ToolRuntimeContext {
    * specific tool subset into unattended runs.
    */
   enabledTools: Set<string> | null
+  /** Built-in tools disabled by the user for normal interactive chats. */
+  disabledTools: Set<string>
   /**
    * Mutable holder for the conversation's current plan, shared by every tool
    * call in this generation — `write_plan` sets it, `update_plan_step` reads

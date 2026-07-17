@@ -206,7 +206,7 @@ export function MemorySettings(): JSX.Element {
   return (
     <div className={pageStyles.page}>
       <header className={pageStyles.pageHeader}>
-        <p className={pageStyles.pageKicker}>Personal</p>
+        <p className={pageStyles.pageKicker}>Assistant</p>
         <h1 className={pageStyles.pageTitle}>Memory</h1>
         <p className={pageStyles.pageDesc}>
           Durable facts the assistant remembers across conversations — conventions, gotchas,

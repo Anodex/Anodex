@@ -12,7 +12,6 @@ export type ToastKind = 'info' | 'success' | 'error'
 export type SettingsSection =
   | 'profile'
   | 'appearance'
-  | 'general'
   | 'projects'
   | 'tools-skills'
   | 'archive'

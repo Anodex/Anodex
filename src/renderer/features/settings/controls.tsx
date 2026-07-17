@@ -68,15 +68,17 @@ export function SelectControl({ value, options, onChange }: SelectControlProps):
 interface ToggleControlProps {
   checked: boolean
   onChange: (checked: boolean) => void
+  ariaLabel?: string
 }
 
 /** An on/off switch. */
-export function ToggleControl({ checked, onChange }: ToggleControlProps): JSX.Element {
+export function ToggleControl({ checked, onChange, ariaLabel }: ToggleControlProps): JSX.Element {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       className={`${styles.toggle} ${checked ? styles.toggleOn : ''}`}
       onClick={() => onChange(!checked)}
     >

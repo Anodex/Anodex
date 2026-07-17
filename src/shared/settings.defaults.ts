@@ -78,7 +78,8 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       root: null
     },
     tools: {
-      enabled: true
+      enabled: true,
+      disabledTools: []
     },
     provider: {
       active: 'local',

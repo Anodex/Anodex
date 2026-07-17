@@ -180,6 +180,21 @@ describe('buildTools', () => {
     }
   })
 
+  it('omits user-disabled tools from a normal chat', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      disabledTools: new Set(['run_command', 'web_search'])
+    }
+    ctx.webSearch.provider = 'brave'
+
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).not.toHaveProperty('run_command')
+    expect(tools).not.toHaveProperty('web_search')
+    expect(tools).toHaveProperty('read_file')
+  })
+
   it('registers email tools when Gmail is enabled', () => {
     const ctx = {
       ...createMockContext('/workspace'),

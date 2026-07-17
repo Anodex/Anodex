@@ -147,7 +147,7 @@ export function buildTools(
 ): Record<string, ToolFunction> {
   const tools: Record<string, ToolFunction> = {}
   const isEnabled = (name: string): boolean =>
-    ctx.enabledTools === null || ctx.enabledTools.has(name)
+    !ctx.disabledTools.has(name) && (ctx.enabledTools === null || ctx.enabledTools.has(name))
 
   if (ctx.workspaceRoot) {
     const workspaceCtx: WorkspaceToolContext = { ...ctx, workspaceRoot: ctx.workspaceRoot }

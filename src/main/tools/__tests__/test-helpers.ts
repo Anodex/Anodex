@@ -41,6 +41,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     },
     memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false },
     enabledTools: null,
+    disabledTools: new Set(),
     plan: { current: null },
     turnGate: { approved: false },
     loopGuard: createLoopGuardState(),

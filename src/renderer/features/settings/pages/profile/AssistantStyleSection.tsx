@@ -46,7 +46,7 @@ export function AssistantStyleSection({ value, update }: AssistantStyleSectionPr
       <textarea
         className={styles.textarea}
         value={value}
-        rows={4}
+        rows={10}
         maxLength={MAX_ASSISTANT_STYLE_CHARS}
         placeholder="e.g. Be direct and terse. Explain tradeoffs before making a choice."
         onChange={(event) => update(event.target.value.slice(0, MAX_ASSISTANT_STYLE_CHARS))}

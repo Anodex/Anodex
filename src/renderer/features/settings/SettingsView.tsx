@@ -6,7 +6,6 @@ import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
 import { ProfileSettings } from './pages/profile/ProfileSettings'
 import { AppearanceSettings } from './pages/appearance/AppearanceSettings'
-import { GeneralSettings } from './pages/general/GeneralSettings'
 import { AiModelsSettings } from './pages/ai-models/AiModelsSettings'
 import { DiagnosticsSettings } from './pages/diagnostics/DiagnosticsSettings'
 import { AboutSettings } from './pages/about/AboutSettings'
@@ -35,19 +34,19 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Personal',
     items: [
       { id: 'profile', label: 'Profile', icon: <Icon name="user" size={18} /> },
-      { id: 'appearance', label: 'Appearance', icon: <Icon name="palette" size={18} /> },
-      { id: 'memory', label: 'Memory', icon: <Icon name="layers" size={18} /> }
+      { id: 'appearance', label: 'Appearance', icon: <Icon name="palette" size={18} /> }
     ]
   },
   {
-    label: 'Workspace',
+    label: 'Assistant',
     items: [
-      { id: 'general', label: 'General', icon: <Icon name="sliders" size={18} /> },
-      { id: 'tools-skills', label: 'Tools & Skills', icon: <Icon name="sliders" size={18} /> }
+      { id: 'memory', label: 'Memory', icon: <Icon name="layers" size={18} /> },
+      { id: 'projects', label: 'Skills', icon: <Icon name="lightbulb" size={18} /> },
+      { id: 'tools-skills', label: 'Tools', icon: <Icon name="wrench" size={18} /> }
     ]
   },
   {
-    label: 'Connections',
+    label: 'AI & Connections',
     items: [
       { id: 'ai-models', label: 'AI & Models', icon: <Icon name="cpu" size={18} /> },
       { id: 'email', label: 'Email', icon: <Icon name="mail" size={18} /> },
@@ -124,15 +123,10 @@ export function SettingsView(): JSX.Element {
                 <AppearanceSettings
                   settings={settings}
                   update={(patch) => void update({ appearance: patch })}
+                  updateGeneral={(patch) => void update({ general: patch })}
                 />
               )}
               {section === 'memory' && <MemorySettings />}
-              {section === 'general' && (
-                <GeneralSettings
-                  settings={settings}
-                  update={(patch) => void update({ general: patch })}
-                />
-              )}
               {section === 'projects' && <ProjectsSettings />}
               {section === 'tools-skills' && <ToolsSkillsSettings />}
               {section === 'ai-models' && <AiModelsSettings />}

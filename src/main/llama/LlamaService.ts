@@ -179,6 +179,8 @@ export interface GenerateParams {
     plan: Plan | null
     /** Restricts which tools get registered at all; null = unrestricted (normal chat). */
     enabledTools?: Set<string> | null
+    /** Built-in tools disabled in normal interactive chats. */
+    disabledTools: Set<string>
     /** Tools discovered from currently-connected MCP servers (see `ToolRuntimeContext.mcpTools`). */
     mcpTools: McpToolDescriptor[]
     onActivity: (call: ToolCall) => void
@@ -1219,6 +1221,7 @@ class LlamaService extends EventEmitter {
       email: params.tools.email,
       memory: params.tools.memory,
       enabledTools: params.tools.enabledTools ?? null,
+      disabledTools: params.tools.disabledTools,
       mcpTools: params.tools.mcpTools,
       // A mutable box, not the plan value itself — shared by every tool call
       // in this generation so `update_plan_step` sees `write_plan`'s result

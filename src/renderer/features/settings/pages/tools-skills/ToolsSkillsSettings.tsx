@@ -11,7 +11,6 @@ import { useMcpStore } from '../../../../stores/mcpStore'
 import { StatusDot, type StatusTone } from '../../../../components/ui/StatusDot'
 import { SettingRow } from '../../SettingRow'
 import { RangeControl, SelectControl, TextControl, ToggleControl } from '../../controls'
-import { PersonalSkillsSection } from './PersonalSkillsSection'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './ToolsSkillsSettings.module.css'
 
@@ -57,22 +56,25 @@ export function ToolsSkillsSettings(): JSX.Element {
   const fullCatalog = useMemo<ToolCatalogEntry[]>(
     () => [
       ...TOOL_CATALOG,
-      ...mcpTools.map(
-        (tool): ToolCatalogEntry => ({
-          name: tool.qualifiedName,
-          kind: 'mcp',
-          description: `[${tool.serverName}] ${tool.description || tool.toolName}`
-        })
-      )
+      ...mcpTools.map((tool): ToolCatalogEntry => ({
+        name: tool.qualifiedName,
+        kind: 'mcp',
+        description: `[${tool.serverName}] ${tool.description || tool.toolName}`
+      }))
     ],
     [mcpTools]
   )
 
   if (!settings) return <></>
 
+  const disabledToolNames = new Set(settings.tools.disabledTools)
+  const disabledBuiltInCount = TOOL_CATALOG.filter((tool) =>
+    disabledToolNames.has(tool.name)
+  ).length
   const toolHealth = buildToolHealthSummary({
     catalog: TOOL_CATALOG,
     toolsEnabled: settings.tools.enabled,
+    disabledToolCount: disabledBuiltInCount,
     workspaceRoot: settings.workspace.root,
     permissionMode: settings.general.permissionMode,
     webSearchProvider: settings.webSearch.provider
@@ -87,13 +89,20 @@ export function ToolsSkillsSettings(): JSX.Element {
   })
   const filteredTools = filterToolCatalog(fullCatalog, toolSearch)
 
+  const setBuiltInToolEnabled = (name: string, enabled: boolean): void => {
+    const next = new Set(settings.tools.disabledTools)
+    if (enabled) next.delete(name)
+    else next.add(name)
+    void update({ tools: { disabledTools: [...next].sort() } })
+  }
+
   return (
     <div className={pageStyles.page}>
       <header className={pageStyles.pageHeader}>
-        <p className={pageStyles.pageKicker}>Workspace</p>
-        <h1 className={pageStyles.pageTitle}>Tools & Skills</h1>
+        <p className={pageStyles.pageKicker}>Assistant</p>
+        <h1 className={pageStyles.pageTitle}>Tools</h1>
         <p className={pageStyles.pageDesc}>
-          Control assistant access, reusable personal workflows, terminal behavior, and web search.
+          Control assistant access, terminal behavior, tool availability, and web search.
         </p>
       </header>
 
@@ -199,7 +208,9 @@ export function ToolsSkillsSettings(): JSX.Element {
         <details className={styles.disclosure}>
           <summary className={styles.summary}>
             <span>Tool catalog</span>
-            <span className={styles.summaryHint}>{fullCatalog.length} tools</span>
+            <span className={styles.summaryHint}>
+              {TOOL_CATALOG.length - disabledBuiltInCount}/{TOOL_CATALOG.length} built-ins enabled
+            </span>
           </summary>
           <input
             className={styles.catalogSearch}
@@ -216,13 +227,20 @@ export function ToolsSkillsSettings(): JSX.Element {
                 <code className={styles.toolName}>{tool.name}</code>
                 <span className={`${styles.toolKind} ${styles[tool.kind]}`}>{tool.kind}</span>
                 <span className={styles.toolDesc}>{tool.description}</span>
+                {tool.kind === 'mcp' ? (
+                  <span className={styles.toolManaged}>server</span>
+                ) : (
+                  <ToggleControl
+                    checked={!disabledToolNames.has(tool.name)}
+                    ariaLabel={`${disabledToolNames.has(tool.name) ? 'Enable' : 'Disable'} ${tool.name}`}
+                    onChange={(enabled) => setBuiltInToolEnabled(tool.name, enabled)}
+                  />
+                )}
               </div>
             ))}
           </div>
         </details>
       </section>
-
-      <PersonalSkillsSection />
 
       <section className={pageStyles.section}>
         <h2 className={pageStyles.sectionTitle}>Web search</h2>

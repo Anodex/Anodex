@@ -8,6 +8,7 @@ import styles from './AppearanceSettings.module.css'
 interface AppearanceSettingsProps {
   settings: AppSettings
   update: (patch: Partial<AppSettings['appearance']>) => void
+  updateGeneral: (patch: Partial<AppSettings['general']>) => void
 }
 
 const THEME_OPTIONS = [
@@ -56,7 +57,11 @@ const SOUND_THEME_OPTIONS = [
 
 const DEFAULT_SOUND_VOLUME = 70
 
-export function AppearanceSettings({ settings, update }: AppearanceSettingsProps): JSX.Element {
+export function AppearanceSettings({
+  settings,
+  update,
+  updateGeneral
+}: AppearanceSettingsProps): JSX.Element {
   const { appearance } = settings
   // A renderer hot-reload can briefly retain a settings object created before
   // soundVolume existed. The main-process defaults migrate it on a full load;
@@ -72,7 +77,9 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
       <header className={pageStyles.pageHeader}>
         <p className={pageStyles.pageKicker}>Personal</p>
         <h1 className={pageStyles.pageTitle}>Appearance</h1>
-        <p className={pageStyles.pageDesc}>Theme, typography, density, code views, and motion.</p>
+        <p className={pageStyles.pageDesc}>
+          Theme, typography, density, code views, motion, sound, and notifications.
+        </p>
       </header>
 
       <section className={pageStyles.section}>
@@ -228,7 +235,17 @@ export function AppearanceSettings({ settings, update }: AppearanceSettingsProps
       </section>
 
       <section className={pageStyles.section}>
-        <h2 className={pageStyles.sectionTitle}>Motion & sound</h2>
+        <h2 className={pageStyles.sectionTitle}>Motion, sound & notifications</h2>
+        <SettingRow
+          label="Desktop notifications"
+          description="Notify when long generations or model loads finish."
+          control={
+            <ToggleControl
+              checked={settings.general.desktopNotifications}
+              onChange={(value) => updateGeneral({ desktopNotifications: value })}
+            />
+          }
+        />
         <SettingRow
           label="Sound effects"
           description="Play subtle feedback for clicks, navigation, completions, approvals, and errors."

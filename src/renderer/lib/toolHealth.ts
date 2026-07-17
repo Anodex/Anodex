@@ -6,6 +6,7 @@ export type ToolHealthTone = 'ready' | 'attention' | 'blocked' | 'muted'
 export interface ToolHealthInput {
   catalog: ToolCatalogEntry[]
   toolsEnabled: boolean
+  disabledToolCount: number
   workspaceRoot: string | null
   permissionMode: PermissionMode
   webSearchProvider: string
@@ -90,7 +91,9 @@ export function buildToolHealthSummary(input: ToolHealthInput): ToolHealthItem[]
   return [
     {
       label: 'Tools',
-      value: input.toolsEnabled ? `${input.catalog.length} cataloged` : 'Disabled',
+      value: input.toolsEnabled
+        ? `${input.catalog.length - input.disabledToolCount}/${input.catalog.length} enabled`
+        : 'Disabled',
       tone: input.toolsEnabled ? 'ready' : 'blocked'
     },
     {

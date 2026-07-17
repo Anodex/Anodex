@@ -130,7 +130,7 @@
 
 .toolItem {
   display: grid;
-  grid-template-columns: 140px 64px minmax(0, 1fr);
+  grid-template-columns: 140px 64px minmax(0, 1fr) 52px;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-1) 0;
@@ -184,6 +184,12 @@
 
 .toolDesc {
   font-size: var(--text-sm);
+}
+
+.toolManaged {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  text-align: center;
 }
 
 @media (max-width: 760px) {

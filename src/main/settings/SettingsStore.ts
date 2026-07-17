@@ -328,6 +328,15 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
     }
   }
 
+  if (patch.tools?.disabledTools !== undefined) {
+    if (
+      !Array.isArray(patch.tools.disabledTools) ||
+      patch.tools.disabledTools.some((name) => typeof name !== 'string' || !name.trim())
+    ) {
+      throw new Error('tools.disabledTools must be an array of non-empty tool names')
+    }
+  }
+
   if (patch.appearance?.soundTheme !== undefined) {
     if (!['soft', 'crisp', 'glass', 'retro', 'sciFi'].includes(patch.appearance.soundTheme)) {
       throw new Error('appearance.soundTheme must be "soft", "crisp", "glass", "retro", or "sciFi"')

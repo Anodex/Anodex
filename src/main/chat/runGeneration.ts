@@ -196,6 +196,11 @@ export async function runGeneration(
         },
         plan: request.plan ?? null,
         enabledTools: io.enabledTools ?? null,
+        // Interactive chats use the persisted opt-out list. Headless runs
+        // already have an explicit allowlist, so their behavior stays stable
+        // even if the user later changes normal-chat preferences.
+        disabledTools:
+          io.enabledTools == null ? new Set(settings.tools.disabledTools) : new Set<string>(),
         // Discovery already happened at server-connect time, not here — this
         // is a synchronous read of McpManager's cache, so it never delays a
         // generation the way a live per-turn tool-list fetch would.
