@@ -89,6 +89,12 @@ import type {
   McpToolDescriptor
 } from './mcp.types'
 import type { GithubConnectRequest, GithubConnectionState } from './github.types'
+import type {
+  CheckpointPreview,
+  CheckpointRequest,
+  RestoreCheckpointRequest,
+  RestoreCheckpointResult
+} from './checkpoint.types'
 
 export const IpcChannel = {
   Models: {
@@ -162,6 +168,12 @@ export const IpcChannel = {
   Changes: {
     /** List a project's active (non-archived) change proposals. */
     list: 'changes:list'
+  },
+  Checkpoints: {
+    /** Inspect changed files and detect edits made after a checkpoint was captured. */
+    inspect: 'checkpoints:inspect',
+    /** Restore the files changed by one assistant message back to their before-state. */
+    restore: 'checkpoints:restore'
   },
   Projects: {
     list: 'projects:list',
@@ -420,6 +432,12 @@ export interface AnodexApi {
   changes: {
     /** List a project's active (non-archived) change proposals. */
     list(projectId?: string | null): Promise<ChangeSummary[]>
+  }
+  checkpoints: {
+    /** Inspect changed files and detect edits made after a checkpoint was captured. */
+    inspect(request: CheckpointRequest): Promise<Result<CheckpointPreview>>
+    /** Restore the files changed by one assistant message back to their before-state. */
+    restore(request: RestoreCheckpointRequest): Promise<Result<RestoreCheckpointResult>>
   }
   projects: {
     list(): Promise<ProjectsState>

@@ -1,20 +1,20 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { ToolCallDiff } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
-import { runGuardedTool, runGuardedToolWithPrepare } from './helpers'
+import { runGuardedToolWithPrepare } from './helpers'
 
 const PREVIEW_CHARS = 400
 const MAX_PATCH_REPLACEMENTS = 20
 /**
- * Files larger than this don't get a stored diff — a full before/after copy of
- * a huge file would bloat persisted conversation JSON indefinitely for a diff
- * that's unwieldy to actually read in the chat UI anyway.
+ * Files larger than this don't get a stored diff: a full before/after copy of
+ * a huge file would bloat persisted conversation JSON for a diff that's hard
+ * to read in the chat UI anyway.
  */
 const MAX_DIFF_CHARS = 50_000
 
-/** A diff, or `undefined` if there's nothing meaningful to show (unchanged or too large). */
+/** A diff, or `undefined` if there's nothing meaningful to show. */
 export function diffOrUndefined(
   path: string,
   before: string,
@@ -25,7 +25,7 @@ export function diffOrUndefined(
   return { path, before, after }
 }
 
-/** write_file — create or overwrite a text file (requires approval). */
+/** write_file - create or overwrite a text file. */
 export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description: 'Create or overwrite a text file within the workspace.',
@@ -51,28 +51,32 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
         async () => {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
-          // Best-effort — an empty "before" just means a new file, and any real
-          // problem reading it (permissions, etc.) will surface on the write below.
-          const before = await readFile(file, 'utf-8').catch(() => '')
+          const beforeExists = await access(file)
+            .then(() => true)
+            .catch(() => false)
+          const before = beforeExists ? await readFile(file, 'utf-8') : ''
           return {
             confirmDetail: `Write ${args.content.length} characters to ${args.path}:\n\n${preview(args.content)}`,
             confirmDiff: diffOrUndefined(relativePath, before, args.content),
-            data: { file, relativePath, before }
+            data: { file, relativePath, before, beforeExists }
           }
         },
-        async ({ file, relativePath, before }) => {
+        async ({ file, relativePath, before, beforeExists }) => {
           await mkdir(dirname(file), { recursive: true })
           await writeFile(file, args.content, 'utf-8')
           return {
             modelResult: `Wrote ${args.content.length} characters to ${relativePath}.`,
             detail: `${args.content.length} chars`,
-            diff: diffOrUndefined(relativePath, before, args.content)
+            diff: diffOrUndefined(relativePath, before, args.content),
+            checkpointChanges: [
+              { path: relativePath, before: beforeExists ? before : null, after: args.content }
+            ]
           }
         }
       )
   })
 
-/** edit_file — replace a unique block of text within a file (requires approval). */
+/** edit_file - replace a unique block of text within a file. */
 export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
@@ -98,14 +102,9 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
           touch: { path: args.path, action: 'write' }
         },
         async () => {
-          // An empty oldText matches every position in the file, so it always
-          // fails the uniqueness check below with a confusing "appears N times"
-          // message. Reject it immediately with a clearer, more actionable one
-          // instead — observed directly: models sometimes call edit_file without
-          // filling in oldText at all.
           if (!args.oldText) {
             throw new Error(
-              'oldText was empty. Provide the exact, existing text from the file to replace — read the file first if you have not already.'
+              'oldText was empty. Provide the exact, existing text from the file to replace; read the file first if you have not already.'
             )
           }
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
@@ -118,27 +117,24 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
           }
           const updated = original.replace(args.oldText, args.newText)
           return {
-            confirmDetail: `In ${args.path}, replace:\n\n${describeOldText(args.oldText)}\n\n→ with:\n\n${preview(args.newText)}`,
+            confirmDetail: `In ${args.path}, replace:\n\n${describeOldText(args.oldText)}\n\n-> with:\n\n${preview(args.newText)}`,
             confirmDiff: diffOrUndefined(relativePath, original, updated),
             data: { file, relativePath, original, updated }
           }
         },
         async ({ file, relativePath, original, updated }) => {
-          // Re-verify nothing changed between the confirm prompt and approval —
-          // `original` was snapshotted before the user answered, so without this
-          // an edit approved against now-stale content could silently clobber a
-          // concurrent change instead of failing loudly.
           const current = await readFile(file, 'utf-8').catch(() => null)
           if (current !== original) {
             throw new Error(
-              'The file changed since this edit was proposed — read it again and retry.'
+              'The file changed since this edit was proposed; read it again and retry.'
             )
           }
           await writeFile(file, updated, 'utf-8')
           return {
             modelResult: `Edited ${relativePath}.`,
             detail: '1 replacement',
-            diff: diffOrUndefined(relativePath, original, updated)
+            diff: diffOrUndefined(relativePath, original, updated),
+            checkpointChanges: [{ path: relativePath, before: original, after: updated }]
           }
         }
       )
@@ -203,9 +199,6 @@ export const patchFileTool: WorkspaceToolFactory = (define, ctx) =>
           const original = await readFile(file, 'utf-8')
           const replacements = args.replacements.slice(0, MAX_PATCH_REPLACEMENTS)
           const droppedCount = args.replacements.length - replacements.length
-          // Silently truncating would leave the model believing all of its
-          // requested replacements applied when some never ran — say so
-          // explicitly in both the confirmation prompt and the final result.
           const truncationNote =
             droppedCount > 0
               ? ` Only the first ${MAX_PATCH_REPLACEMENTS} of ${args.replacements.length} requested replacements were applied; the remaining ${droppedCount} were dropped. Call patch_file again for the rest.`
@@ -228,20 +221,21 @@ export const patchFileTool: WorkspaceToolFactory = (define, ctx) =>
           const current = await readFile(file, 'utf-8').catch(() => null)
           if (current !== original) {
             throw new Error(
-              'The file changed since this patch was proposed - read it again and retry.'
+              'The file changed since this patch was proposed; read it again and retry.'
             )
           }
           await writeFile(file, updated, 'utf-8')
           return {
             modelResult: `Patched ${relativePath} with ${count} replacement(s).${truncationNote}`,
             detail: `${count} replacement(s)`,
-            diff: diffOrUndefined(relativePath, original, updated)
+            diff: diffOrUndefined(relativePath, original, updated),
+            checkpointChanges: [{ path: relativePath, before: original, after: updated }]
           }
         }
       )
   })
 
-/** delete_file - remove a file from the workspace (requires approval). */
+/** delete_file - remove a file from the workspace. */
 export const deleteFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description: 'Delete a file inside the workspace.',
@@ -253,26 +247,37 @@ export const deleteFileTool: WorkspaceToolFactory = (define, ctx) =>
       required: ['path']
     } as const,
     handler: (args: { path: string }) =>
-      runGuardedTool(ctx, {
-        name: 'delete_file',
-        kind: 'write',
-        title: `Delete ${args.path}`,
-        args,
-        confirmDetail: `Delete file ${args.path}`,
-        risk: 'sensitive',
-        touch: { path: args.path, action: 'delete' },
-        async run() {
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'delete_file',
+          kind: 'write',
+          title: `Delete ${args.path}`,
+          args,
+          risk: 'sensitive',
+          touch: { path: args.path, action: 'delete' }
+        },
+        async () => {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
+          const before = textFromBuffer(await readFile(file))
+          return {
+            confirmDetail: `Delete file ${args.path}`,
+            data: { file, relativePath, before }
+          }
+        },
+        async ({ file, relativePath, before }) => {
           await rm(file)
           return {
-            modelResult: `Deleted ${toWorkspaceRelative(ctx.workspaceRoot, file)}.`,
-            detail: 'deleted'
+            modelResult: `Deleted ${relativePath}.`,
+            detail: 'deleted',
+            checkpointChanges: before === null ? [] : [{ path: relativePath, before, after: null }]
           }
         }
-      })
+      )
   })
 
-/** move_file — rename or move a file within the workspace (requires approval). */
+/** move_file - rename or move a file within the workspace. */
 export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
@@ -289,35 +294,75 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
       required: ['sourcePath', 'targetPath']
     } as const,
     handler: (args: { sourcePath: string; targetPath: string }) =>
-      runGuardedTool(ctx, {
-        name: 'move_file',
-        kind: 'write',
-        title: `Move ${args.sourcePath} → ${args.targetPath}`,
-        args,
-        confirmDetail: `Move ${args.sourcePath} to ${args.targetPath}`,
-        risk: 'safe',
-        touch: { path: args.targetPath, action: 'move' },
-        async run() {
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'move_file',
+          kind: 'write',
+          title: `Move ${args.sourcePath} -> ${args.targetPath}`,
+          args,
+          risk: 'safe',
+          touch: { path: args.targetPath, action: 'move' }
+        },
+        async () => {
           const source = resolveInWorkspace(ctx.workspaceRoot, args.sourcePath)
           const target = resolveInWorkspace(ctx.workspaceRoot, args.targetPath)
+          const sourceRelativePath = toWorkspaceRelative(ctx.workspaceRoot, source)
+          const targetRelativePath = toWorkspaceRelative(ctx.workspaceRoot, target)
+          const sourceBefore = textFromBuffer(await readFile(source))
+          const targetBeforeExists = await access(target)
+            .then(() => true)
+            .catch(() => false)
+          const targetBefore = targetBeforeExists ? textFromBuffer(await readFile(target)) : null
+          return {
+            confirmDetail: `Move ${args.sourcePath} to ${args.targetPath}`,
+            data: {
+              source,
+              target,
+              sourceRelativePath,
+              targetRelativePath,
+              sourceBefore,
+              targetBefore
+            }
+          }
+        },
+        async ({
+          source,
+          target,
+          sourceRelativePath,
+          targetRelativePath,
+          sourceBefore,
+          targetBefore
+        }) => {
           await mkdir(dirname(target), { recursive: true })
           await rename(source, target)
           return {
-            modelResult: `Moved ${toWorkspaceRelative(ctx.workspaceRoot, source)} to ${toWorkspaceRelative(ctx.workspaceRoot, target)}.`,
-            detail: 'moved'
+            modelResult: `Moved ${sourceRelativePath} to ${targetRelativePath}.`,
+            detail: 'moved',
+            checkpointChanges:
+              sourceBefore === null
+                ? []
+                : [
+                    { path: sourceRelativePath, before: sourceBefore, after: null },
+                    { path: targetRelativePath, before: targetBefore, after: sourceBefore }
+                  ]
           }
         }
-      })
+      )
   })
 
 function preview(text: string): string {
-  return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text
+  return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}...` : text
 }
 
-/** Like `preview`, but flags an empty oldText instead of showing a blank line. */
-function describeOldText(oldText: string): string {
-  return oldText ? preview(oldText) : '(empty — this call will be rejected)'
+function textFromBuffer(buffer: Buffer): string | null {
+  return buffer.includes(0) ? null : buffer.toString('utf-8')
 }
+
+function describeOldText(oldText: string): string {
+  return oldText ? preview(oldText) : '(empty; this call will be rejected)'
+}
+
 function applyTextPatch(
   original: string,
   replacements: PatchReplacement[]

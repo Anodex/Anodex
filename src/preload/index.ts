@@ -76,6 +76,10 @@ const api: AnodexApi = {
   changes: {
     list: (projectId) => ipcRenderer.invoke(IpcChannel.Changes.list, projectId)
   },
+  checkpoints: {
+    inspect: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.inspect, request),
+    restore: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.restore, request)
+  },
   system: {
     getInfo: () => ipcRenderer.invoke(IpcChannel.System.getInfo),
     getHardwareInfo: () => ipcRenderer.invoke(IpcChannel.System.getHardwareInfo),

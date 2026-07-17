@@ -5,6 +5,7 @@ import type { Plan } from './plan.types'
 import type { MemoryEntry } from './memory.types'
 import type { TranscriptRecallResult } from './transcriptRecall.types'
 import type { ConversationContext, ConversationContextSnapshot } from './context.types'
+import type { CheckpointSummary } from './checkpoint.types'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 
@@ -58,6 +59,8 @@ export interface ChatMessage {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /** Restorable snapshot for file changes made by this assistant turn. */
+  checkpoint?: CheckpointSummary
 }
 
 /** Sampling parameters for a single generation. */
@@ -164,4 +167,6 @@ export interface ChatResult {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /** Restorable snapshot for file changes made by this assistant turn. */
+  checkpoint?: CheckpointSummary
 }

@@ -20,6 +20,7 @@ import { registerStatsHandlers } from './stats.handlers'
 import { registerMemoryHandlers } from './memory.handlers'
 import { registerSkillHandlers } from './skill.handlers'
 import { registerChangeHandlers } from './change.handlers'
+import { registerCheckpointHandlers } from './checkpoint.handlers'
 import { registerTerminalHandlers } from './terminal.handlers'
 import { registerSchedulerHandlers } from './scheduler.handlers'
 import { registerAgentHandlers } from './agent.handlers'
@@ -52,6 +53,7 @@ export function registerIpcHandlers(): void {
   registerMemoryHandlers()
   registerSkillHandlers()
   registerChangeHandlers()
+  registerCheckpointHandlers()
   registerTerminalHandlers()
   registerSchedulerHandlers()
   registerAgentHandlers()

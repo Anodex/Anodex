@@ -6,12 +6,14 @@ import { Icon } from '../../components/Icon'
 import { formatBytes, formatClock } from '../../lib/format'
 import { savePendingSkillEditorDraft } from '../../lib/skillEditorDraftHandoff'
 import { buildSkillDraft } from '../../lib/skillDraft'
+import { useChatStore } from '../../stores/chatStore'
 import { useUiStore } from '../../stores/uiStore'
 import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ToolCallGroup } from './ToolCallGroup'
+import { CheckpointDialog } from './CheckpointDialog'
 import { buildRenderSegments, messageBlocks } from './taskPhase'
 import styles from './MessageBubble.module.css'
 
@@ -32,14 +34,21 @@ export function MessageBubble({
   const isUser = message.role === 'user'
   const openSettings = useUiStore((s) => s.openSettings)
   const notify = useUiStore((s) => s.notify)
+  const activeConversationId = useChatStore((s) => s.activeId)
   const [copied, setCopied] = useState(false)
   const [draftOpened, setDraftOpened] = useState(false)
+  const [checkpointOpen, setCheckpointOpen] = useState(false)
   const showCopy = !message.streaming && message.content.length > 0
   const showSkillDraft =
     !isUser &&
     !message.streaming &&
     message.content.length > 0 &&
     (message.toolCalls?.some((call) => call.status === 'success') ?? false)
+  const showCheckpoint =
+    !isUser &&
+    !message.streaming &&
+    Boolean(message.checkpoint?.changedFiles.length) &&
+    Boolean(activeConversationId)
 
   const handleCopy = async (): Promise<void> => {
     try {
@@ -71,6 +80,7 @@ export function MessageBubble({
       /* Storage unavailable — silently ignore. */
     }
   }
+
   const segments = buildRenderSegments(messageBlocks(message))
   const showThinking = message.streaming && segments.length === 0
   const lastSegment = segments[segments.length - 1]
@@ -82,7 +92,8 @@ export function MessageBubble({
     message.streaming &&
     lastSegment?.type === 'toolGroup' &&
     !lastSegment.calls.some((call) => call.status === 'running')
-  const showFooter = isUser || (message.stats && !message.streaming) || showCopy || showSkillDraft
+  const showFooter =
+    isUser || (message.stats && !message.streaming) || showCopy || showSkillDraft || showCheckpoint
 
   return (
     <div className={`${styles.row} ${isUser ? styles.user : styles.assistant}`}>
@@ -170,6 +181,18 @@ export function MessageBubble({
               {draftOpened ? 'Draft opened' : 'Draft skill'}
             </button>
           )}
+          {showCheckpoint && (
+            <button
+              type="button"
+              className={styles.copyButton}
+              onClick={() => setCheckpointOpen(true)}
+              aria-label="Review checkpoint"
+              title={checkpointTitle(message)}
+            >
+              <Icon name={message.checkpoint?.restoredAt ? 'check' : 'restore'} size={12} />
+              {checkpointButtonLabel(message)}
+            </button>
+          )}
           {!isUser && message.stats && !message.streaming && (
             <span className={styles.stats}>
               {message.stats.tokens} tokens · {message.stats.tokensPerSecond} tok/s
@@ -177,6 +200,27 @@ export function MessageBubble({
           )}
         </div>
       ) : null}
+      {checkpointOpen && activeConversationId && (
+        <CheckpointDialog
+          conversationId={activeConversationId}
+          messageId={message.id}
+          onClose={() => setCheckpointOpen(false)}
+        />
+      )}
     </div>
   )
+}
+
+function checkpointTitle(message: ChatMessage): string {
+  const files = message.checkpoint?.changedFiles ?? []
+  if (message.checkpoint?.restoredAt) return 'This checkpoint has already been restored'
+  return `Review changes from this turn:\n${files.join('\n')}`
+}
+
+function checkpointButtonLabel(message: ChatMessage): string {
+  const checkpoint = message.checkpoint
+  if (!checkpoint) return 'Checkpoint'
+  if (checkpoint.restoredAt) return 'Restored'
+  const remaining = checkpoint.changedFiles.length - (checkpoint.restoredFiles?.length ?? 0)
+  return `Review ${remaining}`
 }

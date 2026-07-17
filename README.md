@@ -47,6 +47,11 @@ folder.
 - Built-in slash-command shortcuts in the composer: `/test`, `/review`,
   `/refactor`, and `/summarize` expand into reusable prompts for common
   workflows.
+- Assistant turns that change project files keep a compact checkpoint. The
+  message footer opens a review dialog with created/modified/deleted labels,
+  before/after diffs, and selective restore. Files changed again after the AI
+  turn are flagged and excluded from the default selection so newer work is
+  never overwritten without an explicit choice.
 
 ## Projects
 

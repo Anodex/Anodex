@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { HistoryCompactionEvent } from '@shared/chat.types'
+import type { CheckpointPreview, RestoreCheckpointResult } from '@shared/checkpoint.types'
 import type { Conversation } from '@shared/conversation.types'
 import { TOOL_CATALOG, type ToolActivityEvent } from '@shared/tools.types'
 import { stripToolCallText } from '@shared/toolCallText'
@@ -73,6 +74,18 @@ interface ChatState {
   applyToolActivity: (event: ToolActivityEvent) => void
   /** Persist a durable context snapshot after the main process compacts history. */
   applyHistoryCompaction: (event: HistoryCompactionEvent) => void
+  /** Inspect file changes and conflicts for one assistant message checkpoint. */
+  inspectCheckpoint: (
+    conversationId: string,
+    messageId: string
+  ) => Promise<CheckpointPreview | null>
+  /** Restore selected file changes made by one assistant message checkpoint. */
+  restoreCheckpoint: (
+    conversationId: string,
+    messageId: string,
+    paths: string[],
+    force?: boolean
+  ) => Promise<RestoreCheckpointResult | null>
 }
 
 const DEFAULT_TITLE = 'New chat'
@@ -291,6 +304,9 @@ export const useChatStore = create<ChatState>()(
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
           if (result.value.transcriptRecallUsed?.length) {
             message.transcriptRecallUsed = result.value.transcriptRecallUsed
+          }
+          if (result.value.checkpoint?.changedFiles.length) {
+            message.checkpoint = result.value.checkpoint
           }
         } else {
           if (message.toolCalls?.length) {
@@ -561,6 +577,65 @@ export const useChatStore = create<ChatState>()(
           } older turn${event.removedTurns === 1 ? '' : 's'} to keep going.`
         })
       }
+    },
+
+    inspectCheckpoint: async (conversationId, messageId) => {
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+      if (!conversation?.projectId) return null
+      const message = conversation.messages.find((item) => item.id === messageId)
+      if (!message?.checkpoint) return null
+
+      const result = await anodex.checkpoints.inspect({
+        projectId: conversation.projectId,
+        conversationId,
+        messageId
+      })
+      if (!result.ok) {
+        notifyError('Could not inspect checkpoint', result.error.message)
+        return null
+      }
+      return result.value
+    },
+
+    restoreCheckpoint: async (conversationId, messageId, paths, force = false) => {
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+      if (!conversation?.projectId) return null
+      const message = conversation.messages.find((item) => item.id === messageId)
+      if (!message?.checkpoint) return null
+
+      const result = await anodex.checkpoints.restore({
+        projectId: conversation.projectId,
+        conversationId,
+        messageId,
+        paths,
+        force
+      })
+      if (!result.ok) {
+        notifyError('Could not restore checkpoint', result.error.message)
+        return null
+      }
+
+      if (result.value.restoredFiles.length > 0) {
+        const updatedAt = Date.now()
+        set((state) => {
+          const convo = state.conversations.find((item) => item.id === conversationId)
+          const assistant = convo?.messages.find((item) => item.id === messageId)
+          if (!convo || !assistant?.checkpoint) return
+          assistant.checkpoint = result.value.checkpoint
+          convo.updatedAt = updatedAt
+        })
+
+        const updated = get().conversations.find((item) => item.id === conversationId)
+        if (updated) void persistConversation(updated)
+        useUiStore.getState().notify({
+          kind: 'success',
+          title: 'Checkpoint restored',
+          message: `Restored ${result.value.restoredFiles.length} file${
+            result.value.restoredFiles.length === 1 ? '' : 's'
+          }.`
+        })
+      }
+      return result.value
     }
   }))
 )

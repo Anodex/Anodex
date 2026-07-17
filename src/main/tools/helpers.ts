@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { ToolCallDiff, ToolCallPreview, ToolKind, ToolRisk } from '@shared/tools.types'
+import type { CheckpointFileChange } from '@shared/checkpoint.types'
 import type { FileTouchAction } from '@shared/projectMemory.types'
 import type { Plan } from '@shared/plan.types'
 import type { ToolRuntimeContext } from './types'
@@ -7,6 +8,7 @@ import { needsTurnGate, resolvePermission } from './permissions'
 import { checkLoopGuard, loopGuardKey, loopGuardMessage } from './loopGuard'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
+import { checkpointStore } from '../checkpoints/CheckpointStore'
 
 /** Truncated tool output retained for cross-session memory. */
 const MAX_REMEMBERED_RESULT = 2000
@@ -25,6 +27,8 @@ interface ToolOutcome {
   plan?: Plan
   /** Optional rich preview shown in the chat transcript. */
   preview?: ToolCallPreview
+  /** Restorable file snapshots for this successful mutation. */
+  checkpointChanges?: CheckpointFileChange[]
 }
 
 function rememberResult(modelResult: string): string {
@@ -284,12 +288,13 @@ export async function runGuardedTool(
       if (gatedByTurnStart) ctx.turnGate.approved = true
     }
 
-    const { modelResult, detail, diff, preview } = await spec.run()
+    const { modelResult, detail, diff, preview, checkpointChanges } = await spec.run()
     const truncated = truncateModelResult(
       modelResult,
       spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
+    recordCheckpoint(ctx, checkpointChanges ?? checkpointChangesFromDiff(diff))
     ctx.emit({
       id,
       name: spec.name,
@@ -316,6 +321,20 @@ export async function runGuardedTool(
     })
     return `Error: ${message}`
   }
+}
+
+function recordCheckpoint(
+  ctx: ToolRuntimeContext,
+  changes: CheckpointFileChange[] | undefined
+): void {
+  if (!ctx.projectId || !ctx.workspaceRoot || !changes?.length) return
+  for (const change of changes) {
+    checkpointStore.recordChange(ctx.workspaceRoot, ctx.conversationId, ctx.messageId, change)
+  }
+}
+
+function checkpointChangesFromDiff(diff: ToolCallDiff | undefined): CheckpointFileChange[] {
+  return diff ? [{ path: diff.path, before: diff.before, after: diff.after }] : []
 }
 
 /** What a `prepare()` step hands off to the confirm prompt and, once approved, to `run()`. */

@@ -5,6 +5,7 @@ import type { MemoryEntry } from '@shared/memory.types'
 import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
 import type { ConversationContext } from '@shared/context.types'
+import type { CheckpointSummary } from '@shared/checkpoint.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
@@ -29,6 +30,7 @@ import { buildActiveSkillContext } from '../skills/activeSkillContext'
 import { parseRunCommandVerification } from '../tools/commandTools'
 import { mcpManager } from '../mcp/McpManager'
 import { chatEvents } from './chatEvents'
+import { checkpointStore } from '../checkpoints/CheckpointStore'
 
 /**
  * Everything a caller of {@link runGeneration} decides — how (or whether) to
@@ -87,6 +89,8 @@ export interface RunGenerationResult {
    * from scratch instead of seeding from the snapshot already paid for.
    */
   context?: ConversationContext
+  /** Restorable snapshot for file changes made by this assistant turn. */
+  checkpoint?: CheckpointSummary
 }
 
 /**
@@ -392,7 +396,12 @@ export async function runGeneration(
     stopReason: outcome.stopReason,
     memoryUsed: memory?.entries,
     transcriptRecallUsed: transcriptRecall?.results,
-    context: contextUpdate
+    context: contextUpdate,
+    checkpoint:
+      activeProject && workspaceRoot
+        ? (checkpointStore.getSummary(workspaceRoot, request.conversationId, request.messageId) ??
+          undefined)
+        : undefined
   }
 }
 

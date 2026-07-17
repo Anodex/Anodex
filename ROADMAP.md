@@ -135,6 +135,11 @@ are not quite "tools" or "skills":
   available, and a restore action. Default checkpoint details closed/collapsed,
   with a compact changed-files summary visible. This is a safety/trust feature,
   not just a coding convenience.
+  First and second passes shipped: assistant turns that mutate text files
+  persist per-message snapshots under `.anodex/checkpoints`; the assistant
+  footer opens a changed-file review with before/after diffs, selective restore,
+  and conflict detection for files edited again after the turn. Future polish
+  can add binary/attachment coverage and Workspace Dock checkpoint history.
 - **Model capability labels** — surface which models are good at tool use,
   coding, long context, JSON/tool-call reliability, and speed. Reliability
   scoring exists; the missing piece is turning it into actionable guidance at
@@ -287,6 +292,13 @@ not correctness or security — lowest priority item on this whole list.
 
 ## Recently resolved (kept briefly for context, not action items)
 
+- **Checkpoint / restore UX first pass** - assistant file mutations now create
+  per-message checkpoints and expose a restore action from the completed
+  assistant turn.
+
+- **Checkpoint / restore safety and review (2026-07-16)** - added changed-file
+  classification, before/after preview, per-file selection, partial restore
+  tracking, and explicit conflict warnings before newer work can be overwritten.
 - **Critical Thinking core workflow (2026-07-16)** — shipped the renamed,
   Anodex-native deep-research surface with editable plan review, web-only
   execution, live plan/activity/source progress, stop support, persisted reports,
