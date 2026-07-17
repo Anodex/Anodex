@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { ModelInfo } from '@shared/model.types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ModelDownloadProgress, ModelInfo } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import type { ModelRecommendation } from '@shared/modelRecommendation'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import {
   RECOMMENDED_MODELS,
   recommendedModelFileName,
+  type ModelFamily,
   type RecommendedModel
 } from '@shared/recommendedModels'
 import { anodex } from '../../../../lib/anodex'
@@ -93,9 +94,11 @@ export function RecommendedModelStrip({
               <article key={slot.id} className={styles.recCard}>
                 <div className={styles.recCardTop}>
                   <div className={styles.recLabelGroup}>
-                    <span className={styles.recIcon}>
-                      <ModelLogo family={slot.model.family} size={16} />
-                    </span>
+                    <ModelDownloadIcon
+                      family={slot.model.family}
+                      size={16}
+                      status={progress?.status}
+                    />
                     <span className={styles.recLabel}>{slot.label}</span>
                   </div>
                   <ScoreBadge score={slot.score} />
@@ -151,6 +154,57 @@ function ScoreBadge({ score }: { score: number }): JSX.Element {
   return <span className={styles.scoreBadge}>{score}</span>
 }
 
+/**
+ * True for the remainder of this component's lifetime once a download
+ * status flips to 'done' — never fires on mount for an already-downloaded
+ * model (no progress entry, or a stale one left over from a previous
+ * session), only on the live transition. `useRef`'s initial value keys off
+ * the same first-render status, so an already-'done' entry on mount is
+ * correctly treated as "not a new arrival."
+ */
+function useJustCompleted(status: ModelDownloadProgress['status'] | undefined): boolean {
+  const wasDoneRef = useRef(status === 'done')
+  const [justCompleted, setJustCompleted] = useState(false)
+  useEffect(() => {
+    const isDone = status === 'done'
+    if (isDone && !wasDoneRef.current) setJustCompleted(true)
+    wasDoneRef.current = isDone
+  }, [status])
+  return justCompleted
+}
+
+/**
+ * The model-family logo shown on recommendation/discover cards, wrapped
+ * with the download lifecycle's "soul": a breathing halo while the download
+ * is active, and a one-shot bloom the instant it finishes (never replayed
+ * on remount — see `useJustCompleted` above). Exported for reuse by
+ * `DiscoverModelsPanel`, same reasoning as `DownloadProgress` below.
+ */
+export function ModelDownloadIcon({
+  family,
+  size = 16,
+  status
+}: {
+  family: ModelFamily
+  size?: number
+  status: ModelDownloadProgress['status'] | undefined
+}): JSX.Element {
+  const justCompleted = useJustCompleted(status)
+  const className = [
+    styles.recIcon,
+    status === 'downloading' ? styles.recIconActive : '',
+    justCompleted ? styles.recIconArrived : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return (
+    <span className={className}>
+      <ModelLogo family={family} size={size} />
+    </span>
+  )
+}
+
 /** Exported for reuse by `DiscoverModelsPanel`, which shows the same download-in-progress UI. */
 export function DownloadProgress({
   progress,
@@ -169,18 +223,20 @@ export function DownloadProgress({
       <div className={styles.progressTrack}>
         <div className={styles.progressFill} style={{ width: `${pct ?? 0}%` }} />
       </div>
-      <span className={styles.progressText}>
-        {formatBytes(progress.receivedBytes)}
-        {progress.totalBytes ? ` / ${formatBytes(progress.totalBytes)}` : ''}
-      </span>
-      <button
-        type="button"
-        className={styles.cancelButton}
-        onClick={onCancel}
-        title="Cancel download"
-      >
-        <Icon name="close" size={12} />
-      </button>
+      <div className={styles.progressMeta}>
+        <span className={styles.progressText}>
+          {formatBytes(progress.receivedBytes)}
+          {progress.totalBytes ? ` / ${formatBytes(progress.totalBytes)}` : ''}
+        </span>
+        <button
+          type="button"
+          className={styles.cancelButton}
+          onClick={onCancel}
+          title="Cancel download"
+        >
+          <Icon name="close" size={12} />
+        </button>
+      </div>
     </div>
   )
 }

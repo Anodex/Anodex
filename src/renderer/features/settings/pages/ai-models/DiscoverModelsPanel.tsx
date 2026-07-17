@@ -6,10 +6,9 @@ import { anodex } from '../../../../lib/anodex'
 import { useModelStore } from '../../../../stores/modelStore'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
-import { ModelLogo } from '../../../../components/ModelLogo'
 import { Spinner } from '../../../../components/ui/Spinner'
 import { basename } from './scoring'
-import { DownloadProgress } from './RecommendedModelStrip'
+import { DownloadProgress, ModelDownloadIcon } from './RecommendedModelStrip'
 import styles from './AiModelsSettings.module.css'
 
 /** `154325` → `154.3k`; kept local since nothing else in the app needs a compact-count formatter yet. */
@@ -124,9 +123,7 @@ export function DiscoverModelsPanel({
               <article key={model.id} className={styles.recCard}>
                 <div className={styles.recCardTop}>
                   <div className={styles.recLabelGroup}>
-                    <span className={styles.recIcon}>
-                      <ModelLogo family={model.family} size={16} />
-                    </span>
+                    <ModelDownloadIcon family={model.family} size={16} status={progress?.status} />
                     {model.hfDownloads !== undefined && (
                       <span className={styles.recLabel}>
                         {formatCount(model.hfDownloads)} downloads

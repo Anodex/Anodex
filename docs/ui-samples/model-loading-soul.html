@@ -1,0 +1,824 @@
+<title>Model loading — four directions</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    /* Anodex's real dark tokens (styles/themes/midnight.css) — reused as-is,
+       not reinvented, since this page previews real app chrome. */
+    --bg-base: #080808;
+    --bg-app: #0c0c0c;
+    --bg-surface: #111111;
+    --bg-surface-2: #161616;
+    --bg-elevated: #1c1c1c;
+    --border: #1f1f1f;
+    --border-strong: #2a2a2a;
+    --text: #f0f0f0;
+    --text-muted: #a0a0a0;
+    --text-faint: #606060;
+    --accent: #4f8cff;
+    --accent-violet: #7c5cff;
+    --success: #3ccf7a;
+    --radius-sm: 4px;
+    --radius-lg: 8px;
+    --font-sans:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  :root[data-theme='light'] {
+    /* Anodex's real light tokens (styles/themes/light.css) */
+    --bg-base: #f2f0eb;
+    --bg-app: #f9f8f5;
+    --bg-surface: #f9f8f5;
+    --bg-surface-2: #f0eee8;
+    --bg-elevated: #e9e6df;
+    --border: #e3e0d8;
+    --border-strong: #d1cdc2;
+    --text: #23211d;
+    --text-muted: #6f6a60;
+    --text-faint: #a29c8f;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme='dark']) {
+      --bg-base: #f2f0eb;
+      --bg-app: #f9f8f5;
+      --bg-surface: #f9f8f5;
+      --bg-surface-2: #f0eee8;
+      --bg-elevated: #e9e6df;
+      --border: #e3e0d8;
+      --border-strong: #d1cdc2;
+      --text: #23211d;
+      --text-muted: #6f6a60;
+      --text-faint: #a29c8f;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    padding: 48px 24px 96px;
+    background: var(--bg-base);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  .intro {
+    margin-bottom: 56px;
+  }
+
+  .kicker {
+    margin: 0 0 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    margin: 0 0 12px;
+    font-size: 26px;
+    font-weight: 680;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  .lede {
+    max-width: 62ch;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .lede + .lede {
+    margin-top: 10px;
+  }
+
+  section.direction {
+    margin-bottom: 64px;
+    padding-top: 40px;
+    border-top: 1px solid var(--border);
+  }
+
+  section.direction:first-of-type {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .directionHead {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .directionNumber {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  .directionName {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 650;
+  }
+
+  .directionPitch {
+    max-width: 60ch;
+    margin: 0 0 8px;
+    color: var(--text-muted);
+    font-size: 13.5px;
+  }
+
+  .directionNote {
+    max-width: 60ch;
+    margin: 0 0 24px;
+    color: var(--text-faint);
+    font-size: 12.5px;
+  }
+
+  .directionNote b {
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  /* ---------- The mock settings card (real recCard shape) ---------- */
+
+  .cardRow {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .card {
+    flex: 1;
+    min-width: 260px;
+    padding: 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  .cardTop {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .cardIcon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    overflow: visible;
+  }
+
+  .cardTitleGroup {
+    min-width: 0;
+  }
+
+  .cardName {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 650;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cardMeta {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  .stateLabel {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 999px;
+  }
+
+  .stateLabel.downloading {
+    color: var(--accent);
+    background: rgba(79, 140, 255, 0.12);
+  }
+
+  .stateLabel.done {
+    color: var(--success);
+    background: rgba(60, 207, 122, 0.12);
+  }
+
+  .progressRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .progressTrack {
+    position: relative;
+    flex: 1;
+    height: 6px;
+    overflow: hidden;
+    background: var(--bg-surface-2);
+    border-radius: var(--radius-sm);
+  }
+
+  .progressFill {
+    position: relative;
+    height: 100%;
+    background: var(--accent);
+    border-radius: var(--radius-sm);
+  }
+
+  .progressText {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+  }
+
+  .cancelDot {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    color: var(--text-faint);
+    font-size: 13px;
+  }
+
+  /* ================================================================
+     Direction 1 — Ember Trail: a traveling spark rides the fill edge,
+     a slow sheen sweeps through the filled portion. Cheapest, always-on-
+     appropriate, works at any progress width including 2%.
+     ================================================================ */
+
+  .ember .progressFill {
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 100%);
+    overflow: visible;
+  }
+
+  .ember .progressFill::before {
+    /* the sheen, masked to the fill itself */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.55) 46%,
+      transparent 62%
+    );
+    background-size: 220% 100%;
+    animation: emberSheen 2600ms ease-in-out infinite;
+  }
+
+  .ember .progressFill::after {
+    /* the traveling spark at the leading edge */
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -1.5px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #fff;
+    transform: translateY(-50%);
+    box-shadow:
+      0 0 4px 1px rgba(255, 255, 255, 0.9),
+      0 0 10px 3px rgba(79, 140, 255, 0.85),
+      0 0 18px 6px rgba(124, 92, 255, 0.35);
+    animation: emberPulse 1500ms ease-in-out infinite;
+  }
+
+  @keyframes emberSheen {
+    0%,
+    12% {
+      background-position: 120% 0;
+    }
+    88%,
+    100% {
+      background-position: -20% 0;
+    }
+  }
+
+  @keyframes emberPulse {
+    0%,
+    100% {
+      opacity: 0.55;
+      transform: translateY(-50%) scale(0.85);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-50%) scale(1.15);
+    }
+  }
+
+  /* ================================================================
+     Direction 2 — Starlit Track: the track is a dim static field of the
+     same tones as the startup starfield; the filled portion "reveals"
+     brighter stars underneath, like light catching up to the field.
+     ================================================================ */
+
+  .starlit .progressTrack {
+    background-color: #0a0c12;
+    background-image:
+      radial-gradient(1.1px 1.1px at 6% 30%, rgba(210, 220, 255, 0.35), transparent),
+      radial-gradient(1px 1px at 18% 70%, rgba(180, 195, 255, 0.28), transparent),
+      radial-gradient(1.3px 1.3px at 31% 20%, rgba(230, 230, 255, 0.3), transparent),
+      radial-gradient(1px 1px at 46% 65%, rgba(190, 200, 255, 0.25), transparent),
+      radial-gradient(1.1px 1.1px at 58% 35%, rgba(210, 220, 255, 0.32), transparent),
+      radial-gradient(1px 1px at 71% 75%, rgba(180, 195, 255, 0.24), transparent),
+      radial-gradient(1.2px 1.2px at 83% 25%, rgba(220, 225, 255, 0.3), transparent),
+      radial-gradient(1px 1px at 95% 60%, rgba(190, 200, 255, 0.22), transparent);
+  }
+
+  .starlit .progressFill {
+    background: linear-gradient(
+      90deg,
+      rgba(56, 189, 248, 0.9) 0%,
+      var(--accent) 55%,
+      var(--accent-violet) 100%
+    );
+    overflow: visible;
+    filter: saturate(1.15);
+  }
+
+  .starlit .progressFill::before {
+    /* stars inside the revealed portion, brighter than the dim track */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(1.4px 1.4px at 10% 30%, #fff, transparent),
+      radial-gradient(1.2px 1.2px at 26% 70%, #fff, transparent),
+      radial-gradient(1.6px 1.6px at 44% 25%, #fff, transparent),
+      radial-gradient(1.2px 1.2px at 61% 65%, #fff, transparent),
+      radial-gradient(1.4px 1.4px at 78% 30%, #fff, transparent),
+      radial-gradient(1.2px 1.2px at 92% 70%, #fff, transparent);
+    mix-blend-mode: overlay;
+    opacity: 0.9;
+    animation: starlitTwinkle 2200ms ease-in-out infinite;
+  }
+
+  .starlit .progressFill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 14px;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75));
+    filter: blur(1px);
+  }
+
+  @keyframes starlitTwinkle {
+    0%,
+    100% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  /* Light-mode fix (found while checking both themes on the first pass):
+     the always-dark starfield track has no good light equivalent — a light
+     background with dark dots reads as confetti, not starlight, and fights
+     the light theme's calmer feel. Rather than force it, this degrades
+     gracefully to the same plain track every other direction uses; the
+     gradient fill (the more important, more legible brand signal) is
+     unaffected and still runs in both themes. */
+  :root[data-theme='light'] .starlit .progressTrack {
+    background-color: var(--bg-surface-2);
+    background-image: none;
+  }
+
+  :root[data-theme='light'] .starlit .progressFill::before {
+    display: none;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme='dark']) .starlit .progressTrack {
+      background-color: var(--bg-surface-2);
+      background-image: none;
+    }
+
+    :root:not([data-theme='dark']) .starlit .progressFill::before {
+      display: none;
+    }
+  }
+
+  /* ================================================================
+     Direction 3 — Charging Halo: the progress track stays plain and
+     legible; the model's icon breathes a slow halo while active and
+     blooms once on completion, echoing the startup mark exactly.
+     ================================================================ */
+
+  .halo .cardIcon::before {
+    content: '';
+    position: absolute;
+    inset: -9px;
+    z-index: -1;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      rgba(79, 140, 255, 0.32) 0%,
+      rgba(124, 92, 255, 0.16) 45%,
+      transparent 72%
+    );
+    animation: haloBreath 3200ms ease-in-out infinite;
+  }
+
+  @keyframes haloBreath {
+    0%,
+    100% {
+      opacity: 0.6;
+      transform: scale(0.94);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.08);
+    }
+  }
+
+  .halo.done .cardIcon::before {
+    animation: none;
+    opacity: 0;
+  }
+
+  .halo.done .cardIcon::after {
+    content: '';
+    position: absolute;
+    inset: -9px;
+    z-index: -1;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.9), rgba(79, 140, 255, 0.5) 40%, transparent 70%);
+    animation: haloBloom 900ms cubic-bezier(0.16, 1, 0.3, 1) 1;
+  }
+
+  @keyframes haloBloom {
+    0% {
+      opacity: 0.9;
+      transform: scale(0.3);
+    }
+    60% {
+      opacity: 0.7;
+      transform: scale(1.6);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(2.4);
+    }
+  }
+
+  /* ---------- baseline (today) ---------- */
+
+  .baseline {
+    margin-bottom: 56px;
+    padding: 20px;
+    background: var(--bg-app);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-lg);
+  }
+
+  .baseline .baselineLabel {
+    margin: 0 0 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  /* ---------- Shared "done" state — applies on top of any direction above,
+     source order last so it always wins the completion moment. ---------- */
+
+  .progressFill {
+    width: 0%;
+  }
+
+  .progressFill.done {
+    background: var(--success) !important;
+  }
+
+  .progressFill.done::before,
+  .progressFill.done::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  .card.done .cancelDot {
+    opacity: 0;
+  }
+
+  footer.closing {
+    margin-top: 8px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 13px;
+    max-width: 62ch;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation: none !important;
+    }
+  }
+</style>
+
+<div class="page">
+  <div class="intro">
+    <p class="kicker">Preview · not wired into the app</p>
+    <h1>Model loading, with a little more soul</h1>
+    <p class="lede">
+      Today the download bar in AI &amp; Models is a flat fill — the most "dead" moment in an
+      otherwise atmospheric app. These directions borrow from the same visual language as the
+      startup jump and the empty-chat backgrounds (the accent blue/violet pair, the halo
+      breathing, the traveling spark) instead of inventing something new. 01–03 are the original
+      independent options; 04 is 02 and 03 combined, added after comparing them side by side.
+    </p>
+    <p class="lede">
+      All four keep the actual progress number legible and none of them run a live particle
+      simulation — cheap, CSS-only, safe to have several running at once if you queue multiple
+      downloads.
+    </p>
+    <p class="lede">
+      Every card below is live — a full 0% → 100% → complete cycle, looping, so you can watch
+      each direction's effects at every stage instead of a single frozen percentage.
+    </p>
+  </div>
+
+  <div class="baseline">
+    <p class="baselineLabel">Today — for comparison</p>
+    <div class="card" id="card-baseline">
+      <div class="cardTop">
+        <div class="cardIcon">Q</div>
+        <div class="cardTitleGroup">
+          <p class="cardName">Qwen2.5 Coder 32B</p>
+          <p class="cardMeta">18.4 GB · Q4_K_M</p>
+        </div>
+        <span class="stateLabel downloading" data-role="label">Downloading</span>
+      </div>
+      <div class="progressRow">
+        <div class="progressTrack"><div class="progressFill" data-role="fill"></div></div>
+        <span class="progressText" data-role="text">0.0 / 18.4 GB</span>
+        <span class="cancelDot" data-role="cancel">✕</span>
+      </div>
+    </div>
+  </div>
+
+  <section class="direction ember">
+    <div class="directionHead">
+      <span class="directionNumber">01</span>
+      <h2 class="directionName">Ember Trail</h2>
+    </div>
+    <p class="directionPitch">
+      A slow sheen sweeps through the filled portion, and a small spark rides the leading edge —
+      the same specular-sweep language as the startup mark's <code>.sheen</code>, and the same
+      warm-white/blue/violet glow as its spark particles.
+    </p>
+    <p class="directionNote">
+      <b>Best fit if:</b> you want the safest, cheapest option — works identically at 2% or 98%
+      progress, reads fine in a dense list of five simultaneous downloads, easiest to build.
+    </p>
+    <div class="cardRow">
+      <div class="card ember" id="card-ember">
+        <div class="cardTop">
+          <div class="cardIcon">Q</div>
+          <div class="cardTitleGroup">
+            <p class="cardName">Qwen2.5 Coder 32B</p>
+            <p class="cardMeta">18.4 GB · Q4_K_M</p>
+          </div>
+          <span class="stateLabel downloading" data-role="label">Downloading</span>
+        </div>
+        <div class="progressRow">
+          <div class="progressTrack"><div class="progressFill" data-role="fill"></div></div>
+          <span class="progressText" data-role="text">0.0 / 18.4 GB</span>
+          <span class="cancelDot" data-role="cancel">✕</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="direction starlit">
+    <div class="directionHead">
+      <span class="directionNumber">02</span>
+      <h2 class="directionName">Starlit Track</h2>
+    </div>
+    <p class="directionPitch">
+      The unfilled track is a dim scatter of the startup field's actual star tones; the filled
+      portion is the cyan→blue→violet ramp with brighter stars showing through, like light
+      catching up to the field as bytes arrive.
+    </p>
+    <p class="directionNote">
+      <b>Best fit if:</b> you want the most literal callback to the constellation/startup DNA.
+      The most visually rich of the three, and the one place this brings back the original
+      three-stop gradient — deliberately, as a rare accent rather than the everyday palette.
+    </p>
+    <p class="directionNote">
+      <b>Real tradeoff, found while checking both themes:</b> the track is deliberately always-
+      dark, same as the startup overlay — and that reads as rich texture next to Anodex's
+      near-black chrome, but as a flat black bar once the surrounding UI switches to Anodex
+      Light. It would need its own light-mode star tones to hold up there, which is more to
+      build and tune than the other two directions need.
+    </p>
+    <div class="cardRow">
+      <div class="card starlit" id="card-starlit">
+        <div class="cardTop">
+          <div class="cardIcon">Q</div>
+          <div class="cardTitleGroup">
+            <p class="cardName">Qwen2.5 Coder 32B</p>
+            <p class="cardMeta">18.4 GB · Q4_K_M</p>
+          </div>
+          <span class="stateLabel downloading" data-role="label">Downloading</span>
+        </div>
+        <div class="progressRow">
+          <div class="progressTrack"><div class="progressFill" data-role="fill"></div></div>
+          <span class="progressText" data-role="text">0.0 / 18.4 GB</span>
+          <span class="cancelDot" data-role="cancel">✕</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="direction halo">
+    <div class="directionHead">
+      <span class="directionNumber">03</span>
+      <h2 class="directionName">Charging Halo</h2>
+    </div>
+    <p class="directionPitch">
+      The progress bar itself stays plain and fast to read — all the personality moves to the
+      model's icon, which breathes a slow halo while active (the startup mark's exact
+      <code>haloBreath</code> timing) and blooms once, briefly, the instant the download
+      finishes — an arrival, not just a checkmark.
+    </p>
+    <p class="directionNote">
+      <b>Best fit if:</b> you want the numbers to stay boring/legible (never obscuring real
+      progress with an effect) while still getting a distinct "something happened" moment on
+      completion. Also the easiest of the three to reuse verbatim for model-load-into-memory,
+      not just downloads.
+    </p>
+    <div class="cardRow">
+      <div class="card halo" id="card-halo">
+        <div class="cardTop">
+          <div class="cardIcon">Q</div>
+          <div class="cardTitleGroup">
+            <p class="cardName">Qwen2.5 Coder 32B</p>
+            <p class="cardMeta">18.4 GB · Q4_K_M</p>
+          </div>
+          <span class="stateLabel downloading" data-role="label">Downloading</span>
+        </div>
+        <div class="progressRow">
+          <div class="progressTrack"><div class="progressFill" data-role="fill"></div></div>
+          <span class="progressText" data-role="text">0.0 / 18.4 GB</span>
+          <span class="cancelDot" data-role="cancel">✕</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="direction starlit halo">
+    <div class="directionHead">
+      <span class="directionNumber">04</span>
+      <h2 class="directionName">Starlit Halo — 02 + 03</h2>
+    </div>
+    <p class="directionPitch">
+      Exactly what it sounds like: Starlit Track's constellation-reveal bar, unchanged, plus
+      Charging Halo's breathing icon and completion bloom layered on top. Nothing new was built
+      for this — it's the same two rule sets applied to one card, which is why it was cheap to
+      try.
+    </p>
+    <p class="directionNote">
+      <b>What this actually buys you:</b> personality both <i>during</i> the download (the track)
+      and <i>at</i> the moment it finishes (the bloom), instead of picking one. The tradeoff is
+      the inverse of Charging Halo alone — this is the busiest of the four, worth checking against
+      a real queue of several downloads at once before committing, not just one card in isolation.
+    </p>
+    <p class="directionNote">
+      <b>Also fixed here:</b> Starlit Track's light-mode weakness from before. Rather than carry
+      it into the combination, the always-dark starfield now degrades to the same plain track
+      every other direction uses once the surrounding UI is in Anodex Light — the gradient fill
+      still runs in both themes, just without forcing a texture that never had a good light
+      equivalent. That fix applies to plain Starlit Track above too; switch your OS/browser theme
+      and both now hold up.
+    </p>
+    <div class="cardRow">
+      <div class="card starlit halo" id="card-mix">
+        <div class="cardTop">
+          <div class="cardIcon">Q</div>
+          <div class="cardTitleGroup">
+            <p class="cardName">Qwen2.5 Coder 32B</p>
+            <p class="cardMeta">18.4 GB · Q4_K_M</p>
+          </div>
+          <span class="stateLabel downloading" data-role="label">Downloading</span>
+        </div>
+        <div class="progressRow">
+          <div class="progressTrack"><div class="progressFill" data-role="fill"></div></div>
+          <span class="progressText" data-role="text">0.0 / 18.4 GB</span>
+          <span class="cancelDot" data-role="cancel">✕</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="closing">
+    <p>
+      Updated take now that 02 + 03 exist side by side: <strong>Starlit Halo</strong> is the one
+      I'd actually ship if you want the fullest expression of "soul" — it doesn't ask you to
+      choose between motion during the download and a moment at the end. If a queue of five
+      downloads at once feels like too much going on, <strong>Charging Halo</strong> alone is
+      still the calmer, safer default, and it's a strict subset of the mix (same icon behavior,
+      nothing removed) — an easy fallback rather than a different direction to rebuild.
+    </p>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var TOTAL_GB = 18.4;
+    var FILL_MS = 6000; // time to reach 100%
+    var HOLD_MS = 2400; // time spent settled at "complete" before looping
+    var CYCLE_MS = FILL_MS + HOLD_MS;
+
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    var cards = ['card-baseline', 'card-ember', 'card-starlit', 'card-halo', 'card-mix']
+      .map(function (id) {
+        var card = document.getElementById(id);
+        if (!card) return null;
+        return {
+          card: card,
+          fill: card.querySelector('[data-role="fill"]'),
+          text: card.querySelector('[data-role="text"]'),
+          label: card.querySelector('[data-role="label"]'),
+          wasDone: false
+        };
+      })
+      .filter(Boolean);
+
+    function formatGb(value) {
+      return value.toFixed(1) + ' / ' + TOTAL_GB.toFixed(1) + ' GB';
+    }
+
+    function applyFrame(entry, t) {
+      var done = t >= FILL_MS;
+      var fraction = done ? 1 : t / FILL_MS;
+
+      entry.fill.style.width = fraction * 100 + '%';
+      entry.text.textContent = formatGb(fraction * TOTAL_GB);
+
+      if (done !== entry.wasDone) {
+        // Toggle off then on across the class boundary (not just once) so a
+        // one-shot completion animation (haloBloom) replays every lap instead
+        // of only firing the very first time the class is added.
+        entry.card.classList.toggle('done', done);
+        entry.fill.classList.toggle('done', done);
+        entry.label.classList.toggle('downloading', !done);
+        entry.label.classList.toggle('done', done);
+        entry.label.textContent = done ? 'Ready' : 'Downloading';
+        entry.wasDone = done;
+      }
+    }
+
+    function tick(now) {
+      var t = now % CYCLE_MS;
+      for (var i = 0; i < cards.length; i++) applyFrame(cards[i], t);
+      requestAnimationFrame(tick);
+    }
+
+    if (reduceMotion) {
+      // Static, legible reference frame instead of a running loop.
+      cards.forEach(function (entry) {
+        applyFrame(entry, FILL_MS * 0.55);
+      });
+    } else {
+      requestAnimationFrame(tick);
+    }
+  })();
+</script>

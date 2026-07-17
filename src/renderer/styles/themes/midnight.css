@@ -33,7 +33,12 @@
   --text-faint: #606060;
   --text-on-accent: #ffffff;
 
-  /* Brand accents — single muted blue, no rainbow gradients */
+  /* Brand accents — single muted blue everywhere by default, no rainbow
+     gradients. --accent-cyan is the one deliberate exception: paired with
+     --accent/--accent-violet for the original cyan → blue → violet ramp
+     from the logo, used only for the rare "arrival" moments that earn a
+     richer accent (model download progress) — not a general-purpose token. */
+  --accent-cyan: #38bdf8;
   --accent-violet: #7c5cff;
   --accent-violet-soft: rgba(124, 92, 255, 0.12);
   --accent-green: #74f0a8;
