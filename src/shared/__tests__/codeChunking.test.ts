@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chunkText, shouldIndexFile } from '../codeChunking'
+import { MAX_CHUNK_CHARS, chunkText, shouldIndexFile } from '../codeChunking'
 
 describe('shouldIndexFile', () => {
   it('accepts a normal-sized code file', () => {
@@ -59,5 +59,23 @@ describe('chunkText', () => {
 
   it('returns an empty array for an empty file', () => {
     expect(chunkText('', 'a.ts')).toEqual([])
+  })
+
+  it('splits a single oversized line by character count, not just by line', () => {
+    // Reproduces a real failure: a checkpoint's JSON stores an entire file's
+    // content as one escaped string on a single "line" — far longer than
+    // any line-count window alone would catch, and long enough to exceed an
+    // embedding model's context window if left unsplit.
+    const hugeLine = 'x'.repeat(5000)
+    const chunks = chunkText(hugeLine, 'huge.json')
+
+    expect(chunks.length).toBeGreaterThan(1)
+    for (const chunk of chunks) {
+      expect(chunk.text.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS)
+      expect(chunk.startLine).toBe(1)
+      expect(chunk.endLine).toBe(1)
+    }
+    // No content lost across the split.
+    expect(chunks.map((chunk) => chunk.text).join('')).toBe(hugeLine)
   })
 })

@@ -146,14 +146,24 @@ class CodeIndexer {
       }
       for (const entry of dirEntries) {
         const absolutePath = join(dir, entry.name)
+        const relativePath = relative(root, absolutePath).split('\\').join('/')
         if (entry.isDirectory()) {
           if (SKIP_DIRS.has(entry.name)) continue
+          // Anodex's own restore-snapshot bookkeeping, not code — genuinely
+          // not worth indexing (it's internal state, not something a user
+          // would want surfaced by a code search) and, verified live, can
+          // contain a single JSON-escaped blob of an entire file's content
+          // on one "line", which is exactly what motivated the
+          // `MAX_CHUNK_CHARS` safety cap in `codeChunking.ts`. Checked by
+          // relative path, not directory name alone, so an
+          // unrelated user project's own "checkpoints" folder elsewhere in
+          // the tree is untouched.
+          if (relativePath === '.anodex/checkpoints') continue
           await visit(absolutePath)
           continue
         }
         if (!entry.isFile()) continue
 
-        const relativePath = relative(root, absolutePath).split('\\').join('/')
         let info
         try {
           info = await stat(absolutePath)
