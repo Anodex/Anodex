@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { Conversation, ConversationState } from '@shared/conversation.types'
 import { sanitizeConversationTranscript } from '@shared/chatSanitizer'
+import { abortGeneration } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('conversations')
@@ -107,6 +108,10 @@ class ConversationStore {
     })
     const state = this.getState()
     if (state.activeConversationId === id) this.setState({ activeConversationId: null })
+    // A conversation that's just been archived can no longer be shown a reply
+    // — stop generating into it instead of leaving the user's Stop button as
+    // the only way to end an otherwise-orphaned generation.
+    abortGeneration(id)
   }
 
   restore(id: string): void {
@@ -130,6 +135,7 @@ class ConversationStore {
     this.ensureCache().delete(id)
     const state = this.getState()
     if (state.activeConversationId === id) this.setState({ activeConversationId: null })
+    abortGeneration(id)
   }
 
   /** Archive every active conversation (all projects and general chats) and clear active state. */
@@ -142,6 +148,7 @@ class ConversationStore {
         archivedAt: Date.now(),
         updatedAt: Date.now()
       })
+      abortGeneration(entry.conversation.id)
     }
     this.setState({ activeConversationId: null })
   }
@@ -167,6 +174,7 @@ class ConversationStore {
         archivedAt: Date.now(),
         updatedAt: Date.now()
       })
+      abortGeneration(entry.conversation.id)
     }
     const state = this.getState()
     const active = state.activeConversationId
@@ -201,7 +209,10 @@ class ConversationStore {
     }
     const cache = this.ensureCache()
     for (const [id, entry] of cache) {
-      if (entry.conversation.projectId === projectId) cache.delete(id)
+      if (entry.conversation.projectId === projectId) {
+        cache.delete(id)
+        abortGeneration(id)
+      }
     }
   }
 

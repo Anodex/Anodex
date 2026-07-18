@@ -5,28 +5,26 @@ import type { ChatCompactRequest, ChatRequest, ChatTitleRequest } from '@shared/
 import { llamaService } from '../llama/LlamaService'
 import { requestToolConfirmation } from './tools.handlers'
 import { runGeneration } from '../chat/runGeneration'
+import {
+  abortAllGenerations,
+  abortGeneration,
+  registerGeneration,
+  releaseGeneration
+} from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:chat')
 
-/** Abort controllers for in-flight generations, keyed by conversation. */
-const inflight = new Map<string, AbortController>()
-
 /** Abort every in-flight chat generation — called on app quit. */
 export function abortAllChatGenerations(): void {
-  for (const controller of inflight.values()) controller.abort()
-  inflight.clear()
+  abortAllGenerations()
 }
 
 /** IPC handlers for streaming chat generation and stopping it. */
 export function registerChatHandlers(): void {
   ipcMain.handle(IpcChannel.Chat.send, async (event, request: ChatRequest) => {
     const controller = new AbortController()
-    // Abort any prior generation still registered for this conversation before
-    // taking over the slot — otherwise an overlapping send would silently
-    // orphan the earlier controller, leaving it unreachable by Stop.
-    inflight.get(request.conversationId)?.abort()
-    inflight.set(request.conversationId, controller)
+    registerGeneration(request.conversationId, controller)
 
     try {
       const result = await runGeneration(request, {
@@ -85,17 +83,12 @@ export function registerChatHandlers(): void {
       }
       return err('chat.generation-failed', message)
     } finally {
-      // Only clear the slot if it's still ours — an overlapping send may have
-      // already replaced it with its own controller, and that one is still
-      // running.
-      if (inflight.get(request.conversationId) === controller) {
-        inflight.delete(request.conversationId)
-      }
+      releaseGeneration(request.conversationId, controller)
     }
   })
 
   ipcMain.handle(IpcChannel.Chat.stop, (_event, conversationId: string) => {
-    inflight.get(conversationId)?.abort()
+    abortGeneration(conversationId)
   })
 
   ipcMain.handle(IpcChannel.Chat.compact, async (_event, request: ChatCompactRequest) => {
