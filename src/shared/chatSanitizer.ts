@@ -69,7 +69,11 @@ function sanitizeBlocks(blocks: MessageBlock[] | undefined): {
   let changed = false
   const sanitized: MessageBlock[] = []
   for (const block of blocks) {
-    if (block.type === 'tool') {
+    // Same reasoning as `truncateTextBlocks` in `streamingToolPayload.ts`:
+    // a known tool-call payload can only leak into the visible reply, never
+    // into thinking (a separate stream, never scanned for this) — pass it
+    // through untouched like a tool block, not relabel it as text below.
+    if (block.type === 'tool' || block.type === 'thinking') {
       sanitized.push(block)
       continue
     }

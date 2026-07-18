@@ -161,6 +161,12 @@ export interface GenerateParams {
   modelOverride?: string
   /** Called for each decoded text chunk as it is produced. */
   onToken: (token: string) => void
+  /**
+   * Called for each chain-of-thought text chunk as it is produced, separate
+   * from `onToken`'s visible-reply chunks — see `GenerateOutcome.thinking`'s
+   * doc comment. Only reasoning-tuned models ever call this at all.
+   */
+  onThinkingToken?: (token: string) => void
   signal?: AbortSignal
   /** When present, the model is given tools for this generation. */
   tools?: {
@@ -595,6 +601,7 @@ class LlamaService extends EventEmitter {
             tokenCount += chunk.tokens.length
             if (chunk.type === 'segment') {
               roundSegment += chunk.text
+              params.onThinkingToken?.(chunk.text)
               return
             }
             roundContent += chunk.text

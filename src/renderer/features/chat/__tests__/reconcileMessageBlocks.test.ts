@@ -85,4 +85,28 @@ describe('reconcileMessageBlocks', () => {
       [{ type: 'text', text: 'Let me verify that.' }]
     )
   })
+
+  it('preserves thinking blocks through the no-tools shortcut instead of discarding them', () => {
+    const blocks: MessageBlock[] = [
+      { type: 'thinking', text: 'Let me consider the options...' },
+      { type: 'text', text: 'partial streamed text' }
+    ]
+
+    expect(reconcileMessageBlocks(blocks, 'The final answer.', undefined)).toEqual([
+      { type: 'thinking', text: 'Let me consider the options...' },
+      { type: 'text', text: 'The final answer.' }
+    ])
+  })
+
+  it('passes thinking blocks through untouched when tools were called too', () => {
+    const tool = call()
+    const blocks: MessageBlock[] = [
+      { type: 'thinking', text: 'I should check the file first.' },
+      { type: 'tool', call: tool },
+      { type: 'thinking', text: 'Now I can answer.' },
+      { type: 'text', text: 'The issue is in the imports.' }
+    ]
+
+    expect(reconcileMessageBlocks(blocks, 'The issue is in the imports.', [tool])).toEqual(blocks)
+  })
 })

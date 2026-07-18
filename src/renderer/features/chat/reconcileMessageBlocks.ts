@@ -38,12 +38,23 @@ export function reconcileMessageBlocks(
 
   const toolNames = new Set([...(toolCalls?.map((call) => call.name) ?? []), ...extraToolNames])
   if (toolNames.size === 0) {
-    return finalContent ? [{ type: 'text', text: finalContent }] : undefined
+    // No tools this turn, so there's no fallback-tool-call-JSON concern to
+    // clean up in the visible text — trust `finalContent` wholesale, same as
+    // before. But any thinking blocks captured live must survive this
+    // shortcut too, instead of being silently discarded — they always
+    // precede the answer they led to, so they keep their original relative
+    // order ahead of the final text.
+    const thinkingBlocks = blocks.filter((block) => block.type === 'thinking')
+    const result: MessageBlock[] = [...thinkingBlocks]
+    if (finalContent) result.push({ type: 'text', text: finalContent })
+    return result.length > 0 ? result : undefined
   }
 
   const reconciled: MessageBlock[] = []
   for (const block of blocks) {
-    if (block.type === 'tool') {
+    // Thinking is a separate stream, never scanned for tool-call payloads —
+    // pass it through untouched, same as a tool block.
+    if (block.type === 'tool' || block.type === 'thinking') {
       reconciled.push(block)
       continue
     }

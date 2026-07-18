@@ -40,7 +40,11 @@ function truncateTextBlocks(
   let remaining = maxTextLength
   const truncated: MessageBlock[] = []
   for (const block of blocks) {
-    if (block.type === 'tool') {
+    // A leaked tool-call payload can only ever appear in the visible reply
+    // (`message.content`) — thinking is a separate stream, never scanned for
+    // this, so it must pass through untouched like a tool block, not get
+    // silently relabeled as text by the fallthrough below.
+    if (block.type === 'tool' || block.type === 'thinking') {
       truncated.push(block)
       continue
     }

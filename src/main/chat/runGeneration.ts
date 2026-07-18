@@ -42,6 +42,8 @@ import { checkpointStore } from '../checkpoints/CheckpointStore'
  */
 export interface RunGenerationIo {
   onToken?: (token: string) => void
+  /** See `GenerateParams.onThinkingToken`'s doc comment. */
+  onThinkingToken?: (token: string) => void
   onActivity?: (call: ToolCall) => void
   confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
   /** Restricts which tools get registered; undefined/null = unrestricted (normal chat). */
@@ -348,7 +350,8 @@ export async function runGeneration(
     modelOverride: io.providerOverride?.model,
     signal: io.signal,
     tools,
-    onToken: (token) => io.onToken?.(token)
+    onToken: (token) => io.onToken?.(token),
+    onThinkingToken: (token) => io.onThinkingToken?.(token)
   })
 
   const content = sanitizeAssistantContent(outcome.content)

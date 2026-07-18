@@ -31,7 +31,10 @@ export interface AttachmentContent {
  * remain the flat, order-independent forms used for model history replay,
  * project-memory summaries, and export.
  */
-export type MessageBlock = { type: 'text'; text: string } | { type: 'tool'; call: ToolCall }
+export type MessageBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; call: ToolCall }
+  | { type: 'thinking'; text: string }
 
 /** A single turn in a conversation, as stored by the renderer. */
 export interface ChatMessage {
@@ -136,6 +139,13 @@ export interface ChatTitleRequest {
 
 /** A single streamed token (or token group) for an in-flight assistant reply. */
 export interface ChatStreamChunk {
+  conversationId: string
+  messageId: string
+  token: string
+}
+
+/** Live chain-of-thought tokens, streamed separately from `ChatStreamChunk`'s visible-reply tokens. */
+export interface ChatThinkingStreamChunk {
   conversationId: string
   messageId: string
   token: string

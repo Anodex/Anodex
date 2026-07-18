@@ -83,6 +83,9 @@ export function useAnodexBridge(): void {
     const offStream = anodex.chat.onStream(({ conversationId, messageId, token }) =>
       useChatStore.getState().appendToken(conversationId, messageId, token)
     )
+    const offThinkingStream = anodex.chat.onThinkingStream(({ conversationId, messageId, token }) =>
+      useChatStore.getState().appendThinkingToken(conversationId, messageId, token)
+    )
     const offEngine = anodex.models.onStateChanged((state) =>
       useModelStore.getState().setEngineState(state)
     )
@@ -158,6 +161,7 @@ export function useAnodexBridge(): void {
       cancelled = true
       if (restoreTimer) clearTimeout(restoreTimer)
       offStream()
+      offThinkingStream()
       offEngine()
       offDownloadProgress()
       offToolActivity()

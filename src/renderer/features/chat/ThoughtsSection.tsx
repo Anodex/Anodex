@@ -10,7 +10,14 @@ import styles from './ThoughtsSection.module.css'
  * scratchpad, not a polished answer, and treating it as markdown risks
  * misrendering stray `#`/`*` characters the model never meant as formatting.
  */
-export function ThoughtsSection({ thinking }: { thinking: string }): JSX.Element {
+export function ThoughtsSection({
+  thinking,
+  streaming
+}: {
+  thinking: string
+  /** True while more thinking tokens may still be arriving for this turn. */
+  streaming?: boolean
+}): JSX.Element {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -27,8 +34,17 @@ export function ThoughtsSection({ thinking }: { thinking: string }): JSX.Element
           size={12}
           className={styles.labelChevron}
         />
-        <span className={styles.label}>Thoughts</span>
+        <span className={styles.label}>{streaming ? 'Thinking' : 'Thoughts'}</span>
       </button>
+      {/* Collapsed hides the body, so a still-streaming turn needs its own
+          live signal here — same reasoning, and same visual language, as
+          ToolCallGroup's own collapsed `runTrack`. */}
+      {!expanded && streaming && (
+        <span className={styles.runTrack} aria-hidden="true">
+          <span className={styles.runHalo} />
+          <span className={styles.runCore} />
+        </span>
+      )}
       {expanded && <div className={styles.body}>{thinking}</div>}
     </section>
   )

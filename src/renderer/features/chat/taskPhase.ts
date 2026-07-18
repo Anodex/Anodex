@@ -69,7 +69,9 @@ export function groupToolCallsByPhase(toolCalls: ToolCall[]): ToolCallGroup[] {
 }
 
 export type RenderSegment =
-  { type: 'text'; text: string } | { type: 'toolGroup'; phase: TaskPhase; calls: ToolCall[] }
+  | { type: 'text'; text: string }
+  | { type: 'toolGroup'; phase: TaskPhase; calls: ToolCall[] }
+  | { type: 'thinking'; text: string }
 
 /**
  * Walks a message's chronological blocks once, keeping text exactly where it
@@ -90,6 +92,17 @@ export function buildRenderSegments(blocks: MessageBlock[]): RenderSegment[] {
       // should be one merged tool-group run into two separate ones.
       if (!block.text.trim()) continue
       segments.push({ type: 'text', text: block.text })
+      continue
+    }
+
+    if (block.type === 'thinking') {
+      // No merging needed here the way tool calls merge into one toolGroup —
+      // `chatStore.ts`'s `appendThinkingToken` already merges genuinely
+      // adjacent live tokens into a single block at the source, so distinct
+      // blocks by the time they reach here really were interrupted by other
+      // content and should render as separate segments.
+      if (!block.text.trim()) continue
+      segments.push({ type: 'thinking', text: block.text })
       continue
     }
 

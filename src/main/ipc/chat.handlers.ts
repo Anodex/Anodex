@@ -37,6 +37,14 @@ export function registerChatHandlers(): void {
             token
           })
         },
+        onThinkingToken: (token) => {
+          if (event.sender.isDestroyed()) return
+          event.sender.send(IpcChannel.Chat.thinkingStream, {
+            conversationId: request.conversationId,
+            messageId: request.messageId,
+            token
+          })
+        },
         onActivity: (call) => {
           if (event.sender.isDestroyed()) return
           event.sender.send(IpcChannel.Tools.activity, {

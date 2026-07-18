@@ -135,18 +135,27 @@ export function MessageBubble({
             <TranscriptRecallCard results={message.transcriptRecallUsed} />
           </div>
         )}
-        {!isUser && message.thinking && <ThoughtsSection thinking={message.thinking} />}
         {showThinking ? (
           <ThinkingIndicator />
         ) : (
           <div className={styles.segments}>
-            {segments.map((segment, index) =>
-              segment.type === 'text' ? (
-                <MessageContent key={`text-${index}`} content={segment.text} />
-              ) : (
+            {segments.map((segment, index) => {
+              if (segment.type === 'text') {
+                return <MessageContent key={`text-${index}`} content={segment.text} />
+              }
+              if (segment.type === 'thinking') {
+                return (
+                  <ThoughtsSection
+                    key={`thinking-${index}`}
+                    thinking={segment.text}
+                    streaming={message.streaming && index === segments.length - 1}
+                  />
+                )
+              }
+              return (
                 <ToolCallGroup key={`tools-${index}`} phase={segment.phase} calls={segment.calls} />
               )
-            )}
+            })}
           </div>
         )}
         {showTailThinking && (

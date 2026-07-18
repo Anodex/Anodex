@@ -1,7 +1,11 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IpcChannel, type AnodexApi, type ContextMenuRequest } from '@shared/ipc'
 import type { EngineState, ModelDownloadProgress } from '@shared/model.types'
-import type { ChatStreamChunk, HistoryCompactionEvent } from '@shared/chat.types'
+import type {
+  ChatStreamChunk,
+  ChatThinkingStreamChunk,
+  HistoryCompactionEvent
+} from '@shared/chat.types'
 import type { ToolActivityEvent, ToolConfirmRequest } from '@shared/tools.types'
 import type { UpdateStatus } from '@shared/update.types'
 import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
@@ -42,6 +46,8 @@ const api: AnodexApi = {
     stop: (conversationId) => ipcRenderer.invoke(IpcChannel.Chat.stop, conversationId),
     compact: (request) => ipcRenderer.invoke(IpcChannel.Chat.compact, request),
     onStream: (listener) => subscribe<ChatStreamChunk>(IpcChannel.Chat.stream, listener),
+    onThinkingStream: (listener) =>
+      subscribe<ChatThinkingStreamChunk>(IpcChannel.Chat.thinkingStream, listener),
     summarize: (text, maxWords) => ipcRenderer.invoke(IpcChannel.Chat.summarize, text, maxWords),
     title: (request) => ipcRenderer.invoke(IpcChannel.Chat.title, request),
     onHistoryCompacted: (listener) =>

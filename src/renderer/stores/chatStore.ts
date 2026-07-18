@@ -89,6 +89,8 @@ interface ChatState {
   compactConversation: () => Promise<void>
   /** Called by the IPC bridge for each streamed token. */
   appendToken: (conversationId: string, messageId: string, token: string) => void
+  /** Called by the IPC bridge for each streamed chain-of-thought token. */
+  appendThinkingToken: (conversationId: string, messageId: string, token: string) => void
   /** Called by the IPC bridge as the assistant's tool calls progress. */
   applyToolActivity: (event: ToolActivityEvent) => void
   /** Persist a durable context snapshot after the main process compacts history. */
@@ -572,6 +574,27 @@ export const useChatStore = create<ChatState>()(
       // was updating correctly underneath.
       // Persisted when the generation completes in `sendMessage` to avoid
       // excessive disk writes on every streamed token.
+    },
+
+    // Mirrors `appendToken`'s timeline handling (extend the trailing block if
+    // it's the same type, else start a new one) so a turn that thinks, calls
+    // a tool, thinks again, then answers renders as a real chronological
+    // timeline instead of every thought clustering at the top. `message.
+    // thinking` is also kept updated as a flat convenience field — headless
+    // callers (AgentRunService, SchedulerService) build a ChatMessage
+    // directly without ever going through this live per-token path, so they
+    // only ever have the flat field, never a positioned `blocks` entry.
+    appendThinkingToken: (conversationId, messageId, token) => {
+      set((state) => {
+        const convo = state.conversations.find((c) => c.id === conversationId)
+        const message = convo?.messages.find((m) => m.id === messageId)
+        if (!message) return
+        message.thinking = (message.thinking ?? '') + token
+        if (!message.blocks) message.blocks = []
+        const last = message.blocks[message.blocks.length - 1]
+        if (last && last.type === 'thinking') last.text += token
+        else message.blocks.push({ type: 'thinking', text: token })
+      })
     },
 
     applyToolActivity: ({ conversationId, messageId, call }) => {
