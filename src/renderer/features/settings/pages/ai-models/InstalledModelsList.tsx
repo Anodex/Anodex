@@ -115,7 +115,7 @@ export function InstalledModelsList({
             <thead>
               <tr>
                 <th>Model</th>
-                <th>Fit</th>
+                <th>Compatibility</th>
                 <th>Reliability</th>
                 <th>Size</th>
                 <th className={styles.actionCell}>Status</th>

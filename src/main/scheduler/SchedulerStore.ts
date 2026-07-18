@@ -23,6 +23,8 @@ export interface RecordRunOptions {
   conversationId: string
   /** The assistant message holding the full reply, or null if the run errored before producing one. */
   messageId: string | null
+  /** See `TaskRunRecord.fabricationDetected`'s doc comment. Defaults to false when omitted. */
+  fabricationDetected?: boolean
 }
 
 /**
@@ -93,9 +95,7 @@ class SchedulerStore {
       enabledTools: request.enabledTools ?? task.enabledTools,
       enabled,
       updatedAt: Date.now(),
-      nextRunAt: enabled
-        ? computeNextRunAt(recurrence, Date.now(), task.lastRunAt !== null)
-        : null
+      nextRunAt: enabled ? computeNextRunAt(recurrence, Date.now(), task.lastRunAt !== null) : null
     }
     tasks[index] = next
     this.persist(tasks)
@@ -119,7 +119,8 @@ class SchedulerStore {
       startedAt: now,
       status: options.status,
       summary: options.summary,
-      messageId: options.messageId
+      messageId: options.messageId,
+      fabricationDetected: options.fabricationDetected ?? false
     }
     const next: ScheduledTask = {
       ...task,

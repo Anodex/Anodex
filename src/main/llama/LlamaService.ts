@@ -205,6 +205,19 @@ export interface GenerateOutcome {
    * only the former should end a whole multi-turn run.
    */
   stopReason?: 'user' | 'loop-guard'
+  /**
+   * True when this turn's reply described an outcome (a file change, an
+   * approval/denial, a fabricated user turn) that didn't actually happen —
+   * see `looksLikeUnactedIntent`/`looksLikeFabricatedOutcome`/
+   * `detectFabricatedUserTurn` in `toolCallFallback.ts`. Recorded to
+   * `modelReliabilityStore` internally either way, but callers that run
+   * unattended (`AgentRunService`, `SchedulerService`) have no one watching
+   * the transcript live, so they need this per-turn signal to flag it back
+   * to the user afterward instead of silently reporting success. Undefined
+   * for cloud providers (Anthropic/OpenAI), which don't have this local-model
+   * failure mode or its detection — never explicitly false for them.
+   */
+  fabricationDetected?: boolean
 }
 
 /**
@@ -426,6 +439,11 @@ class LlamaService extends EventEmitter {
     // fabricated-outcome check below, which must not fire when a real
     // interaction actually happened this turn.
     let hadAnyToolAttempt = false
+    // Mirrors every `modelReliabilityStore.recordFabrication()` call below,
+    // but per-turn and returned to the caller (see `GenerateOutcome.
+    // fabricationDetected`'s doc comment) rather than only aggregated into
+    // the cross-run store.
+    let fabricationDetectedThisTurn = false
     const currentModel = this.currentModel
     let functions: Record<string, ToolFunction> | undefined
     // Filled in below once `genController` exists — see `buildToolFunctions`'s
@@ -520,6 +538,7 @@ class LlamaService extends EventEmitter {
     const finalizeFabricatedTurn = (keptContent: string): void => {
       visibleContent = appendContent(visibleContent, keptContent.trimEnd())
       stopped = true
+      fabricationDetectedThisTurn = true
       if (currentModel) {
         modelReliabilityStore.recordFabrication(
           currentModel.id,
@@ -726,12 +745,15 @@ class LlamaService extends EventEmitter {
           // fabricated outcome, or stall still tells us the model needs more
           // steering, even when the one-nudge-per-turn budget was already
           // spent, or when no edit tool is registered to nudge toward.
-          if (isFabrication && currentModel) {
-            modelReliabilityStore.recordFabrication(
-              currentModel.id,
-              currentModel.name,
-              basename(currentModel.path)
-            )
+          if (isFabrication) {
+            fabricationDetectedThisTurn = true
+            if (currentModel) {
+              modelReliabilityStore.recordFabrication(
+                currentModel.id,
+                currentModel.name,
+                basename(currentModel.path)
+              )
+            }
           }
 
           // The bypass nudge explicitly instructs the model to call
@@ -804,7 +826,8 @@ class LlamaService extends EventEmitter {
         content: visibleContent,
         stats: buildStats(tokenCount, startedAt),
         stopped,
-        stopReason: stopped ? currentStopReason() : undefined
+        stopReason: stopped ? currentStopReason() : undefined,
+        fabricationDetected: fabricationDetectedThisTurn
       }
     } catch (error) {
       // `genController` also gets aborted internally by the loop guard (see
@@ -819,7 +842,8 @@ class LlamaService extends EventEmitter {
           content: visibleContent,
           stats: buildStats(tokenCount, startedAt),
           stopped: true,
-          stopReason: currentStopReason()
+          stopReason: currentStopReason(),
+          fabricationDetected: fabricationDetectedThisTurn
         }
       }
       // The reactive recovery inside the round loop above only retries a
@@ -844,7 +868,12 @@ class LlamaService extends EventEmitter {
       ) {
         log.warn('Context shift failed mid-turn; ending this turn early with partial content.')
         this.disposeSession()
-        return { content: visibleContent, stats: buildStats(tokenCount, startedAt), stopped: true }
+        return {
+          content: visibleContent,
+          stats: buildStats(tokenCount, startedAt),
+          stopped: true,
+          fabricationDetected: fabricationDetectedThisTurn
+        }
       }
       throw error
     } finally {

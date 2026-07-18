@@ -40,6 +40,16 @@ export interface AgentRun {
   model: string | null
   maxTurns: number
   turnsUsed: number
+  /**
+   * How many of this run's turns had a reply that claimed an outcome — a file
+   * change, an approval/denial — that didn't actually happen (see
+   * `GenerateOutcome.fabricationDetected`'s doc comment in `LlamaService.ts`).
+   * No one watches an unattended run live, so this is how the UI flags "this
+   * result may not be trustworthy, check the transcript" after the fact,
+   * instead of silently reporting success. Always 0 for a cloud-provider run
+   * (Anthropic/OpenAI) — that detection is local-model-specific.
+   */
+  flaggedTurns: number
   /** Cumulative token budget across every turn. */
   maxTokens: number
   tokensUsed: number

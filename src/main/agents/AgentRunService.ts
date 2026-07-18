@@ -195,6 +195,7 @@ class AgentRunService {
     let turnsUsed = run.turnsUsed
     let tokensUsed = run.tokensUsed
     let plan = run.plan
+    let flaggedTurns = run.flaggedTurns
 
     try {
       // A plan-reviewed run's planning phase already spent turns/tokens
@@ -225,7 +226,8 @@ class AgentRunService {
           stopped,
           stopReason,
           tokens,
-          plan: nextPlan
+          plan: nextPlan,
+          fabricationDetected
         } = await this.runTurn(
           conversation,
           prompt,
@@ -236,7 +238,8 @@ class AgentRunService {
         )
         tokensUsed += tokens
         if (nextPlan) plan = nextPlan
-        agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan })
+        if (fabricationDetected) flaggedTurns += 1
+        agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
 
         if (stopped && stopReason !== 'loop-guard') {
@@ -353,6 +356,7 @@ class AgentRunService {
       let plan = first.plan
       let turnsUsed = 1
       let tokensUsed = first.tokens
+      let flaggedTurns = run.flaggedTurns + (first.fabricationDetected ? 1 : 0)
 
       // A real user Stop (or any internal stop other than the loop guard's
       // own, recoverable one) must end the run immediately, not fall through
@@ -363,7 +367,7 @@ class AgentRunService {
       // it already produces no plan, so the existing "no plan yet, retry
       // once" logic is the right response either way.
       if (first.stopped && first.stopReason !== 'loop-guard') {
-        agentRunStore.update(run.id, { turnsUsed, tokensUsed })
+        agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
         this.finish(run.id, conversation.id, 'stopped', null, 'Run was stopped.')
         return
       }
@@ -379,22 +383,23 @@ class AgentRunService {
         )
         turnsUsed = 2
         tokensUsed += retry.tokens
+        if (retry.fabricationDetected) flaggedTurns += 1
         if (retry.stopped && retry.stopReason !== 'loop-guard') {
-          agentRunStore.update(run.id, { turnsUsed, tokensUsed })
+          agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
           this.finish(run.id, conversation.id, 'stopped', null, 'Run was stopped.')
           return
         }
         plan = retry.plan
       }
 
-      agentRunStore.update(run.id, { turnsUsed, tokensUsed })
+      agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
 
       if (!plan) {
         this.finish(run.id, conversation.id, 'error', null, 'Could not produce a plan for review.')
         return
       }
 
-      agentRunStore.update(run.id, { status: 'needs-review', plan })
+      agentRunStore.update(run.id, { status: 'needs-review', plan, flaggedTurns })
       this.broadcastRunsChanged()
       autoApprove = settingsStore.get().general.permissionMode === 'untethered'
     } catch (error) {
@@ -442,6 +447,8 @@ class AgentRunService {
     stopReason?: 'user' | 'loop-guard'
     tokens: number
     plan: Plan | null
+    /** See `AgentRun.flaggedTurns`'s doc comment. */
+    fabricationDetected: boolean
   }> {
     const userMessage: ChatMessage = {
       id: generateId('agent_msg'),
@@ -518,7 +525,8 @@ class AgentRunService {
       stopped: result.stopped,
       stopReason: result.stopReason,
       tokens: result.stats.tokens,
-      plan: latestPlan
+      plan: latestPlan,
+      fabricationDetected: result.fabricationDetected ?? false
     }
   }
 

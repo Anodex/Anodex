@@ -45,7 +45,13 @@ export function SchedulerTaskReport({
           <h2 className={styles.title}>{task.name}</h2>
           <p className={styles.prompt}>{task.prompt}</p>
         </div>
-        <button type="button" className={styles.close} onClick={onClose} aria-label="Close" title="Close">
+        <button
+          type="button"
+          className={styles.close}
+          onClick={onClose}
+          aria-label="Close"
+          title="Close"
+        >
           <Icon name="close" size={16} />
         </button>
       </div>
@@ -79,6 +85,14 @@ export function SchedulerTaskReport({
                     <span className={styles.runSummary}>
                       {run.summary ?? (run.status === 'error' ? 'Failed' : 'No summary')}
                     </span>
+                    {run.fabricationDetected && (
+                      <span
+                        className={styles.fabricationFlag}
+                        title="The model described an outcome — a change, an approval, a denial — that didn't actually happen this run. Check the transcript before trusting this result."
+                      >
+                        <Icon name="alert" size={12} />
+                      </span>
+                    )}
                   </button>
                   {expanded && (
                     <div className={styles.runContent}>

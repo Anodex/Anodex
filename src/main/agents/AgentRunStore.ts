@@ -70,6 +70,7 @@ class AgentRunStore {
       model: request.provider === 'local' ? null : (request.model?.trim() ?? null),
       maxTurns: Math.min(request.maxTurns ?? DEFAULT_MAX_TURNS, MAX_MAX_TURNS),
       turnsUsed: 0,
+      flaggedTurns: 0,
       maxTokens: Math.min(request.maxTokens ?? DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS),
       tokensUsed: 0,
       maxDurationMinutes: Math.min(
@@ -152,7 +153,8 @@ export function normalizeAgentRun(run: Partial<AgentRun>): AgentRun {
     ...run,
     limitsEnabled: run.limitsEnabled ?? true,
     requirePlan: run.requirePlan ?? true,
-    plan: run.plan ?? null
+    plan: run.plan ?? null,
+    flaggedTurns: run.flaggedTurns ?? 0
   } as AgentRun
 }
 

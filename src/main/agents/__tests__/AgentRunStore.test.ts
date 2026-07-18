@@ -13,6 +13,7 @@ function makeRun(overrides: Partial<AgentRun> = {}): AgentRun {
     model: null,
     maxTurns: 8,
     turnsUsed: 0,
+    flaggedTurns: 0,
     maxTokens: 50_000,
     tokensUsed: 0,
     maxDurationMinutes: 30,

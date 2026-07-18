@@ -181,6 +181,15 @@ function RunCard({
                 Unlimited spend
               </span>
             )}
+            {run.flaggedTurns > 0 && (
+              <span
+                className={styles.unlimitedWarning}
+                title={`The model described an outcome — a change, an approval, a denial — that didn't actually happen on ${run.flaggedTurns} turn${run.flaggedTurns === 1 ? '' : 's'}. Check the transcript before trusting this result.`}
+              >
+                <Icon name="alert" size={12} />
+                Possible fabrication ({run.flaggedTurns})
+              </span>
+            )}
           </div>
           {(run.summary || run.lastError) && (
             <p

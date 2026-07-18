@@ -44,6 +44,15 @@ export interface TaskRunRecord {
   /** The assistant message in the task's conversation holding the full reply
    *  for this run, or null if the run failed before producing one. */
   messageId: string | null
+  /**
+   * True when the run's reply claimed an outcome that didn't actually happen
+   * — see `GenerateOutcome.fabricationDetected`'s doc comment in
+   * `LlamaService.ts`. No one watches an unattended run live, so this is how
+   * the report flags "this result may not be trustworthy, check the
+   * transcript" after the fact. Always false for a run that errored before
+   * producing a reply.
+   */
+  fabricationDetected: boolean
 }
 
 /** A user-defined automated prompt that runs on a recurring schedule. */

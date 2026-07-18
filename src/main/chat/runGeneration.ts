@@ -91,6 +91,8 @@ export interface RunGenerationResult {
   context?: ConversationContext
   /** Restorable snapshot for file changes made by this assistant turn. */
   checkpoint?: CheckpointSummary
+  /** See `GenerateOutcome.fabricationDetected`'s doc comment. */
+  fabricationDetected?: boolean
 }
 
 /**
@@ -406,7 +408,8 @@ export async function runGeneration(
       activeProject && workspaceRoot
         ? (checkpointStore.getSummary(workspaceRoot, request.conversationId, request.messageId) ??
           undefined)
-        : undefined
+        : undefined,
+    fabricationDetected: outcome.fabricationDetected
   }
 }
 

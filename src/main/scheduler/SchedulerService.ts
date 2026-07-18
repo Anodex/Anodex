@@ -137,7 +137,8 @@ class SchedulerService {
         status: result.stopped ? 'stopped' : 'success',
         summary,
         conversationId: conversation.id,
-        messageId: assistantMessageId
+        messageId: assistantMessageId,
+        fabricationDetected: result.fabricationDetected ?? false
       })
       showToastWindow({
         title: task.name,

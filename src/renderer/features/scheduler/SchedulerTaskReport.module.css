@@ -126,6 +126,12 @@
   font-size: var(--text-xs);
 }
 
+.fabricationFlag {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--warn);
+}
+
 .runSummary {
   overflow: hidden;
   color: var(--text-muted);
