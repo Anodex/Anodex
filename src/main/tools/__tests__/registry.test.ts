@@ -54,6 +54,9 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
 
+/** Read-only, but project-gated (see `PROJECT_READ_ONLY_FACTORIES` in registry.ts). */
+const PROJECT_READ_ONLY_TOOLS = ['search_code']
+
 describe('buildTools', () => {
   it('registers only read-only workspace tools when no project is open', () => {
     const ctx = { ...createMockContext('/workspace'), projectId: null }
@@ -61,6 +64,7 @@ describe('buildTools', () => {
 
     for (const name of READ_ONLY_WORKSPACE_TOOLS) expect(tools).toHaveProperty(name)
     for (const name of PROJECT_WORKSPACE_TOOLS) expect(tools).not.toHaveProperty(name)
+    for (const name of PROJECT_READ_ONLY_TOOLS) expect(tools).not.toHaveProperty(name)
   })
 
   it('registers project-workspace tools too once a project is open', () => {
@@ -69,6 +73,7 @@ describe('buildTools', () => {
 
     for (const name of READ_ONLY_WORKSPACE_TOOLS) expect(tools).toHaveProperty(name)
     for (const name of PROJECT_WORKSPACE_TOOLS) expect(tools).toHaveProperty(name)
+    for (const name of PROJECT_READ_ONLY_TOOLS) expect(tools).toHaveProperty(name)
   })
 
   it('registers no workspace tools at all without a workspace root, project or not', () => {
@@ -234,6 +239,7 @@ describe('buildTools', () => {
       ...READ_ONLY_WORKSPACE_TOOLS,
       ...PROJECT_WORKSPACE_TOOLS,
       ...EMAIL_WORKSPACE_TOOLS,
+      ...PROJECT_READ_ONLY_TOOLS,
       ...GLOBAL_OR_CONDITIONAL_TOOLS
     ]) {
       expect(catalogNames).toContain(name)
@@ -244,7 +250,8 @@ describe('buildTools', () => {
     const requiresProjectNames = new Set([
       ...READ_ONLY_WORKSPACE_TOOLS,
       ...PROJECT_WORKSPACE_TOOLS,
-      ...EMAIL_WORKSPACE_TOOLS
+      ...EMAIL_WORKSPACE_TOOLS,
+      ...PROJECT_READ_ONLY_TOOLS
     ])
 
     for (const tool of TOOL_CATALOG) {

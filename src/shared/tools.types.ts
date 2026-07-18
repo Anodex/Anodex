@@ -167,6 +167,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'search_code',
+    kind: 'read',
+    description: 'Search the workspace by meaning, not exact text.',
+    requiresProject: true
+  },
+  {
     name: 'git_status',
     kind: 'read',
     description: 'Show git status of the workspace.',

@@ -6,6 +6,7 @@ import { abortAllChatGenerations } from './ipc/chat.handlers'
 import { settingsStore } from './settings/SettingsStore'
 import { projectStore } from './projects/ProjectStore'
 import { projectMemoryStore } from './projects/ProjectMemoryStore'
+import { codeIndexStore } from './codeIndex/CodeIndexStore'
 import { memoryStore } from './memory/MemoryStore'
 import { conversationStore } from './conversations/ConversationStore'
 import { modelReliabilityStore } from './models/ModelReliabilityStore'
@@ -57,6 +58,7 @@ if (!app.requestSingleInstanceLock()) {
       settingsStore.init()
       projectStore.init()
       projectMemoryStore.init()
+      codeIndexStore.init()
       memoryStore.init()
       conversationStore.init()
       modelReliabilityStore.init()

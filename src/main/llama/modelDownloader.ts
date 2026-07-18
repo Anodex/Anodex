@@ -58,29 +58,23 @@ export async function downloadModel(
 
   const controller = new AbortController()
   activeDownloads.set(model.id, controller)
-  const partPath = `${finalPath}.part`
-
   try {
-    const response = await fetch(model.downloadUrl, { signal: controller.signal })
-    if (!response.ok || !response.body) {
-      throw new Error(`Download failed: HTTP ${response.status}`)
-    }
-
-    const totalBytes = Number(response.headers.get('content-length')) || null
-    let receivedBytes = 0
-
-    const readable = Readable.fromWeb(response.body)
-    readable.on('data', (chunk: Buffer) => {
-      receivedBytes += chunk.length
-      onProgress({ modelId: model.id, receivedBytes, totalBytes, status: 'downloading' })
+    await downloadFile(
+      model.downloadUrl,
+      finalPath,
+      controller.signal,
+      (receivedBytes, totalBytes) =>
+        onProgress({ modelId: model.id, receivedBytes, totalBytes, status: 'downloading' })
+    )
+    const sizeBytes = statSync(finalPath).size
+    onProgress({
+      modelId: model.id,
+      receivedBytes: sizeBytes,
+      totalBytes: sizeBytes,
+      status: 'done'
     })
-
-    await pipeline(readable, createWriteStream(partPath))
-    await rename(partPath, finalPath)
-    onProgress({ modelId: model.id, receivedBytes, totalBytes, status: 'done' })
     return finalPath
   } catch (error) {
-    await rm(partPath, { force: true }).catch(() => {})
     const canceled = controller.signal.aborted
     if (!canceled) log.warn('Model download failed', model.id, error)
     onProgress({
@@ -93,5 +87,43 @@ export async function downloadModel(
     throw error
   } finally {
     activeDownloads.delete(model.id)
+  }
+}
+
+/**
+ * Stream a URL to `finalPath` via a sibling `.part` file, renamed on success
+ * — the shared mechanics behind {@link downloadModel}, factored out so
+ * `EmbeddingService`'s one-off small-model download doesn't need to fabricate
+ * a fake `RecommendedModel` (chat-catalog-shaped: tier, family, quality/speed
+ * ranks — none of it meaningful for an embedding model) just to reuse this
+ * logic. Leaves no partial file behind on failure or abort.
+ */
+export async function downloadFile(
+  url: string,
+  finalPath: string,
+  signal: AbortSignal,
+  onProgress: (receivedBytes: number, totalBytes: number | null) => void
+): Promise<void> {
+  const partPath = `${finalPath}.part`
+  try {
+    const response = await fetch(url, { signal })
+    if (!response.ok || !response.body) {
+      throw new Error(`Download failed: HTTP ${response.status}`)
+    }
+
+    const totalBytes = Number(response.headers.get('content-length')) || null
+    let receivedBytes = 0
+
+    const readable = Readable.fromWeb(response.body)
+    readable.on('data', (chunk: Buffer) => {
+      receivedBytes += chunk.length
+      onProgress(receivedBytes, totalBytes)
+    })
+
+    await pipeline(readable, createWriteStream(partPath))
+    await rename(partPath, finalPath)
+  } catch (error) {
+    await rm(partPath, { force: true }).catch(() => {})
+    throw error
   }
 }

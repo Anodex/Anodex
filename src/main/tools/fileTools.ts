@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { TEXT_EXT } from '@shared/textFileExtensions'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
@@ -23,8 +24,6 @@ export const SKIP_DIRS = new Set([
   'build',
   '.turbo'
 ])
-const TEXT_EXT =
-  /\.(txt|md|markdown|json|jsonc|ya?ml|toml|ini|env|csv|html?|css|s[ac]ss|less|jsx?|tsx?|mjs|cjs|vue|svelte|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|php|sh|bash|ps1|sql|xml|dockerfile|lock)$/i
 
 /** list_directory — enumerate a folder inside the workspace. */
 export const listDirectoryTool: WorkspaceToolFactory = (define, ctx) =>

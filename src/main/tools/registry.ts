@@ -29,6 +29,7 @@ import { createDirectoryTool, deleteDirectoryTool } from './directoryTools'
 import { gitStatusTool, gitDiffTool } from './gitTools'
 import { gitCommitSummaryTool } from './gitCommitTools'
 import { codeOutlineTool } from './codeOutlineTools'
+import { searchCodeTool } from './codeSearchTools'
 import { fetchUrlTool } from './webTools'
 import { webSearchTool } from './webSearchTools'
 import { writePlanTool, updatePlanStepTool } from './planTools'
@@ -98,6 +99,18 @@ const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
 }
 
 /**
+ * Read-only, but still project-only, unlike `READ_ONLY_WORKSPACE_FACTORIES`
+ * above: `search_code`'s index is persisted per-project (see
+ * `CodeIndexStore`), so it has nothing to search in a plain workspace-only
+ * chat with no project open — kept as its own small group rather than
+ * folded into `PROJECT_WORKSPACE_FACTORIES` so that group's "editing is
+ * deliberately a project action" framing doesn't misdescribe a read tool.
+ */
+const PROJECT_READ_ONLY_FACTORIES: Record<string, WorkspaceToolFactory> = {
+  search_code: searchCodeTool
+}
+
+/**
  * A general (non-project) chat has no workspace or project to scope a fact
  * to, but the user can still share something worth remembering globally (e.g.
  * their name) — so `remember_fact` is NOT gated behind `ctx.workspaceRoot`/
@@ -156,6 +169,9 @@ export function buildTools(
     }
     if (ctx.projectId) {
       for (const [name, factory] of Object.entries(PROJECT_WORKSPACE_FACTORIES)) {
+        if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
+      }
+      for (const [name, factory] of Object.entries(PROJECT_READ_ONLY_FACTORIES)) {
         if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
       }
     }

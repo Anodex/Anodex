@@ -1283,6 +1283,20 @@ class LlamaService extends EventEmitter {
   }
 
   /**
+   * The shared native `Llama` backend handle (GPU/CPU detection, not a
+   * loaded model), lazily initialized on first call. `EmbeddingService` uses
+   * this instead of calling `nlc.getLlama()` itself — this project's own
+   * history has multiple documented native-crash incidents from the GPU
+   * backend, so a second independent backend instance for the small
+   * embedding model is a real, avoidable risk, not just a style preference.
+   */
+  async getLlamaBackend(): Promise<Llama> {
+    const nlc = await this.getModule()
+    this.llama ??= await nlc.getLlama()
+    return this.llama
+  }
+
+  /**
    * Probe the host's GPU/VRAM via the llama backend. Initialises the backend
    * (not a model) on first call. Returns safe fallbacks if detection fails.
    */
@@ -1292,11 +1306,10 @@ class LlamaService extends EventEmitter {
     unified: boolean
   }> {
     try {
-      const nlc = await this.getModule()
-      this.llama ??= await nlc.getLlama()
+      const llama = await this.getLlamaBackend()
       const [gpuNames, vram] = await Promise.all([
-        this.llama.getGpuDeviceNames().catch(() => [] as string[]),
-        this.llama.getVramState().catch(() => null)
+        llama.getGpuDeviceNames().catch(() => [] as string[]),
+        llama.getVramState().catch(() => null)
       ])
       return {
         gpuNames,

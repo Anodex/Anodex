@@ -3,6 +3,7 @@ import { basename, join } from 'node:path'
 import type { FileTouch, ProjectMemory, ProjectRecallEvent } from '@shared/projectMemory.types'
 import { wordSet } from '@shared/textSimilarity'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
+import { codeIndexer } from '../codeIndex/CodeIndexer'
 import { PROJECT_NOTES_FILENAME } from './projectNotesTool'
 
 /**
@@ -58,6 +59,14 @@ export function buildWorkspaceContext(
   if (!cache || cache.root !== root || Date.now() - cache.builtAt >= CACHE_TTL_MS) {
     cache = { root, builtAt: Date.now(), text: build(root) }
   }
+  // Fire-and-forget: keeps the semantic code index (see `search_code`) fresh
+  // in the background, throttled/single-flighted internally by the indexer
+  // itself. Never awaited — this turn's response must not wait on a
+  // potentially-slow full workspace walk; whatever's fresh by the time a
+  // later search_code call runs is what benefits. No-op without a project,
+  // same scoping as project memory below, since the index is persisted
+  // per-project.
+  if (projectId) codeIndexer.ensureFresh(projectId, root)
   const activity = projectId ? buildActivitySummary(projectId, retrievalQuery) : ''
   return activity ? `${cache.text}\n\n${activity}` : cache.text
 }
