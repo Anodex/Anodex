@@ -64,6 +64,13 @@ interface ChatState {
   deleteAllConversations: () => Promise<void>
   refreshConversations: () => Promise<void>
   /**
+   * Detach a conversation from a project that no longer exists — e.g. the
+   * project was deleted while this conversation survived (an interrupted
+   * delete, or data from an older build). Moves it back to being a general
+   * chat instead of leaving it permanently unable to activate its project.
+   */
+  clearOrphanedProjectId: (id: string) => Promise<void>
+  /**
    * `conversationIdOverride` targets a specific conversation instead of the
    * active one — used when auto-dispatching a queued message so it lands in
    * the conversation it was queued for, even if the user has since switched
@@ -233,6 +240,17 @@ export const useChatStore = create<ChatState>()(
     refreshConversations: async () => {
       const conversations = await anodex.conversations.list()
       set({ conversations })
+    },
+
+    clearOrphanedProjectId: async (id) => {
+      set((state) => {
+        const conversation = state.conversations.find((c) => c.id === id)
+        if (!conversation) return
+        conversation.projectId = null
+        conversation.updatedAt = Date.now()
+      })
+      const healed = get().conversations.find((c) => c.id === id)
+      if (healed) await persistConversation(healed)
     },
 
     sendMessage: async (text, attachments = [], conversationIdOverride) => {

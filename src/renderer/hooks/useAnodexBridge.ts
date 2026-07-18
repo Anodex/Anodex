@@ -23,6 +23,18 @@ import { useUiStore } from '../stores/uiStore'
  * during normal use when creating or selecting a chat.
  */
 async function reconcileActiveProject(): Promise<void> {
+  // A conversation can keep pointing at a project that no longer exists —
+  // e.g. an interrupted delete, or data left over from an older build.
+  // Heal those first so they settle into general chats instead of making
+  // every launch retry (and fail) activating a dead project.
+  const projectIds = new Set(useProjectStore.getState().projects.map((p) => p.id))
+  const orphaned = useChatStore
+    .getState()
+    .conversations.filter((c) => c.projectId !== null && !projectIds.has(c.projectId))
+  for (const conversation of orphaned) {
+    await useChatStore.getState().clearOrphanedProjectId(conversation.id)
+  }
+
   const { conversations, activeId } = useChatStore.getState()
   const activeConversation = conversations.find((c) => c.id === activeId)
   const expectedProjectId = activeConversation?.projectId ?? null
