@@ -125,14 +125,42 @@
 
 .runCard-done {
   border-left-color: var(--success);
+  --arrival-glow: var(--success);
 }
 
 .runCard-stopped {
   border-left-color: var(--warn);
+  --arrival-glow: var(--warn);
 }
 
 .runCard-error {
   border-left-color: var(--danger);
+  --arrival-glow: var(--danger);
+}
+
+/* Plays once when a run reaches done/stopped/error and the user hasn't
+   been shown it yet — including opening Agent for the first time after an
+   unattended run already finished, which is the realistic case this is
+   for (see useJustArrived in AgentView.tsx). Glows in the run's own status
+   colour rather than a generic accent, so it reads as "this is what
+   happened" and not just "something happened". */
+.runCard.arrived {
+  animation: runArrive 1800ms var(--ease-out, ease-out) 1;
+}
+
+@keyframes runArrive {
+  0% {
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  18% {
+    background: color-mix(in srgb, var(--arrival-glow, var(--accent)) 7%, var(--bg-surface));
+    box-shadow: 0 0 18px 1px color-mix(in srgb, var(--arrival-glow, var(--accent)) 40%, transparent);
+  }
+  100% {
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 
 .runMain {

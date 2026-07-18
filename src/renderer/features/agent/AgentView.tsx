@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AgentRun, AgentRunStatus } from '@shared/agentRun.types'
 import type { Plan } from '@shared/plan.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
@@ -36,6 +36,35 @@ function PlanPreview({ plan }: { plan: Plan }): JSX.Element {
       ))}
     </ul>
   )
+}
+
+/** IDs of runs whose "just arrived" card animation has already played this
+ *  session — module-level (not component state) so switching away from
+ *  Agent and back doesn't replay it, but a fresh app launch can. */
+const announcedRunIds = new Set<string>()
+const ARRIVAL_WINDOW_MS = 5 * 60 * 1000
+
+/**
+ * True for one render pass when a run reaches a terminal status the user
+ * hasn't been shown yet — whether they were watching it happen live, or
+ * (the realistic case for an unattended run) they're opening Agent for the
+ * first time after it already finished. Recency-gated so reopening this
+ * view after being away for days doesn't make the whole list glow at once.
+ */
+function useJustArrived(run: AgentRun): boolean {
+  const isTerminal = run.status === 'done' || run.status === 'stopped' || run.status === 'error'
+  const [justArrived, setJustArrived] = useState(false)
+  const announcedRef = useRef(false)
+
+  useEffect(() => {
+    if (!isTerminal || announcedRef.current || announcedRunIds.has(run.id)) return
+    if (Date.now() - run.updatedAt > ARRIVAL_WINDOW_MS) return
+    announcedRunIds.add(run.id)
+    announcedRef.current = true
+    setJustArrived(true)
+  }, [run.id, isTerminal, run.updatedAt])
+
+  return justArrived
 }
 
 /** Short "backend used" label for a run card, e.g. "Local", "Claude · Claude Sonnet 5". */
@@ -85,6 +114,157 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'stopped', label: 'Stopped' },
   { value: 'error', label: 'Error' }
 ]
+
+function RunCard({
+  run,
+  stoppingId,
+  decidingId,
+  projectName,
+  openConversation,
+  handleStop,
+  retryRun,
+  deleteRun,
+  handleApprove,
+  handleReject
+}: {
+  run: AgentRun
+  stoppingId: string | null
+  decidingId: string | null
+  projectName: (projectId: string | null) => string | null
+  openConversation: (run: AgentRun) => void
+  handleStop: (run: AgentRun) => void
+  retryRun: (run: AgentRun) => void
+  deleteRun: (id: string) => void
+  handleApprove: (run: AgentRun) => void
+  handleReject: (run: AgentRun) => void
+}): JSX.Element {
+  const justArrived = useJustArrived(run)
+
+  return (
+    <div
+      className={`${styles.runCard} ${styles[`runCard-${run.status}`]} ${
+        justArrived ? styles.arrived : ''
+      }`}
+    >
+      <div className={styles.runRow}>
+        <button type="button" className={styles.runMain} onClick={() => openConversation(run)}>
+          <div className={styles.runTitleRow}>
+            <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
+              <Icon
+                name={STATUS_ICON[run.status]}
+                size={12}
+                className={run.status === 'running' ? styles.pulseIcon : undefined}
+              />
+              {STATUS_LABEL[run.status]}
+              {run.status === 'running' &&
+                (run.limitsEnabled
+                  ? ` · turn ${run.turnsUsed}/${run.maxTurns} · ${formatCompactTokens(run.tokensUsed)}/${formatCompactTokens(run.maxTokens)} tokens`
+                  : ` · turn ${run.turnsUsed} · ${formatCompactTokens(run.tokensUsed)} tokens (unlimited)`)}
+            </span>
+            {projectName(run.projectId) && (
+              <span className={styles.runProject}>{projectName(run.projectId)}</span>
+            )}
+          </div>
+          <p className={styles.runGoal}>{run.goal}</p>
+          <div className={styles.runMeta}>
+            <span>{formatRelativeTime(run.updatedAt)}</span>
+            <span className={styles.runProvider}>
+              <Icon name={providerIcon(run)} size={12} />
+              {providerLabel(run)}
+            </span>
+            {run.status === 'running' && !run.limitsEnabled && run.provider !== 'local' && (
+              <span
+                className={styles.unlimitedWarning}
+                title="Unlimited run on a paid API — no automatic spend ceiling."
+              >
+                <Icon name="alert" size={12} />
+                Unlimited spend
+              </span>
+            )}
+          </div>
+          {(run.summary || run.lastError) && (
+            <p
+              className={`${styles.runResult} ${
+                run.status === 'error'
+                  ? styles.runResultError
+                  : run.status === 'stopped' && run.lastError
+                    ? styles.runResultWarn
+                    : ''
+              }`}
+            >
+              {run.status === 'error' ? 'Failed: ' : ''}
+              {run.summary ?? run.lastError}
+            </p>
+          )}
+        </button>
+        <div className={styles.runActions}>
+          {run.status === 'running' && (
+            <button
+              type="button"
+              className={styles.iconAction}
+              onClick={() => void handleStop(run)}
+              disabled={stoppingId === run.id}
+              aria-label="Stop run"
+              title="Stop run"
+            >
+              <Icon name="stop" size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            className={styles.iconAction}
+            onClick={() => openConversation(run)}
+            disabled={!run.conversationId}
+            aria-label="Open conversation"
+            title="Open conversation"
+          >
+            <Icon name="send" size={14} />
+          </button>
+          <button
+            type="button"
+            className={styles.iconAction}
+            onClick={() => retryRun(run)}
+            aria-label="Retry with these settings"
+            title="Retry with these settings"
+          >
+            <Icon name="refresh" size={14} />
+          </button>
+          <button
+            type="button"
+            className={styles.iconAction}
+            onClick={() => deleteRun(run.id)}
+            disabled={run.status === 'running'}
+            aria-label="Delete run"
+            title={run.status === 'running' ? 'Stop the run before deleting it' : 'Delete run'}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+        </div>
+      </div>
+      {run.status === 'needs-review' && run.plan && (
+        <div className={styles.planReview}>
+          <PlanPreview plan={run.plan} />
+          <div className={styles.planReviewActions}>
+            <Button
+              variant="secondary"
+              onClick={() => handleReject(run)}
+              disabled={decidingId === run.id}
+            >
+              Reject
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => handleApprove(run)}
+              loading={decidingId === run.id}
+            >
+              Approve
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * Dedicated main view for autonomous agent runs — replaces the chat pane the
@@ -220,130 +400,19 @@ export function AgentView(): JSX.Element {
       ) : (
         <div className={styles.runList}>
           {visibleRuns.map((run) => (
-            <div key={run.id} className={`${styles.runCard} ${styles[`runCard-${run.status}`]}`}>
-              <div className={styles.runRow}>
-                <button
-                  type="button"
-                  className={styles.runMain}
-                  onClick={() => openConversation(run)}
-                >
-                  <div className={styles.runTitleRow}>
-                    <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
-                      <Icon
-                        name={STATUS_ICON[run.status]}
-                        size={12}
-                        className={run.status === 'running' ? styles.pulseIcon : undefined}
-                      />
-                      {STATUS_LABEL[run.status]}
-                      {run.status === 'running' &&
-                        (run.limitsEnabled
-                          ? ` · turn ${run.turnsUsed}/${run.maxTurns} · ${formatCompactTokens(run.tokensUsed)}/${formatCompactTokens(run.maxTokens)} tokens`
-                          : ` · turn ${run.turnsUsed} · ${formatCompactTokens(run.tokensUsed)} tokens (unlimited)`)}
-                    </span>
-                    {projectName(run.projectId) && (
-                      <span className={styles.runProject}>{projectName(run.projectId)}</span>
-                    )}
-                  </div>
-                  <p className={styles.runGoal}>{run.goal}</p>
-                  <div className={styles.runMeta}>
-                    <span>{formatRelativeTime(run.updatedAt)}</span>
-                    <span className={styles.runProvider}>
-                      <Icon name={providerIcon(run)} size={12} />
-                      {providerLabel(run)}
-                    </span>
-                    {run.status === 'running' && !run.limitsEnabled && run.provider !== 'local' && (
-                      <span
-                        className={styles.unlimitedWarning}
-                        title="Unlimited run on a paid API — no automatic spend ceiling."
-                      >
-                        <Icon name="alert" size={12} />
-                        Unlimited spend
-                      </span>
-                    )}
-                  </div>
-                  {(run.summary || run.lastError) && (
-                    <p
-                      className={`${styles.runResult} ${
-                        run.status === 'error'
-                          ? styles.runResultError
-                          : run.status === 'stopped' && run.lastError
-                            ? styles.runResultWarn
-                            : ''
-                      }`}
-                    >
-                      {run.status === 'error' ? 'Failed: ' : ''}
-                      {run.summary ?? run.lastError}
-                    </p>
-                  )}
-                </button>
-                <div className={styles.runActions}>
-                  {run.status === 'running' && (
-                    <button
-                      type="button"
-                      className={styles.iconAction}
-                      onClick={() => void handleStop(run)}
-                      disabled={stoppingId === run.id}
-                      aria-label="Stop run"
-                      title="Stop run"
-                    >
-                      <Icon name="stop" size={14} />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={styles.iconAction}
-                    onClick={() => openConversation(run)}
-                    disabled={!run.conversationId}
-                    aria-label="Open conversation"
-                    title="Open conversation"
-                  >
-                    <Icon name="send" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.iconAction}
-                    onClick={() => retryRun(run)}
-                    aria-label="Retry with these settings"
-                    title="Retry with these settings"
-                  >
-                    <Icon name="refresh" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.iconAction}
-                    onClick={() => void deleteRun(run.id)}
-                    disabled={run.status === 'running'}
-                    aria-label="Delete run"
-                    title={
-                      run.status === 'running' ? 'Stop the run before deleting it' : 'Delete run'
-                    }
-                  >
-                    <Icon name="trash" size={14} />
-                  </button>
-                </div>
-              </div>
-              {run.status === 'needs-review' && run.plan && (
-                <div className={styles.planReview}>
-                  <PlanPreview plan={run.plan} />
-                  <div className={styles.planReviewActions}>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void handleReject(run)}
-                      disabled={decidingId === run.id}
-                    >
-                      Reject
-                    </Button>
-                    <Button
-                      variant="primary"
-                      onClick={() => void handleApprove(run)}
-                      loading={decidingId === run.id}
-                    >
-                      Approve
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <RunCard
+              key={run.id}
+              run={run}
+              stoppingId={stoppingId}
+              decidingId={decidingId}
+              projectName={projectName}
+              openConversation={openConversation}
+              handleStop={(r) => void handleStop(r)}
+              retryRun={retryRun}
+              deleteRun={(id) => void deleteRun(id)}
+              handleApprove={(r) => void handleApprove(r)}
+              handleReject={(r) => void handleReject(r)}
+            />
           ))}
         </div>
       )}

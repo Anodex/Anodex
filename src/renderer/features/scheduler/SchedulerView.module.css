@@ -95,6 +95,42 @@
   border-color: var(--border-strong);
 }
 
+.taskCard-success {
+  --arrival-glow: var(--success);
+}
+
+.taskCard-stopped {
+  --arrival-glow: var(--warn);
+}
+
+.taskCard-error {
+  --arrival-glow: var(--danger);
+}
+
+/* Plays once when a task's most recent run lands and the user hasn't been
+   shown it yet — including opening Scheduler for the first time after an
+   unattended run already finished. Same mechanism and reasoning as
+   AgentView.module.css's .arrived; kept in sync deliberately rather than
+   sharing a class across two feature-scoped CSS Modules files. */
+.taskCard.arrived {
+  animation: taskArrive 1800ms var(--ease-out, ease-out) 1;
+}
+
+@keyframes taskArrive {
+  0% {
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  18% {
+    background: color-mix(in srgb, var(--arrival-glow, var(--accent)) 7%, var(--bg-surface));
+    box-shadow: 0 0 18px 1px color-mix(in srgb, var(--arrival-glow, var(--accent)) 40%, transparent);
+  }
+  100% {
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 .taskMain {
   display: flex;
   flex: 1;

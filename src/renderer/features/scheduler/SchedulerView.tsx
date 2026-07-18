@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ScheduledTask } from '@shared/scheduledTask.types'
 import type { IconName } from '../../components/Icon'
 import { Icon } from '../../components/Icon'
@@ -28,7 +28,8 @@ const EXAMPLES: Example[] = [
   {
     icon: 'monitor',
     title: 'Daily project check-in',
-    description: "Summarize what changed in this project since yesterday and flag anything unfinished.",
+    description:
+      'Summarize what changed in this project since yesterday and flag anything unfinished.',
     seed: {
       name: 'Daily project check-in',
       prompt:
@@ -72,6 +73,128 @@ const EXAMPLES: Example[] = [
   }
 ]
 
+/** IDs of tasks whose "just arrived" card animation has already played this
+ *  session — see the same mechanism (and reasoning) in AgentView.tsx. */
+const announcedTaskRuns = new Set<string>()
+const ARRIVAL_WINDOW_MS = 5 * 60 * 1000
+
+/**
+ * True for one render pass when a task's most recent run just landed and
+ * the user hasn't been shown it — including opening Scheduler for the first
+ * time after an unattended run already finished. Keyed on `lastRunAt` (not
+ * just the task id) so a *later* run on the same task can announce itself
+ * again after the first one already has.
+ */
+function useJustArrived(task: ScheduledTask): boolean {
+  const isTerminal = task.lastRunAt !== null
+  const announceKey = `${task.id}:${task.lastRunAt}`
+  const [justArrived, setJustArrived] = useState(false)
+  const announcedRef = useRef(false)
+
+  useEffect(() => {
+    if (!isTerminal || task.lastRunAt === null) return
+    if (announcedRef.current || announcedTaskRuns.has(announceKey)) return
+    if (Date.now() - task.lastRunAt > ARRIVAL_WINDOW_MS) return
+    announcedTaskRuns.add(announceKey)
+    announcedRef.current = true
+    setJustArrived(true)
+  }, [announceKey, isTerminal, task.lastRunAt])
+
+  return justArrived
+}
+
+function TaskCard({
+  task,
+  runningId,
+  projectName,
+  onOpenReport,
+  onRunNow,
+  onEdit
+}: {
+  task: ScheduledTask
+  runningId: string | null
+  projectName: (projectId: string | null) => string | null
+  onOpenReport: (id: string) => void
+  onRunNow: (task: ScheduledTask) => void
+  onEdit: (task: ScheduledTask) => void
+}): JSX.Element {
+  const justArrived = useJustArrived(task)
+  const lastRunClass = task.lastRunAt ? styles[`taskCard-${task.lastRunStatus ?? 'success'}`] : ''
+
+  return (
+    <div className={`${styles.taskCard} ${lastRunClass} ${justArrived ? styles.arrived : ''}`}>
+      <button type="button" className={styles.taskMain} onClick={() => onOpenReport(task.id)}>
+        <div className={styles.taskTitleRow}>
+          <span className={styles.taskName}>{task.name}</span>
+          {projectName(task.projectId) && (
+            <span className={styles.taskProject}>{projectName(task.projectId)}</span>
+          )}
+        </div>
+        <p className={styles.taskPrompt}>{task.prompt}</p>
+        <div className={styles.taskMeta}>
+          <span>
+            <Icon name="calendar" size={12} /> {describeRecurrence(task.recurrence)}
+          </span>
+          <span>{task.enabled ? formatNextRun(task.nextRunAt) : 'Paused'}</span>
+          {task.lastRunAt && (
+            <span
+              className={`${styles.lastRun} ${styles[`status-${task.lastRunStatus ?? 'success'}`]}`}
+            >
+              Last run {formatRelativeTime(task.lastRunAt)}
+            </span>
+          )}
+        </div>
+        {task.lastRunSummary && (
+          <p
+            className={`${styles.lastRunSummary} ${
+              task.lastRunStatus === 'error' ? styles.lastRunSummaryError : ''
+            }`}
+          >
+            {task.lastRunStatus === 'error' ? 'Failed: ' : ''}
+            {task.lastRunSummary}
+          </p>
+        )}
+      </button>
+      <div className={styles.taskActions}>
+        <ToggleControl
+          checked={task.enabled}
+          onChange={(value) =>
+            void useSchedulerStore.getState().update(task.id, { enabled: value })
+          }
+        />
+        <button
+          type="button"
+          className={styles.iconAction}
+          onClick={() => onRunNow(task)}
+          disabled={runningId === task.id}
+          aria-label="Run now"
+          title="Run now"
+        >
+          <Icon name="send" size={14} />
+        </button>
+        <button
+          type="button"
+          className={styles.iconAction}
+          onClick={() => onEdit(task)}
+          aria-label="Edit task"
+          title="Edit task"
+        >
+          <Icon name="pencil" size={14} />
+        </button>
+        <button
+          type="button"
+          className={styles.iconAction}
+          onClick={() => void useSchedulerStore.getState().delete(task.id)}
+          aria-label="Delete task"
+          title="Delete task"
+        >
+          <Icon name="trash" size={14} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Dedicated main view for managing scheduled tasks — replaces the chat pane
  * the same way `AppShell` already swaps in Settings, but inline instead of an
@@ -108,7 +231,8 @@ export function SchedulerView(): JSX.Element {
       : tasks
 
     return [...matches].sort((a, b) => {
-      if (sortMode === 'name') return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      if (sortMode === 'name')
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
       if (a.nextRunAt === null && b.nextRunAt === null) return b.updatedAt - a.updatedAt
       if (a.nextRunAt === null) return 1
       if (b.nextRunAt === null) return -1
@@ -151,14 +275,18 @@ export function SchedulerView(): JSX.Element {
               { label: 'Sort by: Name', value: 'name' }
             ]}
           />
-          <Button variant="primary" iconLeft={<Icon name="plus" size={16} />} onClick={() => setCreatingSeed({})}>
+          <Button
+            variant="primary"
+            iconLeft={<Icon name="plus" size={16} />}
+            onClick={() => setCreatingSeed({})}
+          >
             New task
           </Button>
         </div>
       </div>
       <p className={styles.subtitle}>
-        Run tasks on a schedule, using only the tools you allow. Type a prompt, pick when it runs, and
-        Anodex takes it from there.
+        Run tasks on a schedule, using only the tools you allow. Type a prompt, pick when it runs,
+        and Anodex takes it from there.
       </p>
 
       <SidebarSearch value={query} onChange={setQuery} />
@@ -182,78 +310,15 @@ export function SchedulerView(): JSX.Element {
       ) : (
         <div className={styles.taskList}>
           {filteredTasks.map((task) => (
-            <div key={task.id} className={styles.taskCard}>
-              <button
-                type="button"
-                className={styles.taskMain}
-                onClick={() => setReportTaskId(task.id)}
-              >
-                <div className={styles.taskTitleRow}>
-                  <span className={styles.taskName}>{task.name}</span>
-                  {projectName(task.projectId) && (
-                    <span className={styles.taskProject}>{projectName(task.projectId)}</span>
-                  )}
-                </div>
-                <p className={styles.taskPrompt}>{task.prompt}</p>
-                <div className={styles.taskMeta}>
-                  <span>
-                    <Icon name="calendar" size={12} /> {describeRecurrence(task.recurrence)}
-                  </span>
-                  <span>{task.enabled ? formatNextRun(task.nextRunAt) : 'Paused'}</span>
-                  {task.lastRunAt && (
-                    <span
-                      className={`${styles.lastRun} ${styles[`status-${task.lastRunStatus ?? 'success'}`]}`}
-                    >
-                      Last run {formatRelativeTime(task.lastRunAt)}
-                    </span>
-                  )}
-                </div>
-                {task.lastRunSummary && (
-                  <p
-                    className={`${styles.lastRunSummary} ${
-                      task.lastRunStatus === 'error' ? styles.lastRunSummaryError : ''
-                    }`}
-                  >
-                    {task.lastRunStatus === 'error' ? 'Failed: ' : ''}
-                    {task.lastRunSummary}
-                  </p>
-                )}
-              </button>
-              <div className={styles.taskActions}>
-                <ToggleControl
-                  checked={task.enabled}
-                  onChange={(value) => void useSchedulerStore.getState().update(task.id, { enabled: value })}
-                />
-                <button
-                  type="button"
-                  className={styles.iconAction}
-                  onClick={() => void handleRunNow(task)}
-                  disabled={runningId === task.id}
-                  aria-label="Run now"
-                  title="Run now"
-                >
-                  <Icon name="send" size={14} />
-                </button>
-                <button
-                  type="button"
-                  className={styles.iconAction}
-                  onClick={() => setEditingTask(task)}
-                  aria-label="Edit task"
-                  title="Edit task"
-                >
-                  <Icon name="pencil" size={14} />
-                </button>
-                <button
-                  type="button"
-                  className={styles.iconAction}
-                  onClick={() => void useSchedulerStore.getState().delete(task.id)}
-                  aria-label="Delete task"
-                  title="Delete task"
-                >
-                  <Icon name="trash" size={14} />
-                </button>
-              </div>
-            </div>
+            <TaskCard
+              key={task.id}
+              task={task}
+              runningId={runningId}
+              projectName={projectName}
+              onOpenReport={setReportTaskId}
+              onRunNow={(t) => void handleRunNow(t)}
+              onEdit={setEditingTask}
+            />
           ))}
         </div>
       )}
