@@ -52,7 +52,7 @@ export function Sidebar(): JSX.Element {
   const setActiveProject = useProjectStore((s) => s.setActive)
   const updateProject = useProjectStore((s) => s.update)
   const openProjectFolder = useProjectStore((s) => s.openFolder)
-  const deleteProject = useProjectStore((s) => s.delete)
+  const archiveProject = useProjectStore((s) => s.archive)
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
   const handleCreateProject = useCreateProject()
 
@@ -61,7 +61,7 @@ export function Sidebar(): JSX.Element {
   const [chatsExpanded, setChatsExpanded] = useState(true)
   const [chatSortMode, setChatSortMode] = useState<ChatSortMode>('recent')
   const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({})
-  const [deletingProject, setDeletingProject] = useState<Project | null>(null)
+  const [archivingProject, setArchivingProject] = useState<Project | null>(null)
   const [confirmingArchiveChats, setConfirmingArchiveChats] = useState(false)
 
   const searching = searchQuery.trim().length > 0
@@ -177,12 +177,12 @@ export function Sidebar(): JSX.Element {
     void updateProject(project.id, { name })
   }
 
-  const handleDeleteProject = (project: Project): void => {
+  const handleArchiveProject = (project: Project): void => {
     if (!confirmDestructive) {
-      void deleteProject(project.id)
+      void archiveProject(project.id)
       return
     }
-    setDeletingProject(project)
+    setArchivingProject(project)
   }
 
   const handleCollapseAllProjects = (): void => {
@@ -310,7 +310,7 @@ export function Sidebar(): JSX.Element {
                     onDeleteConversation={handleDeleteConversation}
                     onOpenProjectFolder={(id) => void openProjectFolder(id)}
                     onRename={handleRenameProject}
-                    onDelete={handleDeleteProject}
+                    onArchive={handleArchiveProject}
                   />
                 ))
               )}
@@ -380,17 +380,17 @@ export function Sidebar(): JSX.Element {
         <SidebarProfile active={view === 'settings'} onClick={() => openSettings()} />
       </footer>
 
-      {deletingProject && (
+      {archivingProject && (
         <ConfirmDialog
           title="Archive project?"
           message="Its chats will move to Settings → Archive with the project."
-          detail={deletingProject.name}
+          detail={archivingProject.name}
           confirmLabel="Archive"
           icon="archive"
-          onCancel={() => setDeletingProject(null)}
+          onCancel={() => setArchivingProject(null)}
           onConfirm={() => {
-            void deleteProject(deletingProject.id)
-            setDeletingProject(null)
+            void archiveProject(archivingProject.id)
+            setArchivingProject(null)
           }}
         />
       )}

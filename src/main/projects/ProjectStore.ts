@@ -134,10 +134,6 @@ class ProjectStore {
     return next
   }
 
-  delete(id: string): void {
-    this.archive(id)
-  }
-
   archive(id: string): void {
     const state = this.getAllState()
     const project = state.projects.find((p) => p.id === id)

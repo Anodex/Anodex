@@ -33,12 +33,12 @@ export function registerProjectHandlers(): void {
     }
   )
 
-  ipcMain.handle(IpcChannel.Projects.delete, (_event, id: string) => {
+  ipcMain.handle(IpcChannel.Projects.archive, (_event, id: string) => {
     try {
-      projectStore.delete(id)
+      projectStore.archive(id)
     } catch (error) {
-      log.error('Failed to delete project:', id, error)
-      throw new Error('Could not delete project.')
+      log.error('Failed to archive project:', id, error)
+      throw new Error('Could not archive project.')
     }
   })
 

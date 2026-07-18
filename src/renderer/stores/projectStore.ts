@@ -15,7 +15,7 @@ interface ProjectState extends ProjectsState {
   load: () => Promise<void>
   create: (request: CreateProjectRequest) => Promise<void>
   update: (id: string, request: UpdateProjectRequest) => Promise<void>
-  delete: (id: string) => Promise<void>
+  archive: (id: string) => Promise<void>
   restore: (id: string) => Promise<void>
   deletePermanent: (id: string) => Promise<void>
   setActive: (id: string | null) => Promise<void>
@@ -52,15 +52,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }
   },
 
-  delete: async (id) => {
+  archive: async (id) => {
     try {
-      await anodex.projects.delete(id)
+      await anodex.projects.archive(id)
       const state = await anodex.projects.list()
       set({ ...state })
       await refreshWorkspaceSettings()
       await useChatStore.getState().refreshConversations()
     } catch (error) {
-      notifyError('Could not delete project', error instanceof Error ? error.message : undefined)
+      notifyError('Could not archive project', error instanceof Error ? error.message : undefined)
     }
   },
 

@@ -194,7 +194,7 @@ export const IpcChannel = {
     listArchived: 'projects:list-archived',
     create: 'projects:create',
     update: 'projects:update',
-    delete: 'projects:delete',
+    archive: 'projects:archive',
     restore: 'projects:restore',
     deletePermanent: 'projects:delete-permanent',
     setActive: 'projects:set-active',
@@ -475,7 +475,7 @@ export interface AnodexApi {
     listArchived(): Promise<Project[]>
     create(request: CreateProjectRequest): Promise<Project>
     update(id: string, request: UpdateProjectRequest): Promise<Project>
-    delete(id: string): Promise<void>
+    archive(id: string): Promise<void>
     restore(id: string): Promise<void>
     deletePermanent(id: string): Promise<void>
     setActive(id: string | null): Promise<ProjectsState>

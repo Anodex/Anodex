@@ -23,7 +23,7 @@ interface ProjectRowProps {
   onDeleteConversation: (conversationId: string) => void
   onOpenProjectFolder: (projectId: string) => void
   onRename: (project: Project, name: string) => void
-  onDelete: (project: Project) => void
+  onArchive: (project: Project) => void
 }
 
 /** A project row with expand/collapse, new-chat action, and its chat list. */
@@ -44,7 +44,7 @@ export function ProjectRow({
   onDeleteConversation,
   onOpenProjectFolder,
   onRename,
-  onDelete
+  onArchive
 }: ProjectRowProps): JSX.Element {
   const [hovered, setHovered] = useState(false)
   const showRunningGlow = !expanded && running
@@ -101,7 +101,7 @@ export function ProjectRow({
             project={project}
             onOpenProjectFolder={onOpenProjectFolder}
             onRename={onRename}
-            onDelete={onDelete}
+            onArchive={onArchive}
           />
         </div>
       </div>
