@@ -318,6 +318,7 @@ export const useChatStore = create<ChatState>()(
           if (result.value.checkpoint?.changedFiles.length) {
             message.checkpoint = result.value.checkpoint
           }
+          if (result.value.thinking) message.thinking = result.value.thinking
         } else {
           if (message.toolCalls?.length) {
             const toolNames = TOOL_CATALOG.map((tool) => tool.name)

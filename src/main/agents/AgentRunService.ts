@@ -489,6 +489,7 @@ class AgentRunService {
       createdAt: Date.now(),
       stats: result.stats,
       memoryUsed: result.memoryUsed,
+      thinking: result.thinking,
       toolCalls: toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined
     }
     // A new compacted context snapshot this turn (cloud providers only — see

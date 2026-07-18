@@ -12,6 +12,7 @@ import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
 import { ThinkingIndicator } from './ThinkingIndicator'
+import { ThoughtsSection } from './ThoughtsSection'
 import { ToolCallGroup } from './ToolCallGroup'
 import { CheckpointDialog } from './CheckpointDialog'
 import { EditMessageDialog } from './EditMessageDialog'
@@ -134,6 +135,7 @@ export function MessageBubble({
             <TranscriptRecallCard results={message.transcriptRecallUsed} />
           </div>
         )}
+        {!isUser && message.thinking && <ThoughtsSection thinking={message.thinking} />}
         {showThinking ? (
           <ThinkingIndicator />
         ) : (

@@ -93,6 +93,8 @@ export interface RunGenerationResult {
   checkpoint?: CheckpointSummary
   /** See `GenerateOutcome.fabricationDetected`'s doc comment. */
   fabricationDetected?: boolean
+  /** See `GenerateOutcome.thinking`'s doc comment. */
+  thinking?: string
 }
 
 /**
@@ -409,7 +411,8 @@ export async function runGeneration(
         ? (checkpointStore.getSummary(workspaceRoot, request.conversationId, request.messageId) ??
           undefined)
         : undefined,
-    fabricationDetected: outcome.fabricationDetected
+    fabricationDetected: outcome.fabricationDetected,
+    thinking: outcome.thinking
   }
 }
 

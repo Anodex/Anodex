@@ -218,6 +218,15 @@ export interface GenerateOutcome {
    * failure mode or its detection — never explicitly false for them.
    */
   fabricationDetected?: boolean
+  /**
+   * Real chain-of-thought text the model produced separately from its visible
+   * reply (node-llama-cpp's `segmentType: 'thought'` response chunks — only
+   * reasoning-tuned models like Qwen3's thinking mode or DeepSeek-R1-style
+   * models emit these at all; a typical model leaves this undefined, not an
+   * empty string). Undefined for cloud providers (Anthropic/OpenAI) for now —
+   * Claude's own separate extended-thinking feature isn't wired up here yet.
+   */
+  thinking?: string
 }
 
 /**
@@ -483,6 +492,14 @@ class LlamaService extends EventEmitter {
     }
     const startedAt = Date.now()
     let visibleContent = ''
+    // Real chain-of-thought text from a reasoning-tuned model (node-llama-cpp's
+    // `segmentType: 'thought'` chunks — see `GenerateOutcome.thinking`'s doc
+    // comment), accumulated across every round of this turn. Kept separate
+    // from `visibleContent`; the existing round-level fallback (below, in the
+    // main loop) still promotes a round's segment text INTO the visible reply
+    // when that round produced no real answer at all, unchanged — this only
+    // captures thinking that coexisted with a genuine visible answer.
+    let thinkingText = ''
     let tokenCount = 0
     let stopped = false
     // Set only by the loop guard's abort (see `abortBox` below) — distinct
@@ -673,10 +690,18 @@ class LlamaService extends EventEmitter {
 
         // Prefer the assembled final text, then fall back to streamed text.
         roundContent = meta.responseText || roundContent
-        // Some reasoning/think-tagged models emit only thought segments with no
-        // visible answer. Surface those instead of an empty bubble.
-        if (!roundContent.trim() && roundSegment.trim()) {
-          roundContent = roundSegment.trim()
+        if (roundSegment.trim()) {
+          if (!roundContent.trim()) {
+            // Some reasoning/think-tagged models emit only thought segments
+            // with no visible answer. Surface those instead of an empty bubble.
+            roundContent = roundSegment.trim()
+          } else {
+            // A genuine visible answer AND real thinking both happened this
+            // round — keep them separate instead of losing the reasoning.
+            thinkingText = thinkingText
+              ? `${thinkingText}\n\n${roundSegment.trim()}`
+              : roundSegment.trim()
+          }
         }
         // A chat template's own hidden-reasoning boundary marker (e.g.
         // Gemma4ChatWrapper's `<channel|>`) that a model didn't reproduce
@@ -827,7 +852,8 @@ class LlamaService extends EventEmitter {
         stats: buildStats(tokenCount, startedAt),
         stopped,
         stopReason: stopped ? currentStopReason() : undefined,
-        fabricationDetected: fabricationDetectedThisTurn
+        fabricationDetected: fabricationDetectedThisTurn,
+        thinking: thinkingText || undefined
       }
     } catch (error) {
       // `genController` also gets aborted internally by the loop guard (see
@@ -843,7 +869,8 @@ class LlamaService extends EventEmitter {
           stats: buildStats(tokenCount, startedAt),
           stopped: true,
           stopReason: currentStopReason(),
-          fabricationDetected: fabricationDetectedThisTurn
+          fabricationDetected: fabricationDetectedThisTurn,
+          thinking: thinkingText || undefined
         }
       }
       // The reactive recovery inside the round loop above only retries a
@@ -872,7 +899,8 @@ class LlamaService extends EventEmitter {
           content: visibleContent,
           stats: buildStats(tokenCount, startedAt),
           stopped: true,
-          fabricationDetected: fabricationDetectedThisTurn
+          fabricationDetected: fabricationDetectedThisTurn,
+          thinking: thinkingText || undefined
         }
       }
       throw error

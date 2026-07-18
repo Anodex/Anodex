@@ -61,6 +61,13 @@ export interface ChatMessage {
   transcriptRecallUsed?: TranscriptRecallResult[]
   /** Restorable snapshot for file changes made by this assistant turn. */
   checkpoint?: CheckpointSummary
+  /**
+   * Real chain-of-thought text the model produced separately from its visible
+   * reply, if any — only reasoning-tuned local models emit this (see
+   * `GenerateOutcome.thinking` in `LlamaService.ts`). Shown collapsed in the
+   * UI; absent (not an empty string) on a normal model's reply.
+   */
+  thinking?: string
 }
 
 /** Sampling parameters for a single generation. */
@@ -169,4 +176,6 @@ export interface ChatResult {
   transcriptRecallUsed?: TranscriptRecallResult[]
   /** Restorable snapshot for file changes made by this assistant turn. */
   checkpoint?: CheckpointSummary
+  /** See `ChatMessage.thinking`'s doc comment. */
+  thinking?: string
 }
