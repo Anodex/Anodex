@@ -683,6 +683,17 @@ class LlamaService extends EventEmitter {
           dryRepeatPenalty: { strength: 0.8 },
           signal: genController.signal,
           functions,
+          // Force a checkpoint after every native tool call. Wrappers such
+          // as Qwen support parallel function sections; without a bound,
+          // node-llama-cpp buffers every parsed call in `resFunctionCalls`
+          // and does not execute any of them until the section ends. Those
+          // pending call tokens count against the native context window but
+          // are not part of `chatHistory`, so a mid-section context shift has
+          // zero tool results it can compact and can fail even on a fresh
+          // turn. A limit of one makes the session execute and append each
+          // result before asking the model for the next call. The enclosing
+          // `LlamaChatSession` loop still continues the same turn normally.
+          maxParallelFunctionCalls: functions != null ? 1 : undefined,
           // Full per-parameter JSON schema docs. Costs more prompt tokens, but
           // omitting them (as this used to) left weaker local models guessing at
           // argument names — observed directly: a 3B model repeatedly attempted

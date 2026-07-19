@@ -248,11 +248,16 @@ describe('LlamaService.generate() context-shift recovery', () => {
     const access = asTestAccess()
     prepareFakeEngine(access)
 
+    const observedParallelLimits: Array<number | undefined> = []
     const promptWithMeta = vi.fn(
       async (
         _prompt: unknown,
-        options: { functions?: Record<string, { handler: (params: unknown) => unknown }> }
+        options: {
+          functions?: Record<string, { handler: (params: unknown) => unknown }>
+          maxParallelFunctionCalls?: number
+        }
       ) => {
+        observedParallelLimits.push(options.maxParallelFunctionCalls)
         // Simulates the model calling a tool with no preceding narration —
         // `web_search` with a configured-but-keyless provider errors fast on
         // the missing API key, no real network call.
@@ -313,6 +318,7 @@ describe('LlamaService.generate() context-shift recovery', () => {
 
     // The retry never fires: exactly one promptWithMeta call, not two.
     expect(promptWithMeta).toHaveBeenCalledOnce()
+    expect(observedParallelLimits).toEqual([1])
     expect(activityKinds.length).toBeGreaterThan(0) // the tool really did run
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('context-limit')
