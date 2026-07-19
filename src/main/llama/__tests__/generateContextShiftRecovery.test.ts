@@ -197,6 +197,42 @@ describe('LlamaService.generate() context-shift recovery', () => {
     )
   })
 
+  it('keeps streamed model text instead of exposing strings reconstructed from compacted history', async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    access.session = {
+      promptWithMeta: vi.fn(
+        (_prompt: unknown, options: { onResponseChunk?: (chunk: unknown) => void }) => {
+          options.onResponseChunk?.({
+            type: undefined,
+            segmentType: undefined,
+            text: 'The actual generated answer.',
+            tokens: [1, 2, 3]
+          })
+          return Promise.resolve({
+            response: [],
+            responseText: 'Pre-shift narration.\n\n(10 earlier tool calls omitted to fit context)',
+            stopReason: 'eogToken'
+          })
+        }
+      ),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+
+    const outcome = await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'test-message',
+      history: [],
+      prompt: 'audit this project',
+      onToken: () => {}
+    })
+
+    expect(outcome.content).toBe('The actual generated answer.')
+    expect(outcome.content).not.toContain('tool calls omitted')
+  })
+
   it('does not retry (and risk repeating a completed tool call) when a tool already ran this round before the crash', async () => {
     // Regression: the round-0 retry rebuilds the session from PERSISTED
     // history and resends the ORIGINAL prompt from scratch — safe only if

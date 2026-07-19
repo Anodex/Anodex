@@ -212,6 +212,26 @@ describe('trimNewestExchangeToFit', () => {
     expect(items).toEqual(original)
   })
 
+  it('drops irreducible old calls without inserting assistant-text compaction markers', () => {
+    const items: ChatHistoryItem[] = [
+      { type: 'user', text: 'audit the project' },
+      {
+        type: 'model',
+        response: Array.from({ length: 20 }, (_, i) =>
+          functionCall('read_file', { path: `src/file-${i}.ts` }, 'x'.repeat(500))
+        )
+      }
+    ]
+
+    const result = trimNewestExchangeToFit(items, 100, countTokens)
+    const model = result.find((item) => item.type === 'model')
+    expect(model?.type).toBe('model')
+    expect(model?.type === 'model' ? model.response.filter(isString) : []).toEqual([])
+    expect(
+      result.reduce((sum, item) => sum + fullItemCost(item, countTokens), 0)
+    ).toBeLessThanOrEqual(100)
+  })
+
   it('falls back to shrinking the user message text when nothing else is trimmable (pass 5)', () => {
     // Regression: a fresh turn with no prior tool calls at all — passes 1-4
     // only ever touch `model` items, so without pass 5 this returned its
@@ -230,6 +250,10 @@ describe('trimNewestExchangeToFit', () => {
     expect(total).toBeLessThanOrEqual(200)
   })
 })
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string'
+}
 
 describe('createBoundedContextShiftStrategy', () => {
   it('reads the current tool-schema reserve on every invocation of a reused strategy', async () => {

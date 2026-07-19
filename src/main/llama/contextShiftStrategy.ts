@@ -367,14 +367,18 @@ export function findLastExchangeStartIndex(items: readonly ChatHistoryItem[]): n
  *     `write_file`-shaped call whose bulk is the file content in `params`.
  *  3. Long plain response strings and thought segments → truncated (segment
  *     `raw` dropped alongside its text).
- *  4. The oldest function calls dropped outright (replaced by a single
- *     omission notice). Needed because passes 1–3 have a floor — every call keeps
+ *  4. The oldest function calls dropped outright. Needed because passes
+ *     1–3 have a floor — every call keeps
  *     name+params+marker — and a small context with dozens of calls can't
  *     fit even that floor once real chat-wrapper syntax is added per call
  *     (caught by the `contextShiftWrapperFit` test: Qwen's verbose function
  *     rendering at an 8K context). The dropped calls' findings were already
  *     folded into the rolling summary by level 2, so this loses live-context
- *     identity of old calls, not their evidence.
+ *     identity of old calls, not their evidence. Deliberately do NOT replace
+ *     them with a plain assistant-text notice: `LlamaChatSession` includes
+ *     every string in the compacted model item in its final `responseText`,
+ *     which makes an internal marker leak into the visible reply and gives
+ *     the model a phrase it can repeat on every later context shift.
  *  5. Absolute last resort: the newest exchange's own `user` message text
  *     shrunk. Passes 1–4 only ever touch `model` items — a turn with a large
  *     pasted user message and no prior tool calls at all (verified live: a
@@ -445,21 +449,10 @@ export function trimNewestExchangeToFit(
   // Pass 4: drop the oldest calls outright (see the doc comment above).
   for (const item of result) {
     if (item.type !== 'model') continue
-    let dropped = 0
-    let dropPosition = -1
     while (totalCost() > maxTokensCount) {
       const oldestIndex = item.response.findIndex(isFunctionCall)
       if (oldestIndex < 0) break
       item.response.splice(oldestIndex, 1)
-      if (dropPosition < 0) dropPosition = oldestIndex
-      dropped += 1
-    }
-    if (dropped > 0) {
-      item.response.splice(
-        Math.max(0, dropPosition),
-        0,
-        `(${dropped} earlier tool call${dropped === 1 ? '' : 's'} omitted to fit context — their findings are folded into the summary above)`
-      )
     }
   }
   if (totalCost() <= maxTokensCount) return result

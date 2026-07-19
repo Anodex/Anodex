@@ -822,8 +822,18 @@ class LlamaService extends EventEmitter {
           break
         }
 
-        // Prefer the assembled final text, then fall back to streamed text.
-        roundContent = meta.responseText || roundContent
+        // Prefer text that actually streamed during this invocation. During
+        // a context shift, node-llama-cpp reconstructs `responseText` by
+        // joining every string in the compacted model-history item. That can
+        // include shortened pre-shift narration or internal compaction text,
+        // not just tokens the model generated after the call began. Using it
+        // whenever streamed text exists leaks context bookkeeping into the
+        // visible reply and can seed a feedback loop where the model repeats
+        // that bookkeeping on every later shift. `onResponseChunk` receives
+        // every generated visible chunk (including `responsePrefix`), so the
+        // assembled value is only a fallback for providers/wrappers that
+        // somehow complete without emitting a callback.
+        roundContent = roundContent || meta.responseText
         if (roundSegment.trim()) {
           if (!roundContent.trim()) {
             // Some reasoning/think-tagged models emit only thought segments
