@@ -591,6 +591,46 @@ function buildSystemItemWithSummary(
   return { type: 'system', text }
 }
 
+function shrinkSummaryForRenderedFit(
+  originalSystemText: string | undefined,
+  summary: string | undefined,
+  chatWrapper: ChatWrapperLike | undefined,
+  tokenizer: unknown,
+  countTokens: (text: string) => number,
+  targetBudget: number,
+  exchange: readonly ChatHistoryItem[]
+): { systemItem: ChatSystemMessage; summary: string | undefined } {
+  if (!chatWrapper || !summary) {
+    return { systemItem: buildSystemItemWithSummary(originalSystemText, summary), summary }
+  }
+
+  const fits = (candidateSummary: string | undefined): boolean => {
+    const candidateSystem = buildSystemItemWithSummary(originalSystemText, candidateSummary)
+    const rendered = renderedTokenCost([candidateSystem, ...exchange], chatWrapper, tokenizer)
+    return rendered == null || rendered <= targetBudget
+  }
+
+  if (fits(summary))
+    return { systemItem: buildSystemItemWithSummary(originalSystemText, summary), summary }
+
+  let low = 0
+  let high = countTokens(summary)
+  let best: string | undefined
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+    const candidate = mid > 0 ? truncateTextToTokens(summary, mid, countTokens) : undefined
+    if (fits(candidate)) {
+      best = candidate
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+
+  return { systemItem: buildSystemItemWithSummary(originalSystemText, best), summary: best }
+}
+
 /**
  * Parse `lastShiftMetadata` defensively: it may be ours from a previous
  * shift, `null` on the first shift, or a *foreign* shape — when this
@@ -814,7 +854,32 @@ export function createBoundedContextShiftStrategy(deps: BoundedContextShiftDeps)
         previousRefit = refit
         fitted = trimNewestExchangeToFit(newestExchange, refit, countTokens)
       }
-      return fitted
+
+      const rendered = renderedTokenCost([systemWithSummary, ...fitted], chatWrapper, tokenizer)
+      if (rendered == null || rendered <= targetBudget) return fitted
+
+      // Estimate-based refinement can still miss non-linear wrapper floors
+      // around function-call syntax. Search the newest-exchange budget against
+      // the real rendered fit check before returning a strategy result.
+      let low = 0
+      let high = remainingBudget
+      let best: ChatHistoryItem[] | null = null
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2)
+        const candidate = trimNewestExchangeToFit(newestExchange, mid, countTokens)
+        const candidateRendered = renderedTokenCost(
+          [systemWithSummary, ...candidate],
+          chatWrapper,
+          tokenizer
+        )
+        if (candidateRendered == null || candidateRendered <= targetBudget) {
+          best = candidate
+          low = mid + 1
+        } else {
+          high = mid - 1
+        }
+      }
+      return best ?? trimNewestExchangeToFit(newestExchange, 0, countTokens)
     }
 
     // Level 2: fit the newest exchange, inspect which original calls were
@@ -854,6 +919,29 @@ export function createBoundedContextShiftStrategy(deps: BoundedContextShiftDeps)
         evidence = { itemIndex: absoluteEvidenceIndex, callCount: foldedSoFar }
 
         systemWithSummary = buildSystemItemWithSummary(originalSystemText, summary)
+        remainingBudget = Math.max(0, targetBudget - countTokens(systemWithSummary.text as string))
+        finalExchange = fitExchange()
+      }
+    }
+
+    if (chatWrapper) {
+      const fittedRendered = renderedTokenCost(
+        [systemWithSummary, ...finalExchange],
+        chatWrapper,
+        tokenizer
+      )
+      if (fittedRendered != null && fittedRendered > targetBudget) {
+        const shrunk = shrinkSummaryForRenderedFit(
+          originalSystemText,
+          summary,
+          chatWrapper,
+          tokenizer,
+          countTokens,
+          targetBudget,
+          finalExchange
+        )
+        systemWithSummary = shrunk.systemItem
+        summary = shrunk.summary
         remainingBudget = Math.max(0, targetBudget - countTokens(systemWithSummary.text as string))
         finalExchange = fitExchange()
       }
