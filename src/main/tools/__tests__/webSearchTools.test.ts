@@ -158,6 +158,8 @@ describe('web_search tool', () => {
     })
 
     const ctx = createMockContext('/tmp/workspace')
+    const artifacts: unknown[] = []
+    ctx.recordArtifact = (artifact) => artifacts.push(artifact)
     ctx.webSearch = {
       provider: 'searxng',
       apiKey: '',
@@ -175,6 +177,12 @@ describe('web_search tool', () => {
     expect(result).toContain('Result')
     expect(result).toContain('https://example.com')
     expect(result).toContain('Snippet')
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]).toMatchObject({
+      kind: 'web-search',
+      query: 'hello world',
+      provider: 'searxng'
+    })
   })
 
   it('truncates a large formatted result set and reports the real total size', async () => {

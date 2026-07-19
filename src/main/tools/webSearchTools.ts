@@ -1,4 +1,5 @@
 import type { ToolFactory } from './types'
+import { recordToolArtifact } from './types'
 import { createSearchProvider } from './search'
 import { runGuardedTool } from './helpers'
 
@@ -48,8 +49,22 @@ export const webSearchTool: ToolFactory = (define, ctx) =>
               : ctx.webSearch.resultCount
 
           const results = await provider.search(args.query, resultCount)
+          const artifact = recordToolArtifact(ctx, {
+            kind: 'web-search',
+            query: args.query,
+            provider: ctx.webSearch.provider,
+            results: results.map((result, index) => ({
+              title: result.title,
+              url: result.url,
+              snippet: result.snippet,
+              rank: index + 1
+            }))
+          })
           if (results.length === 0) {
-            return { modelResult: 'No web results found.', detail: '0 results' }
+            return {
+              modelResult: `Search artifact: ${artifact.id}\nNo web results found.`,
+              detail: '0 results'
+            }
           }
 
           const formatted = results
@@ -65,7 +80,10 @@ export const webSearchTool: ToolFactory = (define, ctx) =>
           // this tool's own, larger, redundant cap never actually changed
           // the truncation point, it just produced a misleading note when
           // both fired).
-          return { modelResult: formatted, detail: `${results.length} results` }
+          return {
+            modelResult: `Search artifact: ${artifact.id}\n${formatted}`,
+            detail: `${results.length} results`
+          }
         }
       })
   })

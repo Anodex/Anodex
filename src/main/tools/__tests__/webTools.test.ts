@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchUrlTool, setResolveHostForTests } from '../webTools'
+import type { ToolArtifact } from '@shared/toolArtifacts.types'
+import { extractFocusedPassages, fetchUrlTool, setResolveHostForTests } from '../webTools'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 describe('AI web tools', () => {
@@ -12,6 +13,13 @@ describe('AI web tools', () => {
   })
 
   describe('fetch_url', () => {
+    it('keeps a relevant passage near the end of a large page', () => {
+      const text = `${'Unrelated introduction.\n\n'.repeat(300)}The Denver result was 42 percent in 2026.`
+      const passages = extractFocusedPassages(text, 'Denver result 2026')
+
+      expect(passages[0].text).toContain('Denver result was 42 percent')
+    })
+
     it('fetches a URL and returns readable text', async () => {
       const html = '<html><body><h1>Hello</h1><p>World</p></body></html>'
       globalThis.fetch = vi.fn().mockResolvedValue({
@@ -23,6 +31,8 @@ describe('AI web tools', () => {
       })
 
       const ctx = createMockContext('/tmp/workspace')
+      const artifacts: unknown[] = []
+      ctx.recordArtifact = (artifact) => artifacts.push(artifact)
       const tool = fetchUrlTool(createMockDefine(), ctx) as unknown as {
         handler: (args: { url: string }) => Promise<string>
       }
@@ -30,15 +40,16 @@ describe('AI web tools', () => {
 
       expect(result.toLowerCase()).toContain('hello')
       expect(result).toContain('World')
+      expect(artifacts).toHaveLength(1)
+      expect(artifacts[0]).toMatchObject({
+        kind: 'web-fetch',
+        requestedUrl: 'https://example.com/docs',
+        finalUrl: 'https://example.com/docs',
+        status: 200
+      })
     })
 
-    it('truncates a very large page and reports the real total size', async () => {
-      // Far more than the shared 4000-char model-result cap. Guards against
-      // the same double-truncation bug found and fixed in
-      // read_file/run_command/git_diff/web_search: this tool used to also
-      // cap at its own, larger, redundant 100,000-char threshold, which the
-      // outer cap always overrode anyway while reporting a meaningless
-      // intermediate length instead of the page's real text size.
+    it('returns a bounded passage packet while retaining full artifact metadata', async () => {
       const paragraphs = Array.from({ length: 5000 }, (_, i) => `<p>paragraph ${i}</p>`).join('')
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -49,13 +60,19 @@ describe('AI web tools', () => {
       })
 
       const ctx = createMockContext('/tmp/workspace')
+      const artifacts: ToolArtifact[] = []
+      ctx.recordArtifact = (artifact) => artifacts.push(artifact)
       const tool = fetchUrlTool(createMockDefine(), ctx) as unknown as {
         handler: (args: { url: string }) => Promise<string>
       }
       const result = await tool.handler({ url: 'https://example.com/huge' })
 
       expect(result.length).toBeLessThan(4100)
-      expect(result).toMatch(/truncated, \d+ bytes total/)
+      expect(result).toContain('[P1]')
+      expect(artifacts[0]).toMatchObject({ kind: 'web-fetch' })
+      if (artifacts[0].kind !== 'web-fetch') throw new Error('Expected a fetch artifact.')
+      expect(artifacts[0].contentChars).toBeGreaterThan(50_000)
+      expect(artifacts[0].passages).toHaveLength(8)
     })
 
     it('reports HTTP errors to the model', async () => {

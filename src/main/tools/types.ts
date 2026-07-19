@@ -4,6 +4,7 @@ import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/
 import type { Plan } from '@shared/plan.types'
 import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { LoopGuardState } from './loopGuard'
+import type { ToolArtifact, ToolArtifactDraft } from '@shared/toolArtifacts.types'
 
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
 type NlcModule = typeof import('node-llama-cpp')
@@ -70,6 +71,12 @@ export interface ToolRuntimeContext {
    * re-issuing the same call over and over instead of making progress.
    */
   loopGuard: LoopGuardState
+  /** Research focus used to rank useful passages from large fetched pages. */
+  evidenceFocus?: string
+  /** Persist a full structured result before the model-facing text is truncated. */
+  recordArtifact?: (artifact: ToolArtifact) => void
+  /** Return a model-facing limit message to block this call, or null to run it. */
+  beforeTool?: (name: string, args: unknown) => string | null
   /**
    * Force-ends the current generation outright, when the engine supports it
    * (currently local-only — see `LlamaService`'s `genController`). Called by
@@ -101,6 +108,22 @@ export interface ToolRuntimeContext {
    * this list is synchronous.
    */
   mcpTools: McpToolDescriptor[]
+}
+
+/** Add stable runtime identity to a tool-produced artifact and persist it. */
+export function recordToolArtifact(
+  ctx: ToolRuntimeContext,
+  draft: ToolArtifactDraft
+): ToolArtifact {
+  const artifact = {
+    ...draft,
+    id: `artifact_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`,
+    conversationId: ctx.conversationId,
+    messageId: ctx.messageId,
+    createdAt: Date.now()
+  }
+  ctx.recordArtifact?.(artifact)
+  return artifact
 }
 
 /** Runtime context guaranteed to have a workspace, for workspace-scoped tools. */

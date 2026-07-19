@@ -6,19 +6,19 @@
  * node-llama-cpp's own context-shift recovery failed and force-ended the
  * turn with zero real work done.
  *
- * Only counts *consecutive* repeats of the same key, resetting the moment a
- * different call happens — legitimate agentic work (write, test, write,
- * test, ...) interleaves distinct calls between repeats of the same one and
- * must never trip this; four straight, truly identical repeats with nothing
- * in between is the actual failure mode this exists to catch.
+ * Counts both consecutive repeats and short exact cycles such as A-B-A-B.
+ * Legitimate edit/test work remains safe because changed edit arguments
+ * produce a different fingerprint; an exact recurring cycle means neither
+ * action is changing and therefore no progress is being made.
  */
 export interface LoopGuardState {
   lastKey: string | null
   lastKeyCount: number
+  recentKeys: string[]
 }
 
 export function createLoopGuardState(): LoopGuardState {
-  return { lastKey: null, lastKeyCount: 0 }
+  return { lastKey: null, lastKeyCount: 0, recentKeys: [] }
 }
 
 /** Calls beyond this many consecutive identical repeats are blocked. */
@@ -52,17 +52,38 @@ export function checkLoopGuard(
   key: string
 ): { blocked: boolean; shouldAbort: boolean; count: number } {
   const fullKey = `${name}::${key}`
+  state.recentKeys.push(fullKey)
+  if (state.recentKeys.length > LOOP_GUARD_ABORT_AFTER * 3) state.recentKeys.shift()
   if (state.lastKey === fullKey) {
     state.lastKeyCount++
   } else {
     state.lastKey = fullKey
     state.lastKeyCount = 1
   }
+  const cycleCount = repeatingSuffixCount(state.recentKeys)
+  const repeatCount = Math.max(state.lastKeyCount, cycleCount)
   return {
-    blocked: state.lastKeyCount > LOOP_GUARD_LIMIT,
-    shouldAbort: state.lastKeyCount >= LOOP_GUARD_ABORT_AFTER,
-    count: state.lastKeyCount
+    blocked: repeatCount > LOOP_GUARD_LIMIT,
+    shouldAbort: repeatCount >= LOOP_GUARD_ABORT_AFTER,
+    count: repeatCount
   }
+}
+
+/** Catch A-B-A-B and A-B-C cycles in addition to a single repeated call. */
+function repeatingSuffixCount(keys: string[]): number {
+  let best = 1
+  for (let cycleLength = 1; cycleLength <= 3; cycleLength++) {
+    if (keys.length < cycleLength * 2) continue
+    const cycle = keys.slice(-cycleLength)
+    let repeats = 1
+    for (let end = keys.length - cycleLength; end >= cycleLength; end -= cycleLength) {
+      const candidate = keys.slice(end - cycleLength, end)
+      if (candidate.some((key, index) => key !== cycle[index])) break
+      repeats++
+    }
+    best = Math.max(best, repeats)
+  }
+  return best
 }
 
 /**

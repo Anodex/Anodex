@@ -351,6 +351,29 @@ export const useChatStore = create<ChatState>()(
               ? `The model could not start because its fixed instructions and active tool definitions need ${budget.fixedTokens.toLocaleString()} tokens, but only ${budget.inputLimitTokens.toLocaleString()} fit before reply space. Anodex already deferred ${budget.deferredToolCount} tool${budget.deferredToolCount === 1 ? '' : 's'}.`
               : 'The model could not start because its fixed instructions and active tool definitions do not fit in the current context window.'
           }
+          if (result.value.stopReason === 'rounds-exhausted') {
+            message.error =
+              'This reply reached its provider-round budget before the task completed. The text and completed tool work above were preserved.'
+          }
+          if (result.value.stopReason === 'tool-limit') {
+            message.error =
+              'This reply reached its tool-call budget. The text and completed tool work above were preserved.'
+          }
+          if (result.value.stopReason === 'time-limit') {
+            message.error =
+              'This reply reached its 15-minute turn budget. The text and completed tool work above were preserved.'
+          }
+          if (
+            result.value.stopReason === 'loop-guard' ||
+            result.value.stopReason === 'no-progress'
+          ) {
+            message.error =
+              'This reply was stopped after repeating actions without making progress.'
+          }
+          if (result.value.stopReason === 'yielded') {
+            message.error =
+              'This reply saved its progress and yielded before completing the full task.'
+          }
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
           if (result.value.transcriptRecallUsed?.length) {
             message.transcriptRecallUsed = result.value.transcriptRecallUsed

@@ -1,5 +1,6 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CriticalThinkingProvider, CriticalThinkingRun } from '@shared/criticalThinking.types'
 import { createLogger } from '../utils/logger'
@@ -11,8 +12,11 @@ export function reconcileInterruptedCriticalThinkingRuns(
   runs: CriticalThinkingRun[]
 ): CriticalThinkingRun[] {
   return runs.map((run) =>
-    run.status === 'planning' || run.status === 'researching'
-      ? { ...run, status: 'stopped', lastError: INTERRUPTED_MESSAGE }
+    run.status === 'planning' ||
+    run.status === 'researching' ||
+    run.status === 'synthesizing' ||
+    run.status === 'validating'
+      ? { ...run, status: 'partial', lastError: INTERRUPTED_MESSAGE }
       : run
   )
 }
@@ -20,6 +24,7 @@ export function reconcileInterruptedCriticalThinkingRuns(
 class CriticalThinkingStore {
   private filePath = ''
   private cache: CriticalThinkingRun[] | null = null
+  private writeQueue = Promise.resolve()
 
   /** Must be called after `app.whenReady()`. */
   init(): void {
@@ -53,6 +58,9 @@ class CriticalThinkingStore {
       plan: null,
       report: '',
       sources: [],
+      steps: [],
+      currentStep: 0,
+      evidenceCount: 0,
       activities: [],
       stats: null,
       lastError: null,
@@ -79,6 +87,10 @@ class CriticalThinkingStore {
     this.persist(this.ensureCache().filter((run) => run.id !== id))
   }
 
+  async flush(): Promise<void> {
+    await this.writeQueue
+  }
+
   private ensureCache(): CriticalThinkingRun[] {
     if (!this.cache) this.cache = this.load()
     return this.cache
@@ -98,20 +110,46 @@ class CriticalThinkingStore {
   }
 
   private persist(runs: CriticalThinkingRun[]): void {
-    try {
-      writeFileSync(this.filePath, JSON.stringify(runs, null, 2), 'utf-8')
-      this.cache = runs
-    } catch (error) {
-      log.error('Failed to persist Critical Thinking runs:', error)
-    }
+    this.cache = runs
+    const snapshot = JSON.stringify(runs, null, 2)
+    this.writeQueue = this.writeQueue
+      .then(async () => {
+        const temporaryPath = `${this.filePath}.${process.pid}.tmp`
+        await writeFile(temporaryPath, snapshot, 'utf8')
+        await rename(temporaryPath, this.filePath)
+      })
+      .catch((error: unknown) => log.error('Failed to persist Critical Thinking runs:', error))
   }
 }
 
 function normalizeRun(run: CriticalThinkingRun): CriticalThinkingRun {
+  const legacyStatus = run.status as CriticalThinkingRun['status'] | 'done' | 'error'
+  const status =
+    legacyStatus === 'done' ? 'completed' : legacyStatus === 'error' ? 'failed' : legacyStatus
+  const steps =
+    run.steps ??
+    run.plan?.steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      status: step.status === 'completed' ? ('completed' as const) : ('pending' as const),
+      attempts: 0,
+      evidenceIds: [],
+      finding: '',
+      uncertainties: []
+    })) ??
+    []
   return {
     ...run,
+    status,
     report: run.report ?? '',
-    sources: run.sources ?? [],
+    sources: (run.sources ?? []).map((source, index) => ({
+      ...source,
+      id: source.id ?? `S${index + 1}`,
+      verified: source.verified ?? false
+    })),
+    steps,
+    currentStep: run.currentStep ?? 0,
+    evidenceCount: run.evidenceCount ?? 0,
     activities: run.activities ?? [],
     stats: run.stats ?? null,
     lastError: run.lastError ?? null

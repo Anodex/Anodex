@@ -11,6 +11,7 @@ import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
 import type { ConversationContext } from '@shared/context.types'
 import type { CheckpointSummary } from '@shared/checkpoint.types'
+import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
@@ -18,7 +19,7 @@ import { DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS } from '@shared/contextBudget'
 import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
-import { llamaService } from '../llama/LlamaService'
+import { llamaService, type GenerateOutcome } from '../llama/LlamaService'
 import { boundHistoryForCloudProvider } from '../llama/contextAssembler'
 import { summarizeForCompactionOpenAi } from '../llm/OpenAiProvider'
 import { summarizeForCompactionAnthropic } from '../llm/AnthropicProvider'
@@ -36,6 +37,11 @@ import { parseRunCommandVerification } from '../tools/commandTools'
 import { mcpManager } from '../mcp/McpManager'
 import { chatEvents } from './chatEvents'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
+import {
+  GenerationBudget,
+  interactiveBudgetForContext,
+  type GenerationBudgetPolicy
+} from './GenerationBudget'
 
 /**
  * Everything a caller of {@link runGeneration} decides — how (or whether) to
@@ -70,6 +76,11 @@ export interface RunGenerationIo {
    * become part of a web-sourced report.
    */
   includeReferenceContext?: boolean
+  /** Evidence focus and durable artifact sink for research-oriented callers. */
+  evidenceFocus?: string
+  onArtifact?: (artifact: ToolArtifact) => void
+  /** Optional stricter per-turn policy; interactive defaults remain bounded too. */
+  executionBudget?: GenerationBudgetPolicy
 }
 
 export interface RunGenerationResult {
@@ -176,6 +187,9 @@ export async function runGeneration(
   request: ChatRequest,
   io: RunGenerationIo
 ): Promise<RunGenerationResult> {
+  const executionPolicy =
+    io.executionBudget ?? interactiveBudgetForContext(llamaService.getState().contextSize)
+  let execution: GenerationBudget | null = null
   const settings = settingsStore.get()
   const projects = projectStore.getState()
   // The renderer can briefly lag while switching chats, and general chats
@@ -219,6 +233,9 @@ export async function runGeneration(
         // is a synchronous read of McpManager's cache, so it never delays a
         // generation the way a live per-turn tool-list fetch would.
         mcpTools: mcpManager.listTools(),
+        evidenceFocus: io.evidenceFocus,
+        recordArtifact: io.onArtifact,
+        beforeTool: () => execution?.beforeTool() ?? null,
         onActivity: (call: ToolCall) => {
           hadToolActivity = true
           // Only tally terminal, actually-executed calls, matching the same
@@ -347,20 +364,32 @@ export async function runGeneration(
     }
   }
 
-  const outcome = await getActiveProvider(io.providerOverride?.provider).generate({
-    conversationId: request.conversationId,
-    messageId: request.messageId,
-    systemPrompt: boundedSystemPrompt,
-    context: request.context,
-    history: boundedHistory,
-    prompt: request.prompt,
-    options: request.options,
-    modelOverride: io.providerOverride?.model,
-    signal: io.signal,
-    tools,
-    onToken: (token) => io.onToken?.(token),
-    onThinkingToken: (token) => io.onThinkingToken?.(token)
-  })
+  let outcome: GenerateOutcome
+  execution = new GenerationBudget(executionPolicy, io.signal)
+  try {
+    outcome = await getActiveProvider(io.providerOverride?.provider).generate({
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      systemPrompt: boundedSystemPrompt,
+      context: request.context,
+      history: boundedHistory,
+      prompt: request.prompt,
+      options: request.options,
+      modelOverride: io.providerOverride?.model,
+      maxProviderRounds: executionPolicy.maxProviderRounds,
+      onContextShift: () => execution?.recordContextShift(),
+      signal: execution.signal,
+      tools,
+      onToken: (token) => io.onToken?.(token),
+      onThinkingToken: (token) => io.onThinkingToken?.(token)
+    })
+  } finally {
+    execution.dispose(io.signal)
+  }
+
+  if (execution.stopReason && execution.stopReason !== 'user') {
+    outcome = { ...outcome, stopped: true, stopReason: execution.stopReason }
+  }
 
   const content = sanitizeAssistantContent(outcome.content)
 

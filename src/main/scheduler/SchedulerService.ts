@@ -9,6 +9,7 @@ import { conversationStore } from '../conversations/ConversationStore'
 import { llamaService } from '../llama/LlamaService'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
+import { SCHEDULED_TASK_BUDGET } from '../chat/GenerationBudget'
 import { createLogger } from '../utils/logger'
 import { schedulerStore } from './SchedulerStore'
 
@@ -110,6 +111,7 @@ class SchedulerService {
           // there's no one present to click an approval modal. Destructive
           // calls still fail safe instead of hanging the run indefinitely.
           permissionModeOverride: 'untethered',
+          executionBudget: SCHEDULED_TASK_BUDGET,
           onActivity: (call) => toolCallsById.set(call.id, call),
           confirm: (request) => Promise.resolve({ approved: request.risk !== 'destructive' })
         }
@@ -139,7 +141,17 @@ class SchedulerService {
           ? 'Could not start: fixed instructions and tools do not fit the model context.'
           : result.stopReason === 'context-limit'
             ? 'Stopped early after reaching the model context limit.'
-            : 'The scheduled run was stopped.'
+            : result.stopReason === 'rounds-exhausted'
+              ? 'Stopped early after reaching the provider-round limit.'
+              : result.stopReason === 'tool-limit'
+                ? 'Stopped early after reaching the tool-call limit.'
+                : result.stopReason === 'time-limit'
+                  ? 'Stopped early after reaching the scheduled-run time limit.'
+                  : result.stopReason === 'loop-guard' || result.stopReason === 'no-progress'
+                    ? 'Stopped early after repeating work without progress.'
+                    : result.stopReason === 'user'
+                      ? 'The scheduled run was stopped by the user.'
+                      : 'The scheduled run stopped before completion.'
         : await this.summarize(result.content)
       schedulerStore.recordRun(task.id, {
         status: result.stopped ? 'stopped' : 'success',

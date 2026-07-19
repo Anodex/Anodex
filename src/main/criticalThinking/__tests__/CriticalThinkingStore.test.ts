@@ -12,6 +12,9 @@ function makeRun(status: CriticalThinkingRun['status']): CriticalThinkingRun {
     plan: null,
     report: '',
     sources: [],
+    steps: [],
+    currentStep: 0,
+    evidenceCount: 0,
     activities: [],
     stats: null,
     lastError: null,
@@ -21,14 +24,17 @@ function makeRun(status: CriticalThinkingRun['status']): CriticalThinkingRun {
 }
 
 describe('reconcileInterruptedCriticalThinkingRuns', () => {
-  it.each(['planning', 'researching'] as const)('stops an interrupted %s run', (status) => {
-    const [run] = reconcileInterruptedCriticalThinkingRuns([makeRun(status)])
+  it.each(['planning', 'researching', 'synthesizing', 'validating'] as const)(
+    'makes an interrupted %s run resumable',
+    (status) => {
+      const [run] = reconcileInterruptedCriticalThinkingRuns([makeRun(status)])
 
-    expect(run.status).toBe('stopped')
-    expect(run.lastError).toContain('app restarted')
-  })
+      expect(run.status).toBe('partial')
+      expect(run.lastError).toContain('app restarted')
+    }
+  )
 
-  it.each(['needs-review', 'done', 'stopped', 'error'] as const)(
+  it.each(['needs-review', 'completed', 'partial', 'stopped', 'failed'] as const)(
     'leaves a %s run unchanged',
     (status) => {
       const original = makeRun(status)

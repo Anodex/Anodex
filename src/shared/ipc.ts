@@ -305,6 +305,7 @@ export const IpcChannel = {
     list: 'critical-thinking:list',
     create: 'critical-thinking:create',
     approve: 'critical-thinking:approve',
+    resume: 'critical-thinking:resume',
     stop: 'critical-thinking:stop',
     delete: 'critical-thinking:delete',
     exportPdf: 'critical-thinking:export-pdf',
@@ -612,6 +613,7 @@ export interface AnodexApi {
     list(): Promise<CriticalThinkingRun[]>
     create(request: CreateCriticalThinkingRequest): Promise<CriticalThinkingRun>
     approve(id: string, request: ApproveCriticalThinkingRequest): Promise<CriticalThinkingRun>
+    resume(id: string): Promise<CriticalThinkingRun>
     stop(id: string): Promise<void>
     delete(id: string): Promise<void>
     exportPdf(request: ExportCriticalThinkingPdfRequest): Promise<ExportCriticalThinkingPdfResult>

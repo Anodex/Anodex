@@ -9,7 +9,16 @@ import type { CheckpointSummary } from './checkpoint.types'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 
-export type GenerationStopReason = 'user' | 'loop-guard' | 'context-limit' | 'fixed-context-limit'
+export type GenerationStopReason =
+  | 'user'
+  | 'loop-guard'
+  | 'context-limit'
+  | 'fixed-context-limit'
+  | 'rounds-exhausted'
+  | 'time-limit'
+  | 'tool-limit'
+  | 'no-progress'
+  | 'yielded'
 
 /** Exact local-model input accounting captured with the active wrapper and tokenizer. */
 export interface ContextBudgetUsage {

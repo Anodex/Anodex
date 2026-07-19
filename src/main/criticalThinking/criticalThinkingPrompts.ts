@@ -16,32 +16,80 @@ export function buildCriticalThinkingPlanRetryPrompt(question: string): string {
   )
 }
 
-export function buildCriticalThinkingResearchPrompt(question: string, plan: Plan): string {
-  const steps = plan.steps.map((step, index) => `${index + 1}. ${step.title}`).join('\n')
-  return `You are running Anodex Critical Thinking: an independent, evidence-first investigation.
+export function buildCriticalThinkingStepPrompt(
+  question: string,
+  step: string,
+  priorFindings: string[]
+): string {
+  return `You are gathering evidence for one bounded step of an Anodex Critical Thinking run.
 
 Question:
 ${question}
 
-Approved research plan — follow it and use update_plan_step as work advances:
-${steps}
+Current research step:
+${step}
+
+Prior step findings (navigation context only; verify important claims yourself):
+${priorFindings.length > 0 ? priorFindings.map((finding) => `- ${finding}`).join('\n') : '(none)'}
 
 Research requirements:
-- Use web_search repeatedly with focused, varied queries; do not rely on a single result page.
+- Use focused web_search queries, then open the most relevant results with fetch_url.
 - Open promising sources with fetch_url and prefer primary, official, recent, and directly relevant evidence.
 - Cross-check important claims across independent sources. Surface disagreements, weak evidence, and uncertainty.
 - Treat snippets as leads, not proof. Base material claims on pages you actually inspect whenever possible.
-- Do not ask follow-up questions. Make reasonable assumptions and state any that materially affect the answer.
-- Keep narration before the deliverable minimal. Finish with one self-contained, useful report.
+- Stay within this one step. Do not write the final report and do not update the plan.
+- Finish with a concise finding and a short uncertainty list. Mention exact artifact IDs returned by tools.
+- Do not ask follow-up questions.`
+}
+
+export function buildCriticalThinkingSynthesisPrompt(
+  question: string,
+  plan: Plan,
+  findings: string[],
+  evidencePacket: string
+): string {
+  const steps = plan.steps.map((step, index) => `${index + 1}. ${step.title}`).join('\n')
+  return `Write the final Anodex Critical Thinking report from the verified evidence packet below.
+
+Question:
+${question}
+
+Approved plan:
+${steps}
+
+Bounded step findings (navigation context; the evidence packet is authoritative):
+${findings.map((finding) => `- ${finding}`).join('\n')}
+
+Verified evidence packet:
+${evidencePacket}
 
 Report requirements:
 - Use a descriptive title, a short executive summary, organized findings, and a clear conclusion or recommendation.
-- Cite claims inline with clickable Markdown links in the form [Source title](https://example.com/page).
+- Cite every material claim with exact internal markers such as [[S1]] or [[S1:P2]].
+- Use only source and passage IDs present in the evidence packet. Never write a raw URL.
+- Exact quotations must appear verbatim in a stored passage (Unicode punctuation and whitespace may normalize).
 - When a quantitative comparison materially improves understanding, include an evidence-backed bar, line, or pie chart using a fenced chart block with strict JSON in this shape:
   \`\`\`chart
-  {"type":"bar","title":"Descriptive title","labels":["A","B"],"datasets":[{"label":"Series","values":[12,18]}],"unit":"%","source":"[Source title](https://example.com/data)","note":"Optional context"}
+  {"type":"bar","title":"Descriptive title","labels":["A","B"],"datasets":[{"label":"Series","values":[12,18]}],"unit":"%","source":"[[S1:P2]]","note":"Optional context"}
   \`\`\`
 - Use 2 to 12 labels and no more than 4 datasets. Pie charts require exactly one dataset, at most 8 labels, and non-negative values. Every chart value must be traceable to the cited source. Do not add a chart when the data is sparse, incomparable, or uncertain.
-- Include a final "Sources" section listing the most important sources, plus a short "Limits and open questions" section.
+- Include a final "Sources" section containing only internal citation markers, plus a short "Limits and open questions" section.
 - Never invent a source, quotation, statistic, date, or URL.`
+}
+
+export function buildCriticalThinkingRepairPrompt(
+  draft: string,
+  issues: string[],
+  evidencePacket: string
+): string {
+  return `Repair this report so every validation issue is resolved. Preserve supported useful content, remove unsupported claims, use only [[S#]] or [[S#:P#]] citations from the evidence packet, and return only the complete repaired report.
+
+Validation issues:
+${issues.map((issue) => `- ${issue}`).join('\n')}
+
+Evidence packet:
+${evidencePacket}
+
+Draft report:
+${draft}`
 }

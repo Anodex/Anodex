@@ -33,11 +33,14 @@ folder.
   on phase headers, running rows, and diff/approval reveals so long work feels
   live without adding bulky cards.
 - **Context compaction**: long conversations don't crash when they outgrow the
-  model's context window. Older turns are summarized by the model itself
-  (on a separate, isolated context — never the active conversation's) and
-  folded into the system prompt, triggered proactively before the limit is
-  hit, with a reactive safety net as a last resort. You get a toast telling
-  you it happened.
+  model's context window. Between turns, older history is summarized on a
+  separate isolated context. During an active tool-heavy turn, a bounded,
+  deterministic checkpoint retains exact tool/source identifiers without
+  recursively invoking the model. Proactive compaction remains the primary
+  path, with the mid-turn shift as a last-resort safety net.
+- Every generation has provider-neutral time, tool-call, provider-round, and
+  context-shift limits. Limit stops are reported distinctly from a user Stop,
+  and completed text/tool work is preserved.
 - **Attachments**: drag a file into the composer to attach it to your next
   message (not sandboxed to a project — you chose the file explicitly).
 - Desktop notifications and a short AI-generated toast summary when a reply
@@ -82,9 +85,21 @@ that need more than a quick web lookup:
   email, save memory, or call connected MCP tools.
 - Search queries, pages read, sources found, plan progress, and report writing
   stay visible while the run works; you can stop it at any time.
+- Each approved plan step runs as its own bounded generation. Progress,
+  findings, and exact web artifacts are persisted between steps, so a stopped,
+  limited, or app-interrupted investigation can resume without replaying one
+  enormous transcript.
+- Search results are stored as unverified leads. Fetched pages are stored as
+  verified evidence sidecars with requested/final URLs, status/content type,
+  hashes, truncation warnings, and query-focused passages. URLs written only
+  in model prose never become trusted sources.
 - The final Markdown report includes clickable inline citations, a source trail,
   and explicit limits/open questions. Evidence-backed bar, line, and pie charts
   are rendered when quantitative comparison is useful.
+- Reports are synthesized in a separate tool-free phase from a bounded evidence
+  packet. Internal source IDs, quotations, raw URLs, and chart numbers are
+  validated; one bounded repair pass runs before an unsupported report is
+  marked partial for the user.
 - Reports persist locally across restarts and can be copied as Markdown or
   exported as a polished, report-only PDF with citations and charts intact.
 
@@ -120,7 +135,8 @@ additional tools are available on demand.
   `save_email_attachment` (when Gmail is enabled, saves an attachment into the
   project).
 - **Web (workspace-independent, available in general chat too):**
-  `fetch_url` (read a public URL), `web_search` (via a provider you choose in
+  `fetch_url` (read a public URL using focused passage extraction and retain a
+  structured artifact), `web_search` (via a provider you choose in
   Settings — SearXNG self-hosted, Brave, Tavily, or Google Programmable
   Search; the tool doesn't exist at all when no provider is configured).
 - **Plan:** `write_plan` / `update_plan_step` — a visible, structured task
@@ -338,6 +354,8 @@ start chatting.
 
 See `AGENTS.md` for architecture, conventions, and contribution details, and
 `ROADMAP.md` for planned/in-progress features not covered above.
+Real-model verification for long tool turns and Critical Thinking is documented
+in `docs/CONTEXT_RELIABILITY_TESTING.md`.
 
 ## License
 

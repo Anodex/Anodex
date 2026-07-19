@@ -390,7 +390,9 @@
 }
 
 .status-planning,
-.status-researching {
+.status-researching,
+.status-synthesizing,
+.status-validating {
   color: var(--accent);
   background: var(--accent-soft);
 }
@@ -400,17 +402,18 @@
   background: var(--info-soft);
 }
 
-.status-done {
+.status-completed {
   color: var(--success);
   background: var(--success-soft);
 }
 
-.status-stopped {
+.status-stopped,
+.status-partial {
   color: var(--warn);
   background: var(--warn-soft);
 }
 
-.status-error {
+.status-failed {
   color: var(--danger);
   background: var(--danger-soft);
 }

@@ -11,6 +11,7 @@ interface CriticalThinkingState {
   load: () => Promise<void>
   create: (question: string) => Promise<CriticalThinkingRun | null>
   approve: (id: string, plan: Plan) => Promise<void>
+  resume: (id: string) => Promise<void>
   stop: (id: string) => Promise<void>
   delete: (id: string) => Promise<void>
   select: (id: string | null) => void
@@ -64,6 +65,15 @@ export const useCriticalThinkingStore = create<CriticalThinkingState>((set) => (
     }
   },
 
+  resume: async (id) => {
+    try {
+      const run = await anodex.criticalThinking.resume(id)
+      set((state) => ({ runs: upsert(state.runs, run) }))
+    } catch (error) {
+      notifyError('Could not resume research', error instanceof Error ? error.message : undefined)
+    }
+  },
+
   stop: async (id) => {
     try {
       await anodex.criticalThinking.stop(id)
@@ -103,7 +113,9 @@ export const useCriticalThinkingStore = create<CriticalThinkingState>((set) => (
       // the renderer's streamed copy until a terminal snapshot arrives.
       const runs = incoming.map((run) => {
         const current = state.runs.find((item) => item.id === run.id)
-        return run.status === 'researching' && !run.report && current?.report
+        return (run.status === 'synthesizing' || run.status === 'validating') &&
+          !run.report &&
+          current?.report
           ? { ...run, report: current.report }
           : run
       })

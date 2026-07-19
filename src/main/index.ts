@@ -23,6 +23,7 @@ import { agentRunStore } from './agents/AgentRunStore'
 import { agentRunService } from './agents/AgentRunService'
 import { criticalThinkingStore } from './criticalThinking/CriticalThinkingStore'
 import { criticalThinkingService } from './criticalThinking/CriticalThinkingService'
+import { criticalThinkingEvidenceStore } from './criticalThinking/CriticalThinkingEvidenceStore'
 import { mcpServerStore } from './mcp/McpServerStore'
 import { mcpAuthStore } from './mcp/McpAuthStore'
 import { mcpManager } from './mcp/McpManager'
@@ -68,6 +69,7 @@ if (!app.requestSingleInstanceLock()) {
       skillStore.init()
       agentRunStore.init()
       criticalThinkingStore.init()
+      criticalThinkingEvidenceStore.init()
       schedulerStore.init()
       schedulerService.init()
       setKeepAwake(settingsStore.get().scheduler.keepAwake)

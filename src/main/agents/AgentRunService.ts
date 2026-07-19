@@ -9,6 +9,7 @@ import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
+import { AGENT_TURN_BUDGET } from '../chat/GenerationBudget'
 import { GENERATION_IN_PROGRESS_ERROR } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
@@ -119,13 +120,22 @@ const CHECK_IN_EVERY_TURNS = 3
  * undefined/unknown) ends the run.
  */
 function isRecoverableTurnStop(stopReason: GenerationStopReason | undefined): boolean {
-  return stopReason === 'loop-guard' || stopReason === 'context-limit'
+  return (
+    stopReason === 'loop-guard' ||
+    stopReason === 'no-progress' ||
+    stopReason === 'context-limit' ||
+    stopReason === 'rounds-exhausted' ||
+    stopReason === 'tool-limit' ||
+    stopReason === 'time-limit' ||
+    stopReason === 'yielded'
+  )
 }
 
 function terminalStopMessage(stopReason: GenerationStopReason | undefined): string {
-  return stopReason === 'fixed-context-limit'
-    ? 'The run could not start because the model’s fixed instructions and compact tool gateway do not fit in its context window.'
-    : 'Run was stopped.'
+  if (stopReason === 'fixed-context-limit') {
+    return 'The run could not start because the model’s fixed instructions and compact tool gateway do not fit in its context window.'
+  }
+  return stopReason === 'user' ? 'Run was stopped by the user.' : 'Run stopped before completion.'
 }
 
 /**
@@ -502,6 +512,7 @@ class AgentRunService {
         // Same fail-closed-on-destructive stance as scheduled tasks — no one
         // is present to click an approval modal on a run's behalf.
         permissionModeOverride: 'untethered',
+        executionBudget: AGENT_TURN_BUDGET,
         onActivity: (call) => toolCallsById.set(call.id, call),
         confirm: (confirmRequest) =>
           Promise.resolve({ approved: confirmRequest.risk !== 'destructive' })

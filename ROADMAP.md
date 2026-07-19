@@ -280,6 +280,14 @@ not correctness or security — lowest priority item on this whole list.
 
 ## Recently resolved (kept briefly for context, not action items)
 
+- **Context reliability and bounded Critical Thinking (2026-07-19)** — replaced
+  GPU-backed mid-turn summaries with deterministic checkpoints, added durable
+  structured search/fetch artifacts and focused passage extraction, introduced
+  shared generation budgets and typed provider-limit stops, and rebuilt Critical
+  Thinking as resumable per-step research plus validated evidence-led synthesis.
+  See `docs/CONTEXT_RELIABILITY_PLAN.md` for the architecture and acceptance
+  criteria.
+
 - **Checkpoint / restore UX first pass** - assistant file mutations now create
   per-message checkpoints and expose a restore action from the completed
   assistant turn.

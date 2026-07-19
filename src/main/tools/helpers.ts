@@ -118,6 +118,19 @@ interface GuardedToolSpec extends ReadToolSpec {
  */
 export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): Promise<string> {
   const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
+  const limitMessage = ctx.beforeTool?.(spec.name, spec.args) ?? null
+  if (limitMessage) {
+    ctx.emit({
+      id,
+      name: spec.name,
+      kind: spec.kind,
+      title: spec.title,
+      status: 'error',
+      detail: 'Blocked: execution budget reached',
+      result: limitMessage
+    })
+    return limitMessage
+  }
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
   if (loopGuard.blocked) {
@@ -223,6 +236,19 @@ export async function runGuardedTool(
   spec: GuardedToolSpec
 ): Promise<string> {
   const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
+  const limitMessage = ctx.beforeTool?.(spec.name, spec.args) ?? null
+  if (limitMessage) {
+    ctx.emit({
+      id,
+      name: spec.name,
+      kind: spec.kind,
+      title: spec.title,
+      status: 'error',
+      detail: 'Blocked: execution budget reached',
+      result: limitMessage
+    })
+    return limitMessage
+  }
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
   if (loopGuard.blocked) {

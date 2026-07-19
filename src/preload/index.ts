@@ -205,6 +205,7 @@ const api: AnodexApi = {
     list: () => ipcRenderer.invoke(IpcChannel.CriticalThinking.list),
     create: (request) => ipcRenderer.invoke(IpcChannel.CriticalThinking.create, request),
     approve: (id, request) => ipcRenderer.invoke(IpcChannel.CriticalThinking.approve, id, request),
+    resume: (id) => ipcRenderer.invoke(IpcChannel.CriticalThinking.resume, id),
     stop: (id) => ipcRenderer.invoke(IpcChannel.CriticalThinking.stop, id),
     delete: (id) => ipcRenderer.invoke(IpcChannel.CriticalThinking.delete, id),
     exportPdf: (request) => ipcRenderer.invoke(IpcChannel.CriticalThinking.exportPdf, request),

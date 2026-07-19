@@ -15,6 +15,9 @@ export function registerCriticalThinkingHandlers(): void {
     IpcChannel.CriticalThinking.create,
     (_event, request: CreateCriticalThinkingRequest) => criticalThinkingService.start(request)
   )
+  ipcMain.handle(IpcChannel.CriticalThinking.resume, (_event, id: string) =>
+    criticalThinkingService.resume(id)
+  )
   ipcMain.handle(
     IpcChannel.CriticalThinking.approve,
     (_event, id: string, request: ApproveCriticalThinkingRequest) =>

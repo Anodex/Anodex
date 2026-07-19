@@ -1,17 +1,39 @@
-import type { GenerationStats } from './chat.types'
+import type { GenerationStats, GenerationStopReason } from './chat.types'
 import type { Plan } from './plan.types'
 import type { ToolCallStatus } from './tools.types'
 import type { Result } from './result'
 
 export type CriticalThinkingStatus =
-  'planning' | 'needs-review' | 'researching' | 'done' | 'stopped' | 'error'
+  | 'planning'
+  | 'needs-review'
+  | 'researching'
+  | 'synthesizing'
+  | 'validating'
+  | 'completed'
+  | 'partial'
+  | 'stopped'
+  | 'failed'
 
 export type CriticalThinkingProvider = 'local' | 'anthropic' | 'openai'
 
 export interface CriticalThinkingSource {
+  id: string
   title: string
   url: string
   snippet?: string
+  /** True only after fetch_url captured page passages for this URL. */
+  verified: boolean
+}
+
+export interface CriticalThinkingStepState {
+  id: string
+  title: string
+  status: 'pending' | 'researching' | 'completed' | 'limited' | 'failed'
+  attempts: number
+  evidenceIds: string[]
+  finding: string
+  uncertainties: string[]
+  terminationReason?: GenerationStopReason
 }
 
 export interface CriticalThinkingActivity {
@@ -34,6 +56,9 @@ export interface CriticalThinkingRun {
   plan: Plan | null
   report: string
   sources: CriticalThinkingSource[]
+  steps: CriticalThinkingStepState[]
+  currentStep: number
+  evidenceCount: number
   activities: CriticalThinkingActivity[]
   stats: GenerationStats | null
   lastError: string | null

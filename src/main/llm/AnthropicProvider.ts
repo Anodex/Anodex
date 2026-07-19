@@ -72,6 +72,9 @@ class AnthropicProvider implements LlmProvider {
           enabledTools: params.tools.enabledTools ?? null,
           disabledTools: params.tools.disabledTools,
           mcpTools: params.tools.mcpTools,
+          evidenceFocus: params.tools.evidenceFocus,
+          recordArtifact: params.tools.recordArtifact,
+          beforeTool: params.tools.beforeTool,
           // A mutable box, not the plan value itself — shared by every tool
           // call in this generation, matching LlamaService's own wiring.
           plan: { current: params.tools.plan },
@@ -98,7 +101,9 @@ class AnthropicProvider implements LlmProvider {
     let outputTokens = 0
     let stopped = false
 
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
+    let roundsExhausted = false
+    for (let round = 0; round < maxToolRounds; round++) {
       if (params.signal?.aborted) {
         stopped = true
         break
@@ -144,6 +149,12 @@ class AnthropicProvider implements LlmProvider {
       outputTokens += response.usage.output_tokens
 
       if (response.stop_reason !== 'tool_use' || !toolFunctions) break
+      // There is no remaining provider round in which the model could consume
+      // these results. Do not execute side effects that cannot influence a reply.
+      if (round === maxToolRounds - 1) {
+        roundsExhausted = true
+        break
+      }
 
       // Replay the assistant turn (text + tool_use blocks) then execute every
       // requested tool and feed the results back in a single user turn, per
@@ -166,7 +177,12 @@ class AnthropicProvider implements LlmProvider {
       tokensPerSecond: outputTokens / (durationMs / 1000)
     }
 
-    return { content, stats, stopped }
+    return {
+      content,
+      stats,
+      stopped: stopped || roundsExhausted,
+      stopReason: roundsExhausted ? 'rounds-exhausted' : stopped ? 'user' : undefined
+    }
   }
 }
 

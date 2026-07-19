@@ -101,6 +101,16 @@ describe('checkLoopGuard', () => {
     const result = checkLoopGuard(state, 'run_command', 'npm test')
     expect(result.blocked).toBe(true)
   })
+
+  it('blocks an alternating A-B-A-B cycle that makes no progress', () => {
+    const state = createLoopGuardState()
+    let result = checkLoopGuard(state, 'read_file', 'a.ts')
+    for (let i = 0; i <= LOOP_GUARD_LIMIT; i++) {
+      checkLoopGuard(state, 'read_file', 'b.ts')
+      result = checkLoopGuard(state, 'read_file', 'a.ts')
+    }
+    expect(result.blocked).toBe(true)
+  })
 })
 
 describe('loopGuardKey', () => {

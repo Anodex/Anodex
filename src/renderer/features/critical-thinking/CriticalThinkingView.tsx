@@ -22,18 +22,24 @@ const STATUS_LABEL: Record<CriticalThinkingStatus, string> = {
   planning: 'Building plan',
   'needs-review': 'Plan review',
   researching: 'Researching',
-  done: 'Complete',
+  synthesizing: 'Writing report',
+  validating: 'Validating',
+  completed: 'Complete',
+  partial: 'Partial',
   stopped: 'Stopped',
-  error: 'Failed'
+  failed: 'Failed'
 }
 
 const STATUS_ICON: Record<CriticalThinkingStatus, IconName> = {
   planning: 'activity',
   'needs-review': 'eye',
   researching: 'search',
-  done: 'check',
+  synthesizing: 'pencil',
+  validating: 'check',
+  completed: 'check',
+  partial: 'alert',
   stopped: 'stop',
-  error: 'alert'
+  failed: 'alert'
 }
 
 function clonePlan(plan: Plan): Plan {
@@ -47,12 +53,21 @@ function providerLabel(run: CriticalThinkingRun): string {
 }
 
 function StatusBadge({ status }: { status: CriticalThinkingStatus }): JSX.Element {
-  const active = status === 'planning' || status === 'researching'
+  const active = isActiveStatus(status)
   return (
     <span className={`${styles.statusBadge} ${styles[`status-${status}`]}`}>
       {active ? <Spinner size={11} /> : <Icon name={STATUS_ICON[status]} size={11} />}
       {STATUS_LABEL[status]}
     </span>
+  )
+}
+
+function isActiveStatus(status: CriticalThinkingStatus): boolean {
+  return (
+    status === 'planning' ||
+    status === 'researching' ||
+    status === 'synthesizing' ||
+    status === 'validating'
   )
 }
 
@@ -193,6 +208,7 @@ export function CriticalThinkingView(): JSX.Element {
   const create = useCriticalThinkingStore((state) => state.create)
   const approve = useCriticalThinkingStore((state) => state.approve)
   const stop = useCriticalThinkingStore((state) => state.stop)
+  const resume = useCriticalThinkingStore((state) => state.resume)
   const deleteRun = useCriticalThinkingStore((state) => state.delete)
   const select = useCriticalThinkingStore((state) => state.select)
   const settings = useSettingsStore((state) => state.settings)
@@ -215,9 +231,7 @@ export function CriticalThinkingView(): JSX.Element {
     setCopied(false)
   }, [selected?.id, selected?.plan])
 
-  const anotherRunActive = runs.some(
-    (run) => run.status === 'planning' || run.status === 'researching'
-  )
+  const anotherRunActive = runs.some((run) => isActiveStatus(run.status))
   const modelReady = isChatReady(settings, engine.status)
   const searchReady = Boolean(settings?.tools.enabled && settings.webSearch.provider !== 'none')
   const startBlocked = anotherRunActive || !modelReady || !searchReady
@@ -429,6 +443,7 @@ export function CriticalThinkingView(): JSX.Element {
               onAddPlanStep={addPlanStep}
               onApprovePlan={() => void approvePlan()}
               onStop={() => void stop(selected.id)}
+              onResume={() => void resume(selected.id)}
               onRetry={() => startNew(selected.question)}
               onDelete={() => void deleteRun(selected.id)}
               onCopy={() => void copyReport()}
@@ -454,6 +469,7 @@ interface RunDetailProps {
   onAddPlanStep: () => void
   onApprovePlan: () => void
   onStop: () => void
+  onResume: () => void
   onRetry: () => void
   onDelete: () => void
   onCopy: () => void
@@ -462,7 +478,10 @@ interface RunDetailProps {
 
 function RunDetail(props: RunDetailProps): JSX.Element {
   const { run } = props
-  const active = run.status === 'planning' || run.status === 'researching'
+  const active = isActiveStatus(run.status)
+  const resumable = ['partial', 'stopped', 'failed'].includes(run.status) && Boolean(run.plan)
+  const reportReady =
+    run.status === 'completed' || run.status === 'partial' || run.status === 'stopped'
   return (
     <div className={styles.runDetail}>
       <div className={styles.runHeader}>
@@ -472,7 +491,10 @@ function RunDetail(props: RunDetailProps): JSX.Element {
           <div className={styles.runMeta}>
             <span>{providerLabel(run)}</span>
             <span>{formatRelativeTime(run.updatedAt)}</span>
-            {run.sources.length > 0 && <span>{run.sources.length} sources found</span>}
+            {run.sources.some((source) => source.verified) && (
+              <span>{run.sources.filter((source) => source.verified).length} pages verified</span>
+            )}
+            {run.evidenceCount > 0 && <span>{run.evidenceCount} evidence artifacts</span>}
           </div>
         </div>
         <div className={styles.runActions}>
@@ -492,6 +514,15 @@ function RunDetail(props: RunDetailProps): JSX.Element {
               onCopy={props.onCopy}
               onExportPdf={props.onExportPdf}
             />
+          )}
+          {!active && resumable && (
+            <Button
+              variant="secondary"
+              iconLeft={<Icon name="refresh" size={14} />}
+              onClick={props.onResume}
+            >
+              Resume
+            </Button>
           )}
           {!active && (
             <button
@@ -571,7 +602,7 @@ function RunDetail(props: RunDetailProps): JSX.Element {
         </section>
       )}
 
-      {run.status === 'researching' && run.plan && (
+      {['researching', 'synthesizing', 'validating'].includes(run.status) && run.plan && (
         <>
           <div className={styles.progressGrid}>
             <PlanProgress plan={run.plan} />
@@ -580,7 +611,7 @@ function RunDetail(props: RunDetailProps): JSX.Element {
               <ActivityTimeline activities={run.activities} />
             </div>
           </div>
-          {run.report ? (
+          {(run.status === 'synthesizing' || run.status === 'validating') && run.report ? (
             <section className={styles.reportCard}>
               <div className={styles.writingLabel}>
                 <Spinner size={12} /> Writing report
@@ -592,17 +623,22 @@ function RunDetail(props: RunDetailProps): JSX.Element {
           ) : (
             <div className={styles.researchHint}>
               <Icon name="web" size={17} />
-              <span>The report will appear here after Anodex finishes gathering evidence.</span>
+              <span>
+                {run.status === 'researching'
+                  ? `Researching step ${Math.min(run.currentStep + 1, run.steps.length)} of ${run.steps.length}. The report starts after evidence collection.`
+                  : 'Preparing and validating the evidence-backed report.'}
+              </span>
             </div>
           )}
         </>
       )}
 
-      {(run.status === 'done' || run.status === 'stopped') && run.report && (
+      {reportReady && run.report && (
         <>
-          {run.status === 'stopped' && (
+          {(run.status === 'stopped' || run.status === 'partial') && (
             <div className={styles.warningBanner}>
-              <Icon name="stop" size={15} /> This is a partial report from a stopped investigation.
+              <Icon name="alert" size={15} />{' '}
+              {run.lastError ?? 'This report is based on partial research.'}
             </div>
           )}
           <section className={styles.reportCard}>
@@ -614,28 +650,34 @@ function RunDetail(props: RunDetailProps): JSX.Element {
         </>
       )}
 
-      {(run.status === 'error' || (run.status === 'stopped' && !run.report)) && (
-        <div className={styles.failureState}>
-          <Icon name={run.status === 'error' ? 'alert' : 'stop'} size={24} />
-          <h3>
-            {run.status === 'error' ? 'The investigation failed' : 'The investigation was stopped'}
-          </h3>
-          <p>{run.lastError ?? 'No report was produced.'}</p>
-          <Button
-            variant="secondary"
-            iconLeft={<Icon name="refresh" size={14} />}
-            onClick={props.onRetry}
-          >
-            Try again
-          </Button>
-        </div>
-      )}
+      {(run.status === 'failed' ||
+        run.status === 'partial' ||
+        (run.status === 'stopped' && !run.report)) &&
+        !run.report && (
+          <div className={styles.failureState}>
+            <Icon name={run.status === 'failed' ? 'alert' : 'stop'} size={24} />
+            <h3>
+              {run.status === 'failed'
+                ? 'The investigation failed'
+                : 'The investigation is incomplete'}
+            </h3>
+            <p>{run.lastError ?? 'No report was produced.'}</p>
+            <Button
+              variant="secondary"
+              iconLeft={<Icon name="refresh" size={14} />}
+              onClick={props.onRetry}
+            >
+              Try again
+            </Button>
+          </div>
+        )}
     </div>
   )
 }
 
 function Sources({ run }: { run: CriticalThinkingRun }): JSX.Element | null {
-  if (run.sources.length === 0) return null
+  const verifiedSources = run.sources.filter((source) => source.verified)
+  if (verifiedSources.length === 0) return null
   return (
     <section className={styles.sourcesSection}>
       <div className={styles.sectionHeading}>
@@ -643,10 +685,10 @@ function Sources({ run }: { run: CriticalThinkingRun }): JSX.Element | null {
           <p className={styles.cardEyebrow}>Evidence trail</p>
           <h3>Sources reviewed</h3>
         </div>
-        <span className={styles.sourceCount}>{run.sources.length}</span>
+        <span className={styles.sourceCount}>{verifiedSources.length}</span>
       </div>
       <div className={styles.sourceGrid}>
-        {run.sources.map((source) => (
+        {verifiedSources.map((source) => (
           <a
             key={source.url}
             href={source.url}

@@ -1,10 +1,16 @@
 import { lookup } from 'node:dns/promises'
+import { createHash } from 'node:crypto'
 import { convert } from 'html-to-text'
 import { Agent } from 'undici'
+import type { EvidencePassage } from '@shared/toolArtifacts.types'
 import type { ToolFactory } from './types'
+import { recordToolArtifact } from './types'
 import { runReadTool } from './helpers'
 
 const FETCH_TIMEOUT_MS = 30_000
+const MAX_FETCH_BYTES = 2_000_000
+const MAX_PASSAGES = 8
+const MAX_PASSAGE_CHARS = 900
 
 let resolveHost = async (hostname: string): Promise<string[]> => {
   const records = await lookup(hostname, { all: true, verbatim: true })
@@ -42,22 +48,39 @@ export const fetchUrlTool: ToolFactory = (define, ctx) =>
         args,
         async run() {
           const response = await fetchUrl(args.url, ctx.signal)
-          const text = convert(response, {
+          const text = convert(response.body, {
             selectors: [
               { selector: 'a', options: { ignoreHref: true } },
               { selector: 'img', format: 'skip' }
             ]
           })
           const trimmed = text.trim()
-          // No truncation here: `runReadTool`'s own MAX_MODEL_RESULT_CHARS cap
-          // already applies uniformly to every read tool's result (same
-          // reasoning as the read_file/run_command/git_diff/web_search
-          // fixes — this tool's own, much larger, redundant cap never
-          // actually changed the truncation point, it just produced a
-          // misleading note when both fired).
+          const passages = extractFocusedPassages(trimmed, ctx.evidenceFocus ?? '')
+          const title = extractHtmlTitle(response.body) || new URL(response.finalUrl).hostname
+          const warnings = [...response.warnings]
+          if (passages.length === 0) warnings.push('No readable evidence passages were extracted.')
+          const artifact = recordToolArtifact(ctx, {
+            kind: 'web-fetch',
+            requestedUrl: args.url,
+            finalUrl: response.finalUrl,
+            status: response.status,
+            contentType: response.contentType,
+            title,
+            contentHash: createHash('sha256').update(response.body).digest('hex'),
+            contentChars: trimmed.length,
+            truncated: response.truncated,
+            passages,
+            warnings
+          })
+          const passageText = passages
+            .map((passage) => `[${passage.id}] ${passage.text}`)
+            .join('\n\n')
           return {
-            modelResult: trimmed || '(no readable text)',
-            detail: `${trimmed.length} chars`
+            modelResult:
+              `Source artifact: ${artifact.id}\nTitle: ${title}\nFinal URL: ${response.finalUrl}\n` +
+              `HTTP ${response.status}; ${response.contentType}\n\n` +
+              (passageText || '(no readable text)'),
+            detail: `${trimmed.length} chars · ${passages.length} focused passages`
           }
         }
       })
@@ -78,7 +101,16 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
  * malicious resolver could answer the pre-check with a public IP and the
  * real connection with a private/loopback one.
  */
-async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<string> {
+interface FetchedPage {
+  body: string
+  finalUrl: string
+  status: number
+  contentType: string
+  truncated: boolean
+  warnings: string[]
+}
+
+async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPage> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   const onAbort = (): void => controller.abort()
@@ -114,7 +146,26 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<string> {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`)
         }
-        return await response.text()
+        const contentType = response.headers.get('content-type')?.split(';')[0].trim() || 'unknown'
+        if (!isReadableContentType(contentType)) {
+          return {
+            body: '',
+            finalUrl: current.toString(),
+            status: response.status,
+            contentType,
+            truncated: false,
+            warnings: [`Unsupported content type: ${contentType}`]
+          }
+        }
+        const body = await readResponseBody(response, MAX_FETCH_BYTES)
+        return {
+          body: body.text,
+          finalUrl: current.toString(),
+          status: response.status,
+          contentType,
+          truncated: body.truncated,
+          warnings: body.truncated ? [`Response exceeded ${MAX_FETCH_BYTES} bytes.`] : []
+        }
       } finally {
         await dispatcher.close()
       }
@@ -128,6 +179,103 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<string> {
     clearTimeout(timeout)
     signal?.removeEventListener('abort', onAbort)
   }
+}
+
+function isReadableContentType(contentType: string): boolean {
+  return (
+    contentType === 'unknown' ||
+    contentType.startsWith('text/') ||
+    contentType === 'application/xhtml+xml' ||
+    contentType === 'application/json' ||
+    contentType.endsWith('+json')
+  )
+}
+
+async function readResponseBody(
+  response: Response,
+  maxBytes: number
+): Promise<{ text: string; truncated: boolean }> {
+  if (!response.body) {
+    const text = await response.text()
+    const encoded = new TextEncoder().encode(text)
+    return encoded.byteLength > maxBytes
+      ? { text: new TextDecoder().decode(encoded.subarray(0, maxBytes)), truncated: true }
+      : { text, truncated: false }
+  }
+  const reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ''
+  let truncated = false
+  try {
+    while (true) {
+      const chunk = (await reader.read()) as { done: boolean; value?: Uint8Array }
+      if (chunk.done || !chunk.value) break
+      const value = chunk.value
+      const remaining = maxBytes - bytes
+      if (remaining <= 0) {
+        truncated = true
+        break
+      }
+      const kept = value.byteLength > remaining ? value.subarray(0, remaining) : value
+      bytes += kept.byteLength
+      text += decoder.decode(kept, { stream: true })
+      if (kept.byteLength < value.byteLength) {
+        truncated = true
+        break
+      }
+    }
+    text += decoder.decode()
+  } finally {
+    if (truncated) await reader.cancel()
+    reader.releaseLock()
+  }
+  return { text, truncated }
+}
+
+export function extractFocusedPassages(text: string, focus: string): EvidencePassage[] {
+  const normalized = text.replace(/\r/g, '').trim()
+  if (!normalized) return []
+  const terms = [...new Set(focus.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])].slice(0, 24)
+  const chunks = normalized
+    .split(/\n{2,}/)
+    .flatMap((paragraph) => splitLongPassage(paragraph.trim(), MAX_PASSAGE_CHARS))
+    .filter(Boolean)
+  const ranked = chunks.map((passage, index) => {
+    const lower = passage.toLowerCase()
+    const termHits = terms.reduce((sum, term) => sum + countOccurrences(lower, term), 0)
+    return { passage, index, score: termHits * 100 - index * 0.01 }
+  })
+  ranked.sort((a, b) => b.score - a.score || a.index - b.index)
+  return ranked.slice(0, MAX_PASSAGES).map((item, index) => ({
+    id: `P${index + 1}`,
+    text: item.passage,
+    score: Math.max(0, Math.round(item.score * 100) / 100)
+  }))
+}
+
+function splitLongPassage(text: string, maxChars: number): string[] {
+  if (text.length <= maxChars) return text ? [text] : []
+  const passages: string[] = []
+  for (let start = 0; start < text.length; start += maxChars) {
+    passages.push(text.slice(start, start + maxChars))
+  }
+  return passages
+}
+
+function countOccurrences(text: string, term: string): number {
+  let count = 0
+  let offset = 0
+  while ((offset = text.indexOf(term, offset)) !== -1) {
+    count++
+    offset += term.length
+  }
+  return count
+}
+
+function extractHtmlTitle(html: string): string {
+  const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
+  return match?.[1].replace(/\s+/g, ' ').trim() ?? ''
 }
 
 /** An undici dispatcher whose connections are pinned to pre-validated addresses. */

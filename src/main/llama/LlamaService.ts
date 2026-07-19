@@ -34,6 +34,7 @@ import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/s
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
 import type { McpToolDescriptor } from '@shared/mcp.types'
+import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { reservedNonHistoryTokens } from '@shared/contextBudget'
@@ -51,6 +52,7 @@ import {
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { foldIntoRollingSummary } from './rollingSummary'
+import { buildDeterministicCheckpoint } from './deterministicCheckpoint'
 import {
   detectFabricatedUserTurn,
   detectFallbackToolCall,
@@ -193,6 +195,10 @@ export interface GenerateParams {
    */
   onThinkingToken?: (token: string) => void
   signal?: AbortSignal
+  /** Provider tool-use round cap selected by the shared execution policy. */
+  maxProviderRounds?: number
+  /** Called after each local mid-turn context shift for shared budget accounting. */
+  onContextShift?: () => void
   /** When present, the model is given tools for this generation. */
   tools?: {
     /** Workspace folder for file/command tools, or null for web-only tools. */
@@ -214,6 +220,10 @@ export interface GenerateParams {
     disabledTools: Set<string>
     /** Tools discovered from currently-connected MCP servers (see `ToolRuntimeContext.mcpTools`). */
     mcpTools: McpToolDescriptor[]
+    /** Optional focus and artifact sink used by evidence-led workflows. */
+    evidenceFocus?: string
+    recordArtifact?: (artifact: ToolArtifact) => void
+    beforeTool?: (name: string, args: unknown) => string | null
     onActivity: (call: ToolCall) => void
     confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
   }
@@ -288,6 +298,7 @@ class LlamaService extends EventEmitter {
   private model?: LlamaModel
   private context?: LlamaContext
   private contextSequence?: LlamaContextSequence
+  private activeContextShiftHandler?: () => void
   private session?: LlamaChatSession
   private activeConversationId?: string
   /** Refreshed before every generation; reused session strategies read it lazily. */
@@ -662,6 +673,7 @@ class LlamaService extends EventEmitter {
       }
     }
 
+    this.activeContextShiftHandler = params.onContextShift
     try {
       for (let round = 0; ; round++) {
         let roundContent = ''
@@ -1065,6 +1077,7 @@ class LlamaService extends EventEmitter {
       // cards still unclaimed so nothing is left spinning in the transcript.
       for (const call of pendingToolCalls.sweepAll()) params.tools?.onActivity(call)
       params.signal?.removeEventListener('abort', forwardAbort)
+      this.activeContextShiftHandler = undefined
       this.generating = false
       this.emitState()
     }
@@ -1303,8 +1316,9 @@ class LlamaService extends EventEmitter {
       systemPrompt: compacted.systemPrompt,
       contextShift: {
         strategy: createBoundedContextShiftStrategy({
-          summarize: (transcript, previousSummary) =>
-            this.summarizeHistoryForCompaction(transcript, previousSummary),
+          // Context shifts occur inside an active generation. Keep this path
+          // deterministic and GPU-free; model summaries remain between turns.
+          summarize: buildDeterministicCheckpoint,
           stringifySystemText: (text) =>
             typeof text === 'string' ? text : nlc.LlamaText.fromJSON(text as never).toString(),
           getToolSchemaReserveTokens: () => this.activeToolSchemaReserveTokens,
@@ -1313,6 +1327,7 @@ class LlamaService extends EventEmitter {
           // fires here — see `onShift`'s doc comment) — this log line is the
           // only production trace that a shift happened and what it did.
           onShift: (info) => {
+            this.activeContextShiftHandler?.()
             const trimmed = [
               info.trimmedUserMessage ? 'the current user message' : '',
               info.trimmedAssistantResponse ? 'the generated assistant response' : ''
@@ -1643,6 +1658,9 @@ class LlamaService extends EventEmitter {
       enabledTools: params.tools.enabledTools ?? null,
       disabledTools: params.tools.disabledTools,
       mcpTools: params.tools.mcpTools,
+      evidenceFocus: params.tools.evidenceFocus,
+      recordArtifact: params.tools.recordArtifact,
+      beforeTool: params.tools.beforeTool,
       // A mutable box, not the plan value itself — shared by every tool call
       // in this generation so `update_plan_step` sees `write_plan`'s result
       // within the same turn (see `ToolRuntimeContext.plan`'s doc comment).
