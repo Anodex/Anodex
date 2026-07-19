@@ -13,6 +13,7 @@ export type GenerationStopReason =
   | 'user'
   | 'loop-guard'
   | 'context-limit'
+  | 'context-shift-limit'
   | 'fixed-context-limit'
   | 'rounds-exhausted'
   | 'time-limit'
@@ -218,9 +219,10 @@ export interface ChatResult {
    */
   stopped: boolean
   /**
-   * Why `stopped` is true, when known. `'context-limit'`: the turn hit the
-   * model's hard context ceiling and ended early on its own — the renderer
-   * shows an explanatory notice for this case specifically (see
+   * Why `stopped` is true, when known. `'context-limit'` means the turn hit
+   * the model's hard context ceiling; `'context-shift-limit'` means Anodex
+   * stopped after its bounded number of compaction attempts. The renderer
+   * shows an explanatory notice for these cases specifically (see
    * `chatStore.ts`'s `sendMessage`), since otherwise it renders as an empty
    * or truncated reply with no indication why. Undefined for a plain user
    * Stop or a provider that doesn't distinguish reasons. See

@@ -1,5 +1,6 @@
 import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
-import type { ToolArtifact, WebFetchArtifact } from '@shared/toolArtifacts.types'
+import type { EvidencePassage, ToolArtifact } from '@shared/toolArtifacts.types'
+import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 export interface ReportValidationResult {
   valid: boolean
@@ -12,25 +13,40 @@ export function buildEvidencePacket(
   sources: CriticalThinkingSource[],
   maxChars = 36_000
 ): string {
-  const sourceByUrl = new Map(sources.map((source) => [canonicalUrl(source.url), source]))
+  const sourceByUrl = new Map(sources.map((source) => [canonicalResearchUrl(source.url), source]))
+  const passagesByUrl = fetchedPassagesByUrl(artifacts)
   const sections: string[] = []
   let used = 0
-  for (const artifact of artifacts) {
-    if (artifact.kind !== 'web-fetch') continue
-    const source = sourceByUrl.get(canonicalUrl(artifact.finalUrl))
+  for (const [url, passages] of passagesByUrl) {
+    const source = sourceByUrl.get(url)
     if (!source?.verified) continue
     const header = `[${source.id}] ${source.title}\nURL: ${source.url}`
-    const passages = artifact.passages.map(
-      (passage) => `[${source.id}:${passage.id}] ${passage.text}`
-    )
-    const section = [header, ...passages].join('\n')
-    if (used + section.length > maxChars) {
-      const remaining = maxChars - used
-      if (remaining > header.length + 120) sections.push(section.slice(0, remaining))
+    const passageLines = passages.map((passage) => `[${source.id}:${passage.id}] ${passage.text}`)
+    const sectionSeparatorChars = sections.length > 0 ? 2 : 0
+    const sectionLimit = maxChars - used - sectionSeparatorChars
+    if (sectionLimit <= header.length + 1) continue
+    const accepted = [header]
+    let sectionLength = header.length
+    for (const line of passageLines) {
+      const remaining = sectionLimit - sectionLength - 1
+      if (remaining <= 0) break
+      if (line.length <= remaining) {
+        accepted.push(line)
+        sectionLength += line.length + 1
+        continue
+      }
+      const markerEnd = line.indexOf('] ') + 2
+      if (markerEnd > 1 && remaining >= markerEnd + 32) {
+        accepted.push(line.slice(0, remaining))
+        sectionLength += remaining + 1
+      }
       break
     }
-    sections.push(section)
-    used += section.length + 2
+    if (accepted.length > 1) {
+      sections.push(accepted.join('\n'))
+      used += sectionLength + sectionSeparatorChars
+    }
+    if (used >= maxChars) break
   }
   return sections.join('\n\n')
 }
@@ -44,7 +60,7 @@ export function validateResearchReport(
   const sourceById = new Map(
     sources.filter((source) => source.verified).map((source) => [source.id, source])
   )
-  const fetchedByUrl = fetchedArtifactsByUrl(artifacts)
+  const passagesByUrl = fetchedPassagesByUrl(artifacts)
   const citations = [...report.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)]
   const citationIds = citations.map((match) => match[1])
   for (const id of new Set(citationIds)) {
@@ -52,23 +68,23 @@ export function validateResearchReport(
   }
   for (const citation of citations) {
     const source = sourceById.get(citation[1])
-    const artifact = source ? fetchedByUrl.get(canonicalUrl(source.url)) : undefined
-    if (citation[2] && !artifact?.passages.some((passage) => passage.id === citation[2])) {
+    const passages = source ? passagesByUrl.get(canonicalResearchUrl(source.url)) : undefined
+    if (citation[2] && !passages?.some((passage) => passage.id === citation[2])) {
       issues.push(`Unknown evidence passage ${citation[1]}:${citation[2]}.`)
     }
   }
 
   for (const match of report.matchAll(/https?:\/\/[^\s)>\]]+/g)) {
     const rawUrl = match[0].replace(/[.,;:!?]+$/, '')
-    if (![...fetchedByUrl.keys()].includes(canonicalUrl(rawUrl))) {
+    if (!passagesByUrl.has(canonicalResearchUrl(rawUrl))) {
       issues.push(`Raw URL is not backed by fetched evidence: ${rawUrl}`)
     } else {
       issues.push(`Use an internal citation marker instead of a raw URL: ${rawUrl}`)
     }
   }
 
-  const allPassages = [...fetchedByUrl.values()]
-    .flatMap((artifact) => artifact.passages.map((passage) => passage.text))
+  const allPassages = [...passagesByUrl.values()]
+    .flatMap((passages) => passages.map((passage) => passage.text))
     .map(normalizeQuote)
   const proseReport = report.replace(/```[\s\S]*?```/g, '')
   for (const match of proseReport.matchAll(/[“"]([^”"\n]{20,})[”"]/g)) {
@@ -78,15 +94,15 @@ export function validateResearchReport(
     }
   }
 
-  validateCharts(report, fetchedByUrl, sourceById, issues)
-  validateNumericClaims(proseReport, fetchedByUrl, sourceById, issues)
+  validateCharts(report, passagesByUrl, sourceById, issues)
+  validateNumericClaims(proseReport, passagesByUrl, sourceById, issues)
   if (citationIds.length === 0) issues.push('The report contains no evidence citation markers.')
   return { valid: issues.length === 0, issues: [...new Set(issues)] }
 }
 
 function validateNumericClaims(
   report: string,
-  fetchedByUrl: Map<string, WebFetchArtifact>,
+  passagesByUrl: Map<string, EvidencePassage[]>,
   sourceById: Map<string, CriticalThinkingSource>,
   issues: string[]
 ): void {
@@ -94,21 +110,19 @@ function validateNumericClaims(
     const citations = [...paragraph.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)]
     if (citations.length === 0) continue
     const claimText = paragraph.replace(/\[\[S\d+(?::P\d+)?\]\]/g, '')
-    const numbers = claimText.match(/\b\d[\d,.]*%?/g) ?? []
+    const numbers = extractNumbers(claimText)
     for (const number of numbers) {
       if (number.length === 1 && !number.endsWith('%')) continue
       const evidenceText = citations
         .flatMap((citation) => {
           const source = sourceById.get(citation[1])
-          const artifact = source ? fetchedByUrl.get(canonicalUrl(source.url)) : undefined
-          return (
-            artifact?.passages
-              .filter((passage) => !citation[2] || passage.id === citation[2])
-              .map((passage) => passage.text) ?? []
-          )
+          const passages = source ? passagesByUrl.get(canonicalResearchUrl(source.url)) : undefined
+          return (passages ?? [])
+            .filter((passage) => !citation[2] || passage.id === citation[2])
+            .map((passage) => passage.text)
         })
         .join(' ')
-      if (!evidenceText.includes(number.replace(/%$/, ''))) {
+      if (!numberAppears(evidenceText, number)) {
         issues.push(`Numeric claim ${number} is not present in its cited evidence.`)
       }
     }
@@ -135,17 +149,30 @@ export function normalizeQuote(value: string): string {
     .toLowerCase()
 }
 
-function fetchedArtifactsByUrl(artifacts: ToolArtifact[]): Map<string, WebFetchArtifact> {
-  const fetched = new Map<string, WebFetchArtifact>()
+/** Assign IDs once per URL so repeated focused fetches cannot reuse P1/P2. */
+function fetchedPassagesByUrl(artifacts: ToolArtifact[]): Map<string, EvidencePassage[]> {
+  const fetched = new Map<string, EvidencePassage[]>()
+  const seenByUrl = new Map<string, Set<string>>()
   for (const artifact of artifacts) {
-    if (artifact.kind === 'web-fetch') fetched.set(canonicalUrl(artifact.finalUrl), artifact)
+    if (artifact.kind !== 'web-fetch') continue
+    const key = canonicalResearchUrl(artifact.finalUrl)
+    const passages = fetched.get(key) ?? []
+    const seen = seenByUrl.get(key) ?? new Set<string>()
+    for (const passage of artifact.passages) {
+      const identity = normalizeQuote(passage.text)
+      if (seen.has(identity)) continue
+      seen.add(identity)
+      passages.push({ ...passage, id: `P${passages.length + 1}` })
+    }
+    fetched.set(key, passages)
+    seenByUrl.set(key, seen)
   }
   return fetched
 }
 
 function validateCharts(
   report: string,
-  fetchedByUrl: Map<string, WebFetchArtifact>,
+  passagesByUrl: Map<string, EvidencePassage[]>,
   sourceById: Map<string, CriticalThinkingSource>,
   issues: string[]
 ): void {
@@ -157,8 +184,8 @@ function validateCharts(
       }
       const sourceId = /\[\[(S\d+)(?::P\d+)?\]\]/.exec(chart.source ?? '')?.[1]
       const source = sourceId ? sourceById.get(sourceId) : undefined
-      const artifact = source ? fetchedByUrl.get(canonicalUrl(source.url)) : undefined
-      const evidenceText = artifact?.passages.map((passage) => passage.text).join(' ') ?? ''
+      const passages = source ? passagesByUrl.get(canonicalResearchUrl(source.url)) : undefined
+      const evidenceText = (passages ?? []).map((passage) => passage.text).join(' ')
       for (const value of chart.datasets?.flatMap((dataset) => dataset.values ?? []) ?? []) {
         if (!numberAppears(evidenceText, value)) {
           issues.push(`Chart value ${value} is not present in its cited evidence passage.`)
@@ -170,11 +197,17 @@ function validateCharts(
   }
 }
 
-function numberAppears(text: string, value: number): boolean {
-  const plain = String(value)
-  return text.includes(plain) || text.includes(value.toLocaleString('en-US'))
+function numberAppears(text: string, value: number | string): boolean {
+  const expected = normalizeNumber(value)
+  return extractNumbers(text).some((candidate) => normalizeNumber(candidate) === expected)
 }
 
-function canonicalUrl(value: string): string {
-  return value.replace(/#.*$/, '').replace(/\/$/, '').toLowerCase()
+function extractNumbers(value: string): string[] {
+  return value.match(/\b\d+(?:,\d{3})*(?:\.\d+)?%?/g) ?? []
+}
+
+function normalizeNumber(value: number | string): string {
+  const raw = String(value).replace(/,/g, '').replace(/%$/, '')
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? String(parsed) : raw
 }

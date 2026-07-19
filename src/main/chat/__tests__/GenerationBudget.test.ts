@@ -18,6 +18,7 @@ describe('GenerationBudget', () => {
     expect(budget.beforeTool()).toBeNull()
     expect(budget.beforeTool()).toContain('tool-call budget')
     expect(budget.stopReason).toBe('tool-limit')
+    expect(budget.signal.aborted).toBe(false)
     budget.dispose()
   })
 
@@ -56,7 +57,24 @@ describe('GenerationBudget', () => {
     budget.recordContextShift()
     expect(budget.stopReason).toBeUndefined()
     budget.recordContextShift()
-    expect(budget.stopReason).toBe('context-limit')
+    expect(budget.stopReason).toBe('context-shift-limit')
+    expect(budget.signal.aborted).toBe(true)
     budget.dispose()
+  })
+
+  it('allows a hard timeout to override a soft tool limit', () => {
+    vi.useFakeTimers()
+    const budget = new GenerationBudget({
+      maxDurationMs: 100,
+      maxTools: 0,
+      maxProviderRounds: 1,
+      maxContextShifts: 1
+    })
+    expect(budget.beforeTool()).toContain('tool-call budget')
+    vi.advanceTimersByTime(100)
+    expect(budget.stopReason).toBe('time-limit')
+    expect(budget.signal.aborted).toBe(true)
+    budget.dispose()
+    vi.useRealTimers()
   })
 })

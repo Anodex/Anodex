@@ -94,7 +94,8 @@ Pass criteria:
 
 - If fixed instructions/tools cannot fit, the reply says so before decoding.
 - If the turn later runs out of context, partial text and completed tool work stay
-  visible with a context-limit notice.
+  visible with a context-limit notice. If the safety budget stops repeated
+  compaction first, the notice identifies the context-compaction limit instead.
 - The app does not say that the user stopped the run.
 - Starting a new short chat afterward still works; the session is not wedged.
 

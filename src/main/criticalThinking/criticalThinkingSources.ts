@@ -1,5 +1,6 @@
 import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
+import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 const SEARCH_RESULT_PATTERN =
   /^\d+\.\s+\*\*(.+?)\*\*\s+[\u2013\u2014-]\s+(https?:\/\/\S+)\r?\n([^\r\n]*)/gm
@@ -43,7 +44,7 @@ export function mergeSources(
 ): CriticalThinkingSource[] {
   const merged = new Map<string, CriticalThinkingSource>()
   for (const source of [...current, ...additions]) {
-    const key = canonicalUrl(source.url)
+    const key = canonicalResearchUrl(source.url)
     const existing = merged.get(key)
     if (!existing || (!existing.verified && source.verified)) {
       merged.set(key, { ...source, id: '' })
@@ -80,14 +81,10 @@ function stripTrailingPunctuation(value: string): string {
   return value.replace(/[.,;:!?]+$/, '')
 }
 
-function canonicalUrl(value: string): string {
-  return value.replace(/#.*$/, '').replace(/\/$/, '').toLowerCase()
-}
-
 function dedupeSources(sources: CriticalThinkingSource[]): CriticalThinkingSource[] {
   const seen = new Set<string>()
   return sources.filter((source) => {
-    const key = canonicalUrl(source.url)
+    const key = canonicalResearchUrl(source.url)
     if (seen.has(key)) return false
     seen.add(key)
     return true

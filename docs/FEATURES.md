@@ -455,8 +455,11 @@ Key capabilities:
 - Track live progress, current step, evidence count, and synthesis/validation phases.
 - Store search leads and fetched-page evidence separately from the model transcript.
 - Extract focused passages from large pages instead of returning only a prefix.
+- Combine evidence from repeated focused fetches of the same page without losing
+  earlier passages.
 - Resume stopped, limited, or app-interrupted investigations from saved evidence.
 - Generate a structured report in a separate tool-free synthesis phase.
+- Scale synthesis, repair, evidence, and output budgets to the active model context.
 - Validate source IDs, passage IDs, quotations, numeric claims, raw URLs, and chart data.
 - Copy the report.
 - Save the report as a PDF.

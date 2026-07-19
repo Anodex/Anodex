@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
-import type { ToolArtifact } from '@shared/toolArtifacts.types'
+import type { ToolArtifact, WebFetchArtifact } from '@shared/toolArtifacts.types'
 import {
   buildEvidencePacket,
   normalizeQuote,
@@ -42,12 +42,19 @@ const artifacts: ToolArtifact[] = [
     warnings: []
   }
 ]
+const primaryFetch = artifacts[0] as WebFetchArtifact
 
 describe('Critical Thinking evidence pipeline', () => {
   it('builds a packet with exact source and passage ids', () => {
     const packet = buildEvidencePacket(artifacts, sources)
     expect(packet).toContain('[S1] Primary study')
     expect(packet).toContain('[S1:P1] The measured improvement')
+  })
+
+  it('never exceeds its caller-provided packet budget', () => {
+    const packet = buildEvidencePacket(artifacts, sources, 100)
+    expect(packet.length).toBeLessThanOrEqual(100)
+    expect(packet).toContain('[S1:P1]')
   })
 
   it('rejects unknown citations and model-authored raw URLs', () => {
@@ -82,6 +89,52 @@ describe('Critical Thinking evidence pipeline', () => {
       sources
     )
     expect(validation).toEqual({ valid: true, issues: [] })
+  })
+
+  it('validates passages across repeated focused fetches of the same URL', () => {
+    const laterFetch: ToolArtifact = {
+      ...primaryFetch,
+      id: 'artifact_2',
+      passages: [{ id: 'P1', text: 'A later focused fetch found a separate result.', score: 90 }]
+    }
+    const repeatedArtifacts = [...artifacts, laterFetch]
+    const packet = buildEvidencePacket(repeatedArtifacts, sources)
+    const earlierValidation = validateResearchReport(
+      'The measured improvement was 18 percent [[S1:P1]].',
+      repeatedArtifacts,
+      sources
+    )
+    const laterValidation = validateResearchReport(
+      'A separate result was found [[S1:P2]].',
+      repeatedArtifacts,
+      sources
+    )
+
+    expect(packet).toContain('[S1:P1] The measured improvement')
+    expect(packet).toContain('[S1:P2] A later focused fetch')
+    expect(earlierValidation).toEqual({ valid: true, issues: [] })
+    expect(laterValidation).toEqual({ valid: true, issues: [] })
+  })
+
+  it('matches equivalent numeric formatting without substring false positives', () => {
+    const participantArtifact: ToolArtifact = {
+      ...primaryFetch,
+      passages: [{ id: 'P1', text: 'The study enrolled 1000 participants.', score: 100 }]
+    }
+    expect(
+      validateResearchReport(
+        'The study enrolled 1,000 participants [[S1:P1]].',
+        [participantArtifact],
+        sources
+      )
+    ).toEqual({ valid: true, issues: [] })
+    expect(
+      validateResearchReport(
+        'The study enrolled 100 participants [[S1:P1]].',
+        [participantArtifact],
+        sources
+      ).valid
+    ).toBe(false)
   })
 
   it('renders only known validated markers as deterministic Markdown links', () => {

@@ -16,9 +16,13 @@
   per-run evidence sidecars outside `runs.json`.
 - `src/main/criticalThinking/CriticalThinkingService.ts` — persisted bounded
   plan-step workflow, synthesis/validation phases, partial results, and resume.
+- `src/main/criticalThinking/criticalThinkingSynthesisBudget.ts` — provider-aware
+  prompt/evidence/output sizing so synthesis and repair fit small local contexts
+  as well as large cloud windows.
 - `src/main/criticalThinking/criticalThinkingEvidence.ts` — evidence-packet
-  construction, internal citation validation, normalized quote checks, chart
-  value checks, and deterministic Markdown citation rendering.
+  construction across repeated focused fetches, internal citation validation,
+  normalized quote/number checks, chart value checks, and deterministic Markdown
+  citation rendering.
 - Renderer/shared IPC updates expose researching, synthesizing, validating,
   completed, partial, stopped, and failed states without conflating them.
 

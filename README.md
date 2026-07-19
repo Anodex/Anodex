@@ -39,8 +39,9 @@ folder.
   recursively invoking the model. Proactive compaction remains the primary
   path, with the mid-turn shift as a last-resort safety net.
 - Every generation has provider-neutral time, tool-call, provider-round, and
-  context-shift limits. Limit stops are reported distinctly from a user Stop,
-  and completed text/tool work is preserved.
+  context-shift limits. Tool limits soft-block additional calls so the model
+  can still return useful partial work; context-shift budget stops are distinct
+  from a true hard context ceiling and from a user Stop.
 - **Attachments**: drag a file into the composer to attach it to your next
   message (not sandboxed to a project — you chose the file explicitly).
 - Desktop notifications and a short AI-generated toast summary when a reply

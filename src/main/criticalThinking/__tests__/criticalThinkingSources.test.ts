@@ -81,4 +81,31 @@ The original research report.`)
       }
     ])
   })
+
+  it('preserves case-sensitive URL paths as distinct sources', () => {
+    const sources = mergeSources(
+      [
+        {
+          id: 'S1',
+          title: 'Uppercase path',
+          url: 'https://example.com/Report',
+          verified: true
+        }
+      ],
+      [
+        {
+          id: 'S2',
+          title: 'Lowercase path',
+          url: 'https://EXAMPLE.com/report',
+          verified: true
+        }
+      ]
+    )
+
+    expect(sources).toHaveLength(2)
+    expect(sources.map((source) => source.url)).toEqual([
+      'https://example.com/Report',
+      'https://EXAMPLE.com/report'
+    ])
+  })
 })

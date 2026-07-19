@@ -111,19 +111,17 @@ const CHECK_IN_EVERY_TURNS = 3
  * Stop reasons that only end the *turn* that hit them, not the whole run —
  * the run falls through to its normal per-turn logic (retry, continue to the
  * next turn) instead of stopping. `'loop-guard'`: the guard's state is
- * per-generation, so the next turn starts with a clean slate. `'context-limit'`:
- * `LlamaService.generate()` already disposes the wedged session and forces
- * the next turn to rebuild from a clean one (see `isContextShiftCrash` in
- * `LlamaService.ts`), so — like the loop guard — this is a turn-level hiccup
- * the engine is already built to route around, not a signal the user wants
- * everything to stop. Every other stop reason (a real user Stop, or
- * undefined/unknown) ends the run.
+ * per-generation, so the next turn starts with a clean slate. Context limits
+ * and context-shift budgets also end only the current turn; the next turn can
+ * rebuild from compacted, persisted history. Every other stop reason (a real
+ * user Stop, or undefined/unknown) ends the run.
  */
 function isRecoverableTurnStop(stopReason: GenerationStopReason | undefined): boolean {
   return (
     stopReason === 'loop-guard' ||
     stopReason === 'no-progress' ||
     stopReason === 'context-limit' ||
+    stopReason === 'context-shift-limit' ||
     stopReason === 'rounds-exhausted' ||
     stopReason === 'tool-limit' ||
     stopReason === 'time-limit' ||

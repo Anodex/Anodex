@@ -76,7 +76,9 @@ export class GenerationBudget {
     if (this.reason) return limitMessage(this.reason)
     this.toolAttempts++
     if (this.toolAttempts > this.policy.maxTools) {
-      this.stop('tool-limit')
+      // Soft-gate further tools so the model can consume this result and
+      // return useful partial work. A later user/time/context abort still wins.
+      this.reason = 'tool-limit'
       return limitMessage('tool-limit')
     }
     return null
@@ -84,12 +86,12 @@ export class GenerationBudget {
 
   recordContextShift(): void {
     this.contextShifts++
-    if (this.contextShifts > this.policy.maxContextShifts) this.stop('context-limit')
+    if (this.contextShifts > this.policy.maxContextShifts) this.stop('context-shift-limit')
   }
 
   stop(reason: GenerationStopReason): void {
-    if (this.reason) return
-    this.reason = reason
+    if (this.controller.signal.aborted) return
+    if (!this.reason || this.reason === 'tool-limit' || reason === 'user') this.reason = reason
     this.controller.abort()
   }
 
@@ -105,6 +107,9 @@ function limitMessage(reason: GenerationStopReason): string {
   }
   if (reason === 'time-limit') {
     return 'This turn reached its time budget. Stop and return the useful partial result.'
+  }
+  if (reason === 'context-shift-limit') {
+    return 'This turn reached its context-compaction budget. Stop and return the useful partial result.'
   }
   return 'This turn has been stopped. Do not start another tool call.'
 }

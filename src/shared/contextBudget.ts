@@ -1,3 +1,6 @@
+import { ANTHROPIC_MODELS } from './anthropicModels'
+import { OPENAI_MODELS } from './openaiModels'
+
 /**
  * Shared context-budget knobs used by both the main-process assembler and the
  * renderer's projected context meter.
@@ -33,6 +36,18 @@ export const MAX_MODEL_TOOL_RESULT_CHARS = 1_200
  * model still gets bounded instead of replaying history unboundedly.
  */
 export const DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS = 128_000
+
+/** Conservative context window for a configured cloud model. */
+export function cloudContextWindowTokens(
+  provider: 'openai' | 'anthropic',
+  modelId: string
+): number {
+  const models = provider === 'anthropic' ? ANTHROPIC_MODELS : OPENAI_MODELS
+  return (
+    models.find((model) => model.id === modelId)?.contextWindowTokens ??
+    DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS
+  )
+}
 
 /** Non-history token reservation for the given context window. */
 export function reservedNonHistoryTokens(contextSize: number): number {

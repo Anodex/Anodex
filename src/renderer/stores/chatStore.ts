@@ -345,6 +345,10 @@ export const useChatStore = create<ChatState>()(
               ? 'This reply stopped early — the conversation ran out of context space. The text above is everything produced before that point.'
               : 'This reply ran out of context space while working. Anodex compacted what it could, but the turn still reached the model’s hard limit.'
           }
+          if (result.value.stopReason === 'context-shift-limit') {
+            message.error =
+              'This reply reached its bounded context-compaction budget. The text and completed tool work above were preserved.'
+          }
           if (result.value.stopReason === 'fixed-context-limit') {
             const budget = result.value.contextBudget
             message.error = budget

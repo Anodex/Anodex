@@ -15,7 +15,7 @@ import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
-import { DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS } from '@shared/contextBudget'
+import { cloudContextWindowTokens } from '@shared/contextBudget'
 import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
@@ -141,20 +141,6 @@ function activeModelDescriptor(
   }
   const model = llamaService.getState().model
   return model ? { id: model.id, name: model.name } : null
-}
-
-/**
- * Conservative context-window budget for a cloud model, used to bound
- * history before it's sent (see `boundHistoryForCloudProvider`). Falls back
- * to `DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS` for a custom/typed-in model id
- * with no known catalog entry, so an unrecognized model still gets bounded
- * instead of replaying history unboundedly.
- */
-function cloudContextWindowTokens(providerId: 'openai' | 'anthropic', modelId: string): number {
-  const models = providerId === 'anthropic' ? ANTHROPIC_MODELS : OPENAI_MODELS
-  return (
-    models.find((m) => m.id === modelId)?.contextWindowTokens ?? DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS
-  )
 }
 
 /**

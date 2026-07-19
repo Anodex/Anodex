@@ -35,6 +35,12 @@ import {
   validateResearchReport
 } from './criticalThinkingEvidence'
 import { mergeSources, sourcesFromArtifact } from './criticalThinkingSources'
+import {
+  boundPromptItems,
+  criticalThinkingContextTokens,
+  criticalThinkingSynthesisLimits,
+  truncatePromptText
+} from './criticalThinkingSynthesisBudget'
 
 const log = createLogger('critical-thinking-service')
 const MAX_QUESTION_CHARS = 8_000
@@ -338,7 +344,24 @@ class CriticalThinkingService {
   private async runSynthesis(run: CriticalThinkingRun, signal: AbortSignal): Promise<void> {
     const artifacts = criticalThinkingEvidenceStore.list(run.id)
     const verifiedSources = run.sources.filter((source) => source.verified)
-    const evidencePacket = buildEvidencePacket(artifacts, run.sources)
+    const limits = criticalThinkingSynthesisLimits(
+      criticalThinkingContextTokens(run.provider, run.model, llamaService.getState().contextSize)
+    )
+    const question = truncatePromptText(run.question, limits.maxQuestionChars)
+    const plan = boundPlanForPrompt(run.plan!, limits.maxPlanChars)
+    const findings = boundPromptItems(
+      run.steps.map((step) => step.finding),
+      limits.maxFindingChars
+    )
+    const promptWithoutEvidence = buildCriticalThinkingSynthesisPrompt(question, plan, findings, '')
+    const evidencePacket = buildEvidencePacket(
+      artifacts,
+      run.sources,
+      Math.max(
+        0,
+        Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptWithoutEvidence.length)
+      )
+    )
     if (!evidencePacket || verifiedSources.length === 0) {
       this.finish(run.id, 'partial', {
         lastError:
@@ -351,14 +374,10 @@ class CriticalThinkingService {
     this.broadcastRunsChanged()
     const synthesis = await this.runToolFreeTurn(
       run,
-      buildCriticalThinkingSynthesisPrompt(
-        run.question,
-        run.plan!,
-        run.steps.map((step) => step.finding).filter(Boolean),
-        evidencePacket
-      ),
+      buildCriticalThinkingSynthesisPrompt(question, plan, findings, evidencePacket),
       signal,
-      true
+      true,
+      limits.maxOutputTokens
     )
     let draft = synthesis.content.trim()
     let stats = addStats(run.stats, synthesis.stats)
@@ -375,11 +394,27 @@ class CriticalThinkingService {
     this.broadcastRunsChanged()
     let validation = validateResearchReport(draft, artifacts, run.sources)
     if (!validation.valid) {
+      const repairIssues = boundPromptItems(
+        validation.issues,
+        Math.min(3_000, Math.floor(limits.maxPromptChars * 0.12))
+      )
+      const repairBase = buildCriticalThinkingRepairPrompt('', repairIssues, '')
+      const repairRemaining = Math.max(0, limits.maxPromptChars - repairBase.length)
+      const repairEvidence = buildEvidencePacket(
+        artifacts,
+        run.sources,
+        Math.min(limits.maxEvidenceChars, Math.floor(repairRemaining * 0.58))
+      )
+      const repairDraft = truncatePromptText(
+        draft,
+        Math.max(0, repairRemaining - repairEvidence.length)
+      )
       const repair = await this.runToolFreeTurn(
         run,
-        buildCriticalThinkingRepairPrompt(draft, validation.issues, evidencePacket),
+        buildCriticalThinkingRepairPrompt(repairDraft, repairIssues, repairEvidence),
         signal,
-        false
+        false,
+        limits.maxOutputTokens
       )
       stats = addStats(stats, repair.stats)
       if (repair.content.trim()) draft = repair.content.trim()
@@ -409,7 +444,8 @@ class CriticalThinkingService {
     run: CriticalThinkingRun,
     prompt: string,
     signal: AbortSignal,
-    stream: boolean
+    stream: boolean,
+    maxTokens: number
   ): Promise<RunGenerationResult> {
     return runGeneration(
       {
@@ -418,7 +454,7 @@ class CriticalThinkingService {
         projectId: null,
         history: [],
         prompt,
-        options: { temperature: 0.2, maxTokens: 4_096 }
+        options: { temperature: 0.2, maxTokens }
       },
       {
         signal,
@@ -615,6 +651,20 @@ function completePlan(plan: Plan | null): Plan | null {
   }
 }
 
+function boundPlanForPrompt(plan: Plan, maxChars: number): Plan {
+  const titles = boundPromptItems(
+    plan.steps.map((step) => step.title),
+    maxChars
+  )
+  return {
+    ...plan,
+    steps: plan.steps.slice(0, titles.length).map((step, index) => ({
+      ...step,
+      title: titles[index]
+    }))
+  }
+}
+
 function addStats(current: GenerationStats | null, next: GenerationStats): GenerationStats {
   const tokens = (current?.tokens ?? 0) + next.tokens
   const durationMs = (current?.durationMs ?? 0) + next.durationMs
@@ -643,6 +693,8 @@ function stoppedReasonMessage(stopReason: GenerationStopReason | undefined): str
       return 'The model instructions and required tools do not fit in the configured context window.'
     case 'context-limit':
       return 'This step reached the model context limit; saved evidence can be resumed.'
+    case 'context-shift-limit':
+      return 'This step reached its context-compaction budget; saved evidence can be resumed.'
     case 'loop-guard':
     case 'no-progress':
       return 'The model repeated actions without making progress; saved evidence can be resumed.'

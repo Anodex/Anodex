@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import type { ChatMessage } from '@shared/chat.types'
+import type { ChatMessage, GenerationStopReason } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import type { ScheduledTask } from '@shared/scheduledTask.types'
 import type { ToolCall } from '@shared/tools.types'
@@ -137,21 +137,7 @@ class SchedulerService {
       this.saveConversationTurn(conversation, [userMessage, assistantMessage])
 
       const summary = result.stopped
-        ? result.stopReason === 'fixed-context-limit'
-          ? 'Could not start: fixed instructions and tools do not fit the model context.'
-          : result.stopReason === 'context-limit'
-            ? 'Stopped early after reaching the model context limit.'
-            : result.stopReason === 'rounds-exhausted'
-              ? 'Stopped early after reaching the provider-round limit.'
-              : result.stopReason === 'tool-limit'
-                ? 'Stopped early after reaching the tool-call limit.'
-                : result.stopReason === 'time-limit'
-                  ? 'Stopped early after reaching the scheduled-run time limit.'
-                  : result.stopReason === 'loop-guard' || result.stopReason === 'no-progress'
-                    ? 'Stopped early after repeating work without progress.'
-                    : result.stopReason === 'user'
-                      ? 'The scheduled run was stopped by the user.'
-                      : 'The scheduled run stopped before completion.'
+        ? scheduledStopSummary(result.stopReason)
         : await this.summarize(result.content)
       schedulerStore.recordRun(task.id, {
         status: result.stopped ? 'stopped' : 'success',
@@ -240,6 +226,30 @@ class SchedulerService {
 
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
+}
+
+function scheduledStopSummary(stopReason: GenerationStopReason | undefined): string {
+  switch (stopReason) {
+    case 'fixed-context-limit':
+      return 'Could not start: fixed instructions and tools do not fit the model context.'
+    case 'context-limit':
+      return 'Stopped early after reaching the model context limit.'
+    case 'context-shift-limit':
+      return 'Stopped early after reaching the context-compaction limit.'
+    case 'rounds-exhausted':
+      return 'Stopped early after reaching the provider-round limit.'
+    case 'tool-limit':
+      return 'Stopped early after reaching the tool-call limit.'
+    case 'time-limit':
+      return 'Stopped early after reaching the scheduled-run time limit.'
+    case 'loop-guard':
+    case 'no-progress':
+      return 'Stopped early after repeating work without progress.'
+    case 'user':
+      return 'The scheduled run was stopped by the user.'
+    default:
+      return 'The scheduled run stopped before completion.'
+  }
 }
 
 export const schedulerService = new SchedulerService()
