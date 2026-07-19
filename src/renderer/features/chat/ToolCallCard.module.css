@@ -45,8 +45,6 @@
   background: color-mix(in srgb, var(--bg-surface-2) 54%, transparent);
 }
 
-/* Status node sitting on the group's timeline rail (see ToolCallGroup's
-   .callList::before) — solid bg so it masks the line passing behind it. */
 .icon {
   position: relative;
   z-index: 1;

@@ -1,14 +1,18 @@
 import { useState } from 'react'
-import { Icon } from '../../components/Icon'
 import styles from './ThoughtsSection.module.css'
 
 /**
- * Collapsed by default — a reasoning-tuned local model's chain-of-thought
- * text (`ChatMessage.thinking`), shown separately from its visible reply.
- * Mirrors `ToolCallGroup`'s collapsed/expand visual pattern for consistency,
- * but renders as plain text (not markdown) — this is a raw reasoning
- * scratchpad, not a polished answer, and treating it as markdown risks
- * misrendering stray `#`/`*` characters the model never meant as formatting.
+ * A reasoning-tuned local model's chain-of-thought text (`ChatMessage.
+ * thinking`), shown separately from its visible reply. Deliberately minimal
+ * — no card, no chrome, just a rule and a single truncated preview line,
+ * like a note in the margin (picked over four other treatments compared side
+ * by side — see docs/ui-samples/chat/thoughts-styles.html). It's meant to
+ * never compete with the real answer for attention; the full text only shows
+ * once the user deliberately expands it.
+ *
+ * Renders as plain text (not markdown) — this is a raw reasoning scratchpad,
+ * not a polished answer, and treating it as markdown risks misrendering
+ * stray `#`/`*` characters the model never meant as formatting.
  */
 export function ThoughtsSection({
   thinking,
@@ -21,31 +25,39 @@ export function ThoughtsSection({
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <section className={`${styles.group} ${expanded ? styles.expanded : styles.collapsed}`}>
-      <button
-        type="button"
-        className={styles.labelButton}
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={expanded}
-        aria-label={`${expanded ? 'Collapse' : 'Show'} the model's reasoning`}
-      >
-        <Icon
-          name={expanded ? 'chevron-down' : 'chevron-right'}
-          size={12}
-          className={styles.labelChevron}
-        />
-        <span className={styles.label}>{streaming ? 'Thinking' : 'Thoughts'}</span>
-      </button>
-      {/* Collapsed hides the body, so a still-streaming turn needs its own
-          live signal here — same reasoning, and same visual language, as
-          ToolCallGroup's own collapsed `runTrack`. */}
-      {!expanded && streaming && (
-        <span className={styles.runTrack} aria-hidden="true">
-          <span className={styles.runHalo} />
-          <span className={styles.runCore} />
-        </span>
-      )}
-      {expanded && <div className={styles.body}>{thinking}</div>}
-    </section>
+    <div className={styles.row}>
+      <span className={`${styles.rule} ${streaming ? styles.streaming : ''}`} aria-hidden="true" />
+      <div className={styles.content}>
+        {expanded ? (
+          <>
+            <p className={styles.full}>{thinking}</p>
+            {/* A separate control from the text itself, not the paragraph's
+                own click handler — the expanded text is real prose someone
+                may want to read closely or select/copy, and an accidental
+                click while doing that shouldn't collapse it out from under
+                them. */}
+            <button
+              type="button"
+              className={styles.toggle}
+              onClick={() => setExpanded(false)}
+              aria-expanded={true}
+              aria-label="Collapse the model's reasoning"
+            >
+              Collapse
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className={styles.preview}
+            onClick={() => setExpanded(true)}
+            aria-expanded={false}
+            aria-label="Show the model's reasoning"
+          >
+            {thinking}
+          </button>
+        )}
+      </div>
+    </div>
   )
 }

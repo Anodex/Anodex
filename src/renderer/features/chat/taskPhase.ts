@@ -118,6 +118,36 @@ export function buildRenderSegments(blocks: MessageBlock[]): RenderSegment[] {
   return segments
 }
 
+/** A contiguous run of thinking/tool-call activity, collapsible behind one `TurnRecap`. */
+export type TimelineBlock =
+  | { type: 'text'; text: string }
+  | { type: 'work'; segments: Array<Extract<RenderSegment, { type: 'thinking' | 'toolGroup' }>> }
+
+/**
+ * Regroups render segments so consecutive thinking/tool-call activity becomes
+ * one collapsible run, while text stays exactly where it occurred. A message
+ * is almost always [work, text] (all activity, then the final reply), but this
+ * handles the general interleaved case too.
+ */
+export function groupSegmentsForTimeline(segments: RenderSegment[]): TimelineBlock[] {
+  const blocks: TimelineBlock[] = []
+
+  for (const segment of segments) {
+    if (segment.type === 'text') {
+      blocks.push({ type: 'text', text: segment.text })
+      continue
+    }
+    const last = blocks[blocks.length - 1]
+    if (last && last.type === 'work') {
+      last.segments.push(segment)
+    } else {
+      blocks.push({ type: 'work', segments: [segment] })
+    }
+  }
+
+  return blocks
+}
+
 /**
  * The ordered blocks to render for a message. Messages persisted before the
  * `blocks` field existed fall back to the previous "tools first, then text"

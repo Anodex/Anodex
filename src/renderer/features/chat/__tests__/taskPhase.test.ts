@@ -4,6 +4,7 @@ import type { ToolCall } from '@shared/tools.types'
 import {
   buildRenderSegments,
   currentTaskPhase,
+  groupSegmentsForTimeline,
   groupToolCallsByPhase,
   messageBlocks
 } from '../taskPhase'
@@ -127,6 +128,36 @@ describe('buildRenderSegments', () => {
     expect(segments).toHaveLength(1)
     expect(segments[0]).toMatchObject({ type: 'toolGroup', phase: 'inspecting' })
     expect((segments[0] as { calls: unknown[] }).calls).toHaveLength(2)
+  })
+})
+
+describe('groupSegmentsForTimeline', () => {
+  it('folds a leading run of thinking/tool segments into one work block, leaving the final text separate', () => {
+    const segments = buildRenderSegments([
+      { type: 'thinking', text: 'Let me look.' },
+      toolBlock({ kind: 'read' }),
+      { type: 'thinking', text: 'Now fixing it.' },
+      toolBlock({ kind: 'write' }),
+      textBlock('Done!')
+    ])
+    const blocks = groupSegmentsForTimeline(segments)
+    expect(blocks.map((b) => b.type)).toEqual(['work', 'text'])
+    expect((blocks[0] as { segments: unknown[] }).segments).toHaveLength(4)
+    expect((blocks[1] as { text: string }).text).toBe('Done!')
+  })
+
+  it('keeps interleaved text segments in place instead of merging across them', () => {
+    const segments = buildRenderSegments([
+      toolBlock({ kind: 'write' }),
+      textBlock('Checking that.'),
+      toolBlock({ kind: 'command' })
+    ])
+    const blocks = groupSegmentsForTimeline(segments)
+    expect(blocks.map((b) => b.type)).toEqual(['work', 'text', 'work'])
+  })
+
+  it('returns an empty array for no segments', () => {
+    expect(groupSegmentsForTimeline([])).toEqual([])
   })
 })
 

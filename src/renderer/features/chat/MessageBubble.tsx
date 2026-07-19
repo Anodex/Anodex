@@ -12,11 +12,10 @@ import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
 import { ThinkingIndicator } from './ThinkingIndicator'
-import { ThoughtsSection } from './ThoughtsSection'
-import { ToolCallGroup } from './ToolCallGroup'
+import { TurnRecap } from './TurnRecap'
 import { CheckpointDialog } from './CheckpointDialog'
 import { EditMessageDialog } from './EditMessageDialog'
-import { buildRenderSegments, messageBlocks } from './taskPhase'
+import { buildRenderSegments, groupSegmentsForTimeline, messageBlocks } from './taskPhase'
 import styles from './MessageBubble.module.css'
 
 /**
@@ -92,6 +91,7 @@ export function MessageBubble({
   const segments = buildRenderSegments(messageBlocks(message))
   const showThinking = message.streaming && segments.length === 0
   const lastSegment = segments[segments.length - 1]
+  const timeline = groupSegmentsForTimeline(segments)
   // The tail of a streaming message should always carry a live signal. A text
   // tail gets the caret below; a tool group with a running call animates
   // itself. But once a tool group settles and the model is generating its
@@ -139,21 +139,18 @@ export function MessageBubble({
           <ThinkingIndicator />
         ) : (
           <div className={styles.segments}>
-            {segments.map((segment, index) => {
-              if (segment.type === 'text') {
-                return <MessageContent key={`text-${index}`} content={segment.text} />
-              }
-              if (segment.type === 'thinking') {
-                return (
-                  <ThoughtsSection
-                    key={`thinking-${index}`}
-                    thinking={segment.text}
-                    streaming={message.streaming && index === segments.length - 1}
-                  />
-                )
+            {timeline.map((block, index) => {
+              if (block.type === 'text') {
+                return <MessageContent key={`text-${index}`} content={block.text} />
               }
               return (
-                <ToolCallGroup key={`tools-${index}`} phase={segment.phase} calls={segment.calls} />
+                <TurnRecap
+                  key={`work-${index}`}
+                  segments={block.segments}
+                  streaming={Boolean(message.streaming) && index === timeline.length - 1}
+                  startedAt={message.createdAt}
+                  finalDurationMs={message.stats?.durationMs}
+                />
               )
             })}
           </div>
