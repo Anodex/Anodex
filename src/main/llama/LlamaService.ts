@@ -21,8 +21,10 @@ import type {
 import type {
   ChatCompactRequest,
   ChatCompactResult,
+  ContextBudgetUsage,
   ChatHistoryTurn,
   ChatTitleRequest,
+  GenerationStopReason,
   GenerationOptions,
   GenerationStats,
   HistoryCompactionEvent
@@ -34,6 +36,7 @@ import type { Plan } from '@shared/plan.types'
 import type { McpToolDescriptor } from '@shared/mcp.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
+import { reservedNonHistoryTokens } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import type { ToolFunction } from '../tools/types'
@@ -46,6 +49,8 @@ import {
   rememberToolCallForModel,
   seedContextFromSnapshot
 } from './contextAssembler'
+import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
+import { foldIntoRollingSummary } from './rollingSummary'
 import {
   detectFabricatedUserTurn,
   detectFallbackToolCall,
@@ -58,17 +63,37 @@ import {
 } from './toolCallFallback'
 import { stripLeakedChannelTokens, stripSubstantialCodeFences } from '@shared/toolCallText'
 import { PendingToolCallTracker } from './pendingToolCalls'
+import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
   buildCompactionSummaryPrompt,
+  buildCompactionUpdatePrompt,
   COMPACTION_TRIGGER_RATIO,
-  MAX_COMPACTION_SUMMARY_WORDS,
+  MAX_COMPACTION_SUMMARY_TOKENS,
   MIN_CHARS_TO_SUMMARIZE,
   MIN_SUMMARY_CHARS,
   NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT,
+  NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT,
   renderTurnsForSummary
 } from './compaction'
+
+/**
+ * True for either of node-llama-cpp's two distinct, unversioned internal
+ * context-shift crash messages (see the doc comments on the two
+ * `NODE_LLAMA_CPP_CONTEXT_*_CRASH_FRAGMENT` constants in `compaction.ts`) —
+ * one thrown when the context-shift strategy returns history that still
+ * doesn't fit, the other thrown *inside* that strategy when even erasing
+ * everything erasable can't make the current turn's system prompt plus
+ * latest exchange fit on their own.
+ */
+function isContextShiftCrash(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT) ||
+      error.message.includes(NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT))
+  )
+}
 
 const log = createLogger('llama')
 
@@ -202,15 +227,26 @@ export interface GenerateOutcome {
    * Why `stopped` is true, when known. `'user'` — a real Stop click/signal
    * abort. `'loop-guard'` — the loop guard force-aborted this generation
    * because a call kept repeating after being blocked (see
-   * `LOOP_GUARD_ABORT_AFTER` in `loopGuard.ts`). Undefined for every other
-   * stop path (fabricated-turn detection, context-shift recovery, or a
-   * provider — Anthropic/OpenAI — that doesn't distinguish reasons at all).
-   * Callers that don't care can ignore this and treat any `stopped: true`
-   * the same as before; `AgentRunService` uses it specifically to tell "the
-   * user wants everything to stop" apart from "this one turn looped" —
-   * only the former should end a whole multi-turn run.
+   * `LOOP_GUARD_ABORT_AFTER` in `loopGuard.ts`). `'context-limit'` — the
+   * turn grew past the hard context ceiling faster than any compaction
+   * (proactive or the custom `contextShift.strategy` in
+   * `contextShiftStrategy.ts`) could keep up with, and node-llama-cpp's own
+   * recovery still couldn't fit it (see `isContextShiftCrash`) — the turn
+   * ended early with whatever content had already been produced, which is
+   * often substantial rather than empty. `'fixed-context-limit'` — exact
+   * wrapper/tokenizer preflight proved the system prompt, current request,
+   * and already-routed compact tool surface cannot fit before decoding, so no
+   * retry is attempted. Undefined for every other stop path
+   * (fabricated-turn detection, or a provider — Anthropic/OpenAI — that
+   * doesn't distinguish reasons at all). Callers that don't care can ignore
+   * this and treat any `stopped: true` the same as before; `AgentRunService`
+   * uses `'user'` vs. everything else to tell "the user wants everything to
+   * stop" apart from "this one turn looped/ran out of room" — only the
+   * former should end a whole multi-turn run.
    */
-  stopReason?: 'user' | 'loop-guard'
+  stopReason?: GenerationStopReason
+  /** Exact fixed prompt/tool-schema accounting from the active local wrapper. */
+  contextBudget?: ContextBudgetUsage
   /**
    * True when this turn's reply described an outcome (a file change, an
    * approval/denial, a fabricated user turn) that didn't actually happen —
@@ -247,12 +283,15 @@ export interface GenerateOutcome {
  */
 class LlamaService extends EventEmitter {
   private modulePromise: Promise<LlamaModule> | null = null
+  private loadedModule?: LlamaModule
   private llama?: Llama
   private model?: LlamaModel
   private context?: LlamaContext
   private contextSequence?: LlamaContextSequence
   private session?: LlamaChatSession
   private activeConversationId?: string
+  /** Refreshed before every generation; reused session strategies read it lazily. */
+  private activeToolSchemaReserveTokens = 0
 
   private status: EngineState['status'] = 'unloaded'
   private currentModel?: ModelInfo
@@ -412,41 +451,7 @@ class LlamaService extends EventEmitter {
     // as the decode loop itself.
     this.generating = true
     this.emitState()
-
-    let session: LlamaChatSession
-    try {
-      session = await this.ensureSession(
-        params.conversationId,
-        params.systemPrompt,
-        params.history,
-        params.context
-      )
-    } catch (error) {
-      this.generating = false
-      this.emitState()
-      throw error
-    }
-
-    // Proactive compaction: if this ongoing session's native KV cache is
-    // already near the context limit, rebuild it (through the same
-    // summarization path `ensureSession` uses on conversation switch) before
-    // starting this turn, rather than waiting for node-llama-cpp's own
-    // context shift to fail mid-generation. `params.history` — the persisted
-    // turns — is the correct source of truth here since this turn's new
-    // prompt hasn't been persisted yet.
-    const usageRatio = this.contextSize
-      ? (this.contextSequence?.nextTokenIndex ?? 0) / this.contextSize
-      : 0
-    if (usageRatio > COMPACTION_TRIGGER_RATIO) {
-      log.info(`Context usage at ${Math.round(usageRatio * 100)}% — compacting before this turn.`)
-      try {
-        session = await this.recompactSession(params, 'proactive')
-      } catch (error) {
-        this.generating = false
-        this.emitState()
-        throw error
-      }
-    }
+    const startedAt = Date.now()
 
     let hadSuccessfulWrite = false
     // Any tool activity at all this turn (attempted, denied, errored, or
@@ -468,6 +473,13 @@ class LlamaService extends EventEmitter {
     // Streams provisional "running" cards while the model is still generating
     // a write/edit call's params (see PendingToolCallTracker's doc comment).
     const pendingToolCalls = new PendingToolCallTracker()
+    // Built BEFORE `ensureSession` (not after, as this used to be ordered) so
+    // its measured schema cost can be reserved for by the mid-turn
+    // context-shift strategy the session construction wires up — see
+    // `toolSchemaReserveTokens`'s doc comment for why that reservation is
+    // necessary, not just nice-to-have. `buildToolFunctions` only needs
+    // `getModule()` and the (still-empty) abort/signal boxes by reference;
+    // it doesn't touch `session`/`contextSequence`, so this reordering is safe.
     try {
       functions = await this.buildToolFunctions(
         params,
@@ -496,7 +508,86 @@ class LlamaService extends EventEmitter {
       this.emitState()
       throw error
     }
-    const startedAt = Date.now()
+    let toolSchemaReserveTokens = this.estimateToolSchemaTokens(functions)
+    if (this.contextSize) {
+      // The exact surface is routed after the wrapper exists. Avoid letting
+      // the pre-session all-tools estimate erase every old turn first; the
+      // routed surface is intentionally capped near this share of context.
+      toolSchemaReserveTokens = Math.min(
+        toolSchemaReserveTokens,
+        Math.floor(this.contextSize * 0.35)
+      )
+    }
+
+    let session: LlamaChatSession
+    try {
+      session = await this.ensureSession(
+        params.conversationId,
+        params.systemPrompt,
+        params.history,
+        params.context,
+        toolSchemaReserveTokens
+      )
+    } catch (error) {
+      this.generating = false
+      this.emitState()
+      throw error
+    }
+
+    // Proactive compaction: if this ongoing session's native KV cache is
+    // already near the context limit, rebuild it (through the same
+    // summarization path `ensureSession` uses on conversation switch) before
+    // starting this turn, rather than waiting for node-llama-cpp's own
+    // context shift to fail mid-generation. `params.history` — the persisted
+    // turns — is the correct source of truth here since this turn's new
+    // prompt hasn't been persisted yet.
+    const usageRatio = this.contextSize
+      ? (this.contextSequence?.nextTokenIndex ?? 0) / this.contextSize
+      : 0
+    if (usageRatio > COMPACTION_TRIGGER_RATIO) {
+      log.info(`Context usage at ${Math.round(usageRatio * 100)}% — compacting before this turn.`)
+      try {
+        session = await this.recompactSession(params, 'proactive', toolSchemaReserveTokens)
+      } catch (error) {
+        this.generating = false
+        this.emitState()
+        throw error
+      }
+    }
+
+    // Tool schemas are fixed prompt overhead: history compaction cannot make
+    // them smaller. Keep likely tools native and expose every deferred tool
+    // through a compact discover/describe/call gateway when the full surface
+    // would crowd out the model's reply. The fit measurement below uses the
+    // real wrapper + tokenizer, including function documentation, rather than
+    // the JSON approximation used before a session exists.
+    const surface = await this.boundFunctionsForTurn(session, functions, params)
+    functions = Object.keys(surface.functions).length > 0 ? surface.functions : undefined
+    const contextBudget = this.measureContextBudget(session, params.prompt, functions, surface)
+    toolSchemaReserveTokens = contextBudget.toolSchemaTokens
+    this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
+
+    if (contextBudget.fixedTokens > contextBudget.inputLimitTokens) {
+      log.warn('Fixed context does not fit before generation', {
+        fixedTokens: contextBudget.fixedTokens,
+        inputLimitTokens: contextBudget.inputLimitTokens,
+        systemTokens: contextBudget.systemTokens,
+        promptTokens: contextBudget.promptTokens,
+        toolSchemaTokens: contextBudget.toolSchemaTokens,
+        activeToolCount: contextBudget.activeToolCount,
+        deferredToolCount: contextBudget.deferredToolCount
+      })
+      this.generating = false
+      this.emitState()
+      return {
+        content: '',
+        stats: buildStats(0, startedAt),
+        stopped: true,
+        stopReason: 'fixed-context-limit',
+        contextBudget
+      }
+    }
+
     let visibleContent = ''
     // Real chain-of-thought text from a reasoning-tuned model (node-llama-cpp's
     // `segmentType: 'thought'` chunks — see `GenerateOutcome.thinking`'s doc
@@ -638,10 +729,28 @@ class LlamaService extends EventEmitter {
         // session from `params.history` — this turn's own earlier rounds
         // (tool calls/results already produced by round 1+) live only in local
         // variables here and are NOT in `params.history` yet, so recompacting
-        // would silently discard them. Only safe on round 0, before this turn
-        // has done anything of its own; round 1+ and any round that already
-        // streamed content instead surfaces an honest error/partial-stop
-        // rather than silently losing already-completed tool work.
+        // would silently discard them.
+        //
+        // "Round 0" alone is NOT sufficient to call this safe, despite what
+        // it might look like: Anodex's own `round` counter only advances for
+        // the fallback-tool-call path (a model that fails to trigger native
+        // function calling) — a well-behaved model's ENTIRE multi-tool-call
+        // turn (native function calling) happens inside round 0's single
+        // `promptWithMeta()` call, via node-llama-cpp's own internal loop.
+        // Several tool calls — with real side effects already applied (a
+        // file written, a command already run) — can execute before the
+        // crash, with zero visible narration text between them, so
+        // `roundContent`/`roundSegment` being empty does NOT mean nothing
+        // happened. `hadAnyToolAttempt` (set by every tool's `onActivity`,
+        // regardless of whether any text streamed) is the actual signal:
+        // retrying from a rebuilt session would resend the ORIGINAL prompt
+        // with no memory of those calls, risking the model repeating them —
+        // harmless for an idempotent read, not for `run_command` or anything
+        // else with a real side effect. So this retry is only safe when
+        // truly nothing has happened yet: round 0, no streamed content, AND
+        // no tool attempted; every other case (including round 1+, which
+        // already implies tool work happened) surfaces an honest
+        // error/partial-stop instead of silently repeating completed work.
         //
         // Note: detection is a substring match against node-llama-cpp's own
         // internal (unversioned, untyped) error text — there's no exported
@@ -665,19 +774,37 @@ class LlamaService extends EventEmitter {
             finalizeFabricatedTurn(roundContent.slice(0, fabricatedTurnCut))
             break
           }
-          const isContextShiftFailure =
-            error instanceof Error &&
-            error.message.includes(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT)
+          const isContextShiftFailure = isContextShiftCrash(error)
           if (
             !isContextShiftFailure ||
             round > 0 ||
             roundContent.length > 0 ||
-            roundSegment.length > 0
+            roundSegment.length > 0 ||
+            hadAnyToolAttempt
           ) {
+            // This round's own content streamed via `onResponseChunk` above,
+            // so it only ever lived in this loop-local `roundContent`/
+            // `roundSegment` — never folded into the outer `visibleContent`,
+            // which normally only happens once a round completes
+            // successfully. When re-throwing a genuine context-shift crash,
+            // fold it in first so the outer catch's `isContextShiftCrash`
+            // handler (below) returns what actually streamed instead of
+            // silently dropping it — otherwise a crash mid-round after
+            // substantial output (the common case: it takes real generated
+            // content to grow the KV cache enough to hit this) reports back
+            // as an empty reply.
+            if (isContextShiftFailure) {
+              visibleContent = appendContent(visibleContent, roundContent)
+              if (roundSegment.trim()) {
+                thinkingText = thinkingText
+                  ? `${thinkingText}\n\n${roundSegment.trim()}`
+                  : roundSegment.trim()
+              }
+            }
             throw error
           }
           log.warn('Context shift failed mid-generation; compacting and retrying this round once.')
-          session = await this.recompactSession(params, 'reactive')
+          session = await this.recompactSession(params, 'reactive', toolSchemaReserveTokens)
           meta = await session.promptWithMeta(prompt, promptOptions)
         }
 
@@ -859,6 +986,7 @@ class LlamaService extends EventEmitter {
         stats: buildStats(tokenCount, startedAt),
         stopped,
         stopReason: stopped ? currentStopReason() : undefined,
+        contextBudget,
         fabricationDetected: fabricationDetectedThisTurn,
         thinking: thinkingText || undefined
       }
@@ -876,6 +1004,7 @@ class LlamaService extends EventEmitter {
           stats: buildStats(tokenCount, startedAt),
           stopped: true,
           stopReason: currentStopReason(),
+          contextBudget,
           fabricationDetected: fabricationDetectedThisTurn,
           thinking: thinkingText || undefined
         }
@@ -896,16 +1025,15 @@ class LlamaService extends EventEmitter {
       // failure happens after real tool calls already succeeded) and force
       // the next turn to rebuild from a clean session, rather than cascading
       // into a permanently broken conversation.
-      if (
-        error instanceof Error &&
-        error.message.includes(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT)
-      ) {
+      if (isContextShiftCrash(error)) {
         log.warn('Context shift failed mid-turn; ending this turn early with partial content.')
         this.disposeSession()
         return {
           content: visibleContent,
           stats: buildStats(tokenCount, startedAt),
           stopped: true,
+          stopReason: 'context-limit',
+          contextBudget,
           fabricationDetected: fabricationDetectedThisTurn,
           thinking: thinkingText || undefined
         }
@@ -996,8 +1124,24 @@ class LlamaService extends EventEmitter {
     const transcript = renderTurnsForSummary(plan.older)
     if (transcript.length < MIN_CHARS_TO_SUMMARIZE) return null
 
-    const summary = await this.summarizeHistoryForCompaction(transcript)
-    if (!summary) return null
+    // Chunked rolling fold (see `foldIntoRollingSummary`) — the old
+    // single-call path handed this entire transcript to the summarizer's
+    // 4,096-token context at once, which a long conversation exceeds.
+    // Seeding with the prior epoch's summary makes this a bounded
+    // replacement-style update instead of the old unbounded
+    // `mergeContextSummaries` concatenation across successive manual
+    // compactions.
+    const countTokens = (text: string): number => this.model!.tokenize(text).length
+    const summary = await foldIntoRollingSummary({
+      items: plan.older,
+      previousSummary: plan.previousSummary ?? undefined,
+      renderTranscript: renderTurnsForSummary,
+      itemTranscriptCost: (turn) => countTokens(renderTurnsForSummary([turn])),
+      countTokens,
+      summarize: (chunk, previousSummary) =>
+        this.summarizeHistoryForCompaction(chunk, previousSummary)
+    })
+    if (!summary || summary === plan.previousSummary) return null
 
     return {
       conversationId: request.conversationId,
@@ -1007,7 +1151,7 @@ class LlamaService extends EventEmitter {
         reason: 'manual',
         throughMessageId: plan.compactedThroughMessageId,
         removedTurns: plan.previousRemovedTurns + plan.compactedTurns,
-        summary: mergeContextSummaries(plan.previousSummary, summary) ?? summary
+        summary
       }
     }
   }
@@ -1095,8 +1239,13 @@ class LlamaService extends EventEmitter {
     systemPrompt: string | undefined,
     history: ChatHistoryTurn[],
     context: ConversationContext | null | undefined,
+    toolSchemaReserveTokens: number,
     compactionReason: HistoryCompactionEvent['reason'] = 'onLoad'
   ): Promise<LlamaChatSession> {
+    // This must happen before the same-conversation fast path. The session's
+    // strategy is reused, but the enabled/MCP tool surface can change between
+    // turns; its lazy getter below reads this refreshed value.
+    this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
     if (this.session && this.activeConversationId === conversationId) {
       return this.session
     }
@@ -1109,7 +1258,12 @@ class LlamaService extends EventEmitter {
       log.warn('Failed to clear context sequence history:', error)
     }
 
-    const compacted = await this.compactHistoryForSession(systemPrompt, history, context)
+    const compacted = await this.compactHistoryForSession(
+      systemPrompt,
+      history,
+      context,
+      toolSchemaReserveTokens
+    )
     if (compacted.removedTurns > 0) {
       this.emit('historyCompacted', {
         conversationId,
@@ -1125,7 +1279,31 @@ class LlamaService extends EventEmitter {
     const nlc = await this.getModule()
     this.session = new nlc.LlamaChatSession({
       contextSequence: this.contextSequence,
-      systemPrompt: compacted.systemPrompt
+      systemPrompt: compacted.systemPrompt,
+      contextShift: {
+        strategy: createBoundedContextShiftStrategy({
+          summarize: (transcript, previousSummary) =>
+            this.summarizeHistoryForCompaction(transcript, previousSummary),
+          stringifySystemText: (text) =>
+            typeof text === 'string' ? text : nlc.LlamaText.fromJSON(text as never).toString(),
+          getToolSchemaReserveTokens: () => this.activeToolSchemaReserveTokens,
+          // Mid-turn shifts run inside node-llama-cpp's generation loop and
+          // are otherwise completely invisible (no historyCompacted event
+          // fires here — see `onShift`'s doc comment) — this log line is the
+          // only production trace that a shift happened and what it did.
+          onShift: (info) => {
+            const trimmed = [
+              info.trimmedUserMessage ? 'the current user message' : '',
+              info.trimmedAssistantResponse ? 'the generated assistant response' : ''
+            ].filter(Boolean)
+            log.info(
+              `Context shift: folded ${info.foldedItemCount} exchange(s), ` +
+                `${info.foldedEvidenceCallCount} tool result(s) into a ${info.summaryTokens}-token ` +
+                `summary${trimmed.length > 0 ? `; trimmed ${trimmed.join(' and ')} to fit` : ''}.`
+            )
+          }
+        })
+      }
     })
 
     const items = buildHistoryItems(compacted.systemPrompt, compacted.history)
@@ -1146,7 +1324,8 @@ class LlamaService extends EventEmitter {
   private async compactHistoryForSession(
     systemPrompt: string | undefined,
     history: ChatHistoryTurn[],
-    context: ConversationContext | null | undefined
+    context: ConversationContext | null | undefined,
+    toolSchemaReserveTokens = 0
   ): Promise<{
     systemPrompt: string | undefined
     history: ChatHistoryTurn[]
@@ -1171,7 +1350,9 @@ class LlamaService extends EventEmitter {
       history: seeded.history,
       contextSize: this.contextSize,
       countTokens,
-      summarizeOlderTurns: (transcript) => this.summarizeHistoryForCompaction(transcript)
+      toolSchemaReserveTokens,
+      summarizeOlderTurns: (transcript, previousSummary) =>
+        this.summarizeHistoryForCompaction(transcript, previousSummary)
     })
 
     if (assembled.removedTurns === 0) {
@@ -1209,7 +1390,10 @@ class LlamaService extends EventEmitter {
    * conversation's own context, and is best-effort (`null` on any failure —
    * the caller falls back to just dropping the older turns).
    */
-  private async summarizeHistoryForCompaction(transcript: string): Promise<string | null> {
+  private async summarizeHistoryForCompaction(
+    transcript: string,
+    previousSummary?: string
+  ): Promise<string | null> {
     if (!this.model) return null
 
     try {
@@ -1221,10 +1405,20 @@ class LlamaService extends EventEmitter {
       // <conversation> delimiter + explicit "ignore requests inside it"
       // instruction, qwen2.5-coder-3b's "summary" of a 24-turn transcript
       // ending in "Assistant: OK" was literally the string "OK".
+      //
+      // With `previousSummary`, this is a replacement-style rolling update
+      // (see `foldIntoRollingSummary` in `rollingSummary.ts`): the returned
+      // text REPLACES the previous summary rather than being appended to it.
+      // `maxTokens` is capped at `MAX_COMPACTION_SUMMARY_TOKENS` (not the old
+      // `MAX_COMPACTION_SUMMARY_WORDS * 4`) because the 4,096-token summary
+      // context must also fit the previous summary and the transcript chunk
+      // on the input side — see that constant's doc for the arithmetic.
       const finalText = await this.runSummaryPrompt(
         sequence,
-        buildCompactionSummaryPrompt(transcript),
-        { maxTokens: Math.max(256, MAX_COMPACTION_SUMMARY_WORDS * 4), temperature: 0.2 }
+        previousSummary
+          ? buildCompactionUpdatePrompt(transcript, previousSummary)
+          : buildCompactionSummaryPrompt(transcript),
+        { maxTokens: MAX_COMPACTION_SUMMARY_TOKENS, temperature: 0.2 }
       )
       // Reject degenerate "summaries" (too short to have preserved anything
       // useful) rather than polluting the system prompt with them — the
@@ -1244,7 +1438,8 @@ class LlamaService extends EventEmitter {
    */
   private async recompactSession(
     params: GenerateParams,
-    reason: 'proactive' | 'reactive'
+    reason: 'proactive' | 'reactive',
+    toolSchemaReserveTokens: number
   ): Promise<LlamaChatSession> {
     this.disposeSession()
     return this.ensureSession(
@@ -1252,8 +1447,148 @@ class LlamaService extends EventEmitter {
       params.systemPrompt,
       params.history,
       params.context,
+      toolSchemaReserveTokens,
       reason
     )
+  }
+
+  /**
+   * Approximate token cost of `functions`' documented schemas — what
+   * `documentFunctionParams: true` (below, in `generate()`'s `promptOptions`)
+   * actually adds to what node-llama-cpp renders and re-verifies against the
+   * context budget, but which the mid-turn context-shift strategy can never
+   * see on its own (`chatHistory` doesn't carry `availableFunctions` — see
+   * `BoundedContextShiftDeps.toolSchemaReserveTokens`'s doc comment).
+   * Deliberately approximate (JSON-stringified name+description+params,
+   * tokenized), not an exact replica of the chat wrapper's own function-
+   * schema rendering — a real generation call registers Anodex's full tool
+   * catalog (read/write/command/git/plan/memory tools, MCP tools), and even
+   * a rough per-tool estimate closes the gap a flat reservation alone
+   * couldn't (reproduced live: a project chat's full tool surface at a
+   * 4,096-token context measured as fitting with no schema-aware reservation
+   * and was still rejected by node-llama-cpp's real, schema-inclusive check).
+   * Best-effort: an unstringifiable schema is skipped, not thrown on — an
+   * undercount here degrades to the prior (still real, just less precise)
+   * `reservedNonHistoryTokens` headroom, never to a crash.
+   */
+  private estimateToolSchemaTokens(functions: Record<string, ToolFunction> | undefined): number {
+    if (!functions || !this.model) return 0
+    let total = 0
+    for (const [name, fn] of Object.entries(functions)) {
+      try {
+        // `fn.params` is `any` (`ToolFunction = ChatSessionModelFunction<any>`)
+        // — narrowed to `unknown` before use so it's never propagated unsafely.
+        const params: unknown = fn.params
+        total += this.model.tokenize(
+          JSON.stringify({ name, description: fn.description, params })
+        ).length
+      } catch {
+        // Non-serializable schema — skip; see the doc comment above.
+      }
+    }
+    return total
+  }
+
+  /**
+   * Select the largest task-relevant native tool surface that leaves useful
+   * reply room. Tools that do not fit remain callable through the compact
+   * on-demand gateway built by `boundToolSurface`.
+   */
+  private async boundFunctionsForTurn(
+    session: LlamaChatSession,
+    functions: Record<string, ToolFunction> | undefined,
+    params: GenerateParams
+  ): Promise<BoundedToolSurface> {
+    if (!this.contextSize) {
+      return {
+        functions: functions ?? {},
+        directToolNames: Object.keys(functions ?? {}),
+        deferredToolNames: [],
+        routed: false
+      }
+    }
+
+    const nlc = await this.getModule()
+    const shiftReserve = defaultContextShiftReserve(this.contextSize)
+    const targetFixedTokens = Math.max(
+      0,
+      this.contextSize - shiftReserve - reservedNonHistoryTokens(this.contextSize)
+    )
+    const routingText = buildToolRoutingText(params)
+
+    return boundToolSurface({
+      allFunctions: functions,
+      define: nlc.defineChatSessionFunction,
+      routingText,
+      targetFixedTokens,
+      measureFixedTokens: (candidate) =>
+        this.measureContextBudget(session, params.prompt, candidate, {
+          functions: candidate ?? {},
+          directToolNames: Object.keys(candidate ?? {}),
+          deferredToolNames: [],
+          routed: false
+        }).fixedTokens
+    })
+  }
+
+  /** Exact fixed-input accounting through the same wrapper/tokenizer used by generation. */
+  private measureContextBudget(
+    session: LlamaChatSession,
+    prompt: string,
+    functions: Record<string, ToolFunction> | undefined,
+    surface: BoundedToolSurface
+  ): ContextBudgetUsage {
+    if (!this.contextSize || !this.model) throw new Error('No model context is loaded.')
+
+    const canonicalHistory = session.getChatHistory()
+    const initialHistory = canonicalHistory[0]?.type === 'system' ? [canonicalHistory[0]] : []
+    const emptyPromptHistory = appendModelResponse(
+      appendUserPrompt(initialHistory, '', this.getModuleSyncAppendUser())
+    )
+    const promptHistory = appendModelResponse(
+      appendUserPrompt(initialHistory, prompt, this.getModuleSyncAppendUser())
+    )
+    const renderedTokens = (
+      chatHistory: ChatHistoryItem[],
+      availableFunctions?: Record<string, ToolFunction>
+    ): number => {
+      const { contextText } = session.chatWrapper.generateContextState({
+        chatHistory,
+        availableFunctions,
+        documentFunctionParams: availableFunctions ? true : undefined
+      })
+      return contextText.tokenize(this.model!.tokenizer).length
+    }
+
+    const systemTokens = renderedTokens(emptyPromptHistory)
+    const promptWithoutTools = renderedTokens(promptHistory)
+    const fixedTokens = renderedTokens(promptHistory, functions)
+    const reservedTokens = defaultContextShiftReserve(this.contextSize)
+
+    return {
+      contextSize: this.contextSize,
+      inputLimitTokens: Math.max(0, this.contextSize - reservedTokens),
+      systemTokens,
+      promptTokens: Math.max(0, promptWithoutTools - systemTokens),
+      toolSchemaTokens: Math.max(0, fixedTokens - promptWithoutTools),
+      fixedTokens,
+      reservedTokens,
+      activeToolCount: Object.keys(functions ?? {}).length,
+      deferredToolCount: surface.deferredToolNames.length,
+      toolRoutingApplied: surface.routed
+    }
+  }
+
+  /**
+   * `appendUserMessageToChatHistory` is ESM-only like the rest of node-llama-
+   * cpp. `measureContextBudget` is synchronous once setup has awaited
+   * `getModule()`, so retain the loaded export rather than introducing an
+   * async render loop for every candidate tool.
+   */
+  private getModuleSyncAppendUser(): LlamaModule['appendUserMessageToChatHistory'] {
+    const module = this.loadedModule
+    if (!module) throw new Error('node-llama-cpp has not finished loading.')
+    return module.appendUserMessageToChatHistory
   }
 
   /**
@@ -1423,7 +1758,9 @@ class LlamaService extends EventEmitter {
 
   private async getModule(): Promise<LlamaModule> {
     this.modulePromise ??= import('node-llama-cpp')
-    return this.modulePromise
+    const module = await this.modulePromise
+    this.loadedModule = module
+    return module
   }
 
   private disposeSession(): void {
@@ -1597,6 +1934,32 @@ export function cleanChatTitle(raw: string): string | null {
       .replace(/[,;:]+$/, '')
       .trim() || null
   )
+}
+
+function defaultContextShiftReserve(contextSize: number): number {
+  return Math.max(1, Math.floor(contextSize / 10))
+}
+
+function appendUserPrompt(
+  history: readonly ChatHistoryItem[],
+  prompt: string,
+  append: LlamaModule['appendUserMessageToChatHistory']
+): ChatHistoryItem[] {
+  return append(history, prompt)
+}
+
+function appendModelResponse(history: readonly ChatHistoryItem[]): ChatHistoryItem[] {
+  if (history.at(-1)?.type === 'model') return [...history]
+  return [...history, { type: 'model', response: [] }]
+}
+
+function buildToolRoutingText(params: GenerateParams): string {
+  const recent = params.history
+    .slice(-8)
+    .flatMap((turn) => [turn.content, ...(turn.toolCalls ?? []).map((call) => call.name)])
+  if (params.tools?.plan) recent.push(...params.tools.plan.steps.map((step) => step.title))
+  recent.push(params.prompt)
+  return recent.join('\n')
 }
 
 function buildStats(tokens: number, startedAt: number): GenerationStats {

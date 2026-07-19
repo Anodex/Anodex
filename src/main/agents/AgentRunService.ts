@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import type { ChatMessage } from '@shared/chat.types'
+import type { ChatMessage, GenerationStopReason } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { ToolCall } from '@shared/tools.types'
@@ -105,6 +105,28 @@ export function runPreflightReason(
  * run stays visible without needing to be stopped to find out what it's doing.
  */
 const CHECK_IN_EVERY_TURNS = 3
+
+/**
+ * Stop reasons that only end the *turn* that hit them, not the whole run —
+ * the run falls through to its normal per-turn logic (retry, continue to the
+ * next turn) instead of stopping. `'loop-guard'`: the guard's state is
+ * per-generation, so the next turn starts with a clean slate. `'context-limit'`:
+ * `LlamaService.generate()` already disposes the wedged session and forces
+ * the next turn to rebuild from a clean one (see `isContextShiftCrash` in
+ * `LlamaService.ts`), so — like the loop guard — this is a turn-level hiccup
+ * the engine is already built to route around, not a signal the user wants
+ * everything to stop. Every other stop reason (a real user Stop, or
+ * undefined/unknown) ends the run.
+ */
+function isRecoverableTurnStop(stopReason: GenerationStopReason | undefined): boolean {
+  return stopReason === 'loop-guard' || stopReason === 'context-limit'
+}
+
+function terminalStopMessage(stopReason: GenerationStopReason | undefined): string {
+  return stopReason === 'fixed-context-limit'
+    ? 'The run could not start because the model’s fixed instructions and compact tool gateway do not fit in its context window.'
+    : 'Run was stopped.'
+}
 
 /**
  * Runs a single goal-directed agent run to completion in the background: a
@@ -242,16 +264,13 @@ class AgentRunService {
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
 
-        if (stopped && stopReason !== 'loop-guard') {
-          this.finish(run.id, conversation.id, 'stopped', null, 'Run was stopped.')
+        if (stopped && !isRecoverableTurnStop(stopReason)) {
+          this.finish(run.id, conversation.id, 'stopped', null, terminalStopMessage(stopReason))
           return
         }
-        // A loop-guard trip (a call kept repeating after being blocked — see
-        // `LOOP_GUARD_ABORT_AFTER` in `loopGuard.ts`) only ends *this* turn,
-        // not the whole run: the guard's state is per-generation, so the next
-        // turn starts with a clean slate and a genuine chance to make
-        // progress, rather than the run dying over one bad turn. Falls
-        // through to the budget/check-in logic below, same as any other turn.
+        // A recoverable turn-level stop (see `isRecoverableTurnStop`'s doc
+        // comment) only ends *this* turn, not the whole run — falls through
+        // to the budget/check-in logic below, same as any other turn.
         if (finished) {
           this.finish(run.id, conversation.id, 'done', summary, null)
           return
@@ -358,17 +377,18 @@ class AgentRunService {
       let tokensUsed = first.tokens
       let flaggedTurns = run.flaggedTurns + (first.fabricationDetected ? 1 : 0)
 
-      // A real user Stop (or any internal stop other than the loop guard's
-      // own, recoverable one) must end the run immediately, not fall through
-      // to the retry below — retrying against a signal that's already
-      // aborted produces no plan either, and previously reported "Could not
-      // produce a plan for review" (status: error) for what was actually a
-      // deliberate user action, not a failure. A loop-guard stop is exempt:
-      // it already produces no plan, so the existing "no plan yet, retry
-      // once" logic is the right response either way.
-      if (first.stopped && first.stopReason !== 'loop-guard') {
+      // A real user Stop (or any internal stop other than a recoverable
+      // turn-level one — see `isRecoverableTurnStop`) must end the run
+      // immediately, not fall through to the retry below — retrying against
+      // a signal that's already aborted produces no plan either, and
+      // previously reported "Could not produce a plan for review" (status:
+      // error) for what was actually a deliberate user action, not a
+      // failure. A recoverable stop is exempt: it already produces no plan,
+      // so the existing "no plan yet, retry once" logic is the right
+      // response either way.
+      if (first.stopped && !isRecoverableTurnStop(first.stopReason)) {
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
-        this.finish(run.id, conversation.id, 'stopped', null, 'Run was stopped.')
+        this.finish(run.id, conversation.id, 'stopped', null, terminalStopMessage(first.stopReason))
         return
       }
 
@@ -384,9 +404,15 @@ class AgentRunService {
         turnsUsed = 2
         tokensUsed += retry.tokens
         if (retry.fabricationDetected) flaggedTurns += 1
-        if (retry.stopped && retry.stopReason !== 'loop-guard') {
+        if (retry.stopped && !isRecoverableTurnStop(retry.stopReason)) {
           agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
-          this.finish(run.id, conversation.id, 'stopped', null, 'Run was stopped.')
+          this.finish(
+            run.id,
+            conversation.id,
+            'stopped',
+            null,
+            terminalStopMessage(retry.stopReason)
+          )
           return
         }
         plan = retry.plan
@@ -444,7 +470,7 @@ class AgentRunService {
     finished: boolean
     summary: string | null
     stopped: boolean
-    stopReason?: 'user' | 'loop-guard'
+    stopReason?: GenerationStopReason
     tokens: number
     plan: Plan | null
     /** See `AgentRun.flaggedTurns`'s doc comment. */
@@ -488,6 +514,7 @@ class AgentRunService {
       content: result.content,
       createdAt: Date.now(),
       stats: result.stats,
+      contextBudget: result.contextBudget,
       memoryUsed: result.memoryUsed,
       thinking: result.thinking,
       toolCalls: toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined

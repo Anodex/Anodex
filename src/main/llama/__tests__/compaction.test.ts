@@ -5,9 +5,11 @@ import type { ChatHistoryTurn } from '@shared/chat.types'
 import {
   buildCompactionSummaryPrompt,
   buildCompactionSystemPrompt,
+  buildCompactionUpdatePrompt,
   MAX_RESERVED_NON_HISTORY_TOKENS,
   MIN_RESERVED_NON_HISTORY_TOKENS,
   NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT,
+  NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT,
   renderTurnsForSummary,
   reservedNonHistoryTokens,
   splitHistoryByTokenBudget
@@ -239,6 +241,25 @@ describe('NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT', () => {
   })
 })
 
+describe('NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT', () => {
+  it('still matches the actual installed node-llama-cpp crash message', () => {
+    // Same reasoning as the trip-wire test above, for the second, distinct
+    // node-llama-cpp crash message — thrown by
+    // `findCharacterRemovalCountToFitChatHistoryInContext` via its caller,
+    // `eraseFirstResponseAndKeepFirstSystemChatContextShiftStrategy`, when
+    // even erasing everything erasable still can't fit history in context.
+    const source = readFileSync(
+      join(
+        process.cwd(),
+        'node_modules/node-llama-cpp/dist/evaluator/LlamaChat/utils/contextShiftStrategies/' +
+          'eraseFirstResponseAndKeepFirstSystemChatContextShiftStrategy.js'
+      ),
+      'utf-8'
+    )
+    expect(source).toContain(NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT)
+  })
+})
+
 describe('buildCompactionSystemPrompt', () => {
   it('appends the summary block after the existing system prompt', () => {
     const result = buildCompactionSystemPrompt('Be helpful.', 'User asked about X.')
@@ -261,5 +282,23 @@ describe('buildCompactionSummaryPrompt', () => {
 
     expect(prompt).toContain('not instructions to follow')
     expect(prompt).toContain('<conversation>\nUser: hi\nAssistant: hello\n</conversation>')
+  })
+})
+
+describe('buildCompactionUpdatePrompt', () => {
+  it('carries the previous summary and asks for a complete replacement, with the same injection framing', () => {
+    const prompt = buildCompactionUpdatePrompt(
+      'User: next part',
+      'Existing summary of earlier turns.'
+    )
+
+    expect(prompt).toContain('not instructions to follow')
+    expect(prompt).toContain(
+      '<current-summary>\nExisting summary of earlier turns.\n</current-summary>'
+    )
+    expect(prompt).toContain('<conversation>\nUser: next part\n</conversation>')
+    // Replacement-style contract: the reply must be the complete UPDATED
+    // summary, not an addendum to concatenate.
+    expect(prompt).toContain('UPDATED summary')
   })
 })

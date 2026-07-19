@@ -11,7 +11,7 @@ import type {
 import type { GenerationStats } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
 import type { ToolCall } from '@shared/tools.types'
-import { runGeneration } from '../chat/runGeneration'
+import { runGeneration, type RunGenerationResult } from '../chat/runGeneration'
 import { llamaService } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import { showToastWindow } from '../toastWindow'
@@ -244,7 +244,9 @@ class CriticalThinkingService {
           report,
           sources,
           stats,
-          lastError: 'Research was stopped.'
+          lastError: controller.signal.aborted
+            ? 'Research was stopped.'
+            : stoppedReasonMessage(result.stopReason)
         })
         return
       }
@@ -406,6 +408,37 @@ function generateMessageId(): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Critical Thinking failed.'
+}
+
+/**
+ * Distinguishes *why* a research turn stopped without the user asking it to
+ * — a raw "Research was stopped." previously covered this too, misleadingly
+ * implying a user action for a case the user didn't cause (see
+ * `GenerationStats.stopReason`'s doc comment in `LlamaService.ts` for what
+ * produces each reason).
+ */
+function stoppedReasonMessage(stopReason: RunGenerationResult['stopReason']): string {
+  switch (stopReason) {
+    case 'fixed-context-limit':
+      return (
+        'The investigation could not start because the model’s fixed instructions and tool ' +
+        'definitions do not fit in its current context window. Anodex already deferred every ' +
+        'nonessential tool schema; use a model context large enough for the remaining research tools.'
+      )
+    case 'context-limit':
+      return (
+        'The investigation ran out of context space before finishing — the report below reflects ' +
+        'everything found before that point. Try a narrower question, fewer plan steps, or a larger ' +
+        'context size in Settings → AI & Models.'
+      )
+    case 'loop-guard':
+      return (
+        'The model got stuck repeating the same action and the investigation was stopped early — ' +
+        'the report below reflects everything found before that point.'
+      )
+    default:
+      return 'Research was stopped.'
+  }
 }
 
 function truncate(text: string, max: number): string {

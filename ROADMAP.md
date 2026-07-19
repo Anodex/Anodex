@@ -73,8 +73,12 @@ Remaining tool-side opportunities:
   items.
 - Normal chats now support persisted per-tool opt-outs in Settings → Tools.
   Disabled schemas are omitted entirely, while agent and scheduled runs retain
-  their explicit allowlists. Semantic/RAG tool routing remains deliberately
-  deferred until real context measurements justify that infrastructure.
+  their explicit allowlists. Local generation now also measures the real
+  wrapper-rendered tool cost and keeps task-relevant schemas native while
+  deferring the rest behind a compact discover/describe/call gateway
+  (`src/main/llama/toolSurface.ts`). Broader embedding/RAG routing remains
+  deferred; the deterministic budget router solves the measured context-floor
+  failure without adding an indexing dependency.
 - The Settings tool catalog is searchable and reports cataloged tools rather than
   implying every conditional/email/web tool is active in the current chat.
 - Tool health now has compact collapsed availability details for project, web,

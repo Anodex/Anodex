@@ -76,6 +76,35 @@ describe('assembleModelContext', () => {
     expect(assembled.summarized).toBe(false)
   })
 
+  it('reserves active tool-schema tokens before selecting verbatim history', async () => {
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'a'.repeat(400) },
+      { role: 'assistant', content: 'b'.repeat(400) },
+      { role: 'user', content: 'c'.repeat(400) }
+    ]
+    const summarize = () => Promise.resolve('A bounded summary of the older tool-heavy turns.')
+    const withoutTools = await assembleModelContext({
+      systemPrompt: 'system',
+      history,
+      contextSize: 2_000,
+      countTokens,
+      summarizeOlderTurns: summarize
+    })
+    const withTools = await assembleModelContext({
+      systemPrompt: 'system',
+      history,
+      contextSize: 2_000,
+      countTokens,
+      toolSchemaReserveTokens: 700,
+      summarizeOlderTurns: summarize
+    })
+
+    expect(
+      withoutTools.report.historyBudgetTokens - withTools.report.historyBudgetTokens
+    ).toBeGreaterThanOrEqual(700)
+    expect(withTools.history.length).toBeLessThan(withoutTools.history.length)
+  })
+
   it('summarizes older turns and keeps the latest turns within the final budget', async () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'A'.repeat(220) },
@@ -102,28 +131,54 @@ describe('assembleModelContext', () => {
   it('folds extra turns into the summary when the summary itself reduces recent-turn budget', async () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'A'.repeat(220) },
-      { role: 'assistant', content: 'B'.repeat(160) },
+      { role: 'assistant', content: 'B'.repeat(250) },
       { role: 'user', content: 'C'.repeat(20) },
       { role: 'assistant', content: 'D'.repeat(20) }
     ]
-    const summarizedTranscripts: string[] = []
+    const summarizedCalls: Array<{ transcript: string; previous?: string }> = []
 
     const assembled = await assembleModelContext({
       systemPrompt: 'system',
       history,
       contextSize: 900,
       countTokens,
-      summarizeOlderTurns: (transcript) => {
-        summarizedTranscripts.push(transcript)
-        const summary = summarizedTranscripts.length === 1 ? 'S'.repeat(250) : 'Expanded summary'
+      summarizeOlderTurns: (transcript, previous) => {
+        summarizedCalls.push({ transcript, previous })
+        const summary = summarizedCalls.length === 1 ? 'S'.repeat(250) : 'Expanded summary'
         return Promise.resolve(summary)
       }
     })
 
-    expect(summarizedTranscripts).toHaveLength(2)
-    expect(summarizedTranscripts[1]).toContain('B'.repeat(160))
+    expect(summarizedCalls).toHaveLength(2)
+    // The fold-back pass folds ONLY the newly overflowing turn into the
+    // existing rolling summary — not the whole accumulated older slice again.
+    expect(summarizedCalls[1].transcript).toContain('B'.repeat(250))
+    expect(summarizedCalls[1].transcript).not.toContain('A'.repeat(220))
+    expect(summarizedCalls[1].previous).toBe('S'.repeat(250))
     expect(assembled.history).toEqual([history[2], history[3]])
     expect(assembled.removedTurns).toBe(2)
+  })
+
+  it('continues folding until replacement-summary growth no longer overflows history', async () => {
+    const history: ChatHistoryTurn[] = Array.from({ length: 6 }, (_, i) => ({
+      id: `m${i}`,
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: String(i).repeat(300)
+    }))
+    const summarySizes = [400, 700, 1_000]
+    let summaryCall = 0
+
+    const assembled = await assembleModelContext({
+      systemPrompt: undefined,
+      history,
+      contextSize: 2_000,
+      countTokens,
+      summarizeOlderTurns: () =>
+        Promise.resolve('s'.repeat(summarySizes[Math.min(summaryCall++, summarySizes.length - 1)]))
+    })
+
+    expect(summaryCall).toBeGreaterThan(2)
+    expect(assembled.report.historyTokens).toBeLessThanOrEqual(assembled.report.historyBudgetTokens)
   })
 
   it('drops older turns without a summary when there is too little useful transcript', async () => {
@@ -269,7 +324,7 @@ describe('boundHistoryForCloudProvider', () => {
     expect(bounded.compactedThroughMessageId).toBeTruthy()
   })
 
-  it('falls back to dropping when the summarizer fails or returns a degenerate result', async () => {
+  it('degrades to a bounded deterministic digest when the summarizer fails, instead of dropping', async () => {
     const history: ChatHistoryTurn[] = [
       { id: 'm1', role: 'user', content: 'a'.repeat(2_000) },
       { id: 'm2', role: 'assistant', content: 'b'.repeat(2_000) },
@@ -280,7 +335,13 @@ describe('boundHistoryForCloudProvider', () => {
       Promise.resolve(null)
     )
 
-    expect(bounded.summarized).toBe(false)
+    // Old behavior dropped the older turns entirely on summarizer failure;
+    // the rolling fold now keeps a hard-capped digest of them instead.
+    expect(bounded.summarized).toBe(true)
+    expect(bounded.summary).toBeDefined()
+    expect(bounded.summary).toContain('a')
+    // Bounded: nowhere near the raw 4,000-char transcript.
+    expect(bounded.summary!.length).toBeLessThan(2_000)
     expect(bounded.history).toEqual([history[2]])
   })
 })

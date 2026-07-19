@@ -72,7 +72,7 @@ export function registerChatHandlers(): void {
       ) {
         return err(
           'chat.context-too-small',
-          'The prompt is too long for the current context size. Try increasing the context size in Settings → AI & Models, disabling workspace tools, or shortening project instructions.',
+          'The model input is too large for the current context window. Anodex already defers nonessential tool schemas automatically; shorten unusually large project/assistant instructions or use a larger supported context.',
           message
         )
       }

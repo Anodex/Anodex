@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { ChatRequest, GenerationStats } from '@shared/chat.types'
+import type {
+  ChatRequest,
+  ContextBudgetUsage,
+  GenerationStats,
+  GenerationStopReason
+} from '@shared/chat.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { MemoryEntry } from '@shared/memory.types'
 import type { VerificationResult } from '@shared/projectMemory.types'
@@ -72,7 +77,9 @@ export interface RunGenerationResult {
   stats: GenerationStats
   stopped: boolean
   /** Why `stopped` is true, when known — see `GenerateOutcome.stopReason`'s doc comment. */
-  stopReason?: 'user' | 'loop-guard'
+  stopReason?: GenerationStopReason
+  /** Exact local fixed-context/tool accounting for this turn. */
+  contextBudget?: ContextBudgetUsage
   /** Memory entries retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts retrieved and injected into context for this turn, if any. */
@@ -148,10 +155,11 @@ function cloudContextWindowTokens(providerId: 'openai' | 'anthropic', modelId: s
 function cloudSummarizer(
   providerId: 'openai' | 'anthropic',
   modelOverride?: string
-): (transcript: string) => Promise<string | null> {
+): (transcript: string, previousSummary?: string) => Promise<string | null> {
   const summarize =
     providerId === 'anthropic' ? summarizeForCompactionAnthropic : summarizeForCompactionOpenAi
-  return (transcript: string) => summarize(transcript, modelOverride)
+  return (transcript: string, previousSummary?: string) =>
+    summarize(transcript, previousSummary, modelOverride)
 }
 
 /**
@@ -406,6 +414,7 @@ export async function runGeneration(
     stats: outcome.stats,
     stopped: outcome.stopped,
     stopReason: outcome.stopReason,
+    contextBudget: outcome.contextBudget,
     memoryUsed: memory?.entries,
     transcriptRecallUsed: transcriptRecall?.results,
     context: contextUpdate,

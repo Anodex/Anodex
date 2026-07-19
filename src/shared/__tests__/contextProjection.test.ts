@@ -31,6 +31,35 @@ describe('estimateProjectedContextUsage', () => {
     expect(usage.snapshotApplied).toBe(false)
   })
 
+  it('uses exact local system/tool accounting when the engine reports it', () => {
+    const usage = estimateProjectedContextUsage({
+      conversation: conversation([
+        { id: 'm1', role: 'user', content: 'inspect the project', createdAt: 1 }
+      ]),
+      contextSize: 8_192,
+      systemPrompt: 'this renderer estimate should be replaced',
+      fixedContext: {
+        contextSize: 8_192,
+        inputLimitTokens: 7_373,
+        systemTokens: 1_200,
+        promptTokens: 20,
+        toolSchemaTokens: 2_400,
+        fixedTokens: 3_620,
+        reservedTokens: 819,
+        activeToolCount: 9,
+        deferredToolCount: 31,
+        toolRoutingApplied: true
+      }
+    })
+
+    expect(usage.systemTokens).toBe(1_200)
+    expect(usage.toolSchemaTokens).toBe(2_400)
+    expect(usage.reservedTokens).toBe(819)
+    expect(usage.activeToolCount).toBe(9)
+    expect(usage.deferredToolCount).toBe(31)
+    expect(usage.toolRoutingApplied).toBe(true)
+  })
+
   it('applies a snapshot and only estimates turns after its boundary', () => {
     const base = conversation([
       { id: 'm1', role: 'user', content: 'old request', createdAt: 1 },

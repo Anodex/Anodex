@@ -41,12 +41,20 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const info = useMemo(() => {
     if (!contextSize || !conversation || conversation.messages.length === 0) return null
 
+    const fixedContext =
+      providerActive === 'local'
+        ? [...conversation.messages]
+            .reverse()
+            .find((message) => message.role === 'assistant' && message.contextBudget)?.contextBudget
+        : undefined
+
     return estimateProjectedContextUsage({
       conversation,
       contextSize,
-      systemPrompt
+      systemPrompt,
+      fixedContext
     })
-  }, [conversation, contextSize, systemPrompt])
+  }, [conversation, contextSize, systemPrompt, providerActive])
 
   if (!info) return null
 
@@ -55,6 +63,7 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const summary = [
     `projected ${info.usedTokens.toLocaleString()} / ${info.contextSize.toLocaleString()} tokens`,
     `${info.systemTokens.toLocaleString()} system`,
+    `${info.toolSchemaTokens.toLocaleString()} tool schemas`,
     `${info.historyTokens.toLocaleString()} recent history`,
     `${info.reservedTokens.toLocaleString()} reserved`
   ]
@@ -72,11 +81,12 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   }
 
   // Stacked breakdown of the same projection the tooltip describes: system
-  // prompt, recent history, and the response reservation, as slices of the
+  // prompt, tool definitions, recent history, and the response reservation, as slices of the
   // context window. Their widths sum to `pct` by construction (see
   // `estimateProjectedContextUsage`).
   const segments = [
     { kind: 'segSystem', tokens: info.systemTokens },
+    { kind: 'segTools', tokens: info.toolSchemaTokens },
     { kind: 'segHistory', tokens: info.historyTokens },
     { kind: 'segReserved', tokens: info.reservedTokens }
   ].filter((segment) => segment.tokens > 0)
@@ -112,6 +122,13 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
         <div className={styles.popoverRow}>
           <span>Used tokens</span>
           <strong>{info.usedTokens.toLocaleString()}</strong>
+        </div>
+        <div className={styles.popoverRow}>
+          <span>
+            <i className={`${styles.swatch} ${styles.swatchTools}`} />
+            Tool definitions
+          </span>
+          <strong>{info.toolSchemaTokens.toLocaleString()}</strong>
         </div>
         <div className={styles.popoverRow}>
           <span>
@@ -152,6 +169,15 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
                 {info.omittedTurns} older turn{info.omittedTurns === 1 ? '' : 's'} would compact.
               </span>
             )}
+          </div>
+        )}
+        {info.toolRoutingApplied && (
+          <div className={styles.popoverNote}>
+            <span>
+              {info.activeToolCount} compact tool schema
+              {info.activeToolCount === 1 ? '' : 's'} loaded; {info.deferredToolCount} more
+              available on demand.
+            </span>
           </div>
         )}
       </div>

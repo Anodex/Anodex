@@ -6,11 +6,13 @@ import { MAX_MODEL_TOOL_RESULT_CHARS } from '@shared/contextBudget'
 import { APPROX_CHARS_PER_TOKEN } from '@shared/contextProjection'
 import {
   buildCompactionSystemPrompt,
+  CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET,
   MIN_CHARS_TO_SUMMARIZE,
   renderTurnsForSummary,
   reservedNonHistoryTokens,
   splitHistoryByTokenBudget
 } from './compaction'
+import { foldIntoRollingSummary, type RollingSummarizer } from './rollingSummary'
 
 /**
  * Maximum remembered output per past tool call when rebuilding model context.
@@ -68,7 +70,24 @@ export interface ModelContextAssemblyInput {
   history: ChatHistoryTurn[]
   contextSize: number
   countTokens: (text: string) => number
-  summarizeOlderTurns: (transcript: string) => Promise<string | null>
+  /**
+   * Replacement-style rolling summarizer (see `RollingSummarizer` in
+   * `rollingSummary.ts`): receives one bounded transcript chunk plus the
+   * previous rolling summary and returns the complete updated summary.
+   * Overflowing turns are fed to it chunk-by-chunk via
+   * `foldIntoRollingSummary`, never as one unbounded transcript — the
+   * summarizer's own context is small (4,096 tokens for the local engine).
+   */
+  summarizeOlderTurns: RollingSummarizer
+  /** Fixed tool-schema cost reserved in addition to system/reply room (local provider). */
+  toolSchemaReserveTokens?: number
+  /**
+   * Per-chunk transcript budget for the fold — defaults to the local
+   * engine's `SUMMARY_CHUNK_TOKEN_BUDGET`. Cloud callers pass
+   * `CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET` so one big overflow doesn't become a
+   * long series of small paid API calls (see that constant's doc comment).
+   */
+  summaryChunkTokenBudget?: number
 }
 
 /**
@@ -83,45 +102,77 @@ export async function assembleModelContext({
   history,
   contextSize,
   countTokens,
-  summarizeOlderTurns
+  summarizeOlderTurns,
+  toolSchemaReserveTokens = 0,
+  summaryChunkTokenBudget
 }: ModelContextAssemblyInput): Promise<ModelContextAssembly> {
   const projectedHistory = projectHistoryForModel(history)
-  const initialBudget = historyBudgetTokens(systemPrompt, contextSize, countTokens)
+  const initialBudget = historyBudgetTokens(
+    systemPrompt,
+    contextSize,
+    countTokens,
+    toolSchemaReserveTokens
+  )
   const split = splitHistoryByTokenBudget(projectedHistory, initialBudget, countTokens)
 
   let older = split.older
   let projectedRecent = split.recent
-  let summary = await summarizeTurns(older, summarizeOlderTurns)
+  let summary = await summarizeTurns(older, summarizeOlderTurns, countTokens, {
+    chunkTokenBudget: summaryChunkTokenBudget
+  })
   let projectedSystemPrompt = summary
     ? buildCompactionSystemPrompt(systemPrompt, summary)
     : systemPrompt
 
   if (summary) {
     // If the summary itself pushes some "recent" turns out of budget, fold
-    // those turns into a replacement summary so the projected context has no
-    // unsummarized gap between the summary and verbatim replay.
-    for (let pass = 0; pass < 2; pass++) {
-      const budget = historyBudgetTokens(projectedSystemPrompt, contextSize, countTokens)
+    // those turns into the rolling summary so the projected context has no
+    // unsummarized gap between the summary and verbatim replay. Only the
+    // NEWLY overflowing turns are folded (with the existing summary as the
+    // rolling base) — re-summarizing the whole accumulated `older` slice
+    // from scratch each pass, as this used to, redoes work and can feed the
+    // summarizer an ever-larger transcript. A pass whose new slice is too
+    // small to summarize (`null`) keeps the summary it already has and
+    // drops just those few turns, instead of the old all-or-nothing
+    // drop-everything fallback.
+    // Each pass removes at least one turn from `projectedRecent`, so this
+    // converges in at most the number of retained turns. A fixed pass count
+    // is not sufficient: a replacement summary can grow again on pass 2 and
+    // push yet another turn over the newly reduced budget.
+    while (projectedRecent.length > 0) {
+      const budget = historyBudgetTokens(
+        projectedSystemPrompt,
+        contextSize,
+        countTokens,
+        toolSchemaReserveTokens
+      )
       const finalSplit = splitHistoryByTokenBudget(projectedRecent, budget, countTokens)
       projectedRecent = finalSplit.recent
       if (finalSplit.older.length === 0) break
 
       older = [...older, ...finalSplit.older]
-      const expandedSummary = await summarizeTurns(older, summarizeOlderTurns)
-      if (!expandedSummary) {
-        summary = null
-        projectedSystemPrompt = systemPrompt
-        const fallback = splitHistoryByTokenBudget(projectedHistory, initialBudget, countTokens)
-        older = fallback.older
-        projectedRecent = fallback.recent
-        break
+      const expandedSummary = await summarizeTurns(
+        finalSplit.older,
+        summarizeOlderTurns,
+        countTokens,
+        {
+          previousSummary: summary,
+          chunkTokenBudget: summaryChunkTokenBudget
+        }
+      )
+      if (expandedSummary) {
+        summary = expandedSummary
+        projectedSystemPrompt = buildCompactionSystemPrompt(systemPrompt, summary)
       }
-      summary = expandedSummary
-      projectedSystemPrompt = buildCompactionSystemPrompt(systemPrompt, summary)
     }
   }
 
-  const finalBudget = historyBudgetTokens(projectedSystemPrompt, contextSize, countTokens)
+  const finalBudget = historyBudgetTokens(
+    projectedSystemPrompt,
+    contextSize,
+    countTokens,
+    toolSchemaReserveTokens
+  )
   const removedTurns = older.length
 
   return {
@@ -204,7 +255,7 @@ export async function boundHistoryForCloudProvider(
   history: ChatHistoryTurn[],
   context: ConversationContext | null | undefined,
   contextWindowTokens: number,
-  summarizeOlderTurns?: (transcript: string) => Promise<string | null>
+  summarizeOlderTurns?: RollingSummarizer
 ): Promise<CloudBoundedContext> {
   const seeded = seedContextFromSnapshot(systemPrompt, history, context)
 
@@ -228,7 +279,11 @@ export async function boundHistoryForCloudProvider(
     history: seeded.history,
     contextSize: contextWindowTokens,
     countTokens: estimateTokensApprox,
-    summarizeOlderTurns
+    summarizeOlderTurns,
+    // A cloud summarizer isn't confined to the local engine's 4,096-token
+    // summary context — fold in larger chunks so one big overflow costs a
+    // handful of API calls, not dozens (see the constant's doc comment).
+    summaryChunkTokenBudget: CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET
   })
 
   return {
@@ -267,14 +322,40 @@ export function mergeContextSummaries(
   return `${previous}\n\nAdditional compacted context:\n${next}`
 }
 
+/**
+ * Fold `turns` into a bounded rolling summary via `foldIntoRollingSummary`,
+ * chunking so no single summarizer call receives more transcript than its
+ * small dedicated context can hold — the old single-call version handed the
+ * entire overflow transcript over at once, which for a long-lived
+ * conversation exceeded the summarizer's 4,096-token context and silently
+ * degraded to dropping the turns unsummarized. Returns `null` when the slice
+ * is too small to be worth summarizing (callers drop those turns, as
+ * before).
+ */
 async function summarizeTurns(
   turns: ChatHistoryTurn[],
-  summarizeOlderTurns: (transcript: string) => Promise<string | null>
+  summarizeOlderTurns: RollingSummarizer,
+  countTokens: (text: string) => number,
+  options?: { previousSummary?: string; chunkTokenBudget?: number }
 ): Promise<string | null> {
   if (turns.length === 0) return null
   const transcript = renderTurnsForSummary(turns)
-  if (transcript.length < MIN_CHARS_TO_SUMMARIZE) return null
-  return summarizeOlderTurns(transcript)
+  // Skipping a tiny INITIAL slice is a worthwhile round-trip optimization.
+  // Once a rolling summary already exists, however, newly overflowing turns
+  // must still be folded into it (the primitive uses a deterministic digest
+  // for tiny chunks); otherwise the snapshot boundary advances past turns
+  // that the summary never represented.
+  if (transcript.length < MIN_CHARS_TO_SUMMARIZE && !options?.previousSummary) return null
+  const folded = await foldIntoRollingSummary({
+    items: turns,
+    previousSummary: options?.previousSummary,
+    renderTranscript: renderTurnsForSummary,
+    itemTranscriptCost: (turn) => countTokens(renderTurnsForSummary([turn])),
+    countTokens,
+    summarize: summarizeOlderTurns,
+    chunkTokenBudget: options?.chunkTokenBudget
+  })
+  return folded ?? null
 }
 
 /** Sanitize transcript text and bound remembered tool output before model replay. */
@@ -308,11 +389,15 @@ export function rememberToolCallForModel(call: ToolCall): string {
 function historyBudgetTokens(
   systemPrompt: string | undefined,
   contextSize: number,
-  countTokens: (text: string) => number
+  countTokens: (text: string) => number,
+  toolSchemaReserveTokens = 0
 ): number {
   return Math.max(
     0,
-    contextSize - countTokens(systemPrompt ?? '') - reservedNonHistoryTokens(contextSize)
+    contextSize -
+      countTokens(systemPrompt ?? '') -
+      reservedNonHistoryTokens(contextSize) -
+      Math.max(0, toolSchemaReserveTokens)
   )
 }
 

@@ -100,6 +100,13 @@ Settings → Tools can disable individual built-in tools for normal chats. This
 removes their schemas from the model's context as well as preventing calls;
 agent runs and scheduled tasks keep their own explicit per-run tool selections.
 
+On smaller local-model contexts, Anodex also budgets the active tool surface
+automatically. Task-relevant tools keep native function schemas; unrelated
+Gmail, MCP, and project tools remain available through a compact on-demand
+discover/describe/call gateway instead of crowding the reply out before it can
+start. The chat context meter shows exact local tool-schema usage and how many
+additional tools are available on demand.
+
 - **Read (never need approval):** `list_directory`, `read_file`,
   `read_file_range`, `read_multiple_files`, `get_file_info`, `search_files`,
   `find_files`, `code_outline` (compact imports/exported-symbol map),

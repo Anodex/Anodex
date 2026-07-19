@@ -1,4 +1,4 @@
-import type { ChatHistoryTurn } from './chat.types'
+import type { ChatHistoryTurn, ContextBudgetUsage } from './chat.types'
 import type { ConversationContext } from './context.types'
 import type { Conversation } from './conversation.types'
 import {
@@ -18,12 +18,16 @@ export const APPROX_CHARS_PER_TOKEN = 4
 
 export interface ProjectedContextUsage {
   contextSize: number
-  /** Approximate projected pressure: system + selected history + reserved response/tool room. */
+  /** Projected pressure: system + active tool schemas + selected history + reply room. */
   usedTokens: number
   pct: number
   systemTokens: number
   historyTokens: number
+  toolSchemaTokens: number
   reservedTokens: number
+  activeToolCount: number
+  deferredToolCount: number
+  toolRoutingApplied: boolean
   /** Tokens from the persisted snapshot summary, if one was applied. */
   snapshotTokens: number
   recentTurns: number
@@ -52,19 +56,27 @@ export interface ManualContextCompactionPlan {
 export function estimateProjectedContextUsage({
   conversation,
   contextSize,
-  systemPrompt
+  systemPrompt,
+  fixedContext
 }: {
   conversation: Conversation
   contextSize: number
   systemPrompt?: string
+  /** Exact local wrapper/tokenizer accounting from the latest turn, when available. */
+  fixedContext?: ContextBudgetUsage
 }): ProjectedContextUsage {
   const seeded = seedProjectedHistory(systemPrompt, conversation)
-  const reservedTokens = reservedNonHistoryTokens(contextSize)
-  const systemTokens = estimateTokens(seeded.systemPrompt ?? '')
-  const historyBudget = Math.max(0, contextSize - systemTokens - reservedTokens)
+  const exactFixed = fixedContext?.contextSize === contextSize ? fixedContext : undefined
+  const reservedTokens = exactFixed?.reservedTokens ?? reservedNonHistoryTokens(contextSize)
+  const systemTokens = exactFixed?.systemTokens ?? estimateTokens(seeded.systemPrompt ?? '')
+  const toolSchemaTokens = exactFixed?.toolSchemaTokens ?? 0
+  const historyBudget = Math.max(0, contextSize - systemTokens - toolSchemaTokens - reservedTokens)
   const split = splitProjectedHistory(seeded.history, historyBudget)
   const historyTokens = split.recent.reduce((sum, turn) => sum + estimateTurnTokens(turn), 0)
-  const usedTokens = Math.min(contextSize, systemTokens + historyTokens + reservedTokens)
+  const usedTokens = Math.min(
+    contextSize,
+    systemTokens + toolSchemaTokens + historyTokens + reservedTokens
+  )
 
   return {
     contextSize,
@@ -72,7 +84,11 @@ export function estimateProjectedContextUsage({
     pct: Math.min(100, Math.round((usedTokens / contextSize) * 100)),
     systemTokens,
     historyTokens,
+    toolSchemaTokens,
     reservedTokens,
+    activeToolCount: exactFixed?.activeToolCount ?? 0,
+    deferredToolCount: exactFixed?.deferredToolCount ?? 0,
+    toolRoutingApplied: exactFixed?.toolRoutingApplied ?? false,
     snapshotTokens: seeded.snapshotTokens,
     recentTurns: split.recent.length,
     omittedTurns: split.older.length,

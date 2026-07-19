@@ -11,7 +11,8 @@ import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
 import { projectHistoryForModel, rememberToolCallForModel } from '../llama/contextAssembler'
 import {
   buildCompactionSummaryPrompt,
-  MAX_COMPACTION_SUMMARY_WORDS,
+  buildCompactionUpdatePrompt,
+  MAX_COMPACTION_SUMMARY_TOKENS,
   MIN_SUMMARY_CHARS
 } from '../llama/compaction'
 import { buildTools } from '../tools/registry'
@@ -263,9 +264,14 @@ function toParametersSchema(params: ToolFunction['params']): Record<string, unkn
  * Best-effort, matching the local engine's equivalent: `null` on any failure
  * or a degenerate (too-short) result, so the caller falls back to just
  * dropping the older turns instead of keeping a useless "summary".
+ *
+ * With `previousSummary`, performs a replacement-style rolling update (see
+ * `foldIntoRollingSummary` in `rollingSummary.ts`): the returned text
+ * REPLACES the previous summary rather than being appended to it.
  */
 export async function summarizeForCompactionOpenAi(
   transcript: string,
+  previousSummary?: string,
   modelOverride?: string
 ): Promise<string | null> {
   const settings = settingsStore.get().provider.openai
@@ -278,8 +284,15 @@ export async function summarizeForCompactionOpenAi(
   try {
     const response = await client.responses.create({
       model,
-      max_output_tokens: Math.max(256, MAX_COMPACTION_SUMMARY_WORDS * 4),
-      input: [{ role: 'user', content: buildCompactionSummaryPrompt(transcript) }]
+      max_output_tokens: MAX_COMPACTION_SUMMARY_TOKENS,
+      input: [
+        {
+          role: 'user',
+          content: previousSummary
+            ? buildCompactionUpdatePrompt(transcript, previousSummary)
+            : buildCompactionSummaryPrompt(transcript)
+        }
+      ]
     })
     // Real billed usage with no chat turn attached to it — fold into the
     // daily/model token totals so the usage gauge and daily cap comparison

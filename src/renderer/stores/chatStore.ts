@@ -323,6 +323,7 @@ export const useChatStore = create<ChatState>()(
           const content = sanitizeAssistantContent(result.value.content)
           message.content = content
           message.stats = result.value.stats
+          message.contextBudget = result.value.contextBudget
           message.blocks = reconcileMessageBlocks(
             message.blocks,
             content,
@@ -331,6 +332,25 @@ export const useChatStore = create<ChatState>()(
             trimmed,
             Boolean(projectId)
           )
+          // `stopped: true` isn't always a user-initiated Stop (that path is
+          // deliberately silent — no error, no chime, see below) — a
+          // `'context-limit'` reason means the turn hit the model's hard
+          // context ceiling and `LlamaService` ended it early on its own.
+          // Without this, that outcome renders as an empty or truncated
+          // bubble with zero explanation (observed live: a project chat's
+          // first message at a 4,096-token context produced a completely
+          // blank reply and no error anywhere).
+          if (result.value.stopReason === 'context-limit') {
+            message.error = content.trim()
+              ? 'This reply stopped early — the conversation ran out of context space. The text above is everything produced before that point.'
+              : 'This reply ran out of context space while working. Anodex compacted what it could, but the turn still reached the model’s hard limit.'
+          }
+          if (result.value.stopReason === 'fixed-context-limit') {
+            const budget = result.value.contextBudget
+            message.error = budget
+              ? `The model could not start because its fixed instructions and active tool definitions need ${budget.fixedTokens.toLocaleString()} tokens, but only ${budget.inputLimitTokens.toLocaleString()} fit before reply space. Anodex already deferred ${budget.deferredToolCount} tool${budget.deferredToolCount === 1 ? '' : 's'}.`
+              : 'The model could not start because its fixed instructions and active tool definitions do not fit in the current context window.'
+          }
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
           if (result.value.transcriptRecallUsed?.length) {
             message.transcriptRecallUsed = result.value.transcriptRecallUsed

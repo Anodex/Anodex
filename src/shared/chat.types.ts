@@ -9,6 +9,29 @@ import type { CheckpointSummary } from './checkpoint.types'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 
+export type GenerationStopReason = 'user' | 'loop-guard' | 'context-limit' | 'fixed-context-limit'
+
+/** Exact local-model input accounting captured with the active wrapper and tokenizer. */
+export interface ContextBudgetUsage {
+  contextSize: number
+  /** Maximum rendered input accepted while preserving node-llama-cpp's context-shift room. */
+  inputLimitTokens: number
+  /** System prompt plus wrapper framing, measured without the current user prompt or tools. */
+  systemTokens: number
+  /** Incremental rendered cost of the current user prompt. */
+  promptTokens: number
+  /** Incremental rendered cost of the active function definitions and parameter schemas. */
+  toolSchemaTokens: number
+  /** Exact rendered system + current prompt + active tool cost before generation. */
+  fixedTokens: number
+  /** Context reserved by node-llama-cpp for continued generation during a shift. */
+  reservedTokens: number
+  activeToolCount: number
+  /** Full schemas omitted from the prompt but still callable through the on-demand gateway. */
+  deferredToolCount: number
+  toolRoutingApplied: boolean
+}
+
 /** A file the user attached to a message — metadata only; content isn't retained after the turn. */
 export interface ChatAttachment {
   /** Absolute path (dropped from the OS) or workspace-relative path (dragged from the Files panel). */
@@ -48,6 +71,8 @@ export interface ChatMessage {
   error?: string
   /** Populated once generation completes. */
   stats?: GenerationStats
+  /** Exact fixed-context/tool accounting reported by the local engine for this turn. */
+  contextBudget?: ContextBudgetUsage
   /** Tool invocations made by the assistant during this turn. */
   toolCalls?: ToolCall[]
   /**
@@ -178,8 +203,25 @@ export interface ChatResult {
   messageId: string
   content: string
   stats: GenerationStats
-  /** True if the generation was stopped by the user before finishing. */
+  /**
+   * True if the turn ended before naturally finishing — a real user Stop,
+   * or an internal reason (see `stopReason`). NOT always a user action.
+   */
   stopped: boolean
+  /**
+   * Why `stopped` is true, when known. `'context-limit'`: the turn hit the
+   * model's hard context ceiling and ended early on its own — the renderer
+   * shows an explanatory notice for this case specifically (see
+   * `chatStore.ts`'s `sendMessage`), since otherwise it renders as an empty
+   * or truncated reply with no indication why. Undefined for a plain user
+   * Stop or a provider that doesn't distinguish reasons. See
+   * `GenerateOutcome.stopReason`'s doc comment in `LlamaService.ts` for the
+   * full list and what produces each one. A plain user Stop is reported as
+   * `'user'` when the provider exposes that distinction.
+   */
+  stopReason?: GenerationStopReason
+  /** Exact fixed-context/tool accounting reported by the local engine for this turn. */
+  contextBudget?: ContextBudgetUsage
   /** Memory entries that were retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */

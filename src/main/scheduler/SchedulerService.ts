@@ -121,6 +121,7 @@ class SchedulerService {
         content: result.content,
         createdAt: Date.now(),
         stats: result.stats,
+        contextBudget: result.contextBudget,
         memoryUsed: result.memoryUsed,
         thinking: result.thinking,
         toolCalls: toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined
@@ -133,7 +134,13 @@ class SchedulerService {
       if (result.context) conversation.context = result.context
       this.saveConversationTurn(conversation, [userMessage, assistantMessage])
 
-      const summary = await this.summarize(result.content)
+      const summary = result.stopped
+        ? result.stopReason === 'fixed-context-limit'
+          ? 'Could not start: fixed instructions and tools do not fit the model context.'
+          : result.stopReason === 'context-limit'
+            ? 'Stopped early after reaching the model context limit.'
+            : 'The scheduled run was stopped.'
+        : await this.summarize(result.content)
       schedulerStore.recordRun(task.id, {
         status: result.stopped ? 'stopped' : 'success',
         summary,
