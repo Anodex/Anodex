@@ -3,8 +3,8 @@ import { GenerationBudget, interactiveBudgetForContext } from '../GenerationBudg
 
 describe('GenerationBudget', () => {
   it('scales local context-shift tolerance with the configured context window', () => {
-    expect(interactiveBudgetForContext(4_096).maxContextShifts).toBe(2)
-    expect(interactiveBudgetForContext(8_192).maxContextShifts).toBe(4)
+    expect(interactiveBudgetForContext(4_096).maxContextShifts).toBe(4)
+    expect(interactiveBudgetForContext(8_192).maxContextShifts).toBe(8)
     expect(interactiveBudgetForContext(32_768).maxContextShifts).toBe(12)
   })
 

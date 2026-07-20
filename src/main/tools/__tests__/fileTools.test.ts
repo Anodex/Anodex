@@ -382,7 +382,7 @@ describe('AI file tools', () => {
 
       const result = await tool.handler({ path: 'lines.txt', startLine: 2, endLine: 4 })
 
-      expect(result).toBe('b\nc\nd')
+      expect(result).toBe('[lines.txt: lines 2-4 of 5. Next startLine: 5.]\nb\nc\nd')
     })
 
     it('caps the returned range at 200 lines even when endLine asks for far more', async () => {
@@ -403,11 +403,35 @@ describe('AI file tools', () => {
         startLine: 300,
         endLine: 1_000_000_000_000_000
       })
-      const returnedLines = result.split('\n')
+      const returnedLines = result.split('\n').slice(1)
 
       expect(returnedLines).toHaveLength(200)
       expect(returnedLines[0]).toBe('line 300')
       expect(returnedLines[199]).toBe('line 499')
+      expect(result).toContain('Next startLine: 500')
+    })
+
+    it('canonicalizes non-finite and oversized ends to the same effective range', async () => {
+      const content = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join('\n')
+      await writeFile(join(workspace, 'big.txt'), content)
+      const ctx = createMockContext(workspace)
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+      }
+
+      const infinite = await tool.handler({ path: './big.txt', startLine: 1, endLine: Infinity })
+      const oversized = await tool.handler({
+        path: 'big.txt',
+        startLine: 1,
+        endLine: 1_000_000_000_000_000
+      })
+      const omitted = await tool.handler({ path: 'big.txt', startLine: 1 })
+      const blocked = await tool.handler({ path: 'big.txt', startLine: 1, endLine: 200 })
+
+      expect(infinite).toBe(oversized)
+      expect(omitted).toBe(infinite)
+      expect(infinite).toContain('[big.txt: lines 1-200 of 300. Next startLine: 201.]')
+      expect(blocked).toContain('identical effective arguments 4 times this turn')
     })
 
     it('records a read touch in project memory', async () => {

@@ -76,7 +76,10 @@ Remaining tool-side opportunities:
   their explicit allowlists. Local generation now also measures the real
   wrapper-rendered tool cost and keeps task-relevant schemas native while
   deferring the rest behind a compact discover/describe/call gateway
-  (`src/main/llama/toolSurface.ts`). Broader embedding/RAG routing remains
+  (`src/main/llama/toolSurface.ts`). The gateway now also caps direct schemas
+  by context size and respects negated read-only instructions, preventing an
+  8K audit from spending nearly half its context on unrelated tool schemas.
+  Broader embedding/RAG routing remains
   deferred; the deterministic budget router solves the measured context-floor
   failure without adding an indexing dependency.
 - The Settings tool catalog is searchable and reports cataloged tools rather than

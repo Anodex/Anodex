@@ -233,6 +233,42 @@ describe('LlamaService.generate() context-shift recovery', () => {
     expect(outcome.content).not.toContain('tool calls omitted')
   })
 
+  it('preserves streamed text when an abort throws before the native round returns', async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    const controller = new AbortController()
+    access.session = {
+      promptWithMeta: vi.fn(
+        (_prompt: unknown, options: { onResponseChunk?: (chunk: unknown) => void }) => {
+          options.onResponseChunk?.({
+            type: undefined,
+            segmentType: undefined,
+            text: 'Useful partial audit text.',
+            tokens: [1, 2, 3]
+          })
+          controller.abort()
+          throw new Error('aborted')
+        }
+      ),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+
+    const outcome = await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'test-message',
+      history: [],
+      prompt: 'audit this project',
+      signal: controller.signal,
+      onToken: () => {}
+    })
+
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('user')
+    expect(outcome.content).toBe('Useful partial audit text.')
+  })
+
   it('does not retry (and risk repeating a completed tool call) when a tool already ran this round before the crash', async () => {
     // Regression: the round-0 retry rebuilds the session from PERSISTED
     // history and resends the ORIGINAL prompt from scratch — safe only if

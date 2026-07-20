@@ -111,6 +111,28 @@ describe('checkLoopGuard', () => {
     }
     expect(result.blocked).toBe(true)
   })
+
+  it('blocks an identical stable read repeated between unrelated stable reads', () => {
+    const state = createLoopGuardState()
+    let repeated: ReturnType<typeof checkLoopGuard> | undefined
+    for (let i = 0; i < 4; i++) {
+      repeated = checkLoopGuard(state, 'read_file_range', 'service.ts:1-200')
+      checkLoopGuard(state, 'read_file_range', `other-${i}.ts:1-200`)
+    }
+    expect(repeated?.blocked).toBe(true)
+  })
+
+  it('resets interleaved stable-read counts after a potentially changing action', () => {
+    const state = createLoopGuardState()
+    for (let i = 0; i < 3; i++) {
+      checkLoopGuard(state, 'read_file', 'status.json')
+      checkLoopGuard(state, 'read_file', `other-${i}.json`)
+    }
+    checkLoopGuard(state, 'write_file', 'status.json:new-content')
+    const afterWrite = checkLoopGuard(state, 'read_file', 'status.json')
+    expect(afterWrite.blocked).toBe(false)
+    expect(afterWrite.count).toBe(1)
+  })
 })
 
 describe('loopGuardKey', () => {

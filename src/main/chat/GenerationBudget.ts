@@ -41,7 +41,7 @@ export function interactiveBudgetForContext(
   if (!contextSize) return DEFAULT_INTERACTIVE_BUDGET
   return {
     ...DEFAULT_INTERACTIVE_BUDGET,
-    maxContextShifts: Math.max(2, Math.min(12, Math.ceil(contextSize / 4_096) * 2))
+    maxContextShifts: Math.max(4, Math.min(12, Math.ceil(contextSize / 4_096) * 4))
   }
 }
 

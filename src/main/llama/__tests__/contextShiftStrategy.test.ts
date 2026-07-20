@@ -274,7 +274,7 @@ describe('createBoundedContextShiftStrategy', () => {
       tokenizer,
       lastShiftMetadata: null
     })
-    schemaReserve = 2_500
+    schemaReserve = 2_600
     const second = await strategy({
       chatHistory,
       maxTokensCount: 4_000,
@@ -640,13 +640,10 @@ describe('createBoundedContextShiftStrategy', () => {
     expect(userText).toContain('[message truncated to fit context]')
   })
 
-  it('reproduces the live regression: a first message with nothing foldable still gets a fitting result', async () => {
-    // Live reproduction (2026-07-19): a project chat's very first message at
-    // a 4,096-token context. `chatHistory` is exactly [system, user, model]
-    // with no older exchanges (nothing for level 1) and no function calls
-    // yet (nothing for level 2's marker/drop passes) — before pass 5 existed
-    // this returned the input byte-identical, node-llama-cpp's own
-    // `checkIfHistoryFitsContext` rejected it, and the turn ended empty.
+  it("does not trim a first message that already fits node-llama-cpp's supplied budget", async () => {
+    // `maxTokensCount` already excludes node-llama-cpp's context-shift
+    // reserve. With no wrapper or schemas adding hidden cost, this exact
+    // history fits and should remain byte-for-byte intact.
     const summarize = summarizeMock()
     const strategy = createBoundedContextShiftStrategy({ summarize, stringifySystemText })
 
@@ -665,9 +662,7 @@ describe('createBoundedContextShiftStrategy', () => {
 
     expect(summarize).not.toHaveBeenCalled() // nothing old enough to fold
     const total = result.chatHistory.reduce((sum, item) => sum + fullItemCost(item, countTokens), 0)
-    expect(total).toBeLessThan(
-      chatHistory.reduce((sum, item) => sum + fullItemCost(item, countTokens), 0)
-    )
+    expect(total).toBe(chatHistory.reduce((sum, item) => sum + fullItemCost(item, countTokens), 0))
     expect(total).toBeLessThanOrEqual(3_686)
   })
 })

@@ -22,9 +22,8 @@ import { createBoundedContextShiftStrategy, type ChatWrapperLike } from '../cont
  * relative to a real single-id special token, which keeps the check
  * conservative rather than flattering. Function schema documentation is
  * deliberately absent: node-llama-cpp never passes `availableFunctions` to
- * a context-shift strategy, so schema cost is what the strategy's remaining
- * flat headroom (`TARGET_BUDGET_FRACTION`) covers — asserted here by
- * leaving margin below `maxTokensCount` rather than by rendering schemas.
+ * a context-shift strategy, so tests that model schema pressure pass its
+ * measured cost through `toolSchemaReserveTokens`.
  */
 
 /** Fake `Tokenizer`: 1 token per character, for both the strategy and the fit-check. */
@@ -114,8 +113,8 @@ describe('context-shift strategy output fits when rendered through real chat wra
 
     it(`${name}: fits a small-context budget where wrapper overhead dominates`, async () => {
       // 8,192-token context, same 10% shift convention. At this size the
-      // per-call wrapper syntax exceeds the flat plain-text headroom — this
-      // passes only because of the rendered-cost refinement loop.
+      // Per-call wrapper syntax exceeds the plain-text estimate — this passes
+      // only because of the rendered-cost refinement loop.
       const maxTokensCount = 7_372
       const rendered = await renderedCostAfterStrategy(makeWrapper(), maxTokensCount)
       expect(rendered).toBeLessThanOrEqual(maxTokensCount)
@@ -132,7 +131,7 @@ describe('context-shift strategy output fits when rendered through real chat wra
       // fix, the strategy returned its input byte-identical and node-llama-
       // cpp's own re-verification rejected it outright — this is what
       // pass 5 (shrinking the user message text) and the switch to
-      // `reservedNonHistoryTokens` (properly-shaped headroom) exist to fix.
+      // wrapper-aware deterministic trimming exists to fix.
       const strategy = createBoundedContextShiftStrategy({
         summarize: () => Promise.resolve(null),
         stringifySystemText
@@ -185,4 +184,31 @@ describe('context-shift strategy output fits when rendered through real chat wra
       expect(userItem.text).toContain('Marigold Peak')
     })
   }
+
+  it('Qwen: retains a non-empty checkpoint under the live 8K project-tool budget', async () => {
+    let summaryTokens = 0
+    const strategy = createBoundedContextShiftStrategy({
+      summarize: () => Promise.resolve(`Checkpoint ${'evidence '.repeat(100)}`),
+      stringifySystemText,
+      toolSchemaReserveTokens: 3_530,
+      onShift: (info) => {
+        summaryTokens = info.summaryTokens
+      }
+    })
+    const chatHistory = megaTurnHistory(20, 1_000)
+    chatHistory[0] = { type: 'system', text: 'System '.padEnd(2_100, 'x') }
+    const wrapper = new QwenChatWrapper()
+    const result = await strategy({
+      chatHistory,
+      maxTokensCount: 7_372,
+      tokenizer: fakeTokenizer,
+      chatWrapper: wrapper,
+      lastShiftMetadata: null
+    })
+    const { contextText } = wrapper.generateContextState({ chatHistory: result.chatHistory })
+    const rendered = contextText.tokenize(fakeTokenizer as never).length
+
+    expect(summaryTokens).toBeGreaterThan(0)
+    expect(rendered).toBeLessThanOrEqual(7_372 - 3_530)
+  })
 })

@@ -798,6 +798,14 @@ class LlamaService extends EventEmitter {
             break
           }
           const isContextShiftFailure = isContextShiftCrash(error)
+          if (genController.signal.aborted) {
+            visibleContent = appendContent(visibleContent, stripLeakedChannelTokens(roundContent))
+            if (roundSegment.trim()) {
+              thinkingText = thinkingText
+                ? `${thinkingText}\n\n${roundSegment.trim()}`
+                : roundSegment.trim()
+            }
+          }
           if (
             !isContextShiftFailure ||
             round > 0 ||
@@ -816,7 +824,7 @@ class LlamaService extends EventEmitter {
             // substantial output (the common case: it takes real generated
             // content to grow the KV cache enough to hit this) reports back
             // as an empty reply.
-            if (isContextShiftFailure) {
+            if (isContextShiftFailure && !genController.signal.aborted) {
               visibleContent = appendContent(visibleContent, roundContent)
               if (roundSegment.trim()) {
                 thinkingText = thinkingText
@@ -1031,7 +1039,7 @@ class LlamaService extends EventEmitter {
       // whatever content was already produced, matching the graceful path
       // below rather than surfacing a confusing raw abort error.
       if (params.signal?.aborted || genController.signal.aborted) {
-        log.info('Generation stopped (user or loop guard)')
+        log.info('Generation stopped by an abort signal')
         return {
           content: visibleContent,
           stats: buildStats(tokenCount, startedAt),
@@ -1503,9 +1511,9 @@ class LlamaService extends EventEmitter {
    * couldn't (reproduced live: a project chat's full tool surface at a
    * 4,096-token context measured as fitting with no schema-aware reservation
    * and was still rejected by node-llama-cpp's real, schema-inclusive check).
-   * Best-effort: an unstringifiable schema is skipped, not thrown on — an
-   * undercount here degrades to the prior (still real, just less precise)
-   * `reservedNonHistoryTokens` headroom, never to a crash.
+   * Best-effort: an unstringifiable schema is skipped, not thrown on. The
+   * strategy still measures wrapper-rendered history, and node-llama-cpp
+   * performs the final schema-inclusive fit check before accepting it.
    */
   private estimateToolSchemaTokens(functions: Record<string, ToolFunction> | undefined): number {
     if (!functions || !this.model) return 0
@@ -1557,6 +1565,7 @@ class LlamaService extends EventEmitter {
       define: nlc.defineChatSessionFunction,
       routingText,
       targetFixedTokens,
+      maxDirectTools: maxDirectToolsForContext(this.contextSize),
       measureFixedTokens: (candidate) =>
         this.measureContextBudget(session, params.prompt, candidate, {
           functions: candidate ?? {},
@@ -1977,6 +1986,11 @@ export function cleanChatTitle(raw: string): string | null {
 
 function defaultContextShiftReserve(contextSize: number): number {
   return Math.max(1, Math.floor(contextSize / 10))
+}
+
+/** Small contexts rely more heavily on the deferred gateway to preserve working room. */
+function maxDirectToolsForContext(contextSize: number): number {
+  return Math.max(8, Math.min(24, Math.floor(contextSize / 1_024) + 4))
 }
 
 function appendUserPrompt(

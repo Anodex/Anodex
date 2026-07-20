@@ -4,7 +4,6 @@ import type {
   ChatModelFunctionCall,
   ChatSystemMessage
 } from 'node-llama-cpp'
-import { reservedNonHistoryTokens } from './compaction'
 import { foldIntoRollingSummary, type RollingSummarizer } from './rollingSummary'
 
 /**
@@ -153,36 +152,17 @@ export interface BoundedContextShiftDeps {
 }
 
 /**
- * Headroom below `maxTokensCount` this strategy targets, rather than the
- * full amount — node-llama-cpp's own re-verification tokenizes the
- * chat-wrapper's *rendered* form (role markers, function-call syntax,
- * template framing), which this module's plain-text estimates can't see
- * (`chatHistory` doesn't carry the wrapper's own rendering syntax).
+ * `maxTokensCount` already excludes node-llama-cpp's context-shift reserve
+ * (`contextSize - contextShiftSize`). Subtracting Anodex's separate history
+ * reserve again double-counts reply headroom and can leave only the system
+ * prompt, squeezing a successfully-built checkpoint back to zero tokens.
  *
- * Two components, stacked:
- *  - `reservedNonHistoryTokens` — the SAME reservation the between-turn
- *    compaction path (`historyBudgetTokens` in `contextAssembler.ts`)
- *    already uses, covering wrapper syntax/framing in general. A fraction
- *    of `maxTokensCount`, not a flat amount — but even this alone is the
- *    wrong shape for the second component below (tool-schema cost is
- *    roughly constant per registered tool, not proportional to context
- *    size), which is why this function no longer stops here.
- *  - `toolSchemaReserveTokens` — the MEASURED cost of this generation's
- *    actual registered tool schemas (see `BoundedContextShiftDeps`'s doc
- *    comment). Reproduced live: a project chat (workspace tools + memory
- *    context) at a 4,096-token context hit `context-limit` on its very
- *    first message with `reservedNonHistoryTokens` alone still applied —
- *    the strategy measured its candidate as fitting (nothing in
- *    `chatHistory` needed trimming) and node-llama-cpp's own
- *    re-verification, WITH the real schemas added in, still rejected it.
- *    Measuring the actual schema cost and reserving for it directly closes
- *    that gap instead of hoping a generic reservation happens to cover it.
+ * Tool schemas are the one fixed cost still missing from `chatHistory`, so
+ * reserve their measured cost here. Wrapper syntax is measured directly by
+ * `renderedTokenCost` below and refined against this same target.
  */
 function targetBudgetTokens(maxTokensCount: number, toolSchemaReserveTokens: number): number {
-  return Math.max(
-    0,
-    maxTokensCount - reservedNonHistoryTokens(maxTokensCount) - toolSchemaReserveTokens
-  )
+  return Math.max(0, maxTokensCount - toolSchemaReserveTokens)
 }
 
 /** Compact replacement for a trimmed function call's `result` — keeps `name`/`params` (e.g. a URL/query) intact. */

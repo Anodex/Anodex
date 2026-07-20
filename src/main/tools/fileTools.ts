@@ -14,6 +14,27 @@ const MAX_RANGE_LINES = 200
 const MAX_FILES_BATCH = 20
 const MAX_BATCH_TOTAL_BYTES = 200 * 1024
 
+export interface ReadFileRangeArgs {
+  path: string
+  startLine: number
+  endLine?: number
+}
+
+/** Canonicalize every request to the range the tool can actually return. */
+export function normalizeReadFileRangeArgs(args: ReadFileRangeArgs): Required<ReadFileRangeArgs> {
+  const startLine = Number.isFinite(args.startLine) ? Math.max(1, Math.floor(args.startLine)) : 1
+  const maximumEnd = startLine + MAX_RANGE_LINES - 1
+  const requestedEnd =
+    args.endLine !== undefined && Number.isFinite(args.endLine)
+      ? Math.floor(args.endLine)
+      : maximumEnd
+  return {
+    path: args.path.replaceAll('\\', '/').replace(/^\.\//, ''),
+    startLine,
+    endLine: Math.max(startLine, Math.min(requestedEnd, maximumEnd))
+  }
+}
+
 export const SKIP_DIRS = new Set([
   'node_modules',
   '.git',
@@ -258,7 +279,7 @@ export const getFileInfoTool: WorkspaceToolFactory = (define, ctx) =>
 /** read_file_range — read a specific 1-indexed line range from a text file. */
 export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Read a specific range of lines from a text file. Lines are 1-indexed and inclusive. Returns at most ${MAX_RANGE_LINES} lines per call regardless of endLine — for a longer file, call this repeatedly with successive ranges.`,
+    description: `Read a specific range of lines from a text file. Lines are 1-indexed and inclusive. Returns at most ${MAX_RANGE_LINES} lines per call regardless of endLine; oversized or non-finite endLine values are equivalent to startLine + ${MAX_RANGE_LINES - 1}. The result states the next startLine for longer files.`,
     params: {
       type: 'object',
       properties: {
@@ -271,42 +292,41 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
       },
       required: ['path', 'startLine']
     } as const,
-    handler: (args: { path: string; startLine: number; endLine?: number }) =>
-      runReadTool(ctx, {
+    handler: (args: ReadFileRangeArgs) => {
+      const normalized = normalizeReadFileRangeArgs(args)
+      return runReadTool(ctx, {
         name: 'read_file_range',
         kind: 'read',
-        title: `Read ${args.path} lines ${args.startLine}-${args.endLine ?? '…'}`,
-        args,
-        touch: { path: args.path, action: 'read' },
+        title: `Read ${normalized.path} lines ${normalized.startLine}-${normalized.endLine}`,
+        args: normalized,
+        touch: { path: normalized.path, action: 'read' },
         // See read_file's modelResultCap comment — a 200-line range of long
         // lines (minified/generated code, long strings) can still exceed the
         // generic 4000-char cap and get cut mid-range under it.
         modelResultCap: MAX_FILE_BYTES,
         async run() {
-          const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          const file = resolveInWorkspace(ctx.workspaceRoot, normalized.path)
           const info = await stat(file)
           if (!info.isFile()) throw new Error('Path is not a file.')
           const raw = await readFile(file, 'utf-8')
           const lines = raw.split('\n')
-          const start = Math.max(1, Math.floor(args.startLine))
-          // Cap the returned range to MAX_RANGE_LINES even when the model
-          // supplies an explicit endLine — an unbounded or wildly oversized
-          // endLine (seen live: 1e15) would otherwise return everything up to
-          // the actual end of file in one call, defeating the point of a
-          // "range" read and blowing up context on a large file.
-          const requestedEnd =
-            args.endLine !== undefined ? Math.floor(args.endLine) : start + MAX_RANGE_LINES - 1
-          const end = Math.min(lines.length, requestedEnd, start + MAX_RANGE_LINES - 1)
+          const start = normalized.startLine
+          const end = Math.min(lines.length, normalized.endLine)
           if (start > lines.length)
             throw new Error(`Start line ${start} is beyond the file's ${lines.length} lines.`)
           const selected = lines.slice(start - 1, end)
           const content = selected.join('\n')
+          const actualEnd = start + selected.length - 1
+          const continuation = actualEnd < lines.length ? ` Next startLine: ${actualEnd + 1}.` : ''
           return {
-            modelResult: content,
-            detail: `lines ${start}-${start + selected.length - 1}`
+            modelResult:
+              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}]\n` +
+              content,
+            detail: `lines ${start}-${actualEnd}`
           }
         }
       })
+    }
   })
 
 /** read_multiple_files — read several text files in a single call. */

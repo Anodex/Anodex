@@ -40,8 +40,11 @@ Pass criteria:
 
 - The UI remains responsive.
 - Repeated exact/alternating calls are blocked instead of looping indefinitely.
+- Oversized, omitted, and non-finite `read_file_range.endLine` values are treated
+  as the same effective 200-line range, and results state the next start line.
 - The turn finishes or stops with a specific limit message within 15 minutes.
 - A limit is not labeled as a user Stop.
+- Any streamed partial answer remains in persisted message content after a limit.
 - Logs may show deterministic context checkpoints, but should not show repeated
   GPU-backed mid-turn summary generations.
 

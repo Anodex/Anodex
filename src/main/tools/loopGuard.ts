@@ -15,10 +15,11 @@ export interface LoopGuardState {
   lastKey: string | null
   lastKeyCount: number
   recentKeys: string[]
+  recentStableReadKeys: string[]
 }
 
 export function createLoopGuardState(): LoopGuardState {
-  return { lastKey: null, lastKeyCount: 0, recentKeys: [] }
+  return { lastKey: null, lastKeyCount: 0, recentKeys: [], recentStableReadKeys: [] }
 }
 
 /** Calls beyond this many consecutive identical repeats are blocked. */
@@ -54,6 +55,16 @@ export function checkLoopGuard(
   const fullKey = `${name}::${key}`
   state.recentKeys.push(fullKey)
   if (state.recentKeys.length > LOOP_GUARD_ABORT_AFTER * 3) state.recentKeys.shift()
+  if (STABLE_READ_TOOLS.has(name)) {
+    state.recentStableReadKeys.push(fullKey)
+    if (state.recentStableReadKeys.length > LOOP_GUARD_ABORT_AFTER * 3) {
+      state.recentStableReadKeys.shift()
+    }
+  } else {
+    // A mutation, command, or external call can legitimately change what a
+    // later read returns, so it starts a fresh stable-read observation window.
+    state.recentStableReadKeys = []
+  }
   if (state.lastKey === fullKey) {
     state.lastKeyCount++
   } else {
@@ -61,7 +72,10 @@ export function checkLoopGuard(
     state.lastKeyCount = 1
   }
   const cycleCount = repeatingSuffixCount(state.recentKeys)
-  const repeatCount = Math.max(state.lastKeyCount, cycleCount)
+  const interleavedStableReadCount = STABLE_READ_TOOLS.has(name)
+    ? state.recentStableReadKeys.filter((key) => key === fullKey).length
+    : 1
+  const repeatCount = Math.max(state.lastKeyCount, cycleCount, interleavedStableReadCount)
   return {
     blocked: repeatCount > LOOP_GUARD_LIMIT,
     shouldAbort: repeatCount >= LOOP_GUARD_ABORT_AFTER,
@@ -116,7 +130,7 @@ function stableStringify(value: unknown): string {
 /** The model-facing message returned instead of actually running a blocked call. */
 export function loopGuardMessage(name: string, count: number, aborting: boolean): string {
   const base =
-    `You've already called ${name} with identical arguments ${count} times in a row ` +
+    `You've already called ${name} with identical effective arguments ${count} times this turn ` +
     'without new results — this looks like a loop, not progress. Stop repeating this exact ' +
     'call. Try different arguments, use a different tool, or explain to the user what is ' +
     'blocking you instead.'
@@ -124,3 +138,15 @@ export function loopGuardMessage(name: string, count: number, aborting: boolean)
     ? `${base} Generation is being stopped now because this kept repeating after being told to stop.`
     : base
 }
+
+/** Reads whose result cannot change until a non-read action occurs. */
+const STABLE_READ_TOOLS = new Set([
+  'list_directory',
+  'read_file',
+  'read_file_range',
+  'read_multiple_files',
+  'find_files',
+  'search_files',
+  'search_code',
+  'code_outline'
+])

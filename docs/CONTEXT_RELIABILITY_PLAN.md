@@ -9,6 +9,12 @@
   context-shift policies for interactive, agent, scheduler, and research turns.
 - `src/main/llama/deterministicCheckpoint.ts` — bounded, GPU-free mid-turn
   checkpoint folding; model-backed summarization remains between turns.
+- `src/main/llama/contextShiftStrategy.ts` and `toolSurface.ts` — schema-aware
+  shift fitting without double-reserving node-llama-cpp's existing headroom,
+  plus context-sized native tool routing that preserves checkpoint space.
+- `src/main/tools/fileTools.ts` and `loopGuard.ts` — effective-range
+  canonicalization and interleaved stable-read detection, closing loops that
+  varied `endLine` between `Infinity` and enormous finite values.
 - `src/shared/toolArtifacts.types.ts`, `src/main/tools/webSearchTools.ts`, and
   `src/main/tools/webTools.ts` — structured search/fetch artifacts and focused
   passage extraction before model-facing truncation.

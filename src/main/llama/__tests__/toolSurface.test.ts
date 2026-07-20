@@ -80,6 +80,27 @@ describe('bounded tool surface', () => {
     expect(sendEmail).toHaveBeenCalledWith({ to: 'person@example.com' })
   })
 
+  it('caps native schemas even when more would fit the token target', () => {
+    const allFunctions = Object.fromEntries(
+      Array.from({ length: 20 }, (_, index) => [
+        `read_tool_${index}`,
+        tool(`Read project data ${index}.`)
+      ])
+    )
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      routingText: 'Read the project architecture.',
+      targetFixedTokens: 10_000,
+      maxDirectTools: 8,
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.routed).toBe(true)
+    expect(result.directToolNames).toHaveLength(8)
+    expect(result.deferredToolNames).toHaveLength(12)
+  })
+
   it('rejects malformed deferred arguments before invoking the original tool', async () => {
     const handler = vi.fn(() => Promise.resolve('ok'))
     const result = boundToolSurface({
@@ -181,5 +202,23 @@ describe('bounded tool surface', () => {
       'The work is complete.'
     )
     expect(ranked[0]).toBe('finish_goal')
+  })
+
+  it('does not rank write or command tools from negated read-only instructions', () => {
+    const ranked = rankToolNames(
+      {
+        write_file: tool('Edit a project file.'),
+        run_command: tool('Run a project command or test.'),
+        read_file_range: tool('Read a range from a TypeScript file.'),
+        list_directory: tool('List project source directories.')
+      },
+      'Perform a read-only architecture audit. Do not edit files or run commands.'
+    )
+
+    expect(ranked.slice(0, 2)).toEqual(
+      expect.arrayContaining(['list_directory', 'read_file_range'])
+    )
+    expect(ranked.indexOf('write_file')).toBeGreaterThan(1)
+    expect(ranked.indexOf('run_command')).toBeGreaterThan(1)
   })
 })

@@ -36,15 +36,24 @@ export function boundToolSurface(options: {
   define: DefineChatSessionFunction
   routingText: string
   targetFixedTokens: number
+  /** Maximum full native schemas; remaining tools stay available through the gateway. */
+  maxDirectTools?: number
   measureFixedTokens: (functions: Record<string, ToolFunction> | undefined) => number
 }): BoundedToolSurface {
-  const { allFunctions, define, routingText, targetFixedTokens, measureFixedTokens } = options
+  const {
+    allFunctions,
+    define,
+    routingText,
+    targetFixedTokens,
+    maxDirectTools = Number.POSITIVE_INFINITY,
+    measureFixedTokens
+  } = options
   if (!allFunctions || Object.keys(allFunctions).length === 0) {
     return { functions: {}, directToolNames: [], deferredToolNames: [], routed: false }
   }
 
   const allNames = Object.keys(allFunctions)
-  if (measureFixedTokens(allFunctions) <= targetFixedTokens) {
+  if (allNames.length <= maxDirectTools && measureFixedTokens(allFunctions) <= targetFixedTokens) {
     return {
       functions: allFunctions,
       directToolNames: allNames,
@@ -58,6 +67,7 @@ export function boundToolSurface(options: {
   const directToolNames: string[] = []
 
   for (const name of rankToolNames(allFunctions, routingText)) {
+    if (directToolNames.length >= maxDirectTools) break
     const candidate = { ...selected, [name]: allFunctions[name] }
     if (measureFixedTokens(candidate) > targetFixedTokens) continue
     selected[name] = allFunctions[name]
@@ -101,6 +111,13 @@ export function rankToolNames(
 }
 
 function categoryScore(name: string, text: string): number {
+  const readOnlyTask = hasAny(text, [
+    'read-only',
+    'read only',
+    'do not edit',
+    'without editing',
+    'no file changes'
+  ])
   const codeTask = hasAny(text, [
     'code',
     'file',
@@ -115,20 +132,24 @@ function categoryScore(name: string, text: string): number {
     'implement',
     'refactor'
   ])
-  const changeTask = hasAny(text, [
-    'fix',
-    'change',
-    'edit',
-    'implement',
-    'create',
-    'write',
-    'delete',
-    'move',
-    'rename',
-    'refactor',
-    'finish'
-  ])
-  const checkTask = hasAny(text, ['test', 'typecheck', 'lint', 'build', 'verify', 'command', 'run'])
+  const changeTask =
+    !readOnlyTask &&
+    hasAny(text, [
+      'fix',
+      'change',
+      'edit',
+      'implement',
+      'create',
+      'write',
+      'delete',
+      'move',
+      'rename',
+      'refactor',
+      'finish'
+    ])
+  const checkTask =
+    !readOnlyTask &&
+    hasAny(text, ['test', 'typecheck', 'lint', 'build', 'verify', 'command', 'run'])
   const webTask = hasAny(text, [
     'web',
     'search online',
