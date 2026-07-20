@@ -19,7 +19,7 @@ import { cloudContextWindowTokens } from '@shared/contextBudget'
 import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
-import { llamaService, type GenerateOutcome } from '../llama/LlamaService'
+import { llamaService, type GenerateOutcome, type GenerateParams } from '../llama/LlamaService'
 import { boundHistoryForCloudProvider } from '../llama/contextAssembler'
 import { summarizeForCompactionOpenAi } from '../llm/OpenAiProvider'
 import { summarizeForCompactionAnthropic } from '../llm/AnthropicProvider'
@@ -76,6 +76,8 @@ export interface RunGenerationIo {
    * become part of a web-sourced report.
    */
   includeReferenceContext?: boolean
+  /** Force a fresh local session for a bounded phase; cloud calls are already isolated. */
+  sessionMode?: GenerateParams['sessionMode']
   /** Evidence focus and durable artifact sink for research-oriented callers. */
   evidenceFocus?: string
   onArtifact?: (artifact: ToolArtifact) => void
@@ -360,6 +362,7 @@ export async function runGeneration(
       context: request.context,
       history: boundedHistory,
       prompt: request.prompt,
+      sessionMode: io.sessionMode,
       options: request.options,
       modelOverride: io.providerOverride?.model,
       maxProviderRounds: executionPolicy.maxProviderRounds,

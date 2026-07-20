@@ -449,18 +449,34 @@ Key capabilities:
 - Start with a research question.
 - Generate a research plan.
 - Review and edit the plan before research begins.
-- Add, edit, remove, and reorder plan steps.
+- Add, edit, and remove plan steps.
 - Run research with only web search and page fetching tools.
-- Run every approved plan step as a separate bounded generation.
-- Track live progress, current step, evidence count, and synthesis/validation phases.
+- Run every approved plan step as persisted adaptive rounds made from short,
+  isolated query-selection and evidence-assessment model calls.
+- Search focused queries and fetch selected public pages directly with bounded
+  concurrency instead of keeping the model inside a long native tool-call loop.
+- Track live step, round, research phase, remaining evidence gaps, activity,
+  evidence count, and synthesis/validation progress.
+- Require a service-side evidence floor before accepting the model's claim that
+  a step has sufficient coverage.
 - Store search leads and fetched-page evidence separately from the model transcript.
 - Extract focused passages from large pages instead of returning only a prefix.
 - Combine evidence from repeated focused fetches of the same page without losing
   earlier passages.
-- Resume stopped, limited, or app-interrupted investigations from saved evidence.
+- Persist round queries, selected URLs, assessments, findings, and evidence ownership.
+- Resume stopped, limited, or app-interrupted investigations from the unfinished
+  round while reusing saved evidence.
+- Bound every active attempt by step, round, query, page, total-search,
+  total-fetch, and wall-clock limits; produce an explicit partial result when
+  remaining gaps cannot be closed within those limits.
+- Bound verified pages across the run lifetime so repeated Resume attempts cannot
+  grow persisted evidence indefinitely.
 - Generate a structured report in a separate tool-free synthesis phase.
 - Scale synthesis, repair, evidence, and output budgets to the active model context.
-- Validate source IDs, passage IDs, quotations, numeric claims, raw URLs, and chart data.
+- Require verified citations on substantive report blocks and validate source IDs,
+  passage IDs, quotations, numeric claims, raw URLs, and chart data.
+- Sanitize source titles during citation rendering and rewrite chart citations
+  structurally so untrusted metadata cannot break Markdown or JSON.
 - Copy the report.
 - Save the report as a PDF.
 - Stop or inspect previous runs.

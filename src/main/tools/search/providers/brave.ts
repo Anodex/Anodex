@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchResult } from '../types'
+import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
 
 const API_URL = 'https://api.search.brave.com/res/v1/web/search'
 const FETCH_TIMEOUT_MS = 30_000
@@ -24,25 +24,26 @@ interface BraveResponse {
  */
 export function createBraveProvider(apiKey: string): SearchProvider {
   return {
-    async search(query: string, resultCount: number): Promise<SearchResult[]> {
+    async search(
+      query: string,
+      resultCount: number,
+      signal?: AbortSignal
+    ): Promise<SearchResult[]> {
       const url = new URL(API_URL)
       url.searchParams.set('q', query)
       url.searchParams.set('count', String(resultCount))
       url.searchParams.set('offset', '0')
 
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+      const abort = createSearchAbortScope(signal, FETCH_TIMEOUT_MS)
 
       try {
         const response = await fetch(url.toString(), {
-          signal: controller.signal,
+          signal: abort.signal,
           headers: {
             Accept: 'application/json',
             'X-Subscription-Token': apiKey
           }
         })
-        clearTimeout(timeout)
-
         if (!response.ok) {
           throw new Error(`Brave returned HTTP ${response.status}: ${response.statusText}`)
         }
@@ -51,11 +52,14 @@ export function createBraveProvider(apiKey: string): SearchProvider {
         const results = data.web?.results ?? []
         return results.slice(0, resultCount).map((item) => parseResult(item))
       } catch (error) {
-        clearTimeout(timeout)
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error('Brave request timed out.')
+          throw new Error(
+            abort.timedOut() ? 'Brave request timed out.' : 'Brave request cancelled.'
+          )
         }
         throw error
+      } finally {
+        abort.dispose()
       }
     }
   }

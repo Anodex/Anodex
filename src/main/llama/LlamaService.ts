@@ -178,6 +178,13 @@ export interface GenerateParams {
   context?: ConversationContext | null
   history: ChatHistoryTurn[]
   prompt: string
+  /**
+   * `isolated` rebuilds the local chat session from the supplied empty/history
+   * state before this call. Cloud providers are already request-isolated.
+   * Evidence workflows use this to prevent one bounded phase from inheriting
+   * native KV state from an earlier phase with the same durable run id.
+   */
+  sessionMode?: 'conversation' | 'isolated'
   options?: GenerationOptions
   /**
    * Use this model id instead of the globally configured one for this call
@@ -541,7 +548,9 @@ class LlamaService extends EventEmitter {
         params.systemPrompt,
         params.history,
         params.context,
-        toolSchemaReserveTokens
+        toolSchemaReserveTokens,
+        'onLoad',
+        params.sessionMode === 'isolated'
       )
     } catch (error) {
       this.generating = false
@@ -1354,13 +1363,14 @@ class LlamaService extends EventEmitter {
     history: ChatHistoryTurn[],
     context: ConversationContext | null | undefined,
     toolSchemaReserveTokens: number,
-    compactionReason: HistoryCompactionEvent['reason'] = 'onLoad'
+    compactionReason: HistoryCompactionEvent['reason'] = 'onLoad',
+    forceRebuild = false
   ): Promise<LlamaChatSession> {
     // This must happen before the same-conversation fast path. The session's
     // strategy is reused, but the enabled/MCP tool surface can change between
     // turns; its lazy getter below reads this refreshed value.
     this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
-    if (this.session && this.activeConversationId === conversationId) {
+    if (!forceRebuild && this.session && this.activeConversationId === conversationId) {
       return this.session
     }
     if (!this.context || !this.contextSequence) throw new Error('No model loaded.')

@@ -65,6 +65,79 @@ describe('web search providers', () => {
     expect(results[0].title).toBe('Brave result')
   })
 
+  it('bounds provider metadata and drops unusable result URLs', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Map(),
+      text: () => Promise.resolve(''),
+      json: () =>
+        Promise.resolve({
+          web: {
+            results: [
+              {
+                title: `  ${'T'.repeat(400)}\n`,
+                url: 'https://bounded.example/report',
+                description: 'S'.repeat(700)
+              },
+              { title: 'Unsafe', url: 'javascript:alert(1)', description: 'drop me' },
+              { title: 'Credentials', url: 'https://user:secret@example.com', description: 'drop' },
+              {
+                title: 'Oversized URL',
+                url: `https://example.com/${'x'.repeat(5_000)}`,
+                description: 'drop'
+              }
+            ]
+          }
+        })
+    })
+    const provider = createSearchProvider({
+      provider: 'brave',
+      apiKey: 'key',
+      searchEngineId: '',
+      baseUrl: '',
+      resultCount: 5,
+      requireApproval: false
+    })
+
+    const results = await provider!.search('bounded', 5)
+
+    expect(results).toHaveLength(1)
+    expect(results[0].title.length).toBe(300)
+    expect(results[0].snippet.length).toBe(500)
+    expect(results[0].url).toBe('https://bounded.example/report')
+  })
+
+  it('forwards caller cancellation through the configured provider wrapper', async () => {
+    let observedSignal: AbortSignal | undefined
+    globalThis.fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined
+      return new Promise<Response>((_resolve, reject) => {
+        observedSignal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('cancelled', 'AbortError')),
+          { once: true }
+        )
+      })
+    })
+    const provider = createSearchProvider({
+      provider: 'brave',
+      apiKey: 'key',
+      searchEngineId: '',
+      baseUrl: '',
+      resultCount: 3,
+      requireApproval: false
+    })
+    const controller = new AbortController()
+
+    const pending = provider!.search('hello', 1, controller.signal)
+    controller.abort()
+
+    await expect(pending).rejects.toThrow('Brave request cancelled.')
+    expect(observedSignal?.aborted).toBe(true)
+  })
+
   it('creates a Tavily provider and parses results', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

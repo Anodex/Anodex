@@ -290,9 +290,14 @@ not correctness or security — lowest priority item on this whole list.
   GPU-backed mid-turn summaries with deterministic checkpoints, added durable
   structured search/fetch artifacts and focused passage extraction, introduced
   shared generation budgets and typed provider-limit stops, and rebuilt Critical
-  Thinking as resumable per-step research plus validated evidence-led synthesis.
-  See `docs/CONTEXT_RELIABILITY_PLAN.md` for the architecture and acceptance
-  criteria.
+  Thinking as persisted adaptive research rounds. Query selection and evidence
+  assessment now use short isolated model phases; bounded search and fetch work
+  runs directly with cancellation and concurrency limits; the service verifies a
+  fetched-evidence floor before accepting sufficiency. Incomplete rounds and
+  evidence resume without replaying a giant transcript, while final synthesis
+  remains evidence-led and citation-validated. See
+  `docs/CRITICAL_THINKING_ARCHITECTURE.md` and
+  `docs/CONTEXT_RELIABILITY_PLAN.md` for the architecture and acceptance criteria.
 
 - **Checkpoint / restore UX first pass** - assistant file mutations now create
   per-message checkpoints and expose a restore action from the completed

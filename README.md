@@ -90,10 +90,21 @@ that need more than a quick web lookup:
   email, save memory, or call connected MCP tools.
 - Search queries, pages read, sources found, plan progress, and report writing
   stay visible while the run works; you can stop it at any time.
-- Each approved plan step runs as its own bounded generation. Progress,
-  findings, and exact web artifacts are persisted between steps, so a stopped,
-  limited, or app-interrupted investigation can resume without replaying one
-  enormous transcript.
+- Each approved plan step runs as a small, adaptive sequence of isolated model
+  phases: choose focused queries, search and fetch directly with bounded
+  concurrency, then assess whether the fetched evidence closes the step's
+  remaining gaps. No research phase replays one enormous tool transcript.
+- Research rounds, coverage decisions, findings, selected URLs, and exact web
+  artifacts are checkpointed between phases. A stopped, limited, or
+  app-interrupted investigation can resume from the unfinished round and reuse
+  evidence it already fetched.
+- The service, not the model alone, decides when a step is sufficiently covered.
+  A model-proposed `sufficient` verdict is accepted only with no remaining gaps
+  and a minimum fetched-source basis; otherwise another bounded round can run.
+- Per-step, per-attempt, search, fetch, wall-clock, and lifetime verified-source
+  limits prevent open-ended research. Resume gets a fresh attempt budget without
+  removing the run-wide evidence bound. When a limit is reached, Anodex keeps the
+  evidence and produces a clearly partial report when possible.
 - Search results are stored as unverified leads. Fetched pages are stored as
   verified evidence sidecars with requested/final URLs, status/content type,
   hashes, truncation warnings, and query-focused passages. URLs written only
@@ -102,9 +113,10 @@ that need more than a quick web lookup:
   and explicit limits/open questions. Evidence-backed bar, line, and pie charts
   are rendered when quantitative comparison is useful.
 - Reports are synthesized in a separate tool-free phase from a bounded evidence
-  packet. Internal source IDs, quotations, raw URLs, and chart numbers are
-  validated; one bounded repair pass runs before an unsupported report is
-  marked partial for the user.
+  packet. Every substantive prose/list/table block needs a verified citation;
+  source IDs, quotations, raw URLs, numbers, and chart values are validated. One
+  bounded repair pass runs before an unsupported report is marked partial, and
+  citation rendering sanitizes untrusted titles while preserving chart JSON.
 - Reports persist locally across restarts and can be copied as Markdown or
   exported as a polished, report-only PDF with citations and charts intact.
 

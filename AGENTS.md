@@ -80,6 +80,39 @@ The renderer branches on `result.ok`.
 4. `LlamaChatSession` is reused per conversation; switching conversations replays
    history.
 
+### Critical Thinking research
+
+Critical Thinking is a persisted orchestration layer, not a long chat/tool turn:
+
+- `src/main/criticalThinking/CriticalThinkingService.ts` owns the run lifecycle,
+  provider pinning, synthesis, validation, stop/resume, and renderer broadcasts.
+- `CriticalThinkingResearchRunner.ts` executes each plan step as persisted rounds:
+  isolated query selection, direct bounded search, direct bounded fetch, and an
+  isolated structured coverage assessment.
+- Model phases must use an empty logical history and `sessionMode: 'isolated'`.
+  Do not reintroduce a shared `LlamaChatSession` or native function-call loop for
+  research orchestration.
+- Search and fetch I/O use the configured providers directly, accept an
+  `AbortSignal`, and stay within the pinned `CriticalThinkingResearchPolicy`.
+- Attempt-level round/search/fetch/time counters reset on Resume;
+  `maxVerifiedSourcesPerRun` is a lifetime bound and must not reset.
+- Search artifacts are leads. Only successful `web-fetch` artifacts with focused
+  passages are verified evidence and may satisfy coverage or support citations.
+- The model proposes coverage; `assessmentIsSufficient()` enforces the minimum
+  fetched-evidence floor. Budget and completion decisions remain service-owned.
+- Persist and flush the round/evidence checkpoint before advancing phases. Keep
+  aggregate step fields (`evidenceIds`, `finding`, `uncertainties`) in sync for
+  synthesis and compatibility with older runs.
+- `CriticalThinkingStore.normalizeCriticalThinkingRun()` must remain backward
+  compatible with runs that predate policies and rounds. New persisted fields
+  need defensive defaults rather than a destructive migration.
+- Final synthesis remains tool-free and uses a bounded evidence packet. Preserve
+  substantive-block citation coverage; source/passage, quote, numeric, raw-URL,
+  and chart validation; safe citation rendering; and the single bounded repair
+  pass.
+
+See `docs/CRITICAL_THINKING_ARCHITECTURE.md` for the state machine and invariants.
+
 ### AI workspace tools
 
 Tools live in `src/main/tools/` and are registered in `src/main/tools/registry.ts`.

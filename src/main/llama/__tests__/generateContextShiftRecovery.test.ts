@@ -63,6 +63,7 @@ interface LlamaServiceTestAccess {
     | undefined
   activeConversationId: string | undefined
   generating: boolean
+  ensureSession: (...args: unknown[]) => Promise<NonNullable<LlamaServiceTestAccess['session']>>
 }
 
 function asTestAccess(): LlamaServiceTestAccess {
@@ -142,6 +143,7 @@ function webOnlyTools(onActivity: NonNullable<GenerateParams['tools']>['onActivi
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   resetLlamaServiceState()
 })
 
@@ -180,6 +182,38 @@ async function runAgainstFakeSession(crashMessage: string) {
 }
 
 describe('LlamaService.generate() context-shift recovery', () => {
+  it('forces a fresh native session only for explicitly isolated phases', async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    const session: NonNullable<LlamaServiceTestAccess['session']> = {
+      promptWithMeta: vi.fn(() =>
+        Promise.resolve({ response: [], responseText: 'done', stopReason: 'eogToken' })
+      ),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+    const ensureSession = vi.spyOn(access, 'ensureSession').mockResolvedValue(session)
+
+    await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'isolated-message',
+      history: [],
+      prompt: 'isolated phase',
+      sessionMode: 'isolated',
+      onToken: () => {}
+    })
+    await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'ordinary-message',
+      history: [],
+      prompt: 'ordinary turn',
+      onToken: () => {}
+    })
+
+    expect(ensureSession.mock.calls.map((call) => call[6])).toEqual([true, false])
+  })
+
   it('reports an irreducible fixed-context limit before decoding or retrying', async () => {
     const access = asTestAccess()
     prepareFakeEngine(access)

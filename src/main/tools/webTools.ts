@@ -1,16 +1,21 @@
 import { lookup } from 'node:dns/promises'
 import { createHash } from 'node:crypto'
+import { isIP } from 'node:net'
 import { convert } from 'html-to-text'
 import { Agent } from 'undici'
-import type { EvidencePassage } from '@shared/toolArtifacts.types'
+import type { EvidencePassage, WebFetchArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ToolFactory } from './types'
 import { recordToolArtifact } from './types'
 import { runReadTool } from './helpers'
 
 const FETCH_TIMEOUT_MS = 30_000
-const MAX_FETCH_BYTES = 2_000_000
+const MAX_FETCH_BYTES = 1_000_000
 const MAX_PASSAGES = 8
 const MAX_PASSAGE_CHARS = 900
+const MAX_TITLE_CHARS = 300
+const MAX_URL_CHARS = 4_096
+
+let extractionQueue: Promise<void> = Promise.resolve()
 
 let resolveHost = async (hostname: string): Promise<string[]> => {
   const records = await lookup(hostname, { all: true, verbatim: true })
@@ -47,44 +52,53 @@ export const fetchUrlTool: ToolFactory = (define, ctx) =>
         title: `Fetch ${truncate(args.url, 60)}`,
         args,
         async run() {
-          const response = await fetchUrl(args.url, ctx.signal)
-          const text = convert(response.body, {
-            selectors: [
-              { selector: 'a', options: { ignoreHref: true } },
-              { selector: 'img', format: 'skip' }
-            ]
-          })
-          const trimmed = text.trim()
-          const passages = extractFocusedPassages(trimmed, ctx.evidenceFocus ?? '')
-          const title = extractHtmlTitle(response.body) || new URL(response.finalUrl).hostname
-          const warnings = [...response.warnings]
-          if (passages.length === 0) warnings.push('No readable evidence passages were extracted.')
-          const artifact = recordToolArtifact(ctx, {
-            kind: 'web-fetch',
-            requestedUrl: args.url,
-            finalUrl: response.finalUrl,
-            status: response.status,
-            contentType: response.contentType,
-            title,
-            contentHash: createHash('sha256').update(response.body).digest('hex'),
-            contentChars: trimmed.length,
-            truncated: response.truncated,
-            passages,
-            warnings
-          })
-          const passageText = passages
+          const draft = await fetchUrlEvidence(args.url, ctx.evidenceFocus ?? '', ctx.signal)
+          const artifact = recordToolArtifact(ctx, draft)
+          const passageText = draft.passages
             .map((passage) => `[${passage.id}] ${passage.text}`)
             .join('\n\n')
           return {
             modelResult:
-              `Source artifact: ${artifact.id}\nTitle: ${title}\nFinal URL: ${response.finalUrl}\n` +
-              `HTTP ${response.status}; ${response.contentType}\n\n` +
+              `Source artifact: ${artifact.id}\nTitle: ${draft.title}\nFinal URL: ${draft.finalUrl}\n` +
+              `HTTP ${draft.status}; ${draft.contentType}\n\n` +
               (passageText || '(no readable text)'),
-            detail: `${trimmed.length} chars · ${passages.length} focused passages`
+            detail: `${draft.contentChars} chars · ${draft.passages.length} focused passages`
           }
         }
       })
   })
+
+/**
+ * Fetch and deterministically extract one bounded evidence artifact. Critical
+ * Thinking calls this directly so web I/O can be concurrent without putting
+ * the local model inside an opaque native function-call loop.
+ */
+export async function fetchUrlEvidence(
+  rawUrl: string,
+  focus: string,
+  signal?: AbortSignal
+): Promise<WebFetchArtifactDraft> {
+  const response = await fetchUrl(rawUrl, signal)
+  const extracted = await extractPageEvidence(response.body, focus, signal)
+  if (signal?.aborted) throw abortError()
+  const warnings = [...response.warnings]
+  if (extracted.passages.length === 0) {
+    warnings.push('No readable evidence passages were extracted.')
+  }
+  return {
+    kind: 'web-fetch',
+    requestedUrl: rawUrl,
+    finalUrl: response.finalUrl,
+    status: response.status,
+    contentType: response.contentType,
+    title: extracted.title || new URL(response.finalUrl).hostname,
+    contentHash: extracted.contentHash,
+    contentChars: extracted.contentChars,
+    truncated: response.truncated,
+    passages: extracted.passages,
+    warnings
+  }
+}
 
 const MAX_REDIRECTS = 10
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
@@ -111,6 +125,9 @@ interface FetchedPage {
 }
 
 async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPage> {
+  if (signal?.aborted) {
+    throw new Error('The request timed out or was cancelled.')
+  }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   const onAbort = (): void => controller.abort()
@@ -122,7 +139,7 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
       if (hop > MAX_REDIRECTS) {
         throw new Error('Too many redirects.')
       }
-      const addresses = await assertPublicDns(current)
+      const addresses = await assertPublicDns(current, controller.signal)
       const dispatcher = pinnedDispatcher(addresses)
       try {
         const response = await fetch(current.toString(), {
@@ -275,7 +292,7 @@ function countOccurrences(text: string, term: string): number {
 
 function extractHtmlTitle(html: string): string {
   const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
-  return match?.[1].replace(/\s+/g, ' ').trim() ?? ''
+  return truncate(match?.[1].replace(/\s+/g, ' ').trim() ?? '', MAX_TITLE_CHARS)
 }
 
 /** An undici dispatcher whose connections are pinned to pre-validated addresses. */
@@ -313,6 +330,7 @@ export function setResolveHostForTests(
 
 /** Parse a URL and reject non-http(s) schemes and private/loopback hosts. */
 function assertPublicUrl(raw: string): URL {
+  if (raw.length > MAX_URL_CHARS) throw new Error('URL is too long to fetch safely.')
   let url: URL
   try {
     url = new URL(raw)
@@ -321,6 +339,9 @@ function assertPublicUrl(raw: string): URL {
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`Only http and https URLs are allowed (got "${url.protocol}").`)
+  }
+  if (url.username || url.password) {
+    throw new Error('URLs containing embedded credentials are not allowed.')
   }
   if (isPrivateHost(url.hostname)) {
     throw new Error(`Refusing to fetch a local or private address (${url.hostname}).`)
@@ -334,8 +355,9 @@ function assertPublicUrl(raw: string): URL {
  * connection to them (see `pinnedDispatcher`) instead of trusting a second,
  * separate resolution.
  */
-async function assertPublicDns(url: URL): Promise<string[]> {
-  const addresses = await resolveHost(url.hostname)
+async function assertPublicDns(url: URL, signal: AbortSignal): Promise<string[]> {
+  const hostname = url.hostname.replace(/^\[|\]$/g, '')
+  const addresses = isIP(hostname) ? [hostname] : await abortable(resolveHost(hostname), signal)
   if (addresses.length === 0) {
     throw new Error(`Could not resolve host (${url.hostname}).`)
   }
@@ -345,49 +367,160 @@ async function assertPublicDns(url: URL): Promise<string[]> {
   return addresses
 }
 
-/** True for loopback, link-local, and private-range hosts. */
+/** True unless a literal host is safe public IPv4 or allocated global-unicast IPv6. */
 function isPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host.endsWith('.localhost')) return true
-  if (host === '0.0.0.0' || host === '::' || host === '::1') return true
-  // IPv6 unique-local (fc00::/7), link-local (fe80::/10), and multicast (ff00::/8).
-  if (
-    host.startsWith('fc') ||
-    host.startsWith('fd') ||
-    host.startsWith('fe80') ||
-    host.startsWith('ff')
-  )
-    return true
-
-  // IPv4-mapped/compatible IPv6 (::ffff:a.b.c.d or ::ffff:xxxx:xxxx) — unwrap
-  // and re-check the embedded IPv4 address rather than treating it as an
-  // opaque IPv6 literal that slips past the checks below.
-  const mappedDotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(host)
-  if (mappedDotted) return isPrivateHost(mappedDotted[1])
-  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host)
-  if (mappedHex) {
-    const hi = Number.parseInt(mappedHex[1], 16)
-    const lo = Number.parseInt(mappedHex[2], 16)
-    return isPrivateHost(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`)
-  }
-
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
-  if (ipv4) {
-    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])]
-    if (a === 0 || a === 127 || a === 10) return true // "this network", loopback, private
-    if (a === 100 && b >= 64 && b <= 127) return true // carrier-grade NAT (RFC 6598)
-    if (a === 169 && b === 254) return true // link-local
-    if (a === 172 && b >= 16 && b <= 31) return true // private
-    if (a === 192 && b === 168) return true // private
-    if (a >= 224) return true // multicast (224-239) and reserved/future-use (240-255)
-  }
+  const family = isIP(host)
+  if (family === 4) return !isGlobalUnicastIpv4(host)
+  if (family === 6) return !isGlobalUnicastIpv6(host)
   return false
+}
+
+function isGlobalUnicastIpv4(address: string): boolean {
+  const octets = address.split('.').map(Number)
+  if (octets.length !== 4 || octets.some((octet) => octet < 0 || octet > 255)) return false
+  const [a, b, c] = octets
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return false
+  if (a === 100 && b >= 64 && b <= 127) return false // shared carrier-grade NAT
+  if (a === 169 && b === 254) return false // link-local
+  if (a === 172 && b >= 16 && b <= 31) return false
+  if (a === 192 && b === 0 && c === 0) return false // IETF protocol assignments
+  if (a === 192 && b === 0 && c === 2) return false // documentation
+  if (a === 192 && b === 88 && c === 99) return false // deprecated 6to4 relay anycast
+  if (a === 192 && b === 168) return false
+  if (a === 198 && (b === 18 || b === 19)) return false // benchmark testing (RFC 2544)
+  if (a === 198 && b === 51 && c === 100) return false // documentation
+  if (a === 203 && b === 0 && c === 113) return false // documentation
+  return true
+}
+
+function isGlobalUnicastIpv6(address: string): boolean {
+  const value = ipv6Value(address)
+  if (value === null) return false
+  // Public IPv6 unicast is currently allocated from 2000::/3. Restricting to
+  // that allocation also excludes mapped IPv4, NAT64, discard, unique-local,
+  // link/site-local, and multicast ranges.
+  const globalUnicast = ipv6Value('2000::')
+  if (globalUnicast === null || !inIpv6Range(value, globalUnicast, 3)) return false
+  const excluded: Array<[string, number]> = [
+    ['2001::', 23], // IETF protocol assignments (Teredo/ORCHID/benchmarking)
+    ['2001:db8::', 32], // documentation
+    ['2002::', 16], // deprecated 6to4 transition addresses
+    ['3ffe::', 16], // deprecated 6bone allocation
+    ['3fff::', 20] // documentation
+  ]
+  return !excluded.some(([network, prefix]) => {
+    const networkValue = ipv6Value(network)
+    return networkValue !== null && inIpv6Range(value, networkValue, prefix)
+  })
+}
+
+function ipv6Value(address: string): bigint | null {
+  const normalized = address.toLowerCase().split('%')[0]
+  const halves = normalized.split('::')
+  if (halves.length > 2) return null
+  const left = halves[0] ? halves[0].split(':') : []
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  if (halves.length === 1 && left.length !== 8) return null
+  const missing = halves.length === 2 ? 8 - left.length - right.length : 0
+  if (halves.length === 2 && missing < 1) return null
+  const parts = [...left, ...Array.from({ length: missing }, () => '0'), ...right]
+  if (parts.length !== 8 || parts.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return null
+  return parts.reduce((total, part) => (total << 16n) | BigInt(`0x${part}`), 0n)
+}
+
+function inIpv6Range(value: bigint, network: bigint, prefix: number): boolean {
+  const shift = BigInt(128 - prefix)
+  return value >> shift === network >> shift
 }
 
 function isPrivateAddress(address: string): boolean {
   return isPrivateHost(address)
 }
 
+function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortError())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      cleanup()
+      reject(abortError())
+    }
+    const cleanup = (): void => signal.removeEventListener('abort', onAbort)
+    signal.addEventListener('abort', onAbort, { once: true })
+    operation.then(
+      (value) => {
+        cleanup()
+        resolve(value)
+      },
+      (error: unknown) => {
+        cleanup()
+        reject(asError(error, 'DNS resolution failed.'))
+      }
+    )
+  })
+}
+
+function abortError(): Error {
+  const error = new Error('The request was cancelled.')
+  error.name = 'AbortError'
+  return error
+}
+
+function asError(error: unknown, fallback: string): Error {
+  return error instanceof Error ? error : new Error(fallback, { cause: error })
+}
+
+function extractPageEvidence(
+  body: string,
+  focus: string,
+  signal?: AbortSignal
+): Promise<{
+  title: string
+  contentHash: string
+  contentChars: number
+  passages: EvidencePassage[]
+}> {
+  const task = extractionQueue.then(
+    () =>
+      new Promise<{
+        title: string
+        contentHash: string
+        contentChars: number
+        passages: EvidencePassage[]
+      }>((resolve, reject) => {
+        setImmediate(() => {
+          if (signal?.aborted) {
+            reject(abortError())
+            return
+          }
+          try {
+            const text = convert(body, {
+              selectors: [
+                { selector: 'a', options: { ignoreHref: true } },
+                { selector: 'img', format: 'skip' }
+              ]
+            }).trim()
+            resolve({
+              title: extractHtmlTitle(body),
+              contentHash: createHash('sha256').update(body).digest('hex'),
+              contentChars: text.length,
+              passages: extractFocusedPassages(text, focus)
+            })
+          } catch (error) {
+            reject(asError(error, 'Failed to extract webpage evidence.'))
+          }
+        })
+      })
+  )
+  extractionQueue = task.then(
+    () => undefined,
+    () => undefined
+  )
+  return task
+}
+
 function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text
+  if (text.length <= max) return text
+  return max <= 1 ? '…'.slice(0, max) : `${text.slice(0, max - 1)}…`
 }

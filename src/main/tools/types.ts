@@ -110,18 +110,31 @@ export interface ToolRuntimeContext {
   mcpTools: McpToolDescriptor[]
 }
 
+export interface ToolArtifactIdentity {
+  conversationId: string
+  messageId: string
+}
+
+/** Add stable runtime identity to an artifact without coupling it to a tool handler. */
+export function createToolArtifact(
+  identity: ToolArtifactIdentity,
+  draft: ToolArtifactDraft
+): ToolArtifact {
+  return {
+    ...draft,
+    id: `artifact_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`,
+    conversationId: identity.conversationId,
+    messageId: identity.messageId,
+    createdAt: Date.now()
+  }
+}
+
 /** Add stable runtime identity to a tool-produced artifact and persist it. */
 export function recordToolArtifact(
   ctx: ToolRuntimeContext,
   draft: ToolArtifactDraft
 ): ToolArtifact {
-  const artifact = {
-    ...draft,
-    id: `artifact_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`,
-    conversationId: ctx.conversationId,
-    messageId: ctx.messageId,
-    createdAt: Date.now()
-  }
+  const artifact = createToolArtifact(ctx, draft)
   ctx.recordArtifact?.(artifact)
   return artifact
 }

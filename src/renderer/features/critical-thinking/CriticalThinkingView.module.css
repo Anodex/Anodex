@@ -612,6 +612,19 @@
   height: 18px;
 }
 
+.stepContent {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stepRoundMeta {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 450;
+}
+
 .step-in_progress {
   color: var(--text) !important;
   font-weight: 550;
@@ -629,12 +642,35 @@
   color: var(--success);
 }
 
+.step-limited {
+  color: var(--text-muted) !important;
+}
+
+.step-limited .stepIcon {
+  color: var(--warn);
+}
+
 .activityList {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   max-height: 240px;
   overflow-y: auto;
+}
+
+.activityToggle {
+  align-self: flex-start;
+  padding: var(--space-1) var(--space-2);
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.activityToggle:hover {
+  text-decoration: underline;
 }
 
 .activityRow {
@@ -698,6 +734,26 @@
   border-radius: var(--radius-lg);
 }
 
+.researchStatusText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.roundStage {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.roundGaps {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .warningBanner {
   justify-content: flex-start;
   margin-bottom: var(--space-3);
@@ -705,6 +761,43 @@
   color: var(--warn);
   background: var(--warn-soft);
   border: 0;
+}
+
+.limitDetails {
+  margin-bottom: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.limitDetails ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.limitDetails li {
+  display: grid;
+  gap: 2px;
+}
+
+.limitStepTitle {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.limitReason {
+  color: var(--warn);
+  font-size: var(--text-xs);
+}
+
+.limitGaps {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
 }
 
 .sourcesSection {

@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchResult } from '../types'
+import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
 
 const FETCH_TIMEOUT_MS = 30_000
 const MAX_SNIPPET_LENGTH = 500
@@ -24,22 +24,23 @@ export function createSearxngProvider(baseUrl: string): SearchProvider {
   const normalized = baseUrl.replace(/\/$/, '')
 
   return {
-    async search(query: string, resultCount: number): Promise<SearchResult[]> {
+    async search(
+      query: string,
+      resultCount: number,
+      signal?: AbortSignal
+    ): Promise<SearchResult[]> {
       const url = new URL(`${normalized}/search`)
       url.searchParams.set('q', query)
       url.searchParams.set('format', 'json')
       url.searchParams.set('safesearch', '0')
 
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+      const abort = createSearchAbortScope(signal, FETCH_TIMEOUT_MS)
 
       try {
         const response = await fetch(url.toString(), {
-          signal: controller.signal,
+          signal: abort.signal,
           headers: { Accept: 'application/json' }
         })
-        clearTimeout(timeout)
-
         if (!response.ok) {
           throw new Error(`SearXNG returned HTTP ${response.status}: ${response.statusText}`)
         }
@@ -48,11 +49,16 @@ export function createSearxngProvider(baseUrl: string): SearchProvider {
         const results = data.results ?? []
         return results.slice(0, resultCount).map((item) => parseResult(item))
       } catch (error) {
-        clearTimeout(timeout)
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error('SearXNG request timed out. Is the instance running?')
+          throw new Error(
+            abort.timedOut()
+              ? 'SearXNG request timed out. Is the instance running?'
+              : 'SearXNG request cancelled.'
+          )
         }
         throw error
+      } finally {
+        abort.dispose()
       }
     }
   }

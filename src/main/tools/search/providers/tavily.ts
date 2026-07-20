@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchResult } from '../types'
+import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
 
 const API_URL = 'https://api.tavily.com/search'
 const FETCH_TIMEOUT_MS = 30_000
@@ -23,14 +23,17 @@ interface TavilyResponse {
  */
 export function createTavilyProvider(apiKey: string): SearchProvider {
   return {
-    async search(query: string, resultCount: number): Promise<SearchResult[]> {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    async search(
+      query: string,
+      resultCount: number,
+      signal?: AbortSignal
+    ): Promise<SearchResult[]> {
+      const abort = createSearchAbortScope(signal, FETCH_TIMEOUT_MS)
 
       try {
         const response = await fetch(API_URL, {
           method: 'POST',
-          signal: controller.signal,
+          signal: abort.signal,
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json'
@@ -45,8 +48,6 @@ export function createTavilyProvider(apiKey: string): SearchProvider {
             include_raw_content: false
           })
         })
-        clearTimeout(timeout)
-
         if (!response.ok) {
           throw new Error(`Tavily returned HTTP ${response.status}: ${response.statusText}`)
         }
@@ -55,11 +56,14 @@ export function createTavilyProvider(apiKey: string): SearchProvider {
         const results = data.results ?? []
         return results.slice(0, resultCount).map((item) => parseResult(item))
       } catch (error) {
-        clearTimeout(timeout)
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error('Tavily request timed out.')
+          throw new Error(
+            abort.timedOut() ? 'Tavily request timed out.' : 'Tavily request cancelled.'
+          )
         }
         throw error
+      } finally {
+        abort.dispose()
       }
     }
   }

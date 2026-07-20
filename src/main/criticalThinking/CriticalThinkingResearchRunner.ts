@@ -1,0 +1,1046 @@
+import type {
+  CriticalThinkingActivity,
+  CriticalThinkingRoundState,
+  CriticalThinkingRun,
+  CriticalThinkingStepState,
+  CriticalThinkingTerminationReason
+} from '@shared/criticalThinking.types'
+import type { GenerationStats, GenerationStopReason } from '@shared/chat.types'
+import type {
+  ToolArtifact,
+  WebFetchArtifactDraft,
+  WebSearchArtifactDraft
+} from '@shared/toolArtifacts.types'
+import type { SearchResult } from '../tools/search/types'
+import { createToolArtifact } from '../tools/types'
+import type { RunGenerationResult } from '../chat/runGeneration'
+import { CRITICAL_THINKING_STEP_BUDGET } from '../chat/GenerationBudget'
+import {
+  buildCriticalThinkingAssessmentPrompt,
+  buildCriticalThinkingQueryPrompt
+} from './criticalThinkingPrompts'
+import { buildEvidencePacket } from './criticalThinkingEvidence'
+import {
+  boundPromptItems,
+  criticalThinkingSynthesisLimits,
+  truncatePromptText
+} from './criticalThinkingSynthesisBudget'
+import {
+  assessmentIsSufficient,
+  mapWithConcurrency,
+  selectResearchCandidates,
+  type ResearchSearchBatch
+} from './criticalThinkingResearchPolicy'
+import { parseResearchAssessment, parseResearchQueries } from './criticalThinkingResearchOutput'
+import { canonicalResearchUrl } from './criticalThinkingUrl'
+
+const QUERY_OUTPUT_TOKENS = 512
+const ASSESSMENT_OUTPUT_TOKENS = 1_024
+const MAX_ACTIVITY_LABEL_CHARS = 100
+const MAX_ACTIVITY_DETAIL_CHARS = 180
+const MAX_PRIOR_QUERY_CHARS = 2_400
+const MAX_GAP_PROMPT_CHARS = 2_000
+const MAX_PRIOR_FINDING_ITEMS = 12
+const MAX_PRIOR_QUERY_ITEMS = 24
+const MAX_GAP_ITEMS = 12
+const MAX_EMPTY_ROUNDS = 2
+
+export interface CriticalThinkingRunUsage {
+  rounds: number
+  searches: number
+  fetches: number
+}
+
+export interface ResearchSearchResponse {
+  provider: string
+  results: SearchResult[]
+}
+
+export interface CriticalThinkingResearchRunnerDeps {
+  getRun: () => CriticalThinkingRun
+  listArtifacts: () => ToolArtifact[]
+  runModel: (
+    phase: 'query' | 'assessment',
+    prompt: string,
+    maxTokens: number,
+    signal: AbortSignal
+  ) => Promise<RunGenerationResult>
+  search: (
+    query: string,
+    resultCount: number,
+    signal: AbortSignal
+  ) => Promise<ResearchSearchResponse>
+  fetch: (url: string, focus: string, signal: AbortSignal) => Promise<WebFetchArtifactDraft>
+  recordArtifact: (artifact: ToolArtifact, roundId: string) => void | Promise<void>
+  updateStep: (patch: Partial<CriticalThinkingStepState>) => void
+  appendRound: (round: CriticalThinkingRoundState) => void
+  updateRound: (roundId: string, patch: Partial<CriticalThinkingRoundState>) => void
+  recordActivity: (activity: CriticalThinkingActivity) => void
+  addStats: (stats: GenerationStats) => void
+  checkpoint: () => Promise<void>
+  contextTokens: number
+}
+
+export interface CriticalThinkingResearchStepResult {
+  status: CriticalThinkingStepState['status']
+  stopped: boolean
+  runBudgetReached: boolean
+}
+
+export interface CriticalThinkingResearchRunnerOptions {
+  /** Primarily injectable for deterministic timeout tests. */
+  stepTimeoutMs?: number
+}
+
+/**
+ * Executes one plan step as persisted, adaptive phases. Model calls are short
+ * and tool-free; network search/fetch work is explicit, cancellable, and
+ * concurrent. Every side-effecting phase is checkpointed before moving on.
+ */
+export class CriticalThinkingResearchRunner {
+  private readonly stepTimeoutMs: number
+
+  constructor(
+    private readonly deps: CriticalThinkingResearchRunnerDeps,
+    options: CriticalThinkingResearchRunnerOptions = {}
+  ) {
+    this.stepTimeoutMs = positiveDuration(
+      options.stepTimeoutMs,
+      CRITICAL_THINKING_STEP_BUDGET.maxDurationMs
+    )
+  }
+
+  async run(
+    signal: AbortSignal,
+    usage: CriticalThinkingRunUsage
+  ): Promise<CriticalThinkingResearchStepResult> {
+    const scope = createLinkedTimeout(signal, this.stepTimeoutMs)
+    let emptyRounds = trailingEmptyRoundCount(
+      currentStep(this.deps.getRun()),
+      this.deps.listArtifacts()
+    )
+    let roundsThisAttempt = 0
+    const abortReason = (): GenerationStopReason =>
+      scope.timedOut() || scope.signal.reason === 'time-limit' ? 'time-limit' : 'user'
+    try {
+      while (!scope.signal.aborted) {
+        const run = this.deps.getRun()
+        const step = currentStep(run)
+        const policy = run.researchPolicy
+        const artifacts = this.deps.listArtifacts()
+        const persistedAssessment = latestAcceptedAssessment(step, artifacts)
+        if (persistedAssessment) {
+          this.deps.updateStep({
+            status: 'completed',
+            finding: persistedAssessment.finding || step.finding,
+            uncertainties: [],
+            terminationReason: undefined
+          })
+          await this.deps.checkpoint()
+          return { status: 'completed', stopped: false, runBudgetReached: false }
+        }
+        if (verifiedUrlCount(artifacts) >= policy.maxVerifiedSourcesPerRun) {
+          return await this.limitStep('evidence-limit', true)
+        }
+        if (
+          usage.searches >= policy.maxSearchesPerRun ||
+          usage.fetches >= policy.maxFetchesPerRun
+        ) {
+          return await this.limitStep('tool-limit', true)
+        }
+        if (
+          roundsThisAttempt >= policy.maxRoundsPerStep ||
+          usage.rounds >= policy.maxRoundsPerRun
+        ) {
+          return await this.limitStep('rounds-exhausted', usage.rounds >= policy.maxRoundsPerRun)
+        }
+
+        let round = resumableRound(step)
+        if (!round) {
+          round = newRound(step)
+          this.deps.appendRound(round)
+          await this.deps.checkpoint()
+        }
+        if (round.status === 'querying') {
+          const outcome = await this.ensureQueries(run, step, round, scope.signal, abortReason)
+          if (outcome) return outcome
+        }
+
+        round = requireRound(this.deps.getRun(), round.id)
+        if (round.status === 'searching' || round.status === 'querying') {
+          const outcome = await this.searchRound(round, scope.signal, usage, abortReason)
+          if (outcome) return outcome
+        }
+
+        round = requireRound(this.deps.getRun(), round.id)
+        if (round.status === 'reading' || round.status === 'searching') {
+          const fetched = await this.readRound(round, scope.signal, usage, abortReason)
+          if (fetched.stopped) return fetched.result
+          emptyRounds = fetched.verifiedPages > 0 ? 0 : emptyRounds + 1
+        }
+
+        if (scope.signal.aborted) break
+        round = requireRound(this.deps.getRun(), round.id)
+        const assessment = await this.assessRound(round, scope.signal, abortReason)
+        if (assessment.stopped) return assessment.result
+
+        usage.rounds++
+        roundsThisAttempt++
+        if (assessment.sufficient) {
+          this.deps.updateStep({ status: 'completed', terminationReason: undefined })
+          await this.deps.checkpoint()
+          return { status: 'completed', stopped: false, runBudgetReached: false }
+        }
+
+        if (emptyRounds >= MAX_EMPTY_ROUNDS) {
+          return await this.limitStep('no-progress', false)
+        }
+        if (
+          roundsThisAttempt >= policy.maxRoundsPerStep ||
+          usage.rounds >= policy.maxRoundsPerRun ||
+          usage.searches >= policy.maxSearchesPerRun ||
+          usage.fetches >= policy.maxFetchesPerRun
+        ) {
+          const runBudgetReached =
+            usage.rounds >= policy.maxRoundsPerRun ||
+            usage.searches >= policy.maxSearchesPerRun ||
+            usage.fetches >= policy.maxFetchesPerRun
+          const reason: GenerationStopReason =
+            usage.searches >= policy.maxSearchesPerRun || usage.fetches >= policy.maxFetchesPerRun
+              ? 'tool-limit'
+              : 'rounds-exhausted'
+          return await this.limitStep(reason, runBudgetReached)
+        }
+      }
+
+      return await this.stopStep(abortReason())
+    } finally {
+      scope.dispose()
+    }
+  }
+
+  private async ensureQueries(
+    run: CriticalThinkingRun,
+    step: CriticalThinkingStepState,
+    round: CriticalThinkingRoundState,
+    signal: AbortSignal,
+    abortReason: () => GenerationStopReason
+  ): Promise<CriticalThinkingResearchStepResult | null> {
+    if (round.queries.length > 0) {
+      this.deps.updateRound(round.id, { status: 'searching', terminationReason: undefined })
+      await this.deps.checkpoint()
+      return null
+    }
+    const policy = run.researchPolicy
+    const priorAssessment = [...step.rounds]
+      .reverse()
+      .find((candidate) => candidate.id !== round.id && candidate.assessment)?.assessment
+    const proposed = priorAssessment?.nextQueries ?? []
+    const novelProposed = novelQueries(proposed, usedQueries(step), policy.maxQueriesPerRound)
+    if (novelProposed.length > 0) {
+      this.deps.updateRound(round.id, {
+        queries: novelProposed,
+        status: 'searching',
+        terminationReason: undefined
+      })
+      await this.deps.checkpoint()
+      return null
+    }
+
+    const activity = this.startActivity('analysis', `Choose searches for round ${round.index + 1}`)
+    const limits = criticalThinkingSynthesisLimits(this.deps.contextTokens)
+    const priorFindings = run.steps
+      .filter((candidate) => candidate.id !== step.id)
+      .map((candidate) => candidate.finding)
+      .slice(0, MAX_PRIOR_FINDING_ITEMS)
+    const priorQueries = usedQueries(step).slice(-MAX_PRIOR_QUERY_ITEMS)
+    const gaps = (priorAssessment?.remainingGaps ?? []).slice(0, MAX_GAP_ITEMS)
+    try {
+      const result = await this.deps.runModel(
+        'query',
+        buildBudgetedQueryPrompt(
+          truncatePromptText(run.question, limits.maxQuestionChars),
+          truncatePromptText(step.title, 600),
+          priorFindings,
+          priorQueries,
+          gaps,
+          round.index + 1,
+          policy.maxQueriesPerRound,
+          limits.maxPromptChars,
+          limits.maxFindingChars
+        ),
+        QUERY_OUTPUT_TOKENS,
+        signal
+      )
+      this.deps.addStats(result.stats)
+      if (result.stopped) {
+        const reason = signal.aborted ? abortReason() : (result.stopReason ?? 'yielded')
+        this.finishActivity(activity, 'error', stoppedDetail(reason))
+        return await this.stopStep(reason, round.id)
+      }
+      const fallback = `${run.question} ${step.title}`
+      const parsed = parseResearchQueries(result.content, fallback, policy.maxQueriesPerRound)
+      const queries = novelQueries(parsed.queries, usedQueries(step), policy.maxQueriesPerRound)
+      if (queries.length === 0) {
+        this.finishActivity(activity, 'error', 'No novel query was available')
+        return await this.limitStep('no-progress', false, round.id)
+      }
+      this.deps.updateRound(round.id, {
+        queries,
+        status: 'searching',
+        terminationReason: undefined
+      })
+      this.finishActivity(
+        activity,
+        'success',
+        parsed.valid ? `${queries.length} focused queries` : 'Used a bounded fallback query'
+      )
+      await this.deps.checkpoint()
+      return null
+    } catch (error) {
+      if (signal.aborted) {
+        const reason = abortReason()
+        this.finishActivity(activity, 'error', stoppedDetail(reason))
+        return await this.stopStep(reason, round.id)
+      }
+      this.finishActivity(activity, 'error', errorMessage(error))
+      throw error
+    }
+  }
+
+  private async searchRound(
+    round: CriticalThinkingRoundState,
+    signal: AbortSignal,
+    usage: CriticalThinkingRunUsage,
+    abortReason: () => GenerationStopReason
+  ): Promise<CriticalThinkingResearchStepResult | null> {
+    const run = this.deps.getRun()
+    const policy = run.researchPolicy
+    const artifacts = artifactsForRound(this.deps.listArtifacts(), round.id)
+    const searched = new Set(
+      artifacts
+        .filter((artifact) => artifact.kind === 'web-search')
+        .map((artifact) => artifact.query.toLowerCase())
+    )
+    const remainingBudget = Math.max(0, policy.maxSearchesPerRun - usage.searches)
+    const pending = round.queries
+      .filter((query) => !searched.has(query.toLowerCase()))
+      .slice(0, remainingBudget)
+    if (pending.length === 0 && round.queries.some((query) => !searched.has(query.toLowerCase()))) {
+      return this.pauseStep('tool-limit', true, round.id)
+    }
+
+    this.deps.updateRound(round.id, { status: 'searching', terminationReason: undefined })
+    await this.deps.checkpoint()
+    const results = await mapWithConcurrency(
+      pending,
+      policy.searchConcurrency,
+      async (query) => {
+        // Count attempts only when a worker actually starts them. A timeout can
+        // stop the queue before every reserved item begins; charging those
+        // unstarted items would incorrectly consume the next step's budget.
+        usage.searches++
+        const activity = this.startActivity('search', `Search “${truncate(query, 72)}”`)
+        try {
+          const response = await this.deps.search(query, policy.maxResultsPerQuery, signal)
+          const draft: WebSearchArtifactDraft = {
+            kind: 'web-search',
+            query,
+            provider: response.provider,
+            results: response.results.map((result, index) => ({ ...result, rank: index + 1 })),
+            research: researchIdentity(this.deps.getRun(), round.id)
+          }
+          const artifact = createToolArtifact(artifactIdentity(run.id), draft)
+          await this.deps.recordArtifact(artifact, round.id)
+          this.finishActivity(activity, 'success', `${response.results.length} results`)
+          return artifact
+        } catch (error) {
+          this.finishActivity(activity, 'error', errorMessage(error))
+          throw error
+        }
+      },
+      signal
+    )
+    if (signal.aborted) return this.stopStep(abortReason(), round.id)
+    throwIfEveryOperationFailed(results, 'Every web search failed')
+
+    const searchedAfterAttempt = new Set(
+      artifactsForRound(this.deps.listArtifacts(), round.id)
+        .filter((artifact) => artifact.kind === 'web-search')
+        .map((artifact) => artifact.query.toLowerCase())
+    )
+    if (
+      usage.searches >= policy.maxSearchesPerRun &&
+      round.queries.some((query) => !searchedAfterAttempt.has(query.toLowerCase()))
+    ) {
+      return this.pauseStep('tool-limit', true, round.id)
+    }
+
+    const persistedArtifacts = this.deps.listArtifacts()
+    const allArtifacts = artifactsForRound(persistedArtifacts, round.id)
+    const batches = allArtifacts.flatMap<ResearchSearchBatch>((artifact) =>
+      artifact.kind === 'web-search'
+        ? [
+            {
+              query: artifact.query,
+              results: artifact.results.map(({ title, url, snippet }) => ({ title, url, snippet }))
+            }
+          ]
+        : []
+    )
+    this.attachReusableEvidence(round.id, batches, persistedArtifacts)
+    const selectedUrls =
+      round.selectedUrls.length > 0
+        ? round.selectedUrls
+        : selectResearchCandidates(
+            batches,
+            fetchedUrls(persistedArtifacts),
+            policy.maxPagesPerRound
+          ).map((candidate) => candidate.url)
+    this.deps.updateRound(round.id, {
+      selectedUrls,
+      status: 'reading',
+      terminationReason: undefined
+    })
+    await this.deps.checkpoint()
+    return null
+  }
+
+  private async readRound(
+    round: CriticalThinkingRoundState,
+    signal: AbortSignal,
+    usage: CriticalThinkingRunUsage,
+    abortReason: () => GenerationStopReason
+  ): Promise<{
+    verifiedPages: number
+    stopped: boolean
+    result: CriticalThinkingResearchStepResult
+  }> {
+    const run = this.deps.getRun()
+    const step = currentStep(run)
+    const policy = run.researchPolicy
+    const attemptedHere = new Set<string>()
+    const settled: PromiseSettledResult<ToolArtifact>[] = []
+    this.deps.updateRound(round.id, { status: 'reading', terminationReason: undefined })
+    await this.deps.checkpoint()
+
+    while (!signal.aborted) {
+      const persistedArtifacts = this.deps.listArtifacts()
+      const fetchedInRound = fetchedUrls(artifactsForRound(persistedArtifacts, round.id))
+      const unattempted = round.selectedUrls.filter((url) => {
+        const canonical = canonicalResearchUrl(url)
+        return !fetchedInRound.has(canonical) && !attemptedHere.has(canonical)
+      })
+      if (unattempted.length === 0) break
+
+      const remainingBudget = Math.max(0, policy.maxFetchesPerRun - usage.fetches)
+      const remainingEvidenceCapacity = Math.max(
+        0,
+        policy.maxVerifiedSourcesPerRun - verifiedUrlCount(persistedArtifacts)
+      )
+      if (remainingEvidenceCapacity === 0) {
+        throwIfEveryOperationFailed(settled, 'Every selected page failed to load')
+        return {
+          verifiedPages: 0,
+          stopped: true,
+          result: await this.pauseStep('evidence-limit', true, round.id)
+        }
+      }
+      if (remainingBudget === 0) {
+        throwIfEveryOperationFailed(settled, 'Every selected page failed to load')
+        return {
+          verifiedPages: 0,
+          stopped: true,
+          result: await this.pauseStep('tool-limit', true, round.id)
+        }
+      }
+
+      // Never launch more potentially verified pages than the lifetime source
+      // index can still retain. If a page is unreadable or fails, the next loop
+      // fills the unused capacity from a later selected URL.
+      const pending = unattempted.slice(0, Math.min(remainingBudget, remainingEvidenceCapacity))
+      const results = await mapWithConcurrency(
+        pending,
+        policy.fetchConcurrency,
+        async (url) => {
+          // See the matching search counter above: only work that started counts
+          // against the active attempt's fetch budget.
+          attemptedHere.add(canonicalResearchUrl(url))
+          usage.fetches++
+          const activity = this.startActivity('reading', `Read ${safeHostname(url)}`)
+          try {
+            const draft = await this.deps.fetch(url, `${run.question}\n${step.title}`, signal)
+            const artifact = createToolArtifact(artifactIdentity(run.id), {
+              ...draft,
+              research: researchIdentity(run, round.id)
+            })
+            await this.deps.recordArtifact(artifact, round.id)
+            this.finishActivity(activity, 'success', `${draft.passages.length} focused passages`)
+            return artifact
+          } catch (error) {
+            this.finishActivity(activity, 'error', errorMessage(error))
+            throw error
+          }
+        },
+        signal
+      )
+      settled.push(...results)
+      await this.deps.checkpoint()
+    }
+
+    if (signal.aborted) {
+      return {
+        verifiedPages: 0,
+        stopped: true,
+        result: await this.stopStep(abortReason(), round.id)
+      }
+    }
+    throwIfEveryOperationFailed(settled, 'Every selected page failed to load')
+    const currentRound = requireRound(this.deps.getRun(), round.id)
+    const verifiedPages = verifiedUrlsForRound(this.deps.listArtifacts(), currentRound).size
+    this.deps.updateRound(round.id, { status: 'assessing', terminationReason: undefined })
+    await this.deps.checkpoint()
+    return {
+      verifiedPages,
+      stopped: false,
+      result: { status: 'researching', stopped: false, runBudgetReached: false }
+    }
+  }
+
+  private async assessRound(
+    round: CriticalThinkingRoundState,
+    signal: AbortSignal,
+    abortReason: () => GenerationStopReason
+  ): Promise<{
+    sufficient: boolean
+    stopped: boolean
+    result: CriticalThinkingResearchStepResult
+  }> {
+    const run = this.deps.getRun()
+    const step = currentStep(run)
+    const limits = criticalThinkingSynthesisLimits(this.deps.contextTokens)
+    const artifacts = this.deps.listArtifacts()
+    const stepArtifactSet = new Set(step.evidenceIds)
+    const stepArtifacts = artifacts.filter((artifact) => stepArtifactSet.has(artifact.id))
+    const priorFindings = boundPromptItems(
+      run.steps
+        .filter((candidate) => candidate.id !== step.id)
+        .map((candidate) => candidate.finding),
+      limits.maxFindingChars
+    )
+    const question = truncatePromptText(run.question, limits.maxQuestionChars)
+    const stepTitle = truncatePromptText(step.title, 600)
+    const promptBase = buildCriticalThinkingAssessmentPrompt(
+      question,
+      stepTitle,
+      priorFindings,
+      '',
+      round.index + 1,
+      run.researchPolicy.maxQueriesPerRound
+    )
+    const evidencePacket = buildEvidencePacket(
+      stepArtifacts,
+      run.sources,
+      Math.max(0, Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptBase.length))
+    )
+    const activity = this.startActivity('analysis', 'Check evidence coverage')
+    try {
+      const result = await this.deps.runModel(
+        'assessment',
+        buildCriticalThinkingAssessmentPrompt(
+          question,
+          stepTitle,
+          priorFindings,
+          evidencePacket,
+          round.index + 1,
+          run.researchPolicy.maxQueriesPerRound
+        ),
+        ASSESSMENT_OUTPUT_TOKENS,
+        signal
+      )
+      this.deps.addStats(result.stats)
+      if (result.stopped) {
+        const reason = signal.aborted ? abortReason() : (result.stopReason ?? 'yielded')
+        this.finishActivity(activity, 'error', stoppedDetail(reason))
+        return {
+          sufficient: false,
+          stopped: true,
+          result: await this.stopStep(reason, round.id)
+        }
+      }
+      const parsed = parseResearchAssessment(result.content, run.researchPolicy.maxQueriesPerRound)
+      const verifiedUrlCount = verifiedUrlsForStep(stepArtifacts, step).size
+      const sufficient = Boolean(
+        parsed.assessment && assessmentIsSufficient(parsed.assessment, verifiedUrlCount)
+      )
+      const assessment = parsed.assessment ?? {
+        verdict: 'continue' as const,
+        evidenceBasis: 'insufficient' as const,
+        rationale: 'The model response could not be validated as a structured coverage decision.',
+        remainingGaps: ['A valid evidence coverage assessment is still required.'],
+        nextQueries: []
+      }
+      const finding = parsed.valid ? parsed.finding : step.finding
+      this.deps.updateRound(round.id, {
+        status: 'completed',
+        finding,
+        assessment,
+        terminationReason: undefined,
+        completedAt: Date.now()
+      })
+      this.deps.updateStep({
+        finding,
+        uncertainties:
+          assessment.remainingGaps.length > 0 ? assessment.remainingGaps : parsed.uncertainties,
+        terminationReason: undefined
+      })
+      this.finishActivity(
+        activity,
+        parsed.valid ? 'success' : 'error',
+        parsed.valid
+          ? sufficient
+            ? 'Coverage sufficient'
+            : `${assessment.remainingGaps.length} gaps remain`
+          : 'Invalid structured assessment; another bounded round is required'
+      )
+      await this.deps.checkpoint()
+      return {
+        sufficient,
+        stopped: false,
+        result: { status: 'researching', stopped: false, runBudgetReached: false }
+      }
+    } catch (error) {
+      if (signal.aborted) {
+        const reason = abortReason()
+        this.finishActivity(activity, 'error', stoppedDetail(reason))
+        return {
+          sufficient: false,
+          stopped: true,
+          result: await this.stopStep(reason, round.id)
+        }
+      }
+      this.finishActivity(activity, 'error', errorMessage(error))
+      throw error
+    }
+  }
+
+  private attachReusableEvidence(
+    roundId: string,
+    batches: ResearchSearchBatch[],
+    artifacts: ToolArtifact[]
+  ): void {
+    const surfacedUrls = new Set(
+      batches.flatMap((batch) => batch.results.map((result) => canonicalResearchUrl(result.url)))
+    )
+    const reusableIds = artifacts.flatMap((artifact) => {
+      if (artifact.kind !== 'web-fetch' || artifact.passages.length === 0) return []
+      const artifactUrls = canonicalFetchUrls(artifact)
+      return artifactUrls.some((url) => surfacedUrls.has(url)) ? [artifact.id] : []
+    })
+    if (reusableIds.length === 0) return
+
+    const run = this.deps.getRun()
+    const step = currentStep(run)
+    const round = requireRound(run, roundId)
+    this.deps.updateStep({ evidenceIds: uniqueStrings([...step.evidenceIds, ...reusableIds]) })
+    this.deps.updateRound(roundId, {
+      evidenceIds: uniqueStrings([...round.evidenceIds, ...reusableIds])
+    })
+  }
+
+  private async limitStep(
+    reason: CriticalThinkingTerminationReason,
+    runBudgetReached: boolean,
+    roundId?: string
+  ): Promise<CriticalThinkingResearchStepResult> {
+    if (roundId) {
+      this.deps.updateRound(roundId, {
+        status: 'limited',
+        terminationReason: reason,
+        completedAt: Date.now()
+      })
+    }
+    this.deps.updateStep({ status: 'limited', terminationReason: reason })
+    await this.deps.checkpoint()
+    return { status: 'limited', stopped: false, runBudgetReached }
+  }
+
+  private async stopStep(
+    reason: GenerationStopReason,
+    roundId?: string
+  ): Promise<CriticalThinkingResearchStepResult> {
+    return this.pauseStep(reason, false, roundId)
+  }
+
+  private async pauseStep(
+    reason: CriticalThinkingTerminationReason,
+    runBudgetReached: boolean,
+    roundId?: string
+  ): Promise<CriticalThinkingResearchStepResult> {
+    const userStopped = reason === 'user'
+    if (roundId) {
+      this.deps.updateRound(roundId, {
+        terminationReason: reason,
+        completedAt: null
+      })
+    }
+    this.deps.updateStep({
+      status: userStopped ? 'pending' : 'limited',
+      terminationReason: reason
+    })
+    await this.deps.checkpoint()
+    return {
+      status: userStopped ? 'pending' : 'limited',
+      stopped: userStopped,
+      runBudgetReached
+    }
+  }
+
+  private startActivity(
+    kind: CriticalThinkingActivity['kind'],
+    label: string
+  ): CriticalThinkingActivity {
+    const activity: CriticalThinkingActivity = {
+      id: `critical_activity_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      kind,
+      label: truncate(label, MAX_ACTIVITY_LABEL_CHARS),
+      status: 'running',
+      createdAt: Date.now()
+    }
+    this.deps.recordActivity(activity)
+    return activity
+  }
+
+  private finishActivity(
+    activity: CriticalThinkingActivity,
+    status: CriticalThinkingActivity['status'],
+    detail: string
+  ): void {
+    this.deps.recordActivity({
+      ...activity,
+      status,
+      detail: truncate(detail, MAX_ACTIVITY_DETAIL_CHARS)
+    })
+  }
+}
+
+function buildBudgetedQueryPrompt(
+  questionCandidate: string,
+  stepCandidate: string,
+  priorFindingCandidates: string[],
+  priorQueryCandidates: string[],
+  gapCandidates: string[],
+  roundNumber: number,
+  maxQueries: number,
+  maxPromptChars: number,
+  maxFindingChars: number
+): string {
+  const skeleton = buildCriticalThinkingQueryPrompt('', '', [], [], [], roundNumber, maxQueries)
+  const identityBudget = Math.max(0, maxPromptChars - skeleton.length)
+  const [questionBudget, stepBudget] = allocateCharBudgets(
+    [questionCandidate.length, stepCandidate.length],
+    identityBudget
+  )
+  const question = truncatePromptText(questionCandidate, questionBudget)
+  const step = truncatePromptText(stepCandidate, stepBudget)
+  const base = buildCriticalThinkingQueryPrompt(question, step, [], [], [], roundNumber, maxQueries)
+  const candidates = [priorFindingCandidates, priorQueryCandidates, gapCandidates]
+  const itemOverhead = Math.min(
+    Math.max(0, maxPromptChars - base.length),
+    candidates.reduce((total, items) => total + items.filter((item) => item.trim()).length * 4, 32)
+  )
+  const contentBudget = Math.max(0, maxPromptChars - base.length - itemOverhead)
+  const budgets = allocateCharBudgets(
+    [
+      Math.min(maxFindingChars, totalItemChars(priorFindingCandidates)),
+      Math.min(MAX_PRIOR_QUERY_CHARS, totalItemChars(priorQueryCandidates)),
+      Math.min(MAX_GAP_PROMPT_CHARS, totalItemChars(gapCandidates))
+    ],
+    contentBudget
+  )
+  let findings = boundPromptItems(priorFindingCandidates, budgets[0])
+  let queries = boundPromptItems(priorQueryCandidates, budgets[1])
+  let gaps = boundPromptItems(gapCandidates, budgets[2])
+  const render = (): string =>
+    buildCriticalThinkingQueryPrompt(
+      question,
+      step,
+      findings,
+      queries,
+      gaps,
+      roundNumber,
+      maxQueries
+    )
+  let prompt = render()
+
+  // The estimate above reserves bullet/newline framing. Keep an exact final
+  // guard so even pathological tiny items cannot overrun the real char cap.
+  for (const group of ['findings', 'queries', 'gaps'] as const) {
+    if (prompt.length <= maxPromptChars) break
+    const overflow = prompt.length - maxPromptChars
+    if (group === 'findings') {
+      findings = boundPromptItems(findings, Math.max(0, totalItemChars(findings) - overflow - 8))
+    } else if (group === 'queries') {
+      queries = boundPromptItems(queries, Math.max(0, totalItemChars(queries) - overflow - 8))
+    } else {
+      gaps = boundPromptItems(gaps, Math.max(0, totalItemChars(gaps) - overflow - 8))
+    }
+    prompt = render()
+  }
+  return prompt.length <= maxPromptChars ? prompt : base
+}
+
+function allocateCharBudgets(capacities: number[], totalBudget: number): number[] {
+  const safeCapacities = capacities.map((capacity) =>
+    Number.isFinite(capacity) ? Math.max(0, Math.floor(capacity)) : 0
+  )
+  const budgets = safeCapacities.map(() => 0)
+  let remaining = Number.isFinite(totalBudget) ? Math.max(0, Math.floor(totalBudget)) : 0
+  while (remaining > 0) {
+    const active = safeCapacities
+      .map((capacity, index) => ({ capacity, index }))
+      .filter(({ capacity, index }) => budgets[index] < capacity)
+    if (active.length === 0) break
+    const share = Math.max(1, Math.floor(remaining / active.length))
+    let allocated = 0
+    for (const { capacity, index } of active) {
+      if (remaining <= 0) break
+      const amount = Math.min(share, capacity - budgets[index], remaining)
+      budgets[index] += amount
+      remaining -= amount
+      allocated += amount
+    }
+    if (allocated === 0) break
+  }
+  return budgets
+}
+
+function totalItemChars(items: string[]): number {
+  return items.reduce((total, item) => total + item.trim().length, 0)
+}
+
+function newRound(step: CriticalThinkingStepState): CriticalThinkingRoundState {
+  return {
+    id: `round_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    index: step.rounds.length,
+    status: 'querying',
+    queries: [],
+    selectedUrls: [],
+    evidenceIds: [],
+    finding: '',
+    assessment: null,
+    startedAt: Date.now(),
+    completedAt: null
+  }
+}
+
+function resumableRound(step: CriticalThinkingStepState): CriticalThinkingRoundState | null {
+  const latest = step.rounds.at(-1)
+  return latest && ['querying', 'searching', 'reading', 'assessing'].includes(latest.status)
+    ? latest
+    : null
+}
+
+function trailingEmptyRoundCount(
+  step: CriticalThinkingStepState,
+  artifacts: ToolArtifact[]
+): number {
+  let count = 0
+  for (let index = step.rounds.length - 1; index >= 0; index--) {
+    const round = step.rounds[index]
+    if (round.status !== 'completed') break
+    const evidenceIds = new Set(round.evidenceIds)
+    const hasVerifiedPage = artifacts.some(
+      (artifact) =>
+        artifact.kind === 'web-fetch' &&
+        artifact.passages.length > 0 &&
+        (artifact.research?.roundId === round.id || evidenceIds.has(artifact.id))
+    )
+    if (hasVerifiedPage) break
+    count++
+  }
+  return count
+}
+
+function currentStep(run: CriticalThinkingRun): CriticalThinkingStepState {
+  const step = run.steps[run.currentStep]
+  if (!step) throw new Error('Critical Thinking research step not found.')
+  return step
+}
+
+function requireRound(run: CriticalThinkingRun, roundId: string): CriticalThinkingRoundState {
+  const round = currentStep(run).rounds.find((candidate) => candidate.id === roundId)
+  if (!round) throw new Error('Critical Thinking research round not found.')
+  return round
+}
+
+function usedQueries(step: CriticalThinkingStepState): string[] {
+  return step.rounds.flatMap((round) => round.queries)
+}
+
+function novelQueries(queries: string[], used: string[], limit: number): string[] {
+  const boundedLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
+  if (boundedLimit === 0) return []
+  const seen = new Set(used.map((query) => query.trim().toLowerCase()))
+  return queries
+    .flatMap((query) => {
+      const normalized = query.replace(/\s+/g, ' ').trim()
+      const key = normalized.toLowerCase()
+      if (!key || seen.has(key)) return []
+      seen.add(key)
+      return [normalized]
+    })
+    .slice(0, boundedLimit)
+}
+
+function artifactsForRound(artifacts: ToolArtifact[], roundId: string): ToolArtifact[] {
+  return artifacts.filter((artifact) => artifact.research?.roundId === roundId)
+}
+
+function fetchedUrls(artifacts: ToolArtifact[]): Set<string> {
+  return new Set(
+    artifacts.flatMap((artifact) =>
+      artifact.kind === 'web-fetch' ? canonicalFetchUrls(artifact) : []
+    )
+  )
+}
+
+function canonicalFetchUrls(artifact: Extract<ToolArtifact, { kind: 'web-fetch' }>): string[] {
+  return uniqueStrings([
+    canonicalResearchUrl(artifact.requestedUrl),
+    canonicalResearchUrl(artifact.finalUrl)
+  ])
+}
+
+function verifiedUrlsForStep(
+  artifacts: ToolArtifact[],
+  step: CriticalThinkingStepState
+): Set<string> {
+  const stepIds = new Set(step.evidenceIds)
+  return new Set(
+    artifacts.flatMap((artifact) =>
+      artifact.kind === 'web-fetch' &&
+      (stepIds.has(artifact.id) || artifact.research?.stepId === step.id) &&
+      artifact.passages.length > 0
+        ? [canonicalResearchUrl(artifact.finalUrl)]
+        : []
+    )
+  )
+}
+
+function verifiedUrlCount(artifacts: ToolArtifact[]): number {
+  return new Set(
+    artifacts.flatMap((artifact) =>
+      artifact.kind === 'web-fetch' && artifact.passages.length > 0
+        ? [canonicalResearchUrl(artifact.finalUrl)]
+        : []
+    )
+  ).size
+}
+
+function latestAcceptedAssessment(
+  step: CriticalThinkingStepState,
+  artifacts: ToolArtifact[]
+): { finding: string } | null {
+  const round = [...step.rounds]
+    .reverse()
+    .find((candidate) => candidate.status === 'completed' && candidate.assessment)
+  if (!round?.assessment) return null
+  const verified = verifiedUrlsForStep(artifacts, step).size
+  return assessmentIsSufficient(round.assessment, verified) ? { finding: round.finding } : null
+}
+
+function verifiedUrlsForRound(
+  artifacts: ToolArtifact[],
+  round: CriticalThinkingRoundState
+): Set<string> {
+  const roundIds = new Set(round.evidenceIds)
+  return new Set(
+    artifacts.flatMap((artifact) =>
+      artifact.kind === 'web-fetch' &&
+      (roundIds.has(artifact.id) || artifact.research?.roundId === round.id) &&
+      artifact.passages.length > 0
+        ? [canonicalResearchUrl(artifact.finalUrl)]
+        : []
+    )
+  )
+}
+
+function researchIdentity(
+  run: CriticalThinkingRun,
+  roundId: string
+): { stepId: string; roundId: string } {
+  return { stepId: currentStep(run).id, roundId }
+}
+
+function artifactIdentity(conversationId: string): { conversationId: string; messageId: string } {
+  return {
+    conversationId,
+    messageId: `critical_web_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
+  }
+}
+
+function safeHostname(value: string): string {
+  try {
+    return new URL(value).hostname
+  } catch {
+    return truncate(value, 72)
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)]
+}
+
+function stoppedDetail(reason: GenerationStopReason | undefined): string {
+  return reason ? `Stopped: ${reason}` : 'Generation stopped before the phase completed'
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Research operation failed.'
+}
+
+function throwIfEveryOperationFailed<T>(results: PromiseSettledResult<T>[], label: string): void {
+  if (results.length === 0 || results.some((result) => result.status === 'fulfilled')) return
+  const firstFailure = results.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected'
+  )
+  throw new Error(`${label}: ${truncate(errorMessage(firstFailure?.reason), 300)}`)
+}
+
+function truncate(value: string, maxChars: number): string {
+  return value.length > maxChars ? `${value.slice(0, maxChars - 1)}…` : value
+}
+
+function positiveDuration(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : fallback
+}
+
+function createLinkedTimeout(
+  outerSignal: AbortSignal,
+  timeoutMs: number
+): {
+  signal: AbortSignal
+  timedOut: () => boolean
+  dispose: () => void
+} {
+  const controller = new AbortController()
+  let didTimeOut = false
+  const onAbort = (): void => controller.abort(outerSignal.reason)
+  if (outerSignal.aborted) controller.abort(outerSignal.reason)
+  else outerSignal.addEventListener('abort', onAbort, { once: true })
+  const timer = setTimeout(() => {
+    didTimeOut = true
+    controller.abort('time-limit')
+  }, timeoutMs)
+  return {
+    signal: controller.signal,
+    timedOut: () => didTimeOut,
+    dispose: () => {
+      clearTimeout(timer)
+      outerSignal.removeEventListener('abort', onAbort)
+    }
+  }
+}

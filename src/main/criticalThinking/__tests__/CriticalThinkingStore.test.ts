@@ -1,6 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { CriticalThinkingRun } from '@shared/criticalThinking.types'
-import { reconcileInterruptedCriticalThinkingRuns } from '../CriticalThinkingStore'
+import {
+  CriticalThinkingStore,
+  normalizeCriticalThinkingRun,
+  reconcileInterruptedCriticalThinkingRuns
+} from '../CriticalThinkingStore'
+import { DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY } from '../criticalThinkingResearchPolicy'
+
+const temporaryDirectories: string[] = []
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true }))
+  )
+})
 
 function makeRun(status: CriticalThinkingRun['status']): CriticalThinkingRun {
   return {
@@ -9,6 +27,7 @@ function makeRun(status: CriticalThinkingRun['status']): CriticalThinkingRun {
     status,
     provider: 'local',
     model: null,
+    researchPolicy: { ...DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY },
     plan: null,
     report: '',
     sources: [],
@@ -43,4 +62,116 @@ describe('reconcileInterruptedCriticalThinkingRuns', () => {
       expect(run).toBe(original)
     }
   )
+})
+
+describe('normalizeCriticalThinkingRun', () => {
+  it('adds pinned research defaults and round arrays to legacy runs', () => {
+    const legacy = makeRun('partial')
+    delete (legacy as { researchPolicy?: CriticalThinkingRun['researchPolicy'] }).researchPolicy
+    legacy.steps = [
+      {
+        id: 'step_1',
+        title: 'Legacy step',
+        status: 'researching',
+        attempts: 2,
+        evidenceIds: ['artifact_1'],
+        finding: 'Partial finding',
+        uncertainties: ['One gap']
+      } as CriticalThinkingRun['steps'][number]
+    ]
+
+    const normalized = normalizeCriticalThinkingRun(legacy)
+
+    expect(normalized.researchPolicy).toEqual(DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY)
+    expect(normalized.steps[0]).toMatchObject({
+      id: 'step_1',
+      attempts: 2,
+      rounds: []
+    })
+  })
+
+  it('preserves valid persisted limits while repairing invalid ones', () => {
+    const run = makeRun('partial')
+    run.researchPolicy = {
+      ...run.researchPolicy,
+      maxRoundsPerStep: 5,
+      maxQueriesPerRound: 0
+    }
+    delete (run.researchPolicy as Partial<CriticalThinkingRun['researchPolicy']>)
+      .maxVerifiedSourcesPerRun
+
+    const normalized = normalizeCriticalThinkingRun(run)
+
+    expect(normalized.researchPolicy.maxRoundsPerStep).toBe(5)
+    expect(normalized.researchPolicy.maxQueriesPerRound).toBe(
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxQueriesPerRound
+    )
+    expect(normalized.researchPolicy.maxVerifiedSourcesPerRun).toBe(
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxVerifiedSourcesPerRun
+    )
+  })
+
+  it('drops malformed legacy sources and bounds safe source metadata', () => {
+    const run = makeRun('partial')
+    run.sources = [
+      null,
+      { id: 'S1', title: 'Unsafe', url: 'javascript:alert(1)', verified: true },
+      {
+        id: 'S2',
+        title: 'T'.repeat(400),
+        url: 'https://safe.example/report',
+        snippet: 'S'.repeat(700),
+        verified: true
+      }
+    ] as unknown as CriticalThinkingRun['sources']
+
+    const normalized = normalizeCriticalThinkingRun(run)
+
+    expect(normalized.sources).toHaveLength(1)
+    expect(normalized.sources[0]).toMatchObject({
+      id: 'S2',
+      url: 'https://safe.example/report',
+      verified: true
+    })
+    expect(normalized.sources[0].title).toHaveLength(300)
+    expect(normalized.sources[0].snippet).toHaveLength(500)
+  })
+})
+
+describe('CriticalThinkingStore persistence', () => {
+  it('coalesces progress updates and flushes the latest state', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'anodex-critical-store-'))
+    temporaryDirectories.push(directory)
+    const store = new CriticalThinkingStore()
+    store.init(directory)
+    const run = store.create({ question: 'Original', provider: 'local', model: null })
+    await store.flush()
+
+    store.update(run.id, { status: 'researching', currentStep: 1 })
+    store.update(run.id, { status: 'synthesizing', currentStep: 2 })
+    await store.flush()
+
+    const persisted: unknown = JSON.parse(await readFile(join(directory, 'runs.json'), 'utf8'))
+    expect(persisted).toEqual([
+      expect.objectContaining({ id: run.id, status: 'synthesizing', currentStep: 2 })
+    ])
+  })
+
+  it('reports a failed write and retries the retained latest snapshot', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'anodex-critical-retry-'))
+    temporaryDirectories.push(parent)
+    const directory = join(parent, 'store')
+    await mkdir(directory)
+    const store = new CriticalThinkingStore()
+    store.init(directory)
+    await rm(directory, { recursive: true, force: true })
+
+    const run = store.create({ question: 'Retry me', provider: 'local', model: null })
+    await expect(store.flush()).rejects.toBeInstanceOf(Error)
+
+    await mkdir(directory)
+    await store.flush()
+    const persisted: unknown = JSON.parse(await readFile(join(directory, 'runs.json'), 'utf8'))
+    expect(persisted).toEqual([expect.objectContaining({ id: run.id, question: 'Retry me' })])
+  })
 })

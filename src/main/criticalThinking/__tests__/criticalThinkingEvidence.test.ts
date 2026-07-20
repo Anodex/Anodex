@@ -76,7 +76,28 @@ describe('Critical Thinking evidence pipeline', () => {
     )
     expect(validation.valid).toBe(false)
     expect(validation.issues).toContain('Unknown evidence passage S1:P9.')
-    expect(validation.issues).toContain('Numeric claim 99 is not present in its cited evidence.')
+    expect(validation.issues).toContain(
+      'Numeric claim 99 percent is not present in its cited evidence.'
+    )
+  })
+
+  it('does not trust a verified source flag without matching fetched passages', () => {
+    const validation = validateResearchReport('A material supported claim [[S1]].', [], sources)
+
+    expect(validation.valid).toBe(false)
+    expect(validation.issues).toContain('Citation S1 has no fetched evidence passages.')
+  })
+
+  it('rejects uncited material paragraphs and uncited numeric claims', () => {
+    const validation = validateResearchReport(
+      'Supported finding [[S1:P1]].\n\nA fabricated uncited conclusion claims 77 percent growth.',
+      artifacts,
+      sources
+    )
+
+    expect(validation.valid).toBe(false)
+    expect(validation.issues.some((issue) => issue.includes('no evidence citation'))).toBe(true)
+    expect(validation.issues).toContain('Numeric claim 77 percent has no evidence citation.')
   })
 
   it('normalizes smart quotes, non-breaking spaces, and whitespace for quote checks', () => {
@@ -89,6 +110,38 @@ describe('Critical Thinking evidence pipeline', () => {
       sources
     )
     expect(validation).toEqual({ valid: true, issues: [] })
+  })
+
+  it('requires an exact quote to appear in the source cited beside it', () => {
+    const secondSource: CriticalThinkingSource = {
+      id: 'S2',
+      title: 'Independent interview',
+      url: 'https://independent.example/interview',
+      verified: true
+    }
+    const secondArtifact: ToolArtifact = {
+      ...primaryFetch,
+      id: 'artifact_2',
+      requestedUrl: secondSource.url,
+      finalUrl: secondSource.url,
+      passages: [
+        {
+          id: 'P1',
+          text: 'The interview stated, “This distinct quotation belongs only to source two.”',
+          score: 100
+        }
+      ]
+    }
+    const validation = validateResearchReport(
+      '“This distinct quotation belongs only to source two.” [[S1:P1]]',
+      [...artifacts, secondArtifact],
+      [...sources, secondSource]
+    )
+
+    expect(validation.valid).toBe(false)
+    expect(validation.issues.some((issue) => issue.includes('its cited fetched passages'))).toBe(
+      true
+    )
   })
 
   it('validates passages across repeated focused fetches of the same URL', () => {
@@ -137,9 +190,187 @@ describe('Critical Thinking evidence pipeline', () => {
     ).toBe(false)
   })
 
+  it('preserves percentage semantics when validating quantitative claims', () => {
+    const countArtifact: ToolArtifact = {
+      ...primaryFetch,
+      passages: [{ id: 'P1', text: 'The study observed 5 patients in the cohort.', score: 100 }]
+    }
+    const percentArtifact: ToolArtifact = {
+      ...primaryFetch,
+      passages: [{ id: 'P1', text: 'The measured rate was 5 percent.', score: 100 }]
+    }
+
+    expect(
+      validateResearchReport('The rate was 5% [[S1:P1]].', [countArtifact], sources).valid
+    ).toBe(false)
+    expect(
+      validateResearchReport('The rate was 5% [[S1:P1]].', [percentArtifact], sources)
+    ).toEqual({ valid: true, issues: [] })
+  })
+
+  it('requires chart blocks to match the renderer grammar and cite their values', () => {
+    const validChart = `\`\`\`chart
+{"type":"bar","title":"Measured improvement","labels":["A","B"],"datasets":[{"label":"Rate","values":[18,18]}],"unit":"%","source":"[[S1:P1]]"}
+\`\`\``
+    const invalidChart = `\`\`\`chart
+{"type":"pie","source":"[[S1:P1]]"}
+\`\`\``
+
+    expect(
+      validateResearchReport(`Supported finding [[S1:P1]].\n\n${validChart}`, artifacts, sources)
+    ).toEqual({ valid: true, issues: [] })
+    expect(
+      validateResearchReport(`Supported finding [[S1:P1]].\n\n${invalidChart}`, artifacts, sources)
+        .issues
+    ).toContain('A chart block does not match the supported chart schema.')
+
+    const countArtifact: ToolArtifact = {
+      ...primaryFetch,
+      passages: [{ id: 'P1', text: 'The comparison included 18 patients.', score: 100 }]
+    }
+    expect(
+      validateResearchReport(
+        `Supported finding [[S1:P1]].\n\n${validChart}`,
+        [countArtifact],
+        sources
+      ).issues.some((issue) => issue.includes('same unit'))
+    ).toBe(true)
+  })
+
   it('renders only known validated markers as deterministic Markdown links', () => {
     expect(renderResearchCitations('Supported [[S1:P1]].', sources)).toBe(
       'Supported [Primary study](https://example.com/study).'
     )
+    expect(
+      renderResearchCitations('Unsafe [[S9]].', [
+        { id: 'S9', title: 'Unsafe source', url: 'javascript:alert(1)', verified: true }
+      ])
+    ).toBe('Unsafe [[S9]].')
+  })
+
+  it('sanitizes source titles and rewrites chart citations without corrupting JSON', () => {
+    const unsafeSources: CriticalThinkingSource[] = [
+      {
+        ...sources[0],
+        title: 'Study ](https://evil.example)[ "quoted" \\ title'
+      }
+    ]
+    const chart = `\`\`\`chart
+{"type":"bar","title":"Result","labels":["A","B"],"datasets":[{"label":"Rate","values":[18,18]}],"source":"[[S1:P1]]"}
+\`\`\``
+    const rendered = renderResearchCitations(`Finding [[S1:P1]].\n\n${chart}`, unsafeSources)
+    const renderedChart = /```chart\s*([\s\S]*?)```/.exec(rendered)?.[1]
+
+    expect(rendered.match(/\]\(https?:/g)).toHaveLength(2)
+    expect(rendered).not.toContain('](https://evil.example)')
+    expect(() => {
+      JSON.parse(renderedChart ?? '')
+    }).not.toThrow()
+    expect((JSON.parse(renderedChart ?? '{}') as { source?: string }).source).toContain(
+      'https://example.com/study'
+    )
+  })
+
+  it('balances bounded synthesis evidence across research steps', () => {
+    const balancedSources: CriticalThinkingSource[] = [
+      {
+        id: 'S1',
+        title: 'Step one A',
+        url: 'https://one.example/a',
+        verified: true
+      },
+      {
+        id: 'S2',
+        title: 'Step one B',
+        url: 'https://one.example/b',
+        verified: true
+      },
+      {
+        id: 'S3',
+        title: 'Step two',
+        url: 'https://two.example/a',
+        verified: true
+      }
+    ]
+    const balancedArtifacts: ToolArtifact[] = balancedSources.map((source, index) => ({
+      id: `artifact_${index + 1}`,
+      conversationId: 'critical_test',
+      messageId: `message_${index + 1}`,
+      createdAt: index + 1,
+      research: {
+        stepId: index < 2 ? 'step_1' : 'step_2',
+        roundId: 'round_1'
+      },
+      kind: 'web-fetch',
+      requestedUrl: source.url,
+      finalUrl: source.url,
+      status: 200,
+      contentType: 'text/html',
+      title: source.title,
+      contentHash: `hash_${index + 1}`,
+      contentChars: 200,
+      truncated: false,
+      passages: [
+        {
+          id: 'P1',
+          text: `Evidence from ${source.title} with enough detail to remain useful in synthesis.`,
+          score: 100
+        }
+      ],
+      warnings: []
+    }))
+
+    const packet = buildEvidencePacket(balancedArtifacts, balancedSources, 600)
+
+    expect(packet.length).toBeLessThanOrEqual(600)
+    expect(packet.indexOf('[S1]')).toBeLessThan(packet.indexOf('[S3]'))
+    expect(packet.indexOf('[S3]')).toBeLessThan(packet.indexOf('[S2]'))
+    expect(packet).toContain('[S1:P1]')
+    expect(packet).toContain('[S3:P1]')
+  })
+
+  it('keeps a small-context packet useful when many verified sources exist', () => {
+    const manySources: CriticalThinkingSource[] = Array.from({ length: 36 }, (_, index) => ({
+      id: `S${index + 1}`,
+      title: `Verified source ${index + 1}`,
+      url: `https://source-${index + 1}.example/evidence`,
+      verified: true
+    }))
+    const manyArtifacts: ToolArtifact[] = manySources.map((source, index) => ({
+      id: `artifact_many_${index + 1}`,
+      conversationId: 'critical_test',
+      messageId: `message_many_${index + 1}`,
+      createdAt: index + 1,
+      research: {
+        stepId: `step_${(index % 3) + 1}`,
+        roundId: `round_${Math.floor(index / 3) + 1}`
+      },
+      kind: 'web-fetch',
+      requestedUrl: source.url,
+      finalUrl: source.url,
+      status: 200,
+      contentType: 'text/html',
+      title: source.title,
+      contentHash: `hash_many_${index + 1}`,
+      contentChars: 1_000,
+      truncated: false,
+      passages: [
+        {
+          id: 'P1',
+          text: `Detailed evidence ${index + 1} ${'with bounded supporting context '.repeat(10)}`,
+          score: 100
+        }
+      ],
+      warnings: []
+    }))
+
+    const packet = buildEvidencePacket(manyArtifacts, manySources, 4_000)
+    const includedSources = packet.match(/^\[S\d+\]/gm) ?? []
+
+    expect(packet.length).toBeLessThanOrEqual(4_000)
+    expect(includedSources.length).toBeGreaterThan(10)
+    expect(packet).toContain('[S1:P1]')
+    expect(packet).toContain('[S2:P1]')
+    expect(packet).toContain('[S3:P1]')
   })
 })

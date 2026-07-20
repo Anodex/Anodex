@@ -4,6 +4,8 @@ import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 const SEARCH_RESULT_PATTERN =
   /^\d+\.\s+\*\*(.+?)\*\*\s+[\u2013\u2014-]\s+(https?:\/\/\S+)\r?\n([^\r\n]*)/gm
+export const MAX_COMPACT_SOURCES = 100
+const VALID_SOURCE_ID_PATTERN = /^S([1-9]\d*)$/
 
 /** Legacy parser for persisted tool activities created before structured artifacts existed. */
 export function sourcesFromSearchResult(result: string | undefined): CriticalThinkingSource[] {
@@ -42,18 +44,91 @@ export function mergeSources(
   current: CriticalThinkingSource[],
   additions: CriticalThinkingSource[]
 ): CriticalThinkingSource[] {
-  const merged = new Map<string, CriticalThinkingSource>()
-  for (const source of [...current, ...additions]) {
+  const merged: CriticalThinkingSource[] = []
+  const indexByUrl = new Map<string, number>()
+  const usedIds = new Set<string>()
+  let nextNumber = nextSourceNumber(current)
+
+  const reserveId = (preferred?: string): string => {
+    if (preferred && VALID_SOURCE_ID_PATTERN.test(preferred) && !usedIds.has(preferred)) {
+      usedIds.add(preferred)
+      return preferred
+    }
+    while (usedIds.has(`S${nextNumber}`)) nextNumber += 1
+    const id = `S${nextNumber}`
+    nextNumber += 1
+    usedIds.add(id)
+    return id
+  }
+
+  for (const source of current) {
     const key = canonicalResearchUrl(source.url)
-    const existing = merged.get(key)
-    if (!existing || (!existing.verified && source.verified)) {
-      merged.set(key, { ...source, id: '' })
+    const existingIndex = indexByUrl.get(key)
+    if (existingIndex !== undefined) {
+      merged[existingIndex] = mergeSourceMetadata(merged[existingIndex], source)
+      continue
+    }
+    indexByUrl.set(key, merged.length)
+    merged.push({ ...source, id: reserveId(source.id) })
+  }
+
+  for (const source of additions) {
+    const key = canonicalResearchUrl(source.url)
+    const existingIndex = indexByUrl.get(key)
+    if (existingIndex !== undefined) {
+      merged[existingIndex] = mergeSourceMetadata(merged[existingIndex], source)
+      continue
+    }
+    if (merged.length >= MAX_COMPACT_SOURCES) {
+      if (!source.verified) continue
+      const unverifiedIndex = findLastUnverifiedIndex(merged)
+      if (unverifiedIndex >= 0) {
+        indexByUrl.delete(canonicalResearchUrl(merged[unverifiedIndex].url))
+        indexByUrl.set(key, unverifiedIndex)
+        merged[unverifiedIndex] = { ...source, id: reserveId() }
+        continue
+      }
+      continue
+    }
+    indexByUrl.set(key, merged.length)
+    merged.push({ ...source, id: reserveId() })
+  }
+  return merged
+}
+
+function mergeSourceMetadata(
+  existing: CriticalThinkingSource,
+  candidate: CriticalThinkingSource
+): CriticalThinkingSource {
+  if (candidate.verified && !existing.verified) {
+    return {
+      ...candidate,
+      id: existing.id,
+      snippet: candidate.snippet ?? existing.snippet,
+      verified: true
     }
   }
-  const prioritized = [...merged.values()].sort(
-    (left, right) => Number(right.verified) - Number(left.verified)
-  )
-  return renumber(prioritized.slice(0, 100))
+  return {
+    ...existing,
+    snippet: existing.snippet ?? candidate.snippet,
+    verified: existing.verified || candidate.verified
+  }
+}
+
+function nextSourceNumber(sources: CriticalThinkingSource[]): number {
+  let highest = 0
+  for (const source of sources) {
+    const match = VALID_SOURCE_ID_PATTERN.exec(source.id)
+    if (match) highest = Math.max(highest, Number(match[1]))
+  }
+  return highest + 1
+}
+
+function findLastUnverifiedIndex(sources: CriticalThinkingSource[]): number {
+  for (let index = sources.length - 1; index >= 0; index--) {
+    if (!sources[index].verified) return index
+  }
+  return -1
 }
 
 function createSource(

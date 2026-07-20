@@ -108,4 +108,110 @@ The original research report.`)
       'https://EXAMPLE.com/report'
     ])
   })
+
+  it('never renumbers existing sources when adding higher-priority evidence', () => {
+    const sources = mergeSources(
+      [
+        {
+          id: 'S7',
+          title: 'Existing source',
+          url: 'https://example.com/existing',
+          verified: false
+        }
+      ],
+      [
+        {
+          id: 'S1',
+          title: 'New verified source',
+          url: 'https://example.org/new',
+          verified: true
+        }
+      ]
+    )
+
+    expect(sources.map((source) => source.id)).toEqual(['S7', 'S8'])
+    expect(sources.map((source) => source.title)).toEqual([
+      'Existing source',
+      'New verified source'
+    ])
+  })
+
+  it('fills missing and duplicate legacy ids without changing valid unique ids', () => {
+    const sources = mergeSources(
+      [
+        { id: 'S4', title: 'First', url: 'https://one.example', verified: true },
+        { id: 'S4', title: 'Second', url: 'https://two.example', verified: true },
+        { id: '', title: 'Third', url: 'https://three.example', verified: true }
+      ],
+      []
+    )
+
+    expect(sources.map((source) => source.id)).toEqual(['S4', 'S5', 'S6'])
+  })
+
+  it('replaces malformed legacy ids while preserving only positive canonical source ids', () => {
+    const sources = mergeSources(
+      [
+        { id: 'S9', title: 'Valid', url: 'https://valid.example', verified: true },
+        { id: 'legacy', title: 'Legacy', url: 'https://legacy.example', verified: true },
+        { id: 'S0', title: 'Zero', url: 'https://zero.example', verified: true },
+        { id: 'S01', title: 'Padded', url: 'https://padded.example', verified: true }
+      ],
+      []
+    )
+
+    expect(sources.map((source) => source.id)).toEqual(['S9', 'S10', 'S11', 'S12'])
+  })
+
+  it('makes room for verified evidence when legacy search leads fill the compact source cap', () => {
+    const legacyLeads = Array.from({ length: 100 }, (_, index) => ({
+      id: `S${index + 1}`,
+      title: `Search lead ${index + 1}`,
+      url: `https://lead-${index + 1}.example/report`,
+      verified: false
+    }))
+
+    const sources = mergeSources(legacyLeads, [
+      {
+        id: 'S1',
+        title: 'New verified evidence',
+        url: 'https://verified.example/report',
+        verified: true
+      }
+    ])
+
+    expect(sources).toHaveLength(100)
+    expect(sources.filter((source) => source.verified)).toEqual([
+      {
+        id: 'S101',
+        title: 'New verified evidence',
+        url: 'https://verified.example/report',
+        verified: true
+      }
+    ])
+    expect(sources.some((source) => source.url === 'https://lead-100.example/report')).toBe(false)
+  })
+
+  it('keeps the compact source index bounded when verified evidence fills it', () => {
+    const verified = Array.from({ length: 100 }, (_, index) => ({
+      id: `S${index + 1}`,
+      title: `Verified page ${index + 1}`,
+      url: `https://verified-${index + 1}.example/report`,
+      verified: true
+    }))
+
+    const sources = mergeSources(verified, [
+      {
+        id: '',
+        title: 'Additional verified page',
+        url: 'https://verified-101.example/report',
+        verified: true
+      }
+    ])
+
+    expect(sources).toHaveLength(100)
+    expect(sources.some((source) => source.url === 'https://verified-101.example/report')).toBe(
+      false
+    )
+  })
 })

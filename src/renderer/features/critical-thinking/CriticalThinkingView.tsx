@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type {
-  CriticalThinkingActivity,
   CriticalThinkingRun,
-  CriticalThinkingStatus
+  CriticalThinkingStatus,
+  CriticalThinkingTerminationReason
 } from '@shared/criticalThinking.types'
 import type { Plan } from '@shared/plan.types'
 import { Icon, type IconName } from '../../components/Icon'
@@ -16,6 +16,7 @@ import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore } from '../../stores/uiStore'
 import { CriticalThinkingReport } from './CriticalThinkingReport'
+import { CriticalThinkingProgress } from './CriticalThinkingProgress'
 import styles from './CriticalThinkingView.module.css'
 
 const STATUS_LABEL: Record<CriticalThinkingStatus, string> = {
@@ -68,58 +69,6 @@ function isActiveStatus(status: CriticalThinkingStatus): boolean {
     status === 'researching' ||
     status === 'synthesizing' ||
     status === 'validating'
-  )
-}
-
-function PlanProgress({ plan }: { plan: Plan }): JSX.Element {
-  return (
-    <div className={styles.planProgress}>
-      <p className={styles.cardEyebrow}>Research plan</p>
-      <h3>{plan.title}</h3>
-      <ol className={styles.progressSteps}>
-        {plan.steps.map((step) => (
-          <li key={step.id} className={styles[`step-${step.status}`]}>
-            <span className={styles.stepIcon}>
-              {step.status === 'completed' ? (
-                <Icon name="check" size={12} />
-              ) : step.status === 'in_progress' ? (
-                <Spinner size={11} />
-              ) : (
-                <Icon name="circle" size={11} />
-              )}
-            </span>
-            <span>{step.title}</span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  )
-}
-
-function ActivityTimeline({ activities }: { activities: CriticalThinkingActivity[] }): JSX.Element {
-  if (activities.length === 0) {
-    return <p className={styles.activityEmpty}>Waiting for the first research action…</p>
-  }
-  return (
-    <div className={styles.activityList}>
-      {activities.map((activity) => (
-        <div key={activity.id} className={styles.activityRow}>
-          <span className={styles.activityIcon}>
-            {activity.status === 'running' ? (
-              <Spinner size={11} />
-            ) : activity.status === 'success' ? (
-              <Icon name="check" size={11} />
-            ) : activity.status === 'error' ? (
-              <Icon name="alert" size={11} />
-            ) : (
-              <Icon name="circle" size={11} />
-            )}
-          </span>
-          <span className={styles.activityLabel}>{activity.label}</span>
-          {activity.detail && <span className={styles.activityDetail}>{activity.detail}</span>}
-        </div>
-      ))}
-    </div>
   )
 }
 
@@ -479,7 +428,13 @@ interface RunDetailProps {
 function RunDetail(props: RunDetailProps): JSX.Element {
   const { run } = props
   const active = isActiveStatus(run.status)
-  const resumable = ['partial', 'stopped', 'failed'].includes(run.status) && Boolean(run.plan)
+  const lifetimeEvidenceLimit = run.steps.some(
+    (step) => step.terminationReason === 'evidence-limit'
+  )
+  const resumable =
+    ['partial', 'stopped', 'failed'].includes(run.status) &&
+    Boolean(run.plan) &&
+    (!lifetimeEvidenceLimit || !run.report)
   const reportReady =
     run.status === 'completed' || run.status === 'partial' || run.status === 'stopped'
   return (
@@ -604,13 +559,7 @@ function RunDetail(props: RunDetailProps): JSX.Element {
 
       {['researching', 'synthesizing', 'validating'].includes(run.status) && run.plan && (
         <>
-          <div className={styles.progressGrid}>
-            <PlanProgress plan={run.plan} />
-            <div className={styles.activityCard}>
-              <p className={styles.cardEyebrow}>Live activity</p>
-              <ActivityTimeline activities={run.activities} />
-            </div>
-          </div>
+          <CriticalThinkingProgress run={run} />
           {(run.status === 'synthesizing' || run.status === 'validating') && run.report ? (
             <section className={styles.reportCard}>
               <div className={styles.writingLabel}>
@@ -620,18 +569,11 @@ function RunDetail(props: RunDetailProps): JSX.Element {
                 <CriticalThinkingReport report={run.report} />
               </div>
             </section>
-          ) : (
-            <div className={styles.researchHint}>
-              <Icon name="web" size={17} />
-              <span>
-                {run.status === 'researching'
-                  ? `Researching step ${Math.min(run.currentStep + 1, run.steps.length)} of ${run.steps.length}. The report starts after evidence collection.`
-                  : 'Preparing and validating the evidence-backed report.'}
-              </span>
-            </div>
-          )}
+          ) : null}
         </>
       )}
+
+      {!isActiveStatus(run.status) && <ResearchOutcomeDetails run={run} />}
 
       {reportReady && run.report && (
         <>
@@ -662,17 +604,65 @@ function RunDetail(props: RunDetailProps): JSX.Element {
                 : 'The investigation is incomplete'}
             </h3>
             <p>{run.lastError ?? 'No report was produced.'}</p>
-            <Button
-              variant="secondary"
-              iconLeft={<Icon name="refresh" size={14} />}
-              onClick={props.onRetry}
-            >
-              Try again
-            </Button>
+            {resumable && (
+              <Button
+                variant="secondary"
+                iconLeft={<Icon name="refresh" size={14} />}
+                onClick={props.onRetry}
+              >
+                Try again
+              </Button>
+            )}
           </div>
         )}
     </div>
   )
+}
+
+function ResearchOutcomeDetails({ run }: { run: CriticalThinkingRun }): JSX.Element | null {
+  const limitedSteps = run.steps.filter(
+    (step) => step.terminationReason || step.uncertainties.length > 0
+  )
+  if (limitedSteps.length === 0) return null
+
+  return (
+    <section className={styles.limitDetails} aria-label="Research limits and remaining gaps">
+      <p className={styles.cardEyebrow}>Research boundaries</p>
+      <ul>
+        {limitedSteps.map((step) => (
+          <li key={step.id}>
+            <span className={styles.limitStepTitle}>{step.title}</span>
+            {step.terminationReason && (
+              <span className={styles.limitReason}>{stopReasonLabel(step.terminationReason)}</span>
+            )}
+            {step.uncertainties.length > 0 && (
+              <span className={styles.limitGaps}>
+                Remaining: {step.uncertainties.slice(0, 3).join(' · ')}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function stopReasonLabel(reason: CriticalThinkingTerminationReason): string {
+  const labels: Record<CriticalThinkingTerminationReason, string> = {
+    user: 'Stopped by the user',
+    'loop-guard': 'Model loop safety limit reached',
+    'context-limit': 'Model context limit reached',
+    'context-shift-limit': 'Context-compaction budget reached',
+    'fixed-context-limit': 'Fixed instructions exceeded the model context',
+    'rounds-exhausted': 'Adaptive-round budget reached',
+    'time-limit': 'Research time budget reached',
+    'tool-limit': 'Search or page-reading budget reached',
+    'evidence-limit': 'Lifetime verified-evidence limit reached',
+    'token-limit': 'Generation token budget reached',
+    'no-progress': 'No additional verified evidence found',
+    yielded: 'Saved progress and yielded'
+  }
+  return labels[reason]
 }
 
 function Sources({ run }: { run: CriticalThinkingRun }): JSX.Element | null {
@@ -698,10 +688,18 @@ function Sources({ run }: { run: CriticalThinkingRun }): JSX.Element | null {
           >
             <span className={styles.sourceTitle}>{source.title}</span>
             {source.snippet && <span className={styles.sourceSnippet}>{source.snippet}</span>}
-            <span className={styles.sourceHost}>{new URL(source.url).hostname}</span>
+            <span className={styles.sourceHost}>{safeHostname(source.url)}</span>
           </a>
         ))}
       </div>
     </section>
   )
+}
+
+function safeHostname(value: string): string {
+  try {
+    return new URL(value).hostname
+  } catch {
+    return value.length > 80 ? `${value.slice(0, 79)}…` : value
+  }
 }

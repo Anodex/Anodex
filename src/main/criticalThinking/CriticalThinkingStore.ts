@@ -2,8 +2,18 @@ import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { CriticalThinkingProvider, CriticalThinkingRun } from '@shared/criticalThinking.types'
+import type {
+  CriticalThinkingCoverageAssessment,
+  CriticalThinkingProvider,
+  CriticalThinkingResearchPolicy,
+  CriticalThinkingRoundState,
+  CriticalThinkingRun,
+  CriticalThinkingSource,
+  CriticalThinkingStepState
+} from '@shared/criticalThinking.types'
 import { createLogger } from '../utils/logger'
+import { DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY } from './criticalThinkingResearchPolicy'
+import { mergeSources } from './criticalThinkingSources'
 
 const log = createLogger('critical-thinking-store')
 const INTERRUPTED_MESSAGE = 'Interrupted — the app restarted before this investigation finished.'
@@ -21,14 +31,17 @@ export function reconcileInterruptedCriticalThinkingRuns(
   )
 }
 
-class CriticalThinkingStore {
+export class CriticalThinkingStore {
   private filePath = ''
   private cache: CriticalThinkingRun[] | null = null
   private writeQueue = Promise.resolve()
+  private pendingRuns: CriticalThinkingRun[] | null = null
+  private writerRunning = false
+  private lastWriteError: unknown = null
 
   /** Must be called after `app.whenReady()`. */
-  init(): void {
-    const dir = join(app.getPath('userData'), 'critical-thinking')
+  init(directory = join(app.getPath('userData'), 'critical-thinking')): void {
+    const dir = directory
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     this.filePath = join(dir, 'runs.json')
     this.cache = this.load()
@@ -55,6 +68,7 @@ class CriticalThinkingStore {
       status: 'planning',
       provider: input.provider,
       model: input.model,
+      researchPolicy: { ...DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY },
       plan: null,
       report: '',
       sources: [],
@@ -88,7 +102,14 @@ class CriticalThinkingStore {
   }
 
   async flush(): Promise<void> {
-    await this.writeQueue
+    while (this.pendingRuns !== null || this.writerRunning) {
+      if (this.pendingRuns !== null && !this.writerRunning) this.startWriter()
+      const activeWriter = this.writeQueue
+      await activeWriter
+      if (this.lastWriteError) throw persistenceError(this.lastWriteError)
+    }
+
+    if (this.lastWriteError) throw persistenceError(this.lastWriteError)
   }
 
   private ensureCache(): CriticalThinkingRun[] {
@@ -99,8 +120,12 @@ class CriticalThinkingStore {
   private load(): CriticalThinkingRun[] {
     if (!existsSync(this.filePath)) return []
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8')) as CriticalThinkingRun[]
-      const reconciled = reconcileInterruptedCriticalThinkingRuns(parsed.map(normalizeRun))
+      const parsedValue: unknown = JSON.parse(readFileSync(this.filePath, 'utf-8'))
+      if (!Array.isArray(parsedValue)) throw new Error('Critical Thinking store must be an array.')
+      const parsed = parsedValue.filter(isRecord) as unknown as CriticalThinkingRun[]
+      const reconciled = reconcileInterruptedCriticalThinkingRuns(
+        parsed.map(normalizeCriticalThinkingRun)
+      )
       if (reconciled.some((run, index) => run !== parsed[index])) this.persist(reconciled)
       return reconciled
     } catch (error) {
@@ -111,49 +136,285 @@ class CriticalThinkingStore {
 
   private persist(runs: CriticalThinkingRun[]): void {
     this.cache = runs
-    const snapshot = JSON.stringify(runs, null, 2)
-    this.writeQueue = this.writeQueue
-      .then(async () => {
-        const temporaryPath = `${this.filePath}.${process.pid}.tmp`
-        await writeFile(temporaryPath, snapshot, 'utf8')
-        await rename(temporaryPath, this.filePath)
-      })
-      .catch((error: unknown) => log.error('Failed to persist Critical Thinking runs:', error))
+    this.pendingRuns = runs
+    if (!this.writerRunning) this.startWriter()
+  }
+
+  private startWriter(): void {
+    this.writerRunning = true
+    // Defer one microtask so synchronous progress updates collapse into one
+    // latest-state write instead of serializing and writing runs.json each time.
+    this.writeQueue = Promise.resolve().then(() => this.drainWrites())
+  }
+
+  private async drainWrites(): Promise<void> {
+    try {
+      while (this.pendingRuns) {
+        const runs = this.pendingRuns
+        this.pendingRuns = null
+        try {
+          const snapshot = JSON.stringify(runs, null, 2)
+          const temporaryPath = `${this.filePath}.${process.pid}.tmp`
+          await writeFile(temporaryPath, snapshot, 'utf8')
+          await rename(temporaryPath, this.filePath)
+          this.lastWriteError = null
+        } catch (error) {
+          this.lastWriteError = error
+          this.pendingRuns ??= this.cache
+          log.error('Failed to persist Critical Thinking runs:', error)
+          return
+        }
+      }
+    } finally {
+      this.writerRunning = false
+    }
   }
 }
 
-function normalizeRun(run: CriticalThinkingRun): CriticalThinkingRun {
+function persistenceError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error('Failed to persist Critical Thinking state.', { cause: error })
+}
+
+/** Upgrade persisted runs without discarding resumable research state. */
+export function normalizeCriticalThinkingRun(run: CriticalThinkingRun): CriticalThinkingRun {
   const legacyStatus = run.status as CriticalThinkingRun['status'] | 'done' | 'error'
   const status =
     legacyStatus === 'done' ? 'completed' : legacyStatus === 'error' ? 'failed' : legacyStatus
-  const steps =
-    run.steps ??
-    run.plan?.steps.map((step) => ({
-      id: step.id,
-      title: step.title,
-      status: step.status === 'completed' ? ('completed' as const) : ('pending' as const),
-      attempts: 0,
-      evidenceIds: [],
-      finding: '',
-      uncertainties: []
-    })) ??
-    []
+  const legacySteps: unknown[] = Array.isArray(run.steps)
+    ? run.steps
+    : (run.plan?.steps.map((step) => ({
+        id: step.id,
+        title: step.title,
+        status: step.status === 'completed' ? ('completed' as const) : ('pending' as const)
+      })) ?? [])
+  const sources = Array.isArray(run.sources)
+    ? (run.sources as unknown[]).flatMap((source) => {
+        const normalized = normalizeSource(source)
+        return normalized ? [normalized] : []
+      })
+    : []
   return {
     ...run,
     status,
+    researchPolicy: normalizeResearchPolicy(run.researchPolicy),
     report: run.report ?? '',
-    sources: (run.sources ?? []).map((source, index) => ({
-      ...source,
-      id: source.id ?? `S${index + 1}`,
-      verified: source.verified ?? false
-    })),
-    steps,
+    sources: mergeSources(sources, []),
+    steps: legacySteps.map(normalizeStep),
     currentStep: run.currentStep ?? 0,
     evidenceCount: run.evidenceCount ?? 0,
     activities: run.activities ?? [],
     stats: run.stats ?? null,
     lastError: run.lastError ?? null
   }
+}
+
+function normalizeSource(value: unknown): CriticalThinkingSource | null {
+  if (!isRecord(value) || typeof value.url !== 'string' || value.url.length > 4_096) return null
+  let url: URL
+  try {
+    url = new URL(value.url)
+  } catch {
+    return null
+  }
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) {
+    return null
+  }
+  const title = boundedStoreText(value.title, 300) || url.hostname
+  const snippet = boundedStoreText(value.snippet, 500)
+  return {
+    id: typeof value.id === 'string' ? value.id : '',
+    title,
+    url: url.toString(),
+    ...(snippet ? { snippet } : {}),
+    verified: value.verified === true
+  }
+}
+
+function boundedStoreText(value: unknown, maxChars: number): string {
+  if (typeof value !== 'string') return ''
+  const normalized = value
+    .replace(/\p{Cc}/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return normalized.length > maxChars ? `${normalized.slice(0, maxChars - 1)}…` : normalized
+}
+
+function normalizeResearchPolicy(
+  policy: CriticalThinkingResearchPolicy | undefined
+): CriticalThinkingResearchPolicy {
+  const persisted: Record<string, unknown> = isRecord(policy) ? policy : {}
+  return {
+    maxRoundsPerStep: positiveInteger(
+      persisted.maxRoundsPerStep,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxRoundsPerStep
+    ),
+    maxQueriesPerRound: positiveInteger(
+      persisted.maxQueriesPerRound,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxQueriesPerRound
+    ),
+    maxResultsPerQuery: positiveInteger(
+      persisted.maxResultsPerQuery,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxResultsPerQuery
+    ),
+    maxPagesPerRound: positiveInteger(
+      persisted.maxPagesPerRound,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxPagesPerRound
+    ),
+    searchConcurrency: positiveInteger(
+      persisted.searchConcurrency,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.searchConcurrency
+    ),
+    fetchConcurrency: positiveInteger(
+      persisted.fetchConcurrency,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.fetchConcurrency
+    ),
+    maxRoundsPerRun: positiveInteger(
+      persisted.maxRoundsPerRun,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxRoundsPerRun
+    ),
+    maxSearchesPerRun: positiveInteger(
+      persisted.maxSearchesPerRun,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxSearchesPerRun
+    ),
+    maxFetchesPerRun: positiveInteger(
+      persisted.maxFetchesPerRun,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxFetchesPerRun
+    ),
+    maxVerifiedSourcesPerRun: positiveInteger(
+      persisted.maxVerifiedSourcesPerRun,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxVerifiedSourcesPerRun
+    ),
+    maxRunMs: positiveInteger(
+      persisted.maxRunMs,
+      DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxRunMs
+    )
+  }
+}
+
+function normalizeStep(step: unknown): CriticalThinkingStepState {
+  const value: Record<string, unknown> = isRecord(step) ? step : {}
+  const status = isStepStatus(value.status) ? value.status : 'pending'
+  return {
+    id: typeof value.id === 'string' ? value.id : generateId(),
+    title: typeof value.title === 'string' ? value.title : 'Research step',
+    status,
+    attempts: nonNegativeInteger(value.attempts),
+    evidenceIds: stringArray(value.evidenceIds),
+    finding: typeof value.finding === 'string' ? value.finding : '',
+    uncertainties: stringArray(value.uncertainties),
+    rounds: Array.isArray(value.rounds)
+      ? value.rounds.filter(isRecord).map((round, index) => normalizeRound(round, index))
+      : [],
+    ...(isTerminationReason(value.terminationReason)
+      ? { terminationReason: value.terminationReason }
+      : {})
+  }
+}
+
+function normalizeRound(
+  round: Record<string, unknown>,
+  fallbackIndex: number
+): CriticalThinkingRoundState {
+  return {
+    id: typeof round.id === 'string' ? round.id : `round_${fallbackIndex + 1}`,
+    index: nonNegativeInteger(round.index, fallbackIndex),
+    status: isRoundStatus(round.status) ? round.status : 'failed',
+    queries: stringArray(round.queries),
+    selectedUrls: stringArray(round.selectedUrls),
+    evidenceIds: stringArray(round.evidenceIds),
+    finding: typeof round.finding === 'string' ? round.finding : '',
+    assessment: normalizeAssessment(round.assessment),
+    ...(isTerminationReason(round.terminationReason)
+      ? { terminationReason: round.terminationReason }
+      : {}),
+    startedAt: nonNegativeInteger(round.startedAt),
+    completedAt: typeof round.completedAt === 'number' ? round.completedAt : null
+  }
+}
+
+function normalizeAssessment(value: unknown): CriticalThinkingCoverageAssessment | null {
+  if (!isRecord(value)) return null
+  if (value.verdict !== 'continue' && value.verdict !== 'sufficient') return null
+  if (
+    value.evidenceBasis !== 'multiple-sources' &&
+    value.evidenceBasis !== 'authoritative-primary' &&
+    value.evidenceBasis !== 'insufficient'
+  ) {
+    return null
+  }
+  return {
+    verdict: value.verdict,
+    evidenceBasis: value.evidenceBasis,
+    rationale: typeof value.rationale === 'string' ? value.rationale : '',
+    remainingGaps: stringArray(value.remainingGaps),
+    nextQueries: stringArray(value.nextQueries)
+  }
+}
+
+function isStepStatus(value: unknown): value is CriticalThinkingStepState['status'] {
+  return (
+    value === 'pending' ||
+    value === 'researching' ||
+    value === 'completed' ||
+    value === 'limited' ||
+    value === 'failed'
+  )
+}
+
+function isRoundStatus(value: unknown): value is CriticalThinkingRoundState['status'] {
+  return (
+    value === 'querying' ||
+    value === 'searching' ||
+    value === 'reading' ||
+    value === 'assessing' ||
+    value === 'completed' ||
+    value === 'limited' ||
+    value === 'stopped' ||
+    value === 'failed'
+  )
+}
+
+function isTerminationReason(
+  value: unknown
+): value is NonNullable<CriticalThinkingStepState['terminationReason']> {
+  return (
+    value === 'user' ||
+    value === 'loop-guard' ||
+    value === 'context-limit' ||
+    value === 'context-shift-limit' ||
+    value === 'fixed-context-limit' ||
+    value === 'rounds-exhausted' ||
+    value === 'time-limit' ||
+    value === 'tool-limit' ||
+    value === 'token-limit' ||
+    value === 'no-progress' ||
+    value === 'yielded' ||
+    value === 'evidence-limit'
+  )
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : fallback
+}
+
+function nonNegativeInteger(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : fallback
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 function generateId(): string {

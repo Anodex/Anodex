@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchResult } from '../types'
+import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
 
 const API_URL = 'https://www.googleapis.com/customsearch/v1'
 const FETCH_TIMEOUT_MS = 30_000
@@ -22,23 +22,24 @@ interface GoogleResponse {
  */
 export function createGoogleProvider(apiKey: string, searchEngineId: string): SearchProvider {
   return {
-    async search(query: string, resultCount: number): Promise<SearchResult[]> {
+    async search(
+      query: string,
+      resultCount: number,
+      signal?: AbortSignal
+    ): Promise<SearchResult[]> {
       const url = new URL(API_URL)
       url.searchParams.set('key', apiKey)
       url.searchParams.set('cx', searchEngineId)
       url.searchParams.set('q', query)
       url.searchParams.set('num', String(Math.min(resultCount, 10)))
 
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+      const abort = createSearchAbortScope(signal, FETCH_TIMEOUT_MS)
 
       try {
         const response = await fetch(url.toString(), {
-          signal: controller.signal,
+          signal: abort.signal,
           headers: { Accept: 'application/json' }
         })
-        clearTimeout(timeout)
-
         if (!response.ok) {
           throw new Error(`Google returned HTTP ${response.status}: ${response.statusText}`)
         }
@@ -47,11 +48,14 @@ export function createGoogleProvider(apiKey: string, searchEngineId: string): Se
         const items = data.items ?? []
         return items.slice(0, resultCount).map((item) => parseResult(item))
       } catch (error) {
-        clearTimeout(timeout)
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error('Google request timed out.')
+          throw new Error(
+            abort.timedOut() ? 'Google request timed out.' : 'Google request cancelled.'
+          )
         }
         throw error
+      } finally {
+        abort.dispose()
       }
     }
   }

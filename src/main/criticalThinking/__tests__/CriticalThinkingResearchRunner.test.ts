@@ -1,0 +1,990 @@
+import { describe, expect, it } from 'vitest'
+import type {
+  CriticalThinkingActivity,
+  CriticalThinkingRoundState,
+  CriticalThinkingRun
+} from '@shared/criticalThinking.types'
+import type { WebFetchArtifactDraft, ToolArtifact } from '@shared/toolArtifacts.types'
+import type { RunGenerationResult } from '../../chat/runGeneration'
+import {
+  CriticalThinkingResearchRunner,
+  type CriticalThinkingResearchRunnerDeps,
+  type CriticalThinkingRunUsage
+} from '../CriticalThinkingResearchRunner'
+import { DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY } from '../criticalThinkingResearchPolicy'
+import { criticalThinkingSynthesisLimits } from '../criticalThinkingSynthesisBudget'
+
+const EMPTY_STATS = { tokens: 0, durationMs: 0, tokensPerSecond: 0 }
+
+describe('CriticalThinkingResearchRunner', () => {
+  it('completes adaptive rounds and advances after an insufficient assessment', async () => {
+    const phases: string[] = []
+    let assessmentCalls = 0
+    const harness = createHarness({
+      runModel: (phase) => {
+        phases.push(phase)
+        if (phase === 'query') return Promise.resolve(generation('{"queries":["first query"]}'))
+        assessmentCalls++
+        return Promise.resolve(
+          assessmentCalls === 1
+            ? generation(
+                assessmentJson({
+                  finding: 'The first round leaves a material gap.',
+                  verdict: 'continue',
+                  evidenceBasis: 'insufficient',
+                  remainingGaps: ['Find an independent source.'],
+                  nextQueries: ['second query']
+                })
+              )
+            : generation(
+                assessmentJson({
+                  finding: 'Independent fetched sources answer the step.',
+                  verdict: 'sufficient',
+                  evidenceBasis: 'multiple-sources',
+                  remainingGaps: [],
+                  nextQueries: []
+                })
+              )
+        )
+      },
+      search: (query) =>
+        Promise.resolve({
+          provider: 'test',
+          results: [
+            {
+              title: `${query} source A`,
+              url: `https://${query === 'first query' ? 'alpha' : 'gamma'}.example/report`,
+              snippet: 'Relevant evidence'
+            },
+            {
+              title: `${query} source B`,
+              url: `https://${query === 'first query' ? 'beta' : 'delta'}.example/report`,
+              snippet: 'Independent evidence'
+            }
+          ]
+        })
+    })
+    const usage = emptyUsage()
+
+    const result = await harness.runner.run(new AbortController().signal, usage)
+
+    expect(result).toEqual({ status: 'completed', stopped: false, runBudgetReached: false })
+    expect(phases).toEqual(['query', 'assessment', 'assessment'])
+    expect(harness.run.steps[0].rounds).toHaveLength(2)
+    expect(harness.run.steps[0].rounds.map((round) => round.status)).toEqual([
+      'completed',
+      'completed'
+    ])
+    expect(harness.run.steps[0].rounds[0].assessment?.verdict).toBe('continue')
+    expect(harness.run.steps[0].status).toBe('completed')
+    expect(harness.run.steps[0].finding).toBe('Independent fetched sources answer the step.')
+    expect(usage).toEqual({ rounds: 2, searches: 2, fetches: 4 })
+  })
+
+  it('preserves an interrupted phase and resumes without repeating completed work', async () => {
+    const round = makeRound({
+      status: 'searching',
+      queries: ['resume query']
+    })
+    const run = makeRun([round])
+    const controller = new AbortController()
+    let abortFirstSearch = true
+    let searchCalls = 0
+    let fetchCalls = 0
+    const harness = createHarness({
+      run,
+      runModel: (phase) => {
+        expect(phase).toBe('assessment')
+        return Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'The primary source answers the narrow step.',
+              verdict: 'sufficient',
+              evidenceBasis: 'authoritative-primary',
+              remainingGaps: [],
+              nextQueries: []
+            })
+          )
+        )
+      },
+      search: () => {
+        searchCalls++
+        if (abortFirstSearch) {
+          abortFirstSearch = false
+          controller.abort()
+          return Promise.reject(new Error('cancelled'))
+        }
+        return Promise.resolve({
+          provider: 'test',
+          results: [
+            {
+              title: 'Primary source',
+              url: 'https://primary.example/report',
+              snippet: 'Definitive evidence'
+            }
+          ]
+        })
+      },
+      fetch: (url) => {
+        fetchCalls++
+        return Promise.resolve(fetchDraft(url))
+      }
+    })
+    const usage = emptyUsage()
+
+    const stopped = await harness.runner.run(controller.signal, usage)
+
+    expect(stopped).toEqual({ status: 'pending', stopped: true, runBudgetReached: false })
+    expect(round.status).toBe('searching')
+    expect(round.completedAt).toBeNull()
+    expect(round.terminationReason).toBe('user')
+
+    const resumed = await harness.runner.run(new AbortController().signal, usage)
+
+    expect(resumed.status).toBe('completed')
+    expect(searchCalls).toBe(2)
+    expect(fetchCalls).toBe(1)
+    expect(harness.run.steps[0].rounds).toHaveLength(1)
+    expect(round.status).toBe('completed')
+    expect(round.terminationReason).toBeUndefined()
+  })
+
+  it('charges only search and fetch operations that actually start before cancellation', async () => {
+    const searchRound = makeRound({
+      status: 'searching',
+      queries: ['first search', 'unstarted search']
+    })
+    const searchRun = makeRun([searchRound])
+    searchRun.researchPolicy.searchConcurrency = 1
+    const searchController = new AbortController()
+    let searchCalls = 0
+    const searchHarness = createHarness({
+      run: searchRun,
+      search: () => {
+        searchCalls++
+        searchController.abort('user')
+        return Promise.reject(new Error('cancelled'))
+      }
+    })
+    const searchUsage = emptyUsage()
+
+    await searchHarness.runner.run(searchController.signal, searchUsage)
+
+    expect(searchCalls).toBe(1)
+    expect(searchUsage.searches).toBe(1)
+
+    const readingRound = makeRound({
+      status: 'reading',
+      queries: ['completed search'],
+      selectedUrls: ['https://one.example/report', 'https://unstarted.example/report']
+    })
+    const readingRun = makeRun([readingRound])
+    readingRun.researchPolicy.fetchConcurrency = 1
+    const fetchController = new AbortController()
+    let fetchCalls = 0
+    const fetchHarness = createHarness({
+      run: readingRun,
+      fetch: () => {
+        fetchCalls++
+        fetchController.abort('user')
+        return Promise.reject(new Error('cancelled'))
+      }
+    })
+    const fetchUsage = emptyUsage()
+
+    await fetchHarness.runner.run(fetchController.signal, fetchUsage)
+
+    expect(fetchCalls).toBe(1)
+    expect(fetchUsage.fetches).toBe(1)
+  })
+
+  it('surfaces a complete provider batch failure instead of reporting generic no progress', async () => {
+    const round = makeRound({ status: 'searching', queries: ['provider failure'] })
+    const harness = createHarness({
+      run: makeRun([round]),
+      search: () => Promise.reject(new Error('provider unavailable'))
+    })
+
+    await expect(harness.runner.run(new AbortController().signal, emptyUsage())).rejects.toThrow(
+      'Every web search failed: provider unavailable'
+    )
+  })
+
+  it('surfaces a complete page-fetch batch failure with the original cause', async () => {
+    const round = makeRound({
+      status: 'reading',
+      queries: ['completed search'],
+      selectedUrls: ['https://unavailable.example/report']
+    })
+    const harness = createHarness({
+      run: makeRun([round]),
+      fetch: () => Promise.reject(new Error('connection refused'))
+    })
+
+    await expect(harness.runner.run(new AbortController().signal, emptyUsage())).rejects.toThrow(
+      'Every selected page failed to load: connection refused'
+    )
+  })
+
+  it('uses later selected pages when an unreadable page leaves lifetime capacity unused', async () => {
+    const firstUrl = 'https://documents.example/unreadable'
+    const secondUrl = 'https://primary.example/report'
+    const round = makeRound({
+      status: 'reading',
+      queries: ['completed search'],
+      selectedUrls: [firstUrl, secondUrl]
+    })
+    const run = makeRun([round])
+    run.researchPolicy.maxVerifiedSourcesPerRun = 1
+    const fetched: string[] = []
+    const harness = createHarness({
+      run,
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'The readable primary page answers the step.',
+              verdict: 'sufficient',
+              evidenceBasis: 'authoritative-primary',
+              remainingGaps: [],
+              nextQueries: []
+            })
+          )
+        ),
+      fetch: (url) => {
+        fetched.push(url)
+        return Promise.resolve(
+          url === firstUrl
+            ? {
+                ...fetchDraft(url),
+                contentType: 'application/pdf',
+                passages: [],
+                warnings: ['Unsupported content type: application/pdf']
+              }
+            : fetchDraft(url)
+        )
+      }
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('completed')
+    expect(fetched).toEqual([firstUrl, secondUrl])
+    expect(run.sources.filter((source) => source.verified)).toHaveLength(1)
+  })
+
+  it('checkpoints a partially searched round at the run budget and resumes its remaining query', async () => {
+    const round = makeRound({ status: 'searching', queries: ['query one', 'query two'] })
+    const run = makeRun([round])
+    run.researchPolicy = { ...run.researchPolicy, maxSearchesPerRun: 1 }
+    const searched: string[] = []
+    const harness = createHarness({
+      run,
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'Two fetched pages answer the step.',
+              verdict: 'sufficient',
+              evidenceBasis: 'multiple-sources',
+              remainingGaps: [],
+              nextQueries: []
+            })
+          )
+        ),
+      search: (query) => {
+        searched.push(query)
+        return Promise.resolve({
+          provider: 'test',
+          results: [
+            {
+              title: query,
+              url: `https://${query === 'query one' ? 'one' : 'two'}.example/report`,
+              snippet: 'Evidence'
+            }
+          ]
+        })
+      }
+    })
+
+    const limited = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(limited).toEqual({ status: 'limited', stopped: false, runBudgetReached: true })
+    expect(round.status).toBe('searching')
+    expect(round.terminationReason).toBe('tool-limit')
+    expect(searched).toEqual(['query one'])
+
+    const resumed = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(resumed.status).toBe('completed')
+    expect(searched).toEqual(['query one', 'query two'])
+    expect(round.status).toBe('completed')
+  })
+
+  it('checkpoints a partially read round at the run budget and resumes its remaining page', async () => {
+    const round = makeRound({
+      status: 'reading',
+      queries: ['completed query'],
+      selectedUrls: ['https://one.example/report', 'https://two.example/report']
+    })
+    const run = makeRun([round])
+    run.researchPolicy = { ...run.researchPolicy, maxFetchesPerRun: 1 }
+    const fetched: string[] = []
+    const harness = createHarness({
+      run,
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'Both selected pages were fetched.',
+              verdict: 'sufficient',
+              evidenceBasis: 'multiple-sources',
+              remainingGaps: [],
+              nextQueries: []
+            })
+          )
+        ),
+      fetch: (url) => {
+        fetched.push(url)
+        return Promise.resolve(fetchDraft(url))
+      }
+    })
+
+    const limited = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(limited).toEqual({ status: 'limited', stopped: false, runBudgetReached: true })
+    expect(round.status).toBe('reading')
+    expect(fetched).toEqual(['https://one.example/report'])
+
+    const resumed = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(resumed.status).toBe('completed')
+    expect(fetched).toEqual(['https://one.example/report', 'https://two.example/report'])
+    expect(round.status).toBe('completed')
+  })
+
+  it('reuses a verified page surfaced by a later step without fetching it again', async () => {
+    const round = makeRound({ status: 'searching', queries: ['shared source'] })
+    let fetchCalls = 0
+    const harness = createHarness({
+      run: makeRun([round]),
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'The shared primary page answers this step too.',
+              verdict: 'sufficient',
+              evidenceBasis: 'authoritative-primary',
+              remainingGaps: [],
+              nextQueries: []
+            })
+          )
+        ),
+      search: () =>
+        Promise.resolve({
+          provider: 'test',
+          results: [
+            {
+              title: 'Shared primary source',
+              url: 'https://shared.example/report#section',
+              snippet: 'Relevant to both steps'
+            }
+          ]
+        }),
+      fetch: (url) => {
+        fetchCalls++
+        return Promise.resolve(fetchDraft(url))
+      }
+    })
+    harness.artifacts.push({
+      id: 'artifact_shared',
+      conversationId: harness.run.id,
+      messageId: 'message_previous',
+      createdAt: 1,
+      research: { stepId: 'step_previous', roundId: 'round_previous' },
+      ...fetchDraft('https://shared.example/report')
+    })
+    harness.run.sources.push({
+      id: 'S1',
+      title: 'Shared primary source',
+      url: 'https://shared.example/report',
+      verified: true
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('completed')
+    expect(fetchCalls).toBe(0)
+    expect(harness.run.steps[0].evidenceIds).toContain('artifact_shared')
+    expect(round.evidenceIds).toContain('artifact_shared')
+  })
+
+  it.each([
+    ['requested URL', 'https://shared.example/start'],
+    ['resolved URL', 'https://shared.example/report']
+  ])('reuses redirected evidence when search surfaces its %s', async (_label, surfacedUrl) => {
+    const round = makeRound({ status: 'searching', queries: ['redirected source'] })
+    let fetchCalls = 0
+    const harness = createHarness({
+      run: makeRun([round]),
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'The previously fetched redirect target answers this step.',
+              verdict: 'sufficient',
+              evidenceBasis: 'authoritative-primary',
+              remainingGaps: [],
+              nextQueries: []
+            })
+          )
+        ),
+      search: () =>
+        Promise.resolve({
+          provider: 'test',
+          results: [
+            {
+              title: 'Redirected primary source',
+              url: surfacedUrl,
+              snippet: 'Previously fetched evidence'
+            }
+          ]
+        }),
+      fetch: (url) => {
+        fetchCalls++
+        return Promise.resolve(fetchDraft(url))
+      }
+    })
+    harness.artifacts.push({
+      id: 'artifact_redirected',
+      conversationId: harness.run.id,
+      messageId: 'message_previous',
+      createdAt: 1,
+      research: { stepId: 'step_previous', roundId: 'round_previous' },
+      ...redirectFetchDraft('https://shared.example/start', 'https://shared.example/report')
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('completed')
+    expect(fetchCalls).toBe(0)
+    expect(harness.run.steps[0].evidenceIds).toContain('artifact_redirected')
+    expect(round.evidenceIds).toContain('artifact_redirected')
+  })
+
+  it('resumes a reading round without refetching the requested side of a completed redirect', async () => {
+    const round = makeRound({
+      status: 'reading',
+      queries: ['redirected source'],
+      selectedUrls: ['https://shared.example/start'],
+      evidenceIds: ['artifact_redirected']
+    })
+    const run = makeRun([round])
+    run.steps[0].evidenceIds = ['artifact_redirected']
+    let fetchCalls = 0
+    const harness = createHarness({
+      run,
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'The completed redirect remains available after resume.',
+              verdict: 'sufficient',
+              evidenceBasis: 'authoritative-primary',
+              remainingGaps: [],
+              nextQueries: []
+            })
+          )
+        ),
+      fetch: (url) => {
+        fetchCalls++
+        return Promise.resolve(fetchDraft(url))
+      }
+    })
+    harness.artifacts.push({
+      id: 'artifact_redirected',
+      conversationId: harness.run.id,
+      messageId: 'message_current_round',
+      createdAt: 1,
+      research: { stepId: run.steps[0].id, roundId: round.id },
+      ...redirectFetchDraft('https://shared.example/start', 'https://shared.example/report')
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('completed')
+    expect(fetchCalls).toBe(0)
+    expect(round.status).toBe('completed')
+  })
+
+  it('does not refetch a completed page that produced no readable passages', async () => {
+    const url = 'https://documents.example/unsupported'
+    const round = makeRound({
+      status: 'reading',
+      queries: ['unsupported document'],
+      selectedUrls: [url],
+      evidenceIds: ['artifact_unsupported']
+    })
+    const run = makeRun([round])
+    run.researchPolicy.maxRoundsPerStep = 1
+    run.steps[0].evidenceIds = ['artifact_unsupported']
+    let fetchCalls = 0
+    const harness = createHarness({
+      run,
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: '',
+              verdict: 'continue',
+              evidenceBasis: 'insufficient',
+              remainingGaps: ['A readable source is still required.'],
+              nextQueries: []
+            })
+          )
+        ),
+      fetch: (requestedUrl) => {
+        fetchCalls++
+        return Promise.resolve(fetchDraft(requestedUrl))
+      }
+    })
+    harness.artifacts.push({
+      id: 'artifact_unsupported',
+      conversationId: harness.run.id,
+      messageId: 'message_unsupported',
+      createdAt: 1,
+      research: { stepId: run.steps[0].id, roundId: round.id },
+      ...fetchDraft(url),
+      contentType: 'application/pdf',
+      contentChars: 0,
+      passages: [],
+      warnings: ['Unsupported content type: application/pdf']
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('limited')
+    expect(fetchCalls).toBe(0)
+  })
+
+  it('recovers a sufficient persisted assessment before starting another round', async () => {
+    const round = makeRound({
+      status: 'completed',
+      finding: 'The saved authoritative source answers the step.',
+      assessment: {
+        verdict: 'sufficient',
+        evidenceBasis: 'authoritative-primary',
+        rationale: 'The primary source directly resolves the narrow question.',
+        remainingGaps: [],
+        nextQueries: []
+      },
+      evidenceIds: ['artifact_sufficient'],
+      completedAt: 2
+    })
+    const run = makeRun([round])
+    run.steps[0].evidenceIds = ['artifact_sufficient']
+    let modelCalls = 0
+    const harness = createHarness({
+      run,
+      runModel: () => {
+        modelCalls++
+        return Promise.resolve(generation('{}'))
+      }
+    })
+    harness.artifacts.push({
+      id: 'artifact_sufficient',
+      conversationId: run.id,
+      messageId: 'message_sufficient',
+      createdAt: 1,
+      research: { stepId: run.steps[0].id, roundId: round.id },
+      ...fetchDraft('https://primary.example/report')
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('completed')
+    expect(run.steps[0].status).toBe('completed')
+    expect(run.steps[0].rounds).toHaveLength(1)
+    expect(modelCalls).toBe(0)
+  })
+
+  it('checks exhausted attempt budgets before starting another model phase', async () => {
+    let modelCalls = 0
+    const harness = createHarness({
+      runModel: () => {
+        modelCalls++
+        return Promise.resolve(generation('{"queries":["should not run"]}'))
+      }
+    })
+    const usage = emptyUsage()
+    usage.searches = harness.run.researchPolicy.maxSearchesPerRun
+
+    const result = await harness.runner.run(new AbortController().signal, usage)
+
+    expect(result).toEqual({ status: 'limited', stopped: false, runBudgetReached: true })
+    expect(harness.run.steps[0].terminationReason).toBe('tool-limit')
+    expect(modelCalls).toBe(0)
+  })
+
+  it('enforces the pinned lifetime verified-evidence cap before new work', async () => {
+    const run = makeRun()
+    run.researchPolicy.maxVerifiedSourcesPerRun = 1
+    run.steps[0].evidenceIds = ['artifact_cap']
+    let modelCalls = 0
+    const harness = createHarness({
+      run,
+      runModel: () => {
+        modelCalls++
+        return Promise.resolve(generation('{"queries":["should not run"]}'))
+      }
+    })
+    harness.artifacts.push({
+      id: 'artifact_cap',
+      conversationId: run.id,
+      messageId: 'message_cap',
+      createdAt: 1,
+      research: { stepId: run.steps[0].id, roundId: 'round_cap' },
+      ...fetchDraft('https://cap.example/report')
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result).toEqual({ status: 'limited', stopped: false, runBudgetReached: true })
+    expect(run.steps[0].terminationReason).toBe('evidence-limit')
+    expect(modelCalls).toBe(0)
+  })
+
+  it('overrides a model phase user-stop mapping when the linked step timer actually fired', async () => {
+    const round = makeRound({ status: 'querying' })
+    const harness = createHarness(
+      {
+        run: makeRun([round]),
+        runModel: (_phase, _prompt, _maxTokens, signal) =>
+          new Promise((resolve) => {
+            const onAbort = (): void =>
+              resolve({
+                ...generation(''),
+                stopped: true,
+                stopReason: 'user'
+              })
+            if (signal.aborted) onAbort()
+            else signal.addEventListener('abort', onAbort, { once: true })
+          })
+      },
+      10
+    )
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result).toEqual({ status: 'limited', stopped: false, runBudgetReached: false })
+    expect(harness.run.steps[0].status).toBe('limited')
+    expect(harness.run.steps[0].terminationReason).toBe('time-limit')
+    expect(round.status).toBe('querying')
+    expect(round.terminationReason).toBe('time-limit')
+    expect(round.completedAt).toBeNull()
+  })
+
+  it('carries the no-progress guard across a resumed execution', async () => {
+    const previous = makeRound({
+      status: 'completed',
+      assessment: {
+        verdict: 'continue',
+        evidenceBasis: 'insufficient',
+        rationale: 'No useful page was fetched.',
+        remainingGaps: ['Find evidence.'],
+        nextQueries: []
+      },
+      completedAt: 2
+    })
+    const harness = createHarness({
+      run: makeRun([previous]),
+      runModel: (phase) =>
+        Promise.resolve(
+          phase === 'query'
+            ? generation('{"queries":["new query"]}')
+            : generation(
+                assessmentJson({
+                  finding: 'No verified evidence was found.',
+                  verdict: 'continue',
+                  evidenceBasis: 'insufficient',
+                  remainingGaps: ['Find evidence.'],
+                  nextQueries: []
+                })
+              )
+        ),
+      search: () => Promise.resolve({ provider: 'test', results: [] })
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('limited')
+    expect(harness.run.steps[0].terminationReason).toBe('no-progress')
+    expect(harness.run.steps[0].rounds).toHaveLength(2)
+    expect(harness.run.steps[0].rounds[1].status).toBe('completed')
+  })
+
+  it('does not replace a valid cumulative finding with malformed assessment output', async () => {
+    const round = makeRound({ status: 'assessing' })
+    const run = makeRun([round])
+    run.steps[0].finding = 'Previously validated cumulative finding.'
+    run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1 }
+    const harness = createHarness({
+      run,
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            '{"finding":"Malformed replacement","verdict":"continue","rationale":"Missing required arrays"}'
+          )
+        )
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('limited')
+    expect(run.steps[0].finding).toBe('Previously validated cumulative finding.')
+    expect(round.finding).toBe('Previously validated cumulative finding.')
+    expect(round.assessment?.verdict).toBe('continue')
+  })
+
+  it('keeps a query-generation prompt inside the small local-context budget', async () => {
+    const previous = makeRound({
+      status: 'completed',
+      queries: Array.from({ length: 40 }, (_, index) => `prior query ${index} ${'q'.repeat(300)}`),
+      assessment: {
+        verdict: 'continue',
+        evidenceBasis: 'insufficient',
+        rationale: 'More evidence is needed.',
+        remainingGaps: Array.from(
+          { length: 20 },
+          (_, index) => `remaining gap ${index} ${'g'.repeat(300)}`
+        ),
+        nextQueries: []
+      },
+      completedAt: 2
+    })
+    const run = makeRun([previous])
+    run.question = 'question '.repeat(3_000)
+    for (let index = 0; index < 12; index++) {
+      run.steps.push({
+        ...run.steps[0],
+        id: `prior_step_${index}`,
+        title: `Prior step ${index}`,
+        finding: `prior finding ${index} ${'f'.repeat(2_000)}`,
+        rounds: [],
+        evidenceIds: [],
+        uncertainties: []
+      })
+    }
+    let capturedPrompt = ''
+    const harness = createHarness({
+      run,
+      contextTokens: 4_096,
+      runModel: (_phase, prompt) => {
+        capturedPrompt = prompt
+        return Promise.resolve({
+          ...generation(''),
+          stopped: true,
+          stopReason: 'yielded'
+        })
+      }
+    })
+
+    await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    const limit = criticalThinkingSynthesisLimits(4_096).maxPromptChars
+    expect(capturedPrompt.length).toBeLessThanOrEqual(limit)
+    expect(capturedPrompt).toContain('Return strict JSON only')
+  })
+})
+
+interface HarnessOverrides {
+  run?: CriticalThinkingRun
+  runModel?: CriticalThinkingResearchRunnerDeps['runModel']
+  search?: CriticalThinkingResearchRunnerDeps['search']
+  fetch?: CriticalThinkingResearchRunnerDeps['fetch']
+  contextTokens?: number
+}
+
+function createHarness(
+  overrides: HarnessOverrides = {},
+  stepTimeoutMs?: number
+): {
+  run: CriticalThinkingRun
+  runner: CriticalThinkingResearchRunner
+  artifacts: ToolArtifact[]
+  activities: CriticalThinkingActivity[]
+} {
+  const run = overrides.run ?? makeRun()
+  const artifacts: ToolArtifact[] = []
+  const activities: CriticalThinkingActivity[] = []
+  const deps: CriticalThinkingResearchRunnerDeps = {
+    getRun: () => run,
+    listArtifacts: () => artifacts,
+    runModel:
+      overrides.runModel ??
+      (() =>
+        Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'Default finding',
+              verdict: 'continue',
+              evidenceBasis: 'insufficient',
+              remainingGaps: ['More evidence is required.'],
+              nextQueries: []
+            })
+          )
+        )),
+    search:
+      overrides.search ??
+      (() =>
+        Promise.resolve({
+          provider: 'test',
+          results: []
+        })),
+    fetch: overrides.fetch ?? ((url) => Promise.resolve(fetchDraft(url))),
+    recordArtifact: (artifact, roundId) => {
+      artifacts.push(artifact)
+      const step = run.steps[run.currentStep]
+      const activeRound = step.rounds.find((candidate) => candidate.id === roundId)
+      step.evidenceIds = [...new Set([...step.evidenceIds, artifact.id])]
+      if (activeRound) {
+        activeRound.evidenceIds = [...new Set([...activeRound.evidenceIds, artifact.id])]
+      }
+      if (
+        artifact.kind === 'web-fetch' &&
+        !run.sources.some((source) => source.url === artifact.finalUrl)
+      ) {
+        run.sources.push({
+          id: `S${run.sources.length + 1}`,
+          title: artifact.title,
+          url: artifact.finalUrl,
+          verified: artifact.passages.length > 0
+        })
+      }
+    },
+    updateStep: (patch) => Object.assign(run.steps[run.currentStep], patch),
+    appendRound: (round) => run.steps[run.currentStep].rounds.push(round),
+    updateRound: (roundId, patch) => {
+      const round = run.steps[run.currentStep].rounds.find((candidate) => candidate.id === roundId)
+      if (!round) throw new Error('Test round not found')
+      Object.assign(round, patch)
+    },
+    recordActivity: (activity) => {
+      const index = activities.findIndex((candidate) => candidate.id === activity.id)
+      if (index >= 0) activities[index] = activity
+      else activities.push(activity)
+    },
+    addStats: () => undefined,
+    checkpoint: () => Promise.resolve(),
+    contextTokens: overrides.contextTokens ?? 8_192
+  }
+  return {
+    run,
+    artifacts,
+    activities,
+    runner: new CriticalThinkingResearchRunner(deps, { stepTimeoutMs })
+  }
+}
+
+function makeRun(rounds: CriticalThinkingRoundState[] = []): CriticalThinkingRun {
+  return {
+    id: 'critical_test',
+    question: 'What does the evidence show?',
+    status: 'researching',
+    provider: 'local',
+    model: null,
+    researchPolicy: {
+      ...DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY,
+      maxPagesPerRound: 2
+    },
+    plan: {
+      title: 'Research plan',
+      steps: [{ id: 'plan_step_1', title: 'Investigate the evidence', status: 'in_progress' }],
+      updatedAt: 1
+    },
+    report: '',
+    sources: [],
+    steps: [
+      {
+        id: 'step_1',
+        title: 'Investigate the evidence',
+        status: 'researching',
+        attempts: 1,
+        evidenceIds: [],
+        finding: '',
+        uncertainties: [],
+        rounds,
+        terminationReason: undefined
+      }
+    ],
+    currentStep: 0,
+    evidenceCount: 0,
+    activities: [],
+    stats: null,
+    lastError: null,
+    createdAt: 1,
+    updatedAt: 1
+  }
+}
+
+function makeRound(patch: Partial<CriticalThinkingRoundState>): CriticalThinkingRoundState {
+  return {
+    id: 'round_existing',
+    index: 0,
+    status: 'querying',
+    queries: [],
+    selectedUrls: [],
+    evidenceIds: [],
+    finding: '',
+    assessment: null,
+    startedAt: 1,
+    completedAt: null,
+    ...patch
+  }
+}
+
+function generation(content: string): RunGenerationResult {
+  return { content, stats: EMPTY_STATS, stopped: false }
+}
+
+function assessmentJson(input: {
+  finding: string
+  verdict: 'continue' | 'sufficient'
+  evidenceBasis: 'multiple-sources' | 'authoritative-primary' | 'insufficient'
+  remainingGaps: string[]
+  nextQueries: string[]
+}): string {
+  return JSON.stringify({
+    ...input,
+    uncertainties: input.remainingGaps,
+    rationale: 'Bounded test assessment.'
+  })
+}
+
+function fetchDraft(url: string): WebFetchArtifactDraft {
+  return {
+    kind: 'web-fetch',
+    requestedUrl: url,
+    finalUrl: url,
+    status: 200,
+    contentType: 'text/html',
+    title: 'Fetched source',
+    contentHash: 'hash',
+    contentChars: 100,
+    truncated: false,
+    passages: [{ id: 'P1', text: 'Verified evidence passage.', score: 1 }],
+    warnings: []
+  }
+}
+
+function redirectFetchDraft(requestedUrl: string, finalUrl: string): WebFetchArtifactDraft {
+  return {
+    ...fetchDraft(finalUrl),
+    requestedUrl,
+    finalUrl
+  }
+}
+
+function emptyUsage(): CriticalThinkingRunUsage {
+  return { rounds: 0, searches: 0, fetches: 0 }
+}

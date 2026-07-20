@@ -16,6 +16,8 @@ export type CriticalThinkingStatus =
 
 export type CriticalThinkingProvider = 'local' | 'anthropic' | 'openai'
 
+export type CriticalThinkingTerminationReason = GenerationStopReason | 'evidence-limit'
+
 export interface CriticalThinkingSource {
   id: string
   title: string
@@ -23,6 +25,55 @@ export interface CriticalThinkingSource {
   snippet?: string
   /** True only after fetch_url captured page passages for this URL. */
   verified: boolean
+}
+
+export type CriticalThinkingRoundStatus =
+  | 'querying'
+  | 'searching'
+  | 'reading'
+  | 'assessing'
+  | 'completed'
+  | 'limited'
+  | 'stopped'
+  | 'failed'
+
+export interface CriticalThinkingCoverageAssessment {
+  verdict: 'continue' | 'sufficient'
+  evidenceBasis: 'multiple-sources' | 'authoritative-primary' | 'insufficient'
+  rationale: string
+  remainingGaps: string[]
+  nextQueries: string[]
+}
+
+export interface CriticalThinkingRoundState {
+  id: string
+  /** Zero-based across the lifetime of this step, including resumed attempts. */
+  index: number
+  status: CriticalThinkingRoundStatus
+  queries: string[]
+  selectedUrls: string[]
+  evidenceIds: string[]
+  finding: string
+  assessment: CriticalThinkingCoverageAssessment | null
+  terminationReason?: CriticalThinkingTerminationReason
+  startedAt: number
+  completedAt: number | null
+}
+
+/** Limits are pinned to a run so resume cannot silently change its behavior. */
+export interface CriticalThinkingResearchPolicy {
+  maxRoundsPerStep: number
+  maxQueriesPerRound: number
+  maxResultsPerQuery: number
+  maxPagesPerRound: number
+  searchConcurrency: number
+  fetchConcurrency: number
+  maxRoundsPerRun: number
+  maxSearchesPerRun: number
+  maxFetchesPerRun: number
+  /** Lifetime cap; unlike attempt budgets, Resume does not reset this value. */
+  maxVerifiedSourcesPerRun: number
+  maxRunMs: number
 }
 
 export interface CriticalThinkingStepState {
@@ -33,12 +84,13 @@ export interface CriticalThinkingStepState {
   evidenceIds: string[]
   finding: string
   uncertainties: string[]
-  terminationReason?: GenerationStopReason
+  rounds: CriticalThinkingRoundState[]
+  terminationReason?: CriticalThinkingTerminationReason
 }
 
 export interface CriticalThinkingActivity {
   id: string
-  kind: 'planning' | 'search' | 'reading'
+  kind: 'planning' | 'search' | 'reading' | 'analysis'
   label: string
   status: ToolCallStatus
   detail?: string
@@ -53,6 +105,7 @@ export interface CriticalThinkingRun {
   provider: CriticalThinkingProvider
   /** Cloud model pinned when the run is created; local runs use the loaded model. */
   model: string | null
+  researchPolicy: CriticalThinkingResearchPolicy
   plan: Plan | null
   report: string
   sources: CriticalThinkingSource[]

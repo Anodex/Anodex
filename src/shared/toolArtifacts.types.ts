@@ -6,6 +6,11 @@ interface ToolArtifactBase {
   conversationId: string
   messageId: string
   createdAt: number
+  /** Optional durable ownership when an artifact belongs to a staged research round. */
+  research?: {
+    stepId: string
+    roundId: string
+  }
 }
 
 export interface WebSearchResultArtifact {
@@ -42,6 +47,14 @@ export interface WebFetchArtifact extends ToolArtifactBase {
   warnings: string[]
 }
 
-export type ToolArtifactDraft =
-  | Omit<WebSearchArtifact, 'id' | 'conversationId' | 'messageId' | 'createdAt'>
-  | Omit<WebFetchArtifact, 'id' | 'conversationId' | 'messageId' | 'createdAt'>
+export type WebSearchArtifactDraft = Omit<
+  WebSearchArtifact,
+  'id' | 'conversationId' | 'messageId' | 'createdAt'
+>
+
+export type WebFetchArtifactDraft = Omit<
+  WebFetchArtifact,
+  'id' | 'conversationId' | 'messageId' | 'createdAt'
+>
+
+export type ToolArtifactDraft = WebSearchArtifactDraft | WebFetchArtifactDraft

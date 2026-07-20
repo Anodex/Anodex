@@ -19,12 +19,22 @@
   canonicalization and interleaved stable-read detection, closing loops that
   varied `endLine` between `Infinity` and enormous finite values.
 - `src/shared/toolArtifacts.types.ts`, `src/main/tools/webSearchTools.ts`, and
-  `src/main/tools/webTools.ts` — structured search/fetch artifacts and focused
-  passage extraction before model-facing truncation.
+  `src/main/tools/webTools.ts` — structured search/fetch artifacts, optional
+  step/round ownership, abortable provider calls, and focused passage extraction
+  before model-facing truncation.
 - `src/main/criticalThinking/CriticalThinkingEvidenceStore.ts` — queued atomic
   per-run evidence sidecars outside `runs.json`.
-- `src/main/criticalThinking/CriticalThinkingService.ts` — persisted bounded
-  plan-step workflow, synthesis/validation phases, partial results, and resume.
+- `src/main/criticalThinking/CriticalThinkingResearchRunner.ts` — persisted
+  adaptive rounds made from isolated query and coverage model phases plus direct,
+  bounded concurrent search/fetch I/O.
+- `src/main/criticalThinking/criticalThinkingResearchPolicy.ts` and
+  `criticalThinkingResearchOutput.ts` — pinned run limits, deterministic source
+  selection, the service sufficiency floor, and bounded structured-output parsing.
+- `src/main/criticalThinking/CriticalThinkingService.ts` — provider-neutral run
+  lifecycle, isolated phase execution, synthesis/validation, partial results,
+  checkpoints, and resume.
+- `src/main/criticalThinking/CriticalThinkingStore.ts` — defensive normalization
+  for both new round state and runs persisted before round policies existed.
 - `src/main/criticalThinking/criticalThinkingSynthesisBudget.ts` — provider-aware
   prompt/evidence/output sizing so synthesis and repair fit small local contexts
   as well as large cloud windows.
@@ -33,7 +43,9 @@
   normalized quote/number checks, chart value checks, and deterministic Markdown
   citation rendering.
 - Renderer/shared IPC updates expose researching, synthesizing, validating,
-  completed, partial, stopped, and failed states without conflating them.
+  completed, partial, stopped, and failed states without conflating them. The
+  progress view also shows the current round phase and a bounded recent-activity
+  window.
 
 This document captures the proposed long-term fix for Anodex context reliability,
 tool-heavy local generation, and Critical Thinking research runs. It is intended
@@ -52,6 +64,13 @@ clear termination semantics.
 The correct fix should make long work bounded, resumable, citation-safe, and
 provider-neutral. Local context-shift hooks are useful as an emergency safety net,
 but Critical Thinking should not depend on a single giant chat turn staying alive.
+
+Critical Thinking now follows that boundary directly. Query selection and evidence
+assessment are short, tool-free calls with empty logical histories and isolated
+local sessions. The service performs search and page fetching itself with explicit
+cancellation, concurrency, and persisted budgets. See
+`docs/CRITICAL_THINKING_ARCHITECTURE.md` for the current state machine and exact
+invariants.
 
 ## Observed Failure
 
@@ -317,8 +336,10 @@ Provisional limits should scale with context size and task mode:
 - agent turn: 15 minutes or remaining outer budget, 32 tools, 12 rounds, with a
   context-size-scaled shift limit;
 - scheduled task: 10 minutes, 20 tools, 8 rounds, hard limited;
-- Critical Thinking step: 10 minutes, 6 tools, 8 rounds, 2 shifts, hard limited;
-- Critical Thinking total run: 60 minutes unless the user explicitly extends it.
+- Critical Thinking step: 10 minutes and 3 adaptive rounds per active attempt;
+- Critical Thinking active attempt: 60 minutes, 18 rounds, 24 searches, and 36
+  fetches, with a separate 100-page verified-evidence lifetime cap. The exact
+  pinned defaults live in `docs/CRITICAL_THINKING_ARCHITECTURE.md`.
 
 Acceptance tests:
 
@@ -343,35 +364,42 @@ It should be a workflow with persisted phases:
 - failed;
 - stopped.
 
-Each research step should have:
+Each research step has aggregate state for compatibility and synthesis:
 
 - status;
 - attempts;
 - evidence IDs;
 - findings;
 - uncertainties;
-- budget;
 - termination reason.
 
-The service, not the model, should own plan step status. The model can propose
-findings and call tools, but the service decides whether the step is complete.
+It also owns persisted round records containing query, selected-URL, evidence,
+finding, assessment, phase, and timing state. A run pins its research policy when
+it is created, so a later code update cannot silently change resume behavior.
+
+The service, not the model, owns plan step status. The model proposes focused
+queries and a structured coverage verdict. The service calls search/fetch directly
+and accepts `sufficient` only when there are no declared gaps and the verified
+evidence meets the configured minimum-source rule.
 
 The research turn should have a small context:
 
 - original question;
 - current step;
 - prior step summaries;
-- current evidence packet;
-- allowed tools.
+- current evidence packet.
 
-It should not replay the entire transcript.
+It does not replay the entire transcript and does not expose native research tools
+to these model phases.
 
 Acceptance tests:
 
 - three-step research run succeeds with bounded turns;
 - partial budget produces a clear partial report;
 - stop/resume works;
-- app restart resumes from persisted step state;
+- app restart resumes from persisted step and unfinished-round state;
+- concurrent search/fetch results are checkpointed before the next phase;
+- a model-only sufficiency claim cannot bypass the fetched-evidence floor;
 - local, OpenAI, and Anthropic follow the same workflow contract.
 
 ### Phase 6: Citation-Safe Synthesis
@@ -413,10 +441,10 @@ Renderer updates should be throttled for long runs.
 UI should show:
 
 - step X/Y;
+- current round and round phase;
+- the latest coverage result and a bounded view of remaining gaps;
 - evidence count;
 - fetched page count;
-- elapsed time;
-- current limit;
 - partial/resumable state;
 - synthesizing phase separately from research narration.
 
@@ -456,7 +484,10 @@ come from the workflow contract.
 6. Citation-safe synthesis validator.
 7. UI updates for progress, limits, partial results, and resume.
 
-## Review Questions
+## Resolved Design Questions
+
+These questions guided implementation; their settled answers are recorded in
+`docs/CRITICAL_THINKING_ARCHITECTURE.md`.
 
 1. Is the execution controller the right abstraction boundary, or should limits
    live inside each provider?
