@@ -149,6 +149,7 @@ describe('stripRetiredGeneralSettings', () => {
         startupBehavior: 'reopen',
         projectFolder: '/projects',
         autoSave: true,
+        defaultWorkspace: '/old/workspace',
         permissionMode: 'ask'
       }
     })

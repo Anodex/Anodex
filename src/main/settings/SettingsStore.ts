@@ -116,7 +116,7 @@ export function stripRetiredGeneralSettings(settings: Record<string, unknown>): 
   if (!isPlainObject(settings.general)) return { settings, changed: false }
 
   const general = { ...settings.general }
-  const retiredKeys = ['startupBehavior', 'projectFolder', 'autoSave']
+  const retiredKeys = ['startupBehavior', 'projectFolder', 'autoSave', 'defaultWorkspace']
   const changed = retiredKeys.some((key) => key in general)
   if (!changed) return { settings, changed: false }
 

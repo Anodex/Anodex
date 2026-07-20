@@ -127,12 +127,33 @@ interface ChatState {
 const DEFAULT_TITLE = 'New chat'
 const pendingToolPayloadByMessage = new Map<string, string>()
 
+/**
+ * Both helpers are called from many sites throughout this store, several as
+ * `void persistX(...)` fire-and-forget — an IPC failure there would
+ * otherwise become a silent unhandled promise rejection with no user-visible
+ * signal at all. Catching and surfacing it here, once, covers every caller
+ * instead of requiring each call site to remember to do it individually.
+ */
 async function persistConversation(conversation: Conversation): Promise<void> {
-  await anodex.conversations.save(conversation)
+  try {
+    await anodex.conversations.save(conversation)
+  } catch (error) {
+    notifyError(
+      'Could not save chat',
+      error instanceof Error ? error.message : 'The save request failed.'
+    )
+  }
 }
 
 async function persistActiveState(activeId: string | null): Promise<void> {
-  await anodex.conversations.setState({ activeConversationId: activeId })
+  try {
+    await anodex.conversations.setState({ activeConversationId: activeId })
+  } catch (error) {
+    notifyError(
+      'Could not save chat state',
+      error instanceof Error ? error.message : 'The request failed.'
+    )
+  }
 }
 
 /** Renderer mirror of persisted conversations, kept in sync with the main process. */
@@ -200,24 +221,50 @@ export const useChatStore = create<ChatState>()(
     },
 
     deleteConversation: async (id) => {
+      // Await the IPC call before touching state (same reasoning as
+      // deleteAllConversations below) — a failed delete leaves the chat
+      // list intact, with an error surfaced, instead of the sidebar
+      // dropping an item that's still actually on disk.
+      try {
+        await anodex.conversations.delete(id)
+      } catch (error) {
+        notifyError(
+          'Could not delete chat',
+          error instanceof Error ? error.message : 'The delete request failed.'
+        )
+        return
+      }
       set((state) => {
         state.conversations = state.conversations.filter((c) => c.id !== id)
         if (state.activeId === id) state.activeId = state.conversations[0]?.id ?? null
       })
-      await anodex.conversations.delete(id)
       await persistActiveState(get().activeId)
     },
 
     restoreConversation: async (id) => {
-      await anodex.conversations.restore(id)
-      const conversations = await anodex.conversations.list()
-      set({ conversations })
+      try {
+        await anodex.conversations.restore(id)
+        const conversations = await anodex.conversations.list()
+        set({ conversations })
+      } catch (error) {
+        notifyError(
+          'Could not restore chat',
+          error instanceof Error ? error.message : 'The restore request failed.'
+        )
+      }
     },
 
     deleteConversationPermanent: async (id) => {
-      await anodex.conversations.deletePermanent(id)
-      const conversations = await anodex.conversations.list()
-      set({ conversations })
+      try {
+        await anodex.conversations.deletePermanent(id)
+        const conversations = await anodex.conversations.list()
+        set({ conversations })
+      } catch (error) {
+        notifyError(
+          'Could not permanently delete chat',
+          error instanceof Error ? error.message : 'The delete request failed.'
+        )
+      }
     },
 
     deleteAllConversations: async () => {
@@ -238,8 +285,15 @@ export const useChatStore = create<ChatState>()(
     },
 
     refreshConversations: async () => {
-      const conversations = await anodex.conversations.list()
-      set({ conversations })
+      try {
+        const conversations = await anodex.conversations.list()
+        set({ conversations })
+      } catch (error) {
+        notifyError(
+          'Could not refresh chats',
+          error instanceof Error ? error.message : 'The request failed.'
+        )
+      }
     },
 
     clearOrphanedProjectId: async (id) => {

@@ -56,6 +56,7 @@ describe('classifyCommandRisk', () => {
   it('flags obviously destructive commands', () => {
     expect(classifyCommandRisk('rm -rf node_modules')).toBe('destructive')
     expect(classifyCommandRisk('git push --force origin main')).toBe('destructive')
+    expect(classifyCommandRisk('git push origin +main')).toBe('destructive')
     expect(classifyCommandRisk('git reset --hard HEAD~1')).toBe('destructive')
     expect(classifyCommandRisk('DROP TABLE users;')).toBe('destructive')
     expect(classifyCommandRisk('format c: /q')).toBe('destructive')

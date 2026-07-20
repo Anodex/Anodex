@@ -35,10 +35,21 @@ export function MessageList({
   context?: ConversationContext | null
 }): JSX.Element {
   const compactionThroughId = context?.activeSnapshot?.throughMessageId ?? null
+  // Messages are only ever appended, so the streaming reply (if any) is
+  // always last — no need to scan the whole conversation for it, and doing
+  // it once here (instead of inside every MessageBubble) avoids an
+  // O(bubbles × messages) rescan on every streamed token.
+  const conversationStreaming = messages[messages.length - 1]?.streaming ?? false
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const stickToBottom = useRef(true)
+  // Read inside updateMarkers instead of closing over `messages` directly, so
+  // the callback's identity stays stable across streaming re-renders — a
+  // stable `updateMarkers` keeps the ResizeObserver effect below from
+  // disconnecting and reconnecting on every streamed token.
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
   const [showJumpButton, setShowJumpButton] = useState(false)
   const [hasNewContent, setHasNewContent] = useState(false)
   const [userMarkers, setUserMarkers] = useState<UserMarker[]>([])
@@ -48,8 +59,9 @@ export function MessageList({
     const el = containerRef.current
     if (!el) return
 
+    const currentMessages = messagesRef.current
     const currentAnchor = el.scrollTop + el.clientHeight * 0.28
-    const users = messages.filter((message) => message.role === 'user')
+    const users = currentMessages.filter((message) => message.role === 'user')
     const entries = users.map((message) => ({
       message,
       offsetTop: messageRefs.current[message.id]?.offsetTop ?? 0
@@ -66,7 +78,7 @@ export function MessageList({
       message,
       top: RAIL_TOP_OFFSET + index * markerGap,
       active: message.id === activeId,
-      ...previewContextForMessage(messages, message)
+      ...previewContextForMessage(currentMessages, message)
     }))
 
     setUserMarkers(markers)
@@ -75,7 +87,7 @@ export function MessageList({
     // but "Current request" must always mean the newest user turn. Keeping
     // those concepts separate prevents an older prompt from staying pinned
     // after the user sends a follow-up lower in the transcript.
-    const currentRequest = findLatestUserRequest(messages)
+    const currentRequest = findLatestUserRequest(currentMessages)
     const currentEntry = entries.find((entry) => entry.message.id === currentRequest?.id)
     const currentMarker = markers.find((marker) => marker.message.id === currentRequest?.id) ?? null
     setPinnedRequest(
@@ -85,7 +97,7 @@ export function MessageList({
         ? currentMarker
         : null
     )
-  }, [messages])
+  }, [])
 
   const handleScroll = (): void => {
     const el = containerRef.current
@@ -123,7 +135,7 @@ export function MessageList({
       resizeObserver.disconnect()
       window.removeEventListener('resize', updateMarkers)
     }
-  }, [messages, updateMarkers])
+  }, [updateMarkers])
 
   const jumpToBottom = (): void => {
     stickToBottom.current = true
@@ -157,6 +169,7 @@ export function MessageList({
                 <MessageBubble
                   message={message}
                   previousUserContent={findPreviousUserContent(messages, index)}
+                  conversationStreaming={conversationStreaming}
                 />
               </div>
               {context?.activeSnapshot && message.id === compactionThroughId && (

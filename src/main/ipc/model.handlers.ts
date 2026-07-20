@@ -1,5 +1,5 @@
 import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron'
-import { rm } from 'fs/promises'
+import { rm } from 'node:fs/promises'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ModelLoadOptions } from '@shared/model.types'

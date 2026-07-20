@@ -19,10 +19,14 @@ export interface ModelSettings {
   autoConfigured?: boolean
 }
 
-export interface UiSettings {
-  /** Only `dark` is shipped today; typed as an enum for future themes. */
-  theme: 'dark' | 'light' | 'system'
-}
+/**
+ * No fields of its own today — kept only as the settings.json container
+ * `migrateLegacyAssistantStyle` (in `SettingsStore.ts`) reads and strips a
+ * legacy `systemPrompt` key from. Once that migration is retired, remove
+ * this and the `ui` field on {@link Settings} together.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- see doc comment above
+export interface UiSettings {}
 
 /**
  * Hard cap on `AssistantStyleSettings.globalStyle` — durable voice/tone
@@ -113,8 +117,6 @@ export interface AppearanceSettings {
 export type PermissionMode = 'ask' | 'full' | 'untethered'
 
 export interface GeneralSettings {
-  /** Default workspace to reopen on launch. */
-  defaultWorkspace: string | null
   /** Master permission mode; see {@link PermissionMode}. */
   permissionMode: PermissionMode
   /** Show desktop notifications for long-running tasks. */

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -51,6 +51,27 @@ describe('workspace path safety', () => {
         )
       } finally {
         rmSync(parent, { recursive: true, force: true })
+      }
+    })
+
+    it('warns and falls back to lexical confinement when the workspace root cannot be resolved', () => {
+      // A workspace root that does not exist on disk makes realpathSync.native
+      // throw — the lexical ".."/absolute checks in resolveInWorkspace/
+      // isPathInside still ran first and already passed, so this only
+      // exercises assertRealPathInside's own catch path.
+      const missingRoot = join(tmpdir(), 'anodex-missing-root-does-not-exist')
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        expect(resolveInWorkspace(missingRoot, 'src/index.ts')).toBe(
+          join(missingRoot, 'src', 'index.ts')
+        )
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('[workspace]'),
+          expect.stringContaining('symlink confinement checks are'),
+          expect.anything()
+        )
+      } finally {
+        warn.mockRestore()
       }
     })
 

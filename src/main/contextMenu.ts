@@ -3,7 +3,26 @@ import { IpcChannel, type ContextMenuItem, type ContextMenuRequest } from '@shar
 import { createLogger } from './utils/logger'
 
 const log = createLogger('context-menu')
-const actions = new Map<string, () => void>()
+/**
+ * One action map per opened menu, keyed by an incrementing generation
+ * rather than a single shared `Map` that gets wiped on every new menu.
+ * A shared map cleared on each `context-menu` event raced a fast follow-up
+ * right-click against an in-flight `runAction` invoke for the PREVIOUS
+ * menu: clicking an item calls `runAction` (async) and immediately closes
+ * the renderer's menu, but if another `context-menu` event lands before
+ * that invoke resolves, the old code's `actions.clear()` would wipe the
+ * clicked item's entry out from under it, silently dropping the click.
+ * Keeping the last few generations alive gives any in-flight invoke room
+ * to resolve; old generations are pruned on the next menu build so this
+ * doesn't grow unbounded from menus that are opened and then dismissed.
+ */
+const MAX_LIVE_GENERATIONS = 3
+let nextGeneration = 0
+const actionsByGeneration = new Map<number, Map<string, () => void>>()
+// `Date.now()` alone can repeat across menus built within the same
+// millisecond (readily hit by rapid right-clicks); a monotonic counter
+// guarantees every item id is unique regardless of timing.
+let nextItemId = 0
 
 interface ContextMenuBuildResult {
   items: ContextMenuItem[]
@@ -17,14 +36,14 @@ function createAction(
   action: () => void,
   enabled = true
 ): void {
-  const id = `context-menu-${items.length}-${Date.now()}`
+  const id = `context-menu-${nextItemId++}`
   items.push({ id, label, enabled })
   if (enabled) actionMap.set(id, action)
 }
 
 function createSeparator(items: ContextMenuItem[]): void {
   items.push({
-    id: `context-menu-separator-${items.length}-${Date.now()}`,
+    id: `context-menu-separator-${nextItemId++}`,
     label: '',
     enabled: false,
     type: 'separator'
@@ -57,7 +76,7 @@ function buildContextMenu(
 
     if (params.dictionarySuggestions.length === 0) {
       items.push({
-        id: `context-menu-no-suggestions-${Date.now()}`,
+        id: `context-menu-no-suggestions-${nextItemId++}`,
         label: 'No Spelling Suggestions',
         enabled: false
       })
@@ -120,8 +139,12 @@ export function installContextMenu(window: BrowserWindow): void {
     const built = buildContextMenu(window, params)
     if (built.items.length === 0) return
 
-    actions.clear()
-    for (const [id, action] of built.actions) actions.set(id, action)
+    actionsByGeneration.set(nextGeneration++, built.actions)
+    for (const generation of actionsByGeneration.keys()) {
+      if (generation <= nextGeneration - 1 - MAX_LIVE_GENERATIONS) {
+        actionsByGeneration.delete(generation)
+      }
+    }
 
     const request: ContextMenuRequest = {
       x: params.x,
@@ -134,8 +157,13 @@ export function installContextMenu(window: BrowserWindow): void {
 
 export function registerContextMenuHandlers(): void {
   ipcMain.handle(IpcChannel.ContextMenu.runAction, (_event, id: string) => {
-    const action = actions.get(id)
-    actions.clear()
-    if (action) action()
+    for (const actions of actionsByGeneration.values()) {
+      const action = actions.get(id)
+      if (action) {
+        actions.delete(id)
+        action()
+        return
+      }
+    }
   })
 }

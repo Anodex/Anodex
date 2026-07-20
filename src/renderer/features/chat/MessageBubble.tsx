@@ -27,20 +27,24 @@ import styles from './MessageBubble.module.css'
  */
 export function MessageBubble({
   message,
-  previousUserContent
+  previousUserContent,
+  conversationStreaming
 }: {
   message: ChatMessage
   previousUserContent?: string
+  /**
+   * Whether any message in this conversation is currently streaming — only
+   * ever the newest assistant reply (messages are appended, never inserted
+   * mid-list). Computed once by `MessageList` from the `messages` prop it
+   * already has, instead of every bubble independently re-scanning the whole
+   * conversation from the store on every streamed token.
+   */
+  conversationStreaming: boolean
 }): JSX.Element {
   const isUser = message.role === 'user'
   const openSettings = useUiStore((s) => s.openSettings)
   const notify = useUiStore((s) => s.notify)
   const activeConversationId = useChatStore((s) => s.activeId)
-  const conversationStreaming = useChatStore((state) =>
-    state.conversations
-      .find((conversation) => conversation.id === state.activeId)
-      ?.messages.some((item) => item.streaming)
-  )
   const [copied, setCopied] = useState(false)
   const [draftOpened, setDraftOpened] = useState(false)
   const [checkpointOpen, setCheckpointOpen] = useState(false)

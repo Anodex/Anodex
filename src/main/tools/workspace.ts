@@ -1,5 +1,8 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('workspace')
 
 /**
  * Resolve a user/AI-supplied path against the workspace root and guarantee it
@@ -37,7 +40,12 @@ function assertRealPathInside(root: string, target: string, requested: string): 
   let realRoot: string
   try {
     realRoot = realpathSync.native(root)
-  } catch {
+  } catch (error) {
+    log.warn(
+      `Could not resolve the real workspace root path — symlink confinement checks are ` +
+        `disabled for this session (lexical ".."/absolute-path checks still apply):`,
+      error
+    )
     return
   }
 
@@ -47,7 +55,8 @@ function assertRealPathInside(root: string, target: string, requested: string): 
   let realExisting: string
   try {
     realExisting = realpathSync.native(existing)
-  } catch {
+  } catch (error) {
+    log.warn(`Could not resolve the real path of "${requested}" for symlink confinement:`, error)
     return
   }
 

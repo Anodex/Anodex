@@ -29,9 +29,7 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       contextSize: 8192,
       gpuLayers: 'auto'
     },
-    ui: {
-      theme: 'dark'
-    },
+    ui: {},
     assistantStyle: {
       globalStyle: ''
     },
@@ -67,7 +65,6 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       chatBackground: 'deepField'
     },
     general: {
-      defaultWorkspace: null,
       permissionMode: 'ask',
       desktopNotifications: false,
       confirmDestructive: true,

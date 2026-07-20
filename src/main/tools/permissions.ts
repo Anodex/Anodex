@@ -52,6 +52,7 @@ const DESTRUCTIVE_COMMAND_PATTERNS: RegExp[] = [
   /\bformat\s+[a-z]:/i, // format c:
   /\bdiskpart\b/i,
   /\bgit\s+push\b.*(--force|-f)\b/i,
+  /\bgit\s+push\b[^|;&\n]*\s\+\S/i, // git push origin +main (force-push via refspec)
   /\bgit\s+reset\s+--hard\b/i,
   /\bgit\s+clean\s+-\w*f/i,
   />\s*\/dev\/(sd|nvme|disk)/i,

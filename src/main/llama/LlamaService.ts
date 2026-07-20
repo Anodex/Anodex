@@ -1821,17 +1821,19 @@ class LlamaService extends EventEmitter {
     this.activeConversationId = undefined
   }
 
+  /**
+   * Each resource is disposed independently so one throwing (e.g. `context`)
+   * can't skip disposing the rest — `dispose()` still clears every field
+   * below regardless, so a shared `try` would leak whatever came after the
+   * failure without ever surfacing it.
+   */
   private async disposeModel(): Promise<void> {
     this.disposeSession()
-    try {
-      this.contextSequence?.dispose()
-      await this.context?.dispose()
-      this.summarySequence?.dispose()
-      await this.summaryContext?.dispose()
-      await this.model?.dispose()
-    } catch (error) {
-      log.warn('Model dispose failed:', error)
-    }
+    await this.disposeQuietly('contextSequence', () => this.contextSequence?.dispose())
+    await this.disposeQuietly('context', () => this.context?.dispose())
+    await this.disposeQuietly('summarySequence', () => this.summarySequence?.dispose())
+    await this.disposeQuietly('summaryContext', () => this.summaryContext?.dispose())
+    await this.disposeQuietly('model', () => this.model?.dispose())
     this.contextSequence = undefined
     this.context = undefined
     this.summarySequence = undefined
@@ -1840,6 +1842,14 @@ class LlamaService extends EventEmitter {
     this.contextSize = undefined
     this.gpuLayersUsed = undefined
     this.gpuLayersTotal = undefined
+  }
+
+  private async disposeQuietly(label: string, dispose: () => unknown): Promise<void> {
+    try {
+      await dispose()
+    } catch (error) {
+      log.warn(`${label} dispose failed:`, error)
+    }
   }
 
   private setState(
