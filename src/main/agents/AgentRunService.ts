@@ -124,6 +124,7 @@ function isRecoverableTurnStop(stopReason: GenerationStopReason | undefined): bo
     stopReason === 'context-shift-limit' ||
     stopReason === 'rounds-exhausted' ||
     stopReason === 'tool-limit' ||
+    stopReason === 'token-limit' ||
     stopReason === 'time-limit' ||
     stopReason === 'yielded'
   )

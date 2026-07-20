@@ -38,15 +38,18 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
     return engineContextSize
   }, [providerActive, anthropicModel, openaiModel, engineContextSize])
 
-  const info = useMemo(() => {
-    if (!contextSize || !conversation || conversation.messages.length === 0) return null
-
-    const fixedContext =
-      providerActive === 'local'
+  const fixedContext = useMemo(
+    () =>
+      providerActive === 'local' && conversation
         ? [...conversation.messages]
             .reverse()
             .find((message) => message.role === 'assistant' && message.contextBudget)?.contextBudget
-        : undefined
+        : undefined,
+    [conversation, providerActive]
+  )
+
+  const info = useMemo(() => {
+    if (!contextSize || !conversation || conversation.messages.length === 0) return null
 
     return estimateProjectedContextUsage({
       conversation,
@@ -54,7 +57,7 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
       systemPrompt,
       fixedContext
     })
-  }, [conversation, contextSize, systemPrompt, providerActive])
+  }, [conversation, contextSize, systemPrompt, fixedContext])
 
   if (!info) return null
 
@@ -180,6 +183,17 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
             </span>
           </div>
         )}
+        {fixedContext?.effectiveMaxOutputTokens !== undefined &&
+          fixedContext.requestedMaxOutputTokens !== undefined &&
+          fixedContext.effectiveMaxOutputTokens < fixedContext.requestedMaxOutputTokens && (
+            <div className={styles.popoverNote}>
+              <span>
+                Local output capped at {fixedContext.effectiveMaxOutputTokens.toLocaleString()} of{' '}
+                {fixedContext.requestedMaxOutputTokens.toLocaleString()} requested tokens to protect
+                this context window.
+              </span>
+            </div>
+          )}
       </div>
     </div>
   )

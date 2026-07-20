@@ -12,6 +12,9 @@
 - `src/main/llama/contextShiftStrategy.ts` and `toolSurface.ts` — schema-aware
   shift fitting without double-reserving node-llama-cpp's existing headroom,
   plus context-sized native tool routing that preserves checkpoint space.
+- `src/main/llama/localOutputBudget.ts` — wrapper-measured local output limits;
+  tool-enabled turns cannot reserve the full context for generated text or
+  unfinished function arguments after fixed instructions are already loaded.
 - `src/main/tools/fileTools.ts` and `loopGuard.ts` — effective-range
   canonicalization and interleaved stable-read detection, closing loops that
   varied `endLine` between `Infinity` and enormous finite values.

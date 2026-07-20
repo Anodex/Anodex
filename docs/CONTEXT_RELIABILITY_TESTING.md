@@ -24,8 +24,10 @@ formatted.
 ## Test 1: Bounded Tool-Heavy Project Chat
 
 1. Load the normal local model with an 8,192-token context.
-2. Open the actual Anodex project folder, not an empty test folder.
-3. Start a new project chat and send:
+2. Set **Max response tokens** to 8,192. This deliberately reproduces the
+   previously unsafe full-window request; runtime should clamp it safely.
+3. Open the actual Anodex project folder, not an empty test folder.
+4. Start a new project chat and send:
 
 ```text
 Perform a read-only architecture audit of this project. Inspect the main source
@@ -39,6 +41,8 @@ five strengths, five risks, and exact supporting file paths.
 Pass criteria:
 
 - The UI remains responsive.
+- Logs report an effective local output cap no larger than 2,048 tokens for
+  this 8K tool-enabled turn, while the context popover explains the clamp.
 - Repeated exact/alternating calls are blocked instead of looping indefinitely.
 - Oversized, omitted, and non-finite `read_file_range.endLine` values are treated
   as the same effective 200-line range, and results state the next start line.
@@ -47,6 +51,8 @@ Pass criteria:
 - Any streamed partial answer remains in persisted message content after a limit.
 - Logs may show deterministic context checkpoints, but should not show repeated
   GPU-backed mid-turn summary generations.
+- Reaching the effective output cap is labeled as an output-token limit with
+  partial text preserved, not as a successful completion or context crash.
 
 ## Test 2: Full Critical Thinking Run
 
@@ -112,6 +118,8 @@ any of these as failures to investigate:
 - the same search/fetch cycle continuing after the loop guard threshold;
 - `The provided context shift strategy did not return a history that fits` on
   ordinary prompts;
+- an 8K tool-enabled turn accepting an 8K effective output allowance after
+  system and tool-schema tokens are already counted;
 - a provider-round, tool, time, or context limit presented as successful
   completion;
 - report URLs that do not exist in the fetched evidence sidecar.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { llamaService } from '../LlamaService'
+import { llamaService, type GenerateParams } from '../LlamaService'
 import {
   NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT,
   NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT
@@ -46,6 +46,14 @@ interface LlamaServiceTestAccess {
           options: {
             onResponseChunk?: (chunk: unknown) => void
             functions?: Record<string, { handler: (params: unknown) => unknown }>
+            maxTokens?: number
+            signal?: AbortSignal
+            onFunctionCallParamsChunk?: (chunk: {
+              callIndex: number
+              functionName: string
+              paramsChunk: string
+              done: boolean
+            }) => void
           }
         ) => unknown
         dispose: () => void
@@ -97,6 +105,40 @@ function prepareFakeEngine(access: LlamaServiceTestAccess): void {
   access.contextSize = 8_192
   access.model = { tokenizer: () => [] }
   access.activeConversationId = 'test-conversation'
+}
+
+function webOnlyTools(onActivity: NonNullable<GenerateParams['tools']>['onActivity'] = () => {}) {
+  return {
+    workspaceRoot: null,
+    projectId: null,
+    permissionMode: 'untethered',
+    webSearch: {
+      provider: 'brave',
+      apiKey: '',
+      searchEngineId: '',
+      baseUrl: '',
+      resultCount: 5,
+      requireApproval: false
+    },
+    email: {
+      provider: 'none',
+      gmail: {
+        enabled: false,
+        address: '',
+        oauthClientId: '',
+        oauthClientSecret: '',
+        syncMode: 'metadata',
+        sendRequiresApproval: true
+      }
+    },
+    memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false },
+    plan: null,
+    enabledTools: new Set(['web_search']),
+    disabledTools: new Set<string>(),
+    mcpTools: [],
+    onActivity,
+    confirm: () => Promise.resolve({ approved: true })
+  } satisfies NonNullable<GenerateParams['tools']>
 }
 
 afterEach(() => {
@@ -269,6 +311,115 @@ describe('LlamaService.generate() context-shift recovery', () => {
     expect(outcome.content).toBe('Useful partial audit text.')
   })
 
+  it('preserves partial output and reports the effective local token ceiling', async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    const observedMaxTokens: number[] = []
+    access.session = {
+      promptWithMeta: vi.fn(
+        (
+          _prompt: unknown,
+          options: {
+            maxTokens?: number
+            onResponseChunk?: (chunk: unknown) => void
+          }
+        ) => {
+          observedMaxTokens.push(options.maxTokens ?? -1)
+          options.onResponseChunk?.({
+            type: undefined,
+            segmentType: undefined,
+            text: 'Useful work before the output ceiling.',
+            tokens: [1, 2, 3]
+          })
+          return Promise.resolve({
+            response: [],
+            responseText: 'Useful work before the output ceiling.',
+            stopReason: 'maxTokens'
+          })
+        }
+      ),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+
+    const outcome = await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'test-message',
+      history: [],
+      prompt: 'write a long explanation',
+      options: { maxTokens: 8_192 },
+      onToken: () => {}
+    })
+
+    expect(observedMaxTokens).toHaveLength(1)
+    expect(observedMaxTokens[0]).toBeLessThan(8_192)
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('token-limit')
+    expect(outcome.content).toBe('Useful work before the output ceiling.')
+    expect(outcome.contextBudget?.requestedMaxOutputTokens).toBe(8_192)
+    expect(outcome.contextBudget?.effectiveMaxOutputTokens).toBe(observedMaxTokens[0])
+  })
+
+  it('enforces the output ceiling across hidden function-argument chunks', async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    access.model = {
+      tokenizer: () => [],
+      tokenize: (text: string) => Array.from({ length: text.length })
+    }
+    access.session = {
+      promptWithMeta: vi.fn(
+        (
+          _prompt: unknown,
+          options: {
+            signal?: AbortSignal
+            onResponseChunk?: (chunk: unknown) => void
+            onFunctionCallParamsChunk?: (chunk: {
+              callIndex: number
+              functionName: string
+              paramsChunk: string
+              done: boolean
+            }) => void
+          }
+        ) => {
+          options.onResponseChunk?.({
+            type: undefined,
+            segmentType: undefined,
+            text: 'Starting the audit.',
+            tokens: [1]
+          })
+          options.onFunctionCallParamsChunk?.({
+            callIndex: 0,
+            functionName: 'web_search',
+            paramsChunk: 'x'.repeat(2_100),
+            done: false
+          })
+          expect(options.signal?.aborted).toBe(true)
+          throw new Error('generation aborted by output watchdog')
+        }
+      ),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+
+    const outcome = await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'test-message',
+      history: [],
+      prompt: 'audit the project',
+      options: { maxTokens: 8_192 },
+      onToken: () => {},
+      tools: webOnlyTools()
+    })
+
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('token-limit')
+    expect(outcome.content).toBe('Starting the audit.')
+    expect(outcome.stats.tokens).toBeGreaterThanOrEqual(2_048)
+  })
+
   it('does not retry (and risk repeating a completed tool call) when a tool already ran this round before the crash', async () => {
     // Regression: the round-0 retry rebuilds the session from PERSISTED
     // history and resends the ORIGINAL prompt from scratch — safe only if
@@ -319,37 +470,7 @@ describe('LlamaService.generate() context-shift recovery', () => {
       history: [],
       prompt: 'investigate bee stings',
       onToken: () => {},
-      tools: {
-        workspaceRoot: null,
-        projectId: null,
-        permissionMode: 'untethered',
-        webSearch: {
-          provider: 'brave',
-          apiKey: '',
-          searchEngineId: '',
-          baseUrl: '',
-          resultCount: 5,
-          requireApproval: false
-        },
-        email: {
-          provider: 'none',
-          gmail: {
-            enabled: false,
-            address: '',
-            oauthClientId: '',
-            oauthClientSecret: '',
-            syncMode: 'metadata',
-            sendRequiresApproval: true
-          }
-        },
-        memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false },
-        plan: null,
-        enabledTools: new Set(['web_search']),
-        disabledTools: new Set(),
-        mcpTools: [],
-        onActivity: (call) => activityKinds.push(call.status),
-        confirm: () => Promise.resolve({ approved: true })
-      }
+      tools: webOnlyTools((call) => activityKinds.push(call.status))
     })
 
     // The retry never fires: exactly one promptWithMeta call, not two.

@@ -79,6 +79,9 @@ Remaining tool-side opportunities:
   (`src/main/llama/toolSurface.ts`). The gateway now also caps direct schemas
   by context size and respects negated read-only instructions, preventing an
   8K audit from spending nearly half its context on unrelated tool schemas.
+  Local reply budgets are clamped against the same measured fixed input, with
+  a quarter-context ceiling for tool-enabled turns, so a user setting equal to
+  the full context cannot strand an unfinished native function call.
   Broader embedding/RAG routing remains
   deferred; the deterministic budget router solves the measured context-floor
   failure without adding an indexing dependency.

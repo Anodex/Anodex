@@ -39,7 +39,9 @@ folder.
   recursively invoking the model. Proactive compaction remains the primary
   path, with the mid-turn shift as a last-resort safety net. Small contexts
   cap full native tool schemas and defer the rest through the tool gateway so
-  checkpoints and working text retain usable space.
+  checkpoints and working text retain usable space. Local output is also
+  capped to the wrapper-measured room remaining after instructions and tools,
+  preventing unfinished function arguments from consuming the whole window.
 - Every generation has provider-neutral time, tool-call, provider-round, and
   context-shift limits. Tool limits soft-block additional calls so the model
   can still return useful partial work; context-shift budget stops are distinct

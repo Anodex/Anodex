@@ -240,6 +240,8 @@ function scheduledStopSummary(stopReason: GenerationStopReason | undefined): str
       return 'Stopped early after reaching the provider-round limit.'
     case 'tool-limit':
       return 'Stopped early after reaching the tool-call limit.'
+    case 'token-limit':
+      return 'Stopped early after reaching the safe local output-token limit.'
     case 'time-limit':
       return 'Stopped early after reaching the scheduled-run time limit.'
     case 'loop-guard':

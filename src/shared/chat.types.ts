@@ -18,6 +18,7 @@ export type GenerationStopReason =
   | 'rounds-exhausted'
   | 'time-limit'
   | 'tool-limit'
+  | 'token-limit'
   | 'no-progress'
   | 'yielded'
 
@@ -36,6 +37,10 @@ export interface ContextBudgetUsage {
   fixedTokens: number
   /** Context reserved by node-llama-cpp for continued generation during a shift. */
   reservedTokens: number
+  /** User-configured reply ceiling before local context safety is applied. */
+  requestedMaxOutputTokens?: number
+  /** Actual local reply ceiling after accounting for measured fixed input. */
+  effectiveMaxOutputTokens?: number
   activeToolCount: number
   /** Full schemas omitted from the prompt but still callable through the on-demand gateway. */
   deferredToolCount: number

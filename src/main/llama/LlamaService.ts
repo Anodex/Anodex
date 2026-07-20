@@ -66,6 +66,7 @@ import {
 import { stripLeakedChannelTokens, stripSubstantialCodeFences } from '@shared/toolCallText'
 import { PendingToolCallTracker } from './pendingToolCalls'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
+import { resolveLocalOutputBudget } from './localOutputBudget'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
@@ -246,7 +247,10 @@ export interface GenerateOutcome {
    * often substantial rather than empty. `'fixed-context-limit'` — exact
    * wrapper/tokenizer preflight proved the system prompt, current request,
    * and already-routed compact tool surface cannot fit before decoding, so no
-   * retry is attempted. Undefined for every other stop path
+   * retry is attempted. `'token-limit'` means the measured safe local output
+   * ceiling was reached; streamed text and completed tools are preserved
+   * rather than allowing an unfinished function call to consume the native
+   * context window. Undefined for every other stop path
    * (fabricated-turn detection, or a provider — Anthropic/OpenAI — that
    * doesn't distinguish reasons at all). Callers that don't care can ignore
    * this and treat any `stopped: true` the same as before; `AgentRunService`
@@ -574,9 +578,40 @@ class LlamaService extends EventEmitter {
     // the JSON approximation used before a session exists.
     const surface = await this.boundFunctionsForTurn(session, functions, params)
     functions = Object.keys(surface.functions).length > 0 ? surface.functions : undefined
-    const contextBudget = this.measureContextBudget(session, params.prompt, functions, surface)
+    const measuredContextBudget = this.measureContextBudget(
+      session,
+      params.prompt,
+      functions,
+      surface
+    )
+    const outputBudget = resolveLocalOutputBudget({
+      contextSize: measuredContextBudget.contextSize,
+      inputLimitTokens: measuredContextBudget.inputLimitTokens,
+      fixedTokens: measuredContextBudget.fixedTokens,
+      requestedMaxTokens: params.options?.maxTokens,
+      hasFunctions: functions != null
+    })
+    const contextBudget: ContextBudgetUsage = {
+      ...measuredContextBudget,
+      requestedMaxOutputTokens: outputBudget.requestedMaxTokens,
+      effectiveMaxOutputTokens: outputBudget.effectiveMaxTokens
+    }
     toolSchemaReserveTokens = contextBudget.toolSchemaTokens
     this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
+
+    if (
+      outputBudget.clamped &&
+      outputBudget.requestedMaxTokens !== undefined &&
+      outputBudget.requestedMaxTokens > outputBudget.effectiveMaxTokens
+    ) {
+      log.info('Clamped local output budget to measured context capacity', {
+        requestedMaxTokens: outputBudget.requestedMaxTokens,
+        effectiveMaxTokens: outputBudget.effectiveMaxTokens,
+        fixedTokens: contextBudget.fixedTokens,
+        inputLimitTokens: contextBudget.inputLimitTokens,
+        hasFunctions: functions != null
+      })
+    }
 
     if (contextBudget.fixedTokens > contextBudget.inputLimitTokens) {
       log.warn('Fixed context does not fit before generation', {
@@ -610,6 +645,7 @@ class LlamaService extends EventEmitter {
     let thinkingText = ''
     let tokenCount = 0
     let stopped = false
+    let terminalStopReason: GenerateOutcome['stopReason']
     // Set only by the loop guard's abort (see `abortBox` below) — distinct
     // from `genController.signal.aborted`, which also goes true on a plain
     // user stop (forwarded into it) or the pre-existing fabricated-turn
@@ -649,13 +685,29 @@ class LlamaService extends EventEmitter {
     // `confirm` field) race a pending confirmation against this generation's
     // own abort, not just the caller's outer signal.
     signalBox.current = genController.signal
+    const recordGeneratedTokens = (count: number): void => {
+      tokenCount += Math.max(0, count)
+      if (
+        tokenCount < outputBudget.effectiveMaxTokens ||
+        genController.signal.aborted ||
+        params.signal?.aborted
+      ) {
+        return
+      }
+      terminalStopReason = 'token-limit'
+      log.warn('Generated output reached the safe local token budget', {
+        effectiveMaxTokens: outputBudget.effectiveMaxTokens,
+        observedGeneratedTokens: tokenCount
+      })
+      genController.abort()
+    }
     // A real user stop takes priority in the reported reason even if the
     // loop guard also fired around the same moment — vanishingly unlikely,
     // but "the user asked to stop" is the more actionable thing to report.
     const currentStopReason = (): GenerateOutcome['stopReason'] => {
       if (params.signal?.aborted) return 'user'
       if (loopGuardAborted) return 'loop-guard'
-      return undefined
+      return terminalStopReason
     }
     // Index within the current round's content where a fabricated user turn
     // begins, once detected — everything from here on is dropped.
@@ -681,7 +733,7 @@ class LlamaService extends EventEmitter {
         const promptOptions = {
           temperature: params.options?.temperature,
           topP: params.options?.topP,
-          maxTokens: params.options?.maxTokens,
+          maxTokens: outputBudget.effectiveMaxTokens,
           // node-llama-cpp's standard repeatPenalty is a soft probability
           // nudge and doesn't prevent verbatim broken-record looping — DRY
           // (Don't Repeat Yourself) sampling is the library's purpose-built
@@ -712,7 +764,7 @@ class LlamaService extends EventEmitter {
           // `edit_file` without a `path` argument once it stopped seeing the schema.
           documentFunctionParams: functions != null ? true : undefined,
           onResponseChunk: (chunk: LlamaChatResponseChunk) => {
-            tokenCount += chunk.tokens.length
+            recordGeneratedTokens(chunk.tokens.length)
             if (chunk.type === 'segment') {
               roundSegment += chunk.text
               params.onThinkingToken?.(chunk.text)
@@ -739,6 +791,15 @@ class LlamaService extends EventEmitter {
           // (and its running animation) only exists for that final blink.
           onFunctionCallParamsChunk: functions
             ? (chunk: LlamaChatResponseFunctionCallParamsChunk) => {
+                // node-llama-cpp does not include function-argument tokens in
+                // `onResponseChunk`, and a completed call can reset its own
+                // remaining `maxTokens` to zero (which the library interprets
+                // as unlimited). Count parameter chunks here so the app-level
+                // ceiling remains enforceable across the complete native loop.
+                const parameterTokens =
+                  this.model?.tokenize(chunk.paramsChunk).length ??
+                  Math.ceil(chunk.paramsChunk.length / 4)
+                recordGeneratedTokens(parameterTokens)
                 const update = pendingToolCalls.onParamsChunk(round, chunk)
                 if (update) params.tools?.onActivity(update)
               }
@@ -897,6 +958,17 @@ class LlamaService extends EventEmitter {
 
         if (meta.stopReason === 'abort') {
           visibleContent = appendContent(visibleContent, roundContent)
+          stopped = true
+          break
+        }
+
+        // A local max-token stop can occur while node-llama-cpp is holding an
+        // unfinished function call's arguments. Treat it as a bounded partial
+        // result instead of nudging the model into a fresh round with a reset
+        // allowance or silently presenting truncated work as complete.
+        if (meta.stopReason === 'maxTokens') {
+          visibleContent = appendContent(visibleContent, roundContent)
+          terminalStopReason = 'token-limit'
           stopped = true
           break
         }

@@ -339,7 +339,8 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
         paths: {
           type: 'array',
           items: { type: 'string' },
-          description: 'File paths relative to the workspace root.'
+          maxItems: MAX_FILES_BATCH,
+          description: `Up to ${MAX_FILES_BATCH} file paths relative to the workspace root.`
         }
       },
       required: ['paths']

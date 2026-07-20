@@ -702,6 +702,8 @@ function stoppedReasonMessage(stopReason: GenerationStopReason | undefined): str
       return 'This step reached its provider-round budget; saved evidence can be resumed.'
     case 'tool-limit':
       return 'This step reached its tool-call budget; saved evidence can be resumed.'
+    case 'token-limit':
+      return 'This step reached its safe local output-token limit; saved evidence can be resumed.'
     case 'time-limit':
       return 'This step reached its time budget; saved evidence can be resumed.'
     case 'yielded':

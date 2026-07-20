@@ -501,7 +501,7 @@ export function AiModelsSettings(): JSX.Element {
               />
               <SettingRow
                 label="Max response tokens"
-                description="Upper bound for each reply across local, Anthropic, and OpenAI providers."
+                description="Requested upper bound for each reply. Local generations are automatically capped to the measured room left after instructions and tools; cloud providers use this value directly."
                 control={
                   <RangeControl
                     value={Math.min(settings.generation.maxTokens, effectiveContextSize)}

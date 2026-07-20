@@ -417,6 +417,12 @@ export const useChatStore = create<ChatState>()(
             message.error =
               'This reply reached its tool-call budget. The text and completed tool work above were preserved.'
           }
+          if (result.value.stopReason === 'token-limit') {
+            const budget = result.value.contextBudget
+            message.error = budget?.effectiveMaxOutputTokens
+              ? `This reply reached its safe local output limit of ${budget.effectiveMaxOutputTokens.toLocaleString()} tokens. The text and completed tool work above were preserved.`
+              : 'This reply reached its local output-token limit. The text and completed tool work above were preserved.'
+          }
           if (result.value.stopReason === 'time-limit') {
             message.error =
               'This reply reached its 15-minute turn budget. The text and completed tool work above were preserved.'
