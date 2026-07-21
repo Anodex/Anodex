@@ -26,6 +26,31 @@ describe('computeModelToolResultBudget', () => {
     expect(modelResultCharBudget(budget)).toBeLessThan(60 * 1024)
   })
 
+  it('serves meaningfully more than ~20-40 lines per call at the tightest observed live-retest cycle', () => {
+    // Regression: a live retest reading two large files (2,352 and 1,109
+    // lines) to completion consumed 84 tool calls and the full 15-minute
+    // bounded-task budget because each `read_file_range` call returned only
+    // ~20-40 lines (see `MAX_RESULT_FRACTION_OF_REMAINING`'s doc comment).
+    // These are that retest's own tightest-observed figures (after several
+    // mid-turn compactions grew fixedTokens from ~4,045 up to 4,587).
+    const budget = computeModelToolResultBudget({
+      contextSizeTokens: 8_192,
+      inputLimitTokens: 7_373,
+      fixedTokens: 4_587
+    })
+    const charBudget = modelResultCharBudget(budget)
+    const roughLinesPerCall = charBudget / 35 // ~35 chars/line, this file's own observed average
+
+    // The old 0.22 fraction produced ~27 lines/call here — assert we're now
+    // comfortably past that, not just technically "more."
+    expect(roughLinesPerCall).toBeGreaterThan(50)
+    // Reply space and the absolute result floor both still hold.
+    expect(budget.maxTokensPerResult + budget.minimumReplyReserveTokens).toBeLessThan(
+      budget.inputLimitTokens - budget.fixedTokens
+    )
+    expect(budget.maxTokensPerResult).toBeGreaterThanOrEqual(256)
+  })
+
   it('scales down for a 4K context and up for a 32K context relative to 8K', () => {
     const small = computeModelToolResultBudget({
       contextSizeTokens: 4_096,

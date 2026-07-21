@@ -25,6 +25,16 @@ const SEARCH_HARD_CAP = 200
 const MAX_RANGE_LINES = 200
 const MAX_FILES_BATCH = 20
 const MAX_BATCH_TOTAL_BYTES = 200 * 1024
+/**
+ * A file at or above this many lines is large enough that paging through it
+ * one `MAX_RANGE_LINES`-sized call at a time is expensive — a live retest
+ * read two files of 2,352 and 1,109 lines to completion this way, consuming
+ * 84 tool calls and the full bounded-task time budget on just those two
+ * files. `code_outline` already exists and is already described as "use
+ * before reading whole source files," but nothing surfaced that suggestion
+ * at the moment it would actually help: the first read of a large file.
+ */
+const LARGE_FILE_SUGGEST_OUTLINE_LINES = 500
 
 export interface ReadFileRangeArgs {
   path: string
@@ -352,6 +362,10 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
               detail: 'Already read earlier this task'
             }
           }
+          // Captured before this call records its own coverage below — used
+          // only to decide whether to suggest `code_outline` on what turns
+          // out to be the FIRST read of a large file, not on every call.
+          const isFirstReadOfThisFile = !ctx.readCoverage.hasAnyCoverage(file)
           const target = gaps[0]
           const info = await stat(file)
           if (!info.isFile()) throw new Error('Path is not a file.')
@@ -384,10 +398,18 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
             start !== normalized.startLine || actualEnd < normalized.endLine
               ? ` Lines ${normalized.startLine}-${normalized.endLine} were requested; the rest was already read earlier this task, so only the new portion is shown.`
               : ''
+          // Surfaced once, on what turns out to be the first read of a large
+          // file — not on every call, which would just repeat the same
+          // advice on every page and eat into the content budget for no
+          // benefit.
+          const outlineSuggestion =
+            isFirstReadOfThisFile && lines.length >= LARGE_FILE_SUGGEST_OUTLINE_LINES
+              ? ` This file has ${lines.length} lines; consider code_outline first to locate the relevant section instead of reading it end to end.`
+              : ''
           if (actualEnd >= start) ctx.readCoverage.recordRange(file, start, actualEnd)
           return {
             modelResult:
-              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}${partialNote}${skippedNote}]\n` +
+              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}${partialNote}${skippedNote}${outlineSuggestion}]\n` +
               content,
             detail: `lines ${start}-${actualEnd}`
           }

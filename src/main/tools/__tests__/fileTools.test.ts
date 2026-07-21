@@ -565,6 +565,48 @@ describe('AI file tools', () => {
       })
     })
 
+    describe('code_outline suggestion for large files', () => {
+      it('suggests code_outline on the first read of a large file', async () => {
+        const content = Array.from({ length: 600 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'big.txt'), content)
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number }) => Promise<string>
+        }
+
+        const result = await tool.handler({ path: 'big.txt', startLine: 1 })
+
+        expect(result).toContain('This file has 600 lines; consider code_outline first')
+      })
+
+      it('does not repeat the suggestion on a later read of the same large file', async () => {
+        const content = Array.from({ length: 600 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'big.txt'), content)
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number }) => Promise<string>
+        }
+
+        await tool.handler({ path: 'big.txt', startLine: 1 })
+        const second = await tool.handler({ path: 'big.txt', startLine: 201 })
+
+        expect(second).not.toContain('consider code_outline')
+      })
+
+      it('does not suggest code_outline for a small file', async () => {
+        const content = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'small-file.txt'), content)
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number }) => Promise<string>
+        }
+
+        const result = await tool.handler({ path: 'small-file.txt', startLine: 1 })
+
+        expect(result).not.toContain('consider code_outline')
+      })
+    })
+
     it('records a read touch in project memory', async () => {
       await writeFile(join(workspace, 'lines.txt'), 'a\nb\nc')
       const ctx = { ...createMockContext(workspace), projectId: 'project-1' }

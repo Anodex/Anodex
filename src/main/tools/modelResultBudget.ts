@@ -28,13 +28,24 @@ const MIN_REPLY_RESERVE_TOKENS = 1_024
 const MIN_RESULT_TOKENS = 256
 /**
  * Fraction of the remaining exchange room (after the reply reserve) one
- * result may claim. The recovery plan this implements is explicit that this
- * fraction is a starting experiment, not a tuned constant: "reserve at least
- * 1,024 tokens for checkpoint/finalization and cap one result to no more
- * than 20-25% of the remaining exchange room." Revisit once measured against
- * the real local wrapper/tokenizer on real hardware.
+ * result may claim. Originally 0.22 — the recovery plan's own starting
+ * experiment ("cap one result to no more than 20-25% of the remaining
+ * exchange room"), explicitly flagged as unproven pending a real-hardware
+ * measurement. That measurement came back live at the exact 8K fixture: at
+ * 0.22, `read_file_range` returned only ~20-40 lines per call (the fixed
+ * per-turn overhead dominates a 200-line request), so reading two files of
+ * 2,352 and 1,109 lines to completion alone consumed 84 tool calls and the
+ * full 15-minute bounded-task budget, leaving no room for the other 10+
+ * files a 12-file audit needed. Raising the fraction doesn't change how much
+ * file content ultimately moves through the context — it changes how many
+ * round trips (each with its own repeated header/narration overhead) that
+ * costs. 0.5 roughly doubles lines served per call in the same measured
+ * deficit while still leaving `MIN_REPLY_RESERVE_TOKENS` fully protected
+ * beneath it and comfortably clearing `MIN_RESULT_TOKENS`'s floor even in
+ * the tightest observed cycle (see `modelResultBudget.test.ts`'s live-8K
+ * fixtures). Revisit again once measured at other context sizes.
  */
-const MAX_RESULT_FRACTION_OF_REMAINING = 0.22
+const MAX_RESULT_FRACTION_OF_REMAINING = 0.5
 /**
  * Conservative characters-per-token ratio used only where no real tokenizer
  * is available at the call site (the tool-helper boundary, ahead of
