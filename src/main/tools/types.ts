@@ -5,6 +5,7 @@ import type { Plan } from '@shared/plan.types'
 import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { LoopGuardState } from './loopGuard'
 import type { ToolArtifact, ToolArtifactDraft } from '@shared/toolArtifacts.types'
+import type { ModelToolResultBudget } from './modelResultBudget'
 
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
 type NlcModule = typeof import('node-llama-cpp')
@@ -71,6 +72,16 @@ export interface ToolRuntimeContext {
    * re-issuing the same call over and over instead of making progress.
    */
   loopGuard: LoopGuardState
+  /**
+   * Read-only projection of this turn's active context budget, for sizing
+   * tool results — a mutable box (same pattern as `plan`/`turnGate` above)
+   * because the real, measured value isn't known until after the engine has
+   * already built this context object; it fills in once, before any tool
+   * call in the turn actually runs. `null` means no measured budget is
+   * available yet for the active provider — tools fall back to their own
+   * disk-oriented caps unchanged, exactly as before this budget existed.
+   */
+  modelResultBudget: { current: ModelToolResultBudget | null }
   /** Research focus used to rank useful passages from large fetched pages. */
   evidenceFocus?: string
   /** Persist a full structured result before the model-facing text is truncated. */

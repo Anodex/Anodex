@@ -4,8 +4,20 @@ import { TEXT_EXT } from '@shared/textFileExtensions'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
+import { clampModelResultCap } from './modelResultBudget'
 
+/**
+ * Disk-safety ceiling only — how much of a file `read_file`/`read_file_range`
+ * are willing to read off disk at all. This is NOT how much of that content
+ * reaches the model: `modelResultCap` below is clamped down further, per
+ * call, to the active turn's real measured context budget when one is known
+ * (see `ToolRuntimeContext.modelResultBudget`). A large local project file
+ * can safely exceed this on disk; only the text injected into the exchange
+ * is bounded by the runtime budget.
+ */
 const MAX_FILE_BYTES = 60 * 1024
+/** Reserved out of the per-result char budget for read_file_range's own header/continuation line. */
+const RANGE_HEADER_RESERVE_CHARS = 200
 const MAX_LIST_ENTRIES = 300
 const MAX_FIND_RESULTS = 200
 const MAX_SEARCH_RESULTS = 100
@@ -101,7 +113,7 @@ export const listDirectoryTool: WorkspaceToolFactory = (define, ctx) =>
 export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Read a UTF-8 text file within the workspace. Very large files are truncated — prefer read_file_range to page through one.',
+      'Read a UTF-8 text file within the workspace. A file too large for the active context returns metadata and a recommendation (code_outline, search_files, or read_file_range) instead of a truncated blob.',
     params: {
       type: 'object',
       properties: {
@@ -116,27 +128,36 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
         title: `Read ${args.path}`,
         args,
         touch: { path: args.path, action: 'read' },
-        // Full file content, not a bounded summary — cap at the same size
-        // limit already enforced on disk reads (MAX_FILE_BYTES), not the
-        // much tighter generic 4000-char cap. Under that generic cap, most
-        // real source files got silently cut off mid-file: the model never
-        // saw the rest, then failed edit_file/patch_file with "text not
-        // found" when it tried to edit content it never actually read.
+        // Full file content, not a bounded summary — cap at the disk-safety
+        // limit (MAX_FILE_BYTES), not the much tighter generic 4000-char
+        // default. `run()` below decides itself whether the file actually
+        // fits the active runtime budget; this is only the outer backstop.
         modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const info = await stat(file)
           if (!info.isFile()) throw new Error('Path is not a file.')
           const raw = await readFile(file, 'utf-8')
-          // No truncation here: `runReadTool`'s own MAX_MODEL_RESULT_CHARS cap
-          // already applies to every read tool's result uniformly. Truncating
-          // here too (as this used to) compounded with that outer cap on a
-          // large file — the outer layer would then re-truncate this already-
-          // truncated-and-annotated string, reporting a meaningless
-          // intermediate length instead of the real file size.
+          const charBudget = clampModelResultCap(MAX_FILE_BYTES, ctx.modelResultBudget.current)
+          const lineCount = countLines(raw)
+          // A file that doesn't fit the active context is a disk-oriented
+          // byte cap bypassing the real budget waiting to happen — return an
+          // honest, actionable pointer instead of a silently truncated blob
+          // the model would mistake for the whole file (and then fail
+          // edit_file/patch_file with "text not found" against content it
+          // never actually read).
+          if (raw.length > charBudget) {
+            return {
+              modelResult:
+                `${toWorkspaceRelative(ctx.workspaceRoot, file)}: ${info.size} bytes, ${lineCount} lines. ` +
+                'Too large for the active context to return in full.\n' +
+                'Use code_outline for its structure, search_files to locate a section, or read_file_range to page through specific lines.',
+              detail: `${info.size} bytes (too large; see recommendation)`
+            }
+          }
           return {
             modelResult: raw,
-            detail: `${countLines(raw)} lines`
+            detail: `${lineCount} lines`
           }
         }
       })
@@ -300,9 +321,9 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
         title: `Read ${normalized.path} lines ${normalized.startLine}-${normalized.endLine}`,
         args: normalized,
         touch: { path: normalized.path, action: 'read' },
-        // See read_file's modelResultCap comment — a 200-line range of long
-        // lines (minified/generated code, long strings) can still exceed the
-        // generic 4000-char cap and get cut mid-range under it.
+        // See read_file's modelResultCap comment — this is the outer
+        // backstop; `run()` below already bounds itself to the real runtime
+        // budget along complete line boundaries, so this should rarely fire.
         modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, normalized.path)
@@ -311,16 +332,28 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           const raw = await readFile(file, 'utf-8')
           const lines = raw.split('\n')
           const start = normalized.startLine
-          const end = Math.min(lines.length, normalized.endLine)
           if (start > lines.length)
             throw new Error(`Start line ${start} is beyond the file's ${lines.length} lines.`)
-          const selected = lines.slice(start - 1, end)
-          const content = selected.join('\n')
-          const actualEnd = start + selected.length - 1
+          const requestedEnd = Math.min(lines.length, normalized.endLine)
+          const requestedLines = lines.slice(start - 1, requestedEnd)
+          const charBudget = Math.max(
+            0,
+            clampModelResultCap(MAX_FILE_BYTES, ctx.modelResultBudget.current) -
+              RANGE_HEADER_RESERVE_CHARS
+          )
+          const { includedLines, partialLastLine } = boundLinesToCharBudget(
+            requestedLines,
+            charBudget
+          )
+          const actualEnd = start + includedLines.length - 1
+          const content = includedLines.join('\n')
           const continuation = actualEnd < lines.length ? ` Next startLine: ${actualEnd + 1}.` : ''
+          const partialNote = partialLastLine
+            ? ' The last line included was too long to fit whole and was cut short — it is not complete.'
+            : ''
           return {
             modelResult:
-              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}]\n` +
+              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}${partialNote}]\n` +
               content,
             detail: `lines ${start}-${actualEnd}`
           }
@@ -328,6 +361,35 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
       })
     }
   })
+
+/**
+ * Select the largest prefix of complete lines that fits `charBudget`
+ * (joining newlines counted). A single line that alone exceeds the whole
+ * budget is still returned, truncated, with `partialLastLine: true` — never
+ * silently reporting zero lines back, but never claiming a cut line is whole.
+ */
+function boundLinesToCharBudget(
+  lines: string[],
+  charBudget: number
+): { includedLines: string[]; partialLastLine: boolean } {
+  if (charBudget <= 0) return { includedLines: [], partialLastLine: false }
+  const included: string[] = []
+  let used = 0
+  for (const line of lines) {
+    const separator = included.length > 0 ? 1 : 0
+    if (used + separator + line.length <= charBudget) {
+      included.push(line)
+      used += separator + line.length
+      continue
+    }
+    if (included.length === 0) {
+      included.push(line.slice(0, charBudget))
+      return { includedLines: included, partialLastLine: true }
+    }
+    break
+  }
+  return { includedLines: included, partialLastLine: false }
+}
 
 /** read_multiple_files — read several text files in a single call. */
 export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
@@ -356,11 +418,20 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
         args,
         touch: readTouches,
         // See read_file's modelResultCap comment — this tool already budgets
-        // its own MAX_BATCH_TOTAL_BYTES across files; don't let the generic
+        // its own MAX_BATCH_TOTAL_BYTES across files (further clamped to the
+        // active runtime budget in run() below); don't let the generic
         // 4000-char cap re-truncate that down to a near-useless prefix.
         modelResultCap: MAX_BATCH_TOTAL_BYTES,
         async run() {
           const paths = args.paths.slice(0, MAX_FILES_BATCH)
+          // The active runtime budget, allocated evenly across the batch up
+          // front — deterministic and simple, rather than first-come-first-
+          // served exhausting the budget before later files get anything.
+          const totalCharBudget = clampModelResultCap(
+            MAX_BATCH_TOTAL_BYTES,
+            ctx.modelResultBudget.current
+          )
+          const perFileShare = Math.max(0, Math.floor(totalCharBudget / Math.max(1, paths.length)))
           const results: string[] = []
           let totalBytes = 0
           for (const relativePath of paths) {
@@ -373,19 +444,26 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
               }
               if (info.size > MAX_FILE_BYTES) {
                 results.push(
-                  `--- ${relativePath} ---\nError: File exceeds ${MAX_FILE_BYTES} byte limit.`
+                  `--- ${relativePath} ---\nError: File exceeds ${MAX_FILE_BYTES} byte disk-read limit.`
                 )
                 continue
               }
-              if (totalBytes + info.size > MAX_BATCH_TOTAL_BYTES) {
+              if (perFileShare <= 0) {
                 results.push(
-                  `--- ${relativePath} ---\nError: Skipped to keep total batch size under ${MAX_BATCH_TOTAL_BYTES} bytes.`
+                  `--- ${relativePath} ---\nError: Skipped — no room left in the active context for this batch.`
                 )
                 continue
               }
               const content = await readFile(file, 'utf-8')
               totalBytes += content.length
-              results.push(`--- ${relativePath} ---\n${content}`)
+              const lines = content.split('\n')
+              const { includedLines, partialLastLine } = boundLinesToCharBudget(lines, perFileShare)
+              const bounded = includedLines.join('\n')
+              const wasTruncated = includedLines.length < lines.length || partialLastLine
+              const header = wasTruncated
+                ? `--- ${relativePath} (showing ${includedLines.length} of ${lines.length} lines; use read_file_range for the rest) ---`
+                : `--- ${relativePath} ---`
+              results.push(`${header}\n${bounded}`)
               readTouches.push({ path: relativePath, action: 'read' })
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error)

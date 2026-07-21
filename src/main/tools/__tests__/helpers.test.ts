@@ -393,3 +393,95 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
     expect(last.toLowerCase()).toContain('stopped')
   })
 })
+
+describe('model-result runtime budget clamping', () => {
+  const root = 'C:\\workspace'
+
+  it('falls back to the tool-requested cap unchanged when no runtime budget is known', async () => {
+    const ctx = createMockContext(root)
+    const result = await runReadTool(ctx, {
+      name: 'read_file',
+      kind: 'read',
+      title: 'Read',
+      modelResultCap: 20,
+      run: () => Promise.resolve({ modelResult: 'x'.repeat(100) })
+    })
+
+    expect(result).toContain('truncated, 100 bytes total')
+    expect(result.startsWith('x'.repeat(20))).toBe(true)
+  })
+
+  it('clamps the effective cap down to the runtime budget when it is tighter than the tool cap', async () => {
+    const ctx = {
+      ...createMockContext(root),
+      modelResultBudget: {
+        current: {
+          contextSizeTokens: 8_192,
+          inputLimitTokens: 7_373,
+          fixedTokens: 4_037,
+          minimumReplyReserveTokens: 1_024,
+          maxTokensPerResult: 10 // → 30 chars at the module's conservative ratio
+        }
+      }
+    }
+    const result = await runReadTool(ctx, {
+      name: 'read_file',
+      kind: 'read',
+      title: 'Read',
+      modelResultCap: 60 * 1024,
+      run: () => Promise.resolve({ modelResult: 'y'.repeat(1_000) })
+    })
+
+    expect(result.startsWith('y'.repeat(30))).toBe(true)
+    expect(result.length).toBeLessThan(100)
+  })
+
+  it('never widens the effective cap when the tool cap is already tighter than the runtime budget', async () => {
+    const ctx = {
+      ...createMockContext(root),
+      modelResultBudget: {
+        current: {
+          contextSizeTokens: 1_000_000,
+          inputLimitTokens: 1_000_000,
+          fixedTokens: 1_000,
+          minimumReplyReserveTokens: 1_024,
+          maxTokensPerResult: 100_000 // far larger than the tool's own cap below
+        }
+      }
+    }
+    const result = await runReadTool(ctx, {
+      name: 'read_file',
+      kind: 'read',
+      title: 'Read',
+      modelResultCap: 15,
+      run: () => Promise.resolve({ modelResult: 'z'.repeat(1_000) })
+    })
+
+    expect(result.startsWith('z'.repeat(15))).toBe(true)
+    expect(result).toContain('truncated, 1000 bytes total')
+  })
+
+  it('returns an explicit no-room message instead of an empty or misleading result', async () => {
+    const ctx = {
+      ...createMockContext(root),
+      modelResultBudget: {
+        current: {
+          contextSizeTokens: 8_192,
+          inputLimitTokens: 7_373,
+          fixedTokens: 7_300,
+          minimumReplyReserveTokens: 1_024,
+          maxTokensPerResult: 0
+        }
+      }
+    }
+    const result = await runReadTool(ctx, {
+      name: 'read_file',
+      kind: 'read',
+      title: 'Read',
+      run: () => Promise.resolve({ modelResult: 'plenty of real content here' })
+    })
+
+    expect(result).toContain('No room left')
+    expect(result).not.toContain('plenty of real content')
+  })
+})

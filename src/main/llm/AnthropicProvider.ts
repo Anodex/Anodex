@@ -84,6 +84,12 @@ class AnthropicProvider implements LlmProvider {
           // Fresh every generation call, same reasoning as `turnGate` above —
           // see `ToolRuntimeContext.loopGuard`'s doc comment.
           loopGuard: createLoopGuardState(),
+          // Cloud contexts are not measured against a real tokenizer in this
+          // pass (their context windows are large enough that the observed
+          // bug's disk-oriented byte caps aren't the reported problem) — see
+          // `ToolRuntimeContext.modelResultBudget`'s doc comment. Tools fall
+          // back to their own existing caps unchanged.
+          modelResultBudget: { current: null },
           signal: params.signal,
           emit: params.tools.onActivity,
           confirm: params.tools.confirm

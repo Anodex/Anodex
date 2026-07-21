@@ -9,10 +9,11 @@ import { checkLoopGuard, loopGuardKey, loopGuardMessage } from './loopGuard'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
+import { clampModelResultCap } from './modelResultBudget'
 
 /** Truncated tool output retained for cross-session memory. */
 const MAX_REMEMBERED_RESULT = 2000
-/** Maximum chars of a single tool result sent to the model. */
+/** Maximum chars of a single tool result sent to the model, absent an active runtime budget. */
 const MAX_MODEL_RESULT_CHARS = 4000
 
 /** The two pieces a tool produces: what the model sees, and a short UI detail. */
@@ -38,9 +39,25 @@ function rememberResult(modelResult: string): string {
 }
 
 function truncateModelResult(modelResult: string, cap: number): string {
+  if (cap <= 0) {
+    return '(No room left in the active context for this result. Continue in a fresh turn, or narrow the request — e.g. a smaller line range or a more specific search.)'
+  }
   return modelResult.length > cap
     ? `${modelResult.slice(0, cap)}\n… (truncated, ${modelResult.length} bytes total)`
     : modelResult
+}
+
+/**
+ * The cap actually applied to one tool result: the tool's own requested cap
+ * (or the generic default), clamped down to what the active turn's measured
+ * context budget allows. Never clamps upward — a tool's own cap always wins
+ * when it's already the tighter of the two.
+ */
+function effectiveModelResultCap(
+  ctx: ToolRuntimeContext,
+  requestedCap: number | undefined
+): number {
+  return clampModelResultCap(requestedCap ?? MAX_MODEL_RESULT_CHARS, ctx.modelResultBudget.current)
 }
 
 /**
@@ -162,7 +179,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
     const { modelResult, detail, plan, preview } = await spec.run()
     const truncated = truncateModelResult(
       modelResult,
-      spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS
+      effectiveModelResultCap(ctx, spec.modelResultCap)
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
     ctx.emit({
@@ -317,7 +334,7 @@ export async function runGuardedTool(
     const { modelResult, detail, diff, preview, checkpointChanges } = await spec.run()
     const truncated = truncateModelResult(
       modelResult,
-      spec.modelResultCap ?? MAX_MODEL_RESULT_CHARS
+      effectiveModelResultCap(ctx, spec.modelResultCap)
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
     recordCheckpoint(ctx, checkpointChanges ?? checkpointChangesFromDiff(diff))

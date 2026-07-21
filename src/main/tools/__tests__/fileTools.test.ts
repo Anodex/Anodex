@@ -125,7 +125,23 @@ describe('AI file tools', () => {
       expect(result).toBe('hello world')
     })
 
-    it('truncates a large file and reports the real original size, not an intermediate one', async () => {
+    it('returns real content unchanged for a file within the disk cap but over the generic 4000-char default', async () => {
+      // A real source file this size used to get silently cut off under the
+      // generic 4000-char cap alone — read_file's own modelResultCap exists
+      // precisely so this still comes back whole.
+      const content = 'x'.repeat(10_000)
+      await writeFile(join(workspace, 'medium.txt'), content)
+      const ctx = createMockContext(workspace)
+      const tool = readFileTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'medium.txt' })
+
+      expect(result).toBe(content)
+    })
+
+    it('recommends targeted tools instead of a truncated blob for a file too large for the active context', async () => {
       const big = 'x'.repeat(70_000)
       await writeFile(join(workspace, 'big.txt'), big)
       const ctx = createMockContext(workspace)
@@ -135,16 +151,13 @@ describe('AI file tools', () => {
 
       const result = await tool.handler({ path: 'big.txt' })
 
-      // Truncation is handled once, by the shared `runReadTool` cap that every
-      // read tool goes through — read_file must not also truncate internally,
-      // since a second, smaller truncation layered on top of the first would
-      // report a meaningless intermediate length instead of the file's real
-      // size (a real bug this test caught: read_file used to slice at 60KB
-      // with its own note, which the shared 4000-char cap then re-truncated,
-      // burying the real size and reporting the intermediate string's length
-      // instead).
-      expect(result.length).toBeLessThan(big.length)
-      expect(result).toContain('truncated, 70000 bytes total')
+      // A silently truncated blob reads as complete to the model and invites
+      // an edit_file/patch_file call against text it never actually saw — an
+      // honest "too large" pointer with the real size is safer than a
+      // truncated prefix that looks like the whole file.
+      expect(result).toContain('70000 bytes')
+      expect(result).toContain('read_file_range')
+      expect(result).not.toContain('x'.repeat(100))
     })
 
     it('rejects a directory path', async () => {
@@ -476,6 +489,106 @@ describe('AI file tools', () => {
       expect(recordTouchMock).toHaveBeenCalledTimes(2)
       expect(recordTouchMock).toHaveBeenCalledWith('project-1', 'one.txt', 'read')
       expect(recordTouchMock).toHaveBeenCalledWith('project-1', 'two.txt', 'read')
+    })
+  })
+
+  describe('read_file_range with an active runtime budget', () => {
+    // Deliberately small: 100 tokens ≈ 300 chars at the module's conservative
+    // ratio, minus the range header reserve — enough for only a couple of
+    // the ~47-char lines below, so the boundary logic is actually exercised.
+    const TIGHT_BUDGET = {
+      current: {
+        contextSizeTokens: 8_192,
+        inputLimitTokens: 7_373,
+        fixedTokens: 4_037,
+        minimumReplyReserveTokens: 1_024,
+        maxTokensPerResult: 100
+      }
+    }
+
+    it('bounds to complete lines and reports a truthful next start line', async () => {
+      const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1} ${'a'.repeat(40)}`)
+      await writeFile(join(workspace, 'big.txt'), lines.join('\n'))
+      const ctx = { ...createMockContext(workspace), modelResultBudget: TIGHT_BUDGET }
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'big.txt', startLine: 1, endLine: 50 })
+      const [, ...returnedBody] = result.split('\n')
+
+      // Every returned line must be a genuine, complete line from the file —
+      // never a mid-line character cut — and the budget must have actually
+      // bitten (fewer than the 50 requested lines came back).
+      expect(returnedBody.length).toBeGreaterThan(0)
+      expect(returnedBody.length).toBeLessThan(50)
+      for (const line of returnedBody) expect(lines).toContain(line)
+
+      const nextStartLine = Number(/Next startLine: (\d+)/.exec(result)?.[1])
+      expect(nextStartLine).toBeGreaterThan(0)
+      // The reported next line must be exactly the first line NOT included —
+      // not the requested endLine, and not off by one in either direction.
+      expect(lines[nextStartLine - 2]).toBe(returnedBody.at(-1))
+      expect(returnedBody).not.toContain(lines[nextStartLine - 1])
+    })
+
+    it('labels a single line too long to fit whole as an honest partial, never a silent whole line', async () => {
+      const oneHugeLine = 'a'.repeat(5_000)
+      await writeFile(join(workspace, 'huge-line.txt'), oneHugeLine)
+      const ctx = { ...createMockContext(workspace), modelResultBudget: TIGHT_BUDGET }
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'huge-line.txt', startLine: 1 })
+
+      expect(result).toContain('cut short')
+      expect(result).not.toContain(oneHugeLine)
+    })
+
+    it('still returns the whole range unchanged when it already fits the budget', async () => {
+      await writeFile(join(workspace, 'small.txt'), 'a\nb\nc')
+      const generousBudget = {
+        current: { ...TIGHT_BUDGET.current, maxTokensPerResult: 10_000 }
+      }
+      const ctx = { ...createMockContext(workspace), modelResultBudget: generousBudget }
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine: number }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'small.txt', startLine: 1, endLine: 3 })
+
+      expect(result).toBe('[small.txt: lines 1-3 of 3.]\na\nb\nc')
+    })
+  })
+
+  describe('read_multiple_files with an active runtime budget', () => {
+    it('allocates the budget across files and honestly marks truncated ones', async () => {
+      const linesA = Array.from({ length: 30 }, (_, i) => `a-line ${i}`)
+      const linesB = Array.from({ length: 30 }, (_, i) => `b-line ${i}`)
+      await writeFile(join(workspace, 'a.txt'), linesA.join('\n'))
+      await writeFile(join(workspace, 'b.txt'), linesB.join('\n'))
+      const ctx = {
+        ...createMockContext(workspace),
+        modelResultBudget: {
+          current: {
+            contextSizeTokens: 8_192,
+            inputLimitTokens: 7_373,
+            fixedTokens: 4_037,
+            minimumReplyReserveTokens: 1_024,
+            maxTokensPerResult: 100 // → 300 chars total, 150 chars/file share
+          }
+        }
+      }
+      const tool = readMultipleFilesTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { paths: string[] }) => Promise<string>
+      }
+
+      const result = await tool.handler({ paths: ['a.txt', 'b.txt'] })
+
+      expect(result).toContain('showing')
+      expect(result).toContain('read_file_range')
+      expect(result.length).toBeLessThan(linesA.join('\n').length + linesB.join('\n').length)
     })
   })
 })
