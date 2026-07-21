@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { ToolCall } from '@shared/tools.types'
 import { Icon, type IconName } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
@@ -25,8 +25,21 @@ function statusIcon(call: ToolCall): IconName {
   return KIND_ICON[call.kind]
 }
 
-/** Compact inline card representing one tool invocation in the transcript. */
-export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
+/**
+ * Compact inline card representing one tool invocation in the transcript.
+ * Memoized: `TurnRecap`'s own live elapsed-time ticker re-renders it every
+ * 250ms for the entire duration a message streams, and a long bounded-chat
+ * reply can accumulate 100+ of these cards in one message — without this,
+ * every one of those ticks (plus every batched token/activity flush) was
+ * re-rendering the ENTIRE card list regardless of whether any individual
+ * call actually changed, observed directly as part of a renderer freeze
+ * severe enough for Windows to mark the window "Not Responding." `call`
+ * keeps its original object reference across renders for any call this
+ * update doesn't touch (see `sanitizeBlocks` in `chatSanitizer.ts`, which
+ * passes tool blocks through untouched), so the default shallow prop
+ * comparison here correctly skips re-rendering an unchanged card.
+ */
+function ToolCallCardImpl({ call }: { call: ToolCall }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const diffView = useSettingsStore((s) => s.settings?.appearance.diffView ?? 'unified')
   const hasDiff = Boolean(call.diff)
@@ -74,6 +87,8 @@ export function ToolCallCard({ call }: { call: ToolCall }): JSX.Element {
     </div>
   )
 }
+
+export const ToolCallCard = memo(ToolCallCardImpl)
 
 /** Small `+N -N` line-count summary, also reused by `ToolConfirmCard`. */
 export function DiffStat({ before, after }: { before: string; after: string }): JSX.Element {
