@@ -23,18 +23,22 @@ export interface ResearchSearchBatch {
 }
 
 /**
- * Hosts that reliably serve an anonymous fetcher a login/consent wall instead
- * of citable content — social and UGC platforms that gate their pages behind
- * sign-in. A research run must never spend a fetch on these or, worse, count
- * their "Log in to continue" stub as verified evidence: observed live, a
- * venom-composition step's only two "sources" were Facebook login walls, which
- * then crowded the real PMC/PubMed sources out of that step's bounded excerpt
- * slots. They're excluded at candidate selection so they never reach the
- * fetcher; the general `fetch_url` chat tool is deliberately unaffected (a user
- * may still fetch one of these directly). Matched on the host suffix so
- * subdomains (m.facebook.com, l.instagram.com) are covered.
+ * Hosts that never yield citable text to an anonymous HTML fetch — either a
+ * login/consent wall (social/UGC platforms gated behind sign-in) or a
+ * media-only page whose actual content is audio/video, so extraction returns
+ * navigation/footer chrome instead. A research run must never spend a fetch on
+ * these or, worse, count their stub as verified evidence: observed live, a
+ * venom-composition step's only "sources" were Facebook login walls, and a
+ * later run cited a YouTube page whose extracted "evidence" was
+ * "About Press Copyright … © 2026 Google LLC." Either way the junk then crowds
+ * real PMC/PubMed sources out of that step's bounded excerpt slots. They're
+ * excluded at candidate selection so they never reach the fetcher; the general
+ * `fetch_url` chat tool is deliberately unaffected (a user may still fetch one
+ * directly). Matched on the host suffix so subdomains (m.facebook.com,
+ * l.instagram.com) are covered.
  */
 const NON_RESEARCH_HOSTS = [
+  // Login/consent-walled social & UGC platforms.
   'facebook.com',
   'fb.com',
   'fb.watch',
@@ -46,7 +50,12 @@ const NON_RESEARCH_HOSTS = [
   'tiktok.com',
   'pinterest.com',
   'threads.net',
-  'snapchat.com'
+  'snapchat.com',
+  // Media-only hosts whose content is video/audio, not extractable text.
+  'youtube.com',
+  'youtu.be',
+  'vimeo.com',
+  'dailymotion.com'
 ]
 
 function isNonResearchHost(host: string): boolean {

@@ -58,10 +58,12 @@ describe('Critical Thinking research policy', () => {
     expect(selectResearchCandidates([], new Set(), 0)).toEqual([])
   })
 
-  it('excludes login-walled social/UGC hosts, including subdomains, from research candidates', () => {
-    // The exact live failure: search returned Facebook/Instagram links whose
-    // login-wall stub then verified as junk evidence and crowded out real
-    // academic sources. They must never be selected for fetching.
+  it('excludes login-walled social and media-only hosts, including subdomains, from research candidates', () => {
+    // The live failures: search returned Facebook/Instagram login walls and a
+    // YouTube page whose only extractable text was footer chrome
+    // ("About Press Copyright ... © 2026 Google LLC"). Both verified as junk
+    // evidence and crowded out real academic sources — they must never be
+    // selected for fetching.
     const candidates = selectResearchCandidates(
       [
         {
@@ -83,6 +85,16 @@ describe('Critical Thinking research policy', () => {
               snippet: 'Bee sting'
             },
             {
+              title: 'WASP STING vs BEE STING - YouTube',
+              url: 'https://www.youtube.com/watch?v=pEEHf9ciMDA',
+              snippet: 'Which hurts worst'
+            },
+            {
+              title: 'Short link',
+              url: 'https://youtu.be/pEEHf9ciMDA',
+              snippet: 'Video'
+            },
+            {
               title: 'Bee Venom and Its Sub-Components (PMC)',
               url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7998195/',
               snippet: 'Venom proteome and peptide composition'
@@ -96,7 +108,7 @@ describe('Critical Thinking research policy', () => {
         }
       ],
       new Set(),
-      5
+      6
     )
 
     const urls = candidates.map((candidate) => candidate.url)
@@ -104,7 +116,9 @@ describe('Critical Thinking research policy', () => {
       'https://pmc.ncbi.nlm.nih.gov/articles/PMC7998195/',
       'https://en.wikipedia.org/wiki/Schmidt_sting_pain_index'
     ])
-    expect(urls.some((url) => /facebook\.com|instagram\.com/.test(url))).toBe(false)
+    expect(
+      urls.some((url) => /facebook\.com|instagram\.com|youtube\.com|youtu\.be/.test(url))
+    ).toBe(false)
   })
 
   it('requires a service-verified evidence floor for model-proposed sufficiency', () => {

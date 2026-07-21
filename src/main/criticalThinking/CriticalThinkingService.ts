@@ -553,6 +553,17 @@ class CriticalThinkingService {
     }
 
     if (!candidate.overallValid && repairStopReason !== 'user') {
+      // Diagnostic: which validation issues sank the model's own report, so a
+      // recurring fallback (a local model that never satisfies the citation
+      // contract) is debuggable from the run log instead of only visible as a
+      // blunt fallback report. The issues are the model draft's, not the
+      // fallback's — logged before the fallback is scored in.
+      log.warn('Critical Thinking synthesis failed validation; using deterministic fallback', {
+        runId: run.id,
+        issues: candidate.issues,
+        citedSubstantiveBlockCount: candidate.citedSubstantiveBlockCount,
+        draftLength: candidate.length
+      })
       // Synthesis and its one repair both failed validation — do not expose
       // whatever fragment they produced as the primary report (P0-H: the
       // exact live failure was a 175-character uncited draft). Build a

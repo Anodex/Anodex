@@ -23,8 +23,15 @@ const REQUIRED_SECTIONS: Array<{ name: string; pattern: RegExp }> = [
   },
   { name: 'a sources section', pattern: /^#{1,6}\s*(sources|references|bibliography)/im },
   {
+    // The synthesis prompt invites "a clear conclusion or recommendation", so
+    // a report that closes with "## Recommendations" (or "## Key Takeaways")
+    // must satisfy this section — otherwise a valid model report is rejected
+    // and discarded for the blunter deterministic fallback. Kept start-anchored
+    // like the others so an intro "## Executive Summary" is NOT mistaken for a
+    // conclusion.
     name: 'a conclusion/summary section',
-    pattern: /^#{1,6}\s*(conclusion|summary|bottom line)/im
+    pattern:
+      /^#{1,6}\s*(conclusion|summary|bottom line|recommendations?|key takeaways?|takeaways?)/im
   }
 ]
 

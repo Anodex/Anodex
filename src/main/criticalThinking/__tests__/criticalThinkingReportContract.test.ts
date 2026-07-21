@@ -56,6 +56,50 @@ describe('validateReportContract', () => {
     expect(result.citedSubstantiveBlockCount).toBeGreaterThanOrEqual(2)
   })
 
+  it('accepts a report that closes with a Recommendations section instead of Conclusion', () => {
+    // The synthesis prompt invites "a clear conclusion or recommendation", so a
+    // report ending in "## Recommendations" must satisfy the section contract
+    // rather than being discarded for the deterministic fallback.
+    const withRecommendations = WELL_FORMED_REPORT.replace(
+      '## Conclusion\n\nThe two venoms differ in mechanism, and the practical implications depend on allergic history.',
+      '## Recommendations\n\nCarry an epinephrine auto-injector if a prior systemic reaction occurred [[S1:P1]].'
+    )
+
+    const result = validateReportContract(withRecommendations, 2)
+
+    expect(result.valid).toBe(true)
+    expect(result.issues).toEqual([])
+  })
+
+  it('does not treat an intro Executive Summary as the conclusion section', () => {
+    // "## Executive Summary" contains the word "summary" but is an intro, not a
+    // conclusion — the section match stays start-anchored so it is not counted.
+    const introOnly = `# Report
+
+## Executive Summary
+
+Bees and wasps differ [[S1:P1]].
+
+## Findings
+
+Bee venom is dominated by melittin [[S1:P1]]. Wasp venom relies on peptides [[S2:P1]].
+
+## Limits and Open Questions
+
+Some steps were not reached.
+
+## Sources
+
+[[S1]] [[S2]]
+`
+
+    const result = validateReportContract(introOnly, 2)
+
+    expect(result.issues).toEqual(
+      expect.arrayContaining([expect.stringContaining('missing a conclusion/summary section')])
+    )
+  })
+
   it('rejects a report missing just the sources section', () => {
     const withoutSources = WELL_FORMED_REPORT.replace(/## Sources[\s\S]*?(?=## Conclusion)/, '')
 
