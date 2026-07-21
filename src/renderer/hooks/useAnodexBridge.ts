@@ -94,29 +94,42 @@ export function useAnodexBridge(): void {
 
     // Live subscriptions.
     //
-    // Token/thinking-token IPC events are coalesced (via `TokenBatcher`) into
-    // at most one chat-store commit per animation frame instead of one per
-    // raw token. A long bounded-chat reply (see BoundedChatRunner) can grow
-    // to 80+ tool calls and tens of thousands of characters in one message;
-    // MessageBubble's own render pipeline (sanitizeMessageTranscript →
-    // messageBlocks → buildRenderSegments → groupSegmentsForTimeline)
-    // necessarily reprocesses the WHOLE message from scratch on every call,
-    // since each one genuinely has new content. Committing a state update —
-    // and so triggering that full reprocessing — on every single raw token
-    // (many per second) made that whole-message cost recur far more often
-    // than the display could even show, observed directly as the renderer's
-    // main thread pegged long enough for Windows to mark the window "Not
-    // Responding" during exactly these long tool-heavy runs. Batching only
-    // reduces how OFTEN the full reprocessing recurs, not what one
-    // recurrence costs — and it's self-correcting if a frame really is slow:
-    // the next `requestAnimationFrame` callback still fires whenever the
-    // thread frees up, coalescing whatever arrived in the meantime into one
-    // bigger flush, rather than queuing ever-more-granular commits behind it.
+    // Token/thinking-token/tool-activity IPC events are all coalesced (via
+    // `TokenBatcher`) into at most one chat-store commit per animation frame
+    // instead of one per raw event. A long bounded-chat reply (see
+    // BoundedChatRunner) can grow to 80+ tool calls and tens of thousands of
+    // characters in one message; MessageBubble's own render pipeline
+    // (sanitizeMessageTranscript → messageBlocks → buildRenderSegments →
+    // groupSegmentsForTimeline) necessarily reprocesses the WHOLE message
+    // from scratch on every call, since each one genuinely has new content.
+    // Committing a state update — and so triggering that full reprocessing —
+    // on every single raw token (many per second) OR every single tool
+    // running/success/error event (a model calling many read-only tools back
+    // to back with little text between them is just as hot a path) made
+    // that whole-message cost recur far more often than the display could
+    // even show, observed directly as the renderer's main thread pegged long
+    // enough for Windows to mark the window "Not Responding" during exactly
+    // these long tool-heavy runs — including after batching only the token
+    // stream first, since the burst of tool-activity events was still each
+    // committing separately. Batching only reduces how OFTEN the full
+    // reprocessing recurs, not what one recurrence costs — and it's self-
+    // correcting if a frame really is slow: the next `requestAnimationFrame`
+    // callback still fires whenever the thread frees up, coalescing
+    // whatever arrived in the meantime into one bigger flush, rather than
+    // queuing ever-more-granular commits behind it.
     const tokenBatcher = new TokenBatcher()
     let tokenFlushHandle: number | null = null
     const flushPendingTokens = (): void => {
       tokenFlushHandle = null
-      const { tokens, thinkingTokens } = tokenBatcher.drain()
+      const { tokens, thinkingTokens, activity } = tokenBatcher.drain()
+      // Activity first: `applyToolActivityBatch` clears this message's
+      // streaming-tool-payload quarantine (see `quarantineStreamingToolPayload`)
+      // the moment a real tool call is confirmed, so a token batch flushed in
+      // this same frame sees that already cleared rather than staying
+      // quarantined for one extra frame.
+      for (const [messageId, conversationId, calls] of activity) {
+        useChatStore.getState().applyToolActivityBatch(conversationId, messageId, calls)
+      }
       for (const [messageId, { conversationId, text }] of tokens) {
         useChatStore.getState().appendToken(conversationId, messageId, text)
       }
@@ -145,9 +158,10 @@ export function useAnodexBridge(): void {
     const offDownloadProgress = anodex.models.onDownloadProgress((progress) =>
       useModelStore.getState().setDownloadProgress(progress)
     )
-    const offToolActivity = anodex.tools.onActivity((event) =>
-      useChatStore.getState().applyToolActivity(event)
-    )
+    const offToolActivity = anodex.tools.onActivity(({ conversationId, messageId, call }) => {
+      tokenBatcher.addToolActivity(conversationId, messageId, call)
+      scheduleTokenFlush()
+    })
     const offConfirm = anodex.tools.onConfirmRequest((request) => {
       useUiStore.getState().addPendingConfirmation(request)
       if (shouldShowDesktopToast()) {

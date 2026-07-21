@@ -7,7 +7,7 @@ import type {
   RestoreCheckpointResult
 } from '@shared/checkpoint.types'
 import type { Conversation } from '@shared/conversation.types'
-import { TOOL_CATALOG, type ToolActivityEvent } from '@shared/tools.types'
+import { TOOL_CATALOG, type ToolActivityEvent, type ToolCall } from '@shared/tools.types'
 import { stripToolCallText } from '@shared/toolCallText'
 import { messageToHistoryTurn, sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { anodex } from '../lib/anodex'
@@ -101,6 +101,15 @@ interface ChatState {
   appendThinkingToken: (conversationId: string, messageId: string, token: string) => void
   /** Called by the IPC bridge as the assistant's tool calls progress. */
   applyToolActivity: (event: ToolActivityEvent) => void
+  /**
+   * Same effect as calling `applyToolActivity` once per call, but as a
+   * single store commit — see `useAnodexBridge.ts`'s `TokenBatcher` doc
+   * comment for why: a burst of tool-activity events arriving within one
+   * animation frame (a model calling many read-only tools back to back with
+   * little text between them) previously triggered one full MessageBubble
+   * re-render per event.
+   */
+  applyToolActivityBatch: (conversationId: string, messageId: string, calls: ToolCall[]) => void
   /** Persist a durable context snapshot after the main process compacts history. */
   applyHistoryCompaction: (event: HistoryCompactionEvent) => void
   /** Inspect file changes and conflicts for one assistant message checkpoint. */
@@ -127,6 +136,44 @@ interface ChatState {
 
 const DEFAULT_TITLE = 'New chat'
 const pendingToolPayloadByMessage = new Map<string, string>()
+
+/**
+ * The reducer for one tool-activity event, extracted so `applyToolActivity`
+ * (one event) and `applyToolActivityBatch` (many events from one animation
+ * frame) can share it — the batch variant applies several calls' worth of
+ * this logic inside a single `set()`/Immer transaction instead of one per
+ * event, which is the entire point of batching (see
+ * `applyToolActivityBatch`'s doc comment).
+ */
+function applyOneToolActivity(
+  state: ChatState,
+  conversationId: string,
+  messageId: string,
+  call: ToolCall
+): void {
+  const convo = state.conversations.find((c) => c.id === conversationId)
+  const message = convo?.messages.find((m) => m.id === messageId)
+  if (!message || !convo) return
+  if (!message.toolCalls) message.toolCalls = []
+  const index = message.toolCalls.findIndex((c) => c.id === call.id)
+  if (index >= 0) message.toolCalls[index] = call
+  else message.toolCalls.push(call)
+
+  // Mirror into the ordered timeline: a status update to an already-placed
+  // call updates it in place; a new call id lands at the end, which is
+  // exactly the right chronological spot since activity events arrive in
+  // the order they occurred.
+  if (!message.blocks) message.blocks = []
+  const block = message.blocks.find((b) => b.type === 'tool' && b.call.id === call.id)
+  if (block && block.type === 'tool') block.call = call
+  else message.blocks.push({ type: 'tool', call })
+
+  // A plan tool's activity event carries a full snapshot of the
+  // conversation's plan — mirror it onto the conversation itself so the
+  // Workspace Dock's Plan panel updates live, independent of which
+  // message/tool card it came from.
+  if (call.plan) convo.plan = call.plan
+}
 
 /**
  * Both helpers are called from many sites throughout this store, several as
@@ -692,33 +739,19 @@ export const useChatStore = create<ChatState>()(
     applyToolActivity: ({ conversationId, messageId, call }) => {
       pendingToolPayloadByMessage.delete(messageId)
       set((state) => {
-        const convo = state.conversations.find((c) => c.id === conversationId)
-        const message = convo?.messages.find((m) => m.id === messageId)
-        if (!message || !convo) return
-        if (!message.toolCalls) message.toolCalls = []
-        const index = message.toolCalls.findIndex((c) => c.id === call.id)
-        if (index >= 0) message.toolCalls[index] = call
-        else message.toolCalls.push(call)
-
-        // Mirror into the ordered timeline: a status update to an already-
-        // placed call updates it in place; a new call id lands at the end,
-        // which is exactly the right chronological spot since activity
-        // events arrive in the order they occurred.
-        if (!message.blocks) message.blocks = []
-        const block = message.blocks.find((b) => b.type === 'tool' && b.call.id === call.id)
-        if (block && block.type === 'tool') block.call = call
-        else message.blocks.push({ type: 'tool', call })
-
-        // A plan tool's activity event carries a full snapshot of the
-        // conversation's plan — mirror it onto the conversation itself so the
-        // Workspace Dock's Plan panel updates live, independent of which
-        // message/tool card it came from.
-        if (call.plan) convo.plan = call.plan
+        applyOneToolActivity(state, conversationId, messageId, call)
       })
       // convo.updatedAt is deliberately not touched here — see the comment in
       // `appendToken` above; a turn with many tool calls is just as hot a
       // path as one with many tokens.
       // Persisted when the generation completes in `sendMessage`.
+    },
+
+    applyToolActivityBatch: (conversationId, messageId, calls) => {
+      pendingToolPayloadByMessage.delete(messageId)
+      set((state) => {
+        for (const call of calls) applyOneToolActivity(state, conversationId, messageId, call)
+      })
     },
 
     applyHistoryCompaction: (event) => {
