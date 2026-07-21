@@ -24,8 +24,14 @@ export interface PathClaimIssue {
  * segment allows internal dots (`[\w.-]+`), not just `\w`, so a multi-dot
  * filename like `tool.handlers.ts` or `foo.test.ts` is captured whole —
  * greedy backtracking still finds the last dot as the extension separator.
+ * The lookbehind rejects a match that starts mid-token: without it, a URL
+ * (`github.com/x/y.ts` → `com/x/y.ts`) or an absolute path
+ * (`/usr/lib/foo.so` → `usr/lib/foo.so`) yields a workspace-relative-looking
+ * fragment that stats to nothing and gets flagged "likely fabricated" on a
+ * perfectly honest reply. Sits after the optional backtick so a wrapping
+ * backtick itself never blocks the match.
  */
-const PATH_PATTERN = /`?((?:\.{1,2}\/)?(?:[\w-]+\/)+[\w.-]+\.[A-Za-z0-9]+)`?/g
+const PATH_PATTERN = /`?(?<![\w.\\/-])((?:\.{1,2}\/)?(?:[\w-]+\/)+[\w.-]+\.[A-Za-z0-9]+)`?/g
 
 function extractCandidatePaths(content: string): string[] {
   const seen = new Set<string>()
@@ -71,6 +77,12 @@ export async function findUnverifiedPathClaims(
       // check can meaningfully verify either way.
       continue
     }
+    // Read OR successfully mutated this task — a verified interaction either
+    // way. Checked before `stat`, deliberately: a path this task deleted or
+    // renamed no longer exists on disk, and flagging the reply's honest
+    // "I deleted `x/y.ts`" as fabricated would be exactly the kind of false
+    // accusation this check must never make.
+    if (readCoverage.hasInteracted(absolute)) continue
     let info
     try {
       info = await stat(absolute)
@@ -79,9 +91,7 @@ export async function findUnverifiedPathClaims(
       continue
     }
     if (!info.isFile()) continue
-    if (!readCoverage.hasAnyCoverage(absolute)) {
-      issues.push({ path: candidate, reason: 'not-inspected' })
-    }
+    issues.push({ path: candidate, reason: 'not-inspected' })
   }
   return issues
 }

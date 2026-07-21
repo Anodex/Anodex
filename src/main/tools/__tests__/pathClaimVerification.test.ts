@@ -90,6 +90,51 @@ describe('findUnverifiedPathClaims', () => {
     expect(issues).toHaveLength(1)
   })
 
+  it('does not flag path-shaped fragments inside URLs', async () => {
+    const tracker = new ReadCoverageTracker()
+    const issues = await findUnverifiedPathClaims(
+      'See https://github.com/Anodex/Anodex/blob/main/src/index.ts and ' +
+        'https://docs.example.com/en/guide/setup.html for details.',
+      workspace,
+      tracker
+    )
+    expect(issues).toEqual([])
+  })
+
+  it('does not flag fragments of absolute unix-style paths', async () => {
+    const tracker = new ReadCoverageTracker()
+    const issues = await findUnverifiedPathClaims(
+      'The library installs to /usr/lib/foo.so on Linux.',
+      workspace,
+      tracker
+    )
+    expect(issues).toEqual([])
+  })
+
+  it('still flags a workspace-relative path in ordinary surrounding prose', async () => {
+    const tracker = new ReadCoverageTracker()
+    const issues = await findUnverifiedPathClaims(
+      'Fixed in src/main/missing.ts (see the diff), plus `src/main/index.ts`.',
+      workspace,
+      tracker
+    )
+    expect(issues).toEqual([
+      { path: 'src/main/missing.ts', reason: 'not-found' },
+      { path: 'src/main/index.ts', reason: 'not-inspected' }
+    ])
+  })
+
+  it('does not flag a path this task successfully mutated, even one deleted from disk', async () => {
+    const tracker = new ReadCoverageTracker()
+    tracker.noteMutation(join(workspace, 'src', 'main', 'removed.ts'))
+    const issues = await findUnverifiedPathClaims(
+      'I deleted `src/main/removed.ts` as requested.',
+      workspace,
+      tracker
+    )
+    expect(issues).toEqual([])
+  })
+
   it('skips a directory match rather than flagging it as an unread file', async () => {
     await mkdir(join(workspace, 'src', 'main', 'fake.dir.ts'), { recursive: true })
     const tracker = new ReadCoverageTracker()
