@@ -58,6 +58,55 @@ describe('Critical Thinking research policy', () => {
     expect(selectResearchCandidates([], new Set(), 0)).toEqual([])
   })
 
+  it('excludes login-walled social/UGC hosts, including subdomains, from research candidates', () => {
+    // The exact live failure: search returned Facebook/Instagram links whose
+    // login-wall stub then verified as junk evidence and crowded out real
+    // academic sources. They must never be selected for fetching.
+    const candidates = selectResearchCandidates(
+      [
+        {
+          query: 'honey bee venom composition',
+          results: [
+            {
+              title: 'The Educated Monkey post',
+              url: 'https://www.facebook.com/theeducatedmonkey/posts/123',
+              snippet: 'A bee, a wasp, and a fire ant...'
+            },
+            {
+              title: 'Instagram reel',
+              url: 'https://www.instagram.com/p/abc',
+              snippet: 'Sting comparison'
+            },
+            {
+              title: 'Mobile Facebook',
+              url: 'https://m.facebook.com/story/456',
+              snippet: 'Bee sting'
+            },
+            {
+              title: 'Bee Venom and Its Sub-Components (PMC)',
+              url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7998195/',
+              snippet: 'Venom proteome and peptide composition'
+            },
+            {
+              title: 'Schmidt sting pain index',
+              url: 'https://en.wikipedia.org/wiki/Schmidt_sting_pain_index',
+              snippet: 'Pain ratings by species'
+            }
+          ]
+        }
+      ],
+      new Set(),
+      5
+    )
+
+    const urls = candidates.map((candidate) => candidate.url)
+    expect(urls).toEqual([
+      'https://pmc.ncbi.nlm.nih.gov/articles/PMC7998195/',
+      'https://en.wikipedia.org/wiki/Schmidt_sting_pain_index'
+    ])
+    expect(urls.some((url) => /facebook\.com|instagram\.com/.test(url))).toBe(false)
+  })
+
   it('requires a service-verified evidence floor for model-proposed sufficiency', () => {
     const multiple: CriticalThinkingCoverageAssessment = {
       verdict: 'sufficient',

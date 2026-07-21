@@ -22,6 +22,37 @@ export interface ResearchSearchBatch {
   results: SearchResult[]
 }
 
+/**
+ * Hosts that reliably serve an anonymous fetcher a login/consent wall instead
+ * of citable content — social and UGC platforms that gate their pages behind
+ * sign-in. A research run must never spend a fetch on these or, worse, count
+ * their "Log in to continue" stub as verified evidence: observed live, a
+ * venom-composition step's only two "sources" were Facebook login walls, which
+ * then crowded the real PMC/PubMed sources out of that step's bounded excerpt
+ * slots. They're excluded at candidate selection so they never reach the
+ * fetcher; the general `fetch_url` chat tool is deliberately unaffected (a user
+ * may still fetch one of these directly). Matched on the host suffix so
+ * subdomains (m.facebook.com, l.instagram.com) are covered.
+ */
+const NON_RESEARCH_HOSTS = [
+  'facebook.com',
+  'fb.com',
+  'fb.watch',
+  'fb.me',
+  'instagram.com',
+  'twitter.com',
+  'x.com',
+  'linkedin.com',
+  'tiktok.com',
+  'pinterest.com',
+  'threads.net',
+  'snapchat.com'
+]
+
+function isNonResearchHost(host: string): boolean {
+  return NON_RESEARCH_HOSTS.some((deny) => host === deny || host.endsWith(`.${deny}`))
+}
+
 export interface ResearchCandidate extends SearchResult {
   query: string
   rank: number
@@ -47,6 +78,9 @@ export function selectResearchCandidates(
     batch.results.forEach((result, index) => {
       const parsed = safePublicUrl(result.url)
       if (!parsed) return
+      // Never spend a fetch on a login-walled social/UGC host (see
+      // `NON_RESEARCH_HOSTS`) — its stub would verify as junk evidence.
+      if (isNonResearchHost(normalizedHost(parsed.hostname))) return
       parsed.hash = ''
       const canonical = canonicalResearchUrl(parsed.toString())
       if (normalizedFetchedUrls.has(canonical)) return
