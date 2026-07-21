@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, mkdir, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -886,6 +886,68 @@ describe('AI file tools', () => {
 
       expect(result).toContain('lines 1-49')
       expect(result).toContain('Next startLine: 101.')
+    })
+
+    it('serves fresh content when a fully-read file changed on disk out-of-band', async () => {
+      // A run_command side effect or the user's own editor — no write tool
+      // declares a touch, so only the mtime reconciliation can catch it.
+      // Explicit utimes keep the mtimes deterministic (a same-millisecond
+      // rewrite would otherwise be invisible and flaky).
+      const target = join(workspace, 'shifting.txt')
+      await writeFile(target, 'old content')
+      await utimes(target, new Date(1_000_000), new Date(1_000_000))
+      const ctx = createMockContext(workspace)
+      const tool = readFileTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string }) => Promise<string>
+      }
+
+      expect(await tool.handler({ path: 'shifting.txt' })).toBe('old content')
+
+      await writeFile(target, 'new content')
+      await utimes(target, new Date(2_000_000), new Date(2_000_000))
+
+      expect(await tool.handler({ path: 'shifting.txt' })).toBe('new content')
+    })
+
+    it('re-serves a covered range when the file changed on disk out-of-band', async () => {
+      const target = join(workspace, 'shifting-range.txt')
+      await writeFile(target, 'a\nb\nc')
+      await utimes(target, new Date(1_000_000), new Date(1_000_000))
+      const ctx = createMockContext(workspace)
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+      }
+
+      const first = await tool.handler({ path: 'shifting-range.txt', startLine: 1, endLine: 3 })
+      expect(first).toContain('a\nb\nc')
+
+      await writeFile(target, 'x\ny\nz')
+      await utimes(target, new Date(2_000_000), new Date(2_000_000))
+      const second = await tool.handler({ path: 'shifting-range.txt', startLine: 1, endLine: 3 })
+
+      expect(second).toContain('x\ny\nz')
+      expect(second).not.toContain('already read earlier this task')
+    })
+
+    it('re-serves a changed file in read_multiple_files instead of skipping it', async () => {
+      const target = join(workspace, 'shifting-batch.txt')
+      await writeFile(target, 'old batch content')
+      await utimes(target, new Date(1_000_000), new Date(1_000_000))
+      const ctx = createMockContext(workspace)
+      const fileTool = readFileTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string }) => Promise<string>
+      }
+      const batchTool = readMultipleFilesTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { paths: string[] }) => Promise<string>
+      }
+
+      await fileTool.handler({ path: 'shifting-batch.txt' })
+      await writeFile(target, 'new batch content')
+      await utimes(target, new Date(2_000_000), new Date(2_000_000))
+      const batch = await batchTool.handler({ paths: ['shifting-batch.txt'] })
+
+      expect(batch).toContain('new batch content')
+      expect(batch).not.toContain('Already read in full earlier this task')
     })
 
     it('says so when every remaining line was already read instead of hinting a dead startLine', async () => {

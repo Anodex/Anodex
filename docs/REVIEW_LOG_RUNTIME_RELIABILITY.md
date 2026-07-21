@@ -77,6 +77,15 @@ every item gets checked off (`[x]`) as it completes, with findings recorded inli
   sending the next call straight into an "already read" short-circuit and wasting a
   round trip. Now points at the next genuinely-uncovered line, or says every remaining
   line was already read.
+- ❗ **F7 — out-of-band file changes invisible to coverage** (fixed; was the "run_command
+  known gap" accepted under F1): a file changed by a command side effect (formatter,
+  codegen, git), or by the user's own editor mid-task, kept its stale coverage — reads
+  were short-circuited against content that no longer exists. Fixed with
+  `ReadCoverageTracker.reconcileMtime`: read tools stat first (they all needed the stat
+  anyway or cost one extra cheap stat) and reconcile the observed mtime before trusting
+  or extending coverage; a changed mtime drops that file's coverage + attempt counter.
+  Dropped-as-stale reads still count as `hasInteracted` so the path-claim check never
+  accuses the model of "never reading" a file it genuinely read pre-change.
 
 ## Fixes applied
 
@@ -89,7 +98,7 @@ First three committed as `8927b28` (F1), `99af113` (F2), `24e517e` (F3), docs as
    `runGuardedTool` success path calls `noteMutatedReadCoverage` with the declared
    non-read touches plus checkpoint changes (the latter is what carries a move's
    source path). Independent of `projectId`, unlike project-memory touches.
-   Known gap (documented in-code): `run_command` can mutate files invisibly.
+   The `run_command` gap originally accepted here was later closed by F7.
 2. **F2** — [chatStore.ts](../src/renderer/stores/chatStore.ts): `appendToken` /
    `appendThinkingToken` drop tokens for a message whose `streaming !== true`.
    Tool-activity late flushes still apply on purpose (terminal statuses update
@@ -106,6 +115,25 @@ First three committed as `8927b28` (F1), `99af113` (F2), `24e517e` (F3), docs as
    `get_file_info` line counting; coverage-aware `Next startLine` continuation;
    partial-line note names `search_files`. Tests in `fileTools.test.ts`
    ("bounded disk reads and coverage-aware continuation").
+6. **F7** — [readCoverage.ts](../src/main/tools/readCoverage.ts) `reconcileMtime`
+   (+ `invalidatedReads` feeding `hasInteracted`); wired into `read_file`,
+   `read_file_range`, and `read_multiple_files` in
+   [fileTools.ts](../src/main/tools/fileTools.ts) right after their `stat`, before
+   any coverage decision. Chosen over blanket invalidation after every
+   `run_command` (which would destroy the tracker's dedup value on read-heavy
+   audits that also run tests) and over command-string classification (unreliable):
+   the mtime check is exact, catches editor/git changes too, and costs one stat
+   that two of the three tools already performed.
+
+## Remaining accepted non-fixes (final)
+
+- **Partial-line coverage recording stays** (F4): not recording a budget-cut line
+  would re-serve the identical truncated prefix until the loop guard fires (3 wasted
+  round trips); recording it moves forward with an honest "cut short" note that now
+  names `search_files`, and F7's mtime reconcile clears it whenever the file changes.
+- **No architectural rework**: the designs in this range are the right shapes for
+  their problems; every defect found was a seam between incrementally-built pieces,
+  and all seams found are now closed.
 
 ## Verdict on the architecture ("if you find a much better way… make it")
 

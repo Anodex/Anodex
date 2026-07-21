@@ -375,8 +375,9 @@ export async function runGuardedTool(
  * changes, since only the latter carries a move's source path. Keyed by the
  * same workspace-resolved absolute path the read tools track under. Unlike
  * `recordCheckpoint`, this must not depend on an active project — coverage
- * staleness is real in any workspace chat. `run_command` is the known gap:
- * a command can change files without declaring any touch.
+ * staleness is real in any workspace chat. Changes no touch declares (a
+ * `run_command` side effect, the user's own editor) are caught separately,
+ * at read time, by `ReadCoverageTracker.reconcileMtime`.
  */
 function noteMutatedReadCoverage(
   ctx: ToolRuntimeContext,

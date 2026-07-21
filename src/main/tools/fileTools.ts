@@ -176,18 +176,25 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
         modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          const info = await stat(file)
+          if (!info.isFile()) throw new Error('Path is not a file.')
+          // Coverage is only trusted after reconciling with the file's
+          // current mtime — a file changed since it was read (a run_command
+          // side effect, the user's own editor) must be served fresh, not
+          // short-circuited against stale coverage. The stat this costs is
+          // trivial next to serving wrong "already read" answers.
+          ctx.readCoverage.reconcileMtime(file, info.mtimeMs)
           // Already read in full earlier this bounded task (a prior cycle or
-          // turn) — see `ReadCoverageTracker`'s doc comment. Skip the disk
-          // read and the redundant context growth entirely rather than
-          // silently reproducing identical content a second time.
+          // turn) and unchanged since — see `ReadCoverageTracker`'s doc
+          // comment. Skip the content read and the redundant context growth
+          // entirely rather than silently reproducing identical content a
+          // second time.
           if (ctx.readCoverage.isFullyCovered(file)) {
             return {
               modelResult: `${toWorkspaceRelative(ctx.workspaceRoot, file)} was already read in full earlier this task — nothing new here. Move on to a different file.`,
               detail: 'Already read in full earlier this task'
             }
           }
-          const info = await stat(file)
-          if (!info.isFile()) throw new Error('Path is not a file.')
           const charBudget = clampModelResultCap(MAX_FILE_BYTES, ctx.modelResultBudget.current)
           // Rejectable on byte size alone (see MAX_UTF8_BYTES_PER_CHAR) —
           // return the honest pointer without pulling a potentially huge
@@ -395,13 +402,19 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
         modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, normalized.path)
+          const info = await stat(file)
+          if (!info.isFile()) throw new Error('Path is not a file.')
+          // See read_file's identical comment — coverage is only trusted
+          // after reconciling with the file's current mtime, so a file
+          // changed out-of-band is served fresh instead of short-circuited.
+          ctx.readCoverage.reconcileMtime(file, info.mtimeMs)
           // Already read in full, or this exact range already returned
           // earlier this bounded task (a prior continuation cycle or agent
           // turn, possibly since folded into a compaction summary that no
-          // longer states it precisely) — see `ReadCoverageTracker`'s doc
-          // comment. Trim the request down to only what's genuinely new
-          // before touching disk at all, rather than re-serving (and
-          // re-growing context with) territory already covered.
+          // longer states it precisely) and unchanged since — see
+          // `ReadCoverageTracker`'s doc comment. Trim the request down to
+          // only what's genuinely new before reading content, rather than
+          // re-serving (and re-growing context with) covered territory.
           const gaps = ctx.readCoverage.uncovered(file, normalized.startLine, normalized.endLine)
           if (gaps.length === 0) {
             return {
@@ -428,8 +441,6 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // out to be the FIRST read of a large file, not on every call.
           const isFirstReadOfThisFile = !ctx.readCoverage.hasAnyCoverage(file)
           const target = gaps[0]
-          const info = await stat(file)
-          if (!info.isFile()) throw new Error('Path is not a file.')
           // Serving any line range requires decoding the whole file to split
           // it — bounded here so a huge artifact degrades to an honest
           // redirect instead of decoding gigabytes (see
@@ -584,18 +595,22 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
           for (const relativePath of paths) {
             try {
               const file = resolveInWorkspace(ctx.workspaceRoot, relativePath)
-              // Already read in full earlier this bounded task — see
-              // `ReadCoverageTracker`'s doc comment. Skip the disk read and
-              // the redundant context growth for this file entirely.
+              const info = await stat(file)
+              if (!info.isFile()) {
+                results.push(`--- ${relativePath} ---\nError: Path is not a file.`)
+                continue
+              }
+              // See read_file's identical comment — reconcile before
+              // trusting coverage, so a file changed out-of-band is served
+              // fresh instead of short-circuited.
+              ctx.readCoverage.reconcileMtime(file, info.mtimeMs)
+              // Already read in full earlier this bounded task and unchanged
+              // since — see `ReadCoverageTracker`'s doc comment. Skip the
+              // content read and the redundant context growth entirely.
               if (ctx.readCoverage.isFullyCovered(file)) {
                 results.push(
                   `--- ${relativePath} ---\nAlready read in full earlier this task — nothing new here.`
                 )
-                continue
-              }
-              const info = await stat(file)
-              if (!info.isFile()) {
-                results.push(`--- ${relativePath} ---\nError: Path is not a file.`)
                 continue
               }
               if (info.size > MAX_FILE_BYTES) {

@@ -144,6 +144,67 @@ describe('ReadCoverageTracker', () => {
     })
   })
 
+  describe('reconcileMtime', () => {
+    it('stores the first observed mtime without touching coverage', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordRange('a.ts', 1, 100)
+      tracker.reconcileMtime('a.ts', 1_000)
+      expect(tracker.uncovered('a.ts', 1, 100)).toEqual([])
+    })
+
+    it('keeps coverage while the mtime stays the same', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.reconcileMtime('a.ts', 1_000)
+      tracker.recordFullFile('a.ts')
+      tracker.reconcileMtime('a.ts', 1_000)
+      expect(tracker.isFullyCovered('a.ts')).toBe(true)
+    })
+
+    it('drops coverage and the attempt counter once the mtime changes', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.reconcileMtime('a.ts', 1_000)
+      tracker.recordRange('a.ts', 1, 200)
+      for (let i = 0; i < 7; i++) tracker.recordReadAttempt('a.ts')
+
+      tracker.reconcileMtime('a.ts', 2_000)
+
+      expect(tracker.uncovered('a.ts', 1, 200)).toEqual([{ start: 1, end: 200 }])
+      expect(tracker.recordReadAttempt('a.ts')).toBe(1)
+    })
+
+    it('still reports hasInteracted for a read whose coverage was dropped as stale', () => {
+      // The final-reply path-claim check must not accuse the model of never
+      // reading a file it genuinely read, just because the file changed on
+      // disk afterward and the stale coverage was reconciled away.
+      const tracker = new ReadCoverageTracker()
+      tracker.reconcileMtime('a.ts', 1_000)
+      tracker.recordFullFile('a.ts')
+      tracker.reconcileMtime('a.ts', 2_000)
+
+      expect(tracker.hasAnyCoverage('a.ts')).toBe(false)
+      expect(tracker.hasInteracted('a.ts')).toBe(true)
+    })
+
+    it('does not mark hasInteracted when the changed file never had coverage', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.reconcileMtime('a.ts', 1_000)
+      tracker.reconcileMtime('a.ts', 2_000)
+      expect(tracker.hasInteracted('a.ts')).toBe(false)
+    })
+
+    it('treats the first mtime after noteMutation as a fresh observation', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.reconcileMtime('a.ts', 1_000)
+      tracker.recordFullFile('a.ts')
+      tracker.noteMutation('a.ts')
+      // The post-write read observes a new mtime; no coverage exists to drop
+      // and recording afterward must stick.
+      tracker.reconcileMtime('a.ts', 2_000)
+      tracker.recordFullFile('a.ts')
+      expect(tracker.isFullyCovered('a.ts')).toBe(true)
+    })
+  })
+
   describe('recordReadAttempt', () => {
     it('starts at 1 for the first attempt and increments per call', () => {
       const tracker = new ReadCoverageTracker()

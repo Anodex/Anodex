@@ -34,6 +34,8 @@ export class ReadCoverageTracker {
   private fullFiles = new Set<string>()
   private readAttempts = new Map<string, number>()
   private mutatedPaths = new Set<string>()
+  private observedMtimes = new Map<string, number>()
+  private invalidatedReads = new Set<string>()
 
   /**
    * Record that `path` was successfully written, deleted, or moved this task
@@ -52,17 +54,51 @@ export class ReadCoverageTracker {
     this.fullFiles.delete(path)
     this.ranges.delete(path)
     this.readAttempts.delete(path)
+    // The next read observes the post-write mtime as a fresh first sighting
+    // instead of comparing it against the pre-write one already stored.
+    this.observedMtimes.delete(path)
+  }
+
+  /**
+   * Reconcile coverage with the file's currently-observed mtime BEFORE
+   * trusting or extending it — the catch-all for changes our own write
+   * tools' `noteMutation` cannot see: a `run_command` side effect (a
+   * formatter, codegen, git checkout), or the user editing the file in
+   * their own editor mid-task. If the file changed since its coverage was
+   * recorded, that coverage describes content that no longer exists, so it
+   * is dropped (attempt counter included, same reasoning as `noteMutation`)
+   * and the read proceeds as genuinely new. Read tools call this right
+   * after `stat`, before consulting `isFullyCovered`/`uncovered`; recording
+   * in the same call is then keyed to the mtime just observed.
+   */
+  reconcileMtime(path: string, mtimeMs: number): void {
+    const known = this.observedMtimes.get(path)
+    if (known !== undefined && known !== mtimeMs) {
+      // Remember that this task DID read (an earlier version of) the file —
+      // dropping coverage must not turn an honest mention of it in the final
+      // reply into a "never read this task" accusation (see `hasInteracted`).
+      if (this.fullFiles.has(path) || (this.ranges.get(path)?.length ?? 0) > 0) {
+        this.invalidatedReads.add(path)
+      }
+      this.fullFiles.delete(path)
+      this.ranges.delete(path)
+      this.readAttempts.delete(path)
+    }
+    this.observedMtimes.set(path, mtimeMs)
   }
 
   /**
    * Whether this task genuinely interacted with `path` at all — read any part
-   * of it, or successfully mutated (wrote/deleted/moved) it. Broader than
-   * `hasAnyCoverage`: a reply saying "I deleted `x/y.ts`" is describing a
-   * real, verified action even though the path no longer exists on disk and
-   * has no read coverage — see `findUnverifiedPathClaims`.
+   * of it (including an earlier version since changed on disk, see
+   * `reconcileMtime`), or successfully mutated (wrote/deleted/moved) it.
+   * Broader than `hasAnyCoverage`: a reply saying "I deleted `x/y.ts`" is
+   * describing a real, verified action even though the path no longer exists
+   * on disk and has no read coverage — see `findUnverifiedPathClaims`.
    */
   hasInteracted(path: string): boolean {
-    return this.hasAnyCoverage(path) || this.mutatedPaths.has(path)
+    return (
+      this.hasAnyCoverage(path) || this.mutatedPaths.has(path) || this.invalidatedReads.has(path)
+    )
   }
 
   /** Record that `path` has now been read in its entirety. */
