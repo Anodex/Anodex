@@ -396,7 +396,13 @@ export class CriticalThinkingResearchRunner {
       signal
     )
     if (signal.aborted) return this.stopStep(abortReason(), round.id)
-    throwIfEveryOperationFailed(results, 'Every web search failed')
+    // Every search this round failed (provider rejected each query). Limit
+    // this step and let the run continue to other steps and synthesize
+    // whatever evidence exists — throwing here would unwind the whole
+    // investigation into a reportless failure (see `everyOperationFailed`).
+    if (everyOperationFailed(results)) {
+      return this.limitStep('no-progress', false, round.id)
+    }
 
     const searchedAfterAttempt = new Set(
       artifactsForRound(this.deps.listArtifacts(), round.id)
@@ -473,7 +479,6 @@ export class CriticalThinkingResearchRunner {
         policy.maxVerifiedSourcesPerRun - verifiedUrlCount(persistedArtifacts)
       )
       if (remainingEvidenceCapacity === 0) {
-        throwIfEveryOperationFailed(settled, 'Every selected page failed to load')
         return {
           verifiedPages: 0,
           stopped: true,
@@ -481,7 +486,6 @@ export class CriticalThinkingResearchRunner {
         }
       }
       if (remainingBudget === 0) {
-        throwIfEveryOperationFailed(settled, 'Every selected page failed to load')
         return {
           verifiedPages: 0,
           stopped: true,
@@ -529,7 +533,16 @@ export class CriticalThinkingResearchRunner {
         result: await this.stopStep(abortReason(), round.id)
       }
     }
-    throwIfEveryOperationFailed(settled, 'Every selected page failed to load')
+    // Every selected page this round failed to load (e.g. a burst of 403s).
+    // Limit this step and move on — earlier steps' verified evidence and the
+    // final report must survive one dead round, so this must not throw.
+    if (everyOperationFailed(settled)) {
+      return {
+        verifiedPages: 0,
+        stopped: true,
+        result: await this.limitStep('no-progress', false, round.id)
+      }
+    }
     const currentRound = requireRound(this.deps.getRun(), round.id)
     const verifiedPages = verifiedUrlsForRound(this.deps.listArtifacts(), currentRound).size
     this.deps.updateRound(round.id, { status: 'assessing', terminationReason: undefined })
@@ -1055,12 +1068,18 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Research operation failed.'
 }
 
-function throwIfEveryOperationFailed<T>(results: PromiseSettledResult<T>[], label: string): void {
-  if (results.length === 0 || results.some((result) => result.status === 'fulfilled')) return
-  const firstFailure = results.find(
-    (result): result is PromiseRejectedResult => result.status === 'rejected'
-  )
-  throw new Error(`${label}: ${truncate(errorMessage(firstFailure?.reason), 300)}`)
+/**
+ * True when at least one operation was attempted and every one of them failed.
+ * A round in which every search or fetch failed (e.g. a burst of 403s — see
+ * `webTools`' browser-header fix) is a step-level setback, not a run-ending
+ * catastrophe: callers `limitStep` on it so the wave scheduler moves on and
+ * the run can still synthesize whatever earlier steps verified. This must
+ * never throw — an uncaught throw out of `run()` unwinds the entire
+ * investigation into a reportless `failed`, which is exactly the bug this
+ * replaced.
+ */
+function everyOperationFailed<T>(results: PromiseSettledResult<T>[]): boolean {
+  return results.length > 0 && results.every((result) => result.status === 'rejected')
 }
 
 function truncate(value: string, maxChars: number): string {

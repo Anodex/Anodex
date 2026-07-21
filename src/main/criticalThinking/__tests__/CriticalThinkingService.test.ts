@@ -810,3 +810,47 @@ describe('CriticalThinkingService research: breadth-first step scheduling (P0-D)
     expect(persisted?.steps.every((step) => step.rounds.length <= 1)).toBe(true)
   })
 })
+
+describe('CriticalThinkingService research: failure salvage', () => {
+  it('salvages a report from verified evidence when synthesis throws, instead of failing empty', async () => {
+    const run = seedSynthesisRun()
+    // The local engine throwing mid-synthesis (e.g. "Object is disposed" when
+    // the model reloads) used to end the whole run `failed` with no report,
+    // discarding the verified source. It must now assemble the deterministic
+    // fallback report from that evidence.
+    mocks.runGeneration.mockRejectedValue(new Error('Object is disposed'))
+
+    await runResearchDirectly(run)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('partial')
+    // The report is built from the verified passage, not fabricated.
+    expect(persisted?.report).toContain('sharper, more acute pain response')
+    expect(persisted?.lastError).toContain('Object is disposed')
+  })
+
+  it('reports an actionable failure when a research error leaves no verified evidence', async () => {
+    const run = seedRun({
+      status: 'researching',
+      plan: {
+        title: 'Venom study',
+        steps: [{ id: 'step-1', title: 'Compare venom', status: 'pending' }],
+        updatedAt: 1
+      },
+      steps: [makeResearchStep('step-1', 'Compare venom')],
+      sources: []
+    })
+    // The query-phase model call throws before anything is fetched, so no
+    // source is ever verified — an honest, actionable failure, not a
+    // fabricated report and not a bare "failed".
+    mocks.runGeneration.mockRejectedValue(new Error('model crashed'))
+
+    await runResearchDirectly(run)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('failed')
+    expect(persisted?.report ?? '').toBe('')
+    expect(persisted?.lastError).toContain('could not gather any usable web sources')
+    expect(persisted?.lastError).toContain('model crashed')
+  })
+})

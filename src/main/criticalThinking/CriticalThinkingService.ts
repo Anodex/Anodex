@@ -297,30 +297,22 @@ class CriticalThinkingService {
       await this.runResearchWaves(initialRun.id, controller.signal, usage)
 
       if (controller.signal.aborted) {
-        if (totalTimedOut) this.markRunTimeLimit(initialRun.id)
-        this.finish(initialRun.id, totalTimedOut ? 'partial' : 'stopped', {
-          lastError: totalTimedOut
-            ? 'The investigation reached its research-attempt time budget and can be resumed.'
-            : 'Research was stopped. You can resume from the saved evidence.'
-        })
+        this.finishAbortedResearch(initialRun.id, totalTimedOut)
         return
       }
       this.reconcileEvidenceReferences(initialRun.id)
       await this.runSynthesis(this.requireRun(initialRun.id), controller.signal)
     } catch (error) {
       log.error('Critical Thinking research failed:', initialRun.id, error)
-      if (controller.signal.aborted && totalTimedOut) this.markRunTimeLimit(initialRun.id)
-      this.finish(
-        initialRun.id,
-        controller.signal.aborted ? (totalTimedOut ? 'partial' : 'stopped') : 'failed',
-        {
-          lastError: controller.signal.aborted
-            ? totalTimedOut
-              ? 'The investigation reached its research-attempt time budget and can be resumed.'
-              : 'Research was stopped. You can resume from the saved evidence.'
-            : errorMessage(error)
-        }
-      )
+      if (controller.signal.aborted) {
+        this.finishAbortedResearch(initialRun.id, totalTimedOut)
+      } else {
+        // A real error mid-research or synthesis. Don't discard the whole
+        // investigation — salvage the best report the verified evidence can
+        // support, falling back to an actionable failure only when nothing
+        // was gathered at all.
+        this.finishWithSalvagedReport(initialRun.id, 'failed', errorMessage(error))
+      }
     } finally {
       clearTimeout(totalTimer)
       try {
@@ -845,6 +837,85 @@ class CriticalThinkingService {
     this.finish(id, stopReason === 'user' ? 'stopped' : 'failed', {
       stats,
       lastError: stoppedReasonMessage(stopReason)
+    })
+  }
+
+  /**
+   * Terminate a run whose research phase was aborted. A time-limit abort still
+   * salvages a report from whatever was verified (the deterministic fallback is
+   * a synchronous, no-model-call assembly, so it's safe even past the budget);
+   * a genuine user Stop stays resumable with no forced report, respecting the
+   * intent to pause.
+   */
+  private finishAbortedResearch(runId: string, totalTimedOut: boolean): void {
+    if (totalTimedOut) {
+      this.markRunTimeLimit(runId)
+      this.finishWithSalvagedReport(
+        runId,
+        'partial',
+        'The investigation reached its research-attempt time budget.'
+      )
+      return
+    }
+    this.finish(runId, 'stopped', {
+      lastError: 'Research was stopped. You can resume from the saved evidence.'
+    })
+  }
+
+  /**
+   * Finish a run that ended without a validated synthesis report by building
+   * the best report the gathered evidence can support, instead of discarding an
+   * entire investigation because one round or the synthesis step failed. When
+   * any source was verified this emits the same deterministic, citation-checked
+   * fallback report `runSynthesis` uses, marked `partial`; only a run that
+   * gathered nothing citable reports an outright, actionable failure — never a
+   * fabricated one. `reason` is appended to the surfaced message so the user
+   * knows why it stopped short. `emptyStatus` is what to report when there is
+   * no evidence to salvage (`'failed'` for a real error, `'partial'` for a
+   * clean early stop such as a time-out).
+   */
+  private finishWithSalvagedReport(
+    runId: string,
+    emptyStatus: 'failed' | 'partial',
+    reason: string
+  ): void {
+    const run = criticalThinkingStore.get(runId)
+    if (!run) return
+    const artifacts = criticalThinkingEvidenceStore.list(runId)
+    const verifiedSources = run.sources.filter((source) => source.verified)
+
+    if (verifiedSources.length === 0) {
+      // Nothing citable was gathered — an honest, actionable message beats a
+      // fabricated report or a bare "failed".
+      this.finish(runId, emptyStatus, {
+        lastError:
+          emptyStatus === 'failed'
+            ? `Critical Thinking could not gather any usable web sources. ${reason} Check your web search provider and internet connection, then try again.`
+            : `Research ended before any source could be verified. ${reason}`
+      })
+      return
+    }
+
+    const stepsWithEvidence = run.steps.filter((step) => step.evidenceIds.length > 0).length
+    const fallbackContent = buildDeterministicFallbackReport(
+      run.plan?.title ?? run.question,
+      run.steps,
+      artifacts,
+      run.sources
+    )
+    const candidate = evaluateReportCandidate(
+      fallbackContent,
+      artifacts,
+      run.sources,
+      stepsWithEvidence
+    )
+    const report = renderResearchCitations(candidate.content, run.sources)
+    this.finish(runId, 'partial', {
+      report,
+      plan: run.plan,
+      lastError: `This report was assembled from the ${verifiedSources.length} source${
+        verifiedSources.length === 1 ? '' : 's'
+      } verified before research stopped early. ${reason}`
     })
   }
 

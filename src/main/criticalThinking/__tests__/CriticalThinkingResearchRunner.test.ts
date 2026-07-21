@@ -305,19 +305,31 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(fetchUsage.fetches).toBe(1)
   })
 
-  it('surfaces a complete provider batch failure instead of reporting generic no progress', async () => {
+  it('limits the step when every web search fails, instead of throwing and killing the run', async () => {
+    // A total search failure used to throw out of the uncaught run() loop and
+    // unwind the whole investigation into a reportless failure. It must now
+    // limit only this step so other steps and synthesis can still proceed; the
+    // specific provider error is preserved in the per-query activity log.
     const round = makeRound({ status: 'searching', queries: ['provider failure'] })
     const harness = createHarness({
       run: makeRun([round]),
       search: () => Promise.reject(new Error('provider unavailable'))
     })
 
-    await expect(harness.runner.run(new AbortController().signal, emptyUsage())).rejects.toThrow(
-      'Every web search failed: provider unavailable'
-    )
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('limited')
+    expect(result.stopped).toBe(false)
+    expect(harness.run.steps[0].status).toBe('limited')
+    expect(harness.run.steps[0].terminationReason).toBe('no-progress')
+    expect(
+      harness.activities.some(
+        (activity) => activity.status === 'error' && activity.detail === 'provider unavailable'
+      )
+    ).toBe(true)
   })
 
-  it('surfaces a complete page-fetch batch failure with the original cause', async () => {
+  it('limits the step when every selected page fails to load, instead of throwing', async () => {
     const round = makeRound({
       status: 'reading',
       queries: ['completed search'],
@@ -328,9 +340,16 @@ describe('CriticalThinkingResearchRunner', () => {
       fetch: () => Promise.reject(new Error('connection refused'))
     })
 
-    await expect(harness.runner.run(new AbortController().signal, emptyUsage())).rejects.toThrow(
-      'Every selected page failed to load: connection refused'
-    )
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('limited')
+    expect(harness.run.steps[0].status).toBe('limited')
+    expect(harness.run.steps[0].terminationReason).toBe('no-progress')
+    expect(
+      harness.activities.some(
+        (activity) => activity.status === 'error' && activity.detail === 'connection refused'
+      )
+    ).toBe(true)
   })
 
   it('uses later selected pages when an unreadable page leaves lifetime capacity unused', async () => {
