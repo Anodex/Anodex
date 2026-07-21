@@ -136,7 +136,8 @@ export interface GenerationOptions {
    * supports this (see `LlamaService.ts`); omit it to use the provider's own
    * default reasoning allowance. Set it when a phase needs a *guaranteed*
    * minimum visible-output reserve (e.g. Critical Thinking synthesis/repair —
-   * see `criticalThinkingSynthesisBudget.ts`'s `boundedThoughtTokenBudget`)
+   * see `criticalThinkingSynthesisLimits().thoughtTokens` in
+   * `criticalThinkingSynthesisBudget.ts`)
    * rather than leaving reasoning free to consume the whole cap.
    */
   thoughtTokens?: number
