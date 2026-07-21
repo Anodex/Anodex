@@ -441,10 +441,128 @@ describe('AI file tools', () => {
       const omitted = await tool.handler({ path: 'big.txt', startLine: 1 })
       const blocked = await tool.handler({ path: 'big.txt', startLine: 1, endLine: 200 })
 
-      expect(infinite).toBe(oversized)
-      expect(omitted).toBe(infinite)
+      // All four calls canonicalize to the identical effective range — the
+      // first genuinely reads it; the second and third are already fully
+      // covered (see `ReadCoverageTracker`) and are short-circuited instead
+      // of re-serving the same content; the fourth is finally blocked
+      // outright by the loop guard (a repeated identical fingerprint, same
+      // as before this tracker existed).
       expect(infinite).toContain('[big.txt: lines 1-200 of 300. Next startLine: 201.]')
+      expect(oversized).toContain('already read earlier this task')
+      expect(omitted).toContain('already read earlier this task')
       expect(blocked).toContain('identical effective arguments 4 times this turn')
+    })
+
+    describe('cross-call read coverage (P0-C follow-up)', () => {
+      it('serves only the new trailing portion of a range that partly overlaps an earlier read', async () => {
+        // Regression fixture: a live retest reread the opening ~250 lines of
+        // the same file across FIVE overlapping calls spread over several
+        // continuation cycles instead of moving on to new files (see
+        // `ReadCoverageTracker`'s doc comment). A single shared `ctx` here
+        // stands in for one bounded task's shared tracker across cycles.
+        const content = Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'big.txt'), content)
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+        }
+
+        const first = await tool.handler({ path: 'big.txt', startLine: 1, endLine: 200 })
+        // Well under MAX_RANGE_LINES (200), so normalization doesn't reshape
+        // this request itself — the only trimming should come from coverage.
+        const second = await tool.handler({ path: 'big.txt', startLine: 150, endLine: 250 })
+
+        expect(first).toContain('lines 1-200')
+        // Only the genuinely new 201-250 portion is served, not a re-fetch of
+        // the already-covered 150-200 prefix.
+        expect(second).toContain('[big.txt: lines 201-250 of 500.')
+        expect(second).toContain('line 201')
+        expect(second).not.toContain('line 150\n')
+        expect(second).toContain(
+          'Lines 150-250 were requested; the rest was already read earlier this task'
+        )
+      })
+
+      it('short-circuits an exact duplicate range without touching disk content again', async () => {
+        const content = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'small.txt'), content)
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+        }
+
+        await tool.handler({ path: 'small.txt', startLine: 1, endLine: 10 })
+        const repeat = await tool.handler({ path: 'small.txt', startLine: 1, endLine: 10 })
+
+        expect(repeat).toContain('already read earlier this task')
+        expect(repeat).not.toContain('line 1\n')
+      })
+
+      it('short-circuits read_file_range for a file already read in full via read_file', async () => {
+        await writeFile(join(workspace, 'whole.txt'), 'a\nb\nc')
+        const ctx = createMockContext(workspace)
+        const fileTool = readFileTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string }) => Promise<string>
+        }
+        const rangeTool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number }) => Promise<string>
+        }
+
+        await fileTool.handler({ path: 'whole.txt' })
+        const rangeResult = await rangeTool.handler({ path: 'whole.txt', startLine: 1 })
+
+        expect(rangeResult).toContain('already read earlier this task')
+      })
+
+      it('short-circuits a repeat read_file for a file already read in full', async () => {
+        await writeFile(join(workspace, 'whole.txt'), 'a\nb\nc')
+        const ctx = createMockContext(workspace)
+        const tool = readFileTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string }) => Promise<string>
+        }
+
+        await tool.handler({ path: 'whole.txt' })
+        const repeat = await tool.handler({ path: 'whole.txt' })
+
+        expect(repeat).toContain('already read in full earlier this task')
+      })
+
+      it('skips a file in read_multiple_files that was already read in full', async () => {
+        await writeFile(join(workspace, 'a.txt'), 'a')
+        await writeFile(join(workspace, 'b.txt'), 'b')
+        const ctx = createMockContext(workspace)
+        const fileTool = readFileTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string }) => Promise<string>
+        }
+        const batchTool = readMultipleFilesTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { paths: string[] }) => Promise<string>
+        }
+
+        await fileTool.handler({ path: 'a.txt' })
+        const batch = await batchTool.handler({ paths: ['a.txt', 'b.txt'] })
+
+        expect(batch).toContain('a.txt ---\nAlready read in full earlier this task')
+        expect(batch).toContain('--- b.txt ---\nb')
+      })
+
+      it('does not let one context leak coverage into a different context', async () => {
+        const content = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'small.txt'), content)
+        const ctxA = createMockContext(workspace)
+        const ctxB = createMockContext(workspace)
+        const toolA = readFileRangeTool(createMockDefine(), ctxA) as unknown as {
+          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+        }
+        const toolB = readFileRangeTool(createMockDefine(), ctxB) as unknown as {
+          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+        }
+
+        await toolA.handler({ path: 'small.txt', startLine: 1, endLine: 10 })
+        const resultB = await toolB.handler({ path: 'small.txt', startLine: 1, endLine: 10 })
+
+        expect(resultB).not.toContain('already read earlier this task')
+        expect(resultB).toContain('line 1')
+      })
     })
 
     it('records a read touch in project memory', async () => {

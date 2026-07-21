@@ -135,6 +135,16 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
         modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          // Already read in full earlier this bounded task (a prior cycle or
+          // turn) — see `ReadCoverageTracker`'s doc comment. Skip the disk
+          // read and the redundant context growth entirely rather than
+          // silently reproducing identical content a second time.
+          if (ctx.readCoverage.isFullyCovered(file)) {
+            return {
+              modelResult: `${toWorkspaceRelative(ctx.workspaceRoot, file)} was already read in full earlier this task — nothing new here. Move on to a different file.`,
+              detail: 'Already read in full earlier this task'
+            }
+          }
           const info = await stat(file)
           if (!info.isFile()) throw new Error('Path is not a file.')
           const raw = await readFile(file, 'utf-8')
@@ -155,6 +165,7 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
               detail: `${info.size} bytes (too large; see recommendation)`
             }
           }
+          ctx.readCoverage.recordFullFile(file)
           return {
             modelResult: raw,
             detail: `${lineCount} lines`
@@ -327,14 +338,29 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
         modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, normalized.path)
+          // Already read in full, or this exact range already returned
+          // earlier this bounded task (a prior continuation cycle or agent
+          // turn, possibly since folded into a compaction summary that no
+          // longer states it precisely) — see `ReadCoverageTracker`'s doc
+          // comment. Trim the request down to only what's genuinely new
+          // before touching disk at all, rather than re-serving (and
+          // re-growing context with) territory already covered.
+          const gaps = ctx.readCoverage.uncovered(file, normalized.startLine, normalized.endLine)
+          if (gaps.length === 0) {
+            return {
+              modelResult: `[${normalized.path}: lines ${normalized.startLine}-${normalized.endLine} were already read earlier this task — no new content here.]\nTry a different range or file instead.`,
+              detail: 'Already read earlier this task'
+            }
+          }
+          const target = gaps[0]
           const info = await stat(file)
           if (!info.isFile()) throw new Error('Path is not a file.')
           const raw = await readFile(file, 'utf-8')
           const lines = raw.split('\n')
-          const start = normalized.startLine
+          const start = target.start
           if (start > lines.length)
             throw new Error(`Start line ${start} is beyond the file's ${lines.length} lines.`)
-          const requestedEnd = Math.min(lines.length, normalized.endLine)
+          const requestedEnd = Math.min(lines.length, target.end)
           const requestedLines = lines.slice(start - 1, requestedEnd)
           const charBudget = Math.max(
             0,
@@ -351,9 +377,17 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           const partialNote = partialLastLine
             ? ' The last line included was too long to fit whole and was cut short — it is not complete.'
             : ''
+          // Only note a skip when this call actually served something
+          // narrower than what was requested — the common case (nothing
+          // already covered) stays exactly as it read before this existed.
+          const skippedNote =
+            start !== normalized.startLine || actualEnd < normalized.endLine
+              ? ` Lines ${normalized.startLine}-${normalized.endLine} were requested; the rest was already read earlier this task, so only the new portion is shown.`
+              : ''
+          if (actualEnd >= start) ctx.readCoverage.recordRange(file, start, actualEnd)
           return {
             modelResult:
-              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}${partialNote}]\n` +
+              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}${partialNote}${skippedNote}]\n` +
               content,
             detail: `lines ${start}-${actualEnd}`
           }
@@ -437,6 +471,15 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
           for (const relativePath of paths) {
             try {
               const file = resolveInWorkspace(ctx.workspaceRoot, relativePath)
+              // Already read in full earlier this bounded task — see
+              // `ReadCoverageTracker`'s doc comment. Skip the disk read and
+              // the redundant context growth for this file entirely.
+              if (ctx.readCoverage.isFullyCovered(file)) {
+                results.push(
+                  `--- ${relativePath} ---\nAlready read in full earlier this task — nothing new here.`
+                )
+                continue
+              }
               const info = await stat(file)
               if (!info.isFile()) {
                 results.push(`--- ${relativePath} ---\nError: Path is not a file.`)
@@ -465,6 +508,12 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
                 : `--- ${relativePath} ---`
               results.push(`${header}\n${bounded}`)
               readTouches.push({ path: relativePath, action: 'read' })
+              if (wasTruncated) {
+                if (includedLines.length > 0)
+                  ctx.readCoverage.recordRange(file, 1, includedLines.length)
+              } else {
+                ctx.readCoverage.recordFullFile(file)
+              }
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error)
               results.push(`--- ${relativePath} ---\nError: ${message}`)

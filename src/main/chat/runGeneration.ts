@@ -35,6 +35,7 @@ import { skillStore } from '../skills/SkillStore'
 import { buildActiveSkillContext } from '../skills/activeSkillContext'
 import { parseRunCommandVerification } from '../tools/commandTools'
 import { mcpManager } from '../mcp/McpManager'
+import type { ReadCoverageTracker } from '../tools/readCoverage'
 import { chatEvents } from './chatEvents'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
 import {
@@ -83,6 +84,16 @@ export interface RunGenerationIo {
   onArtifact?: (artifact: ToolArtifact) => void
   /** Optional stricter per-turn policy; interactive defaults remain bounded too. */
   executionBudget?: GenerationBudgetPolicy
+  /**
+   * Shared across every call in a caller-owned multi-cycle/multi-turn task
+   * (see `ToolRuntimeContext.readCoverage`'s doc comment) — `BoundedChatRunner`
+   * and `AgentRunService` supply one so read tools can trim a request down to
+   * only its new portion (or short-circuit entirely) across cycle/turn
+   * boundaries, not just within one call. Omit for a genuine one-shot
+   * generation (e.g. Critical Thinking's isolated phases): a fresh, call-
+   * scoped tracker is used instead, with no cross-call effect.
+   */
+  readCoverage?: ReadCoverageTracker
 }
 
 export interface RunGenerationResult {
@@ -247,7 +258,8 @@ export async function runGeneration(
           }
           io.onActivity?.(call)
         },
-        confirm: io.confirm
+        confirm: io.confirm,
+        readCoverage: io.readCoverage
       }
     : undefined
 

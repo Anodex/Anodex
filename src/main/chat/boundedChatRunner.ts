@@ -3,6 +3,7 @@ import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from './runGeneration'
 import { isRecoverableGenerationStop } from './recoverableStop'
+import { createReadCoverageTracker } from '../tools/readCoverage'
 
 /**
  * Nudge prompt for every continuation cycle after the first — deliberately
@@ -72,6 +73,12 @@ export async function runBoundedChatGeneration(
   io: RunGenerationIo
 ): Promise<RunGenerationResult> {
   const deadline = Date.now() + TOTAL_WALL_CLOCK_MS
+  // One tracker for the whole bounded reply, shared by every cycle's read
+  // tools — see `ReadCoverageTracker`'s doc comment. This is what actually
+  // stops a later cycle from re-reading territory an earlier cycle already
+  // covered, independent of whether the model itself still remembers doing
+  // so (a compaction summary between cycles may not preserve that fact).
+  const readCoverage = createReadCoverageTracker()
   let history: ChatHistoryTurn[] = request.history
   let prompt = request.prompt
   let context = request.context ?? undefined
@@ -96,6 +103,7 @@ export async function runBoundedChatGeneration(
       { ...request, history, prompt, context },
       {
         ...io,
+        readCoverage,
         onActivity: (call) => {
           if (call.status === 'success') madeProgressThisCycle = true
           toolCallsById.set(call.id, call)

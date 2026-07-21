@@ -74,6 +74,7 @@ import {
   type LocalGenerationDiagnostics
 } from './generationDiagnostics'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
+import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
 import { defaultToolThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
@@ -242,6 +243,13 @@ export interface GenerateParams {
     beforeTool?: (name: string, args: unknown) => string | null
     onActivity: (call: ToolCall) => void
     confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
+    /**
+     * Shared across every call in a caller-owned multi-cycle/multi-turn task
+     * (see `ToolRuntimeContext.readCoverage`'s doc comment) — undefined means
+     * this call has no such task, so a fresh, call-scoped tracker is used
+     * with no cross-call effect.
+     */
+    readCoverage?: ReadCoverageTracker
   }
 }
 
@@ -1851,6 +1859,10 @@ class LlamaService extends EventEmitter {
       // real context accounting isn't measured until after this method
       // returns (see `contextBudget` below), so it fills in slightly later.
       modelResultBudget: modelResultBudgetBox,
+      // Reuse the caller-owned tracker when this call is part of a bounded
+      // multi-cycle/multi-turn task (see `ToolRuntimeContext.readCoverage`'s
+      // doc comment); otherwise a fresh one with no cross-call effect.
+      readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
       // See `ToolRuntimeContext.abortGeneration`'s doc comment and this
       // method's own doc comment above for why this goes through a box.
       abortGeneration: () => abortBox.current?.(),

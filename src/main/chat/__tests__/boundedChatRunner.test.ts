@@ -281,4 +281,31 @@ describe('runBoundedChatGeneration', () => {
     expect(seenActivity).toHaveLength(1)
     expect(seenActivity[0].name).toBe('list_directory')
   })
+
+  it('shares one readCoverage tracker across every cycle of the same bounded reply', async () => {
+    // See `ReadCoverageTracker`'s doc comment — a fresh tracker per cycle
+    // would defeat the whole point (a later cycle needs to see what an
+    // earlier cycle already read).
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockResolvedValueOnce(
+        result({
+          content: 'Partial.',
+          stopped: true,
+          stopReason: 'token-limit',
+          stats: { tokens: 10, durationMs: 100, tokensPerSecond: 100 }
+        })
+      )
+      .mockResolvedValueOnce(
+        result({ content: 'Done.', stats: { tokens: 5, durationMs: 50, tokensPerSecond: 100 } })
+      )
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    const firstIo = mockedRunGeneration.mock.calls[0][1]
+    const secondIo = mockedRunGeneration.mock.calls[1][1]
+    expect(firstIo.readCoverage).toBeDefined()
+    expect(secondIo.readCoverage).toBe(firstIo.readCoverage)
+  })
 })

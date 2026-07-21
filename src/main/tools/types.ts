@@ -6,6 +6,7 @@ import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { LoopGuardState } from './loopGuard'
 import type { ToolArtifact, ToolArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ModelToolResultBudget } from './modelResultBudget'
+import type { ReadCoverageTracker } from './readCoverage'
 
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
 type NlcModule = typeof import('node-llama-cpp')
@@ -82,6 +83,18 @@ export interface ToolRuntimeContext {
    * disk-oriented caps unchanged, exactly as before this budget existed.
    */
   modelResultBudget: { current: ModelToolResultBudget | null }
+  /**
+   * Which file line ranges have already been read this bounded task (not
+   * just this one generation call) — see `ReadCoverageTracker`'s doc
+   * comment. Supplied by the caller when it owns a multi-cycle/multi-turn
+   * task (`BoundedChatRunner`, `AgentRunService`) so read tools can trim a
+   * request down to only its genuinely new portion, or short-circuit
+   * entirely, across cycle/turn boundaries — not just within one call the
+   * way `loopGuard` above does. A caller with no such task (a one-shot
+   * generation) gets a fresh, call-scoped instance with no cross-call
+   * effect, identical to not having this at all.
+   */
+  readCoverage: ReadCoverageTracker
   /** Research focus used to rank useful passages from large fetched pages. */
   evidenceFocus?: string
   /** Persist a full structured result before the model-facing text is truncated. */

@@ -17,6 +17,7 @@ import {
 } from '../llama/compaction'
 import { buildTools } from '../tools/registry'
 import { createLoopGuardState } from '../tools/loopGuard'
+import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
@@ -94,6 +95,11 @@ class OpenAiProvider implements LlmProvider {
           // `ToolRuntimeContext.modelResultBudget`'s doc comment. Tools fall
           // back to their own existing caps unchanged.
           modelResultBudget: { current: null },
+          // Reuse the caller-owned tracker when this call is part of a
+          // bounded multi-cycle/multi-turn task (see
+          // `ToolRuntimeContext.readCoverage`'s doc comment); otherwise a
+          // fresh one with no cross-call effect.
+          readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
           signal: params.signal,
           emit: params.tools.onActivity,
           confirm: params.tools.confirm
