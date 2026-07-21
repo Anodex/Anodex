@@ -337,7 +337,9 @@ export async function runGuardedTool(
       effectiveModelResultCap(ctx, spec.modelResultCap)
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
-    recordCheckpoint(ctx, checkpointChanges ?? checkpointChangesFromDiff(diff))
+    const changes = checkpointChanges ?? checkpointChangesFromDiff(diff)
+    noteMutatedReadCoverage(ctx, spec.touch, changes)
+    recordCheckpoint(ctx, changes)
     ctx.emit({
       id,
       name: spec.name,
@@ -363,6 +365,36 @@ export async function runGuardedTool(
       result: `Error: ${message}`
     })
     return `Error: ${message}`
+  }
+}
+
+/**
+ * Mark every path a successful guarded call mutated as stale in the task's
+ * read-coverage tracker (see `ReadCoverageTracker.noteMutation`). Uses both
+ * the declared touch (write/delete/move — never read) and the checkpoint
+ * changes, since only the latter carries a move's source path. Keyed by the
+ * same workspace-resolved absolute path the read tools track under. Unlike
+ * `recordCheckpoint`, this must not depend on an active project — coverage
+ * staleness is real in any workspace chat. `run_command` is the known gap:
+ * a command can change files without declaring any touch.
+ */
+function noteMutatedReadCoverage(
+  ctx: ToolRuntimeContext,
+  touch: FileTouch | FileTouch[] | undefined,
+  changes: CheckpointFileChange[] | undefined
+): void {
+  if (!ctx.workspaceRoot) return
+  const touches = Array.isArray(touch) ? touch : touch ? [touch] : []
+  const paths = [
+    ...touches.filter((t) => t.action !== 'read').map((t) => t.path),
+    ...(changes ?? []).map((change) => change.path)
+  ]
+  for (const path of paths) {
+    try {
+      ctx.readCoverage.noteMutation(resolveInWorkspace(ctx.workspaceRoot, path))
+    } catch {
+      /* Outside the workspace — the tracker never held coverage for it. */
+    }
   }
 }
 

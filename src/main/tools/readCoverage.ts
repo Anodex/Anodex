@@ -33,6 +33,37 @@ export class ReadCoverageTracker {
   private ranges = new Map<string, LineRange[]>()
   private fullFiles = new Set<string>()
   private readAttempts = new Map<string, number>()
+  private mutatedPaths = new Set<string>()
+
+  /**
+   * Record that `path` was successfully written, deleted, or moved this task
+   * — which makes any read coverage recorded for it stale. Without this, a
+   * read → edit → re-read sequence inside one bounded task is told "already
+   * read earlier this task" and served nothing, so the model can never see
+   * (or verify) its own edit's result and keeps operating on pre-edit
+   * content — the exact `edit_file`/"text not found" failure mode the
+   * runtime budget work exists to eliminate. Clearing `readAttempts` too is
+   * deliberate: a mutation legitimately restarts interest in a file, and the
+   * pathological page-through-one-huge-file case this cap exists for
+   * involves no writes at all, so resetting on write reopens nothing.
+   */
+  noteMutation(path: string): void {
+    this.mutatedPaths.add(path)
+    this.fullFiles.delete(path)
+    this.ranges.delete(path)
+    this.readAttempts.delete(path)
+  }
+
+  /**
+   * Whether this task genuinely interacted with `path` at all — read any part
+   * of it, or successfully mutated (wrote/deleted/moved) it. Broader than
+   * `hasAnyCoverage`: a reply saying "I deleted `x/y.ts`" is describing a
+   * real, verified action even though the path no longer exists on disk and
+   * has no read coverage — see `findUnverifiedPathClaims`.
+   */
+  hasInteracted(path: string): boolean {
+    return this.hasAnyCoverage(path) || this.mutatedPaths.has(path)
+  }
 
   /** Record that `path` has now been read in its entirety. */
   recordFullFile(path: string): void {

@@ -97,6 +97,53 @@ describe('ReadCoverageTracker', () => {
     })
   })
 
+  describe('noteMutation / hasInteracted', () => {
+    it('clears full-file coverage so an edited file can be re-read', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordFullFile('a.ts')
+      tracker.noteMutation('a.ts')
+      expect(tracker.isFullyCovered('a.ts')).toBe(false)
+      expect(tracker.uncovered('a.ts', 1, 200)).toEqual([{ start: 1, end: 200 }])
+    })
+
+    it('clears range coverage so an edited region can be re-read', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordRange('a.ts', 1, 200)
+      tracker.noteMutation('a.ts')
+      expect(tracker.uncovered('a.ts', 40, 60)).toEqual([{ start: 40, end: 60 }])
+    })
+
+    it('resets the same-file read-attempt counter — a mutation restarts interest', () => {
+      const tracker = new ReadCoverageTracker()
+      for (let i = 0; i < 7; i++) tracker.recordReadAttempt('a.ts')
+      tracker.noteMutation('a.ts')
+      expect(tracker.recordReadAttempt('a.ts')).toBe(1)
+    })
+
+    it('leaves unrelated paths untouched', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordFullFile('a.ts')
+      tracker.recordRange('b.ts', 1, 50)
+      tracker.noteMutation('a.ts')
+      expect(tracker.hasAnyCoverage('b.ts')).toBe(true)
+      expect(tracker.isFullyCovered('a.ts')).toBe(false)
+    })
+
+    it('hasInteracted is true for a mutated path with no read coverage (e.g. a deleted file)', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.noteMutation('gone.ts')
+      expect(tracker.hasAnyCoverage('gone.ts')).toBe(false)
+      expect(tracker.hasInteracted('gone.ts')).toBe(true)
+    })
+
+    it('hasInteracted is true for a read path and false for an untouched one', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordRange('a.ts', 1, 10)
+      expect(tracker.hasInteracted('a.ts')).toBe(true)
+      expect(tracker.hasInteracted('b.ts')).toBe(false)
+    })
+  })
+
   describe('recordReadAttempt', () => {
     it('starts at 1 for the first attempt and increments per call', () => {
       const tracker = new ReadCoverageTracker()
