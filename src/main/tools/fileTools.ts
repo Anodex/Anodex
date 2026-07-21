@@ -50,6 +50,22 @@ const LARGE_FILE_SUGGEST_OUTLINE_LINES = 500
  * well more than its fair share of one bounded task's tool-call budget.
  */
 const MAX_SAME_FILE_READS = 6
+/**
+ * Hard ceiling on how large a file `read_file_range`/`get_file_info` will
+ * pull into memory at all (both need the whole decoded text to count/slice
+ * lines). Far above any real source file — a 10 MB source file is ~200k
+ * lines — this exists purely so pointing a line-oriented tool at a huge
+ * artifact (a giant log, a bundled blob) degrades to an honest redirect
+ * instead of decoding gigabytes into the main process.
+ */
+const MAX_LINE_TOOL_SOURCE_BYTES = 10 * 1024 * 1024
+/**
+ * UTF-8 never decodes to fewer than one UTF-16 code unit per 3 bytes (2-
+ * and 3-byte sequences → one unit; 4-byte sequences → two), so a file whose
+ * byte size exceeds 3× the character budget cannot possibly fit — usable to
+ * reject a file on `stat` alone, without first reading it into memory.
+ */
+const MAX_UTF8_BYTES_PER_CHAR = 3
 
 export interface ReadFileRangeArgs {
   path: string
@@ -172,8 +188,21 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
           }
           const info = await stat(file)
           if (!info.isFile()) throw new Error('Path is not a file.')
-          const raw = await readFile(file, 'utf-8')
           const charBudget = clampModelResultCap(MAX_FILE_BYTES, ctx.modelResultBudget.current)
+          // Rejectable on byte size alone (see MAX_UTF8_BYTES_PER_CHAR) —
+          // return the honest pointer without pulling a potentially huge
+          // file into memory first. Files under this bound still get the
+          // exact character check below after a bounded read.
+          if (info.size > charBudget * MAX_UTF8_BYTES_PER_CHAR) {
+            return {
+              modelResult:
+                `${toWorkspaceRelative(ctx.workspaceRoot, file)}: ${info.size} bytes. ` +
+                'Too large for the active context to return in full.\n' +
+                'Use code_outline for its structure, search_files to locate a section, or read_file_range to page through specific lines.',
+              detail: `${info.size} bytes (too large; see recommendation)`
+            }
+          }
+          const raw = await readFile(file, 'utf-8')
           const lineCount = countLines(raw)
           // A file that doesn't fit the active context is a disk-oriented
           // byte cap bypassing the real budget waiting to happen — return an
@@ -311,8 +340,11 @@ export const getFileInfoTool: WorkspaceToolFactory = (define, ctx) =>
         async run() {
           const target = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const info = await stat(target)
+          // Line-counting decodes the whole file — skipped above the same
+          // in-memory bound the line-range tool enforces; metadata stays
+          // useful (size/type/mtime) with lineCount honestly null.
           const lineCount =
-            info.isFile() && TEXT_EXT.test(target)
+            info.isFile() && TEXT_EXT.test(target) && info.size <= MAX_LINE_TOOL_SOURCE_BYTES
               ? countLines(await readFile(target, 'utf-8'))
               : null
           const summary = {
@@ -398,6 +430,19 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           const target = gaps[0]
           const info = await stat(file)
           if (!info.isFile()) throw new Error('Path is not a file.')
+          // Serving any line range requires decoding the whole file to split
+          // it — bounded here so a huge artifact degrades to an honest
+          // redirect instead of decoding gigabytes (see
+          // MAX_LINE_TOOL_SOURCE_BYTES). run_command genuinely can slice
+          // such a file; the workspace read tools cannot.
+          if (info.size > MAX_LINE_TOOL_SOURCE_BYTES) {
+            return {
+              modelResult:
+                `[${normalized.path}: ${info.size} bytes — beyond the ${MAX_LINE_TOOL_SOURCE_BYTES}-byte limit for line-range reads.]\n` +
+                'Use run_command with a shell command that slices the specific lines you need instead.',
+              detail: `${info.size} bytes (too large for line-range reads)`
+            }
+          }
           const raw = await readFile(file, 'utf-8')
           const lines = raw.split('\n')
           const start = target.start
@@ -416,9 +461,27 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           )
           const actualEnd = start + includedLines.length - 1
           const content = includedLines.join('\n')
-          const continuation = actualEnd < lines.length ? ` Next startLine: ${actualEnd + 1}.` : ''
+          // Recorded before the continuation hint below is computed, so the
+          // hint can see this call's own coverage merged in.
+          if (actualEnd >= start) ctx.readCoverage.recordRange(file, start, actualEnd)
+          // Points at the next line NOT yet covered this task, not blindly at
+          // `actualEnd + 1` — when a covered island sits just past this
+          // call's end (an earlier cycle read it), the naive hint would send
+          // the next call straight into an "already read" short-circuit,
+          // wasting a round trip on exactly the multi-cycle tasks this
+          // tracker exists for.
+          const nextGap =
+            actualEnd < lines.length
+              ? ctx.readCoverage.uncovered(file, actualEnd + 1, lines.length)[0]
+              : undefined
+          const continuation =
+            actualEnd < lines.length
+              ? nextGap
+                ? ` Next startLine: ${nextGap.start}.`
+                : ' Every remaining line was already read earlier this task.'
+              : ''
           const partialNote = partialLastLine
-            ? ' The last line included was too long to fit whole and was cut short — it is not complete.'
+            ? ' The last line included was too long to fit whole and was cut short — it is not complete. Use search_files to check specific content inside it.'
             : ''
           // Only note a skip when this call actually served something
           // narrower than what was requested — the common case (nothing
@@ -435,7 +498,6 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
             isFirstReadOfThisFile && lines.length >= LARGE_FILE_SUGGEST_OUTLINE_LINES
               ? ` This file has ${lines.length} lines; consider code_outline first to locate the relevant section instead of reading it end to end.`
               : ''
-          if (actualEnd >= start) ctx.readCoverage.recordRange(file, start, actualEnd)
           return {
             modelResult:
               `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}${partialNote}${skippedNote}${outlineSuggestion}]\n` +

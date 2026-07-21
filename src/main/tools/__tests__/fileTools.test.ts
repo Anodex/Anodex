@@ -817,4 +817,90 @@ describe('AI file tools', () => {
       expect(result.length).toBeLessThan(linesA.join('\n').length + linesB.join('\n').length)
     })
   })
+
+  describe('bounded disk reads and coverage-aware continuation', () => {
+    it('rejects a read_file on byte size alone when it cannot possibly fit the budget', async () => {
+      // 100-token budget → 300-char budget → 900-byte reject threshold at
+      // the 3-bytes-per-char UTF-8 bound. 1,000 bytes is over it, so the
+      // pointer must come back from `stat` alone (no line count — the file
+      // is never decoded).
+      await writeFile(join(workspace, 'big-enough.txt'), 'x'.repeat(1_000))
+      const ctx = {
+        ...createMockContext(workspace),
+        modelResultBudget: {
+          current: {
+            contextSizeTokens: 8_192,
+            inputLimitTokens: 7_373,
+            fixedTokens: 4_037,
+            minimumReplyReserveTokens: 1_024,
+            maxTokensPerResult: 100
+          }
+        }
+      }
+      const tool = readFileTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'big-enough.txt' })
+
+      expect(result).toContain('1000 bytes. Too large')
+      expect(result).toContain('read_file_range')
+      expect(result).not.toContain('x'.repeat(50))
+    })
+
+    it('redirects line-range reads and skips line-counting beyond the in-memory bound', async () => {
+      // Just over the 10 MB line-tool bound — both tools must degrade
+      // honestly instead of decoding it.
+      await writeFile(join(workspace, 'huge.log'), 'x'.repeat(10 * 1024 * 1024 + 16))
+      const ctx = createMockContext(workspace)
+      const rangeTool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number }) => Promise<string>
+      }
+      const infoTool = getFileInfoTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string }) => Promise<string>
+      }
+
+      const range = await rangeTool.handler({ path: 'huge.log', startLine: 1 })
+      const info = await infoTool.handler({ path: 'huge.log' })
+
+      expect(range).toContain('beyond the')
+      expect(range).toContain('run_command')
+      expect(range).not.toContain('x'.repeat(50))
+      expect(info).toContain('"lineCount": null')
+      expect(info).toContain('"isFile": true')
+    })
+
+    it('points the continuation hint past an already-covered island, not blindly at actualEnd + 1', async () => {
+      const content = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join('\n')
+      await writeFile(join(workspace, 'islands.txt'), content)
+      const ctx = createMockContext(workspace)
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+      }
+
+      // An earlier cycle covered 50-100; this request serves only 1-49. The
+      // naive hint (startLine 50) would send the next call straight into an
+      // "already read" short-circuit.
+      ctx.readCoverage.recordRange(join(workspace, 'islands.txt'), 50, 100)
+      const result = await tool.handler({ path: 'islands.txt', startLine: 1, endLine: 200 })
+
+      expect(result).toContain('lines 1-49')
+      expect(result).toContain('Next startLine: 101.')
+    })
+
+    it('says so when every remaining line was already read instead of hinting a dead startLine', async () => {
+      await writeFile(join(workspace, 'tail-covered.txt'), 'a\nb\nc\nd\ne')
+      const ctx = createMockContext(workspace)
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+      }
+
+      ctx.readCoverage.recordRange(join(workspace, 'tail-covered.txt'), 3, 5)
+      const result = await tool.handler({ path: 'tail-covered.txt', startLine: 1, endLine: 5 })
+
+      expect(result).toContain('lines 1-2')
+      expect(result).toContain('Every remaining line was already read earlier this task.')
+      expect(result).not.toContain('Next startLine')
+    })
+  })
 })

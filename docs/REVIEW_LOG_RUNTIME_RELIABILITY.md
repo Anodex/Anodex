@@ -63,15 +63,25 @@ every item gets checked off (`[x]`) as it completes, with findings recorded inli
   lookbehind rejecting matches preceded by `[\w./\\-]`.
 - ⚠ **F4 — read_file_range partial-line coverage**: when a single line exceeds the char
   budget, the truncated line is recorded as covered, so its remainder can never be
-  served by this tool again this task. Accepted: the result explicitly says the line
-  was cut; alternatives loop. Logged, not fixed.
-- ℹ **F5 — read_file reads the whole file into memory before size checks** (pre-existing
-  behavior, unchanged by this range; the 60KB "disk-safety ceiling" comment is
-  aspirational). Not in scope.
+  served by this tool again this task. The coverage recording stays (the alternative
+  loops); the partial note now names `search_files` as the way to inspect the rest.
+- ❗ **F5 — unbounded in-memory disk reads** (pre-existing, fixed in follow-up):
+  `read_file` decoded a file of any size before its budget check; `read_file_range`
+  and `get_file_info`'s line counting decoded whole files with no ceiling at all.
+  Fixed: `read_file` rejects on `stat` alone above 3× the char budget (UTF-8 can't
+  decode to fewer than 1 UTF-16 unit per 3 bytes); line tools cap at 10 MB
+  (`MAX_LINE_TOOL_SOURCE_BYTES`) with an honest redirect to `run_command` /
+  `lineCount: null`.
+- ⚠ **F6 — naive `Next startLine` hint** (fixed in follow-up): the continuation hint
+  pointed blindly at `actualEnd + 1`, which can sit inside an already-covered island —
+  sending the next call straight into an "already read" short-circuit and wasting a
+  round trip. Now points at the next genuinely-uncovered line, or says every remaining
+  line was already read.
 
 ## Fixes applied
 
-All uncommitted on `main` as of this log's last update; full gate green after each.
+First three committed as `8927b28` (F1), `99af113` (F2), `24e517e` (F3), docs as
+`866491a`; F4–F6 follow-up hardening committed after. Full gate green after each.
 
 1. **F1** — [readCoverage.ts](../src/main/tools/readCoverage.ts): new `noteMutation(path)`
    (clears full-file/range coverage AND the same-file read-attempt counter) and
@@ -90,6 +100,12 @@ All uncommitted on `main` as of this log's last update; full gate green after ea
    before `stat` — so honest "I deleted/renamed X" claims are never called fabricated.
 4. **Docs** — [chat.types.ts](../src/shared/chat.types.ts) `thoughtTokens` comment now
    points at the function that actually exists.
+5. **F5/F6/F4-note** — [fileTools.ts](../src/main/tools/fileTools.ts): byte-size
+   precheck in `read_file` (3× char budget, rejectable from `stat` alone);
+   `MAX_LINE_TOOL_SOURCE_BYTES` (10 MB) bound on `read_file_range` and
+   `get_file_info` line counting; coverage-aware `Next startLine` continuation;
+   partial-line note names `search_files`. Tests in `fileTools.test.ts`
+   ("bounded disk reads and coverage-aware continuation").
 
 ## Verdict on the architecture ("if you find a much better way… make it")
 
