@@ -43,6 +43,10 @@ import { planManualContextCompaction } from '@shared/contextProjection'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import { createLoopGuardState } from '../tools/loopGuard'
+import {
+  computeModelToolResultBudget,
+  type ModelToolResultBudget
+} from '../tools/modelResultBudget'
 import { confirmRacingAbort } from '../tools/confirmRacingAbort'
 import {
   assembleModelContext,
@@ -65,8 +69,12 @@ import {
 } from './toolCallFallback'
 import { stripLeakedChannelTokens, stripSubstantialCodeFences } from '@shared/toolCallText'
 import { PendingToolCallTracker } from './pendingToolCalls'
+import {
+  GenerationDiagnosticsTracker,
+  type LocalGenerationDiagnostics
+} from './generationDiagnostics'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
-import { resolveLocalOutputBudget } from './localOutputBudget'
+import { defaultToolThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
@@ -290,6 +298,16 @@ export interface GenerateOutcome {
    * Claude's own separate extended-thinking feature isn't wired up here yet.
    */
   thinking?: string
+  /**
+   * Bounded, non-sensitive counters for this turn (see
+   * `GenerationDiagnosticsTracker`/P0-C in
+   * `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md`) — how many tokens
+   * went to the visible reply vs. hidden thought vs. in-flight function
+   * parameters, and which function call (if any) was still generating when
+   * the turn stopped. Undefined for cloud providers, which don't expose this
+   * per-channel breakdown.
+   */
+  generationDiagnostics?: LocalGenerationDiagnostics
 }
 
 /**
@@ -492,9 +510,16 @@ class LlamaService extends EventEmitter {
     // doc comment for why this can't just be passed in directly.
     const abortBox: { current: (() => void) | null } = { current: null }
     const signalBox: { current: AbortSignal | null } = { current: null }
+    // Same reasoning as abortBox/signalBox above, but filled in once the real
+    // context accounting for this turn is measured below (`contextBudget`) —
+    // before that, tools fall back to their own existing disk-oriented caps.
+    const modelResultBudgetBox: { current: ModelToolResultBudget | null } = { current: null }
     // Streams provisional "running" cards while the model is still generating
     // a write/edit call's params (see PendingToolCallTracker's doc comment).
     const pendingToolCalls = new PendingToolCallTracker()
+    // Bounded per-turn counters explaining where the output budget went at a
+    // bounded stop — see `GenerationDiagnosticsTracker`'s doc comment.
+    const diagnostics = new GenerationDiagnosticsTracker()
     // Built BEFORE `ensureSession` (not after, as this used to be ordered) so
     // its measured schema cost can be reserved for by the mid-turn
     // context-shift strategy the session construction wires up — see
@@ -508,6 +533,7 @@ class LlamaService extends EventEmitter {
         (call) => {
           hadAnyToolAttempt = true
           if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
+          if (call.status !== 'running') diagnostics.recordToolCallSettled()
           // Denied calls are excluded — that's a user decision, not a signal
           // about the model's own reliability.
           if (currentModel && (call.status === 'success' || call.status === 'error')) {
@@ -523,6 +549,7 @@ class LlamaService extends EventEmitter {
         },
         abortBox,
         signalBox,
+        modelResultBudgetBox,
         (name) => pendingToolCalls.claim(name)
       )
     } catch (error) {
@@ -572,6 +599,7 @@ class LlamaService extends EventEmitter {
       log.info(`Context usage at ${Math.round(usageRatio * 100)}% — compacting before this turn.`)
       try {
         session = await this.recompactSession(params, 'proactive', toolSchemaReserveTokens)
+        diagnostics.recordContextShift()
       } catch (error) {
         this.generating = false
         this.emitState()
@@ -607,6 +635,15 @@ class LlamaService extends EventEmitter {
     }
     toolSchemaReserveTokens = contextBudget.toolSchemaTokens
     this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
+    // Real, measured accounting for this turn is now known — every tool call
+    // from here on (they all happen later, inside the prompt/generation loop
+    // below) sees a budget sized to what's actually left, not a disk-safety
+    // byte limit that has nothing to do with the active context.
+    modelResultBudgetBox.current = computeModelToolResultBudget({
+      contextSizeTokens: contextBudget.contextSize,
+      inputLimitTokens: contextBudget.inputLimitTokens,
+      fixedTokens: contextBudget.fixedTokens
+    })
 
     if (
       outputBudget.clamped &&
@@ -639,7 +676,8 @@ class LlamaService extends EventEmitter {
         stats: buildStats(0, startedAt),
         stopped: true,
         stopReason: 'fixed-context-limit',
-        contextBudget
+        contextBudget,
+        generationDiagnostics: diagnostics.snapshot()
       }
     }
 
@@ -706,7 +744,8 @@ class LlamaService extends EventEmitter {
       terminalStopReason = 'token-limit'
       log.warn('Generated output reached the safe local token budget', {
         effectiveMaxTokens: outputBudget.effectiveMaxTokens,
-        observedGeneratedTokens: tokenCount
+        observedGeneratedTokens: tokenCount,
+        ...diagnostics.snapshot()
       })
       genController.abort()
     }
@@ -734,7 +773,18 @@ class LlamaService extends EventEmitter {
       }
     }
 
-    this.activeContextShiftHandler = params.onContextShift
+    // Mid-generation shifts (node-llama-cpp's own `contextShift.strategy`,
+    // wired up once per session in `ensureSession`'s `onShift`) are the
+    // dominant, expected source of shifts during a long turn — observed
+    // directly: 7 of them inside a single round of one live audit turn, none
+    // of which touch the rarer whole-session `recompactSession` retries
+    // (`proactive`/`reactive`, counted separately above). Without composing
+    // both here, `diagnostics.contextShifts` silently undercounts to zero on
+    // exactly the turns where it matters most.
+    this.activeContextShiftHandler = () => {
+      diagnostics.recordContextShift()
+      params.onContextShift?.()
+    }
     try {
       for (let round = 0; ; round++) {
         let roundContent = ''
@@ -743,6 +793,25 @@ class LlamaService extends EventEmitter {
           temperature: params.options?.temperature,
           topP: params.options?.topP,
           maxTokens: outputBudget.effectiveMaxTokens,
+          // Sub-budget within maxTokens, not additional — see
+          // `GenerationOptions.thoughtTokens`'s doc comment. An explicit
+          // caller-supplied budget always wins; otherwise, tool-enabled turns
+          // fall back to a default guaranteed-visible-output reserve (see
+          // `defaultToolThoughtTokenBudget`) rather than leaving hidden
+          // reasoning free to consume the whole cap before one function call
+          // completes. Tool-less turns get no default — finishing its own
+          // thinking before answering is normal there. Never request more
+          // thought room than this turn's total hard cap actually has.
+          budgets: (() => {
+            const requested =
+              params.options?.thoughtTokens ??
+              (functions != null
+                ? defaultToolThoughtTokenBudget(outputBudget.effectiveMaxTokens)
+                : undefined)
+            return requested != null
+              ? { thoughtTokens: Math.max(0, Math.min(requested, outputBudget.effectiveMaxTokens)) }
+              : undefined
+          })(),
           // node-llama-cpp's standard repeatPenalty is a soft probability
           // nudge and doesn't prevent verbatim broken-record looping — DRY
           // (Don't Repeat Yourself) sampling is the library's purpose-built
@@ -776,9 +845,11 @@ class LlamaService extends EventEmitter {
             recordGeneratedTokens(chunk.tokens.length)
             if (chunk.type === 'segment') {
               roundSegment += chunk.text
+              diagnostics.recordThoughtTokens(chunk.tokens.length)
               params.onThinkingToken?.(chunk.text)
               return
             }
+            diagnostics.recordVisibleTokens(chunk.tokens.length)
             roundContent += chunk.text
             params.onToken(chunk.text)
             // Only meaningful when tools are registered: the danger of a
@@ -809,6 +880,12 @@ class LlamaService extends EventEmitter {
                   this.model?.tokenize(chunk.paramsChunk).length ??
                   Math.ceil(chunk.paramsChunk.length / 4)
                 recordGeneratedTokens(parameterTokens)
+                diagnostics.recordFunctionParameterChunk(
+                  chunk.callIndex,
+                  chunk.functionName,
+                  parameterTokens,
+                  chunk.paramsChunk.length
+                )
                 const update = pendingToolCalls.onParamsChunk(round, chunk)
                 if (update) params.tools?.onActivity(update)
               }
@@ -906,6 +983,7 @@ class LlamaService extends EventEmitter {
           }
           log.warn('Context shift failed mid-generation; compacting and retrying this round once.')
           session = await this.recompactSession(params, 'reactive', toolSchemaReserveTokens)
+          diagnostics.recordContextShift()
           meta = await session.promptWithMeta(prompt, promptOptions)
         }
 
@@ -979,6 +1057,7 @@ class LlamaService extends EventEmitter {
           visibleContent = appendContent(visibleContent, roundContent)
           terminalStopReason = 'token-limit'
           stopped = true
+          log.warn('Bounded local generation stop diagnostics', diagnostics.snapshot())
           break
         }
 
@@ -1110,7 +1189,8 @@ class LlamaService extends EventEmitter {
         stopReason: stopped ? currentStopReason() : undefined,
         contextBudget,
         fabricationDetected: fabricationDetectedThisTurn,
-        thinking: thinkingText || undefined
+        thinking: thinkingText || undefined,
+        generationDiagnostics: diagnostics.snapshot()
       }
     } catch (error) {
       // `genController` also gets aborted internally by the loop guard (see
@@ -1128,7 +1208,8 @@ class LlamaService extends EventEmitter {
           stopReason: currentStopReason(),
           contextBudget,
           fabricationDetected: fabricationDetectedThisTurn,
-          thinking: thinkingText || undefined
+          thinking: thinkingText || undefined,
+          generationDiagnostics: diagnostics.snapshot()
         }
       }
       // The reactive recovery inside the round loop above only retries a
@@ -1157,7 +1238,8 @@ class LlamaService extends EventEmitter {
           stopReason: 'context-limit',
           contextBudget,
           fabricationDetected: fabricationDetectedThisTurn,
-          thinking: thinkingText || undefined
+          thinking: thinkingText || undefined,
+          generationDiagnostics: diagnostics.snapshot()
         }
       }
       throw error
@@ -1724,13 +1806,16 @@ class LlamaService extends EventEmitter {
    * `genController` exists — `buildToolFunctions` runs before that, so the
    * boxes let the loop guard (and, via `signalBox`, the confirm wrapper
    * below) reach it anyway (same pattern as `plan`/`turnGate` below, just
-   * resolved slightly later than those).
+   * resolved slightly later than those). `modelResultBudgetBox` is the same
+   * pattern again, filled in once this turn's real `contextBudget` is
+   * measured (see the caller, below).
    */
   private async buildToolFunctions(
     params: GenerateParams,
     onActivity: (call: ToolCall) => void,
     abortBox: { current: (() => void) | null },
     signalBox: { current: AbortSignal | null },
+    modelResultBudgetBox: { current: ModelToolResultBudget | null },
     claimPendingToolCallId: (name: string) => string | undefined
   ): Promise<Record<string, ToolFunction> | undefined> {
     if (!params.tools) return undefined
@@ -1762,6 +1847,10 @@ class LlamaService extends EventEmitter {
       // Fresh every generation call, same reasoning as `turnGate` above — see
       // `ToolRuntimeContext.loopGuard`'s doc comment.
       loopGuard: createLoopGuardState(),
+      // Same box pattern as `abortBox`/`signalBox` above — this generation's
+      // real context accounting isn't measured until after this method
+      // returns (see `contextBudget` below), so it fills in slightly later.
+      modelResultBudget: modelResultBudgetBox,
       // See `ToolRuntimeContext.abortGeneration`'s doc comment and this
       // method's own doc comment above for why this goes through a box.
       abortGeneration: () => abortBox.current?.(),

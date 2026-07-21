@@ -82,8 +82,18 @@ export interface ChatMessage {
   createdAt: number
   /** True while assistant tokens are still streaming in. */
   streaming?: boolean
-  /** Present if this turn failed to generate. */
+  /** Present if this turn failed to generate, or reached a bounded stop worth explaining. */
   error?: string
+  /**
+   * Distinguishes a genuine failure from a bounded, recoverable stop that
+   * still preserved real content (a token/round/time/tool-call budget, or a
+   * context-compaction limit) — `undefined`/`'failure'` renders as the red
+   * error it always has; `'bounded'` renders as a calmer, non-alarming note
+   * so a safety yield with useful output above it doesn't read as broken.
+   * Absent on messages persisted before this field existed, which always
+   * meant a real failure — the default preserves that behavior exactly.
+   */
+  errorKind?: 'failure' | 'bounded'
   /** Populated once generation completes. */
   stats?: GenerationStats
   /** Exact fixed-context/tool accounting reported by the local engine for this turn. */
@@ -118,6 +128,18 @@ export interface GenerationOptions {
   temperature?: number
   topP?: number
   maxTokens?: number
+  /**
+   * Optional sub-budget, in tokens, that hidden reasoning may spend out of
+   * `maxTokens` before the provider closes that segment and continues into
+   * the visible/function-call portion of the same hard cap — not an
+   * additional allowance on top of it. Only the local provider currently
+   * supports this (see `LlamaService.ts`); omit it to use the provider's own
+   * default reasoning allowance. Set it when a phase needs a *guaranteed*
+   * minimum visible-output reserve (e.g. Critical Thinking synthesis/repair —
+   * see `criticalThinkingSynthesisBudget.ts`'s `boundedThoughtTokenBudget`)
+   * rather than leaving reasoning free to consume the whole cap.
+   */
+  thoughtTokens?: number
 }
 
 /** A prior conversation turn replayed into a rebuilt chat session. */

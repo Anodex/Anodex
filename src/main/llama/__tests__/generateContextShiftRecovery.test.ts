@@ -48,6 +48,7 @@ interface LlamaServiceTestAccess {
             functions?: Record<string, { handler: (params: unknown) => unknown }>
             maxTokens?: number
             signal?: AbortSignal
+            budgets?: { thoughtTokens?: number; commentTokens?: number }
             onFunctionCallParamsChunk?: (chunk: {
               callIndex: number
               functionName: string
@@ -64,6 +65,7 @@ interface LlamaServiceTestAccess {
   activeConversationId: string | undefined
   generating: boolean
   ensureSession: (...args: unknown[]) => Promise<NonNullable<LlamaServiceTestAccess['session']>>
+  activeContextShiftHandler?: () => void
 }
 
 function asTestAccess(): LlamaServiceTestAccess {
@@ -426,7 +428,11 @@ describe('LlamaService.generate() context-shift recovery', () => {
           options.onFunctionCallParamsChunk?.({
             callIndex: 0,
             functionName: 'web_search',
-            paramsChunk: 'x'.repeat(2_100),
+            // Must exceed this fixture's *measured* effective ceiling (6,465
+            // tokens, from its 140-token fixed prompt — see
+            // resolveLocalOutputBudget), not the old flat quarter-context
+            // value this literal was originally sized against.
+            paramsChunk: 'x'.repeat(7_000),
             done: false
           })
           expect(options.signal?.aborted).toBe(true)
@@ -452,6 +458,281 @@ describe('LlamaService.generate() context-shift recovery', () => {
     expect(outcome.stopReason).toBe('token-limit')
     expect(outcome.content).toBe('Starting the audit.')
     expect(outcome.stats.tokens).toBeGreaterThanOrEqual(2_048)
+    // P0-C: the visible reply and thinking were tiny, so the diagnostics must
+    // show where the rest of the budget actually went — an unfinished
+    // web_search call's parameters, not excess thought or prose.
+    expect(outcome.generationDiagnostics?.visibleTokens).toBe(1)
+    expect(outcome.generationDiagnostics?.functionParameterTokens).toBeGreaterThanOrEqual(7_000)
+    expect(outcome.generationDiagnostics?.unfinishedFunctionName).toBe('web_search')
+    expect(outcome.generationDiagnostics?.unfinishedFunctionParameterChars).toBe(7_000)
+    expect(outcome.generationDiagnostics?.completedToolCalls).toBe(0)
+  })
+
+  describe('reasoning/output channel budget (P0-B)', () => {
+    it('forwards a requested thoughtTokens budget, clamped to this turn’s measured ceiling', async () => {
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      access.model = { tokenizer: () => [] }
+      let observedBudgets: { thoughtTokens?: number; commentTokens?: number } | undefined
+      access.session = {
+        promptWithMeta: vi.fn(
+          (
+            _prompt: unknown,
+            options: {
+              budgets?: { thoughtTokens?: number; commentTokens?: number }
+              onResponseChunk?: (chunk: unknown) => void
+            }
+          ) => {
+            observedBudgets = options.budgets
+            options.onResponseChunk?.({
+              type: undefined,
+              segmentType: undefined,
+              text: 'Done.',
+              tokens: [1]
+            })
+            return Promise.resolve({ response: [], responseText: 'Done.', stopReason: 'eogToken' })
+          }
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+
+      await llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'synthesize the report',
+        // Requests far more thought room than this turn's small fixed-token
+        // fixture actually has available — the request must be clamped down
+        // to the measured ceiling, never passed through as-is.
+        options: { maxTokens: 100, thoughtTokens: 100_000 },
+        onToken: () => {}
+      })
+
+      expect(observedBudgets?.thoughtTokens).toBeDefined()
+      expect(observedBudgets?.thoughtTokens).toBeLessThanOrEqual(100)
+    })
+
+    it('applies a default thought budget for a tool-enabled turn when none was explicitly requested', async () => {
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      access.model = { tokenizer: () => [] }
+      let observedBudgets: { thoughtTokens?: number; commentTokens?: number } | undefined
+      access.session = {
+        promptWithMeta: vi.fn(
+          (
+            _prompt: unknown,
+            options: {
+              budgets?: { thoughtTokens?: number; commentTokens?: number }
+              onResponseChunk?: (chunk: unknown) => void
+            }
+          ) => {
+            observedBudgets = options.budgets
+            options.onResponseChunk?.({
+              type: undefined,
+              segmentType: undefined,
+              text: 'Done.',
+              tokens: [1]
+            })
+            return Promise.resolve({ response: [], responseText: 'Done.', stopReason: 'eogToken' })
+          }
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+
+      await llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'audit the project',
+        // No explicit thoughtTokens — this is the ordinary chat call shape.
+        options: { maxTokens: 8_192 },
+        onToken: () => {},
+        tools: webOnlyTools()
+      })
+
+      // A live 8K run reproduced hidden reasoning (3,432 chars) dwarfing
+      // visible output (223 chars) on exactly this call shape (tool-enabled,
+      // no explicit budget) — this default is what now bounds that.
+      expect(observedBudgets?.thoughtTokens).toBeDefined()
+      expect(observedBudgets!.thoughtTokens!).toBeGreaterThan(0)
+    })
+
+    it('omits budgets entirely for a tool-less turn when no thoughtTokens was requested', async () => {
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      access.model = { tokenizer: () => [] }
+      let observedBudgets: { thoughtTokens?: number; commentTokens?: number } | undefined
+      access.session = {
+        promptWithMeta: vi.fn(
+          (
+            _prompt: unknown,
+            options: {
+              budgets?: { thoughtTokens?: number; commentTokens?: number }
+              onResponseChunk?: (chunk: unknown) => void
+            }
+          ) => {
+            observedBudgets = options.budgets
+            options.onResponseChunk?.({
+              type: undefined,
+              segmentType: undefined,
+              text: 'Done.',
+              tokens: [1]
+            })
+            return Promise.resolve({ response: [], responseText: 'Done.', stopReason: 'eogToken' })
+          }
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+
+      await llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'a normal chat message',
+        options: { maxTokens: 512 },
+        onToken: () => {}
+      })
+
+      expect(observedBudgets).toBeUndefined()
+    })
+  })
+
+  describe('generation diagnostics (P0-C)', () => {
+    it('splits visible and thought tokens, and clears the in-flight call once it settles', async () => {
+      // Regression fixture for the live 8K project-chat exit gate: 135 visible
+      // characters and 159 thought characters against 2,035 output tokens
+      // with zero completed tool calls (see
+      // docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md, P0-C). Here the
+      // call actually completes, so diagnostics must show a settled call with
+      // nothing left unfinished — the opposite of that failure.
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      access.model = {
+        tokenizer: () => [],
+        tokenize: (text: string) => Array.from({ length: text.length })
+      }
+      access.session = {
+        promptWithMeta: vi.fn(
+          async (
+            _prompt: unknown,
+            options: {
+              onResponseChunk?: (chunk: unknown) => void
+              onFunctionCallParamsChunk?: (chunk: {
+                callIndex: number
+                functionName: string
+                paramsChunk: string
+                done: boolean
+              }) => void
+              functions?: Record<string, { handler: (params: unknown) => unknown }>
+            }
+          ) => {
+            options.onResponseChunk?.({
+              type: 'segment',
+              segmentType: 'thought',
+              text: 'thinking about the request',
+              tokens: [1, 2, 3, 4, 5]
+            })
+            options.onFunctionCallParamsChunk?.({
+              callIndex: 0,
+              functionName: 'web_search',
+              paramsChunk: '{"query":"bee stings"}',
+              done: true
+            })
+            await Promise.resolve(
+              options.functions?.web_search?.handler({ query: 'bee stings' })
+            ).catch(() => null)
+            options.onResponseChunk?.({
+              type: undefined,
+              segmentType: undefined,
+              text: 'Done searching.',
+              tokens: [1, 2]
+            })
+            return {
+              response: [],
+              responseText: 'Done searching.',
+              stopReason: 'eogToken'
+            }
+          }
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+
+      const outcome = await llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'search for something',
+        onToken: () => {},
+        tools: webOnlyTools()
+      })
+
+      expect(outcome.generationDiagnostics?.thoughtTokens).toBe(5)
+      expect(outcome.generationDiagnostics?.visibleTokens).toBe(2)
+      expect(outcome.generationDiagnostics?.completedToolCalls).toBe(1)
+      expect(outcome.generationDiagnostics?.unfinishedFunctionName).toBeUndefined()
+      expect(outcome.generationDiagnostics?.unfinishedFunctionParameterChars).toBeUndefined()
+    })
+
+    it("counts mid-generation context shifts (node-llama-cpp's own contextShift.strategy), not just whole-session recompaction", async () => {
+      // Regression: a live 8K audit turn logged 7 "Context shift: folded..."
+      // events (node-llama-cpp's own `onShift`, wired up once per session in
+      // `ensureSession` — see `this.activeContextShiftHandler`) inside a
+      // single generation round, but `generationDiagnostics.contextShifts`
+      // still reported 0 — it was only wired to the separate, far rarer
+      // whole-session `recompactSession` retries. `onShift` fires through
+      // `this.activeContextShiftHandler`, set once per `generate()` call;
+      // this fake session invokes it directly, exactly as the real
+      // `createBoundedContextShiftStrategy` would mid-stream.
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      let observedExternalShiftCalls = 0
+
+      access.session = {
+        promptWithMeta: vi.fn(
+          (_prompt: unknown, options: { onResponseChunk?: (chunk: unknown) => void }) => {
+            access.activeContextShiftHandler?.()
+            access.activeContextShiftHandler?.()
+            options.onResponseChunk?.({
+              type: undefined,
+              segmentType: undefined,
+              text: 'Done after two mid-turn shifts.',
+              tokens: [1, 2, 3]
+            })
+            return Promise.resolve({
+              response: [],
+              responseText: 'Done after two mid-turn shifts.',
+              stopReason: 'eogToken'
+            })
+          }
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+
+      const outcome = await llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'a long turn that shifts mid-generation',
+        onToken: () => {},
+        onContextShift: () => {
+          observedExternalShiftCalls += 1
+        }
+      })
+
+      expect(outcome.generationDiagnostics?.contextShifts).toBe(2)
+      // The pre-existing caller-facing notification still fires too.
+      expect(observedExternalShiftCalls).toBe(2)
+    })
   })
 
   it('does not retry (and risk repeating a completed tool call) when a tool already ran this round before the crash', async () => {
