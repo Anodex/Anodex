@@ -294,6 +294,25 @@ async function readResponseBody(
   return { text, truncated }
 }
 
+/**
+ * A passage that is a long run of short list-marker-delimited items with
+ * essentially no sentence structure is navigation/menu/footer chrome that
+ * `html-to-text` flattened, not readable prose — observed live: a
+ * bee-products shop's menu ("Body care * Massage oils * Soaps * Foot care …")
+ * and a video page's footer both got extracted and then verified as research
+ * "evidence." Rejecting these by structure keeps junk out of the evidence
+ * packet and the report generically, without a host-by-host denylist.
+ * Deliberately conservative — it takes 6+ list markers AND at most one
+ * sentence-ending punctuation mark, so a genuine bulleted list of
+ * full-sentence findings (e.g. first-aid steps) is kept.
+ */
+export function looksLikeBoilerplatePassage(text: string): boolean {
+  const listMarkers = (text.match(/\s[*•·|›»]\s/g) ?? []).length
+  if (listMarkers < 6) return false
+  const sentenceEnders = (text.match(/[.!?](?:\s|$)/g) ?? []).length
+  return sentenceEnders <= 1
+}
+
 export function extractFocusedPassages(text: string, focus: string): EvidencePassage[] {
   const normalized = text.replace(/\r/g, '').trim()
   if (!normalized) return []
@@ -301,7 +320,7 @@ export function extractFocusedPassages(text: string, focus: string): EvidencePas
   const chunks = normalized
     .split(/\n{2,}/)
     .flatMap((paragraph) => splitLongPassage(paragraph.trim(), MAX_PASSAGE_CHARS))
-    .filter(Boolean)
+    .filter((chunk) => Boolean(chunk) && !looksLikeBoilerplatePassage(chunk))
   const ranked = chunks.map((passage, index) => {
     const lower = passage.toLowerCase()
     const termHits = terms.reduce((sum, term) => sum + countOccurrences(lower, term), 0)

@@ -4,6 +4,7 @@ import {
   extractFocusedPassages,
   fetchUrlEvidence,
   fetchUrlTool,
+  looksLikeBoilerplatePassage,
   setResolveHostForTests
 } from '../webTools'
 import { createMockContext, createMockDefine } from './test-helpers'
@@ -23,6 +24,28 @@ describe('AI web tools', () => {
       const passages = extractFocusedPassages(text, 'Denver result 2026')
 
       expect(passages[0].text).toContain('Denver result was 42 percent')
+    })
+
+    it('drops navigation/menu boilerplate but keeps a real bulleted list of sentences', () => {
+      // The live junk: a shop's flattened nav menu that verified as "evidence".
+      const navMenu =
+        'Body care * Sorted by use * Massage oils and massage balsams * Soaps * ' +
+        'Foot care * Hand care * Body lotion * Shower creams * Hair care * For kids * ' +
+        'For men * Royal jelly * Honey * Propolis * Beeswax'
+      const firstAidList =
+        '* Try to remove the stinger from the skin if it is still present. ' +
+        'To do this, scrape a blunt edge across it. Do not squeeze the venom sac. ' +
+        'Wash the area with soap and water, then apply a cold pack to reduce swelling.'
+
+      expect(looksLikeBoilerplatePassage(navMenu)).toBe(true)
+      expect(looksLikeBoilerplatePassage(firstAidList)).toBe(false)
+
+      const passages = extractFocusedPassages(
+        `${navMenu}\n\n${firstAidList}`,
+        'bee sting first aid'
+      )
+      expect(passages.some((passage) => passage.text.includes('Massage oils'))).toBe(false)
+      expect(passages.some((passage) => passage.text.includes('remove the stinger'))).toBe(true)
     })
 
     it('fetches a URL and returns readable text', async () => {
