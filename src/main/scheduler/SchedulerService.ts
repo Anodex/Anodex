@@ -8,7 +8,7 @@ import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { llamaService } from '../llama/LlamaService'
 import { showToastWindow } from '../toastWindow'
-import { runGeneration } from '../chat/runGeneration'
+import { runBoundedChatGeneration } from '../chat/boundedChatRunner'
 import { SCHEDULED_TASK_BUDGET } from '../chat/GenerationBudget'
 import { createLogger } from '../utils/logger'
 import { schedulerStore } from './SchedulerStore'
@@ -27,10 +27,11 @@ const SUMMARY_MAX_WORDS = 18
  * scheduled run or a foreground chat generation on the local engine.
  *
  * Each run appends to the task's own persisted `Conversation` (created lazily
- * on first run, reused after), reusing `runGeneration()` — the same headless
- * entry point `chat.handlers.ts` wraps for interactive chat — restricted to
- * only the tools the task owner explicitly opted in, with a headless
- * `confirm` that never blocks on a user who isn't there (see `runGeneration`'s
+ * on first run, reused after), reusing `runBoundedChatGeneration()` — the same
+ * bounded, auto-continuing entry point `chat.handlers.ts` wraps for
+ * interactive chat (see `boundedChatRunner.ts`) — restricted to only the
+ * tools the task owner explicitly opted in, with a headless `confirm` that
+ * never blocks on a user who isn't there (see `runGeneration`'s
  * `enabledTools`/`permissionModeOverride`).
  */
 class SchedulerService {
@@ -93,7 +94,7 @@ class SchedulerService {
     const toolCallsById = new Map<string, ToolCall>()
 
     try {
-      const result = await runGeneration(
+      const result = await runBoundedChatGeneration(
         {
           conversationId: conversation.id,
           messageId: assistantMessageId,

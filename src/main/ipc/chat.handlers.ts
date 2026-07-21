@@ -4,7 +4,7 @@ import { ok, err, toErrorMessage } from '@shared/result'
 import type { ChatCompactRequest, ChatRequest, ChatTitleRequest } from '@shared/chat.types'
 import { llamaService } from '../llama/LlamaService'
 import { requestToolConfirmation } from './tools.handlers'
-import { runGeneration } from '../chat/runGeneration'
+import { runBoundedChatGeneration } from '../chat/boundedChatRunner'
 import {
   abortAllGenerations,
   abortGeneration,
@@ -27,7 +27,7 @@ export function registerChatHandlers(): void {
     registerGeneration(request.conversationId, controller)
 
     try {
-      const result = await runGeneration(request, {
+      const result = await runBoundedChatGeneration(request, {
         signal: controller.signal,
         onToken: (token) => {
           if (event.sender.isDestroyed()) return

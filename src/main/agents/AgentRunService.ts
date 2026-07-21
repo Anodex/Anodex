@@ -22,6 +22,7 @@ import {
   PLAN_RETRY_PROMPT
 } from './agentPrompts'
 import { budgetExceededReason } from './agentBudgets'
+import { isRecoverableGenerationStop } from '../chat/recoverableStop'
 
 const log = createLogger('agent-run-service')
 
@@ -106,29 +107,6 @@ export function runPreflightReason(
  * run stays visible without needing to be stopped to find out what it's doing.
  */
 const CHECK_IN_EVERY_TURNS = 3
-
-/**
- * Stop reasons that only end the *turn* that hit them, not the whole run —
- * the run falls through to its normal per-turn logic (retry, continue to the
- * next turn) instead of stopping. `'loop-guard'`: the guard's state is
- * per-generation, so the next turn starts with a clean slate. Context limits
- * and context-shift budgets also end only the current turn; the next turn can
- * rebuild from compacted, persisted history. Every other stop reason (a real
- * user Stop, or undefined/unknown) ends the run.
- */
-function isRecoverableTurnStop(stopReason: GenerationStopReason | undefined): boolean {
-  return (
-    stopReason === 'loop-guard' ||
-    stopReason === 'no-progress' ||
-    stopReason === 'context-limit' ||
-    stopReason === 'context-shift-limit' ||
-    stopReason === 'rounds-exhausted' ||
-    stopReason === 'tool-limit' ||
-    stopReason === 'token-limit' ||
-    stopReason === 'time-limit' ||
-    stopReason === 'yielded'
-  )
-}
 
 function terminalStopMessage(stopReason: GenerationStopReason | undefined): string {
   if (stopReason === 'fixed-context-limit') {
@@ -273,11 +251,11 @@ class AgentRunService {
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
 
-        if (stopped && !isRecoverableTurnStop(stopReason)) {
+        if (stopped && !isRecoverableGenerationStop(stopReason)) {
           this.finish(run.id, conversation.id, 'stopped', null, terminalStopMessage(stopReason))
           return
         }
-        // A recoverable turn-level stop (see `isRecoverableTurnStop`'s doc
+        // A recoverable turn-level stop (see `isRecoverableGenerationStop`'s doc
         // comment) only ends *this* turn, not the whole run — falls through
         // to the budget/check-in logic below, same as any other turn.
         if (finished) {
@@ -387,7 +365,7 @@ class AgentRunService {
       let flaggedTurns = run.flaggedTurns + (first.fabricationDetected ? 1 : 0)
 
       // A real user Stop (or any internal stop other than a recoverable
-      // turn-level one — see `isRecoverableTurnStop`) must end the run
+      // turn-level one — see `isRecoverableGenerationStop`) must end the run
       // immediately, not fall through to the retry below — retrying against
       // a signal that's already aborted produces no plan either, and
       // previously reported "Could not produce a plan for review" (status:
@@ -395,7 +373,7 @@ class AgentRunService {
       // failure. A recoverable stop is exempt: it already produces no plan,
       // so the existing "no plan yet, retry once" logic is the right
       // response either way.
-      if (first.stopped && !isRecoverableTurnStop(first.stopReason)) {
+      if (first.stopped && !isRecoverableGenerationStop(first.stopReason)) {
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
         this.finish(run.id, conversation.id, 'stopped', null, terminalStopMessage(first.stopReason))
         return
@@ -413,7 +391,7 @@ class AgentRunService {
         turnsUsed = 2
         tokensUsed += retry.tokens
         if (retry.fabricationDetected) flaggedTurns += 1
-        if (retry.stopped && !isRecoverableTurnStop(retry.stopReason)) {
+        if (retry.stopped && !isRecoverableGenerationStop(retry.stopReason)) {
           agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
           this.finish(
             run.id,
