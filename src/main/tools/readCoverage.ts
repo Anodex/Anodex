@@ -32,6 +32,7 @@ export interface LineRange {
 export class ReadCoverageTracker {
   private ranges = new Map<string, LineRange[]>()
   private fullFiles = new Set<string>()
+  private readAttempts = new Map<string, number>()
 
   /** Record that `path` has now been read in its entirety. */
   recordFullFile(path: string): void {
@@ -75,6 +76,25 @@ export class ReadCoverageTracker {
    */
   hasAnyCoverage(path: string): boolean {
     return this.fullFiles.has(path) || (this.ranges.get(path)?.length ?? 0) > 0
+  }
+
+  /**
+   * Record one more genuinely-new `read_file_range` attempt against `path`
+   * this task, returning the new total count — see `MAX_SAME_FILE_READS`'s
+   * doc comment in `fileTools.ts` for why this exists as a separate counter
+   * from line coverage: a live retest read a single 2,352-line file across
+   * 15+ consecutive calls, methodically paging start to end, never moving on
+   * to any of the other 11+ files the task needed. Coverage tracking alone
+   * can't catch this — every one of those calls genuinely requested new,
+   * not-yet-covered lines, so none of them were short-circuited by
+   * `uncovered()`. This counts attempts on one file regardless of which
+   * lines, so a caller can cap total depth on any single file independent
+   * of how large it is.
+   */
+  recordReadAttempt(path: string): number {
+    const count = (this.readAttempts.get(path) ?? 0) + 1
+    this.readAttempts.set(path, count)
+    return count
   }
 }
 

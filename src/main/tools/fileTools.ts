@@ -35,6 +35,21 @@ const MAX_BATCH_TOTAL_BYTES = 200 * 1024
  * at the moment it would actually help: the first read of a large file.
  */
 const LARGE_FILE_SUGGEST_OUTLINE_LINES = 500
+/**
+ * At most this many genuinely-new `read_file_range` calls against the same
+ * file before further ones are redirected instead of served — a live retest
+ * showed the `code_outline`-first suggestion alone (see
+ * `LARGE_FILE_SUGGEST_OUTLINE_LINES`) is not reliably followed: a run read a
+ * single 2,352-line file across 15+ consecutive calls, methodically paging
+ * from line 1 to the end, and never touched any of the other 11+ files a
+ * 12-file audit needed. A soft one-time suggestion clearly isn't enough on
+ * its own; this is the deterministic backstop. 6 calls is a substantial
+ * single-file allowance (roughly 900-1,200 lines at this tool's per-call
+ * cap) before it takes effect, so ordinary deep-dive reads on one important
+ * file are unaffected — this only fires once a file has already consumed
+ * well more than its fair share of one bounded task's tool-call budget.
+ */
+const MAX_SAME_FILE_READS = 6
 
 export interface ReadFileRangeArgs {
   path: string
@@ -360,6 +375,20 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
             return {
               modelResult: `[${normalized.path}: lines ${normalized.startLine}-${normalized.endLine} were already read earlier this task — no new content here.]\nTry a different range or file instead.`,
               detail: 'Already read earlier this task'
+            }
+          }
+          // A genuinely new range, but this file alone has already consumed
+          // its fair share of one bounded task's read budget — redirect
+          // instead of serving more, deterministically, since the softer
+          // code_outline suggestion below is not reliably followed on its
+          // own. Counted only for a real, new-content attempt (not the
+          // already-covered case above), so exact duplicates don't count
+          // twice toward this cap.
+          const attemptCount = ctx.readCoverage.recordReadAttempt(file)
+          if (attemptCount > MAX_SAME_FILE_READS) {
+            return {
+              modelResult: `[${normalized.path}: this is read attempt ${attemptCount} on this same file this task.]\nThe request needs coverage across many files, not exhaustive depth on one — move to a different file now. If you need to find something specific in this file later, use search_files or code_outline instead of paging through it further.`,
+              detail: `Redirected after ${attemptCount - 1} reads of this file`
             }
           }
           // Captured before this call records its own coverage below — used

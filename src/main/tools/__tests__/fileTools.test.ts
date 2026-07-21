@@ -607,6 +607,72 @@ describe('AI file tools', () => {
       })
     })
 
+    describe('same-file read cap (deterministic diversity backstop)', () => {
+      it('redirects once a single file has been read more times than the cap allows', async () => {
+        // Regression: a live retest read one 2,352-line file across 15+
+        // consecutive calls, methodically paging start to end, and never
+        // touched any of the other 11+ files a 12-file audit needed — the
+        // softer code_outline suggestion alone wasn't reliably followed.
+        const content = Array.from({ length: 5_000 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'huge.txt'), content)
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+        }
+
+        // Each call requests a genuinely new, non-overlapping 100-line
+        // range, so none of these are short-circuited by coverage alone.
+        let lastResult = ''
+        for (let i = 0; i < 8; i++) {
+          lastResult = await tool.handler({
+            path: 'huge.txt',
+            startLine: i * 100 + 1,
+            endLine: i * 100 + 100
+          })
+        }
+
+        expect(lastResult).toContain('this is read attempt 8 on this same file this task')
+        expect(lastResult).toContain('move to a different file now')
+        expect(lastResult).not.toContain('line 701')
+      })
+
+      it('does not redirect a different file even after another one hit the cap', async () => {
+        const bigContent = Array.from({ length: 5_000 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'huge.txt'), bigContent)
+        await writeFile(join(workspace, 'other.txt'), 'a\nb\nc')
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+        }
+
+        for (let i = 0; i < 8; i++) {
+          await tool.handler({ path: 'huge.txt', startLine: i * 100 + 1, endLine: i * 100 + 100 })
+        }
+        const otherResult = await tool.handler({ path: 'other.txt', startLine: 1 })
+
+        expect(otherResult).toContain('a\nb\nc')
+        expect(otherResult).not.toContain('read attempt')
+      })
+
+      it('allows exactly the cap worth of reads before redirecting', async () => {
+        const content = Array.from({ length: 5_000 }, (_, i) => `line ${i + 1}`).join('\n')
+        await writeFile(join(workspace, 'huge.txt'), content)
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+        }
+
+        for (let i = 0; i < 6; i++) {
+          const result = await tool.handler({
+            path: 'huge.txt',
+            startLine: i * 100 + 1,
+            endLine: i * 100 + 100
+          })
+          expect(result).not.toContain('read attempt')
+        }
+      })
+    })
+
     it('records a read touch in project memory', async () => {
       await writeFile(join(workspace, 'lines.txt'), 'a\nb\nc')
       const ctx = { ...createMockContext(workspace), projectId: 'project-1' }

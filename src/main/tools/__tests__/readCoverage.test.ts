@@ -96,4 +96,23 @@ describe('ReadCoverageTracker', () => {
       expect(tracker.hasAnyCoverage('b.ts')).toBe(false)
     })
   })
+
+  describe('recordReadAttempt', () => {
+    it('starts at 1 for the first attempt and increments per call', () => {
+      const tracker = new ReadCoverageTracker()
+      expect(tracker.recordReadAttempt('a.ts')).toBe(1)
+      expect(tracker.recordReadAttempt('a.ts')).toBe(2)
+      expect(tracker.recordReadAttempt('a.ts')).toBe(3)
+    })
+
+    it('keeps attempt counts independent per path', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordReadAttempt('a.ts')
+      tracker.recordReadAttempt('a.ts')
+      tracker.recordReadAttempt('b.ts')
+
+      expect(tracker.recordReadAttempt('a.ts')).toBe(3)
+      expect(tracker.recordReadAttempt('b.ts')).toBe(2)
+    })
+  })
 })
