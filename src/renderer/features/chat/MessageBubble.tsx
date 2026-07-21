@@ -166,12 +166,18 @@ export function MessageBubble({
         )}
         {message.streaming && lastSegment?.type === 'text' && <span className={styles.caret} />}
 
-        {message.error && (
-          <div className={styles.error}>
-            <Icon name="alert" size={14} />
-            <span>{message.error}</span>
-          </div>
-        )}
+        {message.error &&
+          (message.errorKind === 'bounded' ? (
+            <div className={styles.notice}>
+              <Icon name="info" size={14} />
+              <span>{message.error}</span>
+            </div>
+          ) : (
+            <div className={styles.error}>
+              <Icon name="alert" size={14} />
+              <span>{message.error}</span>
+            </div>
+          ))}
       </div>
 
       {showFooter ? (
