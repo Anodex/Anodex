@@ -65,6 +65,17 @@ export class ReadCoverageTracker {
     }
     return gaps
   }
+
+  /**
+   * Whether any part of `path` — even a single line — has actually been read
+   * this task, in full or by range. Used to check a claim in the model's own
+   * final reply against what real tool calls actually touched (see
+   * `findUnverifiedPathClaims` in `pathClaimVerification.ts`), as distinct
+   * from `isFullyCovered`, which only answers "read in its entirety."
+   */
+  hasAnyCoverage(path: string): boolean {
+    return this.fullFiles.has(path) || (this.ranges.get(path)?.length ?? 0) > 0
+  }
 }
 
 export function createReadCoverageTracker(): ReadCoverageTracker {

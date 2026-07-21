@@ -71,4 +71,29 @@ describe('ReadCoverageTracker', () => {
     tracker.recordRange('a.ts', 1, 50)
     expect(tracker.uncovered('a.ts', 1, 9_999)).toEqual([])
   })
+
+  describe('hasAnyCoverage', () => {
+    it('is false for a path nothing has touched', () => {
+      const tracker = new ReadCoverageTracker()
+      expect(tracker.hasAnyCoverage('a.ts')).toBe(false)
+    })
+
+    it('is true after even a single small range read', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordRange('a.ts', 5, 10)
+      expect(tracker.hasAnyCoverage('a.ts')).toBe(true)
+    })
+
+    it('is true after a full-file read', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordFullFile('a.ts')
+      expect(tracker.hasAnyCoverage('a.ts')).toBe(true)
+    })
+
+    it('stays false for an unrelated path', () => {
+      const tracker = new ReadCoverageTracker()
+      tracker.recordRange('a.ts', 1, 200)
+      expect(tracker.hasAnyCoverage('b.ts')).toBe(false)
+    })
+  })
 })

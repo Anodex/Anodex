@@ -4,6 +4,11 @@ import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from './runGeneration'
 import { isRecoverableGenerationStop } from './recoverableStop'
 import { createReadCoverageTracker } from '../tools/readCoverage'
+import {
+  describeUnverifiedPathClaims,
+  findUnverifiedPathClaims
+} from '../tools/pathClaimVerification'
+import { projectStore } from '../projects/ProjectStore'
 
 /**
  * Nudge prompt for every continuation cycle after the first — deliberately
@@ -79,6 +84,14 @@ export async function runBoundedChatGeneration(
   // covered, independent of whether the model itself still remembers doing
   // so (a compaction summary between cycles may not preserve that fact).
   const readCoverage = createReadCoverageTracker()
+  // Same resolution `runGeneration` itself uses internally — needed here too
+  // so the final reply can be checked against real disk/coverage state (see
+  // `findUnverifiedPathClaims`), not just handed straight to the caller.
+  const projects = projectStore.getState()
+  const requestProjectId =
+    'projectId' in request ? (request.projectId ?? null) : projects.activeProjectId
+  const workspaceRoot =
+    projects.projects.find((project) => project.id === requestProjectId)?.folderPath ?? null
   let history: ChatHistoryTurn[] = request.history
   let prompt = request.prompt
   let context = request.context ?? undefined
@@ -168,9 +181,22 @@ export async function runBoundedChatGeneration(
     tokensPerSecond: totalDurationMs > 0 ? (totalTokens / totalDurationMs) * 1000 : 0
   }
 
+  // Checked once, against the fully combined reply — a fabrication in any
+  // cycle's contribution is still a fabrication in the final answer the user
+  // sees. See `findUnverifiedPathClaims`'s doc comment for the exact live
+  // failure this catches (a synthesis cycle that made zero new tool calls
+  // inventing a plausible-looking file/line-range table).
+  const unverifiedPaths = await findUnverifiedPathClaims(
+    combinedContent,
+    workspaceRoot,
+    readCoverage
+  )
+  const unverifiedNote = describeUnverifiedPathClaims(unverifiedPaths)
+  const finalContent = unverifiedNote ? `${combinedContent}${unverifiedNote}` : combinedContent
+
   return {
     ...finalResult,
-    content: combinedContent,
+    content: finalContent,
     stats,
     thinking: combinedThinking || undefined,
     fabricationDetected: fabricationDetectedAnyCycle,

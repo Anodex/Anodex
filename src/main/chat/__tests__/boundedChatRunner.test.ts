@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { ChatRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from '../runGeneration'
@@ -7,6 +10,27 @@ import { runBoundedChatGeneration } from '../boundedChatRunner'
 vi.mock('../runGeneration', () => ({
   runGeneration: vi.fn()
 }))
+
+// The mock's `getState` closure only reads `workspace` when actually called
+// (well after this file's own top-level code below has run), so it's safe
+// for `vi.mock`'s hoisted registration to reference a `const` declared later
+// in this same file — unlike `vi.hoisted`, which runs before this file's own
+// imports initialize and can't touch them at all.
+vi.mock('../../projects/ProjectStore', () => ({
+  projectStore: {
+    getState: () => ({
+      activeProjectId: 'project-1',
+      projects: [{ id: 'project-1', folderPath: workspace }]
+    })
+  }
+}))
+
+// A real workspace so `findUnverifiedPathClaims` (see `pathClaimVerification.ts`)
+// has genuine disk state to check the final reply against — one real file,
+// so a test can prove a path that WAS actually read is never flagged.
+const workspace = mkdtempSync(join(tmpdir(), 'anodex-bounded-chat-'))
+mkdirSync(join(workspace, 'src'), { recursive: true })
+writeFileSync(join(workspace, 'src', 'real.ts'), 'export {}')
 
 const mockedRunGeneration = vi.mocked(runGeneration)
 
@@ -308,4 +332,55 @@ describe('runBoundedChatGeneration', () => {
     expect(firstIo.readCoverage).toBeDefined()
     expect(secondIo.readCoverage).toBe(firstIo.readCoverage)
   })
+
+  describe('unverified path claims (fabrication guard)', () => {
+    it('appends a note when the reply cites a file that does not exist', async () => {
+      // Regression: a live retest's final synthesis cycle (zero new tool
+      // calls) cited `src/main/ipc/tool.handlers.ts` and other nonexistent
+      // paths in a fabricated-looking table — see
+      // `pathClaimVerification.ts`'s doc comment.
+      mockedRunGeneration.mockReset()
+      mockedRunGeneration.mockResolvedValueOnce(
+        result({
+          content: 'See `src/main/ipc/tool.handlers.ts` for the IPC layer.',
+          stats: { tokens: 5, durationMs: 50, tokensPerSecond: 100 }
+        })
+      )
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.content).toContain('src/main/ipc/tool.handlers.ts')
+      expect(outcome.content).toContain('not verified against real tool calls')
+      expect(outcome.content).toContain('likely fabricated or misspelled')
+    })
+
+    it('does not append a note when every cited path was actually read this task', async () => {
+      mockedRunGeneration.mockReset()
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'call-1',
+          name: 'read_file_range',
+          kind: 'read',
+          title: 'Read src/real.ts lines 1-1',
+          status: 'success'
+        })
+        io.readCoverage?.recordRange(join(workspace, 'src', 'real.ts'), 1, 1)
+        return Promise.resolve(
+          result({
+            content: 'See `src/real.ts` for details.',
+            stats: { tokens: 5, durationMs: 50, tokensPerSecond: 100 }
+          })
+        )
+      })
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.content).toBe('See `src/real.ts` for details.')
+      expect(outcome.content).not.toContain('not verified')
+    })
+  })
+})
+
+afterAll(() => {
+  rmSync(workspace, { recursive: true, force: true })
 })
