@@ -14,6 +14,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useMcpStore } from '../stores/mcpStore'
 import { useStartupStore } from '../stores/startupStore'
 import { useUiStore } from '../stores/uiStore'
+import { TokenBatcher } from './tokenBatcher'
 
 /**
  * The active project (main process) and the active conversation's own
@@ -92,11 +93,51 @@ export function useAnodexBridge(): void {
       })
 
     // Live subscriptions.
-    const offStream = anodex.chat.onStream(({ conversationId, messageId, token }) =>
-      useChatStore.getState().appendToken(conversationId, messageId, token)
-    )
-    const offThinkingStream = anodex.chat.onThinkingStream(({ conversationId, messageId, token }) =>
-      useChatStore.getState().appendThinkingToken(conversationId, messageId, token)
+    //
+    // Token/thinking-token IPC events are coalesced (via `TokenBatcher`) into
+    // at most one chat-store commit per animation frame instead of one per
+    // raw token. A long bounded-chat reply (see BoundedChatRunner) can grow
+    // to 80+ tool calls and tens of thousands of characters in one message;
+    // MessageBubble's own render pipeline (sanitizeMessageTranscript →
+    // messageBlocks → buildRenderSegments → groupSegmentsForTimeline)
+    // necessarily reprocesses the WHOLE message from scratch on every call,
+    // since each one genuinely has new content. Committing a state update —
+    // and so triggering that full reprocessing — on every single raw token
+    // (many per second) made that whole-message cost recur far more often
+    // than the display could even show, observed directly as the renderer's
+    // main thread pegged long enough for Windows to mark the window "Not
+    // Responding" during exactly these long tool-heavy runs. Batching only
+    // reduces how OFTEN the full reprocessing recurs, not what one
+    // recurrence costs — and it's self-correcting if a frame really is slow:
+    // the next `requestAnimationFrame` callback still fires whenever the
+    // thread frees up, coalescing whatever arrived in the meantime into one
+    // bigger flush, rather than queuing ever-more-granular commits behind it.
+    const tokenBatcher = new TokenBatcher()
+    let tokenFlushHandle: number | null = null
+    const flushPendingTokens = (): void => {
+      tokenFlushHandle = null
+      const { tokens, thinkingTokens } = tokenBatcher.drain()
+      for (const [messageId, { conversationId, text }] of tokens) {
+        useChatStore.getState().appendToken(conversationId, messageId, text)
+      }
+      for (const [messageId, { conversationId, text }] of thinkingTokens) {
+        useChatStore.getState().appendThinkingToken(conversationId, messageId, text)
+      }
+    }
+    const scheduleTokenFlush = (): void => {
+      if (tokenFlushHandle !== null) return
+      tokenFlushHandle = requestAnimationFrame(flushPendingTokens)
+    }
+
+    const offStream = anodex.chat.onStream(({ conversationId, messageId, token }) => {
+      tokenBatcher.addToken(conversationId, messageId, token)
+      scheduleTokenFlush()
+    })
+    const offThinkingStream = anodex.chat.onThinkingStream(
+      ({ conversationId, messageId, token }) => {
+        tokenBatcher.addThinkingToken(conversationId, messageId, token)
+        scheduleTokenFlush()
+      }
     )
     const offEngine = anodex.models.onStateChanged((state) =>
       useModelStore.getState().setEngineState(state)
@@ -172,6 +213,7 @@ export function useAnodexBridge(): void {
     return () => {
       cancelled = true
       if (restoreTimer) clearTimeout(restoreTimer)
+      if (tokenFlushHandle !== null) cancelAnimationFrame(tokenFlushHandle)
       offStream()
       offThinkingStream()
       offEngine()
