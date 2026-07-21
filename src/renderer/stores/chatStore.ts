@@ -680,6 +680,13 @@ export const useChatStore = create<ChatState>()(
       set((state) => {
         const convo = state.conversations.find((c) => c.id === conversationId)
         const message = convo?.messages.find((m) => m.id === messageId)
+        // Tokens are rAF-batched in `useAnodexBridge`, while `sendMessage`'s
+        // finalize resolves on the un-throttled IPC promise — so a final
+        // frame's worth of buffered tokens can flush AFTER the finalize that
+        // already replaced `message.content` with the complete reply.
+        // Appending them again would duplicate the reply's tail; once a
+        // message stops streaming, late token flushes for it are dropped.
+        if (message?.streaming !== true) return
         if (message && convo) {
           const visibleToken = quarantineStreamingToolPayload(
             message,
@@ -727,7 +734,10 @@ export const useChatStore = create<ChatState>()(
       set((state) => {
         const convo = state.conversations.find((c) => c.id === conversationId)
         const message = convo?.messages.find((m) => m.id === messageId)
-        if (!message) return
+        // Same late-flush guard as `appendToken` above — finalize already set
+        // the complete `thinking` text, so a buffered flush after it would
+        // append a duplicate tail.
+        if (message?.streaming !== true) return
         message.thinking = (message.thinking ?? '') + token
         if (!message.blocks) message.blocks = []
         const last = message.blocks[message.blocks.length - 1]
