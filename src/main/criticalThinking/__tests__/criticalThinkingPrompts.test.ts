@@ -3,17 +3,32 @@ import type { Plan } from '@shared/plan.types'
 import {
   buildCriticalThinkingAssessmentPrompt,
   buildCriticalThinkingPlanPrompt,
+  buildCriticalThinkingPlanRetryPrompt,
   buildCriticalThinkingQueryPrompt,
   buildCriticalThinkingRepairPrompt,
   buildCriticalThinkingSynthesisPrompt
 } from '../criticalThinkingPrompts'
 
 describe('Critical Thinking prompts', () => {
-  it('keeps the planning stage action-free and requires write_plan', () => {
+  it('keeps the planning stage action-free and requires bounded JSON, not a tool call', () => {
     const prompt = buildCriticalThinkingPlanPrompt('Which option is best?')
 
-    expect(prompt).toContain('calling write_plan')
+    expect(prompt).toContain('Return strict JSON only')
+    expect(prompt).toContain('"title"')
+    expect(prompt).toContain('"steps"')
+    expect(prompt).not.toContain('write_plan')
     expect(prompt).toContain('Do not answer the question or search yet')
+    expect(prompt).toContain('Which option is best?')
+  })
+
+  it('feeds validation issues into the bounded plan repair prompt instead of requesting write_plan', () => {
+    const prompt = buildCriticalThinkingPlanRetryPrompt('Which option is best?', [
+      'The plan needs a non-empty title.'
+    ])
+
+    expect(prompt).toContain('The plan needs a non-empty title.')
+    expect(prompt).toContain('Return strict JSON only')
+    expect(prompt).not.toContain('write_plan')
     expect(prompt).toContain('Which option is best?')
   })
 

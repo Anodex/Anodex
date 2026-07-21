@@ -25,4 +25,23 @@ describe('Critical Thinking synthesis budgets', () => {
   it('bounds item lists without breaking their outer structure', () => {
     expect(boundPromptItems([' first ', 'second'], 8)).toEqual(['first', 'se…'])
   })
+
+  describe('thoughtTokens (P0-B/P0-E: guaranteed visible-output reserve)', () => {
+    it('reserves a fraction of the total for hidden reasoning, guaranteeing the rest for visible output', () => {
+      const limits = criticalThinkingSynthesisLimits(8_192)
+
+      expect(limits.thoughtTokens).toBeGreaterThan(0)
+      expect(limits.thoughtTokens).toBeLessThan(limits.maxOutputTokens)
+      const guaranteedVisible = limits.maxOutputTokens - limits.thoughtTokens
+      expect(guaranteedVisible).toBeGreaterThanOrEqual(Math.floor(limits.maxOutputTokens * 0.6))
+    })
+
+    it('never exceeds the total output budget it is drawn from, across context sizes', () => {
+      for (const contextTokens of [2_048, 4_096, 8_192, 32_768, 200_000]) {
+        const limits = criticalThinkingSynthesisLimits(contextTokens)
+        expect(limits.thoughtTokens).toBeLessThanOrEqual(limits.maxOutputTokens)
+        expect(limits.thoughtTokens).toBeGreaterThanOrEqual(0)
+      }
+    })
+  })
 })

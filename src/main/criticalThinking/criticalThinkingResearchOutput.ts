@@ -1,13 +1,26 @@
+import { randomUUID } from 'node:crypto'
 import type { CriticalThinkingCoverageAssessment } from '@shared/criticalThinking.types'
+import type { Plan } from '@shared/plan.types'
 
 const MAX_QUERY_CHARS = 320
 const MAX_FINDING_CHARS = 4_000
 const MAX_RATIONALE_CHARS = 800
 const MAX_GAP_CHARS = 360
+const MIN_PLAN_STEPS = 3
+const MAX_PLAN_STEPS = 7
+const MAX_PLAN_TITLE_CHARS = 200
+const MAX_PLAN_STEP_CHARS = 240
 
 export interface ParsedResearchQueries {
   queries: string[]
   valid: boolean
+}
+
+export interface ParsedResearchPlan {
+  plan: Plan | null
+  valid: boolean
+  /** Why the plan was rejected, when it was — fed into a bounded repair prompt. */
+  issues: string[]
 }
 
 export interface ParsedResearchAssessment {
@@ -34,6 +47,39 @@ export function parseResearchQueries(
   }
   const fallback = truncate(normalizeInlineText(fallbackQuery), MAX_QUERY_CHARS)
   return { queries: fallback ? [fallback] : [], valid: false }
+}
+
+/**
+ * Parses a bounded `{"title": "...", "steps": ["..."]}` plan proposal. IDs and
+ * `updatedAt` are always generated here rather than trusted from model text —
+ * the model only supplies title/step text.
+ */
+export function parseResearchPlan(content: string): ParsedResearchPlan {
+  const parsed = parseJsonObject(content)
+  if (!parsed) {
+    return { plan: null, valid: false, issues: ['The response was not a valid JSON object.'] }
+  }
+  const title = truncate(normalizeInlineText(stringValue(parsed.title)), MAX_PLAN_TITLE_CHARS)
+  const steps = boundStrings(parsed.steps, MAX_PLAN_STEPS, MAX_PLAN_STEP_CHARS)
+  const issues: string[] = []
+  if (!title) issues.push('The plan needs a non-empty title.')
+  if (steps.length < MIN_PLAN_STEPS) {
+    issues.push(`The plan needs at least ${MIN_PLAN_STEPS} distinct, concrete research steps.`)
+  }
+  if (issues.length > 0) return { plan: null, valid: false, issues }
+  return {
+    plan: {
+      title,
+      steps: steps.map((stepTitle) => ({
+        id: randomUUID(),
+        title: stepTitle,
+        status: 'pending' as const
+      })),
+      updatedAt: Date.now()
+    },
+    valid: true,
+    issues: []
+  }
 }
 
 export function parseResearchAssessment(

@@ -13,7 +13,6 @@ import type {
 import type { ChatRequest } from '@shared/chat.types'
 import type { GenerationStats, GenerationStopReason } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
-import type { ToolCall } from '@shared/tools.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import {
   runGeneration,
@@ -35,12 +34,21 @@ import {
   buildCriticalThinkingRepairPrompt,
   buildCriticalThinkingSynthesisPrompt
 } from './criticalThinkingPrompts'
+import { buildEvidencePacket, renderResearchCitations } from './criticalThinkingEvidence'
+import { buildDeterministicFallbackReport } from './criticalThinkingFallbackReport'
 import {
-  buildEvidencePacket,
-  renderResearchCitations,
-  validateResearchReport
-} from './criticalThinkingEvidence'
+  chooseBetterReportCandidate,
+  evaluateReportCandidate,
+  type ReportCandidate
+} from './criticalThinkingReportCandidate'
+import { parseResearchPlan } from './criticalThinkingResearchOutput'
 import { mergeSources, sourcesFromArtifact } from './criticalThinkingSources'
+import {
+  addStats,
+  isRecoverableContentStopReason,
+  runStructuredPhase,
+  signalStopReason
+} from './criticalThinkingStructuredPhase'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 import {
   CriticalThinkingResearchRunner,
@@ -158,11 +166,19 @@ class CriticalThinkingService {
     this.activeController?.abort('user')
   }
 
+  /**
+   * Planning is a tool-free structured phase: the model returns bounded JSON
+   * for the service to parse and validate, rather than calling `write_plan`
+   * through the native function-calling loop. A successful tool call there
+   * was not a terminal workflow boundary — the installed session API keeps
+   * generating after it — so a plan that arrived just before a recoverable
+   * token/context-shift limit was discarded even though it was complete and
+   * valid. `runStructuredPhase` fixes that ordering once, for every phase.
+   */
   private async runPlanning(run: CriticalThinkingRun): Promise<void> {
     this.activeRunId = run.id
     const controller = new AbortController()
     this.activeController = controller
-    let combinedStats: GenerationStats | null = null
 
     try {
       const planningLimits = criticalThinkingSynthesisLimits(
@@ -172,45 +188,75 @@ class CriticalThinkingService {
         run.question,
         Math.min(6_000, Math.floor(planningLimits.maxPromptChars * 0.35))
       )
-      let result = await this.runPlanTurn(
-        run,
+
+      const phase = await runStructuredPhase<Plan>(
         buildCriticalThinkingPlanPrompt(planningQuestion),
-        controller.signal
+        controller.signal,
+        {
+          generate: (prompt) =>
+            this.runToolFreeTurn(
+              run,
+              prompt,
+              controller.signal,
+              false,
+              planningLimits.maxOutputTokens
+            ),
+          parse: (content) => {
+            const parsed = parseResearchPlan(content)
+            return { value: parsed.plan, valid: parsed.valid, issues: parsed.issues }
+          },
+          buildRepairPrompt: (_previousContent, issues) =>
+            buildCriticalThinkingPlanRetryPrompt(planningQuestion, issues)
+        }
       )
-      combinedStats = addStats(combinedStats, result.stats)
-      let plan = latestPlan(result.calls)
-      if (result.stopped) return this.finishPlanningStop(run.id, combinedStats, result.stopReason)
 
-      if (!plan) {
-        result = await this.runPlanTurn(
-          run,
-          buildCriticalThinkingPlanRetryPrompt(planningQuestion),
-          controller.signal
-        )
-        combinedStats = addStats(combinedStats, result.stats)
-        plan = latestPlan(result.calls)
-        if (result.stopped) return this.finishPlanningStop(run.id, combinedStats, result.stopReason)
+      if (phase.userStopped) {
+        return this.finishPlanningStop(run.id, phase.stats, phase.stopReason)
       }
-
-      if (!plan) {
+      if (!phase.valid || !phase.value) {
+        // A defined stopReason here means an orchestration-level limit (not
+        // the user) cut planning short before it produced anything parseable
+        // — surface that specific, already-worded reason. No stopReason at
+        // all means the model completed normally but still produced unusable
+        // output, which is a distinct, clearer-question kind of failure.
+        if (phase.stopReason) {
+          return this.finishPlanningStop(run.id, phase.stats, phase.stopReason)
+        }
         this.finish(run.id, 'failed', {
-          stats: combinedStats,
-          lastError: 'The model could not produce a research plan. Try a clearer question.'
+          stats: phase.stats,
+          lastError: 'The model could not produce a valid research plan. Try a clearer question.'
         })
         return
       }
+
+      const plan = phase.value
+      // Exactly one planning activity, regardless of whether a repair
+      // attempt ran — the model-call detail lives in `phase`, not here.
+      this.recordActivity(run.id, {
+        id: randomUUID(),
+        kind: 'planning',
+        label: `Plan: ${truncate(plan.title, 60)}`,
+        status: 'success',
+        detail: `${plan.steps.length} steps`,
+        createdAt: Date.now()
+      })
       criticalThinkingStore.update(run.id, {
         status: 'needs-review',
         plan,
         steps: createStepStates(plan),
-        stats: combinedStats,
+        stats: phase.stats,
         lastError: null
       })
+      // Make the review-ready transition durable before telling the
+      // renderer — a crash between the in-memory update and the disk write
+      // must not leave the UI showing an approvable plan that didn't survive
+      // a restart. A flush failure here falls through to the catch below and
+      // reports an explicit failure instead of a false needs-review.
+      await criticalThinkingStore.flush()
       this.broadcastRunsChanged()
     } catch (error) {
       log.error('Critical Thinking planning failed:', run.id, error)
       this.finish(run.id, controller.signal.aborted ? 'stopped' : 'failed', {
-        stats: combinedStats,
         lastError: controller.signal.aborted ? 'Research was stopped.' : errorMessage(error)
       })
     } finally {
@@ -223,44 +269,6 @@ class CriticalThinkingService {
         this.clearActiveRun()
       }
     }
-  }
-
-  private async runPlanTurn(
-    run: CriticalThinkingRun,
-    prompt: string,
-    signal: AbortSignal
-  ): Promise<{
-    calls: ToolCall[]
-    stats: GenerationStats
-    stopped: boolean
-    stopReason?: GenerationStopReason
-  }> {
-    const calls = new Map<string, ToolCall>()
-    const result = await this.runIsolatedGeneration(
-      {
-        conversationId: run.id,
-        messageId: generateMessageId(),
-        projectId: null,
-        history: [],
-        prompt,
-        options: { temperature: 0.2, maxTokens: 768 }
-      },
-      {
-        signal,
-        sessionMode: 'isolated',
-        includeReferenceContext: false,
-        enabledTools: new Set(['write_plan']),
-        providerOverride: { provider: run.provider, model: run.model ?? undefined },
-        permissionModeOverride: 'untethered',
-        executionBudget: CRITICAL_THINKING_STEP_BUDGET,
-        onActivity: (call) => {
-          calls.set(call.id, call)
-          this.applyActivity(run.id, call)
-        },
-        confirm: () => Promise.resolve({ approved: true })
-      }
-    )
-    return { calls: [...calls.values()], ...pickGenerationResult(result) }
   }
 
   private async runResearch(initialRun: CriticalThinkingRun): Promise<void> {
@@ -286,21 +294,7 @@ class CriticalThinkingService {
       await criticalThinkingEvidenceStore.flush()
       this.reconcileEvidenceReferences(initialRun.id)
 
-      for (let index = 0; index < initialRun.steps.length; index++) {
-        const current = this.requireRun(initialRun.id)
-        const step = current.steps[index]
-        if (step.status === 'completed') continue
-        if (controller.signal.aborted) break
-        const result = await this.runResearchStep(current, index, controller.signal, usage)
-        this.updatePlanProgress(
-          current.id,
-          index,
-          result.status === 'completed' ? 'completed' : 'pending'
-        )
-        this.broadcastRunsChanged()
-        if (result.stopped) break
-        if (result.runBudgetReached) break
-      }
+      await this.runResearchWaves(initialRun.id, controller.signal, usage)
 
       if (controller.signal.aborted) {
         if (totalTimedOut) this.markRunTimeLimit(initialRun.id)
@@ -341,11 +335,61 @@ class CriticalThinkingService {
     }
   }
 
+  /**
+   * Breadth-first: every not-yet-completed/limited step gets one research
+   * round before any step gets a second, so a handful of early steps can no
+   * longer exhaust the run's lifetime round/search/fetch budget before later
+   * approved steps are ever attempted (docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md, P0-D).
+   * Round-robin naturally guarantees round N for every step before round N+1
+   * for any step, without needing separate reservation bookkeeping.
+   */
+  private async runResearchWaves(
+    runId: string,
+    signal: AbortSignal,
+    usage: CriticalThinkingRunUsage
+  ): Promise<void> {
+    while (true) {
+      const run = this.requireRun(runId)
+      if (
+        usage.rounds >= run.researchPolicy.maxRoundsPerRun ||
+        usage.searches >= run.researchPolicy.maxSearchesPerRun ||
+        usage.fetches >= run.researchPolicy.maxFetchesPerRun
+      ) {
+        return
+      }
+      const pendingIndexes = run.steps.flatMap((step, index) =>
+        step.status === 'completed' || step.status === 'limited' ? [] : [index]
+      )
+      if (pendingIndexes.length === 0) return
+
+      let attemptedAny = false
+      for (const index of pendingIndexes) {
+        if (signal.aborted) return
+        const current = this.requireRun(runId)
+        const step = current.steps[index]
+        if (step.status === 'completed' || step.status === 'limited') continue
+
+        attemptedAny = true
+        const result = await this.runResearchStep(current, index, signal, usage, 1)
+        this.updatePlanProgress(
+          runId,
+          index,
+          result.status === 'completed' ? 'completed' : 'pending'
+        )
+        this.broadcastRunsChanged()
+        if (result.stopped) return
+        if (result.runBudgetReached) return
+      }
+      if (!attemptedAny) return
+    }
+  }
+
   private async runResearchStep(
     run: CriticalThinkingRun,
     index: number,
     signal: AbortSignal,
-    usage: CriticalThinkingRunUsage
+    usage: CriticalThinkingRunUsage,
+    maxNewRoundsThisCall: number
   ): Promise<CriticalThinkingResearchStepResult> {
     const step = run.steps[index]
     this.updateStep(run.id, index, {
@@ -394,7 +438,7 @@ class CriticalThinkingService {
         llamaService.getState().contextSize
       )
     })
-    const result = await runner.run(signal, usage)
+    const result = await runner.run(signal, usage, maxNewRoundsThisCall)
     this.broadcastRunsChanged()
     return result
   }
@@ -435,27 +479,43 @@ class CriticalThinkingService {
       buildCriticalThinkingSynthesisPrompt(question, plan, findings, evidencePacket),
       signal,
       true,
-      limits.maxOutputTokens
+      limits.maxOutputTokens,
+      limits.thoughtTokens
     )
-    let draft = synthesis.content.trim()
+    const draft = synthesis.content.trim()
     let stats = addStats(run.stats, synthesis.stats)
-    if (synthesis.stopped || !draft) {
-      const stopReason = signalStopReason(signal, synthesis.stopReason)
-      this.finish(run.id, stopReason === 'user' ? 'stopped' : 'partial', {
+    const synthesisStopReason = signalStopReason(signal, synthesis.stopReason)
+    const synthesisUserStopped = synthesisStopReason === 'user'
+    // A recoverable output/context limit (e.g. token-limit) does not by
+    // itself mean the draft is unusable — validate it first and only then
+    // decide, instead of discarding a possibly-complete report because
+    // generation happened to end on that limit. An orchestration-level stop
+    // (time/tool/round budget) or an empty draft skips straight to Partial,
+    // matching the pre-existing behavior for those reasons.
+    const draftWorthValidating =
+      draft.length > 0 && isRecoverableContentStopReason(synthesisStopReason)
+    if (synthesisUserStopped || !draftWorthValidating) {
+      this.finish(run.id, synthesisUserStopped ? 'stopped' : 'partial', {
         report: draft,
         stats,
-        lastError: stoppedReasonMessage(stopReason)
+        lastError: stoppedReasonMessage(synthesisStopReason)
       })
       return
     }
 
     criticalThinkingStore.update(run.id, { status: 'validating', report: draft, stats })
     this.broadcastRunsChanged()
-    let validation = validateResearchReport(draft, artifacts, run.sources)
+    const approvedStepCount = run.steps.length
+    let candidate: ReportCandidate = evaluateReportCandidate(
+      draft,
+      artifacts,
+      run.sources,
+      approvedStepCount
+    )
     let repairStopReason: GenerationStopReason | undefined
-    if (!validation.valid) {
+    if (!candidate.overallValid) {
       const repairIssues = boundPromptItems(
-        validation.issues,
+        candidate.issues,
         Math.min(3_000, Math.floor(limits.maxPromptChars * 0.12))
       )
       const repairBase = buildCriticalThinkingRepairPrompt('', repairIssues, '')
@@ -474,25 +534,61 @@ class CriticalThinkingService {
         buildCriticalThinkingRepairPrompt(repairDraft, repairIssues, repairEvidence),
         signal,
         false,
-        limits.maxOutputTokens
+        limits.maxOutputTokens,
+        limits.thoughtTokens
       )
       stats = addStats(stats, repair.stats)
-      if (repair.stopped) {
-        repairStopReason = signalStopReason(signal, repair.stopReason) ?? 'yielded'
+      const repairStopReasonCandidate = signalStopReason(signal, repair.stopReason)
+      if (repair.stopped && !isRecoverableContentStopReason(repairStopReasonCandidate)) {
+        // A genuine user Stop, or an orchestration-level limit, with nothing
+        // recoverable to check — keep the original draft and remember why.
+        repairStopReason = repairStopReasonCandidate ?? 'yielded'
       } else if (repair.content.trim()) {
-        // A stopped repair may contain an incomplete stream. Keep the original
-        // complete draft unless the repair itself completed.
-        draft = repair.content.trim()
+        // Either the repair completed cleanly, or it stopped on a
+        // recoverable output/context limit but may still be a complete,
+        // valid replacement — score both drafts and keep whichever is
+        // actually better rather than assuming the repair improved things
+        // just because it is nonempty (P0-F: a worse repair must never
+        // silently overwrite a better original).
+        const repairedCandidate = evaluateReportCandidate(
+          repair.content,
+          artifacts,
+          run.sources,
+          approvedStepCount
+        )
+        candidate = chooseBetterReportCandidate(candidate, repairedCandidate)
       }
-      validation = validateResearchReport(draft, artifacts, run.sources)
     }
 
-    const report = renderResearchCitations(draft, run.sources)
+    if (!candidate.overallValid && repairStopReason !== 'user') {
+      // Synthesis and its one repair both failed validation — do not expose
+      // whatever fragment they produced as the primary report (P0-H: the
+      // exact live failure was a 175-character uncited draft). Build a
+      // deterministic report directly from durable, already-verified
+      // artifacts instead, and let the same scoring pick it only if it is
+      // actually better than what the model produced.
+      const stepsWithEvidence = run.steps.filter((step) => step.evidenceIds.length > 0).length
+      const fallbackContent = buildDeterministicFallbackReport(
+        run.plan?.title ?? run.question,
+        run.steps,
+        artifacts,
+        run.sources
+      )
+      const fallbackCandidate = evaluateReportCandidate(
+        fallbackContent,
+        artifacts,
+        run.sources,
+        stepsWithEvidence
+      )
+      candidate = chooseBetterReportCandidate(candidate, fallbackCandidate)
+    }
+
+    const report = renderResearchCitations(candidate.content, run.sources)
     const limitedSteps = run.steps.some((step) => step.status !== 'completed')
     const status =
       repairStopReason === 'user'
         ? 'stopped'
-        : validation.valid && !limitedSteps && !repairStopReason
+        : candidate.overallValid && !limitedSteps && !repairStopReason
           ? 'completed'
           : 'partial'
     this.finish(run.id, status, {
@@ -501,14 +597,11 @@ class CriticalThinkingService {
       plan: status === 'completed' ? completePlan(run.plan) : run.plan,
       lastError: repairStopReason
         ? `Report repair stopped early. ${stoppedReasonMessage(repairStopReason)}`
-        : validation.valid
+        : candidate.overallValid
           ? limitedSteps
             ? limitedResearchMessage(run.steps)
             : null
-          : truncate(
-              `Citation validation remained incomplete: ${validation.issues.join(' ')}`,
-              2_000
-            )
+          : truncate(`Report validation remained incomplete: ${candidate.issues.join(' ')}`, 2_000)
     })
     showToastWindow({
       title: status === 'completed' ? 'Critical Thinking complete' : 'Partial research ready',
@@ -521,7 +614,8 @@ class CriticalThinkingService {
     prompt: string,
     signal: AbortSignal,
     stream: boolean,
-    maxTokens: number
+    maxTokens: number,
+    thoughtTokens?: number
   ): Promise<RunGenerationResult> {
     return this.runIsolatedGeneration(
       {
@@ -530,7 +624,7 @@ class CriticalThinkingService {
         projectId: null,
         history: [],
         prompt,
-        options: { temperature: 0.2, maxTokens }
+        options: { temperature: 0.2, maxTokens, thoughtTokens }
       },
       {
         signal,
@@ -618,28 +712,6 @@ class CriticalThinkingService {
       evidenceCount: run.evidenceCount + 1,
       steps
     })
-    this.broadcastRunsChanged(true)
-  }
-
-  private applyActivity(runId: string, call: ToolCall): void {
-    const run = criticalThinkingStore.get(runId)
-    if (!run) return
-    const existing = run.activities.find((activity) => activity.id === call.id)
-    const activity: CriticalThinkingActivity = {
-      id: call.id,
-      kind:
-        call.name === 'web_search' ? 'search' : call.name === 'fetch_url' ? 'reading' : 'planning',
-      label: call.title,
-      status: call.status,
-      detail: call.detail,
-      createdAt: existing?.createdAt ?? Date.now()
-    }
-    const activities = (
-      existing
-        ? run.activities.map((item) => (item.id === call.id ? activity : item))
-        : [...run.activities, activity]
-    ).slice(-MAX_ACTIVITIES)
-    criticalThinkingStore.update(runId, { activities })
     this.broadcastRunsChanged(true)
   }
 
@@ -917,10 +989,6 @@ function createStepStates(plan: Plan): CriticalThinkingStepState[] {
   }))
 }
 
-function latestPlan(calls: ToolCall[]): Plan | null {
-  return calls.filter((call) => call.status === 'success' && call.plan).at(-1)?.plan ?? null
-}
-
 function completePlan(plan: Plan | null): Plan | null {
   if (!plan) return null
   return {
@@ -944,34 +1012,12 @@ function boundPlanForPrompt(plan: Plan, maxChars: number): Plan {
   }
 }
 
-function addStats(current: GenerationStats | null, next: GenerationStats): GenerationStats {
-  const tokens = (current?.tokens ?? 0) + next.tokens
-  const durationMs = (current?.durationMs ?? 0) + next.durationMs
-  return { tokens, durationMs, tokensPerSecond: durationMs > 0 ? tokens / (durationMs / 1000) : 0 }
-}
-
-function pickGenerationResult(result: RunGenerationResult): {
-  stats: GenerationStats
-  stopped: boolean
-  stopReason?: GenerationStopReason
-} {
-  return { stats: result.stats, stopped: result.stopped, stopReason: result.stopReason }
-}
-
 function generateMessageId(): string {
   return `critical_msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Critical Thinking failed.'
-}
-
-function signalStopReason(
-  signal: AbortSignal | undefined,
-  fallback: GenerationStopReason | undefined
-): GenerationStopReason | undefined {
-  if (!signal?.aborted) return fallback
-  return signal.reason === 'time-limit' ? 'time-limit' : (fallback ?? 'user')
 }
 
 function stoppedReasonMessage(stopReason: GenerationStopReason | undefined): string {

@@ -1,20 +1,30 @@
 import type { Plan } from '@shared/plan.types'
 
 export function buildCriticalThinkingPlanPrompt(question: string): string {
-  return (
-    'Create a research plan for the question below by calling write_plan. Break the investigation ' +
-    'into 3 to 7 concrete evidence-gathering steps. Include distinct angles, primary-source ' +
-    'checks, and cross-checking where it matters. Do not add a report-writing step because Anodex ' +
-    'owns synthesis after research. Do not answer the question or search yet.\n\n' +
-    `Research question:\n${question}`
-  )
+  return `Create a bounded research plan for the question below. Break the investigation into 3 to 7 concrete, materially different evidence-gathering steps. Include distinct angles, primary-source checks, and cross-checking where it matters. Do not add a report-writing or synthesis step; Anodex writes the final report separately after research. Do not answer the question or search yet.
+
+Research question:
+${question}
+
+Return strict JSON only in this shape:
+{"title":"Short research plan title","steps":["Concrete evidence-gathering step"]}
+
+Requirements:
+- title is a short, non-empty plan name.
+- steps has 3 to 7 concise, materially different items.
+- Do not include Markdown, commentary, or any text outside the JSON object.`
 }
 
-export function buildCriticalThinkingPlanRetryPrompt(question: string): string {
-  return (
-    'You did not create the required plan. Call write_plan now with 3 to 7 concrete research ' +
-    `steps for this question, and do nothing else:\n\n${question}`
-  )
+export function buildCriticalThinkingPlanRetryPrompt(question: string, issues: string[]): string {
+  const issueText =
+    issues.length > 0 ? issues.join(' ') : 'The previous response was not valid JSON.'
+  return `The previous response was not a usable research plan: ${issueText} Return strict JSON only in this exact shape, with no other text:
+{"title":"Short research plan title","steps":["Concrete evidence-gathering step"]}
+
+Provide 3 to 7 concise, materially different evidence-gathering steps for this question. Do not add a report-writing step.
+
+Research question:
+${question}`
 }
 
 export function buildCriticalThinkingQueryPrompt(

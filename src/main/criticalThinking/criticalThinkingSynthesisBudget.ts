@@ -6,10 +6,28 @@ const MAX_EVIDENCE_CHARS = 36_000
 const MAX_OUTPUT_TOKENS = 4_096
 const MIN_OUTPUT_TOKENS = 768
 const APPROX_CHARS_PER_TOKEN = 3
+/**
+ * A reasoning-tuned local model can spend nearly all of `maxOutputTokens` on
+ * hidden thinking before writing anything visible — the exact live 8K
+ * Critical Thinking failure produced 14 verified sources but only a
+ * 175-character report for this reason (P0-E). Guaranteeing at least this
+ * fraction for visible report text, regardless of the total's size, is a
+ * starting hypothesis to tune against a real wrapper/tokenizer, not a proven
+ * production constant.
+ */
+const MIN_VISIBLE_OUTPUT_FRACTION = 0.6
 
 export interface CriticalThinkingSynthesisLimits {
   contextTokens: number
   maxOutputTokens: number
+  /**
+   * Sub-budget within `maxOutputTokens` for hidden reasoning — see
+   * `GenerationOptions.thoughtTokens`'s doc comment. At most
+   * `1 - MIN_VISIBLE_OUTPUT_FRACTION` of the total, so at least
+   * `MIN_VISIBLE_OUTPUT_FRACTION` always stays reserved for the visible
+   * reply once the reasoning segment closes.
+   */
+  thoughtTokens: number
   maxPromptChars: number
   maxQuestionChars: number
   maxPlanChars: number
@@ -36,10 +54,13 @@ export function criticalThinkingSynthesisLimits(
     safeContextTokens - maxOutputTokens - systemReserveTokens
   )
   const maxPromptChars = Math.min(MAX_PROMPT_CHARS, availableInputTokens * APPROX_CHARS_PER_TOKEN)
+  const minVisibleOutputTokens = Math.ceil(maxOutputTokens * MIN_VISIBLE_OUTPUT_FRACTION)
+  const thoughtTokens = Math.max(0, maxOutputTokens - minVisibleOutputTokens)
 
   return {
     contextTokens: safeContextTokens,
     maxOutputTokens,
+    thoughtTokens,
     maxPromptChars,
     maxQuestionChars: Math.min(4_000, Math.floor(maxPromptChars * 0.1)),
     maxPlanChars: Math.min(4_000, Math.floor(maxPromptChars * 0.1)),

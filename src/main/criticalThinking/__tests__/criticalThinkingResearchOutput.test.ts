@@ -1,7 +1,85 @@
 import { describe, expect, it } from 'vitest'
-import { parseResearchAssessment, parseResearchQueries } from '../criticalThinkingResearchOutput'
+import {
+  parseResearchAssessment,
+  parseResearchPlan,
+  parseResearchQueries
+} from '../criticalThinkingResearchOutput'
 
 describe('Critical Thinking staged research output parsing', () => {
+  it('accepts a bounded plan with 3 to 7 distinct steps and service-generated IDs', () => {
+    const parsed = parseResearchPlan(
+      JSON.stringify({
+        title: 'Bee and Wasp Sting Pain Research',
+        steps: [
+          'Compare venom composition across species',
+          'Compare pain-scale ratings from primary studies',
+          'Check allergic-reaction and repeat-sting evidence'
+        ]
+      })
+    )
+
+    expect(parsed.valid).toBe(true)
+    expect(parsed.issues).toEqual([])
+    expect(parsed.plan?.title).toBe('Bee and Wasp Sting Pain Research')
+    expect(parsed.plan?.steps).toHaveLength(3)
+    expect(parsed.plan?.steps.every((step) => step.status === 'pending')).toBe(true)
+    const ids = new Set(parsed.plan?.steps.map((step) => step.id))
+    expect(ids.size).toBe(3)
+  })
+
+  it('deduplicates trivially repeated steps and caps the list at 7', () => {
+    const parsed = parseResearchPlan(
+      JSON.stringify({
+        title: 'Research plan',
+        steps: [
+          'First distinct step',
+          'FIRST DISTINCT STEP',
+          'Second distinct step',
+          'Third distinct step',
+          'Fourth distinct step',
+          'Fifth distinct step',
+          'Sixth distinct step',
+          'Seventh distinct step',
+          'Eighth distinct step'
+        ]
+      })
+    )
+
+    expect(parsed.valid).toBe(true)
+    expect(parsed.plan?.steps).toHaveLength(7)
+    expect(parsed.plan?.steps[0].title).toBe('First distinct step')
+  })
+
+  it('rejects a plan with fewer than 3 usable steps and reports why', () => {
+    const parsed = parseResearchPlan(
+      JSON.stringify({ title: 'Too short', steps: ['Only one step'] })
+    )
+
+    expect(parsed.valid).toBe(false)
+    expect(parsed.plan).toBeNull()
+    expect(parsed.issues.join(' ')).toContain('at least 3')
+  })
+
+  it('rejects a plan with no title and reports why', () => {
+    const parsed = parseResearchPlan(
+      JSON.stringify({
+        title: '   ',
+        steps: ['First distinct step', 'Second distinct step', 'Third distinct step']
+      })
+    )
+
+    expect(parsed.valid).toBe(false)
+    expect(parsed.plan).toBeNull()
+    expect(parsed.issues.join(' ')).toContain('non-empty title')
+  })
+
+  it('rejects text that is not a JSON object', () => {
+    const parsed = parseResearchPlan('I will now think about a plan...')
+
+    expect(parsed.valid).toBe(false)
+    expect(parsed.plan).toBeNull()
+    expect(parsed.issues).not.toEqual([])
+  })
   it('extracts a balanced JSON object embedded in model prose', () => {
     const parsed = parseResearchQueries(
       'Template {not json}. Result {"queries":["alpha {dataset} report","beta study"]} trailing {noise}',

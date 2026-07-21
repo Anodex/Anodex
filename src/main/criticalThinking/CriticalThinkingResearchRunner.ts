@@ -32,6 +32,7 @@ import {
   type ResearchSearchBatch
 } from './criticalThinkingResearchPolicy'
 import { parseResearchAssessment, parseResearchQueries } from './criticalThinkingResearchOutput'
+import { runStructuredPhase } from './criticalThinkingStructuredPhase'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 const QUERY_OUTPUT_TOKENS = 512
@@ -85,6 +86,14 @@ export interface CriticalThinkingResearchStepResult {
   status: CriticalThinkingStepState['status']
   stopped: boolean
   runBudgetReached: boolean
+  /**
+   * True when this call returned only because it reached `maxNewRoundsThisCall`
+   * (a scheduler-imposed per-wave cap), not because the step's lifetime round
+   * budget, a global run limit, or a real stop reason was hit. The step is
+   * still `'researching'`-eligible and should be revisited in a later wave,
+   * unlike a terminal `'limited'` status.
+   */
+  waveYielded?: boolean
 }
 
 export interface CriticalThinkingResearchRunnerOptions {
@@ -110,16 +119,28 @@ export class CriticalThinkingResearchRunner {
     )
   }
 
+  /**
+   * `maxNewRoundsThisCall` bounds how many *new* rounds this single invocation
+   * may start for the current step — separate from `policy.maxRoundsPerStep`,
+   * which is the step's lifetime cap across every invocation. The scheduler
+   * (`CriticalThinkingService.runResearchWaves`) calls this once per step per
+   * wave with a cap of 1 so every approved step gets a first-pass round before
+   * any step spends a second, instead of one step exhausting its full
+   * lifetime allowance (and the run's global round/search/fetch budget) before
+   * the next step is ever attempted. Omit it to let one call run a step to
+   * completion or exhaustion, as before.
+   */
   async run(
     signal: AbortSignal,
-    usage: CriticalThinkingRunUsage
+    usage: CriticalThinkingRunUsage,
+    maxNewRoundsThisCall: number = Number.POSITIVE_INFINITY
   ): Promise<CriticalThinkingResearchStepResult> {
     const scope = createLinkedTimeout(signal, this.stepTimeoutMs)
     let emptyRounds = trailingEmptyRoundCount(
       currentStep(this.deps.getRun()),
       this.deps.listArtifacts()
     )
-    let roundsThisAttempt = 0
+    let newRoundsThisCall = 0
     const abortReason = (): GenerationStopReason =>
       scope.timedOut() || scope.signal.reason === 'time-limit' ? 'time-limit' : 'user'
     try {
@@ -149,7 +170,7 @@ export class CriticalThinkingResearchRunner {
           return await this.limitStep('tool-limit', true)
         }
         if (
-          roundsThisAttempt >= policy.maxRoundsPerStep ||
+          spentRoundCount(step) >= policy.maxRoundsPerStep ||
           usage.rounds >= policy.maxRoundsPerRun
         ) {
           return await this.limitStep('rounds-exhausted', usage.rounds >= policy.maxRoundsPerRun)
@@ -157,9 +178,18 @@ export class CriticalThinkingResearchRunner {
 
         let round = resumableRound(step)
         if (!round) {
+          if (newRoundsThisCall >= maxNewRoundsThisCall) {
+            return {
+              status: 'researching',
+              stopped: false,
+              runBudgetReached: false,
+              waveYielded: true
+            }
+          }
           round = newRound(step)
           this.deps.appendRound(round)
           await this.deps.checkpoint()
+          newRoundsThisCall++
         }
         if (round.status === 'querying') {
           const outcome = await this.ensureQueries(run, step, round, scope.signal, abortReason)
@@ -185,7 +215,6 @@ export class CriticalThinkingResearchRunner {
         if (assessment.stopped) return assessment.result
 
         usage.rounds++
-        roundsThisAttempt++
         if (assessment.sufficient) {
           this.deps.updateStep({ status: 'completed', terminationReason: undefined })
           await this.deps.checkpoint()
@@ -196,7 +225,7 @@ export class CriticalThinkingResearchRunner {
           return await this.limitStep('no-progress', false)
         }
         if (
-          roundsThisAttempt >= policy.maxRoundsPerStep ||
+          spentRoundCount(currentStep(this.deps.getRun())) >= policy.maxRoundsPerStep ||
           usage.rounds >= policy.maxRoundsPerRun ||
           usage.searches >= policy.maxSearchesPerRun ||
           usage.fetches >= policy.maxFetchesPerRun
@@ -255,32 +284,37 @@ export class CriticalThinkingResearchRunner {
       .slice(0, MAX_PRIOR_FINDING_ITEMS)
     const priorQueries = usedQueries(step).slice(-MAX_PRIOR_QUERY_ITEMS)
     const gaps = (priorAssessment?.remainingGaps ?? []).slice(0, MAX_GAP_ITEMS)
+    const fallback = `${run.question} ${step.title}`
     try {
-      const result = await this.deps.runModel(
-        'query',
-        buildBudgetedQueryPrompt(
-          truncatePromptText(run.question, limits.maxQuestionChars),
-          truncatePromptText(step.title, 600),
-          priorFindings,
-          priorQueries,
-          gaps,
-          round.index + 1,
-          policy.maxQueriesPerRound,
-          limits.maxPromptChars,
-          limits.maxFindingChars
-        ),
-        QUERY_OUTPUT_TOKENS,
-        signal
+      const prompt = buildBudgetedQueryPrompt(
+        truncatePromptText(run.question, limits.maxQuestionChars),
+        truncatePromptText(step.title, 600),
+        priorFindings,
+        priorQueries,
+        gaps,
+        round.index + 1,
+        policy.maxQueriesPerRound,
+        limits.maxPromptChars,
+        limits.maxFindingChars
       )
-      this.deps.addStats(result.stats)
-      if (result.stopped) {
-        const reason = signal.aborted ? abortReason() : (result.stopReason ?? 'yielded')
+      const phase = await runStructuredPhase(prompt, signal, {
+        generate: (isolatedPrompt) =>
+          this.deps.runModel('query', isolatedPrompt, QUERY_OUTPUT_TOKENS, signal),
+        parse: (content) => {
+          const parsed = parseResearchQueries(content, fallback, policy.maxQueriesPerRound)
+          return { value: parsed.queries.length > 0 ? parsed.queries : null, valid: parsed.valid }
+        }
+      })
+      this.deps.addStats(phase.stats)
+      if (!phase.value) {
+        // A genuine user Stop, or an orchestration-level limit (time/tool/
+        // round budget, loop guard) that never even reached parsing — pause
+        // the round with that reason rather than guessing at a query.
+        const reason = phase.stopReason ?? 'yielded'
         this.finishActivity(activity, 'error', stoppedDetail(reason))
         return await this.stopStep(reason, round.id)
       }
-      const fallback = `${run.question} ${step.title}`
-      const parsed = parseResearchQueries(result.content, fallback, policy.maxQueriesPerRound)
-      const queries = novelQueries(parsed.queries, usedQueries(step), policy.maxQueriesPerRound)
+      const queries = novelQueries(phase.value, usedQueries(step), policy.maxQueriesPerRound)
       if (queries.length === 0) {
         this.finishActivity(activity, 'error', 'No novel query was available')
         return await this.limitStep('no-progress', false, round.id)
@@ -293,7 +327,7 @@ export class CriticalThinkingResearchRunner {
       this.finishActivity(
         activity,
         'success',
-        parsed.valid ? `${queries.length} focused queries` : 'Used a bounded fallback query'
+        phase.valid ? `${queries.length} focused queries` : 'Used a bounded fallback query'
       )
       await this.deps.checkpoint()
       return null
@@ -545,8 +579,7 @@ export class CriticalThinkingResearchRunner {
     )
     const activity = this.startActivity('analysis', 'Check evidence coverage')
     try {
-      const result = await this.deps.runModel(
-        'assessment',
+      const phase = await runStructuredPhase(
         buildCriticalThinkingAssessmentPrompt(
           question,
           stepTitle,
@@ -555,12 +588,22 @@ export class CriticalThinkingResearchRunner {
           round.index + 1,
           run.researchPolicy.maxQueriesPerRound
         ),
-        ASSESSMENT_OUTPUT_TOKENS,
-        signal
+        signal,
+        {
+          generate: (prompt) =>
+            this.deps.runModel('assessment', prompt, ASSESSMENT_OUTPUT_TOKENS, signal),
+          parse: (content) => {
+            const parsed = parseResearchAssessment(content, run.researchPolicy.maxQueriesPerRound)
+            return { value: parsed, valid: parsed.valid }
+          }
+        }
       )
-      this.deps.addStats(result.stats)
-      if (result.stopped) {
-        const reason = signal.aborted ? abortReason() : (result.stopReason ?? 'yielded')
+      this.deps.addStats(phase.stats)
+      if (!phase.value) {
+        // A genuine user Stop, or an orchestration-level limit (time/tool/
+        // round budget, loop guard, no progress) that never even reached
+        // parsing — pause the round with that reason.
+        const reason = phase.stopReason ?? 'yielded'
         this.finishActivity(activity, 'error', stoppedDetail(reason))
         return {
           sufficient: false,
@@ -568,7 +611,7 @@ export class CriticalThinkingResearchRunner {
           result: await this.stopStep(reason, round.id)
         }
       }
-      const parsed = parseResearchAssessment(result.content, run.researchPolicy.maxQueriesPerRound)
+      const parsed = phase.value
       const verifiedUrlCount = verifiedUrlsForStep(stepArtifacts, step).size
       const sufficient = Boolean(
         parsed.assessment && assessmentIsSufficient(parsed.assessment, verifiedUrlCount)
@@ -839,6 +882,18 @@ function resumableRound(step: CriticalThinkingStepState): CriticalThinkingRoundS
   return latest && ['querying', 'searching', 'reading', 'assessing'].includes(latest.status)
     ? latest
     : null
+}
+
+/**
+ * Rounds this step has actually spent against its lifetime `maxRoundsPerStep`
+ * cap, derived from persisted state rather than a per-invocation counter —
+ * required so the cap is enforced correctly across the multiple separate
+ * `run()` calls a wave-based scheduler makes for the same step. A round still
+ * in progress (resumable) hasn't been spent yet; it either completes or gets
+ * limited on a later call.
+ */
+function spentRoundCount(step: CriticalThinkingStepState): number {
+  return resumableRound(step) ? step.rounds.length - 1 : step.rounds.length
 }
 
 function trailingEmptyRoundCount(
