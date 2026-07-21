@@ -148,6 +148,63 @@ describe('Critical Thinking staged research output parsing', () => {
     expect(invalid.finding).toBe('Unsupported decision')
   })
 
+  it('accepts a sufficient assessment that omits the gap/query keys entirely', () => {
+    // The exact local-model shape behind "A valid evidence coverage assessment
+    // is still required": a correct "sufficient, no gaps" decision that simply
+    // does not include remainingGaps/nextQueries/uncertainties keys. Requiring
+    // those keys used to reject it, so a fully-covered step never completed.
+    const parsed = parseResearchAssessment(
+      JSON.stringify({
+        finding: 'The primary source settles the narrow step.',
+        verdict: 'sufficient',
+        evidenceBasis: 'authoritative-primary',
+        rationale: 'The fetched primary source is definitive for this step.'
+      }),
+      3
+    )
+
+    expect(parsed.valid).toBe(true)
+    expect(parsed.assessment).toMatchObject({
+      verdict: 'sufficient',
+      evidenceBasis: 'authoritative-primary'
+    })
+    expect(parsed.assessment?.remainingGaps).toEqual([])
+    expect(parsed.assessment?.nextQueries).toEqual([])
+  })
+
+  it('tolerates local-model enum formatting drift in verdict and evidenceBasis', () => {
+    const parsed = parseResearchAssessment(
+      JSON.stringify({
+        finding: 'Two independent sources agree.',
+        verdict: 'Sufficient.',
+        evidenceBasis: 'Multiple Sources',
+        rationale: 'Two fetched sources independently confirm the claim.'
+      }),
+      3
+    )
+
+    expect(parsed.valid).toBe(true)
+    expect(parsed.assessment).toMatchObject({
+      verdict: 'sufficient',
+      evidenceBasis: 'multiple-sources'
+    })
+  })
+
+  it('still rejects a genuinely unrecognized verdict or evidenceBasis value', () => {
+    const parsed = parseResearchAssessment(
+      JSON.stringify({
+        finding: 'Ambiguous',
+        verdict: 'maybe',
+        evidenceBasis: 'a little',
+        rationale: 'Unclear.'
+      }),
+      3
+    )
+
+    expect(parsed.valid).toBe(false)
+    expect(parsed.assessment).toBeNull()
+  })
+
   it('bounds and deduplicates assessment lists', () => {
     const parsed = parseResearchAssessment(
       JSON.stringify({

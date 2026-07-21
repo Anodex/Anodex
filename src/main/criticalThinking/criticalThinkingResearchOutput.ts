@@ -94,16 +94,19 @@ export function parseResearchAssessment(
   const rationale = truncate(stringValue(parsed?.rationale), MAX_RATIONALE_CHARS)
   const remainingGaps = boundStrings(parsed?.remainingGaps, 8, MAX_GAP_CHARS)
   const nextQueries = boundStrings(parsed?.nextQueries, maxQueries, MAX_QUERY_CHARS)
-  const valid = Boolean(
-    parsed &&
-    finding &&
-    rationale &&
-    verdict &&
-    evidenceBasis &&
-    isNonEmptyStringArray(parsed.uncertainties) &&
-    isNonEmptyStringArray(parsed.remainingGaps) &&
-    isNonEmptyStringArray(parsed.nextQueries)
-  )
+  // A well-formed structured decision is the core fields — a recognized
+  // verdict and evidenceBasis plus a finding and rationale. The gap/query/
+  // uncertainty arrays are supplementary detail, NOT validity gates: a
+  // "sufficient" verdict legitimately carries no remaining gaps or follow-up
+  // queries (the assessment prompt explicitly says to leave nextQueries empty
+  // when sufficient). Requiring those arrays non-empty — as this used to —
+  // rejected every correctly-formatted "sufficient" assessment, so a step
+  // whose evidence was actually complete could never be marked sufficient and
+  // instead burned rounds until a budget limit, surfacing as "A valid
+  // evidence coverage assessment is still required." The verified-source-count
+  // gate in `assessmentIsSufficient` still guards actual completion, so a
+  // model can't shortcut to "sufficient" without the sources to back it.
+  const valid = Boolean(parsed && finding && rationale && verdict && evidenceBasis)
   return {
     finding,
     uncertainties,
@@ -172,17 +175,37 @@ function isNonEmptyStringArray(value: unknown): value is string[] {
   )
 }
 
+/**
+ * Normalize an enum-ish token from a local model that doesn't always emit the
+ * exact literal: lowercases, trims, collapses spaces/underscores to hyphens,
+ * and drops trailing punctuation. So `"Sufficient."`, `"multiple sources"`,
+ * and `"MULTIPLE_SOURCES"` all match. Deliberately does NOT invent synonym
+ * mappings (e.g. `"primary"` → `"authoritative-primary"`) — only formatting
+ * drift is forgiven, so a genuinely different value still fails to match.
+ */
+function normalizeEnumToken(value: unknown): string {
+  return typeof value === 'string'
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, '-')
+        .replace(/[.,;:]+$/, '')
+    : ''
+}
+
 function validVerdict(value: unknown): CriticalThinkingCoverageAssessment['verdict'] | null {
-  return value === 'continue' || value === 'sufficient' ? value : null
+  const token = normalizeEnumToken(value)
+  return token === 'continue' || token === 'sufficient' ? token : null
 }
 
 function validEvidenceBasis(
   value: unknown
 ): CriticalThinkingCoverageAssessment['evidenceBasis'] | null {
-  return value === 'multiple-sources' ||
-    value === 'authoritative-primary' ||
-    value === 'insufficient'
-    ? value
+  const token = normalizeEnumToken(value)
+  return token === 'multiple-sources' ||
+    token === 'authoritative-primary' ||
+    token === 'insufficient'
+    ? token
     : null
 }
 

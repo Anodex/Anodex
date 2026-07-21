@@ -29,12 +29,34 @@ const MAX_URL_CHARS = 4_096
  * an ordinary browser would send anyway isn't evading anything meant to
  * stop it; it just stops looking like the specific shape of request many
  * WAFs blanket-deny.
+ *
+ * The set below is a coherent, current Chrome navigation signature: the
+ * `Sec-Fetch-*` and `Sec-Ch-Ua*` client-hint headers are what a real browser
+ * sends and what many WAFs additionally check for, and Node's `fetch`
+ * (undici) does forward them verbatim rather than stripping them as a browser
+ * would. The `Chrome` major version is kept consistent between `User-Agent`
+ * and `Sec-Ch-Ua` since mismatches are themselves a bot signal. Two limits
+ * remain and are unavoidable at this layer: undici forces `Sec-Fetch-Mode` to
+ * `cors` (real navigations send `navigate`), and sites behind a JavaScript
+ * challenge (e.g. Cloudflare interstitials) cannot be passed by any static
+ * header set — those require a real browser engine and are simply unfetchable
+ * here.
  */
+const CHROME_MAJOR_VERSION = '133'
 const FETCH_HEADERS: Record<string, string> = {
   'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9'
+    `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ` +
+    `Chrome/${CHROME_MAJOR_VERSION}.0.0.0 Safari/537.36`,
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Sec-Ch-Ua': `"Chromium";v="${CHROME_MAJOR_VERSION}", "Not(A:Brand";v="24", "Google Chrome";v="${CHROME_MAJOR_VERSION}"`,
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"Windows"',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1'
 }
 
 let extractionQueue: Promise<void> = Promise.resolve()
