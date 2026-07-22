@@ -35,17 +35,48 @@ describe('validateReportContract', () => {
 
     const result = validateReportContract(liveReport, 7)
 
+    // Still rejected — it has no gap acknowledgment, no cited substance, and
+    // ends mid-sentence. (Findings/Sources are no longer required as named
+    // headings, and its "## Executive Summary" now satisfies the summary
+    // requirement — so those specific misses are gone, but the real defects
+    // remain.)
     expect(result.valid).toBe(false)
     expect(result.issues).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('missing a findings/results section'),
-        expect.stringContaining('missing a limits/open-questions section'),
-        expect.stringContaining('missing a sources section'),
-        expect.stringContaining('missing a conclusion/summary section'),
+        expect.stringContaining('limits, gaps, or open-questions'),
         expect.stringContaining('cited substantive block'),
         expect.stringContaining('unfinished heading or sentence')
       ])
     )
+  })
+
+  it('accepts a report organized as numbered sections with an Executive Summary and Evidence Gaps', () => {
+    // The exact live shape that was wrongly demoted: numbered content sections,
+    // an executive summary, gaps flagged as "Evidence Gaps", inline citations,
+    // and no literal "## Findings"/"## Sources"/"## Conclusion" headings.
+    const numberedReport = `# Comparative Sting Effects
+
+## Executive Summary
+
+Honey bees and yellowjackets both rate Level 2 on the Schmidt scale [[S1:P1]].
+
+## 1. Pain Intensity
+
+Melittin is the primary pain-causing agent in honey bee venom [[S1:P1]].
+
+## 2. Tissue Effects
+
+Wasp venom relies on a broader peptide mix producing distinct effects [[S1:P1]].
+
+### 2.2 Evidence Gaps
+
+No species-specific necrosis data exists in the provided evidence.
+`
+
+    const result = validateReportContract(numberedReport, 3)
+
+    expect(result.valid).toBe(true)
+    expect(result.issues).toEqual([])
   })
 
   it('accepts a well-formed report with all required sections and enough cited substance', () => {
@@ -71,42 +102,41 @@ describe('validateReportContract', () => {
     expect(result.issues).toEqual([])
   })
 
-  it('does not treat an intro Executive Summary as the conclusion section', () => {
-    // "## Executive Summary" contains the word "summary" but is an intro, not a
-    // conclusion — the section match stays start-anchored so it is not counted.
-    const introOnly = `# Report
+  it('accepts an Executive Summary as the summary section when gaps are acknowledged', () => {
+    // An executive summary that summarizes the report satisfies the summary
+    // requirement — a report summarized up front needs no redundant closing
+    // section, provided it acknowledges limits and carries cited substance.
+    const summarizedUpFront = `# Report
 
 ## Executive Summary
 
-Bees and wasps differ [[S1:P1]].
+Bees and wasps differ in venom composition and clinical effect [[S1:P1]].
 
-## Findings
+## 1. Findings
 
 Bee venom is dominated by melittin [[S1:P1]]. Wasp venom relies on peptides [[S2:P1]].
 
 ## Limits and Open Questions
 
 Some steps were not reached.
-
-## Sources
-
-[[S1]] [[S2]]
 `
 
-    const result = validateReportContract(introOnly, 2)
+    const result = validateReportContract(summarizedUpFront, 2)
 
-    expect(result.issues).toEqual(
-      expect.arrayContaining([expect.stringContaining('missing a conclusion/summary section')])
-    )
+    expect(result.valid).toBe(true)
+    expect(result.issues).toEqual([])
   })
 
-  it('rejects a report missing just the sources section', () => {
-    const withoutSources = WELL_FORMED_REPORT.replace(/## Sources[\s\S]*?(?=## Conclusion)/, '')
+  it('rejects a report that never acknowledges its limits or gaps', () => {
+    const withoutLimits = WELL_FORMED_REPORT.replace(
+      /## Limits and Open Questions[\s\S]*?(?=## Sources)/,
+      ''
+    )
 
-    const result = validateReportContract(withoutSources, 2)
+    const result = validateReportContract(withoutLimits, 2)
 
     expect(result.valid).toBe(false)
-    expect(result.issues).toEqual([expect.stringContaining('missing a sources section')])
+    expect(result.issues).toEqual([expect.stringContaining('limits, gaps, or open-questions')])
   })
 
   it('rejects a report with only one cited block when several steps were researched', () => {

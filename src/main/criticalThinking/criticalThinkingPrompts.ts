@@ -138,7 +138,8 @@ Report requirements:
   \`\`\`
 - Use 2 to 12 labels and no more than 4 datasets. Pie charts require exactly one dataset, at most 8 labels, and non-negative values. Every chart value must be traceable to the cited source. Do not add a chart when the data is sparse, incomparable, or uncertain.
 - Include a final "Sources" section containing only internal citation markers, plus a short "Limits and open questions" section.
-- Never invent a source, quotation, statistic, date, or URL.`
+- Never invent a source, quotation, statistic, date, or URL.
+- Write only the report itself. Do NOT add a "Verification Notes", "Validation", "Methodology", or similar meta-section describing how the report was checked or that it followed these rules — the reader wants the findings, not a compliance statement.`
 }
 
 export function buildCriticalThinkingRepairPrompt(

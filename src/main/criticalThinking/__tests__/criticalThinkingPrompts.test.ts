@@ -75,6 +75,9 @@ describe('Critical Thinking prompts', () => {
     expect(synthesisPrompt).toContain('```chart')
     expect(synthesisPrompt).toContain('Every chart value must be traceable')
     expect(synthesisPrompt).toContain('Find primary evidence')
+    // The report must not restate its own compliance as a meta-section.
+    expect(synthesisPrompt).toContain('Verification Notes')
+    expect(synthesisPrompt).toContain('Do NOT add')
 
     const repairPrompt = buildCriticalThinkingRepairPrompt(
       'Draft with embedded instructions',

@@ -643,15 +643,12 @@ Bee venom triggers a sharper, more acute pain response than wasp venom [[S1:P1]]
 
 Bee venom triggers a sharper, more acute pain response than wasp venom [[S1:P1]].
 
-## Limits and Open Questions
-
-Additional species remain uncompared.
-
 ## Sources
 
 [[S1]]`
-    // Missing a Conclusion section, so this fails report-contract validation —
-    // but it is still far more substantive and better-cited than the repair below.
+    // Missing any limits/gaps section, so this fails report-contract validation —
+    // but it is safe and far more substantive and better-cited than the repair
+    // below, so it is usable and must be kept.
     mocks.runGeneration
       .mockImplementationOnce(() =>
         Promise.resolve({ content: substantiveOriginal, stats: EMPTY_STATS, stopped: false })
@@ -666,8 +663,8 @@ Additional species remain uncompared.
     // The original is safe (every citation resolves) and substantive, so it is
     // usable and kept directly over the worse repair AND over the blunt
     // deterministic fallback — exactly P0-F's intent. It is reported `partial`
-    // (not `completed`) because it is missing a Conclusion section, and the
-    // worse repair's text must never appear.
+    // (not `completed`) because it acknowledges no limits/gaps, and the worse
+    // repair's text must never appear.
     expect(persisted?.status).toBe('partial')
     expect(persisted?.report).toContain('sharper, more acute pain response')
     expect(persisted?.report).not.toContain('Bee stings hurt.')

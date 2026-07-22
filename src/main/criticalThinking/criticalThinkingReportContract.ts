@@ -15,23 +15,33 @@ export interface ReportContractResult {
   citedSubstantiveBlockCount: number
 }
 
+/**
+ * Two structural signals a complete report must carry, matched by keyword
+ * anywhere in a heading line (not just at its start) so a real model report
+ * organized as "## 1. Pain Intensity" with an "### 2.2 Evidence Gaps"
+ * subsection and an "## Executive Summary" is recognized — the exact live
+ * report that was wrongly marked "missing 4 sections" and demoted for the
+ * blunt fallback.
+ *
+ * `findings` and `sources` are deliberately NOT required as named headings:
+ * the cited-substantive-block floor below already guarantees the report has
+ * real findings content, and inline `[[S#:P#]]` citations already provide
+ * source traceability (Anodex renders a separate sources view from them), so
+ * demanding literal "## Findings"/"## Sources" headings only rejected
+ * well-structured reports that organize their evidence differently.
+ */
 const REQUIRED_SECTIONS: Array<{ name: string; pattern: RegExp }> = [
-  { name: 'a findings/results section', pattern: /^#{1,6}\s*(findings|results|analysis)/im },
   {
-    name: 'a limits/open-questions section',
-    pattern: /^#{1,6}\s*(limits?|limitations|open questions|uncertaint)/im
-  },
-  { name: 'a sources section', pattern: /^#{1,6}\s*(sources|references|bibliography)/im },
-  {
-    // The synthesis prompt invites "a clear conclusion or recommendation", so
-    // a report that closes with "## Recommendations" (or "## Key Takeaways")
-    // must satisfy this section — otherwise a valid model report is rejected
-    // and discarded for the blunter deterministic fallback. Kept start-anchored
-    // like the others so an intro "## Executive Summary" is NOT mistaken for a
-    // conclusion.
-    name: 'a conclusion/summary section',
+    name: 'a limits, gaps, or open-questions section',
     pattern:
-      /^#{1,6}\s*(conclusion|summary|bottom line|recommendations?|key takeaways?|takeaways?)/im
+      /^#{1,6}[^\n]*\b(limits?|limitations?|open questions?|uncertaint\w*|gaps?|caveats?|not investigated|unresolved)\b/im
+  },
+  {
+    // A closing conclusion/recommendations OR a leading executive summary
+    // both satisfy this — a research report summarized up front does not also
+    // need a redundant closing section.
+    name: 'a summary or conclusion section',
+    pattern: /^#{1,6}[^\n]*\b(summary|conclusion|bottom line|recommendations?|takeaways?)\b/im
   }
 ]
 
