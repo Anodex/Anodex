@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type {
   CriticalThinkingRun,
   CriticalThinkingStatus,
+  CriticalThinkingStepState,
   CriticalThinkingTerminationReason
 } from '@shared/criticalThinking.types'
 import type { Plan } from '@shared/plan.types'
@@ -53,14 +54,43 @@ function providerLabel(run: CriticalThinkingRun): string {
   return run.model ? `OpenAI · ${run.model}` : 'OpenAI'
 }
 
-function StatusBadge({ status }: { status: CriticalThinkingStatus }): JSX.Element {
+function StatusBadge({
+  status,
+  hasReport
+}: {
+  status: CriticalThinkingStatus
+  hasReport: boolean
+}): JSX.Element {
   const active = isActiveStatus(status)
+  const badge = terminalBadge(status, hasReport)
   return (
-    <span className={`${styles.statusBadge} ${styles[`status-${status}`]}`}>
-      {active ? <Spinner size={11} /> : <Icon name={STATUS_ICON[status]} size={11} />}
-      {STATUS_LABEL[status]}
+    <span className={`${styles.statusBadge} ${styles[badge.className]}`}>
+      {active ? <Spinner size={11} /> : <Icon name={badge.icon} size={11} />}
+      {badge.label}
     </span>
   )
+}
+
+/**
+ * A finished run that produced a report is a success, never an alarm: a
+ * "partial" run WITH a report just means research was bounded (paywalled or
+ * unavailable sources, or a budget limit) — the per-area reasons are spelled
+ * out in `ResearchOutcomeDetails`. Only a run with NO report keeps the alert
+ * styling, so a good report never looks broken next to real failures.
+ */
+function terminalBadge(
+  status: CriticalThinkingStatus,
+  hasReport: boolean
+): { label: string; icon: IconName; className: string } {
+  if (status === 'partial') {
+    return hasReport
+      ? { label: 'Complete with gaps', icon: 'info', className: 'status-gaps' }
+      : { label: 'Incomplete', icon: 'alert', className: 'status-failed' }
+  }
+  if (status === 'stopped') {
+    return { label: 'Stopped', icon: 'stop', className: 'status-stopped' }
+  }
+  return { label: STATUS_LABEL[status], icon: STATUS_ICON[status], className: `status-${status}` }
 }
 
 function isActiveStatus(status: CriticalThinkingStatus): boolean {
@@ -307,7 +337,7 @@ export function CriticalThinkingView(): JSX.Element {
                 >
                   <span className={styles.historyQuestion}>{run.question}</span>
                   <span className={styles.historyMeta}>
-                    <StatusBadge status={run.status} />
+                    <StatusBadge status={run.status} hasReport={Boolean(run.report)} />
                     <span>{formatRelativeTime(run.updatedAt)}</span>
                   </span>
                 </button>
@@ -441,7 +471,7 @@ function RunDetail(props: RunDetailProps): JSX.Element {
     <div className={styles.runDetail}>
       <div className={styles.runHeader}>
         <div className={styles.runHeading}>
-          <StatusBadge status={run.status} />
+          <StatusBadge status={run.status} hasReport={Boolean(run.report)} />
           <h2>{run.question}</h2>
           <div className={styles.runMeta}>
             <span>{providerLabel(run)}</span>
@@ -578,9 +608,12 @@ function RunDetail(props: RunDetailProps): JSX.Element {
       {reportReady && run.report && (
         <>
           {(run.status === 'stopped' || run.status === 'partial') && (
-            <div className={styles.warningBanner}>
-              <Icon name="alert" size={15} />{' '}
-              {run.lastError ?? 'This report is based on partial research.'}
+            <div className={styles.noticeBanner}>
+              <Icon name="info" size={15} />
+              <span>
+                {run.lastError ?? 'This report covers the areas where sources were available.'} The
+                reason each remaining area is incomplete is noted above.
+              </span>
             </div>
           )}
           <section className={styles.reportCard}>
@@ -620,47 +653,62 @@ function RunDetail(props: RunDetailProps): JSX.Element {
 }
 
 function ResearchOutcomeDetails({ run }: { run: CriticalThinkingRun }): JSX.Element | null {
-  const limitedSteps = run.steps.filter(
-    (step) => step.terminationReason || step.uncertainties.length > 0
+  // Any area that didn't fully complete, or that completed but still noted open
+  // questions — each shown with a plain-language reason so the gap is
+  // understandable, not just marked.
+  const incompleteSteps = run.steps.filter(
+    (step) => step.status !== 'completed' || step.uncertainties.length > 0
   )
-  if (limitedSteps.length === 0) return null
+  if (incompleteSteps.length === 0) return null
 
   return (
-    <section className={styles.limitDetails} aria-label="Research limits and remaining gaps">
-      <p className={styles.cardEyebrow}>Research boundaries</p>
+    <section className={styles.limitDetails} aria-label="Why some areas are incomplete">
+      <p className={styles.cardEyebrow}>Why some areas are incomplete</p>
       <ul>
-        {limitedSteps.map((step) => (
-          <li key={step.id}>
-            <span className={styles.limitStepTitle}>{step.title}</span>
-            {step.terminationReason && (
-              <span className={styles.limitReason}>{stopReasonLabel(step.terminationReason)}</span>
-            )}
-            {step.uncertainties.length > 0 && (
-              <span className={styles.limitGaps}>
-                Remaining: {step.uncertainties.slice(0, 3).join(' · ')}
-              </span>
-            )}
-          </li>
-        ))}
+        {incompleteSteps.map((step) => {
+          const reason = gapReason(step)
+          return (
+            <li key={step.id}>
+              <span className={styles.limitStepTitle}>{step.title}</span>
+              {reason && <span className={styles.limitReason}>{reason}</span>}
+              {step.uncertainties.length > 0 && (
+                <span className={styles.limitGaps}>
+                  Still missing: {step.uncertainties.slice(0, 3).join(' · ')}
+                </span>
+              )}
+            </li>
+          )
+        })}
       </ul>
     </section>
   )
 }
 
+/** The plain-language "why" for one incomplete area, or null if it merely noted open questions. */
+function gapReason(step: CriticalThinkingStepState): string | null {
+  if (step.terminationReason) return stopReasonLabel(step.terminationReason)
+  if (step.status !== 'completed') {
+    return 'This area was not reached before the run ended — Resume to research it.'
+  }
+  return null
+}
+
+/** Plain-language cause a user can act on, not the internal budget/limit name. */
 function stopReasonLabel(reason: CriticalThinkingTerminationReason): string {
   const labels: Record<CriticalThinkingTerminationReason, string> = {
-    user: 'Stopped by the user',
-    'loop-guard': 'Model loop safety limit reached',
-    'context-limit': 'Model context limit reached',
-    'context-shift-limit': 'Context-compaction budget reached',
-    'fixed-context-limit': 'Fixed instructions exceeded the model context',
-    'rounds-exhausted': 'Adaptive-round budget reached',
-    'time-limit': 'Research time budget reached',
-    'tool-limit': 'Search or page-reading budget reached',
-    'evidence-limit': 'Lifetime verified-evidence limit reached',
-    'token-limit': 'Generation token budget reached',
-    'no-progress': 'No additional verified evidence found',
-    yielded: 'Saved progress and yielded'
+    user: 'You stopped the run here.',
+    'loop-guard': 'Stopped to avoid repeating the same searches.',
+    'context-limit': "The model's context limit was reached while working this area.",
+    'context-shift-limit': "The model's context limit was reached while working this area.",
+    'fixed-context-limit': "The model's context limit was reached while working this area.",
+    'token-limit': "The model's output limit was reached while working this area.",
+    'rounds-exhausted': 'Reached the research-round budget here — Resume to keep looking.',
+    'time-limit': 'Reached the time budget here — Resume to keep looking.',
+    'tool-limit': 'Reached the search and page-reading budget here — Resume to keep looking.',
+    'evidence-limit': "Reached this run's overall verified-source limit.",
+    'no-progress':
+      'Searches found no open, readable source with this data — the specifics may be paywalled or unpublished.',
+    yielded: 'Saved progress here to continue later.'
   }
   return labels[reason]
 }
