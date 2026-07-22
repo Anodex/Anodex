@@ -104,4 +104,44 @@ describe('evaluateReportCandidate / chooseBetterReportCandidate', () => {
 
     expect(chooseBetterReportCandidate(original, emptyRepair).content).toBe(original.content)
   })
+
+  it('marks a safe, richly-cited but imperfectly-structured report usable though not valid', () => {
+    // The live case: the model wrote a real report organized as numbered
+    // sections — safe (every citation resolves) and substantial, but missing
+    // the exact section skeleton, so `overallValid` is false. `usable` is what
+    // the service relies on to keep it instead of building the fallback.
+    const richButUnstructured = `# Comparative Sting Effects
+
+Bee venom is dominated by melittin, a pore-forming peptide [[S1:P1]].
+
+Wasp venom relies on a broader peptide mix producing distinct tissue effects [[S1:P1]].
+
+A third substantiated finding on pain mechanism follows here [[S1:P1]].`
+    const candidate = evaluateReportCandidate(richButUnstructured, [artifact()], [SOURCE], 3)
+
+    expect(candidate.safe).toBe(true)
+    expect(candidate.usable).toBe(true)
+    expect(candidate.overallValid).toBe(false)
+  })
+
+  it('marks a fabricating report unsafe and unusable, and never lets it win', () => {
+    const fabricating = evaluateReportCandidate(
+      'Bee venom killed 89 people last year [[S1:P1]]. A second fabricated statistic of 42 percent applies [[S1:P1]]. A third invented figure of 7 is asserted [[S1:P1]].',
+      [artifact()],
+      [SOURCE],
+      3
+    )
+    const usableFallback = evaluateReportCandidate(WELL_FORMED, [artifact()], [SOURCE], 2)
+
+    expect(fabricating.safe).toBe(false)
+    expect(fabricating.usable).toBe(false)
+    expect(usableFallback.usable).toBe(true)
+    // An unsafe (fabricating) draft never wins over a usable one.
+    expect(chooseBetterReportCandidate(fabricating, usableFallback).content).toBe(
+      usableFallback.content
+    )
+    expect(chooseBetterReportCandidate(usableFallback, fabricating).content).toBe(
+      usableFallback.content
+    )
+  })
 })

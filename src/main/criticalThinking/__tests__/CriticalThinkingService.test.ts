@@ -663,15 +663,40 @@ Additional species remain uncompared.
     await runSynthesisDirectly(run, new AbortController().signal)
 
     const persisted = mocks.runs.get(run.id)
-    // Neither model draft ever validates on its own (the original is missing
-    // a Conclusion section; the repair is far worse) — P0-H's deterministic
-    // fallback is what actually completes the run here, citing the same
-    // underlying verified passage the original drew from. The point of this
-    // test is still P0-F: confirming the worse repair's text never appears.
-    expect(persisted?.status).toBe('completed')
+    // The original is safe (every citation resolves) and substantive, so it is
+    // usable and kept directly over the worse repair AND over the blunt
+    // deterministic fallback — exactly P0-F's intent. It is reported `partial`
+    // (not `completed`) because it is missing a Conclusion section, and the
+    // worse repair's text must never appear.
+    expect(persisted?.status).toBe('partial')
     expect(persisted?.report).toContain('sharper, more acute pain response')
     expect(persisted?.report).not.toContain('Bee stings hurt.')
     expect(mocks.runGeneration).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a safe, well-cited but unstructured model report instead of the deterministic fallback', async () => {
+    // The live case: the model writes a real, safe, well-cited report but
+    // organized without the exact section skeleton. It must be shown (partial),
+    // not discarded for the blunt deterministic fallback.
+    const run = seedSynthesisRun()
+    const safeUnstructured = `# Comparative Sting Effects
+
+Bee venom triggers a sharper, more acute pain response than wasp venom [[S1:P1]].
+
+A second substantiated point about the underlying pain mechanism follows [[S1:P1]].`
+    mocks.runGeneration.mockImplementation(() =>
+      Promise.resolve({ content: safeUnstructured, stats: EMPTY_STATS, stopped: false })
+    )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('partial')
+    // The model's own prose is shown …
+    expect(persisted?.report).toContain('underlying pain mechanism')
+    // … not the deterministic fallback's scaffolding.
+    expect(persisted?.report).not.toContain('Findings by Research Step')
+    expect(persisted?.report).not.toContain('See findings above.')
   })
 
   it('builds a deterministic report from verified evidence when synthesis and repair both fail validation (P0-H)', async () => {

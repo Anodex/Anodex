@@ -552,24 +552,24 @@ class CriticalThinkingService {
       }
     }
 
-    if (!candidate.overallValid && repairStopReason !== 'user') {
-      // Diagnostic: which validation issues sank the model's own report, so a
-      // recurring fallback (a local model that never satisfies the citation
-      // contract) is debuggable from the run log instead of only visible as a
-      // blunt fallback report. The issues are the model draft's, not the
-      // fallback's — logged before the fallback is scored in.
-      log.warn('Critical Thinking synthesis failed validation; using deterministic fallback', {
+    // Fall back to the deterministic report ONLY when the model's own report
+    // is not usable — it fabricated (a citation-safety violation) or produced
+    // too little cited substance (P0-H: the exact live failure was a
+    // 175-character uncited fragment). A safe, substantial report that merely
+    // misses a section heading or leaves a framing sentence uncited is a
+    // better answer than the blunt bullet-dump fallback, so it is kept and the
+    // run reported as `partial`, not replaced.
+    if (!candidate.usable && repairStopReason !== 'user') {
+      // Diagnostic: which issues sank the model's own report, so a recurring
+      // fallback is debuggable from the run log. Logged before the fallback is
+      // scored in; the issues are the model draft's, not the fallback's.
+      log.warn('Critical Thinking synthesis not usable; using deterministic fallback', {
         runId: run.id,
+        safe: candidate.safe,
         issues: candidate.issues,
         citedSubstantiveBlockCount: candidate.citedSubstantiveBlockCount,
         draftLength: candidate.length
       })
-      // Synthesis and its one repair both failed validation — do not expose
-      // whatever fragment they produced as the primary report (P0-H: the
-      // exact live failure was a 175-character uncited draft). Build a
-      // deterministic report directly from durable, already-verified
-      // artifacts instead, and let the same scoring pick it only if it is
-      // actually better than what the model produced.
       const stepsWithEvidence = run.steps.filter((step) => step.evidenceIds.length > 0).length
       const fallbackContent = buildDeterministicFallbackReport(
         run.plan?.title ?? run.question,
@@ -584,6 +584,13 @@ class CriticalThinkingService {
         stepsWithEvidence
       )
       candidate = chooseBetterReportCandidate(candidate, fallbackCandidate)
+    } else if (!candidate.overallValid) {
+      // Kept a safe-but-imperfect model report — record why it's `partial`.
+      log.info('Critical Thinking kept a safe model report with coverage gaps', {
+        runId: run.id,
+        issues: candidate.issues,
+        citedSubstantiveBlockCount: candidate.citedSubstantiveBlockCount
+      })
     }
 
     const report = renderResearchCitations(candidate.content, run.sources)
@@ -598,13 +605,7 @@ class CriticalThinkingService {
       report,
       stats,
       plan: status === 'completed' ? completePlan(run.plan) : run.plan,
-      lastError: repairStopReason
-        ? `Report repair stopped early. ${stoppedReasonMessage(repairStopReason)}`
-        : candidate.overallValid
-          ? limitedSteps
-            ? limitedResearchMessage(run.steps)
-            : null
-          : truncate(`Report validation remained incomplete: ${candidate.issues.join(' ')}`, 2_000)
+      lastError: reportLastError(candidate, limitedSteps, repairStopReason, run.steps)
     })
     showToastWindow({
       title: status === 'completed' ? 'Critical Thinking complete' : 'Partial research ready',
@@ -1126,6 +1127,33 @@ function stoppedReasonMessage(stopReason: GenerationStopReason | undefined): str
     default:
       return 'Research was stopped.'
   }
+}
+
+/**
+ * The banner message for a finished synthesis. A repair stop or an
+ * orchestration limit is surfaced verbatim; a fully valid report says nothing
+ * (or notes limited steps); a safe-but-imperfect model report kept over the
+ * fallback gets a calm caveat rather than a wall of raw validation issues;
+ * only a report that isn't even safe still shows the raw issue list.
+ */
+function reportLastError(
+  candidate: ReportCandidate,
+  limitedSteps: boolean,
+  repairStopReason: GenerationStopReason | undefined,
+  steps: CriticalThinkingStepState[]
+): string | null {
+  if (repairStopReason) {
+    return `Report repair stopped early. ${stoppedReasonMessage(repairStopReason)}`
+  }
+  if (candidate.overallValid) {
+    return limitedSteps ? limitedResearchMessage(steps) : null
+  }
+  if (candidate.safe) {
+    const base =
+      'This report is drawn only from verified sources, but some passages did not meet every citation-coverage or section-structure check — read the flagged areas critically.'
+    return limitedSteps ? `${base} ${limitedResearchMessage(steps)}` : base
+  }
+  return truncate(`Report validation remained incomplete: ${candidate.issues.join(' ')}`, 2_000)
 }
 
 function limitedResearchMessage(steps: CriticalThinkingStepState[]): string {

@@ -5,6 +5,23 @@ import { canonicalResearchUrl } from './criticalThinkingUrl'
 export interface ReportValidationResult {
   valid: boolean
   issues: string[]
+  /**
+   * The subset of `issues` that mean the report makes a claim NOT backed by
+   * real fetched evidence — a citation to an unknown/unfetched source, a
+   * quote/number/chart value that isn't in its cited passage, or a raw URL.
+   * These are fabrication and must never be shown. The rest are coverage/
+   * completeness gaps (uncited framing, an uncited number, no citation
+   * markers) — the report is imperfect but not false, so a substantial,
+   * safe-but-imperfect model report is preferable to the blunt deterministic
+   * fallback (see `criticalThinkingReportCandidate.ts`).
+   */
+  safetyIssues: string[]
+}
+
+/** Routes each validation issue to fabrication ("safety") vs completeness ("coverage"). */
+interface IssueCollector {
+  safety: string[]
+  coverage: string[]
 }
 
 const MIN_INITIAL_PASSAGE_TEXT_CHARS = 32
@@ -155,30 +172,30 @@ export function validateResearchReport(
   artifacts: ToolArtifact[],
   sources: CriticalThinkingSource[]
 ): ReportValidationResult {
-  const issues: string[] = []
+  const collector: IssueCollector = { safety: [], coverage: [] }
   const sourceById = new Map(trustedVerifiedSources(sources).map((source) => [source.id, source]))
   const passagesByUrl = fetchedPassagesByUrl(artifacts)
   const citations = [...report.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)]
   const citationIds = citations.map((match) => match[1])
   for (const id of new Set(citationIds)) {
-    if (!sourceById.has(id)) issues.push(`Unknown or unfetched citation ${id}.`)
+    if (!sourceById.has(id)) collector.safety.push(`Unknown or unfetched citation ${id}.`)
   }
   for (const citation of citations) {
     const source = sourceById.get(citation[1])
     const passages = source ? passagesByUrl.get(canonicalResearchUrl(source.url)) : undefined
     if (source && !passages?.length) {
-      issues.push(`Citation ${citation[1]} has no fetched evidence passages.`)
+      collector.safety.push(`Citation ${citation[1]} has no fetched evidence passages.`)
     } else if (citation[2] && !passages?.some((passage) => passage.id === citation[2])) {
-      issues.push(`Unknown evidence passage ${citation[1]}:${citation[2]}.`)
+      collector.safety.push(`Unknown evidence passage ${citation[1]}:${citation[2]}.`)
     }
   }
 
   for (const match of report.matchAll(/https?:\/\/[^\s)>\]]+/g)) {
     const rawUrl = match[0].replace(/[.,;:!?]+$/, '')
     if (!passagesByUrl.has(canonicalResearchUrl(rawUrl))) {
-      issues.push(`Raw URL is not backed by fetched evidence: ${rawUrl}`)
+      collector.safety.push(`Raw URL is not backed by fetched evidence: ${rawUrl}`)
     } else {
-      issues.push(`Use an internal citation marker instead of a raw URL: ${rawUrl}`)
+      collector.safety.push(`Use an internal citation marker instead of a raw URL: ${rawUrl}`)
     }
   }
 
@@ -188,34 +205,42 @@ export function validateResearchReport(
     for (const match of block.matchAll(/[“"]([^”"\n]{20,})[”"]/g)) {
       const quote = normalizeQuote(match[1])
       if (!citedPassages.some((passage) => passage.includes(quote))) {
-        issues.push(
+        collector.safety.push(
           `Quoted text is not present in its cited fetched passages: “${match[1].slice(0, 80)}”`
         )
       }
     }
   }
 
-  validateCitationCoverage(proseReport, issues)
-  validateCharts(report, passagesByUrl, sourceById, issues)
-  validateNumericClaims(proseReport, passagesByUrl, sourceById, issues)
-  if (citationIds.length === 0) issues.push('The report contains no evidence citation markers.')
-  return { valid: issues.length === 0, issues: [...new Set(issues)] }
+  validateCitationCoverage(proseReport, collector)
+  validateCharts(report, passagesByUrl, sourceById, collector)
+  validateNumericClaims(proseReport, passagesByUrl, sourceById, collector)
+  if (citationIds.length === 0) {
+    collector.coverage.push('The report contains no evidence citation markers.')
+  }
+  const safetyIssues = [...new Set(collector.safety)]
+  const issues = [...new Set([...collector.safety, ...collector.coverage])]
+  return { valid: issues.length === 0, issues, safetyIssues }
 }
 
 function validateNumericClaims(
   report: string,
   passagesByUrl: Map<string, EvidencePassage[]>,
   sourceById: Map<string, CriticalThinkingSource>,
-  issues: string[]
+  collector: IssueCollector
 ): void {
   for (const paragraph of report.split(/\n{2,}/)) {
     const citations = [...paragraph.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)]
-    const claimText = paragraph.replace(/\[\[S\d+(?::P\d+)?\]\]/g, '')
+    // Strip citation markers and structural outline numbering ("1.1", "2.3")
+    // before scanning for data: a numbered section heading is not a numeric
+    // claim, and treating it as one produced a wall of false "Numeric claim
+    // 1.1 has no evidence citation" against a genuinely well-cited report.
+    const claimText = withoutStructuralNumbering(paragraph.replace(/\[\[S\d+(?::P\d+)?\]\]/g, ''))
     const numbers = extractNumbers(claimText)
     if (citations.length === 0) {
       for (const number of numbers) {
         if (number.length === 1 && !number.endsWith('%')) continue
-        issues.push(`Numeric claim ${number} has no evidence citation.`)
+        collector.coverage.push(`Numeric claim ${number} has no evidence citation.`)
       }
       continue
     }
@@ -223,10 +248,24 @@ function validateNumericClaims(
       if (number.length === 1 && !number.endsWith('%')) continue
       const evidenceText = passagesForCitations(paragraph, passagesByUrl, sourceById).join(' ')
       if (!numberAppears(evidenceText, number)) {
-        issues.push(`Numeric claim ${number} is not present in its cited evidence.`)
+        collector.safety.push(`Numeric claim ${number} is not present in its cited evidence.`)
       }
     }
   }
+}
+
+/**
+ * Remove leading multi-level outline numbering ("1.1", "2.3.1", optionally
+ * behind markdown heading/emphasis markers) from each line, so section numbers
+ * are not mistaken for data claims. Only strips a leading token that has at
+ * least one dot separator — a bare leading "30" (e.g. "30 minutes") or an
+ * in-sentence number is left untouched.
+ */
+function withoutStructuralNumbering(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => line.replace(/^[\s>#*_-]*\d+(?:\.\d+)+[.)]?\s+/, ''))
+    .join('\n')
 }
 
 function passagesForCitations(
@@ -259,7 +298,7 @@ export function renderResearchCitations(report: string, sources: CriticalThinkin
     .join('')
 }
 
-function validateCitationCoverage(report: string, issues: string[]): void {
+function validateCitationCoverage(report: string, collector: IssueCollector): void {
   const withoutCode = report.replace(/```[\s\S]*?```/g, '')
   for (const block of withoutCode.split(/\n\s*\n/)) {
     const prose = block
@@ -275,7 +314,10 @@ function validateCitationCoverage(report: string, issues: string[]): void {
       .split(/\s+/)
       .filter(Boolean)
     if (words.length < 5) continue
-    issues.push(`Material report text has no evidence citation: ${truncateIssue(prose)}`)
+    // Coverage, not safety: an uncited prose block is incomplete, not false.
+    collector.coverage.push(
+      `Material report text has no evidence citation: ${truncateIssue(prose)}`
+    )
   }
 }
 
@@ -366,25 +408,27 @@ function validateCharts(
   report: string,
   passagesByUrl: Map<string, EvidencePassage[]>,
   sourceById: Map<string, CriticalThinkingSource>,
-  issues: string[]
+  collector: IssueCollector
 ): void {
   for (const match of report.matchAll(/```chart\s*([\s\S]*?)```/g)) {
     try {
       const chart = parseChartForValidation(JSON.parse(match[1]))
       if (!chart) {
-        issues.push('A chart block does not match the supported chart schema.')
+        // A chart presented as evidence-backed but malformed is a safety
+        // concern — it would render a claim the schema can't vouch for.
+        collector.safety.push('A chart block does not match the supported chart schema.')
         continue
       }
       const evidenceText = passagesForCitations(chart.source, passagesByUrl, sourceById).join(' ')
       for (const value of chart.datasets.flatMap((dataset) => dataset.values)) {
         if (!chartValueAppears(evidenceText, value, chart.unit)) {
-          issues.push(
+          collector.safety.push(
             `Chart value ${value}${chart.unit ? ` ${chart.unit}` : ''} is not present with the same unit in its cited evidence passage.`
           )
         }
       }
     } catch {
-      issues.push('A chart block is not valid JSON.')
+      collector.safety.push('A chart block is not valid JSON.')
     }
   }
 }

@@ -88,6 +88,40 @@ describe('Critical Thinking evidence pipeline', () => {
     expect(validation.issues).toContain('Citation S1 has no fetched evidence passages.')
   })
 
+  it('classifies fabrication as a safety issue but a coverage gap as not', () => {
+    const fabrication = validateResearchReport(
+      'The result was 99 percent [[S1:P9]].',
+      artifacts,
+      sources
+    )
+    // A citation to a non-existent passage and a number absent from evidence
+    // are fabrication — they must appear in safetyIssues.
+    expect(fabrication.safetyIssues).toContain('Unknown evidence passage S1:P9.')
+    expect(fabrication.safetyIssues).toContain(
+      'Numeric claim 99 percent is not present in its cited evidence.'
+    )
+
+    const coverageOnly = validateResearchReport(
+      'Supported finding [[S1:P1]].\n\nAn uncited framing sentence with no numbers here.',
+      artifacts,
+      sources
+    )
+    // An uncited prose block is a coverage gap, not fabrication.
+    expect(coverageOnly.valid).toBe(false)
+    expect(coverageOnly.safetyIssues).toEqual([])
+    expect(coverageOnly.issues.some((issue) => issue.includes('no evidence citation'))).toBe(true)
+  })
+
+  it('does not flag outline/section numbering as an uncited numeric claim', () => {
+    const validation = validateResearchReport(
+      '## 1.1 Honey Bee Venom\n\n**2.3 Yellowjacket Venom**\n\nSupported finding [[S1:P1]].',
+      artifacts,
+      sources
+    )
+    expect(validation.issues.some((issue) => /Numeric claim 1\.1/.test(issue))).toBe(false)
+    expect(validation.issues.some((issue) => /Numeric claim 2\.3/.test(issue))).toBe(false)
+  })
+
   it('rejects uncited material paragraphs and uncited numeric claims', () => {
     const validation = validateResearchReport(
       'Supported finding [[S1:P1]].\n\nA fabricated uncited conclusion claims 77 percent growth.',
@@ -109,7 +143,7 @@ describe('Critical Thinking evidence pipeline', () => {
       artifacts,
       sources
     )
-    expect(validation).toEqual({ valid: true, issues: [] })
+    expect(validation).toEqual({ valid: true, issues: [], safetyIssues: [] })
   })
 
   it('requires an exact quote to appear in the source cited beside it', () => {
@@ -165,8 +199,8 @@ describe('Critical Thinking evidence pipeline', () => {
 
     expect(packet).toContain('[S1:P1] The measured improvement')
     expect(packet).toContain('[S1:P2] A later focused fetch')
-    expect(earlierValidation).toEqual({ valid: true, issues: [] })
-    expect(laterValidation).toEqual({ valid: true, issues: [] })
+    expect(earlierValidation).toEqual({ valid: true, issues: [], safetyIssues: [] })
+    expect(laterValidation).toEqual({ valid: true, issues: [], safetyIssues: [] })
   })
 
   it('matches equivalent numeric formatting without substring false positives', () => {
@@ -180,7 +214,7 @@ describe('Critical Thinking evidence pipeline', () => {
         [participantArtifact],
         sources
       )
-    ).toEqual({ valid: true, issues: [] })
+    ).toEqual({ valid: true, issues: [], safetyIssues: [] })
     expect(
       validateResearchReport(
         'The study enrolled 100 participants [[S1:P1]].',
@@ -205,7 +239,7 @@ describe('Critical Thinking evidence pipeline', () => {
     ).toBe(false)
     expect(
       validateResearchReport('The rate was 5% [[S1:P1]].', [percentArtifact], sources)
-    ).toEqual({ valid: true, issues: [] })
+    ).toEqual({ valid: true, issues: [], safetyIssues: [] })
   })
 
   it('requires chart blocks to match the renderer grammar and cite their values', () => {
@@ -218,7 +252,7 @@ describe('Critical Thinking evidence pipeline', () => {
 
     expect(
       validateResearchReport(`Supported finding [[S1:P1]].\n\n${validChart}`, artifacts, sources)
-    ).toEqual({ valid: true, issues: [] })
+    ).toEqual({ valid: true, issues: [], safetyIssues: [] })
     expect(
       validateResearchReport(`Supported finding [[S1:P1]].\n\n${invalidChart}`, artifacts, sources)
         .issues
