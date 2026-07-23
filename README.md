@@ -319,7 +319,9 @@ A side panel with configurable sections alongside the chat:
 - Image-capable providers expose a bounded `inspect_visual` feedback loop. The
   assistant can inspect workspace images or render an HTML page into a
   network-blocked, sandboxed screenshot, then use those pixels to revise its
-  work. Text-only local models do not receive this tool.
+  work. Each inspected image opens directly beneath its tool call in the live
+  conversation; the base64 preview is stripped before persistence so saved
+  chats stay small. Text-only local models do not receive this tool.
 - **Hardware-aware recommendations**: detects your RAM/VRAM/GPU and scores
   every catalog model against your actual machine (a 0-100 fit score), with
   "Best Overall / Best Coding / Fastest / Low RAM / Large Context" picks.

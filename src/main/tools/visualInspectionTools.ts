@@ -45,14 +45,24 @@ export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
             throw new Error('The active model cannot inspect images.')
           }
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
-          const image = /\.html?$/i.test(args.path)
+          const isHtml = /\.html?$/i.test(args.path)
+          const image = isHtml
             ? await captureHtmlPreview(ctx.workspaceRoot, args.path, ctx.signal)
             : await readVisionImage(file, basename(file))
           enqueueVisualInput(ctx.visualInputs, image)
           return {
             modelResult:
               'The visual was captured and attached to the next model round. Inspect the pixels before deciding whether the work is finished.',
-            detail: /\.html?$/i.test(args.path) ? 'HTML screenshot attached' : 'image attached'
+            detail: isHtml ? 'HTML screenshot attached' : 'image attached',
+            preview: {
+              kind: 'image',
+              title: isHtml
+                ? `Rendered ${basename(args.path)}`
+                : `Inspected ${basename(args.path)}`,
+              path: args.path,
+              dataUrl: image.dataUrl,
+              mimeType: image.mimeType
+            }
           }
         }
       })

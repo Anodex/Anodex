@@ -230,7 +230,10 @@ sandboxed, network-blocked 1280x800 screenshot. Tool-produced images enter the
 next provider round out-of-band instead of becoming base64 prompt text. The
 queue is capped at four inspections per response, in addition to the existing
 provider-round and repeated-call guards, so visual revision cannot loop
-without bound. Text-only local models never receive the tool.
+without bound. Successful inspections auto-expand their image beneath the tool
+card in the live transcript. Preview bytes are ephemeral and removed from both
+persisted tool-call projections and model-history replay. Text-only local
+models never receive the tool.
 
 Keep future work focused on measured compatibility additions (more media
 formats or model families), not a second vision transport. Preserve loopback

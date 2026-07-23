@@ -28,7 +28,9 @@ export function TurnRecap({
   /** Authoritative total once the whole message has finished generating. */
   finalDurationMs?: number
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(streaming)
+  const calls = segments.flatMap((segment) => (segment.type === 'toolGroup' ? segment.calls : []))
+  const hasImagePreview = calls.some((call) => call.preview?.kind === 'image')
+  const [expanded, setExpanded] = useState(streaming || hasImagePreview)
   const [settledMs, setSettledMs] = useState<number | null>(null)
   const [, forceTick] = useState(0)
   const wasStreaming = useRef(streaming)
@@ -45,15 +47,18 @@ export function TurnRecap({
   useEffect(() => {
     if (wasStreaming.current && !streaming) {
       setSettledMs(Date.now() - startedAt)
-      const timer = setTimeout(() => setExpanded(false), 900)
       wasStreaming.current = streaming
+      if (hasImagePreview) {
+        setExpanded(true)
+        return undefined
+      }
+      const timer = setTimeout(() => setExpanded(false), 900)
       return () => clearTimeout(timer)
     }
     wasStreaming.current = streaming
     return undefined
-  }, [streaming, startedAt])
+  }, [hasImagePreview, streaming, startedAt])
 
-  const calls = segments.flatMap((segment) => (segment.type === 'toolGroup' ? segment.calls : []))
   const hasRunningCall = calls.some((call) => call.status === 'running')
   const elapsedMs = streaming ? Date.now() - startedAt : (finalDurationMs ?? settledMs ?? 0)
   const label = streaming

@@ -9,7 +9,11 @@ import type {
 import type { Conversation } from '@shared/conversation.types'
 import { TOOL_CATALOG, type ToolActivityEvent, type ToolCall } from '@shared/tools.types'
 import { stripToolCallText } from '@shared/toolCallText'
-import { messageToHistoryTurn, sanitizeAssistantContent } from '@shared/chatSanitizer'
+import {
+  messageToHistoryTurn,
+  sanitizeAssistantContent,
+  sanitizeConversationTranscript
+} from '@shared/chatSanitizer'
 import { anodex } from '../lib/anodex'
 import { createId } from '../lib/id'
 import { notifyError, useUiStore } from './uiStore'
@@ -184,7 +188,7 @@ function applyOneToolActivity(
  */
 async function persistConversation(conversation: Conversation): Promise<void> {
   try {
-    await anodex.conversations.save(conversation)
+    await anodex.conversations.save(sanitizeConversationTranscript(conversation).conversation)
   } catch (error) {
     notifyError(
       'Could not save chat',

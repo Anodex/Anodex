@@ -1,6 +1,6 @@
 import type { ChatHistoryTurn, ChatMessage, MessageBlock } from './chat.types'
 import type { Conversation } from './conversation.types'
-import { TOOL_CATALOG } from './tools.types'
+import { TOOL_CATALOG, type ToolCall } from './tools.types'
 import { detectToolCallText } from './toolCallText'
 
 const KNOWN_TOOL_NAMES = new Set(TOOL_CATALOG.map((tool) => tool.name))
@@ -11,8 +11,11 @@ export function sanitizeAssistantContent(text: string): string {
 
 export function sanitizeHistoryTurn(turn: ChatHistoryTurn): ChatHistoryTurn {
   if (turn.role !== 'assistant') return turn
-  const { text, changed } = stripKnownToolCallPayloads(turn.content)
-  return changed ? { ...turn, content: text } : turn
+  const content = stripKnownToolCallPayloads(turn.content)
+  const toolCalls = sanitizeToolCalls(turn.toolCalls)
+  return content.changed || toolCalls.changed
+    ? { ...turn, content: content.text, toolCalls: toolCalls.toolCalls }
+    : turn
 }
 
 export function messageToHistoryTurn(message: ChatMessage): ChatHistoryTurn {
@@ -32,13 +35,17 @@ export function sanitizeMessageTranscript(message: ChatMessage): {
   if (message.role !== 'assistant') return { message, changed: false }
 
   const content = stripKnownToolCallPayloads(message.content)
+  const toolCalls = sanitizeToolCalls(message.toolCalls)
   const blocks = sanitizeBlocks(message.blocks)
-  if (!content.changed && !blocks.changed) return { message, changed: false }
+  if (!content.changed && !toolCalls.changed && !blocks.changed) {
+    return { message, changed: false }
+  }
 
   return {
     message: {
       ...message,
       content: content.text,
+      toolCalls: toolCalls.toolCalls,
       blocks: blocks.blocks
     },
     changed: true
@@ -74,7 +81,13 @@ function sanitizeBlocks(blocks: MessageBlock[] | undefined): {
     // a known tool-call payload can only leak into the visible reply, never
     // into thinking (a separate stream, never scanned for this) — pass it
     // through untouched like a tool block, not relabel it as text below.
-    if (block.type === 'tool' || block.type === 'thinking') {
+    if (block.type === 'tool') {
+      const call = sanitizeToolCall(block.call)
+      if (call.changed) changed = true
+      sanitized.push(call.changed ? { ...block, call: call.call } : block)
+      continue
+    }
+    if (block.type === 'thinking') {
       sanitized.push(block)
       continue
     }
@@ -89,6 +102,26 @@ function sanitizeBlocks(blocks: MessageBlock[] | undefined): {
     blocks: sanitized.length > 0 ? sanitized : undefined,
     changed
   }
+}
+
+function sanitizeToolCalls(toolCalls: ToolCall[] | undefined): {
+  toolCalls: ToolCall[] | undefined
+  changed: boolean
+} {
+  if (!toolCalls?.length) return { toolCalls, changed: false }
+  let changed = false
+  const sanitized = toolCalls.map((call) => {
+    const result = sanitizeToolCall(call)
+    if (result.changed) changed = true
+    return result.call
+  })
+  return { toolCalls: changed ? sanitized : toolCalls, changed }
+}
+
+/** Image previews are a live UI convenience; base64 bytes never enter saved/model history. */
+function sanitizeToolCall(call: ToolCall): { call: ToolCall; changed: boolean } {
+  if (call.preview?.kind !== 'image') return { call, changed: false }
+  return { call: { ...call, preview: undefined }, changed: true }
 }
 
 function stripKnownToolCallPayloads(text: string): { text: string; changed: boolean } {

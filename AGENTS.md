@@ -158,7 +158,10 @@ drift away from the Settings/docs surface.
 `inspect_visual` is registered only when `ToolRuntimeContext.visualInputs` is
 present. Cloud providers and `LlamaVisionService` own that per-generation,
 four-image queue and inject drained images into the next provider round.
-Text-only `LlamaService` must not expose the tool.
+Text-only `LlamaService` must not expose the tool. Its `ToolCallPreview`
+contains an ephemeral image data URL for the live transcript;
+`chatSanitizer.ts` must continue removing that preview from both `toolCalls`
+and timeline blocks before conversation persistence or model-history replay.
 
 #### Tool approval
 

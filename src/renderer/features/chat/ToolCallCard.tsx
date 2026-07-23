@@ -5,6 +5,7 @@ import { Spinner } from '../../components/ui/Spinner'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { diffStats } from '../../lib/diffRows'
 import { ChatHtmlPreview } from './ChatHtmlPreview'
+import { ChatImagePreview } from './ChatImagePreview'
 import { DiffView } from './DiffView'
 import { getToolCallDisplay } from './toolCallDisplay'
 import styles from './ToolCallCard.module.css'
@@ -40,11 +41,13 @@ function statusIcon(call: ToolCall): IconName {
  * comparison here correctly skips re-rendering an unchanged card.
  */
 function ToolCallCardImpl({ call }: { call: ToolCall }): JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null)
   const diffView = useSettingsStore((s) => s.settings?.appearance.diffView ?? 'unified')
   const hasDiff = Boolean(call.diff)
   const hasPreview = Boolean(call.preview)
   const canExpand = hasDiff || hasPreview
+  const autoExpanded = call.status === 'success' && call.preview?.kind === 'image'
+  const expanded = expandedOverride ?? autoExpanded
   const display = getToolCallDisplay(call)
 
   return (
@@ -52,7 +55,7 @@ function ToolCallCardImpl({ call }: { call: ToolCall }): JSX.Element {
       <button
         type="button"
         className={styles.row}
-        onClick={() => canExpand && setExpanded((value) => !value)}
+        onClick={() => canExpand && setExpandedOverride(!expanded)}
         disabled={!canExpand}
       >
         <span className={styles.icon}>
@@ -84,6 +87,7 @@ function ToolCallCardImpl({ call }: { call: ToolCall }): JSX.Element {
         </div>
       )}
       {expanded && call.preview?.kind === 'html' && <ChatHtmlPreview preview={call.preview} />}
+      {expanded && call.preview?.kind === 'image' && <ChatImagePreview preview={call.preview} />}
     </div>
   )
 }

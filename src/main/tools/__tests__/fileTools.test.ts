@@ -197,11 +197,12 @@ describe('AI file tools', () => {
         title: 'Win animation',
         path: 'game.html'
       })
-      expect(success?.preview?.content).toContain('<style')
-      expect(success?.preview?.content).toContain('animation: pulse')
-      expect(success?.preview?.content).toContain('<script')
-      expect(success?.preview?.content).toContain('dataset.ready')
-      expect(success?.preview?.content).toContain('data:image/png;base64,')
+      const content = success?.preview?.kind === 'html' ? success.preview.content : ''
+      expect(content).toContain('<style')
+      expect(content).toContain('animation: pulse')
+      expect(content).toContain('<script')
+      expect(content).toContain('dataset.ready')
+      expect(content).toContain('data:image/png;base64,')
     })
 
     it('rejects non-HTML files', async () => {

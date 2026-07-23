@@ -51,6 +51,33 @@ describe('messageToHistoryTurn', () => {
       })
     ).toEqual({ id: 'm1', role: 'user', content, toolCalls: undefined })
   })
+
+  it('strips ephemeral image previews before model-history replay', () => {
+    const turn = messageToHistoryTurn({
+      id: 'm1',
+      role: 'assistant',
+      content: 'I inspected the screenshot.',
+      createdAt: 1,
+      toolCalls: [
+        {
+          id: 't1',
+          name: 'inspect_visual',
+          kind: 'read',
+          title: 'Inspect page.html',
+          status: 'success',
+          preview: {
+            kind: 'image',
+            title: 'Rendered page.html',
+            path: 'page.html',
+            dataUrl: 'data:image/png;base64,cGl4ZWxz',
+            mimeType: 'image/png'
+          }
+        }
+      ]
+    })
+
+    expect(turn.toolCalls?.[0].preview).toBeUndefined()
+  })
 })
 
 describe('sanitizeMessageTranscript', () => {
@@ -93,6 +120,40 @@ describe('sanitizeMessageTranscript', () => {
         }
       }
     ])
+  })
+
+  it('removes image preview bytes from both persisted tool-call projections', () => {
+    const preview = {
+      kind: 'image' as const,
+      title: 'Rendered page.html',
+      path: 'page.html',
+      dataUrl: 'data:image/png;base64,cGl4ZWxz',
+      mimeType: 'image/png'
+    }
+    const call = {
+      id: 't1',
+      name: 'inspect_visual',
+      kind: 'read' as const,
+      title: 'Inspect page.html',
+      status: 'success' as const,
+      preview
+    }
+    const result = sanitizeMessageTranscript({
+      id: 'm1',
+      role: 'assistant',
+      content: 'Looks good.',
+      createdAt: 1,
+      toolCalls: [call],
+      blocks: [{ type: 'tool', call }]
+    })
+
+    expect(result.changed).toBe(true)
+    expect(result.message.toolCalls?.[0].preview).toBeUndefined()
+    expect(result.message.blocks?.[0]).toMatchObject({
+      type: 'tool',
+      call: { preview: undefined }
+    })
+    expect(call.preview).toBe(preview)
   })
 })
 

@@ -49,12 +49,21 @@ export interface ToolCall {
   touchedPaths?: string[]
 }
 
-export type ToolCallPreview = {
-  kind: 'html'
-  title: string
-  path: string
-  content: string
-}
+export type ToolCallPreview =
+  | {
+      kind: 'html'
+      title: string
+      path: string
+      content: string
+    }
+  | {
+      /** Ephemeral image bytes for the live transcript; stripped before conversation persistence. */
+      kind: 'image'
+      title: string
+      path: string
+      dataUrl: string
+      mimeType: string
+    }
 
 /** Full before/after content for a single file change, diffed for display. */
 export interface ToolCallDiff {

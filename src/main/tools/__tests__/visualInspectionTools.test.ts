@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { inspectVisualTool } from '../visualInspectionTools'
 import { createVisualInputQueue } from '../../vision/imageInputs'
-import { createMockContext, createMockDefine } from './test-helpers'
+import { captureCalls, createMockContext, createMockDefine } from './test-helpers'
 
 const PNG = Buffer.concat([
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
@@ -54,7 +54,8 @@ describe('inspect_visual', () => {
   it('queues an existing workspace image for the provider next round', async () => {
     await writeFile(join(workspace, 'result.png'), PNG)
     const visualInputs = createVisualInputQueue()
-    const ctx = { ...createMockContext(workspace), visualInputs }
+    const capture = captureCalls()
+    const ctx = { ...createMockContext(workspace), visualInputs, emit: capture.emit }
     const tool = inspectVisualTool(createMockDefine(), ctx) as unknown as {
       handler: (args: { path: string }) => Promise<string>
     }
@@ -67,12 +68,19 @@ describe('inspect_visual', () => {
       name: 'result.png',
       mimeType: 'image/png'
     })
+    const preview = capture.calls.find((call) => call.status === 'success')?.preview
+    expect(preview).toMatchObject({
+      kind: 'image',
+      path: 'result.png',
+      mimeType: 'image/png'
+    })
   })
 
   it('renders confined HTML to a PNG and queues the screenshot', async () => {
     await writeFile(join(workspace, 'page.html'), '<main>Visual result</main>')
     const visualInputs = createVisualInputQueue()
-    const ctx = { ...createMockContext(workspace), visualInputs }
+    const capture = captureCalls()
+    const ctx = { ...createMockContext(workspace), visualInputs, emit: capture.emit }
     const tool = inspectVisualTool(createMockDefine(), ctx) as unknown as {
       handler: (args: { path: string }) => Promise<string>
     }
@@ -85,6 +93,13 @@ describe('inspect_visual', () => {
       name: 'page.screenshot.png',
       mimeType: 'image/png'
     })
+    const preview = capture.calls.find((call) => call.status === 'success')?.preview
+    expect(preview).toMatchObject({
+      kind: 'image',
+      title: 'Rendered page.html',
+      path: 'page.html'
+    })
+    expect(preview?.kind === 'image' ? preview.dataUrl : '').toMatch(/^data:image\/png;base64,/)
     expect(electronMocks.destroy).toHaveBeenCalled()
   })
 })
