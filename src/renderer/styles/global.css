@@ -56,6 +56,22 @@ a:hover {
   background: rgba(79, 140, 255, 0.3);
 }
 
+/* Theme switches cross-dissolve instead of hard-cutting: useTheme wraps the
+   swap in document.startViewTransition() (only for genuine theme changes),
+   and these rules set the pace of the built-in old/new crossfade. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 240ms;
+  animation-timing-function: var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
 /* Scrollbars — minimal */
 * {
   scrollbar-width: thin;

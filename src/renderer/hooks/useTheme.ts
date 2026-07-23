@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { AppearanceSettings } from '@shared/settings.types'
 import {
   basePresetOf,
@@ -70,6 +70,11 @@ function resolveIsDark(theme: AppearanceSettings['theme']): boolean {
  *   effective mode is light sidesteps that entirely.
  */
 export function useTheme({ appearance }: UseThemeProps): void {
+  // The theme applied by the previous effect run. Lets a re-run tell a real
+  // theme switch (dissolve-worthy) apart from the initial mount or an
+  // unrelated appearance change (font, density, custom-colour tweaks).
+  const appliedTheme = useRef<AppearanceSettings['theme'] | null>(null)
+
   useEffect(() => {
     if (!appearance) return
 
@@ -93,15 +98,32 @@ export function useTheme({ appearance }: UseThemeProps): void {
       for (const name of MANAGED_VARIABLES) html.style.setProperty(name, variables[name])
     }
 
-    applyColorMode()
+    // A genuine theme switch cross-dissolves the whole window (View
+    // Transitions crossfade, paced in global.css). Everything else — initial
+    // mount, font/density changes, custom-colour tweaks mid-drag — applies
+    // directly, as does reduced motion or a missing API.
+    const applyWithDissolve = (): void => {
+      const dissolve =
+        !appearance.reducedMotion && typeof document.startViewTransition === 'function'
+      if (dissolve) document.startViewTransition(applyColorMode)
+      else applyColorMode()
+    }
+
+    if (appliedTheme.current !== null && appliedTheme.current !== appearance.theme) {
+      applyWithDissolve()
+    } else {
+      applyColorMode()
+    }
+    appliedTheme.current = appearance.theme
 
     // 'system' needs to react live if the OS theme changes while open — the
     // light-mode CSS media query already does this for free, but the
     // preset/custom inline overrides above only run once per render otherwise.
+    // That flip is a real theme change, so it dissolves too.
     let mediaQuery: MediaQueryList | undefined
     if (appearance.theme === 'system') {
       mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-      mediaQuery.addEventListener('change', applyColorMode)
+      mediaQuery.addEventListener('change', applyWithDissolve)
     }
 
     body.style.fontFamily = FONT_FAMILIES[appearance.font]
@@ -116,6 +138,6 @@ export function useTheme({ appearance }: UseThemeProps): void {
       body.removeAttribute('data-reduced-motion')
     }
 
-    return () => mediaQuery?.removeEventListener('change', applyColorMode)
+    return () => mediaQuery?.removeEventListener('change', applyWithDissolve)
   }, [appearance])
 }
