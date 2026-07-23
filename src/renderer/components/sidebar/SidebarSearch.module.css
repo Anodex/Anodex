@@ -1,16 +1,25 @@
+/* A ghost row at rest — no fill, no border — that settles into a proper
+   input on hover or focus. Less chrome sitting there before you need it. */
 .search {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-3);
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  transition: border-color var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.search:hover {
+  background: var(--bg-surface-2);
 }
 
 .search:focus-within {
+  background: var(--bg-surface-2);
   border-color: var(--border-focus);
 }
 

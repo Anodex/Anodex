@@ -53,6 +53,13 @@
   text-align: left;
 }
 
+.count {
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
 .sectionIcon {
   flex-shrink: 0;
   color: var(--text-faint);

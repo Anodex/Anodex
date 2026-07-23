@@ -199,6 +199,10 @@ export function Sidebar(): JSX.Element {
   return (
     <aside className={styles.sidebar}>
       <div className={styles.actions}>
+        <button type="button" className={styles.newChatButton} onClick={() => handleNewChat()}>
+          <Icon name="plus" size={14} />
+          <span>New chat</span>
+        </button>
         <SidebarSearch value={searchQuery} onChange={setSearchQuery} shortcutHint="Ctrl K" />
       </div>
 
@@ -257,6 +261,7 @@ export function Sidebar(): JSX.Element {
             <SidebarSection
               title="Workspace"
               icon="folder"
+              count={workspaceProjects.length}
               expanded={searching || workspaceExpanded}
               onToggle={() => setWorkspaceExpanded((v) => !v)}
               actions={
@@ -319,6 +324,7 @@ export function Sidebar(): JSX.Element {
             <SidebarSection
               title="Chats"
               icon="chat"
+              count={generalChats.length}
               expanded={searching || chatsExpanded}
               onToggle={() => setChatsExpanded((v) => !v)}
               actions={

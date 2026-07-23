@@ -21,14 +21,24 @@
 }
 
 .label {
+  display: flex;
   flex: 1;
   min-width: 0;
   font-size: var(--text-sm);
   color: var(--text-muted);
+  text-align: left;
+}
+
+/* Head truncates; tail (the version/variant) stays pinned and legible. */
+.labelHead {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
+}
+
+.labelTail {
+  flex-shrink: 0;
+  white-space: pre;
 }
 
 .chevron {

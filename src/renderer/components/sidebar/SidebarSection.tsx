@@ -5,16 +5,19 @@ import styles from './SidebarSection.module.css'
 interface SidebarSectionProps {
   title: string
   icon?: IconName
+  /** Item count shown beside the title (e.g. how many projects or chats). */
+  count?: number
   expanded: boolean
   onToggle: () => void
   children: ReactNode
   actions?: ReactNode
 }
 
-/** Collapsible section header with optional header actions. */
+/** Collapsible section header with optional count and header actions. */
 export function SidebarSection({
   title,
   icon,
+  count,
   expanded,
   onToggle,
   children,
@@ -26,6 +29,7 @@ export function SidebarSection({
         <button type="button" className={styles.toggle} onClick={onToggle}>
           {icon && <Icon name={icon} size={14} className={styles.sectionIcon} />}
           <span className={styles.title}>{title}</span>
+          {typeof count === 'number' && count > 0 && <span className={styles.count}>{count}</span>}
           <Icon
             name="chevron-down"
             size={14}

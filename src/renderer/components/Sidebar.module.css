@@ -16,6 +16,34 @@
   margin-bottom: var(--space-3);
 }
 
+/* Primary action: starting a new chat is the thing people reach for most,
+   so it gets a real button up top rather than a small + in a section header. */
+.newChatButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 34px;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  color: var(--text);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.newChatButton:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.newChatButton svg {
+  flex-shrink: 0;
+}
+
 .scroll {
   flex: 1;
   min-height: 0;
@@ -53,10 +81,17 @@
     background var(--transition-fast);
 }
 
-.navItem:hover,
-.navItemActive {
+.navItem:hover {
   color: var(--text);
   background: var(--bg-surface-2);
+}
+
+/* Active view carries an accent tint + accent icon, so "where you are" reads
+   differently from a plain hover and speaks the same language as a selected
+   chat. */
+.navItemActive {
+  color: var(--text);
+  background: var(--accent-soft);
 }
 
 .navItemIcon {
@@ -64,8 +99,12 @@
   color: var(--text-faint);
 }
 
-.navItemActive .navItemIcon {
+.navItem:hover .navItemIcon {
   color: var(--text-muted);
+}
+
+.navItemActive .navItemIcon {
+  color: var(--accent);
 }
 
 .headerIcon {

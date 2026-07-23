@@ -28,6 +28,23 @@ function sortActiveFirst<T>(items: readonly T[], isActive: (item: T) => boolean)
   return [...active, ...rest]
 }
 
+/**
+ * The model label, middle-truncated. CSS can only ellipsize one end, which
+ * hides exactly the version/variant that distinguishes one build from another
+ * (…-4.6-Instruct). Splitting into a truncating head and a pinned tail keeps
+ * that suffix visible when the name is too long for the footer.
+ */
+function ModelLabel({ text }: { text: string }): JSX.Element {
+  const tailLength = Math.min(12, Math.floor(text.length / 3))
+  if (tailLength < 2) return <span className={styles.label}>{text}</span>
+  return (
+    <span className={styles.label}>
+      <span className={styles.labelHead}>{text.slice(0, text.length - tailLength)}</span>
+      <span className={styles.labelTail}>{text.slice(text.length - tailLength)}</span>
+    </span>
+  )
+}
+
 /** A small labeled progress bar — used for both the live rate-limit window and the daily cap. */
 function UsageGauge({
   label,
@@ -224,7 +241,7 @@ export function ModelStatusMenu(): JSX.Element {
         title="Model status — click to open AI & Models settings"
       >
         <CometStatusDot tone={footerTone} phase={dotPhase} />
-        <span className={styles.label}>{footerStatus.label}</span>
+        <ModelLabel text={footerStatus.label} />
       </button>
     )
   }
@@ -240,7 +257,7 @@ export function ModelStatusMenu(): JSX.Element {
         title="Model status — click to switch models"
       >
         <CometStatusDot tone={footerTone} phase={dotPhase} />
-        <span className={styles.label}>{footerStatus.label}</span>
+        <ModelLabel text={footerStatus.label} />
         <Icon name="chevron-down" size={12} className={styles.chevron} />
       </button>
 
