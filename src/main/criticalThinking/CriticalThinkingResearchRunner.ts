@@ -38,6 +38,7 @@ import {
   isRecoverableContentStopReason,
   runStructuredPhase
 } from './criticalThinkingStructuredPhase'
+import { isPreferredCriticalThinkingSource } from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 const QUERY_OUTPUT_TOKENS = 512
@@ -178,6 +179,9 @@ export class CriticalThinkingResearchRunner {
           spentRoundCount(step) >= policy.maxRoundsPerStep ||
           usage.rounds >= policy.maxRoundsPerRun
         ) {
+          if (stepHasReportableCoverage(step, artifacts, run.sources)) {
+            return await this.completeStepAtResearchLimit(usage.rounds >= policy.maxRoundsPerRun)
+          }
           return await this.limitStep('rounds-exhausted', usage.rounds >= policy.maxRoundsPerRun)
         }
 
@@ -229,8 +233,19 @@ export class CriticalThinkingResearchRunner {
         if (emptyRounds >= MAX_EMPTY_ROUNDS) {
           return await this.limitStep('no-progress', false)
         }
+        const assessedStep = currentStep(this.deps.getRun())
         if (
-          spentRoundCount(currentStep(this.deps.getRun())) >= policy.maxRoundsPerStep ||
+          spentRoundCount(assessedStep) >= 2 &&
+          stepHasReportableCoverage(
+            assessedStep,
+            this.deps.listArtifacts(),
+            this.deps.getRun().sources
+          )
+        ) {
+          return await this.completeStepAtResearchLimit(false)
+        }
+        if (
+          spentRoundCount(assessedStep) >= policy.maxRoundsPerStep ||
           usage.rounds >= policy.maxRoundsPerRun ||
           usage.searches >= policy.maxSearchesPerRun ||
           usage.fetches >= policy.maxFetchesPerRun
@@ -270,7 +285,21 @@ export class CriticalThinkingResearchRunner {
       .reverse()
       .find((candidate) => candidate.id !== round.id && candidate.assessment)?.assessment
     const proposed = priorAssessment?.nextQueries ?? []
-    const novelProposed = novelQueries(proposed, usedQueries(step), policy.maxQueriesPerRound)
+    const initiallyNovel = novelQueries(proposed, usedQueries(step), policy.maxQueriesPerRound)
+    const gapQueries =
+      proposed.length >= policy.maxQueriesPerRound &&
+      initiallyNovel.length < policy.maxQueriesPerRound
+        ? buildGapResearchQueries(
+            priorAssessment?.remainingGaps ?? [],
+            step.title,
+            policy.maxQueriesPerRound - initiallyNovel.length
+          )
+        : []
+    const novelProposed = novelQueries(
+      [...initiallyNovel, ...gapQueries],
+      usedQueries(step),
+      policy.maxQueriesPerRound
+    )
     if (novelProposed.length > 0) {
       this.deps.updateRound(round.id, {
         queries: novelProposed,
@@ -771,6 +800,18 @@ export class CriticalThinkingResearchRunner {
     return { status: 'limited', stopped: false, runBudgetReached }
   }
 
+  private async completeStepAtResearchLimit(
+    runBudgetReached: boolean
+  ): Promise<CriticalThinkingResearchStepResult> {
+    // The research floor is service-owned: after multiple productive rounds,
+    // strong, diverse evidence can support a report even when the local model
+    // keeps proposing optional literature gaps. Preserve those gaps for the
+    // report's limits section instead of mislabeling the whole step limited.
+    this.deps.updateStep({ status: 'completed', terminationReason: undefined })
+    await this.deps.checkpoint()
+    return { status: 'completed', stopped: false, runBudgetReached }
+  }
+
   private async stopStep(
     reason: GenerationStopReason,
     roundId?: string
@@ -1036,6 +1077,34 @@ function buildFallbackResearchQuery(question: string, step: string): string {
   return query ? truncate(query, 300) : truncate(step, 300)
 }
 
+function buildGapResearchQueries(gaps: string[], stepTitle: string, limit: number): string[] {
+  const stepTerms = relevantQueryTerms(stepTitle).slice(0, 5).join(' ')
+  return gaps.slice(0, Math.max(0, limit)).flatMap((gap) => {
+    const cleaned = gap
+      .replace(/^(?:no|lack of|missing|insufficient|limited|unavailable|not retrieved)\s+/i, '')
+      .replace(/\b(?:is|are|was|were)?\s*(?:absent|missing) from (?:the )?evidence\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .replace(/[.;:,]+$/g, '')
+      .trim()
+    if (!cleaned) return []
+    return [truncate(`${cleaned} ${stepTerms} peer reviewed primary study`, 300)]
+  })
+}
+
+function relevantQueryTerms(value: string): string[] {
+  const seen = new Set<string>()
+  return (
+    value
+      .toLowerCase()
+      .match(/[\p{L}\p{N}][\p{L}\p{N}-]{2,}/gu)
+      ?.filter((term) => {
+        if (FALLBACK_QUERY_STOP_WORDS.has(term) || seen.has(term)) return false
+        seen.add(term)
+        return true
+      }) ?? []
+  )
+}
+
 function novelQueries(queries: string[], used: string[], limit: number): string[] {
   const boundedLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
   if (boundedLimit === 0) return []
@@ -1106,6 +1175,35 @@ function latestAcceptedAssessment(
   if (!round?.assessment) return null
   const verified = verifiedUrlsForStep(artifacts, step).size
   return assessmentIsSufficient(round.assessment, verified) ? { finding: round.finding } : null
+}
+
+function stepHasReportableCoverage(
+  step: CriticalThinkingStepState,
+  artifacts: ToolArtifact[],
+  sources: CriticalThinkingRun['sources']
+): boolean {
+  if (spentRoundCount(step) < 2) return false
+  const finding = step.finding.replace(/\s+/g, ' ').trim()
+  if (finding.length < 160 || (finding.match(/\S+/g)?.length ?? 0) < 25) return false
+  if (
+    step.uncertainties.some((gap) =>
+      /\b(contradict|conflict|sources? disagree|cannot answer|unresolved whether|opposing)\b/i.test(
+        gap
+      )
+    )
+  ) {
+    return false
+  }
+
+  const urls = verifiedUrlsForStep(artifacts, step)
+  if (urls.size < 4) return false
+  const preferredCount = sources.filter(
+    (source) =>
+      source.verified &&
+      urls.has(canonicalResearchUrl(source.url)) &&
+      isPreferredCriticalThinkingSource(source.url, source.title, source.snippet)
+  ).length
+  return preferredCount >= 2
 }
 
 function verifiedUrlsForRound(

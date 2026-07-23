@@ -297,7 +297,11 @@ not correctness or security — lowest priority item on this whole list.
   testing also added collapsed-table number recognition, unit-alias validation,
   authority-ordered synthesis evidence, per-section deterministic salvage,
   cited-only source lists, non-repeating overview fallback, and a dedicated
-  validated chart-selection phase.
+  validated chart-selection phase. A final quality pass now classifies source
+  strength, repairs weak-only central claims, fills repeated searches from explicit
+  evidence gaps, accepts well-supported steps with preserved caveats, checks
+  sections for contradictions and overbroad absence claims, ranks fallback
+  passages by relevance, and bounds the final limits section.
 
 - **Context reliability and bounded Critical Thinking (2026-07-19)** — replaced
   GPU-backed mid-turn summaries with deterministic checkpoints, added durable

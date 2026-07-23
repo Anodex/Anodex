@@ -47,4 +47,35 @@ describe('hierarchical report assembly', () => {
     expect(sourcesSection).toContain('[[S1]]')
     expect(sourcesSection).not.toContain('[[S2]]')
   })
+
+  it('keeps the limits section concise and deduplicates repeated gaps', () => {
+    const first = step('one', 'A very detailed toxicology comparison')
+    first.uncertainties = [
+      'Species-specific primary data were not retrieved.',
+      'Dose-normalized results remain uncertain.',
+      'This third optional gap should not be listed.',
+      'This fourth optional gap should not be listed.'
+    ]
+    const second = step('two', 'Clinical outcomes')
+    second.uncertainties = [
+      'Species-specific primary data were not retrieved.',
+      'Longitudinal follow-up was not retrieved.',
+      'Another optional gap should not be listed.'
+    ]
+    const report = assembleHierarchicalReport({
+      title: 'Concise limits',
+      steps: [first, second],
+      sections: new Map(),
+      overview: null,
+      sources: []
+    })
+    const limits = /## Limits and Open Questions\s+([\s\S]*?)\s+## Sources/.exec(report)?.[1] ?? ''
+
+    expect(limits).toContain('Species-specific primary data')
+    expect(limits.match(/Species-specific primary data/g)).toHaveLength(1)
+    expect(limits).toContain('Dose-normalized results')
+    expect(limits).toContain('Longitudinal follow-up')
+    expect(limits).not.toContain('third optional gap')
+    expect(limits).not.toContain('Another optional gap')
+  })
 })

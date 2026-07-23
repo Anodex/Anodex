@@ -73,6 +73,28 @@ export const CRITICAL_THINKING_OVERVIEW_SCHEMA: Record<string, unknown> = {
   additionalProperties: false
 }
 
+export const CRITICAL_THINKING_CONSISTENCY_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    corrections: {
+      type: 'array',
+      maxItems: 6,
+      items: {
+        type: 'object',
+        properties: {
+          stepId: { type: 'string' },
+          find: { type: 'string' },
+          replace: { type: 'string' }
+        },
+        required: ['stepId', 'find', 'replace'],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['corrections'],
+  additionalProperties: false
+}
+
 const CHART_SCHEMA: Record<string, unknown> = {
   type: 'object',
   properties: {

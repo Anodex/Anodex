@@ -141,6 +141,48 @@ describe('buildDeterministicFallbackReport (P0-H)', () => {
     expect(report).toContain('[[S1:P1]]')
   })
 
+  it('ranks complete result sentences above methods and supplementary fragments', () => {
+    const relevanceStep = step({
+      id: 'allergy',
+      title: 'Compare allergy sensitization and anaphylaxis risk',
+      status: 'limited',
+      evidenceIds: ['allergy-artifact'],
+      uncertainties: ['Repeat-sting sensitization remains uncertain.']
+    })
+    const relevanceSources: CriticalThinkingSource[] = [
+      {
+        id: 'S1',
+        title: 'Allergy cohort study',
+        url: 'https://pubmed.ncbi.nlm.nih.gov/123456/',
+        verified: true
+      }
+    ]
+    const relevanceArtifacts = [
+      fetchArtifact('allergy-artifact', 'allergy', 'https://pubmed.ncbi.nlm.nih.gov/123456/', [
+        {
+          id: 'P1',
+          text: 'Methods: Participants completed a questionnaire. Supplementary Table S4 is available online.'
+        },
+        {
+          id: 'P2',
+          text: 'The cohort found that repeated stings were associated with increased venom sensitization and systemic allergic reactions. Follow-up confirmed the association.'
+        }
+      ])
+    ]
+
+    const report = buildDeterministicFallbackReport(
+      'Allergy comparison',
+      [relevanceStep],
+      relevanceArtifacts,
+      relevanceSources
+    )
+
+    expect(report).toContain('repeated stings were associated with increased venom sensitization')
+    expect(report).not.toContain('Participants completed a questionnaire')
+    expect(report).not.toContain('Supplementary Table')
+    expect(report).toContain('[[S1:P2]]')
+  })
+
   it('labels untouched and limited steps without fabricating findings for them', () => {
     const report = buildDeterministicFallbackReport(
       'Bee and Wasp Sting Comparison',

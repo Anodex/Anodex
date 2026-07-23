@@ -35,6 +35,7 @@ import {
   buildCriticalThinkingPlanPrompt,
   buildCriticalThinkingPlanRetryPrompt,
   buildCriticalThinkingChartPrompt,
+  buildCriticalThinkingConsistencyPrompt,
   buildCriticalThinkingRepairPrompt,
   buildCriticalThinkingOverviewPrompt,
   buildCriticalThinkingSectionPrompt,
@@ -78,6 +79,7 @@ import {
 } from './criticalThinkingSynthesisBudget'
 import {
   CRITICAL_THINKING_CHART_SELECTION_SCHEMA,
+  CRITICAL_THINKING_CONSISTENCY_SCHEMA,
   CRITICAL_THINKING_OVERVIEW_SCHEMA,
   CRITICAL_THINKING_PLAN_SCHEMA,
   criticalThinkingAssessmentSchema,
@@ -96,6 +98,11 @@ import {
   reportHasEvidenceChart,
   reportHasQuantitativeProse
 } from './criticalThinkingCharts'
+import {
+  applyCriticalThinkingConsistencyCorrections,
+  parseCriticalThinkingConsistencyReview,
+  sectionsNeedConsistencyReview
+} from './criticalThinkingConsistency'
 
 const log = createLogger('critical-thinking-service')
 const MAX_QUESTION_CHARS = 8_000
@@ -920,6 +927,73 @@ class CriticalThinkingService {
 
     if (sections.size === 0) return { candidate: null, stats, attempts }
 
+    if (sectionsNeedConsistencyReview(sections)) {
+      const consistencyItems = run.steps.flatMap((step) => {
+        const section = sections.get(step.id)
+        return section ? [`[stepId=${step.id}]\n## ${step.title}\n\n${section}`] : []
+      })
+      const consistencyBase = buildCriticalThinkingConsistencyPrompt(question, '', '')
+      const consistencySections = boundPromptItems(
+        consistencyItems,
+        Math.max(0, Math.min(28_000, limits.maxPromptChars - consistencyBase.length))
+      ).join('\n\n')
+      const evidenceBudget = Math.max(
+        0,
+        Math.min(
+          18_000,
+          limits.maxPromptChars - consistencyBase.length - consistencySections.length
+        )
+      )
+      const consistencyEvidence = buildEvidencePacket(artifacts, run.sources, evidenceBudget)
+      const consistencyOutputTokens = Math.max(
+        384,
+        Math.min(1_536, Math.floor(limits.maxOutputTokens * 0.3))
+      )
+      const consistencyResult = await this.runToolFreeTurn(
+        run,
+        buildCriticalThinkingConsistencyPrompt(question, consistencySections, consistencyEvidence),
+        signal,
+        false,
+        consistencyOutputTokens,
+        Math.min(limits.thoughtTokens, Math.floor(consistencyOutputTokens * 0.2)),
+        CRITICAL_THINKING_CONSISTENCY_SCHEMA
+      )
+      stats = addStats(stats, consistencyResult.stats)
+      const consistencyStopReason = signalStopReason(signal, consistencyResult.stopReason)
+      const corrections = parseCriticalThinkingConsistencyReview(consistencyResult.content)
+      if (corrections) {
+        const applied = applyCriticalThinkingConsistencyCorrections(
+          sections,
+          corrections,
+          artifacts,
+          run.sources
+        )
+        sections.clear()
+        for (const [stepId, section] of applied.sections) sections.set(stepId, section)
+        attempts.push(
+          hierarchicalSectionDiagnostic(
+            'consistency',
+            {
+              content: consistencyResult.content.trim(),
+              safe: true,
+              valid: true,
+              usable: true,
+              citedBlockCount: applied.accepted,
+              issues: applied.issues
+            },
+            consistencyStopReason
+          )
+        )
+      } else {
+        attempts.push(
+          rawSynthesisDiagnostic('consistency', consistencyResult.content, consistencyStopReason)
+        )
+      }
+      if (consistencyStopReason && !isRecoverableContentStopReason(consistencyStopReason)) {
+        return { candidate: null, stats, attempts, stopReason: consistencyStopReason }
+      }
+    }
+
     const sectionItems = run.steps.flatMap((step) => {
       const section = sections.get(step.id)
       return section ? [`## ${step.title}\n\n${section}`] : []
@@ -1594,7 +1668,7 @@ function reportNeedsHierarchicalRecovery(
 }
 
 function hierarchicalSectionDiagnostic(
-  stage: 'section' | 'section-repair' | 'section-fallback' | 'overview',
+  stage: 'section' | 'section-repair' | 'section-fallback' | 'consistency' | 'overview',
   candidate: HierarchicalSectionCandidate,
   stopReason?: GenerationStopReason,
   stepId?: string

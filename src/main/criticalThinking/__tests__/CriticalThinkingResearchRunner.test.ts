@@ -188,6 +188,64 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(harness.run.steps[0].rounds).toHaveLength(2)
   })
 
+  it('fills a repeated proposed query with the uncovered gap and completes strong coverage with caveats', async () => {
+    let queryCalls = 0
+    let assessmentCalls = 0
+    let resultIndex = 0
+    const searched: string[] = []
+    const harness = createHarness({
+      runModel: (phase) => {
+        if (phase === 'query') {
+          queryCalls++
+          return Promise.resolve(generation('{"queries":["bee defensive behavior"]}'))
+        }
+        assessmentCalls++
+        const firstRound = assessmentCalls === 1
+        return Promise.resolve(
+          generation(
+            assessmentJson({
+              finding:
+                'Multiple scholarly sources describe defensive sting behavior across the compared insects, with enough convergent detail to support a useful bounded comparison while retaining explicit species-specific limitations.',
+              verdict: 'continue',
+              evidenceBasis: 'multiple-sources',
+              remainingGaps: firstRound
+                ? ['Bumblebee defensive behavior was not retrieved.']
+                : ['A dedicated bumblebee field cohort was not retrieved.'],
+              nextQueries: firstRound
+                ? ['bee defensive behavior', 'wasp defensive behavior', 'hornet defensive behavior']
+                : ['bumblebee defensive behavior field cohort']
+            })
+          )
+        )
+      },
+      search: (query) => {
+        searched.push(query)
+        return Promise.resolve({
+          provider: 'test',
+          results: Array.from({ length: 2 }, () => {
+            resultIndex++
+            return {
+              title: `Scholarly result ${resultIndex}`,
+              url: `https://pubmed.ncbi.nlm.nih.gov/${100000 + resultIndex}/`,
+              snippet: 'Peer-reviewed evidence'
+            }
+          })
+        })
+      }
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('completed')
+    expect(queryCalls).toBe(1)
+    expect(searched.some((query) => /bumblebee/i.test(query))).toBe(true)
+    expect(harness.run.steps[0].rounds).toHaveLength(2)
+    expect(harness.run.steps[0].uncertainties).toEqual([
+      'A dedicated bumblebee field cohort was not retrieved.'
+    ])
+    expect(harness.run.sources.filter((source) => source.verified)).toHaveLength(4)
+  })
+
   it('preserves an interrupted phase and resumes without repeating completed work', async () => {
     const round = makeRound({
       status: 'searching',

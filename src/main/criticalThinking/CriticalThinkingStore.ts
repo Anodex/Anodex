@@ -223,6 +223,7 @@ function normalizeSynthesisDiagnostics(
     'section',
     'section-repair',
     'section-fallback',
+    'consistency',
     'overview',
     'chart',
     'hierarchical-report',

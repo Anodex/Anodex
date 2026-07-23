@@ -103,7 +103,11 @@ that need more than a quick web lookup:
   evidence it already fetched.
 - The service, not the model alone, decides when a step is sufficiently covered.
   A model-proposed `sufficient` verdict is accepted only with no remaining gaps
-  and a minimum fetched-source basis; otherwise another bounded round can run.
+  and a minimum fetched-source basis. After two productive rounds, the service
+  can also finish a step with preserved caveats when it has four distinct
+  verified pages, at least two scholarly/official sources, a substantive finding,
+  and no answer-blocking conflict. Optional literature gaps therefore do not make
+  every otherwise reportable step look failed or exhaust all rounds.
 - Per-step, per-attempt, search, fetch, wall-clock, and lifetime verified-source
   limits prevent open-ended research. Resume gets a fresh attempt budget without
   removing the run-wide evidence bound. When a limit is reached, Anodex keeps the
@@ -126,11 +130,15 @@ that need more than a quick web lookup:
   Anodex writes and validates one evidence-bounded section per research step,
   then creates a constrained cross-section summary. If both attempts for one
   section are unsafe, exact verified passages fill that section instead of
-  dropping the research topic. Evidence packets prioritize primary, official,
-  and academic sources within each step; final source lists include only
-  evidence cited by retained content. Adaptive output budgets, persisted
-  synthesis diagnostics, and a richer deterministic fallback keep a short or
-  malformed generation from erasing the research already gathered.
+  dropping the research topic. Evidence packets label source class and prioritize
+  scholarly and official sources within each step; weak-only support for a central
+  claim triggers repair. A bounded consistency pass narrows overbroad absence
+  claims and corrects direct cross-section conflicts before the overview is
+  written. Deterministic recovery ranks complete, relevant result sentences above
+  methods, navigation, figure, and supplementary fragments. Final source lists
+  include only evidence cited by retained content, and the limits section remains
+  concise. Adaptive output budgets and persisted synthesis diagnostics keep a
+  short or malformed generation from erasing the research already gathered.
 - Reports persist locally across restarts and can be copied as Markdown or
   exported as a polished, report-only PDF with citations and charts intact.
 

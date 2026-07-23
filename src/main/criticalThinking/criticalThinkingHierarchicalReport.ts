@@ -175,15 +175,32 @@ function firstBoundedLine(value: string): string {
 }
 
 function buildLimitsBlock(steps: CriticalThinkingStepState[]): string {
+  const seen = new Set<string>()
   const lines = steps.flatMap((step) => {
-    const gaps = step.uncertainties.map((gap) => `${step.title}: ${gap}`)
+    const title = boundedText(step.title, 100)
+    const gaps = step.uncertainties
+      .map((gap) => gap.replace(/\s+/g, ' ').trim())
+      .slice(0, 2)
+      .filter((gap) => {
+        const key = gap.toLowerCase()
+        if (!key || seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .map((gap) => `${title}: ${boundedText(gap, 220)}`)
     if (gaps.length > 0) return gaps
-    if (step.status !== 'completed') return [`${step.title}: research remained ${step.status}.`]
+    if (step.status !== 'completed') return [`${title}: research remained ${step.status}.`]
     return []
   })
   return lines.length > 0
-    ? ['```text', ...lines.slice(0, 24), '```'].join('\n')
+    ? ['```text', ...lines.slice(0, 12), '```'].join('\n')
     : 'No material gaps recorded.'
+}
+
+function boundedText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value
+  const boundary = value.lastIndexOf(' ', maxChars - 1)
+  return `${value.slice(0, boundary >= 40 ? boundary : maxChars - 1).trimEnd()}…`
 }
 
 function substantiveBlocks(content: string): string[] {

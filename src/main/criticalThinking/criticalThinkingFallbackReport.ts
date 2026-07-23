@@ -107,6 +107,7 @@ interface StepExcerpt {
   sourceId: string
   passageId: string
   text: string
+  score: number
 }
 
 /** Safe per-step recovery when both model section attempts contain unsupported claims. */
@@ -160,7 +161,9 @@ function groupVerifiedExcerptsByStep(
   for (const artifact of artifacts) {
     if (artifact.kind !== 'web-fetch' || artifact.passages.length === 0) continue
     const stepId = artifact.research?.stepId
-    if (!stepId || !stepById.has(stepId)) continue
+    if (!stepId) continue
+    const step = stepById.get(stepId)
+    if (!step) continue
     const canonicalUrl = canonicalResearchUrl(artifact.finalUrl)
     const source = sourceByUrl.get(canonicalUrl)
     if (!source) continue
@@ -177,7 +180,16 @@ function groupVerifiedExcerptsByStep(
         passageIds.set(identity, passageId)
       }
       if (sourceExcerpts.some((excerpt) => excerpt.passageId === passageId)) continue
-      sourceExcerpts.push({ sourceId: source.id, passageId, text })
+      const excerpt = bestExcerptWindow(text, step)
+      sourceExcerpts.push({
+        sourceId: source.id,
+        passageId,
+        text: excerpt.text,
+        score:
+          excerpt.score +
+          criticalThinkingSourceAuthorityScore(source.url, source.title, source.snippet) +
+          Math.min(20, Math.max(0, passage.score ?? 0) / 10)
+      })
     }
     sourcePassageIds.set(canonicalUrl, passageIds)
     bySource.set(source.id, sourceExcerpts)
@@ -186,41 +198,134 @@ function groupVerifiedExcerptsByStep(
 
   const byStep = new Map<string, StepExcerpt[]>()
   for (const [stepId, bySource] of candidatesByStep) {
-    const selected: StepExcerpt[] = []
-    const sourceById = new Map(sources.map((source) => [source.id, source]))
-    const groups = [...bySource.entries()]
-      .sort(([leftId], [rightId]) => {
-        const left = sourceById.get(leftId)
-        const right = sourceById.get(rightId)
-        return (
-          criticalThinkingSourceAuthorityScore(right?.url ?? '', right?.title ?? '') -
-          criticalThinkingSourceAuthorityScore(left?.url ?? '', left?.title ?? '')
-        )
-      })
-      .map(([, excerpts]) => excerpts)
-    for (let passageIndex = 0; selected.length < MAX_EXCERPTS_PER_STEP; passageIndex += 1) {
-      let added = false
-      for (const excerpts of groups) {
-        const excerpt = excerpts[passageIndex]
-        if (!excerpt) continue
-        selected.push(excerpt)
-        added = true
-        if (selected.length >= MAX_EXCERPTS_PER_STEP) break
-      }
-      if (!added) break
+    const rankedGroups = [...bySource.values()]
+      .map((excerpts) =>
+        [...excerpts]
+          .filter((excerpt) => excerpt.score > 20)
+          .sort((left, right) => right.score - left.score)
+      )
+      .filter((excerpts) => excerpts.length > 0)
+      .sort((left, right) => (right[0]?.score ?? 0) - (left[0]?.score ?? 0))
+    // Start with the strongest passage from each source so recovery remains
+    // both relevant and source-diverse. Only then use a second passage from
+    // the same page.
+    const selected = rankedGroups
+      .flatMap((group) => (group[0] ? [group[0]] : []))
+      .slice(0, MAX_EXCERPTS_PER_STEP)
+    if (selected.length < MAX_EXCERPTS_PER_STEP) {
+      const remaining = rankedGroups
+        .flatMap((group) => group.slice(1))
+        .sort((left, right) => right.score - left.score)
+      selected.push(...remaining.slice(0, MAX_EXCERPTS_PER_STEP - selected.length))
     }
     byStep.set(stepId, selected)
   }
   return byStep
 }
 
-function truncateExcerpt(value: string, maxChars = 200): string {
-  const normalized = value
+const EXCERPT_STOP_WORDS = new Set([
+  'about',
+  'across',
+  'after',
+  'against',
+  'among',
+  'and',
+  'are',
+  'compare',
+  'comparison',
+  'evidence',
+  'for',
+  'from',
+  'into',
+  'review',
+  'that',
+  'the',
+  'their',
+  'these',
+  'this',
+  'those',
+  'with'
+])
+
+const RESULT_LANGUAGE =
+  /\b(result|found|showed|demonstrated|associated|increased|decreased|risk|prevalence|incidence|allergen|anaphyl|sensiti[sz]|venom|pain|sting|behavior|response|rate|percent|concentration)\b/i
+const LOW_VALUE_LANGUAGE =
+  /\b(methods?|objective|questionnaire|supplement(?:ary)?|available online|fig(?:ure)?\.?|table s\d+|copyright|received|accepted|correspondence)\b/i
+
+function bestExcerptWindow(
+  passage: string,
+  step: CriticalThinkingStepState
+): { text: string; score: number } {
+  const normalized = sanitizeExcerpt(passage)
+  const terms = relevantTerms(`${step.title} ${step.finding} ${step.uncertainties.join(' ')}`)
+  const sentences =
+    normalized.match(/[^.!?]+[.!?]+(?:["')\]]+)?|[^.!?]+$/g)?.map((item) => item.trim()) ?? []
+  const ranked = sentences
+    .map((sentence, index) => ({
+      sentence,
+      index,
+      score: scoreExcerpt(sentence, terms)
+    }))
+    .filter(({ sentence }) => sentence.length >= 35)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+  const best = ranked[0]
+  if (!best) return { text: truncateExcerpt(normalized, MAX_EXCERPT_CHARS), score: 0 }
+
+  let selected = best.sentence
+  const adjacent = ranked
+    .filter(({ index }) => Math.abs(index - best.index) === 1)
+    .sort((left, right) => right.score - left.score)[0]
+  if (
+    adjacent &&
+    adjacent.score > 0 &&
+    selected.length + adjacent.sentence.length + 1 <= MAX_EXCERPT_CHARS
+  ) {
+    selected =
+      adjacent.index < best.index
+        ? `${adjacent.sentence} ${selected}`
+        : `${selected} ${adjacent.sentence}`
+  }
+  return { text: truncateExcerpt(selected, MAX_EXCERPT_CHARS), score: best.score }
+}
+
+function scoreExcerpt(value: string, terms: string[]): number {
+  const lower = value.toLowerCase()
+  const termHits = terms.filter((term) => lower.includes(term)).length
+  let score = termHits * 12
+  if (RESULT_LANGUAGE.test(value)) score += 24
+  if (/\d/.test(value)) score += 5
+  // A strong journal host cannot turn a Methods fragment, figure caption, or
+  // supplementary-navigation sentence into a useful report finding.
+  if (LOW_VALUE_LANGUAGE.test(value)) score -= 160
+  if (value.length >= 80 && value.length <= MAX_EXCERPT_CHARS) score += 8
+  return score
+}
+
+function relevantTerms(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .toLowerCase()
+        .match(/[\p{L}\p{N}][\p{L}\p{N}-]{2,}/gu)
+        ?.filter((term) => !EXCERPT_STOP_WORDS.has(term))
+        .slice(0, 40) ?? []
+    )
+  ]
+}
+
+function sanitizeExcerpt(value: string): string {
+  return value
     .replace(/https?:\/\/[^\s)>\]]+/gi, '[link omitted]')
     .replace(/\[\[S\d+(?::P\d+)?\]\]/g, '[source marker omitted]')
     .replace(/```/g, "'''")
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function truncateExcerpt(value: string, maxChars = 200): string {
+  const normalized = sanitizeExcerpt(value)
   if (normalized.length <= maxChars) return normalized
-  return `${normalized.slice(0, maxChars - 1).trimEnd()}…`
+  const candidate = normalized.slice(0, maxChars - 1)
+  const boundary = Math.max(candidate.lastIndexOf('. '), candidate.lastIndexOf(' '))
+  return `${candidate.slice(0, boundary >= 80 ? boundary + 1 : maxChars - 1).trimEnd()}…`
 }

@@ -1,6 +1,10 @@
 import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
 import type { EvidencePassage, ToolArtifact } from '@shared/toolArtifacts.types'
-import { criticalThinkingSourceAuthorityScore } from './criticalThinkingSourceAuthority'
+import {
+  criticalThinkingSourceAuthorityScore,
+  criticalThinkingSourceClass,
+  isWeakCriticalThinkingSource
+} from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 export interface ReportValidationResult {
@@ -46,13 +50,15 @@ export function buildEvidencePacket(
     const passages = passagesByUrl.get(url) ?? []
     return [
       {
-        header: `[${source.id}] ${source.title}\nURL: ${source.url}`,
+        header: `[${source.id}] ${source.title}\nEvidence class: ${criticalThinkingSourceClass(source.url, source.title)}\nURL: ${source.url}`,
+        compactHeader: `[${source.id}] ${source.title}\nURL: ${source.url}`,
         passageLines: passages.map((passage) => `[${source.id}:${passage.id}] ${passage.text}`)
       }
     ]
   })
   const selected: Array<{
     header: string
+    compactHeader: string
     passageLines: string[]
     minimumFirstLine: string
     minimumLength: number
@@ -62,10 +68,15 @@ export function buildEvidencePacket(
     const firstPassage = candidate.passageLines[0]
     const minimumFirstLine = firstPassage ? minimumEvidenceLine(firstPassage) : null
     if (!minimumFirstLine) continue
-    const minimumLength = candidate.header.length + minimumFirstLine.length + 1
     const separator = selected.length > 0 ? 2 : 0
+    const fullMinimumLength = candidate.header.length + minimumFirstLine.length + 1
+    const header =
+      minimumUsed + separator + fullMinimumLength <= limit
+        ? candidate.header
+        : candidate.compactHeader
+    const minimumLength = header.length + minimumFirstLine.length + 1
     if (minimumUsed + separator + minimumLength > limit) continue
-    selected.push({ ...candidate, minimumFirstLine, minimumLength })
+    selected.push({ ...candidate, header, minimumFirstLine, minimumLength })
     minimumUsed += separator + minimumLength
   }
   if (selected.length === 0) return ''
@@ -225,6 +236,7 @@ export function validateResearchReport(
   }
 
   validateCitationCoverage(proseReport, collector)
+  validateSourceQualityCoverage(proseReport, sourceById, collector)
   validateCharts(report, passagesByUrl, sourceById, collector)
   validateNumericClaims(proseReport, passagesByUrl, sourceById, collector)
   if (citationIds.length === 0) {
@@ -331,6 +343,46 @@ function validateCitationCoverage(report: string, collector: IssueCollector): vo
       `Material report text has no evidence citation: ${truncateIssue(prose)}`
     )
   }
+}
+
+function validateSourceQualityCoverage(
+  report: string,
+  sourceById: Map<string, CriticalThinkingSource>,
+  collector: IssueCollector
+): void {
+  for (const block of report.replace(/```[\s\S]*?```/g, '').split(/\n\s*\n/)) {
+    const prose = block
+      .split('\n')
+      .filter((line) => !/^\s{0,3}#{1,6}\s/.test(line))
+      .join(' ')
+      .replace(/\[\[S\d+(?::P\d+)?\]\]/g, ' ')
+      .trim()
+    if (wordCount(prose) < 8) continue
+    const sourceIds = [
+      ...new Set([...block.matchAll(/\[\[(S\d+)(?::P\d+)?\]\]/g)].map((match) => match[1]))
+    ]
+    if (sourceIds.length === 0) continue
+    const citedSources = sourceIds.flatMap((id) => {
+      const source = sourceById.get(id)
+      return source ? [source] : []
+    })
+    if (
+      citedSources.length > 0 &&
+      citedSources.every((source) => isWeakCriticalThinkingSource(source.url, source.title))
+    ) {
+      collector.coverage.push(
+        `Material claim relies only on general-reference or commercial evidence: ${truncateIssue(prose)}`
+      )
+    }
+  }
+}
+
+function wordCount(value: string): number {
+  return value
+    .replace(/[^\p{L}\p{N}'’-]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length
 }
 
 function renderChartCitation(

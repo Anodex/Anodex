@@ -124,6 +124,18 @@ minimum floors is met:
 
 This is a minimum evidence gate, not a general truth or source-authority oracle.
 Citation validation later verifies report references against stored passages.
+When the local model continues to list non-blocking follow-up literature after two
+productive rounds, the service can also complete the step while preserving those
+items as report limitations. That path requires a substantive cumulative finding,
+four distinct verified URLs, at least two deterministically classified
+scholarly/official sources, and no gap indicating a contradiction or
+answer-blocking conflict. It is a reportability floor, not a claim that the wider
+literature is exhausted.
+
+If an assessment fills its bounded follow-up list but repeats a query already used,
+the runner derives the unused slot from a recorded remaining gap. This prevents a
+missing named entity from silently disappearing merely because the local model
+repeated one broad search.
 
 ## Persisted Contract
 
@@ -233,21 +245,31 @@ The draft uses internal markers such as `[[S1]]` and `[[S1:P2]]`. Validation che
 - cited numeric claims appear in their cited evidence, including decimals whose
   HTML table-cell boundary collapsed against a label;
 - chart JSON is valid and chart values appear in one cited passage with
-  normalized unit aliases such as `μg`, `ug`, and `micrograms`.
+  normalized unit aliases such as `μg`, `ug`, and `micrograms`;
+- a substantive central block supported only by a known general-reference or
+  commercial source is a repairable coverage problem, not a fabrication safety
+  failure.
 
 One bounded, tool-free repair pass receives the validation issues and a reduced
 evidence packet. The repaired draft is validated again. When a broad local run is
 still unusable, synthesis switches to hierarchical recovery: each researched step
 gets its own bounded evidence packet and independently validated section (with one
 section repair when needed), then a constrained JSON phase produces only the
-executive summary and conclusion. The assembled report is validated as a whole and
-is compared with the earlier candidates before selection. Sources are
-authority-ordered within each research step so primary, official, and scholarly
-evidence reaches the bounded context first. If both model attempts for one section
-remain unsafe, verified fetched-passage excerpts fill that section rather than
-omitting the approved research step. A deterministic overview avoids duplicating
-entire sections when the model overview fails, and the final Sources section lists
-only sources cited by retained report content.
+executive summary and conclusion. Before that overview, sections containing
+universal absence or exclusivity language receive one constrained consistency
+review. Its exact-substring corrections are accepted only when the revised section
+remains citation-safe and does not lose cited coverage. The assembled report is
+validated as a whole and is compared with the earlier candidates before selection.
+Evidence packets label every source as scholarly, official, general-reference,
+commercial, or unclassified and order stronger sources first within each research
+step. If both model attempts for one section remain unsafe, verified
+fetched-passage excerpts fill that section rather than omitting the approved
+research step. Those excerpts are relevance-ranked and sentence-bounded so result
+language wins over methods, questionnaire, figure, navigation, or supplementary
+fragments. A deterministic overview avoids duplicating entire sections when the
+model overview fails, the limits block retains at most two bounded gaps per step
+(twelve total), and the final Sources section lists only sources cited by retained
+report content.
 
 When the selected local-model report contains quantitative prose but no valid
 chart, one additional constrained, tool-free JSON phase may select up to two

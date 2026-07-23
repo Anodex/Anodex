@@ -49,6 +49,7 @@ describe('Critical Thinking evidence pipeline', () => {
     const packet = buildEvidencePacket(artifacts, sources)
     expect(packet).toContain('[S1] Primary study')
     expect(packet).toContain('[S1:P1] The measured improvement')
+    expect(packet).toContain('Evidence class: unclassified')
   })
 
   it('never exceeds its caller-provided packet budget', () => {
@@ -110,6 +111,30 @@ describe('Critical Thinking evidence pipeline', () => {
     expect(coverageOnly.valid).toBe(false)
     expect(coverageOnly.safetyIssues).toEqual([])
     expect(coverageOnly.issues.some((issue) => issue.includes('no evidence citation'))).toBe(true)
+  })
+
+  it('flags weak-source-only substantive claims as a repairable coverage issue', () => {
+    const weakSource: CriticalThinkingSource = {
+      id: 'S1',
+      title: 'General encyclopedia',
+      url: 'https://en.wikipedia.org/wiki/Example',
+      verified: true
+    }
+    const weakArtifact: ToolArtifact = {
+      ...primaryFetch,
+      requestedUrl: weakSource.url,
+      finalUrl: weakSource.url,
+      title: weakSource.title
+    }
+    const validation = validateResearchReport(
+      'The central clinical comparison relies on this general reference alone for its conclusion [[S1:P1]].',
+      [weakArtifact],
+      [weakSource]
+    )
+
+    expect(validation.valid).toBe(false)
+    expect(validation.safetyIssues).toEqual([])
+    expect(validation.issues.some((issue) => issue.includes('general-reference'))).toBe(true)
   })
 
   it('does not flag outline/section numbering as an uncited numeric claim', () => {

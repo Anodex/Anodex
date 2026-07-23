@@ -1,3 +1,6 @@
+export type CriticalThinkingSourceClass =
+  'scholarly' | 'official' | 'general-reference' | 'commercial' | 'unclassified'
+
 /**
  * A small, deterministic authority signal used for ordering—not a truth score.
  * It helps primary, official, and scholarly evidence reach a bounded model
@@ -10,28 +13,18 @@ export function criticalThinkingSourceAuthorityScore(
 ): number {
   const url = asUrl(value)
   if (!url) return 0
-  const host = url.hostname.toLowerCase().replace(/^www\./, '')
   const searchable = `${title} ${snippet}`.toLowerCase()
-  let score = 0
-
-  if (
-    host.endsWith('.gov') ||
-    host === 'pubmed.ncbi.nlm.nih.gov' ||
-    host === 'pmc.ncbi.nlm.nih.gov'
-  ) {
-    score += 70
-  } else if (host.endsWith('.edu') || host.includes('.ac.')) {
-    score += 50
-  } else if (
-    host.startsWith('doi.') ||
-    host.includes('springer') ||
-    host.includes('wiley') ||
-    host.includes('sciencedirect') ||
-    host.includes('frontiersin') ||
-    host.includes('nature.com')
-  ) {
-    score += 35
-  }
+  const sourceClass = criticalThinkingSourceClass(url, title, snippet)
+  let score =
+    sourceClass === 'scholarly'
+      ? 70
+      : sourceClass === 'official'
+        ? 55
+        : sourceClass === 'general-reference'
+          ? -30
+          : sourceClass === 'commercial'
+            ? -60
+            : 0
 
   if (
     /\b(systematic review|meta-analysis|clinical guideline|consensus|study|journal)\b/.test(
@@ -40,14 +33,64 @@ export function criticalThinkingSourceAuthorityScore(
   ) {
     score += 18
   }
-  if (host.endsWith('wikipedia.org')) score -= 15
+  return score
+}
+
+export function criticalThinkingSourceClass(
+  value: string | URL,
+  title = '',
+  snippet = ''
+): CriticalThinkingSourceClass {
+  const url = asUrl(value)
+  if (!url) return 'unclassified'
+  const host = url.hostname.toLowerCase().replace(/^www\./, '')
+  const searchable = `${title} ${snippet}`.toLowerCase()
+
+  if (
+    host === 'pubmed.ncbi.nlm.nih.gov' ||
+    host === 'pmc.ncbi.nlm.nih.gov' ||
+    host.startsWith('doi.') ||
+    /\b(springer|wiley|sciencedirect|frontiersin|nature\.com|scielo|mdpi|tandfonline|sagepub|oup\.com|cambridge\.org)\b/.test(
+      host
+    )
+  ) {
+    return 'scholarly'
+  }
+  if (host.endsWith('.gov') || host.endsWith('.edu') || host.includes('.ac.')) {
+    return 'official'
+  }
+  if (
+    host.endsWith('wikipedia.org') ||
+    host.endsWith('britannica.com') ||
+    /\bencyclopedia\b/.test(searchable)
+  ) {
+    return 'general-reference'
+  }
   if (
     /\b(blog|pest control|exterminator|sponsored|advertisement)\b/.test(searchable) ||
-    /(^|\.)(blog|pestcontrol|exterminator)\./.test(host)
+    /\b(pest|terminix|ehrlich|beekeeping|bestbees|medicalnewstoday)\b/.test(host)
   ) {
-    score -= 25
+    return 'commercial'
   }
-  return score
+  return 'unclassified'
+}
+
+export function isPreferredCriticalThinkingSource(
+  value: string | URL,
+  title = '',
+  snippet = ''
+): boolean {
+  const sourceClass = criticalThinkingSourceClass(value, title, snippet)
+  return sourceClass === 'scholarly' || sourceClass === 'official'
+}
+
+export function isWeakCriticalThinkingSource(
+  value: string | URL,
+  title = '',
+  snippet = ''
+): boolean {
+  const sourceClass = criticalThinkingSourceClass(value, title, snippet)
+  return sourceClass === 'general-reference' || sourceClass === 'commercial'
 }
 
 function asUrl(value: string | URL): URL | null {
