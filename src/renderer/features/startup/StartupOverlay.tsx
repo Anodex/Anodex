@@ -108,13 +108,29 @@ export function StartupOverlay(): JSX.Element | null {
       <div className={styles.stage} ref={stageRef}>
         <canvas className={styles.stars} ref={starCanvasRef} aria-hidden="true" />
         <div className={styles.vignette} aria-hidden="true" />
-        <div className={styles.vanishPoint} aria-hidden="true" />
+        <div className={styles.flare} aria-hidden="true">
+          <span className={styles.flareBloom} />
+          <span className={styles.flareStreak} />
+          <span className={styles.flareStreakV} />
+          <span className={styles.flareCore} />
+        </div>
+        <div className={styles.chargeRing} aria-hidden="true" />
+        <div className={`${styles.chargeRing} ${styles.chargeRingOuter}`} aria-hidden="true" />
         <div className={styles.shockwave} aria-hidden="true" />
+        <div className={`${styles.shockwave} ${styles.shockwaveEcho}`} aria-hidden="true" />
         <div className={styles.flash} aria-hidden="true" />
 
         <div className={styles.lockup}>
           <div className={styles.halo} aria-hidden="true" />
           <div className={styles.markWrap}>
+            <img
+              className={`${styles.logo} ${styles.logoGhost}`}
+              src={titleLogo}
+              alt=""
+              width={132}
+              height={132}
+              aria-hidden="true"
+            />
             <img className={styles.logo} src={titleLogo} alt="Anodex" width={132} height={132} />
             <div
               className={styles.sheen}

@@ -1,0 +1,1668 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anodex Startup — Hyperspace v2</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg-app: #0c0c0c;
+        --bg-base: #080808;
+        --bg-surface: #111111;
+        --bg-surface-2: #161616;
+        --bg-input: #0f0f0f;
+        --border: #1f1f1f;
+        --border-strong: #2a2a2a;
+        --accent: #4f8cff;
+        --text: #f0f0f0;
+        --text-muted: #a0a0a0;
+        --text-faint: #606060;
+        --font-sans:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+        --ease-launch: cubic-bezier(0.6, 0, 0.9, 0.4);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        overflow: hidden;
+        color: var(--text);
+        background: #050505;
+        font-family: var(--font-sans);
+      }
+
+      .shell {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      /* ---------- Boot stage ---------- */
+
+      .stage {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        display: grid;
+        place-items: center;
+        isolation: isolate;
+        background: radial-gradient(120% 90% at 50% 44%, #0a0c14 0%, #060709 58%, #050506 100%);
+        transition:
+          opacity 620ms var(--ease-out),
+          visibility 620ms var(--ease-out);
+      }
+
+      .stage.is-complete {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      #starfield {
+        position: absolute;
+        inset: 0;
+        z-index: -3;
+        width: 100%;
+        height: 100%;
+      }
+
+      .vignette {
+        position: absolute;
+        inset: 0;
+        z-index: -2;
+        opacity: 0;
+        pointer-events: none;
+        background: radial-gradient(ellipse at center, transparent 36%, rgba(0, 0, 0, 0.62) 100%);
+        transition: opacity 480ms var(--ease-out);
+      }
+
+      /* Static film grain: dithers the big dark gradients so they never band */
+      .stage::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: -2;
+        pointer-events: none;
+        opacity: 0.5;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.055'/></feComponentTransfer></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+      }
+
+      .stage[data-phase='charge'] .vignette,
+      .stage[data-phase='jump'] .vignette {
+        opacity: 1;
+      }
+
+      /*
+       * The light at the centre of everything. Not a dot: a layered lens flare —
+       * soft bloom, anamorphic horizontal streak, faint vertical streak, and a
+       * tiny hot core. It shares an exact centre with the mark (no offsets
+       * anywhere), burns out on arrival, and reignites when the mark departs.
+       */
+      .flare {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        z-index: -1;
+        width: 0;
+        height: 0;
+        opacity: 0;
+        pointer-events: none;
+        will-change: transform, opacity;
+      }
+
+      .flare span {
+        position: absolute;
+        left: 0;
+        top: 0;
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+      }
+
+      .flare-bloom {
+        width: clamp(240px, 34vmin, 400px);
+        aspect-ratio: 1;
+        background: radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.85) 0%,
+          rgba(178, 200, 255, 0.4) 18%,
+          rgba(110, 140, 255, 0.16) 42%,
+          transparent 70%
+        );
+      }
+
+      .flare-streak {
+        width: clamp(320px, 52vmin, 620px);
+        height: 3px;
+        border-radius: 999px;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          rgba(170, 195, 255, 0.55) 28%,
+          rgba(235, 242, 255, 0.95) 50%,
+          rgba(170, 195, 255, 0.55) 72%,
+          transparent 100%
+        );
+        filter: blur(0.4px);
+      }
+
+      .flare-streak.v {
+        width: clamp(110px, 17vmin, 210px);
+        height: 2px;
+        opacity: 0.5;
+        transform: translate(-50%, -50%) rotate(90deg);
+      }
+
+      .flare-core {
+        width: 10px;
+        aspect-ratio: 1;
+        background: #ffffff;
+        box-shadow:
+          0 0 18px rgba(255, 255, 255, 0.95),
+          0 0 52px rgba(140, 172, 255, 0.8),
+          0 0 120px rgba(124, 92, 255, 0.5);
+      }
+
+      .stage[data-phase='arrive'] .flare {
+        animation: flareDie 950ms var(--ease-out) forwards;
+      }
+
+      .stage[data-phase='jump'] .flare {
+        animation: flareIgnite 1500ms var(--ease-emphasized) 380ms forwards;
+      }
+
+      /* Power gathering: two rings collapse into the mark during the inhale */
+      .charge-ring {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        z-index: -1;
+        width: clamp(220px, 30vmin, 330px);
+        aspect-ratio: 1;
+        border: 1.5px solid rgba(150, 182, 255, 0.85);
+        border-radius: 50%;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -50%) scale(2.4);
+      }
+
+      .charge-ring.r2 {
+        width: clamp(280px, 40vmin, 430px);
+        border-width: 1px;
+      }
+
+      .stage[data-phase='charge'] .charge-ring.r1 {
+        animation: ringIn 760ms var(--ease-emphasized) forwards;
+      }
+
+      .stage[data-phase='charge'] .charge-ring.r2 {
+        animation: ringIn 760ms var(--ease-emphasized) 150ms forwards;
+      }
+
+      /* The light barrier breaking: a sharp wave, then a slower echo */
+      .shockwave {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        z-index: -1;
+        width: 110px;
+        aspect-ratio: 1;
+        border: 2px solid rgba(160, 188, 255, 0.6);
+        border-radius: 50%;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -50%) scale(0.1);
+      }
+
+      .shockwave.s2 {
+        border-width: 5px;
+        border-color: rgba(124, 110, 255, 0.3);
+      }
+
+      .stage[data-phase='jump'] .shockwave.s1 {
+        animation: shock 820ms var(--ease-out) 320ms forwards;
+      }
+
+      .stage[data-phase='jump'] .shockwave.s2 {
+        animation: shock 1050ms var(--ease-out) 430ms forwards;
+      }
+
+      /* Barely-there wash so the cut into the app isn't harsh — never a hard flash */
+      .flash {
+        position: absolute;
+        inset: 0;
+        z-index: 4;
+        pointer-events: none;
+        opacity: 0;
+        background: #dfe9ff;
+      }
+
+      .stage[data-phase='jump'] .flash {
+        animation: afterglow 620ms ease-out 1220ms forwards;
+      }
+
+      /* ---------- The mark — dead centre, breath is scale-only ---------- */
+
+      .lockup {
+        position: relative;
+        display: grid;
+        place-items: center;
+        animation: bootBreath 3600ms ease-in-out infinite;
+        will-change: transform, opacity, filter;
+      }
+
+      .stage[data-phase='arrive'] .lockup {
+        animation: markResolve 1000ms var(--ease-out) both;
+      }
+
+      .stage[data-phase='charge'] .lockup {
+        animation: logoPrime 700ms var(--ease-out) forwards;
+      }
+
+      .stage[data-phase='jump'] .lockup {
+        animation: logoChase 1200ms var(--ease-launch) forwards;
+      }
+
+      .halo {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        z-index: -1;
+        width: 420%;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          rgba(79, 140, 255, 0.11) 0%,
+          rgba(124, 92, 255, 0.055) 35%,
+          transparent 62%
+        );
+        transform: translate(-50%, -50%);
+        animation: haloBreath 5200ms ease-in-out infinite;
+      }
+
+      .stage[data-phase='charge'] .halo {
+        animation: haloTighten 700ms var(--ease-out) forwards;
+      }
+
+      .stage[data-phase='jump'] .halo {
+        animation: haloGone 500ms var(--ease-out) forwards;
+      }
+
+      .mark-wrap {
+        position: relative;
+        display: grid;
+        place-items: center;
+      }
+
+      .mark-wrap > * {
+        grid-area: 1 / 1;
+      }
+
+      .logo {
+        display: block;
+        width: clamp(92px, 12vw, 136px);
+        height: auto;
+        filter: drop-shadow(0 0 22px rgba(79, 140, 255, 0.16));
+      }
+
+      /* Light trail the mark leaves behind as it tears away */
+      .logo-ghost {
+        opacity: 0;
+        mix-blend-mode: screen;
+        filter: blur(6px) saturate(1.6) brightness(1.9);
+        pointer-events: none;
+      }
+
+      .stage[data-phase='jump'] .logo-ghost {
+        animation: ghostChase 1290ms var(--ease-launch) 70ms forwards;
+      }
+
+      /* Specular sweep, masked to the logo silhouette */
+      .sheen {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(
+          65deg,
+          transparent 42%,
+          rgba(255, 255, 255, 0.34) 50%,
+          transparent 58%
+        );
+        background-size: 260% 100%;
+        background-position: 130% 0;
+        background-repeat: no-repeat;
+        -webkit-mask-size: 100% 100%;
+        mask-size: 100% 100%;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        animation: sheenSweep 7200ms ease-in-out infinite;
+      }
+
+      /* ---------- Status ---------- */
+
+      .caption {
+        position: absolute;
+        bottom: clamp(42px, 7vh, 76px);
+        left: 50%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text-muted);
+        font-size: 13px;
+        letter-spacing: 0.02em;
+        transform: translateX(-50%);
+        transition: opacity 240ms var(--ease-out);
+      }
+
+      .stage[data-phase='charge'] .caption,
+      .stage[data-phase='jump'] .caption {
+        opacity: 0;
+      }
+
+      .caption .dots {
+        display: inline-flex;
+        gap: 4px;
+        margin-top: 1px;
+      }
+
+      .caption .dots i {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: dotPulse 1100ms ease-in-out infinite;
+      }
+
+      .caption .dots i:nth-child(2) {
+        animation-delay: 140ms;
+      }
+
+      .caption .dots i:nth-child(3) {
+        animation-delay: 280ms;
+      }
+
+      /* ---------- App reveal (entering Anodex) ---------- */
+
+      .app-reveal {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: minmax(190px, 244px) 1fr;
+        opacity: 0;
+        transform: scale(0.985);
+        filter: blur(6px);
+        background: var(--bg-app);
+        transition:
+          opacity 780ms var(--ease-out),
+          transform 780ms var(--ease-out),
+          filter 780ms var(--ease-out);
+      }
+
+      .app-reveal.is-visible {
+        opacity: 1;
+        transform: scale(1);
+        filter: blur(0);
+        transition-delay: 120ms;
+      }
+
+      #settle {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .sidebar {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 20px;
+        padding: 18px 14px;
+        border-right: 1px solid var(--border);
+        background: #080808;
+      }
+
+      .sidebar-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 650;
+      }
+
+      .primary-action {
+        height: 34px;
+        border: 1px solid rgba(79, 140, 255, 0.44);
+        border-radius: 6px;
+        color: white;
+        background: rgba(79, 140, 255, 0.16);
+        font: inherit;
+      }
+
+      .sidebar-section {
+        display: grid;
+        gap: 6px;
+      }
+
+      .section-label {
+        padding: 0 6px;
+        color: var(--text-faint);
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+
+      .project-row,
+      .chat-row {
+        overflow: hidden;
+        padding: 8px 9px;
+        border-radius: 6px;
+        color: var(--text-muted);
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      .project-row.active {
+        color: var(--text);
+        background: var(--bg-surface-2);
+      }
+
+      .workspace {
+        display: grid;
+        min-width: 0;
+        grid-template-rows: 64px 1fr auto;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 0 22px;
+        border-bottom: 1px solid var(--border);
+        background: #0c0c0c;
+      }
+
+      .eyebrow {
+        color: var(--text-faint);
+        font-size: 11px;
+      }
+
+      .topbar h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 650;
+      }
+
+      .model-pill {
+        padding: 6px 9px;
+        border: 1px solid rgba(60, 207, 122, 0.28);
+        border-radius: 999px;
+        color: #b9f4d0;
+        background: rgba(60, 207, 122, 0.1);
+        font-size: 12px;
+      }
+
+      .chat-surface {
+        display: grid;
+        align-content: end;
+        gap: 16px;
+        padding: 28px;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px), var(--bg-base);
+        background-size: 32px 32px;
+      }
+
+      .message {
+        max-width: min(680px, 86%);
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-surface);
+        line-height: 1.45;
+      }
+
+      .message.user {
+        justify-self: end;
+        border-color: rgba(79, 140, 255, 0.26);
+        background: rgba(79, 140, 255, 0.1);
+      }
+
+      .composer {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin: 16px 28px 22px;
+        padding: 10px 10px 10px 14px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: var(--bg-input);
+        color: var(--text-faint);
+      }
+
+      .composer span {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .composer button {
+        padding: 7px 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        color: var(--text);
+        background: var(--bg-surface-2);
+        font: inherit;
+      }
+
+      /* ---------- Demo chrome ---------- */
+
+      .hint {
+        position: absolute;
+        top: 18px;
+        left: 50%;
+        z-index: 8;
+        padding: 6px 12px;
+        border: 1px solid #222;
+        border-radius: 999px;
+        color: var(--text-muted);
+        background: rgba(12, 12, 12, 0.6);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        transform: translateX(-50%);
+        transition: opacity 300ms var(--ease-out);
+      }
+
+      .hint b {
+        color: var(--text);
+        font-weight: 650;
+      }
+
+      .controls {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        z-index: 8;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        max-width: calc(100vw - 24px);
+        transform: translateX(-50%);
+      }
+
+      .controls button,
+      .controls .toggle {
+        padding: 8px 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        color: rgba(240, 240, 240, 0.9);
+        background: rgba(17, 17, 17, 0.72);
+        backdrop-filter: blur(10px);
+        font: inherit;
+        font-size: 13px;
+      }
+
+      .controls button {
+        cursor: pointer;
+      }
+
+      .controls button:hover {
+        background: rgba(30, 30, 30, 0.82);
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+      }
+
+      .toggle input {
+        accent-color: var(--accent);
+      }
+
+      /* ---------- Motion ---------- */
+
+      /* Breath never translates — the mark and the flare share one exact centre */
+      @keyframes bootBreath {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.016);
+        }
+      }
+
+      @keyframes markResolve {
+        0% {
+          opacity: 0;
+          filter: blur(18px) brightness(1.6);
+          transform: scale(1.5);
+        }
+        55% {
+          opacity: 1;
+          filter: blur(2px) brightness(1.12);
+          transform: scale(0.985);
+        }
+        100% {
+          opacity: 1;
+          filter: blur(0) brightness(1);
+          transform: scale(1);
+        }
+      }
+
+      @keyframes flareDie {
+        0% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        55% {
+          opacity: 0.45;
+          transform: scale(0.55);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(0.22);
+        }
+      }
+
+      @keyframes flareIgnite {
+        0% {
+          opacity: 0;
+          transform: scale(0.15);
+        }
+        30% {
+          opacity: 0.95;
+          transform: scale(0.8);
+        }
+        62% {
+          opacity: 0.9;
+          transform: scale(1.55);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(2.7);
+        }
+      }
+
+      @keyframes ringIn {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(2.4);
+        }
+        38% {
+          opacity: 0.6;
+        }
+        100% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0.5);
+        }
+      }
+
+      @keyframes shock {
+        0% {
+          opacity: 0.6;
+          transform: translate(-50%, -50%) scale(0.1);
+        }
+        100% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(13);
+        }
+      }
+
+      @keyframes haloBreath {
+        0%,
+        100% {
+          opacity: 0.7;
+          transform: translate(-50%, -50%) scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1.05);
+        }
+      }
+
+      @keyframes haloTighten {
+        to {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(0.7);
+        }
+      }
+
+      @keyframes haloGone {
+        to {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0.4);
+        }
+      }
+
+      @keyframes sheenSweep {
+        0%,
+        76% {
+          background-position: 130% 0;
+        }
+        90%,
+        100% {
+          background-position: -30% 0;
+        }
+      }
+
+      @keyframes dotPulse {
+        0%,
+        100% {
+          opacity: 0.22;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      @keyframes logoPrime {
+        to {
+          transform: scale(1.06);
+          filter: brightness(1.14) drop-shadow(0 0 30px rgba(124, 140, 255, 0.35));
+        }
+      }
+
+      /* The mark ignites, banks, and pulls away into the point — you chase it */
+      @keyframes logoChase {
+        0% {
+          opacity: 1;
+          filter: blur(0) brightness(1.14);
+          transform: scale(1.06) rotate(0deg);
+        }
+        14% {
+          opacity: 1;
+          filter: blur(0) brightness(1.55);
+          transform: scale(1.13) rotate(-1.5deg);
+        }
+        42% {
+          opacity: 1;
+          filter: blur(0.6px) brightness(1.7);
+          transform: scale(0.58) rotate(-5deg);
+        }
+        82% {
+          opacity: 0.9;
+          filter: blur(1.6px) brightness(1.9);
+        }
+        100% {
+          opacity: 0;
+          filter: blur(3px) brightness(2.1);
+          transform: scale(0.004) rotate(2deg);
+        }
+      }
+
+      @keyframes ghostChase {
+        0% {
+          opacity: 0;
+          transform: scale(1.06) rotate(0deg);
+        }
+        20% {
+          opacity: 0.45;
+          transform: scale(1.16) rotate(-2deg);
+        }
+        50% {
+          opacity: 0.3;
+          transform: scale(0.62) rotate(-6deg);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(0.01) rotate(2deg);
+        }
+      }
+
+      @keyframes afterglow {
+        0%,
+        100% {
+          opacity: 0;
+        }
+        35% {
+          opacity: 0.15;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <!-- App shell revealed at the end of the jump -->
+      <section class="app-reveal" id="appReveal" aria-hidden="true">
+        <aside class="sidebar">
+          <div class="sidebar-brand">
+            <img src="../../../src/renderer/assets/title-logo.png" alt="" width="24" height="24" />
+            <span>Anodex</span>
+          </div>
+          <button class="primary-action">New chat</button>
+          <div class="sidebar-section">
+            <span class="section-label">Projects</span>
+            <div class="project-row active">Anodex4</div>
+            <div class="project-row">Local models</div>
+          </div>
+          <div class="sidebar-section">
+            <span class="section-label">Recent</span>
+            <div class="chat-row">Startup animation concept</div>
+            <div class="chat-row">Tool polish pass</div>
+            <div class="chat-row">Model setup notes</div>
+          </div>
+        </aside>
+        <div class="workspace">
+          <header class="topbar">
+            <div>
+              <span class="eyebrow">Project Chat</span>
+              <h1>Anodex4</h1>
+            </div>
+            <div class="model-pill">Local model ready</div>
+          </header>
+          <div class="chat-surface">
+            <div class="message user">Make startup feel like entering Anodex.</div>
+            <div class="message assistant">
+              Welcome aboard. Workspace tools are ready, the model is warm, and your project is
+              open.
+            </div>
+          </div>
+          <form class="composer" onsubmit="return false">
+            <span>Ask Anodex anything…</span>
+            <button type="button">Send</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Stardust carried through the door, above the revealed app -->
+      <canvas id="settle" aria-hidden="true"></canvas>
+
+      <!-- Boot stage over the app -->
+      <section class="stage" id="stage" data-phase="arrive">
+        <canvas id="starfield" aria-hidden="true"></canvas>
+        <div class="vignette" aria-hidden="true"></div>
+        <div class="flare" aria-hidden="true">
+          <span class="flare-bloom"></span>
+          <span class="flare-streak"></span>
+          <span class="flare-streak v"></span>
+          <span class="flare-core"></span>
+        </div>
+        <div class="charge-ring r1" aria-hidden="true"></div>
+        <div class="charge-ring r2" aria-hidden="true"></div>
+        <div class="shockwave s1" aria-hidden="true"></div>
+        <div class="shockwave s2" aria-hidden="true"></div>
+        <div class="flash" aria-hidden="true"></div>
+
+        <div class="lockup" id="lockup">
+          <span class="halo" aria-hidden="true"></span>
+          <div class="mark-wrap">
+            <img
+              class="logo logo-ghost"
+              src="../../../src/renderer/assets/title-logo.png"
+              alt=""
+              width="132"
+              height="132"
+              aria-hidden="true"
+            />
+            <img
+              class="logo"
+              src="../../../src/renderer/assets/title-logo.png"
+              alt="Anodex"
+              width="132"
+              height="132"
+            />
+            <span
+              class="sheen"
+              style="
+                -webkit-mask-image: url('../../../src/renderer/assets/title-logo.png');
+                mask-image: url('../../../src/renderer/assets/title-logo.png');
+              "
+              aria-hidden="true"
+            ></span>
+          </div>
+        </div>
+
+        <div class="caption" id="caption">
+          <span id="captionText">Starting local core</span>
+          <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
+      </section>
+
+      <div class="hint" id="hint">
+        Hyperspace v2 — <b>arrive → drift → inhale → jump</b> · keys 1–4 jump phases
+      </div>
+
+      <div class="controls">
+        <label class="toggle"><input type="checkbox" id="loopToggle" checked /> Loop</label>
+        <label class="toggle"><input type="checkbox" id="slowToggle" /> Slow-mo</label>
+        <button id="replayBtn" type="button">Replay</button>
+      </div>
+    </main>
+
+    <script>
+      const canvas = document.querySelector('#starfield')
+      const ctx = canvas.getContext('2d')
+      const settleCanvas = document.querySelector('#settle')
+      const settleCtx = settleCanvas.getContext('2d')
+      const stage = document.querySelector('#stage')
+      const appReveal = document.querySelector('#appReveal')
+      const hint = document.querySelector('#hint')
+      const captionText = document.querySelector('#captionText')
+
+      const TAU = Math.PI * 2
+
+      // ----- Sequence timings (demo runs the drift on a fixed beat) -----
+      const ARRIVE_MS = 1000 // dropping out of warp: light dies, mark resolves
+      const DRIFT_MS = 2600 // calm deep space (the app waits on real readiness here)
+      const CHARGE_MS = 760 // the inhale: space contracts into the mark
+      const JUMP_RAMP_MS = 1000 // acceleration to full warp
+      const WARP_HOLD_MS = 500 // riding the tunnel at peak
+      const JUMP_TAIL_MS = 420 // deceleration before the field goes quiet
+      const COMPLETE_LEAD_MS = 150 // reveal the app this long before ramp+hold ends
+      const OUT_MS = 1000
+      const DONE_HOLD_MS = 1400
+
+      const DRIFT_SPEED = 0.05
+      const ARRIVE_SPEED = 2.2
+      const JUMP_SPEED = 4.2
+
+      // The field is polar: stars live as (angle, radius, depth) and every
+      // spawn/cull happens on circles. A box is geometrically impossible.
+      const R_HOLE = 0.14 // hole kept around the mark
+      const R_MAX = 2.4 // outer rim parked well past the screen corners
+      const CULL_MARGIN = 150
+
+      const STAR_TONES = [
+        [240, 244, 255],
+        [172, 196, 255],
+        [124, 150, 255],
+        [154, 128, 255],
+        [255, 240, 214]
+      ]
+
+      const DRIFT_CAPTIONS = ['Starting local core', 'Warming the model', 'Restoring your session']
+
+      let width = 0
+      let height = 0
+      let stars = []
+      let dust = []
+      let comets = []
+      let heroes = [] // bright radial light-streaks during the jump
+      let motes = [] // stardust carried through the door
+      let nebula = null // pre-rendered offscreen backdrop
+      let phase = 'arrive'
+      let phaseMs = 0
+      let speed = ARRIVE_SPEED
+      let wander = 1
+      let roll = 0 // camera roll while riding the tunnel
+      let fieldAlpha = 0
+      let calmLevel = 1 // nebula/backdrop presence, fades at speed
+      let camX = 0
+      let camY = 0
+      let mouseX = 0
+      let mouseY = 0
+      let lastTime = 0
+      let rafId = 0
+      let completeMarked = false
+      let captionIdx = 0
+      let captionTimer = 0
+
+      let loopOn = true
+      let slowOn = false
+      // ?slow=0.12 etc. holds the whole sequence in slow motion for inspection
+      const slowParam = parseFloat(new URLSearchParams(location.search).get('slow'))
+      const slowFactor = Number.isFinite(slowParam) && slowParam > 0 ? slowParam : 0.35
+      if (Number.isFinite(slowParam) && slowParam > 0) {
+        slowOn = true
+        document.querySelector('#slowToggle').checked = true
+      }
+
+      /* ---------- Polar field construction ---------- */
+
+      // Even areal density across the annulus (sqrt), hole preserved.
+      function spawnRing(star, rMin, rMax) {
+        star.a = Math.random() * TAU
+        star.r = Math.sqrt(rMin * rMin + Math.random() * (rMax * rMax - rMin * rMin))
+      }
+
+      function respawn(star, anyDepth) {
+        spawnRing(star, R_HOLE, R_MAX)
+        star.z = anyDepth ? 0.12 + Math.random() * 0.87 : 0.82 + Math.random() * 0.18
+        star.depth = Math.random()
+        star.twinkle = 0.8 + Math.random() * 2.2
+        star.seed = Math.random() * 40
+        star.fade = 1
+        star.px = null
+        star.py = null
+      }
+
+      // Warp recycling biases radius inward so the tunnel core stays dense.
+      function respawnWarp(star) {
+        star.a = Math.random() * TAU
+        star.r = R_HOLE + (1.2 - R_HOLE) * Math.pow(Math.random(), 1.7)
+        star.z = 0.84 + Math.random() * 0.16
+        star.depth = Math.random()
+        star.fade = 1
+        star.px = null
+        star.py = null
+      }
+
+      // During the inhale, consumed stars re-enter at a RANDOM radius across the
+      // whole annulus (not at a fixed rim) and fade in. The ensemble density
+      // stays stationary while every individual star spirals inward — so the
+      // field never develops a visible contracting edge (no box, no donut).
+      function respawnCharge(star) {
+        spawnRing(star, 0.5, R_MAX)
+        star.z = 0.2 + Math.random() * 0.7
+        star.fade = 0
+        star.px = null
+        star.py = null
+      }
+
+      function recycle(star) {
+        if (phase === 'jump') respawnWarp(star)
+        else respawn(star, false)
+      }
+
+      function makeStar(near) {
+        const star = {
+          size: near ? 0.7 + Math.random() * 1.5 : 0.25 + Math.random() * 0.6,
+          glint: near && Math.random() < 0.08,
+          tone: Math.random() < 0.06 ? STAR_TONES[4] : STAR_TONES[Math.floor(Math.random() * 4)]
+        }
+        respawn(star, true)
+        return star
+      }
+
+      function rebuildField() {
+        const area = width * height
+        stars = Array.from({ length: Math.min(720, Math.floor(area / 1500)) }, () => makeStar(true))
+        dust = Array.from({ length: Math.min(540, Math.floor(area / 2100)) }, () => makeStar(false))
+        heroes = []
+        comets = []
+      }
+
+      /* ---------- Pre-rendered nebula backdrop (drawn with parallax) ---------- */
+
+      function buildNebula() {
+        const size = Math.ceil(Math.max(width, height) * 1.5)
+        const off = document.createElement('canvas')
+        off.width = size
+        off.height = size
+        const octx = off.getContext('2d')
+
+        const blob = (x, y, radius, rgb, alpha) => {
+          const grad = octx.createRadialGradient(x, y, 0, x, y, radius)
+          grad.addColorStop(0, `rgba(${rgb}, ${alpha})`)
+          grad.addColorStop(1, `rgba(${rgb}, 0)`)
+          octx.fillStyle = grad
+          octx.fillRect(x - radius, y - radius, radius * 2, radius * 2)
+        }
+
+        // Galactic band across the diagonal
+        octx.save()
+        octx.translate(size / 2, size / 2)
+        octx.rotate(-0.48)
+        const band = octx.createLinearGradient(0, -size * 0.16, 0, size * 0.16)
+        band.addColorStop(0, 'rgba(120, 140, 220, 0)')
+        band.addColorStop(0.5, 'rgba(120, 140, 220, 0.05)')
+        band.addColorStop(1, 'rgba(120, 140, 220, 0)')
+        octx.fillStyle = band
+        octx.fillRect(-size, -size * 0.2, size * 2, size * 0.4)
+        octx.restore()
+
+        // Brand-hued clouds, fixed art-directed layout
+        blob(size * 0.66, size * 0.32, size * 0.3, '124, 92, 255', 0.085)
+        blob(size * 0.3, size * 0.68, size * 0.34, '79, 140, 255', 0.07)
+        blob(size * 0.56, size * 0.74, size * 0.24, '56, 189, 248', 0.05)
+        blob(size * 0.22, size * 0.26, size * 0.2, '168, 85, 247', 0.045)
+        blob(size * 0.82, size * 0.6, size * 0.26, '36, 52, 130', 0.09)
+
+        // Baked micro-stars: the far layer that barely moves
+        for (let i = 0; i < 420; i++) {
+          const a = Math.random() * TAU
+          const r = (size / 2) * Math.sqrt(Math.random())
+          const x = size / 2 + Math.cos(a) * r
+          const y = size / 2 + Math.sin(a) * r
+          octx.fillStyle = `rgba(226, 234, 255, ${(0.08 + Math.random() * 0.3).toFixed(3)})`
+          const s = 0.4 + Math.random() * 0.9
+          octx.fillRect(x, y, s, s)
+        }
+
+        nebula = off
+      }
+
+      function drawNebula(now) {
+        if (!nebula) return
+        const level = calmLevel * fieldAlpha
+        if (level <= 0.02) return
+        const t = now / 1000
+        const size = nebula.width
+
+        ctx.save()
+        ctx.globalAlpha = level
+        // Far layer: slow rotation + drift
+        ctx.translate(width / 2 + Math.sin(t * 0.021) * 14, height / 2 + Math.cos(t * 0.017) * 10)
+        ctx.rotate(Math.sin(t * 0.006) * 0.05)
+        ctx.drawImage(nebula, -size / 2, -size / 2)
+        ctx.restore()
+
+        // Near layer: same texture, larger + counter-drifting = cheap parallax
+        ctx.save()
+        ctx.globalAlpha = level * 0.5
+        ctx.translate(width / 2 - Math.sin(t * 0.014) * 26, height / 2 - Math.cos(t * 0.019) * 18)
+        ctx.rotate(-Math.sin(t * 0.005) * 0.06)
+        ctx.scale(1.35, 1.35)
+        ctx.drawImage(nebula, -size / 2, -size / 2)
+        ctx.restore()
+      }
+
+      /* ---------- Layout ---------- */
+
+      function resize() {
+        const ratio = Math.min(window.devicePixelRatio || 1, 2)
+        width = window.innerWidth
+        height = window.innerHeight
+        for (const c of [canvas, settleCanvas]) {
+          c.width = Math.floor(width * ratio)
+          c.height = Math.floor(height * ratio)
+          c.style.width = width + 'px'
+          c.style.height = height + 'px'
+        }
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+        settleCtx.setTransform(ratio, 0, 0, ratio, 0, 0)
+        camX = width / 2
+        camY = height / 2
+        rebuildField()
+        buildNebula()
+      }
+
+      /* ---------- Phase machine ---------- */
+
+      function setPhase(next) {
+        phase = next
+        phaseMs = 0
+        stage.dataset.phase = next
+        // Kill stale trail anchors so no streak spans a phase cut
+        for (const s of stars) {
+          s.px = null
+          s.py = null
+        }
+        for (const s of dust) {
+          s.px = null
+          s.py = null
+        }
+        // The inhale swallowed the field into the core — reseed the whole
+        // annulus the instant the jump begins so the tunnel is born full-frame.
+        // The flare ignition and shockwave cover the reseed completely.
+        if (next === 'jump') {
+          for (const s of stars) respawn(s, true)
+          for (const s of dust) respawn(s, true)
+        }
+      }
+
+      function revealApp() {
+        completeMarked = true
+        stage.classList.add('is-complete')
+        appReveal.classList.add('is-visible')
+        hint.style.opacity = '0'
+        spawnMotes()
+      }
+
+      function updatePhase(mdt) {
+        phaseMs += mdt * 1000
+        const t = phaseMs
+
+        if (phase === 'arrive') {
+          const p = Math.min(t / ARRIVE_MS, 1)
+          speed = ARRIVE_SPEED * Math.pow(1 - p, 2.4) + DRIFT_SPEED * p
+          wander = p // sway eases in as the camera settles
+          if (p >= 1) setPhase('drift')
+        } else if (phase === 'drift') {
+          speed = DRIFT_SPEED
+          wander = 1
+          captionTimer += mdt * 1000
+          if (captionTimer > 1250) {
+            captionTimer = 0
+            captionIdx = (captionIdx + 1) % DRIFT_CAPTIONS.length
+            swapCaption(DRIFT_CAPTIONS[captionIdx])
+          }
+          if (t >= DRIFT_MS) setPhase('charge')
+        } else if (phase === 'charge') {
+          const p = Math.min(t / CHARGE_MS, 1)
+          speed = DRIFT_SPEED * (1 - p) + 0.004 * p
+          wander = 1 - p
+          if (p >= 1) setPhase('jump')
+        } else if (phase === 'jump') {
+          const p = Math.min(t / JUMP_RAMP_MS, 1)
+          // Cubic ramp: still a violent tear at the end, but the tunnel is
+          // visibly moving by a third of the way in — no dead-black lull.
+          speed = 0.006 + Math.pow(p, 3) * JUMP_SPEED
+          wander = 0
+          if (!completeMarked && t >= JUMP_RAMP_MS + WARP_HOLD_MS - COMPLETE_LEAD_MS) revealApp()
+          if (t >= JUMP_RAMP_MS + WARP_HOLD_MS + JUMP_TAIL_MS) setPhase('out')
+        } else if (phase === 'out') {
+          speed *= Math.pow(0.05, mdt)
+          if (t >= OUT_MS) setPhase('done')
+        } else if (phase === 'done') {
+          speed = 0
+          if (t >= DONE_HOLD_MS && loopOn) restart()
+        }
+
+        // Backdrop calm: full in quiet phases, gone at warp
+        const calmTarget = phase === 'charge' || phase === 'jump' || phase === 'out' ? 0.12 : 1
+        calmLevel += (calmTarget - calmLevel) * Math.min(1, mdt * 3)
+
+        // Camera roll: the tunnel banks as you ride it
+        if (phase === 'jump') {
+          roll += mdt * (0.1 + 0.4 * Math.min(phaseMs / JUMP_RAMP_MS, 1))
+        } else if (phase === 'out') {
+          roll += mdt * 0.08
+        } else {
+          roll = 0
+        }
+      }
+
+      /* ---------- Starfield ---------- */
+
+      function drawLayer(list, now, mdt, speedFactor, alphaFactor) {
+        const charging = phase === 'charge'
+        const streaking = speed > 0.16 || charging
+        const chargeP = charging ? Math.min(phaseMs / CHARGE_MS, 1) : 0
+        const fovMix = Math.min(Math.max((speed - 0.6) / 3, 0), 1)
+        const focal = height * (0.9 + 0.28 * fovMix)
+        const speedMix = Math.min(speed / 2.4, 1) * 0.5
+        const chromatic = speed > 1.2
+        const cullR = Math.hypot(width, height) * 0.5 + CULL_MARGIN
+
+        for (const star of list) {
+          if (charging) {
+            // The inhale, in pure polar math: swirl the angle, shrink the radius.
+            // Contraction is a perfect circle — nothing rectangular exists to reveal.
+            const pull = (1.2 + 1.1 * chargeP) * speedFactor
+            star.a += (0.9 + 1.6 * chargeP) * mdt
+            star.r *= Math.max(0, 1 - pull * mdt)
+            if (star.r < 0.12) respawnCharge(star)
+          } else {
+            star.z -= speed * speedFactor * (0.85 + star.depth * 0.3) * mdt
+            if (star.z <= 0.015) recycle(star)
+          }
+
+          const k = focal / star.z
+          const ca = star.a + roll
+          const x = camX + Math.cos(ca) * star.r * k
+          const y = camY + Math.sin(ca) * star.r * k
+
+          // Circular cull only — recycling happens on a ring past the corners
+          if (Math.hypot(x - width / 2, y - height / 2) > cullR) {
+            if (!charging) recycle(star)
+            star.px = null
+            star.py = null
+            continue
+          }
+
+          star.fade = Math.min(1, (star.fade ?? 1) + mdt * 2.6)
+
+          const closeness = Math.min((1 - star.z) * 1.5, 1)
+          let alpha = fieldAlpha * alphaFactor * (0.22 + closeness * 0.7) * star.fade
+          if (!streaking) {
+            alpha *= 0.78 + 0.22 * Math.sin((now / 1000) * star.twinkle * 2 + star.seed)
+          }
+          if (charging) alpha *= 0.95
+
+          const r = Math.round(star.tone[0] + (255 - star.tone[0]) * speedMix)
+          const g = Math.round(star.tone[1] + (255 - star.tone[1]) * speedMix)
+          const b = Math.max(star.tone[2], 240)
+          const size = Math.min(Math.max(star.size * closeness * 2, 0.35), 2.8)
+
+          if (streaking) {
+            if (star.px !== null && star.py !== null) {
+              // Per-frame motion during the inhale is small — stretch the trail
+              // behind the star so the spiral actually reads as light being drawn in
+              let tx = star.px
+              let ty = star.py
+              if (charging) {
+                tx = x + (star.px - x) * (2.5 + 3.5 * chargeP)
+                ty = y + (star.py - y) * (2.5 + 3.5 * chargeP)
+              }
+              if (chromatic) {
+                // Anamorphic hyperspace: violet + cyan fringes offset
+                // perpendicular to motion under a white-blue core
+                const dx = x - tx
+                const dy = y - ty
+                const len = Math.hypot(dx, dy) || 1
+                const o = Math.min(2.4, (speed / JUMP_SPEED) * 2.6)
+                const nx = (-dy / len) * o
+                const ny = (dx / len) * o
+                ctx.lineCap = 'round'
+                ctx.strokeStyle = `rgba(154, 120, 255, ${(alpha * 0.3).toFixed(3)})`
+                ctx.lineWidth = size * 2
+                ctx.beginPath()
+                ctx.moveTo(tx + nx, ty + ny)
+                ctx.lineTo(x + nx, y + ny)
+                ctx.stroke()
+                ctx.strokeStyle = `rgba(110, 210, 255, ${(alpha * 0.22).toFixed(3)})`
+                ctx.lineWidth = size * 1.4
+                ctx.beginPath()
+                ctx.moveTo(tx - nx, ty - ny)
+                ctx.lineTo(x - nx, y - ny)
+                ctx.stroke()
+              }
+              ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(alpha, 0.6).toFixed(3)})`
+              ctx.lineWidth = size
+              ctx.lineCap = 'round'
+              ctx.beginPath()
+              ctx.moveTo(tx, ty)
+              ctx.lineTo(x, y)
+              ctx.stroke()
+            }
+          } else {
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`
+            ctx.beginPath()
+            ctx.arc(x, y, size * 0.75, 0, TAU)
+            ctx.fill()
+
+            if (star.glint && closeness > 0.55) {
+              const reach = 3 + closeness * 4
+              ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${(alpha * 0.4).toFixed(3)})`
+              ctx.lineWidth = 0.6
+              ctx.beginPath()
+              ctx.moveTo(x - reach, y)
+              ctx.lineTo(x + reach, y)
+              ctx.moveTo(x, y - reach)
+              ctx.lineTo(x, y + reach)
+              ctx.stroke()
+            }
+          }
+
+          star.px = x
+          star.py = y
+        }
+      }
+
+      /* ---------- Hero streaks: a few brilliant lines that sell the tunnel ---------- */
+
+      function updateHeroes(mdt) {
+        if (phase === 'jump') {
+          const p = Math.min(phaseMs / JUMP_RAMP_MS, 1)
+          if (heroes.length < 15 && Math.random() < mdt * (4 + 26 * p)) {
+            heroes.push({
+              a: Math.random() * TAU,
+              r0: 0.04 + Math.random() * 0.18,
+              len: 0.22 + Math.random() * 0.5,
+              v: 2.4 + Math.random() * 2.2,
+              life: 0,
+              ttl: 0.32 + Math.random() * 0.26,
+              w: 1 + Math.random() * 1.8
+            })
+          }
+        }
+        if (!heroes.length) return
+
+        const base = Math.hypot(width, height) * 0.5
+        for (const s of heroes) {
+          s.life += mdt
+          s.r0 += s.v * mdt
+          const fade = Math.sin(Math.min(s.life / s.ttl, 1) * Math.PI)
+          const ca = s.a + roll
+          const dx = Math.cos(ca)
+          const dy = Math.sin(ca)
+          const x0 = width / 2 + dx * s.r0 * base
+          const y0 = height / 2 + dy * s.r0 * base
+          const x1 = width / 2 + dx * (s.r0 + s.len) * base
+          const y1 = height / 2 + dy * (s.r0 + s.len) * base
+          const grad = ctx.createLinearGradient(x0, y0, x1, y1)
+          grad.addColorStop(0, 'rgba(140, 170, 255, 0)')
+          grad.addColorStop(0.7, `rgba(170, 195, 255, ${(0.28 * fade).toFixed(3)})`)
+          grad.addColorStop(1, `rgba(240, 246, 255, ${(0.75 * fade).toFixed(3)})`)
+          ctx.strokeStyle = grad
+          ctx.lineWidth = s.w
+          ctx.lineCap = 'round'
+          ctx.beginPath()
+          ctx.moveTo(x0, y0)
+          ctx.lineTo(x1, y1)
+          ctx.stroke()
+        }
+        heroes = heroes.filter((s) => s.life < s.ttl && s.r0 < 2.6)
+      }
+
+      /* ---------- Central bloom at warp ---------- */
+
+      function drawBloom() {
+        const sn = Math.min(speed / JUMP_SPEED, 1)
+        if (sn < 0.22 || (phase !== 'jump' && phase !== 'out')) return
+        const radius = Math.min(width, height) * (0.1 + 0.42 * sn)
+        const grad = ctx.createRadialGradient(
+          width / 2,
+          height / 2,
+          0,
+          width / 2,
+          height / 2,
+          radius
+        )
+        grad.addColorStop(0, `rgba(235, 242, 255, ${(0.3 * sn * fieldAlpha).toFixed(3)})`)
+        grad.addColorStop(0.4, `rgba(140, 172, 255, ${(0.14 * sn * fieldAlpha).toFixed(3)})`)
+        grad.addColorStop(1, 'rgba(124, 92, 255, 0)')
+        ctx.fillStyle = grad
+        ctx.fillRect(width / 2 - radius, height / 2 - radius, radius * 2, radius * 2)
+      }
+
+      /* ---------- Rare shooting stars while idling ---------- */
+
+      function updateComets(mdt) {
+        if (phase === 'drift' && comets.length < 2 && Math.random() < mdt * 0.25) {
+          const edge = Math.random() * TAU
+          const dir = edge + Math.PI + (Math.random() - 0.5) * 1.2
+          comets.push({
+            x: width / 2 + Math.cos(edge) * width * 0.42,
+            y: height / 2 + Math.sin(edge) * height * 0.42,
+            vx: Math.cos(dir) * 850,
+            vy: Math.sin(dir) * 850,
+            life: 0,
+            ttl: 0.5
+          })
+        }
+        for (const c of comets) {
+          c.life += mdt
+          c.x += c.vx * mdt
+          c.y += c.vy * mdt
+          const fade = Math.sin(Math.min(c.life / c.ttl, 1) * Math.PI)
+          ctx.strokeStyle = `rgba(205, 218, 255, ${(0.4 * fade * fieldAlpha).toFixed(3)})`
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(c.x - c.vx * 0.09, c.y - c.vy * 0.09)
+          ctx.lineTo(c.x, c.y)
+          ctx.stroke()
+        }
+        comets = comets.filter((c) => c.life < c.ttl)
+      }
+
+      /* ---------- Stardust carried through the door ---------- */
+
+      function spawnMotes() {
+        for (let i = 0; i < 34; i++) {
+          const dir = Math.random() * TAU
+          const v = 240 + Math.random() * 440
+          motes.push({
+            x: width / 2,
+            y: height / 2,
+            vx: Math.cos(dir) * v,
+            vy: Math.sin(dir) * v,
+            life: 0,
+            ttl: 0.7 + Math.random() * 0.6,
+            size: 0.8 + Math.random() * 1.6,
+            tone: STAR_TONES[Math.floor(Math.random() * STAR_TONES.length)]
+          })
+        }
+      }
+
+      function updateMotes(mdt) {
+        settleCtx.clearRect(0, 0, width, height)
+        if (!motes.length) return
+        settleCtx.globalCompositeOperation = 'lighter'
+        for (const m of motes) {
+          m.life += mdt
+          const decel = Math.pow(0.22, mdt)
+          m.vx *= decel
+          m.vy *= decel
+          m.x += m.vx * mdt
+          m.y += m.vy * mdt
+          const fade = Math.max(0, 1 - m.life / m.ttl)
+          settleCtx.fillStyle = `rgba(${m.tone[0]}, ${m.tone[1]}, 255, ${(0.85 * fade).toFixed(3)})`
+          settleCtx.beginPath()
+          settleCtx.arc(m.x, m.y, m.size * (0.6 + fade * 0.4), 0, TAU)
+          settleCtx.fill()
+        }
+        settleCtx.globalCompositeOperation = 'source-over'
+        motes = motes.filter((m) => m.life < m.ttl)
+      }
+
+      /* ---------- Frame loop ---------- */
+
+      function frame(now) {
+        const dt = lastTime ? Math.min((now - lastTime) / 1000, 0.05) : 0.016
+        lastTime = now
+        const mdt = dt * (slowOn ? slowFactor : 1)
+
+        updatePhase(mdt)
+        fieldAlpha = Math.min(fieldAlpha + dt * 2.4, 1)
+
+        if (speed > 0.5) {
+          // translucent clear leaves light-trail persistence at warp
+          ctx.fillStyle = 'rgba(5, 6, 10, 0.28)'
+          ctx.fillRect(0, 0, width, height)
+        } else {
+          ctx.clearRect(0, 0, width, height)
+        }
+
+        drawNebula(now)
+
+        // Camera: idle sway + pointer parallax, dead-centre once the jump begins
+        const t = now / 1000
+        const targetX =
+          width / 2 +
+          ((Math.sin(t * 0.13) * 0.012 + Math.sin(t * 0.07 + 2) * 0.008) * width +
+            mouseX * 0.022 * width) *
+            wander
+        const targetY =
+          height / 2 +
+          ((Math.cos(t * 0.11) * 0.01 + Math.sin(t * 0.06 + 4) * 0.007) * height +
+            mouseY * 0.018 * height) *
+            wander
+        camX += (targetX - camX) * Math.min(1, dt * 3)
+        camY += (targetY - camY) * Math.min(1, dt * 3)
+
+        const streaking = speed > 0.16 || phase === 'charge'
+        if (streaking) ctx.globalCompositeOperation = 'lighter'
+        drawLayer(dust, now, mdt, 0.45, 0.55)
+        drawLayer(stars, now, mdt, 1, 1)
+        updateHeroes(mdt)
+        drawBloom()
+        ctx.globalCompositeOperation = 'source-over'
+
+        updateComets(mdt)
+        updateMotes(mdt)
+
+        rafId = requestAnimationFrame(frame)
+      }
+
+      /* ---------- Demo chrome ---------- */
+
+      function swapCaption(text) {
+        const el = captionText
+        const out = el.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 110,
+          easing: 'ease-in',
+          fill: 'forwards'
+        })
+        out.onfinish = () => {
+          el.textContent = text
+          el.animate([{ opacity: 0 }, { opacity: 1 }], {
+            duration: 170,
+            easing: 'ease-out',
+            fill: 'forwards'
+          })
+        }
+      }
+
+      function clearReveal() {
+        completeMarked = false
+        stage.classList.remove('is-complete')
+        appReveal.classList.remove('is-visible')
+        hint.style.opacity = ''
+        motes = []
+      }
+
+      function restart() {
+        clearReveal()
+        rebuildField()
+        fieldAlpha = 0
+        speed = ARRIVE_SPEED
+        wander = 1
+        roll = 0
+        calmLevel = 1
+        captionIdx = 0
+        captionTimer = 0
+        captionText.textContent = DRIFT_CAPTIONS[0]
+        setPhase('arrive')
+      }
+
+      // Keys 1-4 jump straight to a phase for inspection
+      function goTo(target) {
+        clearReveal()
+        roll = 0
+        if (target === 'arrive') {
+          restart()
+          return
+        }
+        if (target === 'drift') {
+          speed = DRIFT_SPEED
+          wander = 1
+          calmLevel = 1
+        } else if (target === 'charge') {
+          speed = DRIFT_SPEED
+        } else if (target === 'jump') {
+          speed = 0.006
+          wander = 0
+        }
+        setPhase(target)
+      }
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key === '1') goTo('arrive')
+        else if (e.key === '2') goTo('drift')
+        else if (e.key === '3') goTo('charge')
+        else if (e.key === '4') goTo('jump')
+      })
+
+      window.addEventListener('pointermove', (e) => {
+        mouseX = Math.max(-1, Math.min(1, (e.clientX / width - 0.5) * 2))
+        mouseY = Math.max(-1, Math.min(1, (e.clientY / height - 0.5) * 2))
+      })
+
+      document
+        .querySelector('#loopToggle')
+        .addEventListener('change', (e) => (loopOn = e.target.checked))
+      document
+        .querySelector('#slowToggle')
+        .addEventListener('change', (e) => (slowOn = e.target.checked))
+      document.querySelector('#replayBtn').addEventListener('click', restart)
+      window.addEventListener('resize', resize)
+
+      resize()
+      setPhase('arrive')
+      rafId = requestAnimationFrame(frame)
+    </script>
+  </body>
+</html>

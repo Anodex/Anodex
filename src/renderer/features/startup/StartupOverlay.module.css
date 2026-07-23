@@ -8,6 +8,10 @@
  * The engine drives choreography via data attributes on `.stage`:
  *   data-state = arriving | drifting | charging | jumping | error
  *   data-complete (present) = overlay fading out over the revealed app
+ *
+ * Centering invariant: the mark, the flare, and every ring share ONE exact
+ * centre. No keyframe translates the lockup — the breath is scale-only — so
+ * the mark can never drift off the light it launches into.
  */
 
 .root {
@@ -24,16 +28,28 @@
   place-items: center;
   isolation: isolate;
   pointer-events: auto;
-  background: radial-gradient(120% 90% at 50% 44%, #0a0c12 0%, #060708 58%, #050506 100%);
+  background: radial-gradient(120% 90% at 50% 44%, #0a0c14 0%, #060709 58%, #050506 100%);
   transition:
-    opacity 480ms cubic-bezier(0.16, 1, 0.3, 1),
-    visibility 480ms cubic-bezier(0.16, 1, 0.3, 1);
+    opacity 620ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 620ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .stage[data-complete] {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+/* Static film grain: dithers the big dark gradients so they never band */
+.stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.055'/></feComponentTransfer></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
 }
 
 .stars {
@@ -51,7 +67,7 @@
   z-index: -2;
   opacity: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, transparent 38%, rgba(0, 0, 0, 0.6) 100%);
+  background: radial-gradient(ellipse at center, transparent 36%, rgba(0, 0, 0, 0.62) 100%);
   transition: opacity 480ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -60,49 +76,148 @@
   opacity: 1;
 }
 
-/* Engine light: dies down on arrival, blooms again when the mark jumps away */
-.vanishPoint {
+/*
+ * The light at the centre of everything. Not a dot: a layered lens flare —
+ * soft bloom, anamorphic horizontal streak, faint vertical streak, and a
+ * tiny hot core. It burns out on arrival and reignites when the mark departs.
+ */
+.flare {
   position: absolute;
   left: 50%;
   top: 50%;
   z-index: -1;
-  width: 14px;
-  aspect-ratio: 1;
-  border-radius: 50%;
+  width: 0;
+  height: 0;
   opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.flare span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+}
+
+.flareBloom {
+  width: clamp(240px, 34vmin, 400px);
+  aspect-ratio: 1;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(178, 200, 255, 0.4) 18%,
+    rgba(110, 140, 255, 0.16) 42%,
+    transparent 70%
+  );
+}
+
+.flareStreak {
+  width: clamp(320px, 52vmin, 620px);
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(170, 195, 255, 0.55) 28%,
+    rgba(235, 242, 255, 0.95) 50%,
+    rgba(170, 195, 255, 0.55) 72%,
+    transparent 100%
+  );
+  filter: blur(0.4px);
+}
+
+.flareStreakV {
+  width: clamp(110px, 17vmin, 210px);
+  height: 2px;
+  border-radius: 999px;
+  opacity: 0.5;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(170, 195, 255, 0.55) 28%,
+    rgba(235, 242, 255, 0.95) 50%,
+    rgba(170, 195, 255, 0.55) 72%,
+    transparent 100%
+  );
+  filter: blur(0.4px);
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.flareCore {
+  width: 10px;
+  aspect-ratio: 1;
   background: #ffffff;
   box-shadow:
-    0 0 22px rgba(255, 255, 255, 0.85),
-    0 0 54px rgba(79, 140, 255, 0.7),
-    0 0 110px rgba(124, 92, 255, 0.4);
-  transform: translate(-50%, -50%) scale(0.15);
+    0 0 18px rgba(255, 255, 255, 0.95),
+    0 0 52px rgba(140, 172, 255, 0.8),
+    0 0 120px rgba(124, 92, 255, 0.5);
 }
 
-.stage[data-state='arriving'] .vanishPoint {
-  animation: bloomIn 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.stage[data-state='arriving'] .flare {
+  animation: flareDie 950ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.stage[data-state='jumping'] .vanishPoint {
-  animation: bloomOut 1400ms cubic-bezier(0.2, 0, 0, 1) 360ms forwards;
+.stage[data-state='jumping'] .flare {
+  animation: flareIgnite 1500ms cubic-bezier(0.2, 0, 0, 1) 380ms forwards;
 }
 
-/* One thin ring racing outward as the light barrier breaks */
+/* Power gathering: two rings collapse into the mark during the inhale */
+.chargeRing {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  width: clamp(220px, 30vmin, 330px);
+  aspect-ratio: 1;
+  border: 1.5px solid rgba(150, 182, 255, 0.85);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(2.4);
+}
+
+.chargeRingOuter {
+  width: clamp(280px, 40vmin, 430px);
+  border-width: 1px;
+}
+
+.stage[data-state='charging'] .chargeRing {
+  animation: ringIn 760ms cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+.stage[data-state='charging'] .chargeRingOuter {
+  animation-delay: 150ms;
+}
+
+/* The light barrier breaking: a sharp wave, then a slower echo */
 .shockwave {
   position: absolute;
   left: 50%;
   top: 50%;
   z-index: -1;
-  width: 12px;
+  width: 110px;
   aspect-ratio: 1;
-  margin: -6px 0 0 -6px;
-  border: 1.5px solid rgba(150, 180, 255, 0.55);
+  border: 2px solid rgba(160, 188, 255, 0.6);
   border-radius: 50%;
   opacity: 0;
   pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.1);
+}
+
+.shockwaveEcho {
+  border-width: 5px;
+  border-color: rgba(124, 110, 255, 0.3);
 }
 
 .stage[data-state='jumping'] .shockwave {
-  animation: shock 750ms cubic-bezier(0.16, 1, 0.3, 1) 180ms forwards;
+  animation: shock 820ms cubic-bezier(0.16, 1, 0.3, 1) 320ms forwards;
+}
+
+.stage[data-state='jumping'] .shockwaveEcho {
+  animation-duration: 1050ms;
+  animation-delay: 430ms;
 }
 
 /* Barely-there wash so the cut into the app isn't harsh — never a flash */
@@ -116,7 +231,7 @@
 }
 
 .stage[data-state='jumping'] .flash {
-  animation: afterglow 500ms ease-out 1050ms forwards;
+  animation: afterglow 620ms ease-out 1220ms forwards;
 }
 
 /* ---------- The mark ---------- */
@@ -125,21 +240,20 @@
   position: relative;
   display: grid;
   place-items: center;
-  transform: translateY(-4px);
-  animation: bootBreath 3400ms ease-in-out infinite;
+  animation: bootBreath 3600ms ease-in-out infinite;
   will-change: transform, opacity, filter;
 }
 
 .stage[data-state='arriving'] .lockup {
-  animation: markArrive 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: markResolve 1000ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .stage[data-state='charging'] .lockup {
-  animation: logoPrime 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: logoPrime 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .stage[data-state='jumping'] .lockup {
-  animation: logoChase 1150ms cubic-bezier(0.6, 0, 0.9, 0.4) forwards;
+  animation: logoChase 1200ms cubic-bezier(0.6, 0, 0.9, 0.4) forwards;
 }
 
 .stage[data-state='error'] .lockup {
@@ -150,21 +264,28 @@
 
 .halo {
   position: absolute;
-  width: 340%;
-  aspect-ratio: 1;
+  left: 50%;
+  top: 50%;
   z-index: -1;
+  width: 420%;
+  aspect-ratio: 1;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(79, 140, 255, 0.1) 0%,
-    rgba(124, 92, 255, 0.05) 35%,
+    rgba(79, 140, 255, 0.11) 0%,
+    rgba(124, 92, 255, 0.055) 35%,
     transparent 62%
   );
+  transform: translate(-50%, -50%);
   animation: haloBreath 5200ms ease-in-out infinite;
 }
 
 .stage[data-state='charging'] .halo {
-  animation: haloTighten 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: haloTighten 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stage[data-state='jumping'] .halo {
+  animation: haloGone 500ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .markWrap {
@@ -173,11 +294,27 @@
   place-items: center;
 }
 
+.markWrap > * {
+  grid-area: 1 / 1;
+}
+
 .logo {
   display: block;
   width: clamp(92px, 12vw, 136px);
   height: auto;
   filter: drop-shadow(0 0 22px rgba(79, 140, 255, 0.16));
+}
+
+/* Light trail the mark leaves behind as it tears away */
+.logoGhost {
+  opacity: 0;
+  mix-blend-mode: screen;
+  filter: blur(6px) saturate(1.6) brightness(1.9);
+  pointer-events: none;
+}
+
+.stage[data-state='jumping'] .logoGhost {
+  animation: ghostChase 1290ms cubic-bezier(0.6, 0, 0.9, 0.4) 70ms forwards;
 }
 
 /* Specular sweep, masked to the logo silhouette (mask url set inline) */
@@ -347,40 +484,102 @@
 
 /* ---------- Motion ---------- */
 
+/* Breath never translates — the mark and the flare share one exact centre */
 @keyframes bootBreath {
   0%,
   100% {
-    transform: translateY(-4px) scale(1);
+    transform: scale(1);
   }
 
   50% {
-    transform: translateY(-7px) scale(1.014);
+    transform: scale(1.016);
   }
 }
 
-@keyframes markArrive {
-  from {
-    opacity: 0;
-    filter: blur(6px);
-    transform: translateY(-4px) scale(1.12);
-  }
-
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(-4px) scale(1);
-  }
-}
-
-@keyframes bloomIn {
+@keyframes markResolve {
   0% {
-    opacity: 0.85;
-    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 0;
+    filter: blur(18px) brightness(1.6);
+    transform: scale(1.5);
+  }
+
+  55% {
+    opacity: 1;
+    filter: blur(2px) brightness(1.12);
+    transform: scale(0.985);
+  }
+
+  100% {
+    opacity: 1;
+    filter: blur(0) brightness(1);
+    transform: scale(1);
+  }
+}
+
+@keyframes flareDie {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  55% {
+    opacity: 0.45;
+    transform: scale(0.55);
   }
 
   100% {
     opacity: 0;
+    transform: scale(0.22);
+  }
+}
+
+@keyframes flareIgnite {
+  0% {
+    opacity: 0;
+    transform: scale(0.15);
+  }
+
+  30% {
+    opacity: 0.95;
+    transform: scale(0.8);
+  }
+
+  62% {
+    opacity: 0.9;
+    transform: scale(1.55);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(2.7);
+  }
+}
+
+@keyframes ringIn {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.4);
+  }
+
+  38% {
+    opacity: 0.6;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+}
+
+@keyframes shock {
+  0% {
+    opacity: 0.6;
     transform: translate(-50%, -50%) scale(0.1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(13);
   }
 }
 
@@ -388,19 +587,26 @@
   0%,
   100% {
     opacity: 0.7;
-    transform: scale(1);
+    transform: translate(-50%, -50%) scale(1);
   }
 
   50% {
     opacity: 1;
-    transform: scale(1.06);
+    transform: translate(-50%, -50%) scale(1.05);
   }
 }
 
 @keyframes haloTighten {
   to {
     opacity: 1;
-    transform: scale(0.72);
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+}
+
+@keyframes haloGone {
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4);
   }
 }
 
@@ -429,68 +635,62 @@
 
 @keyframes logoPrime {
   to {
-    transform: translateY(-4px) scale(1.05);
-    filter: brightness(1.12);
+    transform: scale(1.06);
+    filter: brightness(1.14) drop-shadow(0 0 30px rgba(124, 140, 255, 0.35));
   }
 }
 
-/* The mark banks and pulls away from the viewer — you chase it into the point */
+/* The mark ignites, banks, and pulls away into the point — you chase it */
 @keyframes logoChase {
   0% {
     opacity: 1;
-    filter: blur(0) brightness(1.12);
-    transform: translate(0, -4px) scale(1.05);
+    filter: blur(0) brightness(1.14);
+    transform: scale(1.06) rotate(0deg);
   }
 
-  30% {
+  14% {
     opacity: 1;
-    filter: blur(0.4px) brightness(1.24);
-    transform: translate(7px, -13px) scale(0.72);
-  }
-
-  78% {
-    opacity: 0.85;
-    filter: blur(1.4px) brightness(1.4);
-  }
-
-  100% {
-    opacity: 0;
-    filter: blur(2.5px) brightness(1.5);
-    transform: translate(0, -2px) scale(0.005);
-  }
-}
-
-@keyframes bloomOut {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.15);
+    filter: blur(0) brightness(1.55);
+    transform: scale(1.13) rotate(-1.5deg);
   }
 
   42% {
-    opacity: 0.92;
-    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+    filter: blur(0.6px) brightness(1.7);
+    transform: scale(0.58) rotate(-5deg);
   }
 
-  70% {
-    opacity: 0.75;
-    transform: translate(-50%, -50%) scale(1.5);
+  82% {
+    opacity: 0.9;
+    filter: blur(1.6px) brightness(1.9);
   }
 
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(2.3);
+    filter: blur(3px) brightness(2.1);
+    transform: scale(0.004) rotate(2deg);
   }
 }
 
-@keyframes shock {
+@keyframes ghostChase {
   0% {
-    opacity: 0.55;
-    transform: scale(1);
+    opacity: 0;
+    transform: scale(1.06) rotate(0deg);
+  }
+
+  20% {
+    opacity: 0.45;
+    transform: scale(1.16) rotate(-2deg);
+  }
+
+  50% {
+    opacity: 0.3;
+    transform: scale(0.62) rotate(-6deg);
   }
 
   100% {
     opacity: 0;
-    transform: scale(95);
+    transform: scale(0.01) rotate(2deg);
   }
 }
 
@@ -501,7 +701,7 @@
   }
 
   35% {
-    opacity: 0.12;
+    opacity: 0.15;
   }
 }
 
@@ -509,6 +709,7 @@
   .lockup,
   .halo,
   .sheen,
+  .flare,
   .dots,
   .dots::before,
   .dots::after {
