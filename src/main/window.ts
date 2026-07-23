@@ -2,6 +2,7 @@ import { BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
 import { IpcChannel } from '@shared/ipc'
 import { installContextMenu } from './contextMenu'
+import { sendToWindow } from './broadcast'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('window')
@@ -71,12 +72,8 @@ export function createMainWindow(): BrowserWindow {
   // Broadcast maximize/unmaximize changes so the TitleBar can show the
   // correct icon — registered here, where the window reference already
   // exists, rather than waiting on a renderer-sent handshake.
-  window.on('maximize', () => {
-    if (!window.isDestroyed()) window.webContents.send(IpcChannel.Window.maximizedChanged, true)
-  })
-  window.on('unmaximize', () => {
-    if (!window.isDestroyed()) window.webContents.send(IpcChannel.Window.maximizedChanged, false)
-  })
+  window.on('maximize', () => sendToWindow(window, IpcChannel.Window.maximizedChanged, true))
+  window.on('unmaximize', () => sendToWindow(window, IpcChannel.Window.maximizedChanged, false))
 
   // Open external links in the user's default browser, never inside the app.
   window.webContents.setWindowOpenHandler(({ url }) => {

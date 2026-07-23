@@ -21,18 +21,21 @@ import { IpcChannel } from '@shared/ipc'
 import { installContextMenu, registerContextMenuHandlers } from '../contextMenu'
 
 function fakeWindow(): {
+  isDestroyed: ReturnType<typeof vi.fn>
   webContents: EventEmitter & {
     send: ReturnType<typeof vi.fn>
     selectAll: ReturnType<typeof vi.fn>
     copy: ReturnType<typeof vi.fn>
+    isDestroyed: ReturnType<typeof vi.fn>
   }
 } {
   const webContents = Object.assign(new EventEmitter(), {
     send: vi.fn(),
     selectAll: vi.fn(),
-    copy: vi.fn()
+    copy: vi.fn(),
+    isDestroyed: vi.fn(() => false)
   })
-  return { webContents }
+  return { isDestroyed: vi.fn(() => false), webContents }
 }
 
 function baseParams(overrides: Record<string, unknown> = {}): Record<string, unknown> {

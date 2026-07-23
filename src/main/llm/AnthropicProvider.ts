@@ -1,5 +1,5 @@
 import Anthropic, { APIUserAbortError } from '@anthropic-ai/sdk'
-import type { ChatHistoryTurn, GenerationStats } from '@shared/chat.types'
+import type { ChatHistoryTurn, ChatImageInput, GenerationStats } from '@shared/chat.types'
 import { DEFAULT_ANTHROPIC_MODEL } from '@shared/anthropicModels'
 import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
 import { projectHistoryForModel, rememberToolCallForModel } from '../llama/contextAssembler'
@@ -18,6 +18,16 @@ import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
 import { providerUsageStore } from './ProviderUsageStore'
 import type { LlmProvider } from './LlmProvider'
+import { anthropicUserContent, cloudCompatibleImages } from './cloudVisionContent'
+import {
+  assertCloudVisionCompatible,
+  CLOUD_VISION_MIME_TYPES,
+  createVisualInputQueue,
+  drainVisualInputs,
+  MAX_VISION_IMAGES,
+  reopenRecentHistoryImages,
+  selectCurrentVisionImages
+} from '../vision/imageInputs'
 
 const log = createLogger('anthropic')
 
@@ -58,6 +68,7 @@ class AnthropicProvider implements LlmProvider {
 
     const client = new Anthropic({ apiKey })
     const model = params.modelOverride?.trim() || settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
+    const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, CLOUD_VISION_MIME_TYPES)
 
     const toolFunctions = params.tools
       ? buildTools(defineToolFunction, {
@@ -96,6 +107,7 @@ class AnthropicProvider implements LlmProvider {
           // `ToolRuntimeContext.readCoverage`'s doc comment); otherwise a
           // fresh one with no cross-call effect.
           readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
+          visualInputs,
           signal: params.signal,
           emit: params.tools.onActivity,
           confirm: params.tools.confirm
@@ -104,8 +116,14 @@ class AnthropicProvider implements LlmProvider {
 
     const anthropicTools = toolFunctions ? toAnthropicTools(toolFunctions) : undefined
 
-    const messages: Anthropic.MessageParam[] = historyToMessages(params.history)
-    messages.push({ role: 'user', content: params.prompt })
+    const currentImages = selectCurrentVisionImages(params.images)
+    assertCloudVisionCompatible(currentImages)
+    const historyImages = await reopenRecentHistoryImages(
+      params.history,
+      MAX_VISION_IMAGES - currentImages.length
+    )
+    const messages: Anthropic.MessageParam[] = historyToMessages(params.history, historyImages)
+    messages.push({ role: 'user', content: anthropicUserContent(params.prompt, currentImages) })
 
     const maxTokens = params.options?.maxTokens || DEFAULT_MAX_TOKENS
     const startedAt = Date.now()
@@ -179,7 +197,24 @@ class AnthropicProvider implements LlmProvider {
         toolResults.push(await runTool(toolFunctions, block))
       }
       if (toolResults.length === 0) break
-      messages.push({ role: 'user', content: toolResults })
+      const inspectionImages = drainVisualInputs(visualInputs)
+      assertCloudVisionCompatible(inspectionImages)
+      const inspectionContent =
+        inspectionImages.length > 0
+          ? anthropicUserContent(
+              'Inspect this visual output carefully. Use what you see to continue the task, and revise the work when needed.',
+              inspectionImages
+            )
+          : []
+      messages.push({
+        role: 'user',
+        content: [
+          ...toolResults,
+          ...(typeof inspectionContent === 'string'
+            ? [{ type: 'text' as const, text: inspectionContent }]
+            : inspectionContent)
+        ]
+      })
     }
 
     const durationMs = Math.max(1, Date.now() - startedAt)
@@ -258,16 +293,25 @@ async function runTool(
  * convention the local engine replays (`rememberToolCallForModel`) — so a
  * conversation that switches providers mid-history still reads consistently.
  */
-function historyToMessages(history: ChatHistoryTurn[]): Anthropic.MessageParam[] {
+function historyToMessages(
+  history: ChatHistoryTurn[],
+  imagesByTurn: ReadonlyMap<number, ChatImageInput[]>
+): Anthropic.MessageParam[] {
   const messages: Anthropic.MessageParam[] = []
-  for (const turn of projectHistoryForModel(history)) {
+  const projected = projectHistoryForModel(history)
+  for (let index = 0; index < projected.length; index++) {
+    const turn = projected[index]
     // Chat history turns are only ever user/assistant in practice — the
     // system prompt is threaded separately via `GenerateParams.systemPrompt`.
     if (turn.role !== 'user' && turn.role !== 'assistant') continue
     const toolNotes = (turn.toolCalls ?? []).map(rememberToolCallForModel).join('\n\n')
     const content = toolNotes ? `${turn.content}\n\n${toolNotes}`.trim() : turn.content
-    if (!content) continue
-    messages.push({ role: turn.role, content })
+    const images = turn.role === 'user' ? cloudCompatibleImages(imagesByTurn.get(index) ?? []) : []
+    if (!content && images.length === 0) continue
+    messages.push({
+      role: turn.role,
+      content: turn.role === 'user' ? anthropicUserContent(content, images) : content
+    })
   }
   return messages
 }

@@ -48,6 +48,8 @@ folder.
   from a true hard context ceiling and from a user Stop.
 - **Attachments**: drag a file into the composer to attach it to your next
   message (not sandboxed to a project — you chose the file explicitly).
+  Image-capable local, OpenAI, and Anthropic models receive PNG/JPEG/GIF
+  attachments as real multimodal content rather than prompt text.
 - Desktop notifications and a short AI-generated toast summary when a reply
   finishes while the window isn't focused.
 - A "jump to latest" button appears when you've scrolled up during a long or
@@ -166,7 +168,8 @@ additional tools are available on demand.
   `find_files`, `code_outline` (compact imports/exported-symbol map),
   `preview_html` (inline chat preview for HTML pages/games), `git_status`,
   `git_diff`, `git_commit_summary` (drafts a conventional commit message from
-  status/diff stats).
+  status/diff stats), and `inspect_visual` (lets an image-capable model inspect
+  a workspace image or a sandboxed screenshot of its HTML work).
 - **Write/mutate (approval depends on permission mode):** `write_file`,
   `edit_file`, `patch_file`, `delete_file`, `move_file`, `delete_directory`,
   `create_directory` (always low-risk, never confirms), `run_command`,
@@ -310,6 +313,13 @@ A side panel with configurable sections alongside the chat:
 - Vision inference stays inside Anodex. Packaged builds include a pinned
   llama.cpp runtime that runs privately on loopback; text-only models continue
   through the existing `node-llama-cpp` engine.
+- OpenAI and Anthropic chats use the same bounded composer images and can
+  revisit available image attachments from recent history. Cloud image bytes
+  are sent only when one of those providers is selected.
+- Image-capable providers expose a bounded `inspect_visual` feedback loop. The
+  assistant can inspect workspace images or render an HTML page into a
+  network-blocked, sandboxed screenshot, then use those pixels to revise its
+  work. Text-only local models do not receive this tool.
 - **Hardware-aware recommendations**: detects your RAM/VRAM/GPU and scores
   every catalog model against your actual machine (a 0-100 fit score), with
   "Best Overall / Best Coding / Fastest / Low RAM / Large Context" picks.

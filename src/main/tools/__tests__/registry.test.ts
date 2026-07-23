@@ -53,6 +53,7 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
+const VISUAL_WORKSPACE_TOOLS = ['inspect_visual']
 
 /** Read-only, but project-gated (see `PROJECT_READ_ONLY_FACTORIES` in registry.ts). */
 const PROJECT_READ_ONLY_TOOLS = ['search_code']
@@ -74,6 +75,17 @@ describe('buildTools', () => {
     for (const name of READ_ONLY_WORKSPACE_TOOLS) expect(tools).toHaveProperty(name)
     for (const name of PROJECT_WORKSPACE_TOOLS) expect(tools).toHaveProperty(name)
     for (const name of PROJECT_READ_ONLY_TOOLS) expect(tools).toHaveProperty(name)
+  })
+
+  it('registers visual inspection only when the active provider accepts tool images', () => {
+    const withoutVision = createMockContext('/workspace')
+    expect(buildTools(createMockDefine(), withoutVision)).not.toHaveProperty('inspect_visual')
+
+    const withVision = {
+      ...createMockContext('/workspace'),
+      visualInputs: { current: [], acceptedCount: 0, limit: 4 }
+    }
+    expect(buildTools(createMockDefine(), withVision)).toHaveProperty('inspect_visual')
   })
 
   it('registers no workspace tools at all without a workspace root, project or not', () => {
@@ -239,6 +251,7 @@ describe('buildTools', () => {
       ...READ_ONLY_WORKSPACE_TOOLS,
       ...PROJECT_WORKSPACE_TOOLS,
       ...EMAIL_WORKSPACE_TOOLS,
+      ...VISUAL_WORKSPACE_TOOLS,
       ...PROJECT_READ_ONLY_TOOLS,
       ...GLOBAL_OR_CONDITIONAL_TOOLS
     ]) {
@@ -251,6 +264,7 @@ describe('buildTools', () => {
       ...READ_ONLY_WORKSPACE_TOOLS,
       ...PROJECT_WORKSPACE_TOOLS,
       ...EMAIL_WORKSPACE_TOOLS,
+      ...VISUAL_WORKSPACE_TOOLS,
       ...PROJECT_READ_ONLY_TOOLS
     ])
 

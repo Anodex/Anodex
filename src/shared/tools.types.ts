@@ -143,6 +143,13 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'inspect_visual',
+    kind: 'read',
+    description:
+      'Inspect a workspace image or a sandboxed HTML screenshot with an image-capable model.',
+    requiresProject: true
+  },
+  {
     name: 'get_file_info',
     kind: 'read',
     description: 'Get metadata about a file or directory.',

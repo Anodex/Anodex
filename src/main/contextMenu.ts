@@ -1,5 +1,6 @@
 import { BrowserWindow, clipboard, ipcMain, shell, type ContextMenuParams } from 'electron'
 import { IpcChannel, type ContextMenuItem, type ContextMenuRequest } from '@shared/ipc'
+import { sendToWindow } from './broadcast'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('context-menu')
@@ -151,7 +152,7 @@ export function installContextMenu(window: BrowserWindow): void {
       y: params.y,
       items: built.items
     }
-    window.webContents.send(IpcChannel.ContextMenu.show, request)
+    sendToWindow(window, IpcChannel.ContextMenu.show, request)
   })
 }
 

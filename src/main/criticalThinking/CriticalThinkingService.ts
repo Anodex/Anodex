@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { broadcastToWindows } from '../broadcast'
 import type {
   ApproveCriticalThinkingRequest,
   CreateCriticalThinkingRequest,
@@ -1572,10 +1572,7 @@ class CriticalThinkingService {
   }
 
   private broadcastStream(runId: string, token: string): void {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed())
-        window.webContents.send(IpcChannel.CriticalThinking.stream, { runId, token })
-    }
+    broadcastToWindows(IpcChannel.CriticalThinking.stream, { runId, token })
   }
 
   private broadcastRunsChanged(throttled = false): void {
@@ -1592,10 +1589,7 @@ class CriticalThinkingService {
       this.broadcastTimer = null
     }
     const runs = criticalThinkingStore.list()
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed())
-        window.webContents.send(IpcChannel.CriticalThinking.runsChanged, runs)
-    }
+    broadcastToWindows(IpcChannel.CriticalThinking.runsChanged, runs)
   }
 
   private clearActiveRun(): void {

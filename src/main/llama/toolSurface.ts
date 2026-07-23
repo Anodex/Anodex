@@ -422,6 +422,8 @@ const READ_TOOLS = new Set([
   'read_file',
   'read_file_range',
   'read_multiple_files',
+  'preview_html',
+  'inspect_visual',
   'get_file_info',
   'search_files',
   'find_files',

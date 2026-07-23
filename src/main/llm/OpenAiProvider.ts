@@ -5,7 +5,7 @@ import type {
   ResponseInput,
   ResponseInputItem
 } from 'openai/resources/responses/responses'
-import type { ChatHistoryTurn, GenerationStats } from '@shared/chat.types'
+import type { ChatHistoryTurn, ChatImageInput, GenerationStats } from '@shared/chat.types'
 import { DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
 import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
 import { projectHistoryForModel, rememberToolCallForModel } from '../llama/contextAssembler'
@@ -23,6 +23,16 @@ import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
 import type { LlmProvider } from './LlmProvider'
+import { cloudCompatibleImages, openAiUserContent } from './cloudVisionContent'
+import {
+  assertCloudVisionCompatible,
+  CLOUD_VISION_MIME_TYPES,
+  createVisualInputQueue,
+  drainVisualInputs,
+  MAX_VISION_IMAGES,
+  reopenRecentHistoryImages,
+  selectCurrentVisionImages
+} from '../vision/imageInputs'
 
 const log = createLogger('openai')
 
@@ -62,6 +72,7 @@ class OpenAiProvider implements LlmProvider {
 
     const client = new OpenAI({ apiKey })
     const model = params.modelOverride?.trim() || settings.model.trim() || DEFAULT_OPENAI_MODEL
+    const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, CLOUD_VISION_MIME_TYPES)
 
     const toolFunctions = params.tools
       ? buildTools(defineToolFunction, {
@@ -100,6 +111,7 @@ class OpenAiProvider implements LlmProvider {
           // `ToolRuntimeContext.readCoverage`'s doc comment); otherwise a
           // fresh one with no cross-call effect.
           readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
+          visualInputs,
           signal: params.signal,
           emit: params.tools.onActivity,
           confirm: params.tools.confirm
@@ -108,8 +120,14 @@ class OpenAiProvider implements LlmProvider {
 
     const openAiTools = toolFunctions ? toOpenAiTools(toolFunctions) : undefined
 
-    const input: ResponseInput = historyToInput(params.history)
-    input.push({ role: 'user', content: params.prompt })
+    const currentImages = selectCurrentVisionImages(params.images)
+    assertCloudVisionCompatible(currentImages)
+    const historyImages = await reopenRecentHistoryImages(
+      params.history,
+      MAX_VISION_IMAGES - currentImages.length
+    )
+    const input: ResponseInput = historyToInput(params.history, historyImages)
+    input.push({ role: 'user', content: openAiUserContent(params.prompt, currentImages) })
 
     const maxOutputTokens = params.options?.maxTokens || DEFAULT_MAX_TOKENS
     const startedAt = Date.now()
@@ -182,6 +200,17 @@ class OpenAiProvider implements LlmProvider {
       for (const call of functionCalls) {
         input.push(await runTool(toolFunctions, call))
       }
+      const inspectionImages = drainVisualInputs(visualInputs)
+      assertCloudVisionCompatible(inspectionImages)
+      if (inspectionImages.length > 0) {
+        input.push({
+          role: 'user',
+          content: openAiUserContent(
+            'Inspect this visual output carefully. Use what you see to continue the task, and revise the work when needed.',
+            inspectionImages
+          )
+        })
+      }
     }
 
     const durationMs = Math.max(1, Date.now() - startedAt)
@@ -235,16 +264,25 @@ async function runTool(
  * (`rememberToolCallForModel`) — so a conversation that switches providers
  * mid-history still reads consistently.
  */
-function historyToInput(history: ChatHistoryTurn[]): ResponseInput {
+function historyToInput(
+  history: ChatHistoryTurn[],
+  imagesByTurn: ReadonlyMap<number, ChatImageInput[]>
+): ResponseInput {
   const input: ResponseInput = []
-  for (const turn of projectHistoryForModel(history)) {
+  const projected = projectHistoryForModel(history)
+  for (let index = 0; index < projected.length; index++) {
+    const turn = projected[index]
     // Chat history turns are only ever user/assistant in practice — the
     // system prompt is threaded separately via `GenerateParams.systemPrompt`.
     if (turn.role !== 'user' && turn.role !== 'assistant') continue
     const toolNotes = (turn.toolCalls ?? []).map(rememberToolCallForModel).join('\n\n')
     const content = toolNotes ? `${turn.content}\n\n${toolNotes}`.trim() : turn.content
-    if (!content) continue
-    input.push({ role: turn.role, content })
+    const images = turn.role === 'user' ? cloudCompatibleImages(imagesByTurn.get(index) ?? []) : []
+    if (!content && images.length === 0) continue
+    input.push({
+      role: turn.role,
+      content: turn.role === 'user' ? openAiUserContent(content, images) : content
+    })
   }
   return input
 }

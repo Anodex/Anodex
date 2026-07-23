@@ -1,6 +1,7 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
+import { broadcastToWindows } from '../broadcast'
 import { terminalService } from '../terminal/TerminalService'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
@@ -38,11 +39,7 @@ export function registerTerminalHandlers(): void {
     terminalService.kill(sessionId)
   })
 
-  const broadcast = (channel: string, payload: unknown): void => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send(channel, payload)
-    }
-  }
+  const broadcast = broadcastToWindows
 
   terminalService.onData((payload) => {
     broadcast(IpcChannel.Terminal.data, payload)

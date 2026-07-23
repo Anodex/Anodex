@@ -218,6 +218,20 @@ table provides a manual projector picker and Vision badge. The composer accepts
 up to four bounded PNG/JPEG/GIF/BMP images as true OpenAI-compatible multimodal
 content parts and keeps image bytes out of persisted conversation JSON.
 
+The same attachment path now maps images into OpenAI Responses API input-image
+parts and Anthropic base64 image blocks when a cloud provider is selected.
+Recent image attachments are reopened from metadata when still available;
+current-turn images take priority within the four-image bound. The
+provider-aware composer no longer incorrectly blocks cloud images.
+
+Image-capable providers also receive `inspect_visual`, a read-only workspace
+tool that can reopen a PNG/JPEG/GIF/BMP output or render an HTML page to a
+sandboxed, network-blocked 1280x800 screenshot. Tool-produced images enter the
+next provider round out-of-band instead of becoming base64 prompt text. The
+queue is capped at four inspections per response, in addition to the existing
+provider-round and repeated-call guards, so visual revision cannot loop
+without bound. Text-only local models never receive the tool.
+
 Keep future work focused on measured compatibility additions (more media
 formats or model families), not a second vision transport. Preserve loopback
 isolation, bounded payloads, the existing guarded Anodex tool handlers, and the

@@ -1,5 +1,3 @@
-import { readFile, stat } from 'node:fs/promises'
-import { extname } from 'node:path'
 import OpenAI, { APIUserAbortError } from 'openai'
 import type {
   ChatCompletionMessageFunctionToolCall,
@@ -7,7 +5,6 @@ import type {
   ChatCompletionTool
 } from 'openai/resources/chat/completions/completions'
 import type {
-  ChatAttachment,
   ChatHistoryTurn,
   ChatImageInput,
   ContextBudgetUsage,
@@ -23,12 +20,18 @@ import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import type { GenerateOutcome, GenerateParams } from './LlamaService'
 import type { ModelLoadOptions } from '@shared/model.types'
+import {
+  createVisualInputQueue,
+  drainVisualInputs,
+  isValidVisionImageInput,
+  MAX_VISION_IMAGES,
+  reopenChatImage,
+  type VisualInputQueue
+} from '../vision/imageInputs'
 
 const log = createLogger('llama:vision')
 const DEFAULT_MAX_TOKENS = 4096
 const MAX_TOOL_ROUNDS = 20
-const MAX_IMAGES_PER_REQUEST = 4
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024
 const defineToolFunction = ((fn) => fn) as DefineChatSessionFunction
 
 interface PendingToolCall {
@@ -78,7 +81,10 @@ export class LlamaVisionService {
       timeout: 15 * 60_000,
       maxRetries: 0
     })
-    const allToolFunctions = params.tools ? this.buildToolFunctions(params) : undefined
+    const visualInputs = createVisualInputQueue()
+    const allToolFunctions = params.tools
+      ? this.buildToolFunctions(params, visualInputs)
+      : undefined
     const toolSurface = this.boundTools(allToolFunctions, params)
     const toolFunctions =
       Object.keys(toolSurface.functions).length > 0 ? toolSurface.functions : undefined
@@ -190,6 +196,16 @@ export class LlamaVisionService {
           content: await runTool(toolFunctions, call)
         })
       }
+      const inspectionImages = drainVisualInputs(visualInputs)
+      if (inspectionImages.length > 0) {
+        messages.push({
+          role: 'user',
+          content: userContent(
+            'Inspect this visual output carefully. Use what you see to continue the task, and revise the work when needed.',
+            inspectionImages
+          )
+        })
+      }
     }
 
     const durationMs = Math.max(1, Date.now() - startedAt)
@@ -242,7 +258,10 @@ export class LlamaVisionService {
     return message?.content || reasoning || ''
   }
 
-  private buildToolFunctions(params: GenerateParams): Record<string, ToolFunction> | undefined {
+  private buildToolFunctions(
+    params: GenerateParams,
+    visualInputs: VisualInputQueue
+  ): Record<string, ToolFunction> | undefined {
     if (!params.tools) return undefined
     return buildTools(defineToolFunction, {
       conversationId: params.conversationId,
@@ -265,6 +284,7 @@ export class LlamaVisionService {
       loopGuard: createLoopGuardState(),
       modelResultBudget: { current: null },
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
+      visualInputs,
       signal: params.signal,
       emit: params.tools.onActivity,
       confirm: params.tools.confirm
@@ -302,8 +322,8 @@ export class LlamaVisionService {
     const boundedHistory = boundHistory(projectHistoryForModel(params.history), this.contextSize)
     const currentImages = (params.images ?? [])
       .filter(isValidVisionImageInput)
-      .slice(0, MAX_IMAGES_PER_REQUEST)
-    let remainingImages = MAX_IMAGES_PER_REQUEST - currentImages.length
+      .slice(0, MAX_VISION_IMAGES)
+    let remainingImages = MAX_VISION_IMAGES - currentImages.length
     for (const turn of boundedHistory) {
       if (turn.role !== 'user' && turn.role !== 'assistant') continue
       const toolNotes = (turn.toolCalls ?? []).map(rememberToolCallForModel).join('\n\n')
@@ -316,7 +336,7 @@ export class LlamaVisionService {
       const images: ChatImageInput[] = []
       for (const attachment of turn.attachments ?? []) {
         if (remainingImages <= 0 || attachment.kind !== 'image') continue
-        const image = await reopenImage(attachment)
+        const image = await reopenChatImage(attachment)
         if (!image) continue
         images.push(image)
         remainingImages -= 1
@@ -384,15 +404,6 @@ function userContent(
   ]
 }
 
-function isValidVisionImageInput(image: ChatImageInput): boolean {
-  return (
-    image.sizeBytes > 0 &&
-    image.sizeBytes <= MAX_IMAGE_BYTES &&
-    image.dataUrl.length <= Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 256 &&
-    /^data:image\/(?:png|jpeg|gif|bmp);base64,/i.test(image.dataUrl)
-  )
-}
-
 function boundHistory(history: ChatHistoryTurn[], contextSize: number): ChatHistoryTurn[] {
   const maxCharacters = Math.max(4000, Math.floor(contextSize * 4 * 0.55))
   const retained: ChatHistoryTurn[] = []
@@ -405,45 +416,6 @@ function boundHistory(history: ChatHistoryTurn[], contextSize: number): ChatHist
     characters += cost
   }
   return retained
-}
-
-async function reopenImage(attachment: ChatAttachment): Promise<ChatImageInput | null> {
-  try {
-    const info = await stat(attachment.path)
-    if (!info.isFile() || info.size !== attachment.sizeBytes || info.size > MAX_IMAGE_BYTES) {
-      return null
-    }
-    const mimeType = attachment.mimeType || imageMimeType(attachment.path)
-    if (!mimeType) return null
-    const data = await readFile(attachment.path)
-    return {
-      path: attachment.path,
-      name: attachment.name,
-      mimeType,
-      sizeBytes: info.size,
-      dataUrl: `data:${mimeType};base64,${data.toString('base64')}`
-    }
-  } catch {
-    return null
-  }
-}
-
-function imageMimeType(path: string): string | null {
-  switch (extname(path).toLowerCase()) {
-    case '.png':
-      return 'image/png'
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg'
-    case '.webp':
-      return 'image/webp'
-    case '.bmp':
-      return 'image/bmp'
-    case '.gif':
-      return 'image/gif'
-    default:
-      return null
-  }
 }
 
 function approximateContextBudget(

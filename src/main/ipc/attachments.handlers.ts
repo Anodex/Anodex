@@ -9,38 +9,32 @@ import {
 } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
+import {
+  hasExpectedVisionImageSignature,
+  isSupportedVisionImagePath,
+  MAX_VISION_IMAGE_BYTES,
+  visionImageMimeType
+} from '../vision/imageInputs'
 
 /** Matches the old read_file tool cap — enough for real source files, small enough to keep a
  *  single dropped file from dominating a turn's context. */
 const MAX_ATTACHMENT_BYTES = 60 * 1024
 /** Bound IPC/base64 overhead and vision preprocessing for one user-selected image. */
-const MAX_IMAGE_ATTACHMENT_BYTES = 15 * 1024 * 1024
-
 /** How many leading bytes to sniff for a NUL byte when deciding if a file is binary. */
 const BINARY_SNIFF_BYTES = 8000
 
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp'])
 const UNSUPPORTED_IMAGE_EXTENSIONS = new Set(['.webp', '.ico', '.tiff', '.avif'])
 
 /** True if `path`'s extension is a common raster image format. */
 export function isImagePath(path: string): boolean {
-  return IMAGE_EXTENSIONS.has(extname(path).toLowerCase())
+  return isSupportedVisionImagePath(path)
 }
 
 /** MIME type used by llama-server's OpenAI-compatible image content part. */
 export function imageMimeType(path: string): string {
+  const visionMimeType = visionImageMimeType(path)
+  if (visionMimeType) return visionMimeType
   switch (extname(path).toLowerCase()) {
-    case '.png':
-      return 'image/png'
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg'
-    case '.gif':
-      return 'image/gif'
-    case '.bmp':
-      return 'image/bmp'
-    case '.webp':
-      return 'image/webp'
     case '.tiff':
       return 'image/tiff'
     case '.avif':
@@ -54,21 +48,7 @@ export function imageMimeType(path: string): string {
 
 /** Verify that an image extension agrees with its file signature before forwarding bytes. */
 export function hasExpectedImageSignature(path: string, buffer: Buffer): boolean {
-  switch (extname(path).toLowerCase()) {
-    case '.png':
-      return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-    case '.jpg':
-    case '.jpeg':
-      return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
-    case '.gif': {
-      const signature = buffer.subarray(0, 6).toString('ascii')
-      return signature === 'GIF87a' || signature === 'GIF89a'
-    }
-    case '.bmp':
-      return buffer.subarray(0, 2).toString('ascii') === 'BM'
-    default:
-      return false
-  }
+  return hasExpectedVisionImageSignature(path, buffer)
 }
 
 /**
@@ -102,7 +82,7 @@ async function pickFiles(event: IpcMainInvokeEvent): Promise<{ path: string; nam
  * workspace sandbox that protects against the *model* wandering outside the project doesn't apply
  * here. The path can be anywhere on disk the user has access to.
  *
- * Supported raster images are returned as bounded data URLs for the local vision backend. Other
+ * Supported raster images are returned as bounded data URLs for the active vision provider. Other
  * binary files are still rejected instead of being decoded as UTF-8 and injected as prompt noise.
  */
 export function registerAttachmentHandlers(): void {
@@ -114,7 +94,7 @@ export function registerAttachmentHandlers(): void {
       if (!info.isFile()) return err('attachments.not-a-file', 'That is not a file.')
 
       if (isImagePath(absolutePath)) {
-        if (info.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+        if (info.size > MAX_VISION_IMAGE_BYTES) {
           return err(
             'attachments.image-too-large',
             'That image is too large. Choose an image smaller than 15 MB.'

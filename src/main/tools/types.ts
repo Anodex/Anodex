@@ -7,6 +7,7 @@ import type { LoopGuardState } from './loopGuard'
 import type { ToolArtifact, ToolArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ModelToolResultBudget } from './modelResultBudget'
 import type { ReadCoverageTracker } from './readCoverage'
+import type { VisualInputQueue } from '../vision/imageInputs'
 
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
 type NlcModule = typeof import('node-llama-cpp')
@@ -95,6 +96,12 @@ export interface ToolRuntimeContext {
    * effect, identical to not having this at all.
    */
   readCoverage: ReadCoverageTracker
+  /**
+   * Optional multimodal bridge for tools that inspect workspace visuals. It is
+   * present only when the active provider can consume images; text-only local
+   * models therefore never see visual-inspection tools they cannot use.
+   */
+  visualInputs?: VisualInputQueue
   /** Research focus used to rank useful passages from large fetched pages. */
   evidenceFocus?: string
   /** Persist a full structured result before the model-facing text is truncated. */

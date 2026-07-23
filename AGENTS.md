@@ -141,6 +141,7 @@ The catalog shown in Settings is `TOOL_CATALOG` in `src/shared/tools.types.ts`.
    - Directory mutations → `directoryTools.ts`
    - Shell commands → `commandTools.ts`
    - Structured verification/check wrappers → `diagnosticsTools.ts`
+   - Provider-visible image/HTML inspection → `visualInspectionTools.ts`
    - Email actions → `emailTools.ts`
 2. Export a `ToolFactory` that calls `define({ description, params, handler })`.
 3. Use `runReadTool()` for safe reads or `runGuardedTool()` for mutations.
@@ -153,6 +154,11 @@ The catalog shown in Settings is `TOOL_CATALOG` in `src/shared/tools.types.ts`.
 Keep `registry.ts`, `TOOL_CATALOG`, `README.md`, and the tool tests in sync.
 `registry.test.ts` has a catalog parity check so hidden runtime tools do not
 drift away from the Settings/docs surface.
+
+`inspect_visual` is registered only when `ToolRuntimeContext.visualInputs` is
+present. Cloud providers and `LlamaVisionService` own that per-generation,
+four-image queue and inject drained images into the next provider round.
+Text-only `LlamaService` must not expose the tool.
 
 #### Tool approval
 

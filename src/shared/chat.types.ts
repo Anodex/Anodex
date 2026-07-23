@@ -180,7 +180,7 @@ export interface ChatHistoryTurn {
   content: string
   /** Tool calls made during this (assistant) turn, retained for memory. */
   toolCalls?: ToolCall[]
-  /** Attachment metadata lets the local vision backend reopen user-selected images on later turns. */
+  /** Attachment metadata lets vision providers reopen user-selected images on later turns. */
   attachments?: ChatAttachment[]
 }
 
@@ -202,7 +202,7 @@ export interface ChatRequest {
   context?: ConversationContext | null
   history: ChatHistoryTurn[]
   prompt: string
-  /** Current-turn image inputs. Text attachments are already folded into `prompt`. */
+  /** Current-turn image inputs for any multimodal provider. Text attachments are in `prompt`. */
   images?: ChatImageInput[]
   options?: GenerationOptions
   /** The conversation's current plan, if any, so plan tools can continue it across turns. */

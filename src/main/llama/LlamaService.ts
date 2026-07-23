@@ -190,7 +190,7 @@ export interface GenerateParams {
   context?: ConversationContext | null
   history: ChatHistoryTurn[]
   prompt: string
-  /** Ephemeral current-turn image bytes for a multimodal local backend. */
+  /** Ephemeral current-turn image bytes for any multimodal provider. */
   images?: ChatImageInput[]
   /**
    * `isolated` rebuilds the local chat session from the supplied empty/history

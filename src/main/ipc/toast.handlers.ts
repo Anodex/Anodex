@@ -3,6 +3,7 @@ import { IpcChannel } from '@shared/ipc'
 import type { ToastContent } from '@shared/toast.types'
 import { showToastWindow } from '../toastWindow'
 import { getMainWindow } from '../window'
+import { sendToWindow } from '../broadcast'
 
 /** Register IPC handlers for the custom desktop toast window. */
 export function registerToastHandlers(): void {
@@ -16,6 +17,6 @@ export function registerToastHandlers(): void {
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
-    if (conversationId) win.webContents.send(IpcChannel.Toast.openConversation, conversationId)
+    if (conversationId) sendToWindow(win, IpcChannel.Toast.openConversation, conversationId)
   })
 }

@@ -102,6 +102,9 @@ export function ChatComposer(): JSX.Element {
   const ready = isChatReady(settings, engine.status)
   const localReady = engine.status === 'ready'
   const localVision = settings?.provider.active === 'local' && Boolean(engine.vision)
+  const cloudVision =
+    settings?.provider.active === 'anthropic' || settings?.provider.active === 'openai'
+  const visionAvailable = localVision || cloudVision
   // Driven off the active conversation's own streaming message rather than
   // the local engine's `generating` flag, which the Anthropic provider never
   // touches — this way Send/Stop toggles correctly for either provider.
@@ -217,10 +220,10 @@ export function ChatComposer(): JSX.Element {
   }
 
   const submit = (): void => {
-    if (attachments.some((attachment) => attachment.kind === 'image') && !localVision) {
+    if (attachments.some((attachment) => attachment.kind === 'image') && !visionAvailable) {
       notifyError(
         'Vision model required',
-        'Load a local model with its matching mmproj vision projector before sending images.'
+        'Load a local model with its matching mmproj projector, or select an image-capable cloud model.'
       )
       return
     }
@@ -307,10 +310,10 @@ export function ChatComposer(): JSX.Element {
       }
       if (result.value.kind === 'image') {
         const image = result.value
-        if (!localVision) {
+        if (!visionAvailable) {
           notifyError(
             'Vision model required',
-            'To attach images, load a local vision model with its matching mmproj projector.'
+            'Load a local vision model with its matching mmproj projector, or select an image-capable cloud model.'
           )
           continue
         }
@@ -562,8 +565,8 @@ export function ChatComposer(): JSX.Element {
             className={styles.ghostAction}
             onClick={() => void handleAttachClick()}
             disabled={!ready || attachments.length >= MAX_ATTACHMENTS}
-            title={localVision ? 'Attach files or images' : 'Attach files'}
-            aria-label={localVision ? 'Attach files or images' : 'Attach files'}
+            title={visionAvailable ? 'Attach files or images' : 'Attach files'}
+            aria-label={visionAvailable ? 'Attach files or images' : 'Attach files'}
           >
             <Icon name="paperclip" size={15} />
           </button>
@@ -661,8 +664,12 @@ export function ChatComposer(): JSX.Element {
         {generating
           ? `Enter to queue for after this reply · Shift+Enter for a new line · ${SLASH_COMMAND_HINT}`
           : `Enter to send · Shift+Enter for a new line · ${
-              localVision ? 'Drag or attach files and images' : 'Drag or attach a file'
-            } · Responses are generated locally · ${SLASH_COMMAND_HINT}`}
+              visionAvailable ? 'Drag or attach files and images' : 'Drag or attach a file'
+            } · ${
+              settings?.provider.active === 'local'
+                ? 'Responses are generated locally'
+                : 'Images are sent to the selected cloud provider'
+            } · ${SLASH_COMMAND_HINT}`}
       </div>
     </div>
   )

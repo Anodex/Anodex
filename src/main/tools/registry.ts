@@ -16,6 +16,7 @@ import {
   readMultipleFilesTool
 } from './fileTools'
 import { previewHtmlTool } from './previewTools'
+import { inspectVisualTool } from './visualInspectionTools'
 import {
   editFileTool,
   writeFileTool,
@@ -73,6 +74,11 @@ const READ_ONLY_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   git_status: gitStatusTool,
   git_diff: gitDiffTool,
   git_commit_summary: gitCommitSummaryTool
+}
+
+/** Exposed only when the active provider can receive tool-produced image parts. */
+const VISUAL_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
+  inspect_visual: inspectVisualTool
 }
 
 /**
@@ -166,6 +172,11 @@ export function buildTools(
     const workspaceCtx: WorkspaceToolContext = { ...ctx, workspaceRoot: ctx.workspaceRoot }
     for (const [name, factory] of Object.entries(READ_ONLY_WORKSPACE_FACTORIES)) {
       if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
+    }
+    if (ctx.visualInputs) {
+      for (const [name, factory] of Object.entries(VISUAL_WORKSPACE_FACTORIES)) {
+        if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
+      }
     }
     if (ctx.projectId) {
       for (const [name, factory] of Object.entries(PROJECT_WORKSPACE_FACTORIES)) {

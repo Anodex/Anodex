@@ -1,5 +1,5 @@
-import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { broadcastToWindows } from '../broadcast'
 import type { ChatMessage, GenerationStopReason } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
@@ -630,11 +630,7 @@ class AgentRunService {
   }
 
   private broadcastRunsChanged(): void {
-    const runs = agentRunStore.list()
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed()) continue
-      window.webContents.send(IpcChannel.Agent.runsChanged, runs)
-    }
+    broadcastToWindows(IpcChannel.Agent.runsChanged, agentRunStore.list())
   }
 }
 

@@ -1,5 +1,5 @@
-import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { broadcastToWindows } from '../broadcast'
 import type { ChatMessage, GenerationStopReason } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import type { ScheduledTask } from '@shared/scheduledTask.types'
@@ -217,11 +217,7 @@ class SchedulerService {
   }
 
   private broadcastTasksChanged(): void {
-    const tasks = schedulerStore.list()
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed()) continue
-      window.webContents.send(IpcChannel.Scheduler.tasksChanged, tasks)
-    }
+    broadcastToWindows(IpcChannel.Scheduler.tasksChanged, schedulerStore.list())
   }
 }
 

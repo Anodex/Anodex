@@ -1,5 +1,5 @@
-import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { broadcastToWindows } from '../broadcast'
 import { llamaService } from '../llama/LlamaService'
 import { chatEvents } from '../chat/chatEvents'
 import { providerUsageStore } from '../llm/ProviderUsageStore'
@@ -67,9 +67,7 @@ export function registerIpcHandlers(): void {
 
   // Push engine state changes to every open renderer window.
   llamaService.on('state', (state) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Models.stateChanged, state)
-    }
+    broadcastToWindows(IpcChannel.Models.stateChanged, state)
   })
 
   // Push context-compaction notices to every open renderer window. Local
@@ -77,27 +75,19 @@ export function registerIpcHandlers(): void {
   // of their own) emit the identical event shape via `chatEvents` instead —
   // both funnel into the same IPC channel below.
   llamaService.on('historyCompacted', (event) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Chat.historyCompacted, event)
-    }
+    broadcastToWindows(IpcChannel.Chat.historyCompacted, event)
   })
   chatEvents.on('historyCompacted', (event) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Chat.historyCompacted, event)
-    }
+    broadcastToWindows(IpcChannel.Chat.historyCompacted, event)
   })
 
   // Push cloud provider usage snapshot changes to every open renderer window.
   providerUsageStore.on('change', (snapshot) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Provider.usageChanged, snapshot)
-    }
+    broadcastToWindows(IpcChannel.Provider.usageChanged, snapshot)
   })
 
   // Push MCP server connection status changes to every open renderer window.
   mcpManager.on('statusChanged', (state) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Mcp.statusChanged, state)
-    }
+    broadcastToWindows(IpcChannel.Mcp.statusChanged, state)
   })
 }

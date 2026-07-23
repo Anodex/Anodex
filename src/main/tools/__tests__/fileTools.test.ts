@@ -177,10 +177,11 @@ describe('AI file tools', () => {
     it('emits an inline preview with local CSS and JS inlined', async () => {
       await writeFile(
         join(workspace, 'game.html'),
-        '<!doctype html><html><head><link rel="stylesheet" href="game.css"></head><body><button id="win">Win</button><script src="game.js"></script></body></html>'
+        '<!doctype html><html><head><link rel="stylesheet" href="game.css"></head><body><img src="sprite.png"><button id="win">Win</button><script src="game.js"></script></body></html>'
       )
       await writeFile(join(workspace, 'game.css'), '#win { animation: pulse 1s infinite; }')
       await writeFile(join(workspace, 'game.js'), 'document.body.dataset.ready = "true";')
+      await writeFile(join(workspace, 'sprite.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
       const capture = captureCalls()
       const ctx = { ...createMockContext(workspace), emit: capture.emit }
       const tool = previewHtmlTool(createMockDefine(), ctx) as unknown as {
@@ -200,6 +201,7 @@ describe('AI file tools', () => {
       expect(success?.preview?.content).toContain('animation: pulse')
       expect(success?.preview?.content).toContain('<script')
       expect(success?.preview?.content).toContain('dataset.ready')
+      expect(success?.preview?.content).toContain('data:image/png;base64,')
     })
 
     it('rejects non-HTML files', async () => {

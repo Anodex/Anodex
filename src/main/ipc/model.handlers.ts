@@ -10,6 +10,7 @@ import { cancelDownload, downloadModel } from '../llama/modelDownloader'
 import { searchHuggingFaceModels, fetchTopModels } from '../models/huggingFaceCatalog'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { settingsStore } from '../settings/SettingsStore'
+import { sendToWindow } from '../broadcast'
 import { getHardware } from './system.handlers'
 
 /** IPC handlers for discovering, adding, and (un)loading local models. */
@@ -150,7 +151,7 @@ export function registerModelHandlers(): void {
         model,
         settingsStore.get().modelsDirectory,
         (progress) => {
-          win?.webContents.send(IpcChannel.Models.downloadProgress, progress)
+          if (win) sendToWindow(win, IpcChannel.Models.downloadProgress, progress)
         }
       )
       if (downloaded.visionProjectorPath) {
