@@ -10,9 +10,13 @@ export const DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY = {
   maxPagesPerRound: 4,
   searchConcurrency: 3,
   fetchConcurrency: 3,
-  maxRoundsPerRun: 18,
-  maxSearchesPerRun: 24,
-  maxFetchesPerRun: 36,
+  // A seven-step plan can now give every step its full three-round allowance.
+  // The old 18/24/36 totals made the advertised per-step allowance impossible
+  // for broad plans and routinely ended a run during its second breadth-first
+  // wave, especially when blocked pages still consumed fetch attempts.
+  maxRoundsPerRun: 21,
+  maxSearchesPerRun: 63,
+  maxFetchesPerRun: 84,
   maxVerifiedSourcesPerRun: MAX_COMPACT_SOURCES,
   maxRunMs: 60 * 60_000
 } as const
@@ -55,7 +59,14 @@ const NON_RESEARCH_HOSTS = [
   'youtube.com',
   'youtu.be',
   'vimeo.com',
-  'dailymotion.com'
+  'dailymotion.com',
+  // Pages that consistently return login walls, discussion answers, or tiny
+  // metadata stubs rather than the underlying paper. Prefer the publisher,
+  // DOI, PubMed/PMC, university, or government result instead.
+  'quora.com',
+  'researchgate.net',
+  'academia.edu',
+  'semanticscholar.org'
 ]
 
 function isNonResearchHost(host: string): boolean {
@@ -77,9 +88,6 @@ export function selectResearchCandidates(
   if (boundedLimit === 0) return []
 
   const normalizedFetchedUrls = new Set([...fetchedUrls].map((url) => canonicalResearchUrl(url)))
-  const terms = new Set(
-    batches.flatMap((batch) => batch.query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).slice(0, 48)
-  )
   type ScoredCandidate = ResearchCandidate & { score: number; host: string }
   const candidateByUrl = new Map<string, ScoredCandidate>()
 
@@ -94,7 +102,8 @@ export function selectResearchCandidates(
       const canonical = canonicalResearchUrl(parsed.toString())
       if (normalizedFetchedUrls.has(canonical)) return
       const searchable = `${result.title} ${result.snippet} ${parsed.hostname}`.toLowerCase()
-      const termHits = [...terms].reduce(
+      const queryTerms = new Set(batch.query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])
+      const termHits = [...queryTerms].reduce(
         (total, term) => total + (searchable.includes(term) ? 1 : 0),
         0
       )
@@ -104,7 +113,7 @@ export function selectResearchCandidates(
         query: batch.query,
         rank: index + 1,
         host: normalizedHost(parsed.hostname),
-        score: termHits * 10 - index
+        score: Math.min(termHits, 8) * 10 + researchAuthorityScore(parsed, result) - index
       }
       const existing = candidateByUrl.get(canonical)
       if (!existing || candidate.score > existing.score) candidateByUrl.set(canonical, candidate)
@@ -122,9 +131,13 @@ export function selectResearchCandidates(
     if (selected.length >= boundedLimit) break
   }
   for (const candidate of candidates) {
+    // The diversity pass may already have filled the requested limit. The old
+    // code checked only after pushing here, selecting limit + 1 pages whenever
+    // another candidate existed. A live run therefore persisted five URLs in
+    // rounds pinned to maxPagesPerRound: 4 and exhausted its fetch budget early.
+    if (selected.length >= boundedLimit) break
     if (selected.includes(candidate)) continue
     selected.push(candidate)
-    if (selected.length >= boundedLimit) break
   }
   return selected.map((candidate) => ({
     title: candidate.title,
@@ -133,6 +146,41 @@ export function selectResearchCandidates(
     query: candidate.query,
     rank: candidate.rank
   }))
+}
+
+function researchAuthorityScore(url: URL, result: SearchResult): number {
+  const host = normalizedHost(url.hostname)
+  const searchable = `${result.title} ${result.snippet}`.toLowerCase()
+  let score = 0
+
+  if (
+    host.endsWith('.gov') ||
+    host === 'pubmed.ncbi.nlm.nih.gov' ||
+    host === 'pmc.ncbi.nlm.nih.gov'
+  ) {
+    score += 70
+  } else if (host.endsWith('.edu') || host.includes('.ac.')) {
+    score += 50
+  } else if (
+    host.startsWith('doi.') ||
+    host.includes('springer') ||
+    host.includes('wiley') ||
+    host.includes('sciencedirect') ||
+    host.includes('frontiersin') ||
+    host.includes('nature.com')
+  ) {
+    score += 35
+  }
+
+  if (
+    /\b(systematic review|meta-analysis|clinical guideline|consensus|study|journal)\b/.test(
+      searchable
+    )
+  ) {
+    score += 18
+  }
+  if (/\b(blog|pest control|exterminator|sponsored|advertisement)\b/.test(searchable)) score -= 25
+  return score
 }
 
 /** The model proposes sufficiency; the service verifies a minimum evidence floor. */

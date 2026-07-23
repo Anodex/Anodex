@@ -166,6 +166,38 @@ describe('buildDeterministicFallbackReport (P0-H)', () => {
     expect(report).toContain('Schmidt index coverage across all five species is incomplete')
   })
 
+  it('keeps researching steps with retained evidence out of the not-reached count', () => {
+    const researching = step({
+      id: 'step-1',
+      title: 'Research in progress',
+      status: 'researching',
+      evidenceIds: ['artifact-1'],
+      rounds: [
+        {
+          id: 'round-1',
+          index: 0,
+          status: 'completed',
+          queries: ['query'],
+          selectedUrls: ['https://example.com/venom'],
+          evidenceIds: ['artifact-1'],
+          finding: '',
+          assessment: null,
+          startedAt: 1,
+          completedAt: 2
+        }
+      ]
+    })
+
+    const report = buildDeterministicFallbackReport(
+      'Research in progress',
+      [researching],
+      artifacts,
+      sources
+    )
+
+    expect(report).not.toContain('steps not reached')
+  })
+
   it('degrades safely with zero verified sources, without crashing or fabricating a citation', () => {
     // This exact combination (a research attempt with literally no verified
     // sources) never actually reaches the fallback builder in production —

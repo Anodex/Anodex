@@ -94,6 +94,9 @@ that need more than a quick web lookup:
   phases: choose focused queries, search and fetch directly with bounded
   concurrency, then assess whether the fetched evidence closes the step's
   remaining gaps. No research phase replays one enormous tool transcript.
+- Local planning, query selection, and coverage assessment use constrained JSON
+  output, one bounded retry, and compact deterministic query recovery when a
+  smaller model still cannot satisfy the structure contract.
 - Research rounds, coverage decisions, findings, selected URLs, and exact web
   artifacts are checkpointed between phases. A stopped, limited, or
   app-interrupted investigation can resume from the unfinished round and reuse
@@ -108,15 +111,20 @@ that need more than a quick web lookup:
 - Search results are stored as unverified leads. Fetched pages are stored as
   verified evidence sidecars with requested/final URLs, status/content type,
   hashes, truncation warnings, and query-focused passages. URLs written only
-  in model prose never become trusted sources.
+  in model prose never become trusted sources. Candidate ranking favors
+  government, academic, primary-study, and journal results and avoids common
+  login-wall, discussion, metadata-only, and media-only hosts.
 - The final Markdown report includes clickable inline citations, a source trail,
   and explicit limits/open questions. Evidence-backed bar, line, and pie charts
   are rendered when quantitative comparison is useful.
 - Reports are synthesized in a separate tool-free phase from a bounded evidence
   packet. Every substantive prose/list/table block needs a verified citation;
   source IDs, quotations, raw URLs, numbers, and chart values are validated. One
-  bounded repair pass runs before an unsupported report is marked partial, and
-  citation rendering sanitizes untrusted titles while preserving chart JSON.
+  bounded repair pass runs first. If a broad local-model draft is still unusable,
+  Anodex writes and validates one evidence-bounded section per research step,
+  then creates a constrained cross-section summary. Adaptive output budgets,
+  persisted synthesis diagnostics, and a richer deterministic fallback keep a
+  short or malformed generation from erasing the research already gathered.
 - Reports persist locally across restarts and can be copied as Markdown or
   exported as a polished, report-only PDF with citations and charts intact.
 

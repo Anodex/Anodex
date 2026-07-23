@@ -453,6 +453,8 @@ Key capabilities:
 - Run research with only web search and page fetching tools.
 - Run every approved plan step as persisted adaptive rounds made from short,
   isolated query-selection and evidence-assessment model calls.
+- Constrain local planning, query-selection, and assessment output to the expected
+  JSON shape, with one bounded correction attempt and deterministic query recovery.
 - Search focused queries and fetch selected public pages directly with bounded
   concurrency instead of keeping the model inside a long native tool-call loop.
 - Track live step, round, research phase, remaining evidence gaps, activity,
@@ -460,6 +462,8 @@ Key capabilities:
 - Require a service-side evidence floor before accepting the model's claim that
   a step has sufficient coverage.
 - Store search leads and fetched-page evidence separately from the model transcript.
+- Prefer authoritative research hosts during page selection and exclude common
+  login-wall, discussion, metadata-only, and media-only results before fetching.
 - Extract focused passages from large pages instead of returning only a prefix.
 - Combine evidence from repeated focused fetches of the same page without losing
   earlier passages.
@@ -473,6 +477,9 @@ Key capabilities:
   grow persisted evidence indefinitely.
 - Generate a structured report in a separate tool-free synthesis phase.
 - Scale synthesis, repair, evidence, and output budgets to the active model context.
+- Recover broad local reports section by section when one-shot synthesis remains
+  unusable; independently validate each section before assembling the report.
+- Persist bounded synthesis attempts and validation issues with the run for diagnosis.
 - Require verified citations on substantive report blocks and validate source IDs,
   passage IDs, quotations, numeric claims, raw URLs, and chart data.
 - Sanitize source titles during citation rendering and rewrite chart citations

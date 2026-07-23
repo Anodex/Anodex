@@ -77,6 +77,7 @@ export class CriticalThinkingStore {
       evidenceCount: 0,
       activities: [],
       stats: null,
+      synthesisDiagnostics: null,
       lastError: null,
       createdAt: now,
       updatedAt: now
@@ -206,7 +207,65 @@ export function normalizeCriticalThinkingRun(run: CriticalThinkingRun): Critical
     evidenceCount: run.evidenceCount ?? 0,
     activities: run.activities ?? [],
     stats: run.stats ?? null,
+    synthesisDiagnostics: normalizeSynthesisDiagnostics(run.synthesisDiagnostics),
     lastError: run.lastError ?? null
+  }
+}
+
+function normalizeSynthesisDiagnostics(
+  value: CriticalThinkingRun['synthesisDiagnostics']
+): CriticalThinkingRun['synthesisDiagnostics'] {
+  if (!isRecord(value)) return null
+  const strategies = ['single-pass', 'hierarchical-recovery', 'deterministic-fallback'] as const
+  const stages = [
+    'draft',
+    'repair',
+    'section',
+    'section-repair',
+    'overview',
+    'hierarchical-report',
+    'deterministic-fallback'
+  ] as const
+  const strategy = strategies.find((item) => item === value.strategy) ?? 'single-pass'
+  const selectedStage = stages.find((item) => item === value.selectedStage) ?? null
+  const attempts = Array.isArray(value.attempts)
+    ? value.attempts
+        .filter(isRecord)
+        .slice(-32)
+        .flatMap((attempt) => {
+          const stage = stages.find((item) => item === attempt.stage)
+          if (!stage) return []
+          return [
+            {
+              stage,
+              ...(typeof attempt.stepId === 'string'
+                ? { stepId: boundedStoreText(attempt.stepId, 200) }
+                : {}),
+              contentChars: nonNegativeInteger(attempt.contentChars),
+              content: typeof attempt.content === 'string' ? attempt.content.slice(0, 24_000) : '',
+              ...(isTerminationReason(attempt.stopReason)
+                ? { stopReason: attempt.stopReason }
+                : {}),
+              safe: attempt.safe === true,
+              usable: attempt.usable === true,
+              valid: attempt.valid === true,
+              citedBlockCount: nonNegativeInteger(attempt.citedBlockCount),
+              issues: stringArray(attempt.issues)
+                .map((issue) => boundedStoreText(issue, 500))
+                .filter(Boolean)
+                .slice(0, 24)
+            }
+          ]
+        })
+    : []
+  return {
+    startedAt: nonNegativeInteger(value.startedAt),
+    completedAt: typeof value.completedAt === 'number' ? value.completedAt : null,
+    verifiedSourceCount: nonNegativeInteger(value.verifiedSourceCount),
+    evidencePacketChars: nonNegativeInteger(value.evidencePacketChars),
+    strategy,
+    selectedStage,
+    attempts
   }
 }
 

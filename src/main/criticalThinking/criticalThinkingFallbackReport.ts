@@ -5,9 +5,9 @@ import type {
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
-const MAX_EXCERPTS_PER_STEP = 2
-const MAX_EXCERPT_CHARS = 280
-const MAX_UNCERTAINTY_ITEMS = 6
+const MAX_EXCERPTS_PER_STEP = 4
+const MAX_EXCERPT_CHARS = 480
+const MAX_UNCERTAINTY_ITEMS = 12
 
 /**
  * Deterministic, code-built report used only when model synthesis and its
@@ -30,7 +30,7 @@ export function buildDeterministicFallbackReport(
   const verifiedSources = sources.filter((source) => source.verified)
   const passagesByStep = groupVerifiedExcerptsByStep(artifacts, sources, steps)
   const untouchedSteps = steps.filter(
-    (step) => step.status === 'pending' || step.status === 'researching'
+    (step) => step.status === 'pending' && step.rounds.length === 0 && step.evidenceIds.length === 0
   )
   const limitedSteps = steps.filter((step) => step.status === 'limited')
 
@@ -89,7 +89,7 @@ export function buildDeterministicFallbackReport(
     '',
     '## Conclusion',
     '',
-    'See findings above.'
+    'Cited evidence remains above.'
   ].join('\n')
 }
 
@@ -131,21 +131,40 @@ function groupVerifiedExcerptsByStep(
       .map((source) => [canonicalResearchUrl(source.url), source])
   )
   const stepById = new Map(steps.map((step) => [step.id, step]))
-  const byStep = new Map<string, StepExcerpt[]>()
+  const candidatesByStep = new Map<string, Map<string, StepExcerpt[]>>()
   for (const artifact of artifacts) {
     if (artifact.kind !== 'web-fetch' || artifact.passages.length === 0) continue
     const stepId = artifact.research?.stepId
     if (!stepId || !stepById.has(stepId)) continue
     const source = sourceByUrl.get(canonicalResearchUrl(artifact.finalUrl))
     if (!source) continue
-    const existing = byStep.get(stepId) ?? []
+    const bySource = candidatesByStep.get(stepId) ?? new Map<string, StepExcerpt[]>()
+    const sourceExcerpts = bySource.get(source.id) ?? []
     for (const passage of artifact.passages) {
-      if (existing.length >= MAX_EXCERPTS_PER_STEP) break
       const text = passage.text.trim()
       if (!text) continue
-      existing.push({ sourceId: source.id, passageId: passage.id, text })
+      sourceExcerpts.push({ sourceId: source.id, passageId: passage.id, text })
     }
-    byStep.set(stepId, existing)
+    bySource.set(source.id, sourceExcerpts)
+    candidatesByStep.set(stepId, bySource)
+  }
+
+  const byStep = new Map<string, StepExcerpt[]>()
+  for (const [stepId, bySource] of candidatesByStep) {
+    const selected: StepExcerpt[] = []
+    const groups = [...bySource.values()]
+    for (let passageIndex = 0; selected.length < MAX_EXCERPTS_PER_STEP; passageIndex += 1) {
+      let added = false
+      for (const excerpts of groups) {
+        const excerpt = excerpts[passageIndex]
+        if (!excerpt) continue
+        selected.push(excerpt)
+        added = true
+        if (selected.length >= MAX_EXCERPTS_PER_STEP) break
+      }
+      if (!added) break
+    }
+    byStep.set(stepId, selected)
   }
   return byStep
 }

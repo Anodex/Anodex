@@ -8,6 +8,9 @@ import type {
   CriticalThinkingProvider,
   CriticalThinkingRoundState,
   CriticalThinkingRun,
+  CriticalThinkingSynthesisAttemptDiagnostic,
+  CriticalThinkingSynthesisDiagnostics,
+  CriticalThinkingSynthesisStage,
   CriticalThinkingStepState
 } from '@shared/criticalThinking.types'
 import type { ChatRequest } from '@shared/chat.types'
@@ -32,6 +35,9 @@ import {
   buildCriticalThinkingPlanPrompt,
   buildCriticalThinkingPlanRetryPrompt,
   buildCriticalThinkingRepairPrompt,
+  buildCriticalThinkingOverviewPrompt,
+  buildCriticalThinkingSectionPrompt,
+  buildCriticalThinkingSectionRepairPrompt,
   buildCriticalThinkingSynthesisPrompt
 } from './criticalThinkingPrompts'
 import { buildEvidencePacket, renderResearchCitations } from './criticalThinkingEvidence'
@@ -59,8 +65,22 @@ import {
   boundPromptItems,
   criticalThinkingContextTokens,
   criticalThinkingSynthesisLimits,
-  truncatePromptText
+  truncatePromptText,
+  type CriticalThinkingSynthesisLimits
 } from './criticalThinkingSynthesisBudget'
+import {
+  CRITICAL_THINKING_OVERVIEW_SCHEMA,
+  CRITICAL_THINKING_PLAN_SCHEMA,
+  criticalThinkingAssessmentSchema,
+  criticalThinkingQuerySchema
+} from './criticalThinkingSchemas'
+import {
+  assembleHierarchicalReport,
+  chooseBetterHierarchicalSection,
+  evaluateHierarchicalSection,
+  parseHierarchicalOverview,
+  type HierarchicalSectionCandidate
+} from './criticalThinkingHierarchicalReport'
 
 const log = createLogger('critical-thinking-service')
 const MAX_QUESTION_CHARS = 8_000
@@ -118,6 +138,7 @@ class CriticalThinkingService {
       report: '',
       sources: [],
       activities: [],
+      synthesisDiagnostics: null,
       lastError: null
     })
     this.broadcastRunsChanged()
@@ -136,6 +157,7 @@ class CriticalThinkingService {
     const updated = criticalThinkingStore.update(id, {
       status: 'researching',
       report: '',
+      synthesisDiagnostics: null,
       lastError: null
     })
     this.broadcastRunsChanged()
@@ -199,7 +221,9 @@ class CriticalThinkingService {
               prompt,
               controller.signal,
               false,
-              planningLimits.maxOutputTokens
+              Math.min(1_536, planningLimits.maxOutputTokens),
+              undefined,
+              CRITICAL_THINKING_PLAN_SCHEMA
             ),
           parse: (content) => {
             const parsed = parseResearchPlan(content)
@@ -400,8 +424,18 @@ class CriticalThinkingService {
     const runner = new CriticalThinkingResearchRunner({
       getRun: () => this.requireRun(run.id),
       listArtifacts: () => criticalThinkingEvidenceStore.list(run.id),
-      runModel: (_phase, prompt, maxTokens, phaseSignal) =>
-        this.runToolFreeTurn(this.requireRun(run.id), prompt, phaseSignal, false, maxTokens),
+      runModel: (phase, prompt, maxTokens, phaseSignal) =>
+        this.runToolFreeTurn(
+          this.requireRun(run.id),
+          prompt,
+          phaseSignal,
+          false,
+          maxTokens,
+          undefined,
+          phase === 'query'
+            ? criticalThinkingQuerySchema(run.researchPolicy.maxQueriesPerRound)
+            : criticalThinkingAssessmentSchema(run.researchPolicy.maxQueriesPerRound)
+        ),
       search: async (query, resultCount, searchSignal) => ({
         provider: settings.webSearch.provider,
         results: await searchProvider.search(query, resultCount, searchSignal)
@@ -439,7 +473,8 @@ class CriticalThinkingService {
     const artifacts = criticalThinkingEvidenceStore.list(run.id)
     const verifiedSources = run.sources.filter((source) => source.verified)
     const limits = criticalThinkingSynthesisLimits(
-      criticalThinkingContextTokens(run.provider, run.model, llamaService.getState().contextSize)
+      criticalThinkingContextTokens(run.provider, run.model, llamaService.getState().contextSize),
+      run.provider === 'local' ? settingsStore.get().generation?.maxTokens : undefined
     )
     const question = truncatePromptText(run.question, limits.maxQuestionChars)
     const plan = boundPlanForPrompt(run.plan!, limits.maxPlanChars)
@@ -464,7 +499,28 @@ class CriticalThinkingService {
       return
     }
 
-    criticalThinkingStore.update(run.id, { status: 'synthesizing', report: '' })
+    let synthesisDiagnostics: CriticalThinkingSynthesisDiagnostics = {
+      startedAt: Date.now(),
+      completedAt: null,
+      verifiedSourceCount: verifiedSources.length,
+      evidencePacketChars: evidencePacket.length,
+      strategy: 'single-pass',
+      selectedStage: null,
+      attempts: []
+    }
+    const recordDiagnostic = (attempt: CriticalThinkingSynthesisAttemptDiagnostic): void => {
+      synthesisDiagnostics = {
+        ...synthesisDiagnostics,
+        attempts: [...synthesisDiagnostics.attempts, attempt].slice(-32)
+      }
+      criticalThinkingStore.update(run.id, { synthesisDiagnostics })
+    }
+
+    criticalThinkingStore.update(run.id, {
+      status: 'synthesizing',
+      report: '',
+      synthesisDiagnostics
+    })
     this.broadcastRunsChanged()
     const synthesis = await this.runToolFreeTurn(
       run,
@@ -487,9 +543,12 @@ class CriticalThinkingService {
     const draftWorthValidating =
       draft.length > 0 && isRecoverableContentStopReason(synthesisStopReason)
     if (synthesisUserStopped || !draftWorthValidating) {
+      recordDiagnostic(rawSynthesisDiagnostic('draft', draft, synthesisStopReason))
+      synthesisDiagnostics = { ...synthesisDiagnostics, completedAt: Date.now() }
       this.finish(run.id, synthesisUserStopped ? 'stopped' : 'partial', {
         report: draft,
         stats,
+        synthesisDiagnostics,
         lastError: stoppedReasonMessage(synthesisStopReason)
       })
       return
@@ -504,6 +563,8 @@ class CriticalThinkingService {
       run.sources,
       approvedStepCount
     )
+    let selectedStage: CriticalThinkingSynthesisStage = 'draft'
+    recordDiagnostic(reportCandidateDiagnostic('draft', candidate, synthesisStopReason))
     let repairStopReason: GenerationStopReason | undefined
     if (!candidate.overallValid) {
       const repairIssues = boundPromptItems(
@@ -535,6 +596,9 @@ class CriticalThinkingService {
         // A genuine user Stop, or an orchestration-level limit, with nothing
         // recoverable to check — keep the original draft and remember why.
         repairStopReason = repairStopReasonCandidate ?? 'yielded'
+        recordDiagnostic(
+          rawSynthesisDiagnostic('repair', repair.content, repairStopReasonCandidate)
+        )
       } else if (repair.content.trim()) {
         // Either the repair completed cleanly, or it stopped on a
         // recoverable output/context limit but may still be a complete,
@@ -548,7 +612,40 @@ class CriticalThinkingService {
           run.sources,
           approvedStepCount
         )
-        candidate = chooseBetterReportCandidate(candidate, repairedCandidate)
+        recordDiagnostic(
+          reportCandidateDiagnostic('repair', repairedCandidate, repairStopReasonCandidate)
+        )
+        const selected = chooseBetterReportCandidate(candidate, repairedCandidate)
+        if (selected === repairedCandidate) selectedStage = 'repair'
+        candidate = selected
+      }
+    }
+
+    const stepsWithEvidence = run.steps.filter((step) => step.evidenceIds.length > 0).length
+    if (
+      reportNeedsHierarchicalRecovery(candidate, stepsWithEvidence) &&
+      repairStopReason !== 'user' &&
+      run.provider === 'local' &&
+      stepsWithEvidence > 1
+    ) {
+      synthesisDiagnostics = { ...synthesisDiagnostics, strategy: 'hierarchical-recovery' }
+      criticalThinkingStore.update(run.id, { synthesisDiagnostics })
+      const hierarchical = await this.runHierarchicalSynthesis(
+        run,
+        artifacts,
+        question,
+        limits,
+        signal
+      )
+      stats = addStats(stats, hierarchical.stats)
+      for (const diagnostic of hierarchical.attempts) recordDiagnostic(diagnostic)
+      if (hierarchical.stopReason && !isRecoverableContentStopReason(hierarchical.stopReason)) {
+        repairStopReason = hierarchical.stopReason
+      }
+      if (hierarchical.candidate) {
+        const selected = chooseBetterReportCandidate(candidate, hierarchical.candidate)
+        if (selected === hierarchical.candidate) selectedStage = 'hierarchical-report'
+        candidate = selected
       }
     }
 
@@ -570,7 +667,6 @@ class CriticalThinkingService {
         citedSubstantiveBlockCount: candidate.citedSubstantiveBlockCount,
         draftLength: candidate.length
       })
-      const stepsWithEvidence = run.steps.filter((step) => step.evidenceIds.length > 0).length
       const fallbackContent = buildDeterministicFallbackReport(
         run.plan?.title ?? run.question,
         run.steps,
@@ -583,7 +679,13 @@ class CriticalThinkingService {
         run.sources,
         stepsWithEvidence
       )
-      candidate = chooseBetterReportCandidate(candidate, fallbackCandidate)
+      recordDiagnostic(reportCandidateDiagnostic('deterministic-fallback', fallbackCandidate))
+      const selected = chooseBetterReportCandidate(candidate, fallbackCandidate)
+      if (selected === fallbackCandidate) {
+        selectedStage = 'deterministic-fallback'
+        synthesisDiagnostics = { ...synthesisDiagnostics, strategy: 'deterministic-fallback' }
+      }
+      candidate = selected
     } else if (!candidate.overallValid) {
       // Kept a safe-but-imperfect model report — record why it's `partial`.
       log.info('Critical Thinking kept a safe model report with coverage gaps', {
@@ -601,9 +703,15 @@ class CriticalThinkingService {
         : candidate.overallValid && !limitedSteps && !repairStopReason
           ? 'completed'
           : 'partial'
+    synthesisDiagnostics = {
+      ...synthesisDiagnostics,
+      completedAt: Date.now(),
+      selectedStage
+    }
     this.finish(run.id, status, {
       report,
       stats,
+      synthesisDiagnostics,
       plan: status === 'completed' ? completePlan(run.plan) : run.plan,
       lastError: reportLastError(candidate, limitedSteps, repairStopReason, run.steps)
     })
@@ -613,13 +721,211 @@ class CriticalThinkingService {
     })
   }
 
+  /**
+   * Recover a broad local-model report by solving one bounded evidence section
+   * at a time, then asking for only the cross-section summary. This keeps each
+   * generation small enough for local contexts while preserving the same
+   * citation and fabrication checks as the one-shot path.
+   */
+  private async runHierarchicalSynthesis(
+    run: CriticalThinkingRun,
+    artifacts: ToolArtifact[],
+    question: string,
+    limits: CriticalThinkingSynthesisLimits,
+    signal: AbortSignal
+  ): Promise<{
+    candidate: ReportCandidate | null
+    stats: GenerationStats
+    attempts: CriticalThinkingSynthesisAttemptDiagnostic[]
+    stopReason?: GenerationStopReason
+  }> {
+    const attempts: CriticalThinkingSynthesisAttemptDiagnostic[] = []
+    const sections = new Map<string, string>()
+    let stats: GenerationStats = { tokens: 0, durationMs: 0, tokensPerSecond: 0 }
+    const sectionOutputTokens = Math.max(
+      512,
+      Math.min(3_072, Math.floor(limits.maxOutputTokens * 0.65))
+    )
+    const sectionThoughtTokens = Math.min(
+      limits.thoughtTokens,
+      Math.floor(sectionOutputTokens * 0.25)
+    )
+
+    for (const step of run.steps) {
+      const evidenceIds = new Set(step.evidenceIds)
+      const stepArtifacts = artifacts.filter(
+        (artifact) => evidenceIds.has(artifact.id) || artifact.research?.stepId === step.id
+      )
+      const basePrompt = buildCriticalThinkingSectionPrompt(
+        question,
+        step.title,
+        step.finding,
+        step.uncertainties,
+        ''
+      )
+      const evidencePacket = buildEvidencePacket(
+        stepArtifacts,
+        run.sources,
+        Math.max(
+          0,
+          Math.min(limits.maxEvidenceChars, 18_000, limits.maxPromptChars - basePrompt.length)
+        )
+      )
+      if (!evidencePacket) continue
+
+      const sectionResult = await this.runToolFreeTurn(
+        run,
+        buildCriticalThinkingSectionPrompt(
+          question,
+          step.title,
+          step.finding,
+          step.uncertainties,
+          evidencePacket
+        ),
+        signal,
+        false,
+        sectionOutputTokens,
+        sectionThoughtTokens
+      )
+      stats = addStats(stats, sectionResult.stats)
+      const sectionStopReason = signalStopReason(signal, sectionResult.stopReason)
+      let sectionCandidate = evaluateHierarchicalSection(
+        sectionResult.content,
+        stepArtifacts,
+        run.sources
+      )
+      attempts.push(
+        hierarchicalSectionDiagnostic('section', sectionCandidate, sectionStopReason, step.id)
+      )
+
+      if (
+        !sectionCandidate.valid &&
+        isRecoverableContentStopReason(sectionStopReason) &&
+        !signal.aborted
+      ) {
+        const repairIssues = boundPromptItems(sectionCandidate.issues, 1_500)
+        const repairBase = buildCriticalThinkingSectionRepairPrompt('', repairIssues, '')
+        const repairRemaining = Math.max(0, limits.maxPromptChars - repairBase.length)
+        const repairEvidence = buildEvidencePacket(
+          stepArtifacts,
+          run.sources,
+          Math.min(18_000, Math.floor(repairRemaining * 0.62))
+        )
+        const repairDraft = truncatePromptText(
+          sectionCandidate.content,
+          Math.max(0, repairRemaining - repairEvidence.length)
+        )
+        const repaired = await this.runToolFreeTurn(
+          run,
+          buildCriticalThinkingSectionRepairPrompt(repairDraft, repairIssues, repairEvidence),
+          signal,
+          false,
+          sectionOutputTokens,
+          sectionThoughtTokens
+        )
+        stats = addStats(stats, repaired.stats)
+        const repairedStopReason = signalStopReason(signal, repaired.stopReason)
+        const repairedCandidate = evaluateHierarchicalSection(
+          repaired.content,
+          stepArtifacts,
+          run.sources
+        )
+        attempts.push(
+          hierarchicalSectionDiagnostic(
+            'section-repair',
+            repairedCandidate,
+            repairedStopReason,
+            step.id
+          )
+        )
+        sectionCandidate = chooseBetterHierarchicalSection(sectionCandidate, repairedCandidate)
+        if (repairedStopReason && !isRecoverableContentStopReason(repairedStopReason)) {
+          return { candidate: null, stats, attempts, stopReason: repairedStopReason }
+        }
+      }
+
+      if (sectionCandidate.usable) sections.set(step.id, sectionCandidate.content)
+      if (sectionStopReason && !isRecoverableContentStopReason(sectionStopReason)) {
+        return { candidate: null, stats, attempts, stopReason: sectionStopReason }
+      }
+    }
+
+    if (sections.size === 0) return { candidate: null, stats, attempts }
+
+    const sectionItems = run.steps.flatMap((step) => {
+      const section = sections.get(step.id)
+      return section ? [`## ${step.title}\n\n${section}`] : []
+    })
+    const overviewBase = buildCriticalThinkingOverviewPrompt(question, '')
+    const boundedSections = boundPromptItems(
+      sectionItems,
+      Math.max(0, Math.min(36_000, limits.maxPromptChars - overviewBase.length))
+    ).join('\n\n')
+    const overviewOutputTokens = Math.max(
+      384,
+      Math.min(2_048, Math.floor(limits.maxOutputTokens * 0.4))
+    )
+    const overviewResult = await this.runToolFreeTurn(
+      run,
+      buildCriticalThinkingOverviewPrompt(question, boundedSections),
+      signal,
+      false,
+      overviewOutputTokens,
+      Math.min(limits.thoughtTokens, Math.floor(overviewOutputTokens * 0.2)),
+      CRITICAL_THINKING_OVERVIEW_SCHEMA
+    )
+    stats = addStats(stats, overviewResult.stats)
+    const overviewStopReason = signalStopReason(signal, overviewResult.stopReason)
+    const overview = parseHierarchicalOverview(overviewResult.content)
+    if (overview) {
+      const overviewCandidate = evaluateHierarchicalSection(
+        `${overview.executiveSummary}\n\n${overview.conclusion}`,
+        artifacts,
+        run.sources
+      )
+      attempts.push(
+        hierarchicalSectionDiagnostic('overview', overviewCandidate, overviewStopReason)
+      )
+    } else {
+      attempts.push(rawSynthesisDiagnostic('overview', overviewResult.content, overviewStopReason))
+    }
+    if (overviewStopReason && !isRecoverableContentStopReason(overviewStopReason)) {
+      return { candidate: null, stats, attempts, stopReason: overviewStopReason }
+    }
+
+    const baseReport = assembleHierarchicalReport({
+      title: run.plan?.title ?? run.question,
+      steps: run.steps,
+      sections,
+      overview: null,
+      sources: run.sources
+    })
+    let candidate = evaluateReportCandidate(baseReport, artifacts, run.sources, run.steps.length)
+    if (overview) {
+      const reportWithOverview = assembleHierarchicalReport({
+        title: run.plan?.title ?? run.question,
+        steps: run.steps,
+        sections,
+        overview,
+        sources: run.sources
+      })
+      candidate = chooseBetterReportCandidate(
+        candidate,
+        evaluateReportCandidate(reportWithOverview, artifacts, run.sources, run.steps.length)
+      )
+    }
+    attempts.push(reportCandidateDiagnostic('hierarchical-report', candidate))
+    return { candidate, stats, attempts }
+  }
+
   private async runToolFreeTurn(
     run: CriticalThinkingRun,
     prompt: string,
     signal: AbortSignal,
     stream: boolean,
     maxTokens: number,
-    thoughtTokens?: number
+    thoughtTokens?: number,
+    jsonSchema?: Record<string, unknown>
   ): Promise<RunGenerationResult> {
     return this.runIsolatedGeneration(
       {
@@ -628,7 +934,7 @@ class CriticalThinkingService {
         projectId: null,
         history: [],
         prompt,
-        options: { temperature: 0.2, maxTokens, thoughtTokens }
+        options: { temperature: 0.2, maxTokens, thoughtTokens, jsonSchema }
       },
       {
         signal,
@@ -922,9 +1228,22 @@ class CriticalThinkingService {
       stepsWithEvidence
     )
     const report = renderResearchCitations(candidate.content, run.sources)
+    const synthesisDiagnostics = run.synthesisDiagnostics
+      ? {
+          ...run.synthesisDiagnostics,
+          completedAt: Date.now(),
+          strategy: 'deterministic-fallback' as const,
+          selectedStage: 'deterministic-fallback' as const,
+          attempts: [
+            ...run.synthesisDiagnostics.attempts,
+            reportCandidateDiagnostic('deterministic-fallback', candidate)
+          ].slice(-32)
+        }
+      : null
     this.finish(runId, 'partial', {
       report,
       plan: run.plan,
+      synthesisDiagnostics,
       lastError: `This report was assembled from the ${verifiedSources.length} source${
         verifiedSources.length === 1 ? '' : 's'
       } verified before research stopped early. ${reason}`
@@ -1070,6 +1389,82 @@ function createStepStates(plan: Plan): CriticalThinkingStepState[] {
     uncertainties: [],
     rounds: []
   }))
+}
+
+const MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS = 24_000
+
+function reportCandidateDiagnostic(
+  stage: CriticalThinkingSynthesisStage,
+  candidate: ReportCandidate,
+  stopReason?: GenerationStopReason,
+  stepId?: string
+): CriticalThinkingSynthesisAttemptDiagnostic {
+  return {
+    stage,
+    ...(stepId ? { stepId } : {}),
+    contentChars: candidate.content.length,
+    content: candidate.content.slice(0, MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS),
+    ...(stopReason ? { stopReason } : {}),
+    safe: candidate.safe,
+    usable: candidate.usable,
+    valid: candidate.overallValid,
+    citedBlockCount: candidate.citedSubstantiveBlockCount,
+    issues: candidate.issues.slice(0, 24)
+  }
+}
+
+function reportNeedsHierarchicalRecovery(
+  candidate: ReportCandidate,
+  stepsWithEvidence: number
+): boolean {
+  if (!candidate.usable) return true
+  const expectedCitedBlocks = Math.max(1, stepsWithEvidence)
+  const minimumDetailedChars = Math.max(1_200, stepsWithEvidence * 450)
+  return (
+    candidate.citedSubstantiveBlockCount < expectedCitedBlocks ||
+    candidate.length < minimumDetailedChars
+  )
+}
+
+function hierarchicalSectionDiagnostic(
+  stage: 'section' | 'section-repair' | 'overview',
+  candidate: HierarchicalSectionCandidate,
+  stopReason?: GenerationStopReason,
+  stepId?: string
+): CriticalThinkingSynthesisAttemptDiagnostic {
+  return {
+    stage,
+    ...(stepId ? { stepId } : {}),
+    contentChars: candidate.content.length,
+    content: candidate.content.slice(0, MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS),
+    ...(stopReason ? { stopReason } : {}),
+    safe: candidate.safe,
+    usable: candidate.usable,
+    valid: candidate.valid,
+    citedBlockCount: candidate.citedBlockCount,
+    issues: candidate.issues.slice(0, 24)
+  }
+}
+
+function rawSynthesisDiagnostic(
+  stage: CriticalThinkingSynthesisStage,
+  content: string,
+  stopReason?: GenerationStopReason,
+  stepId?: string
+): CriticalThinkingSynthesisAttemptDiagnostic {
+  const trimmed = content.trim()
+  return {
+    stage,
+    ...(stepId ? { stepId } : {}),
+    contentChars: trimmed.length,
+    content: trimmed.slice(0, MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS),
+    ...(stopReason ? { stopReason } : {}),
+    safe: false,
+    usable: false,
+    valid: false,
+    citedBlockCount: 0,
+    issues: ['The model output could not be validated as a complete structured response.']
+  }
 }
 
 function completePlan(plan: Plan | null): Plan | null {

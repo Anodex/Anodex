@@ -39,6 +39,11 @@ interface LlamaServiceTestAccess {
   context: unknown
   contextSize: number | undefined
   model: unknown
+  llama:
+    | {
+        createGrammarForJsonSchema: (schema: Record<string, unknown>) => Promise<unknown>
+      }
+    | undefined
   session:
     | {
         promptWithMeta: (
@@ -46,6 +51,7 @@ interface LlamaServiceTestAccess {
           options: {
             onResponseChunk?: (chunk: unknown) => void
             functions?: Record<string, { handler: (params: unknown) => unknown }>
+            grammar?: unknown
             maxTokens?: number
             signal?: AbortSignal
             budgets?: { thoughtTokens?: number; commentTokens?: number }
@@ -78,6 +84,7 @@ function resetLlamaServiceState(): void {
   access.context = undefined
   access.contextSize = undefined
   access.model = undefined
+  access.llama = undefined
   access.session = undefined
   access.activeConversationId = undefined
   access.generating = false
@@ -214,6 +221,41 @@ describe('LlamaService.generate() context-shift recovery', () => {
     })
 
     expect(ensureSession.mock.calls.map((call) => call[6])).toEqual([true, false])
+  })
+
+  it('enforces a requested JSON schema with a local grammar on tool-free turns', async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    const grammar = { kind: 'test-json-grammar' }
+    const createGrammarForJsonSchema = vi.fn(() => Promise.resolve(grammar))
+    access.llama = { createGrammarForJsonSchema }
+    const promptWithMeta = vi.fn((_prompt: unknown, _options: { grammar?: unknown }) =>
+      Promise.resolve({ response: [], responseText: '{"ok":true}', stopReason: 'eogToken' })
+    )
+    access.session = {
+      promptWithMeta,
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+    const schema = {
+      type: 'object',
+      properties: { ok: { type: 'boolean' } },
+      required: ['ok'],
+      additionalProperties: false
+    }
+
+    await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'json-message',
+      history: [],
+      prompt: 'return JSON',
+      options: { jsonSchema: schema },
+      onToken: () => {}
+    })
+
+    expect(createGrammarForJsonSchema).toHaveBeenCalledWith(schema)
+    expect(promptWithMeta.mock.calls[0]?.[1]).toMatchObject({ grammar })
   })
 
   it('reports an irreducible fixed-context limit before decoding or retrying', async () => {

@@ -129,6 +129,13 @@ export interface GenerationOptions {
   topP?: number
   maxTokens?: number
   /**
+   * Optional JSON Schema used to constrain a tool-free local generation with
+   * node-llama-cpp's grammar engine. Cloud providers may ignore this hint and
+   * are still validated by the caller. Kept as data rather than importing the
+   * runtime's GBNF types across the main/renderer boundary.
+   */
+  jsonSchema?: Record<string, unknown>
+  /**
    * Optional sub-budget, in tokens, that hidden reasoning may spend out of
    * `maxTokens` before the provider closes that segment and continues into
    * the visible/function-call portion of the same hard cap — not an

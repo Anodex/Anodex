@@ -3,7 +3,7 @@ import { cloudContextWindowTokens } from '@shared/contextBudget'
 
 const MAX_PROMPT_CHARS = 80_000
 const MAX_EVIDENCE_CHARS = 36_000
-const MAX_OUTPUT_TOKENS = 4_096
+const MAX_OUTPUT_TOKENS = 8_192
 const MIN_OUTPUT_TOKENS = 768
 const APPROX_CHARS_PER_TOKEN = 3
 /**
@@ -41,12 +41,19 @@ export interface CriticalThinkingSynthesisLimits {
  * models, while large contexts retain the existing 36,000-character ceiling.
  */
 export function criticalThinkingSynthesisLimits(
-  contextTokens: number
+  contextTokens: number,
+  requestedOutputTokens?: number
 ): CriticalThinkingSynthesisLimits {
   const safeContextTokens = Math.max(2_048, contextTokens)
+  const requested =
+    requestedOutputTokens !== undefined &&
+    Number.isFinite(requestedOutputTokens) &&
+    requestedOutputTokens > 0
+      ? Math.floor(requestedOutputTokens)
+      : Math.floor(safeContextTokens * 0.25)
   const maxOutputTokens = Math.min(
     MAX_OUTPUT_TOKENS,
-    Math.max(MIN_OUTPUT_TOKENS, Math.floor(safeContextTokens * 0.25))
+    Math.max(MIN_OUTPUT_TOKENS, Math.min(requested, Math.floor(safeContextTokens * 0.3)))
   )
   const systemReserveTokens = Math.min(2_048, Math.max(768, Math.floor(safeContextTokens * 0.125)))
   const availableInputTokens = Math.max(

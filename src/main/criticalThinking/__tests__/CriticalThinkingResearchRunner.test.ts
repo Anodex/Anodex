@@ -969,6 +969,38 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(round.assessment?.verdict).toBe('continue')
   })
 
+  it('keeps a malformed round response as the finding when the step had none yet, instead of discarding it', async () => {
+    // Same malformed shape as the previous test (no `evidenceBasis`, so the
+    // assessment fails to parse), but the step has no prior finding to
+    // protect — there is nothing to "not replace", so the model's actual
+    // output for this round should survive instead of the step ending with
+    // an empty finding.
+    const round = makeRound({ status: 'assessing' })
+    const run = makeRun([round])
+    run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1 }
+    const harness = createHarness({
+      run,
+      runModel: () =>
+        Promise.resolve(
+          generation(
+            '{"finding":"The model actually analyzed this round.","verdict":"continue","rationale":"Missing required arrays"}'
+          )
+        )
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('limited')
+    expect(run.steps[0].finding).toBe('The model actually analyzed this round.')
+    expect(round.finding).toBe('The model actually analyzed this round.')
+    // The internal parser-failure sentence must never reach the user-facing
+    // gap list — it reads as a research finding, not a diagnostic message.
+    expect(run.steps[0].uncertainties).not.toContain(
+      'A valid evidence coverage assessment is still required.'
+    )
+    expect(run.steps[0].uncertainties).toEqual([])
+  })
+
   it('keeps a query-generation prompt inside the small local-context budget', async () => {
     const previous = makeRound({
       status: 'completed',
@@ -998,12 +1030,12 @@ describe('CriticalThinkingResearchRunner', () => {
         uncertainties: []
       })
     }
-    let capturedPrompt = ''
+    const capturedPrompts: string[] = []
     const harness = createHarness({
       run,
       contextTokens: 4_096,
       runModel: (_phase, prompt) => {
-        capturedPrompt = prompt
+        capturedPrompts.push(prompt)
         return Promise.resolve({
           ...generation(''),
           stopped: true,
@@ -1015,8 +1047,9 @@ describe('CriticalThinkingResearchRunner', () => {
     await harness.runner.run(new AbortController().signal, emptyUsage())
 
     const limit = criticalThinkingSynthesisLimits(4_096).maxPromptChars
-    expect(capturedPrompt.length).toBeLessThanOrEqual(limit)
-    expect(capturedPrompt).toContain('Return strict JSON only')
+    expect(capturedPrompts).toHaveLength(1)
+    expect(capturedPrompts[0].length).toBeLessThanOrEqual(limit)
+    expect(capturedPrompts[0]).toContain('Return strict JSON only')
   })
 })
 

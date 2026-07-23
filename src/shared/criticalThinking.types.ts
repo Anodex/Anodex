@@ -97,6 +97,39 @@ export interface CriticalThinkingActivity {
   createdAt: number
 }
 
+export type CriticalThinkingSynthesisStage =
+  | 'draft'
+  | 'repair'
+  | 'section'
+  | 'section-repair'
+  | 'overview'
+  | 'hierarchical-report'
+  | 'deterministic-fallback'
+
+export interface CriticalThinkingSynthesisAttemptDiagnostic {
+  stage: CriticalThinkingSynthesisStage
+  stepId?: string
+  contentChars: number
+  /** Bounded visible output retained locally so a failed report can be diagnosed after restart. */
+  content: string
+  stopReason?: GenerationStopReason
+  safe: boolean
+  usable: boolean
+  valid: boolean
+  citedBlockCount: number
+  issues: string[]
+}
+
+export interface CriticalThinkingSynthesisDiagnostics {
+  startedAt: number
+  completedAt: number | null
+  verifiedSourceCount: number
+  evidencePacketChars: number
+  strategy: 'single-pass' | 'hierarchical-recovery' | 'deterministic-fallback'
+  selectedStage: CriticalThinkingSynthesisStage | null
+  attempts: CriticalThinkingSynthesisAttemptDiagnostic[]
+}
+
 /** A persisted Critical Thinking investigation and its final evidence-backed report. */
 export interface CriticalThinkingRun {
   id: string
@@ -114,6 +147,7 @@ export interface CriticalThinkingRun {
   evidenceCount: number
   activities: CriticalThinkingActivity[]
   stats: GenerationStats | null
+  synthesisDiagnostics?: CriticalThinkingSynthesisDiagnostics | null
   lastError: string | null
   createdAt: number
   updatedAt: number

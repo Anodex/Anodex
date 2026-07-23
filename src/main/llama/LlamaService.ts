@@ -9,6 +9,7 @@ import type {
   LlamaChatSession,
   ChatHistoryItem,
   ChatModelFunctionCall,
+  GbnfJsonSchema,
   LlamaChatResponseChunk,
   LlamaChatResponseFunctionCallParamsChunk
 } from 'node-llama-cpp'
@@ -794,6 +795,12 @@ class LlamaService extends EventEmitter {
       params.onContextShift?.()
     }
     try {
+      const grammar =
+        params.options?.jsonSchema && functions == null && this.llama
+          ? await this.llama.createGrammarForJsonSchema<GbnfJsonSchema>(
+              params.options.jsonSchema as GbnfJsonSchema
+            )
+          : undefined
       for (let round = 0; ; round++) {
         let roundContent = ''
         let roundSegment = ''
@@ -832,7 +839,7 @@ class LlamaService extends EventEmitter {
           // library's own recommended default.
           dryRepeatPenalty: { strength: 0.8 },
           signal: genController.signal,
-          functions,
+          ...(grammar ? { grammar } : { functions }),
           // Force a checkpoint after every native tool call. Wrappers such
           // as Qwen support parallel function sections; without a bound,
           // node-llama-cpp buffers every parsed call in `resFunctionCalls`
@@ -940,7 +947,7 @@ class LlamaService extends EventEmitter {
         // going dark in production.
         let meta: Awaited<ReturnType<typeof session.promptWithMeta>>
         try {
-          meta = await session.promptWithMeta(prompt, promptOptions)
+          meta = await session.promptWithMeta(prompt, promptOptions as never)
         } catch (error) {
           // Our own guard fired mid-stream (not a failure): the model began
           // fabricating the user's next turn. Keep the reply up to the cut
@@ -992,7 +999,7 @@ class LlamaService extends EventEmitter {
           log.warn('Context shift failed mid-generation; compacting and retrying this round once.')
           session = await this.recompactSession(params, 'reactive', toolSchemaReserveTokens)
           diagnostics.recordContextShift()
-          meta = await session.promptWithMeta(prompt, promptOptions)
+          meta = await session.promptWithMeta(prompt, promptOptions as never)
         }
 
         // Any provisional card whose call never executed this round (aborted

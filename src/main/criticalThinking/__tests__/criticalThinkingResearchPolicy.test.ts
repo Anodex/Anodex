@@ -58,6 +58,51 @@ describe('Critical Thinking research policy', () => {
     expect(selectResearchCandidates([], new Set(), 0)).toEqual([])
   })
 
+  it('never selects more pages than the requested limit after domain diversification', () => {
+    const candidates = selectResearchCandidates(
+      [
+        {
+          query: 'comparative venom study',
+          results: Array.from({ length: 8 }, (_, index) => ({
+            title: `Comparative venom study ${index}`,
+            url: `https://source-${index}.example/study`,
+            snippet: 'Independent comparative venom evidence'
+          }))
+        }
+      ],
+      new Set(),
+      4
+    )
+
+    expect(candidates).toHaveLength(4)
+  })
+
+  it('prefers primary and academic sources over equally relevant commercial pages', () => {
+    const candidates = selectResearchCandidates(
+      [
+        {
+          query: 'hymenoptera venom clinical study',
+          results: [
+            {
+              title: 'Hymenoptera venom clinical study blog',
+              url: 'https://bugs.example/blog',
+              snippet: 'Pest control exterminator blog about venom'
+            },
+            {
+              title: 'Hymenoptera venom clinical study',
+              url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC123/',
+              snippet: 'Peer-reviewed journal study'
+            }
+          ]
+        }
+      ],
+      new Set(),
+      1
+    )
+
+    expect(candidates[0]?.url).toContain('pmc.ncbi.nlm.nih.gov')
+  })
+
   it('excludes login-walled social and media-only hosts, including subdomains, from research candidates', () => {
     // The live failures: search returned Facebook/Instagram login walls and a
     // YouTube page whose only extractable text was footer chrome

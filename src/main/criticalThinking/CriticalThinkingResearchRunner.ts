@@ -17,7 +17,9 @@ import type { RunGenerationResult } from '../chat/runGeneration'
 import { CRITICAL_THINKING_STEP_BUDGET } from '../chat/GenerationBudget'
 import {
   buildCriticalThinkingAssessmentPrompt,
-  buildCriticalThinkingQueryPrompt
+  buildCriticalThinkingAssessmentRetryPrompt,
+  buildCriticalThinkingQueryPrompt,
+  buildCriticalThinkingQueryRetryPrompt
 } from './criticalThinkingPrompts'
 import { buildEvidencePacket } from './criticalThinkingEvidence'
 import {
@@ -32,7 +34,10 @@ import {
   type ResearchSearchBatch
 } from './criticalThinkingResearchPolicy'
 import { parseResearchAssessment, parseResearchQueries } from './criticalThinkingResearchOutput'
-import { runStructuredPhase } from './criticalThinkingStructuredPhase'
+import {
+  isRecoverableContentStopReason,
+  runStructuredPhase
+} from './criticalThinkingStructuredPhase'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 const QUERY_OUTPUT_TOKENS = 512
@@ -284,7 +289,7 @@ export class CriticalThinkingResearchRunner {
       .slice(0, MAX_PRIOR_FINDING_ITEMS)
     const priorQueries = usedQueries(step).slice(-MAX_PRIOR_QUERY_ITEMS)
     const gaps = (priorAssessment?.remainingGaps ?? []).slice(0, MAX_GAP_ITEMS)
-    const fallback = `${run.question} ${step.title}`
+    const fallback = buildFallbackResearchQuery(run.question, step.title)
     try {
       const prompt = buildBudgetedQueryPrompt(
         truncatePromptText(run.question, limits.maxQuestionChars),
@@ -302,19 +307,33 @@ export class CriticalThinkingResearchRunner {
           this.deps.runModel('query', isolatedPrompt, QUERY_OUTPUT_TOKENS, signal),
         parse: (content) => {
           const parsed = parseResearchQueries(content, fallback, policy.maxQueriesPerRound)
-          return { value: parsed.queries.length > 0 ? parsed.queries : null, valid: parsed.valid }
-        }
+          return {
+            value: parsed.valid && parsed.queries.length > 0 ? parsed.queries : null,
+            valid: parsed.valid,
+            issues: parsed.valid ? [] : ['The response was not the required query JSON.']
+          }
+        },
+        buildRepairPrompt: () =>
+          buildCriticalThinkingQueryRetryPrompt(
+            truncatePromptText(run.question, limits.maxQuestionChars),
+            truncatePromptText(step.title, 600),
+            policy.maxQueriesPerRound
+          )
       })
       this.deps.addStats(phase.stats)
-      if (!phase.value) {
+      let selectedQueries = phase.value
+      if (!selectedQueries) {
         // A genuine user Stop, or an orchestration-level limit (time/tool/
         // round budget, loop guard) that never even reached parsing — pause
         // the round with that reason rather than guessing at a query.
-        const reason = phase.stopReason ?? 'yielded'
-        this.finishActivity(activity, 'error', stoppedDetail(reason))
-        return await this.stopStep(reason, round.id)
+        if (phase.stopReason && !isRecoverableContentStopReason(phase.stopReason)) {
+          const reason = phase.stopReason
+          this.finishActivity(activity, 'error', stoppedDetail(reason))
+          return await this.stopStep(reason, round.id)
+        }
+        selectedQueries = parseResearchQueries('', fallback, policy.maxQueriesPerRound).queries
       }
-      const queries = novelQueries(phase.value, usedQueries(step), policy.maxQueriesPerRound)
+      const queries = novelQueries(selectedQueries, usedQueries(step), policy.maxQueriesPerRound)
       if (queries.length === 0) {
         this.finishActivity(activity, 'error', 'No novel query was available')
         return await this.limitStep('no-progress', false, round.id)
@@ -607,16 +626,27 @@ export class CriticalThinkingResearchRunner {
             this.deps.runModel('assessment', prompt, ASSESSMENT_OUTPUT_TOKENS, signal),
           parse: (content) => {
             const parsed = parseResearchAssessment(content, run.researchPolicy.maxQueriesPerRound)
-            return { value: parsed, valid: parsed.valid }
-          }
+            return {
+              value: parsed.valid ? parsed : null,
+              valid: parsed.valid,
+              issues: parsed.valid ? [] : ['The response was not the required assessment JSON.']
+            }
+          },
+          buildRepairPrompt: () =>
+            buildCriticalThinkingAssessmentRetryPrompt(
+              question,
+              stepTitle,
+              evidencePacket,
+              run.researchPolicy.maxQueriesPerRound
+            )
         }
       )
       this.deps.addStats(phase.stats)
-      if (!phase.value) {
+      if (!phase.value && phase.stopReason && !isRecoverableContentStopReason(phase.stopReason)) {
         // A genuine user Stop, or an orchestration-level limit (time/tool/
         // round budget, loop guard, no progress) that never even reached
         // parsing — pause the round with that reason.
-        const reason = phase.stopReason ?? 'yielded'
+        const reason = phase.stopReason
         this.finishActivity(activity, 'error', stoppedDetail(reason))
         return {
           sufficient: false,
@@ -624,7 +654,8 @@ export class CriticalThinkingResearchRunner {
           result: await this.stopStep(reason, round.id)
         }
       }
-      const parsed = phase.value
+      const parsed =
+        phase.value ?? parseResearchAssessment(phase.content, run.researchPolicy.maxQueriesPerRound)
       const verifiedUrlCount = verifiedUrlsForStep(stepArtifacts, step).size
       const sufficient = Boolean(
         parsed.assessment && assessmentIsSufficient(parsed.assessment, verifiedUrlCount)
@@ -633,10 +664,29 @@ export class CriticalThinkingResearchRunner {
         verdict: 'continue' as const,
         evidenceBasis: 'insufficient' as const,
         rationale: 'The model response could not be validated as a structured coverage decision.',
-        remainingGaps: ['A valid evidence coverage assessment is still required.'],
+        // Left empty rather than an internal diagnostic sentence — a step's
+        // gap list is user-facing (rendered verbatim in the report and in
+        // "Why some areas are incomplete"), and "A valid evidence coverage
+        // assessment is still required" reads as a research gap when it is
+        // actually a parser-failure message about our own JSON contract.
+        // Leaving this empty lets the fallback below use `parsed.uncertainties`
+        // instead — whatever the model's own raw text actually said was
+        // missing, which is meaningful to a reader; this placeholder was not.
+        remainingGaps: [],
         nextQueries: []
       }
-      const finding = parsed.valid ? parsed.finding : step.finding
+      // Only fall back to the step's prior finding when it already holds one:
+      // clobbering a validated multi-round finding with an unvalidated round's
+      // text would let one malformed response erase earlier, real progress
+      // (see the "does not replace a valid cumulative finding" test). But when
+      // the step has no finding yet, keeping `step.finding` empty just to be
+      // "safe" throws away the model's actual work for no benefit — this round
+      // was going to be the step's only content either way, and
+      // `parseResearchAssessment` already extracts `finding` (or the raw
+      // response text as a last resort) independent of whether the
+      // verdict/evidenceBasis JSON scaffolding parsed, so there is real
+      // substance here even when `valid` is false.
+      const finding = parsed.valid || !step.finding.trim() ? parsed.finding : step.finding
       this.deps.updateRound(round.id, {
         status: 'completed',
         finding,
@@ -944,6 +994,46 @@ function requireRound(run: CriticalThinkingRun, roundId: string): CriticalThinki
 
 function usedQueries(step: CriticalThinkingStepState): string[] {
   return step.rounds.flatMap((round) => round.queries)
+}
+
+const FALLBACK_QUERY_STOP_WORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'from',
+  'with',
+  'that',
+  'this',
+  'into',
+  'across',
+  'current',
+  'strongest',
+  'evidence',
+  'search',
+  'examine',
+  'review',
+  'consult',
+  'compare',
+  'comparative',
+  'related',
+  'why',
+  'differ'
+])
+
+/** A compact keyword query when a local model cannot satisfy the JSON query contract. */
+function buildFallbackResearchQuery(question: string, step: string): string {
+  const seen = new Set<string>()
+  const terms = `${step} ${question}`
+    .toLowerCase()
+    .match(/[\p{L}\p{N}][\p{L}\p{N}-]{1,}/gu)
+    ?.filter((term) => {
+      if (FALLBACK_QUERY_STOP_WORDS.has(term) || seen.has(term)) return false
+      seen.add(term)
+      return true
+    })
+    .slice(0, 28)
+  const query = terms?.join(' ').trim() ?? ''
+  return query ? truncate(query, 300) : truncate(step, 300)
 }
 
 function novelQueries(queries: string[], used: string[], limit: number): string[] {

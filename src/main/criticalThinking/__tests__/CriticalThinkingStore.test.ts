@@ -136,6 +136,50 @@ describe('normalizeCriticalThinkingRun', () => {
     expect(normalized.sources[0].title).toHaveLength(300)
     expect(normalized.sources[0].snippet).toHaveLength(500)
   })
+
+  it('normalizes bounded synthesis diagnostics without breaking legacy runs', () => {
+    const legacy = normalizeCriticalThinkingRun(makeRun('partial'))
+    expect(legacy.synthesisDiagnostics).toBeNull()
+
+    const run = makeRun('partial')
+    run.synthesisDiagnostics = {
+      startedAt: 10,
+      completedAt: 20,
+      verifiedSourceCount: 3,
+      evidencePacketChars: 2_000,
+      strategy: 'hierarchical-recovery',
+      selectedStage: 'hierarchical-report',
+      attempts: [
+        {
+          stage: 'section',
+          stepId: 'step_1',
+          contentChars: 50_000,
+          content: 'x'.repeat(50_000),
+          stopReason: 'token-limit',
+          safe: true,
+          usable: true,
+          valid: false,
+          citedBlockCount: 2,
+          issues: ['repair this']
+        }
+      ]
+    }
+
+    const normalized = normalizeCriticalThinkingRun(run)
+
+    expect(normalized.synthesisDiagnostics).toMatchObject({
+      strategy: 'hierarchical-recovery',
+      selectedStage: 'hierarchical-report'
+    })
+    expect(normalized.synthesisDiagnostics?.attempts[0]).toMatchObject({
+      stage: 'section',
+      stepId: 'step_1',
+      stopReason: 'token-limit',
+      safe: true,
+      citedBlockCount: 2
+    })
+    expect(normalized.synthesisDiagnostics?.attempts[0].content).toHaveLength(24_000)
+  })
 })
 
 describe('CriticalThinkingStore persistence', () => {

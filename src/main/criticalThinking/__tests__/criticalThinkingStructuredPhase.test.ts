@@ -123,6 +123,26 @@ describe('runStructuredPhase', () => {
     expect(buildRepairPrompt).not.toHaveBeenCalled()
   })
 
+  it('never repairs after an orchestration-level stop', async () => {
+    const generate = vi.fn().mockResolvedValue(
+      generation('not json', {
+        stopped: true,
+        stopReason: 'yielded'
+      })
+    )
+    const buildRepairPrompt = vi.fn()
+
+    const result = await runStructuredPhase('prompt', new AbortController().signal, {
+      generate,
+      parse: () => ({ value: null, valid: false }),
+      buildRepairPrompt
+    })
+
+    expect(result.stopReason).toBe('yielded')
+    expect(generate).toHaveBeenCalledTimes(1)
+    expect(buildRepairPrompt).not.toHaveBeenCalled()
+  })
+
   it('does not repair when no repair prompt builder is configured', async () => {
     const generate = vi.fn().mockResolvedValue(generation('not json'))
 

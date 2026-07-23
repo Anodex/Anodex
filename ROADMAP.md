@@ -286,6 +286,15 @@ not correctness or security — lowest priority item on this whole list.
 
 ## Recently resolved (kept briefly for context, not action items)
 
+- **Detailed local-model Critical Thinking reports (2026-07-22)** — corrected the
+  per-round page-limit overflow, expanded broad-plan attempt budgets, strengthened
+  authoritative-source selection, constrained local structured phases, and added
+  bounded retry/query recovery for malformed output. Final synthesis now scales its
+  output budget to the active context and recovers broad failed drafts through
+  independently validated per-step sections plus a constrained overview. Richer
+  evidence fallbacks and persisted synthesis diagnostics prevent a short model
+  fragment from hiding or discarding a successful research run.
+
 - **Context reliability and bounded Critical Thinking (2026-07-19)** — replaced
   GPU-backed mid-turn summaries with deterministic checkpoints, added durable
   structured search/fetch artifacts and focused passage extraction, introduced

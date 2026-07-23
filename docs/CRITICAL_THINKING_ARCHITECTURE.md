@@ -139,6 +139,11 @@ Aggregate step fields remain important:
 - `uncertainties` holds the latest unresolved gaps;
 - `terminationReason` records a typed service/provider limit.
 
+Each run may also retain bounded `synthesisDiagnostics`: the attempted synthesis
+stage, visible output, stop reason, citation count, and validation issues. This is
+local diagnostic state, not report content, and lets a failed local-model draft be
+inspected after restart instead of being lost when a fallback replaces it.
+
 Each `CriticalThinkingRoundState` stores:
 
 - a stable ID and zero-based lifetime index;
@@ -192,9 +197,9 @@ The policy is pinned when the run is created. Current defaults are:
 | Selected pages per round                 |          4 |
 | Concurrent searches                      |          3 |
 | Concurrent fetches                       |          3 |
-| Rounds across an active attempt          |         18 |
-| Searches across an active attempt        |         24 |
-| Fetches across an active attempt         |         36 |
+| Rounds across an active attempt          |         21 |
+| Searches across an active attempt        |         63 |
+| Fetches across an active attempt         |         84 |
 | Verified pages across the run lifetime   |        100 |
 | Active research-attempt wall clock       | 60 minutes |
 | Active step wall clock                   | 10 minutes |
@@ -229,11 +234,19 @@ The draft uses internal markers such as `[[S1]]` and `[[S1:P2]]`. Validation che
 - chart JSON is valid and chart values appear in cited evidence.
 
 One bounded, tool-free repair pass receives the validation issues and a reduced
-evidence packet. The repaired draft is validated again. Only then are internal
-markers rendered into deterministic, title-sanitized Markdown links. Chart fences
-are parsed and rewritten structurally so untrusted source metadata cannot corrupt
-their JSON. Any remaining validation issue, or any limited plan step, produces a
-clearly labeled Partial result.
+evidence packet. The repaired draft is validated again. When a broad local run is
+still unusable, synthesis switches to hierarchical recovery: each researched step
+gets its own bounded evidence packet and independently validated section (with one
+section repair when needed), then a constrained JSON phase produces only the
+executive summary and conclusion. The assembled report is validated as a whole and
+is compared with the earlier candidates before selection.
+
+If model output still cannot produce a safe substantive report, a deterministic
+fallback preserves multiple passages from multiple sources per step. Only then are
+internal markers rendered into deterministic, title-sanitized Markdown links.
+Chart fences are parsed and rewritten structurally so untrusted source metadata
+cannot corrupt their JSON. Any remaining validation issue, or any limited plan step,
+produces a clearly labeled Partial result.
 
 ## UI and Broadcast Behavior
 
@@ -257,7 +270,8 @@ synthesis. Exact evidence is never sent through the report token stream.
 5. Never promote a search result or model-written URL to verified evidence.
 6. Do not accept model-proposed sufficiency without the service evidence floor.
 7. Keep run policies pinned and legacy normalization non-destructive.
-8. Generate reports from the evidence ledger, then validate and repair once.
+8. Generate reports from the evidence ledger, validate each promoted candidate,
+   and keep hierarchical recovery bounded and tool-free.
 9. Preserve distinct Stop and limit reasons all the way to the UI.
 10. Bound persisted text, activity history, concurrency, rounds, and network work.
 

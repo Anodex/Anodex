@@ -52,7 +52,14 @@ export async function runStructuredPhase<T>(
   deps: StructuredPhaseDeps<T>
 ): Promise<StructuredPhaseResult<T>> {
   const first = await runOneAttempt(prompt, signal, deps)
-  if (first.value !== null || first.userStopped || !deps.buildRepairPrompt) return first
+  if (
+    first.value !== null ||
+    first.userStopped ||
+    !isRecoverableContentStopReason(first.stopReason) ||
+    !deps.buildRepairPrompt
+  ) {
+    return first
+  }
 
   const repair = await runOneAttempt(
     deps.buildRepairPrompt(first.content, first.issues),

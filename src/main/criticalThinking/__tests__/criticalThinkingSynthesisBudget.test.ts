@@ -22,6 +22,13 @@ describe('Critical Thinking synthesis budgets', () => {
     expect(criticalThinkingContextTokens('openai', 'unknown-model', undefined)).toBe(128_000)
   })
 
+  it('honors a larger configured report budget when the active context can hold it', () => {
+    expect(criticalThinkingSynthesisLimits(32_768, 8_192).maxOutputTokens).toBe(8_192)
+    expect(criticalThinkingSynthesisLimits(8_192, 8_192).maxOutputTokens).toBe(
+      Math.floor(8_192 * 0.3)
+    )
+  })
+
   it('bounds item lists without breaking their outer structure', () => {
     expect(boundPromptItems([' first ', 'second'], 8)).toEqual(['first', 'se…'])
   })

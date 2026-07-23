@@ -7,7 +7,11 @@ import type {
   CriticalThinkingStepState
 } from '@shared/criticalThinking.types'
 import type { Plan } from '@shared/plan.types'
-import type { ToolArtifact, WebFetchArtifactDraft } from '@shared/toolArtifacts.types'
+import type {
+  ToolArtifact,
+  WebFetchArtifact,
+  WebFetchArtifactDraft
+} from '@shared/toolArtifacts.types'
 import type { ToolCall } from '@shared/tools.types'
 import type { RunGenerationIo, RunGenerationResult } from '../../chat/runGeneration'
 import type { SearchResult } from '../../tools/search/types'
@@ -364,7 +368,7 @@ Additional species remain uncompared.
 
 The two venoms differ meaningfully in their pain profile [[S1:P1]].`
 
-function synthesisArtifact(): ToolArtifact {
+function synthesisArtifact(): WebFetchArtifact {
   return {
     id: 'artifact_synthesis',
     conversationId: 'critical_test_synthesis',
@@ -418,6 +422,56 @@ function seedSynthesisRun(): CriticalThinkingRun {
   return run
 }
 
+function seedHierarchicalSynthesisRun(): CriticalThinkingRun {
+  const run = seedSynthesisRun()
+  const secondSource: CriticalThinkingSource = {
+    id: 'S2',
+    title: 'Independent comparative study',
+    url: 'https://example.org/comparison',
+    verified: true
+  }
+  const secondArtifact: ToolArtifact = {
+    ...synthesisArtifact(),
+    id: 'artifact_synthesis_2',
+    requestedUrl: secondSource.url,
+    finalUrl: secondSource.url,
+    title: secondSource.title,
+    contentHash: 'hash-2',
+    passages: [
+      {
+        id: 'P1',
+        text: 'Wasp venom produces a longer-lasting inflammatory pain response in the comparison.',
+        score: 100
+      }
+    ],
+    research: { stepId: 'step-2', roundId: 'round_synthesis_2' }
+  }
+  run.plan = {
+    ...run.plan!,
+    steps: [
+      ...run.plan!.steps,
+      { id: 'step-2', title: 'Compare inflammatory duration', status: 'completed' }
+    ]
+  }
+  run.steps = [
+    ...run.steps,
+    {
+      id: 'step-2',
+      title: 'Compare inflammatory duration',
+      status: 'completed',
+      attempts: 1,
+      evidenceIds: [secondArtifact.id],
+      finding: 'Wasp venom can produce a longer inflammatory response.',
+      uncertainties: [],
+      rounds: []
+    }
+  ]
+  run.sources = [SYNTHESIS_SOURCE, secondSource]
+  mocks.runs.set(run.id, run)
+  mocks.artifacts.set(run.id, [synthesisArtifact(), secondArtifact])
+  return run
+}
+
 beforeEach(() => {
   mocks.runs.clear()
   mocks.artifacts.clear()
@@ -439,6 +493,13 @@ describe('CriticalThinkingService planning: artifact-first termination semantics
     expect(persisted?.plan?.title).toBe(VALID_PLAN.title)
     expect(persisted?.plan?.steps).toHaveLength(3)
     expect(persisted?.lastError).toBeNull()
+    const request = mocks.runGeneration.mock.calls[0]?.[0] as {
+      options?: { jsonSchema?: Record<string, unknown> }
+    }
+    expect(request.options?.jsonSchema).toMatchObject({
+      type: 'object',
+      required: ['title', 'steps']
+    })
   })
 
   it('persists a valid plan after a recoverable token-limit stop instead of discarding it', async () => {
@@ -722,6 +783,139 @@ A second substantiated point about the underlying pain mechanism follows [[S1:P1
     expect(persisted?.report).not.toContain('This report synthesizes available evidence')
     expect(persisted?.report).not.toContain('Still not enough.')
     expect(mocks.runGeneration).toHaveBeenCalledTimes(2)
+    expect(persisted?.synthesisDiagnostics?.strategy).toBe('deterministic-fallback')
+    expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('deterministic-fallback')
+    expect(persisted?.synthesisDiagnostics?.attempts.map((attempt) => attempt.stage)).toEqual([
+      'draft',
+      'repair',
+      'deterministic-fallback'
+    ])
+  })
+
+  it('recovers a broad local report with independently validated step sections', async () => {
+    const run = seedHierarchicalSynthesisRun()
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({ content: 'A short uncited draft.', stats: EMPTY_STATS, stopped: false })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: 'An equally unusable repair.',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content:
+            'Bee venom produces the sharper acute pain response in the fetched comparison [[S1:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content:
+            'Wasp venom produces the longer-lasting inflammatory response in the independent comparison [[S2:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: JSON.stringify({
+            executiveSummary:
+              'The evidence distinguishes acute intensity from inflammatory duration [[S1:P1]] [[S2:P1]].',
+            conclusion:
+              'Bee and wasp stings differ along more than one pain dimension [[S1:P1]] [[S2:P1]].'
+          }),
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.report).toContain('sharper acute pain response')
+    expect(persisted?.report).toContain('longer-lasting inflammatory response')
+    expect(persisted?.report).not.toContain('Research result:')
+    expect(persisted?.synthesisDiagnostics?.strategy).toBe('hierarchical-recovery')
+    expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('hierarchical-report')
+    expect(persisted?.synthesisDiagnostics?.attempts.map((attempt) => attempt.stage)).toEqual([
+      'draft',
+      'repair',
+      'section',
+      'section',
+      'overview',
+      'hierarchical-report'
+    ])
+    expect(mocks.runGeneration).toHaveBeenCalledTimes(5)
+  })
+
+  it('expands a structurally valid but shallow broad local report', async () => {
+    const run = seedHierarchicalSynthesisRun()
+    const shallowDraft = `# Sting Comparison
+
+## Executive Summary
+
+Bee and wasp stings differ [[S1:P1]] [[S2:P1]].
+
+## Findings
+
+The evidence distinguishes acute pain from inflammatory duration [[S1:P1]] [[S2:P1]].
+
+## Limits and Open Questions
+
+Other species remain unresolved.
+
+## Sources
+
+[[S1]] [[S2]]
+
+## Conclusion
+
+The comparison supports a real difference [[S1:P1]] [[S2:P1]].`
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({ content: shallowDraft, stats: EMPTY_STATS, stopped: false })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content:
+            'The acute-pain evidence attributes the sharper immediate response to bee venom and explains why that dimension matters [[S1:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content:
+            'The duration evidence distinguishes the longer inflammatory response associated with wasp venom from immediate intensity [[S2:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: JSON.stringify({
+            executiveSummary:
+              'Immediate intensity and inflammatory duration are distinct comparative dimensions [[S1:P1]] [[S2:P1]].',
+            conclusion:
+              'The fuller evidence supports a multidimensional comparison rather than one pain ranking [[S1:P1]] [[S2:P1]].'
+          }),
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.report).toContain('sharper immediate response')
+    expect(persisted?.report).toContain('longer inflammatory response')
+    expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('hierarchical-report')
+    expect(mocks.runGeneration).toHaveBeenCalledTimes(4)
   })
 
   it('completes via repair when the repair recovers a valid draft despite its own recoverable stop', async () => {
