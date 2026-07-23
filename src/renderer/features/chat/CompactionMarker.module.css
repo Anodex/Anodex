@@ -12,8 +12,10 @@
 }
 
 .line {
+  position: relative;
   flex: 1;
   height: 1px;
+  overflow: hidden;
   background: var(--border);
 }
 
@@ -48,6 +50,7 @@
   background: var(--bg-base);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  animation: settle 220ms var(--ease-out) backwards;
 }
 
 .summaryMeta {
@@ -60,4 +63,110 @@
   font-size: var(--text-sm);
   color: var(--text-muted);
   white-space: pre-wrap;
+}
+
+/*
+ * The stitch: a one-shot ~700ms arrival for live compactions (`.arriving` is
+ * applied only when the snapshot was created moments ago). The threads draw
+ * outward from the pill, one breath of accent light travels each thread while
+ * the pill settles and glows once — then the marker is perfectly still.
+ */
+
+.arriving .line:first-child {
+  transform-origin: right center;
+  animation: threadDraw 340ms var(--ease-out) 60ms backwards;
+}
+
+.arriving .line:last-child {
+  transform-origin: left center;
+  animation: threadDraw 340ms var(--ease-out) 60ms backwards;
+}
+
+.arriving .line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+  opacity: 0;
+}
+
+.arriving .line:first-child::after {
+  animation: sweepIn 520ms var(--ease-out) 220ms backwards;
+}
+
+.arriving .line:last-child::after {
+  animation: sweepOut 520ms var(--ease-out) 220ms backwards;
+}
+
+.arriving .pill {
+  animation:
+    settle 260ms var(--ease-out) backwards,
+    pillGlow 560ms var(--ease-out) 180ms backwards;
+}
+
+@keyframes threadDraw {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes sweepIn {
+  0% {
+    transform: translateX(100%);
+    opacity: 0.45;
+  }
+
+  100% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes sweepOut {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0.45;
+  }
+
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pillGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(79, 140, 255, 0);
+  }
+
+  40% {
+    box-shadow: 0 0 14px rgba(79, 140, 255, 0.28);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arriving .line:first-child,
+  .arriving .line:last-child,
+  .arriving .line::after,
+  .arriving .pill,
+  .summary {
+    animation: none !important;
+  }
 }

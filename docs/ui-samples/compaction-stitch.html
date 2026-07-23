@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anodex — compaction stitch</title>
+    <style>
+      :root {
+        /* Mirrors src/renderer/styles/themes/midnight.css (dark, default) */
+        --bg-base: #080808;
+        --bg-app: #0c0c0c;
+        --bg-surface: #111111;
+        --bg-surface-2: #161616;
+        --bg-elevated: #1c1c1c;
+        --bg-input: #0f0f0f;
+        --border: #1f1f1f;
+        --border-strong: #2a2a2a;
+        --text: #f0f0f0;
+        --text-muted: #a0a0a0;
+        --text-faint: #606060;
+        --accent-cyan: #38bdf8;
+        --accent-violet: #7c5cff;
+        --accent: #4f8cff;
+        --accent-soft: rgba(79, 140, 255, 0.12);
+
+        --radius-sm: 4px;
+        --radius-md: 6px;
+        --radius-lg: 8px;
+        --radius-pill: 999px;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-6: 24px;
+        --text-xs: 11px;
+        --text-sm: 12px;
+        --text-md: 14px;
+        --font-sans:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        --ease: cubic-bezier(0.4, 0, 0.2, 1);
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        --transition-fast: 120ms var(--ease);
+      }
+
+      :root[data-theme-mode='light'] {
+        /* Mirrors src/renderer/styles/themes/light.css */
+        --bg-base: #f2f0eb;
+        --bg-app: #f9f8f5;
+        --bg-surface: #f9f8f5;
+        --bg-surface-2: #f0eee8;
+        --bg-elevated: #e9e6df;
+        --bg-input: #f9f8f5;
+        --border: #e3e0d8;
+        --border-strong: #d1cdc2;
+        --text: #23211d;
+        --text-muted: #6f6a60;
+        --text-faint: #a29c8f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: var(--font-sans);
+        color: var(--text);
+        background: var(--bg-base);
+        transition:
+          background 200ms var(--ease),
+          color 200ms var(--ease);
+      }
+
+      .page {
+        width: min(860px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0 56px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--accent-cyan);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.6rem, 3vw, 2.2rem);
+        letter-spacing: -0.03em;
+      }
+
+      .lede {
+        max-width: 76ch;
+        margin: 0;
+        color: var(--text-muted);
+        line-height: 1.6;
+        font-size: var(--text-md);
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+      }
+
+      .toolbar {
+        position: sticky;
+        top: 12px;
+        z-index: 5;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin: 20px 0 32px;
+        padding: 10px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        backdrop-filter: blur(8px);
+      }
+
+      .btn {
+        padding: 8px 14px;
+        background: var(--bg-surface-2);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-size: var(--text-sm);
+        transition:
+          background var(--transition-fast),
+          border-color var(--transition-fast);
+      }
+
+      .btn:hover {
+        background: var(--bg-elevated);
+      }
+
+      .btn.primary {
+        border-color: rgba(79, 140, 255, 0.5);
+        background: var(--accent-soft);
+      }
+
+      .note {
+        color: var(--text-faint);
+        font-size: var(--text-sm);
+      }
+
+      /* ---------- Mock chat surface ---------- */
+
+      .chat {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+        padding: var(--space-6);
+        background: var(--bg-app);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+      }
+
+      .msg {
+        max-width: 78%;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: var(--bg-surface);
+        font-size: var(--text-md);
+        line-height: 1.55;
+        color: var(--text);
+      }
+
+      .msg.user {
+        align-self: flex-end;
+        border-color: rgba(79, 140, 255, 0.26);
+        background: var(--accent-soft);
+      }
+
+      .msg .who {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--text-faint);
+        font-size: var(--text-xs);
+      }
+
+      /* ---------- The compaction marker (mirrors CompactionMarker.module.css) ---------- */
+
+      .wrap {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        margin: var(--space-2) 0;
+      }
+
+      .dividerRow {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+      }
+
+      .line {
+        position: relative;
+        flex: 1;
+        height: 1px;
+        overflow: hidden;
+        background: var(--border);
+      }
+
+      .pill {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        gap: var(--space-1);
+        padding: var(--space-1) var(--space-3);
+        font-size: var(--text-xs);
+        color: var(--text-faint);
+        background: var(--bg-surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-pill);
+        cursor: pointer;
+        transition:
+          color var(--transition-fast),
+          background var(--transition-fast);
+      }
+
+      .pill:hover {
+        color: var(--text-muted);
+        background: var(--bg-elevated);
+      }
+
+      .summary {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+        padding: var(--space-2) var(--space-3);
+        background: var(--bg-base);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+      }
+
+      .summaryMeta {
+        font-size: var(--text-xs);
+        color: var(--text-faint);
+      }
+
+      .summaryText {
+        margin: 0;
+        font-size: var(--text-sm);
+        color: var(--text-muted);
+        white-space: pre-wrap;
+      }
+
+      /*
+       * ---------- The stitch ----------
+       * One-shot arrival, ~700ms end to end, only when a compaction happens
+       * LIVE (integration: a `fresh` prop on CompactionMarker; history renders
+       * without it). Three layers, all from the centre outward:
+       *   1. the threads draw out from the pill (scaleX, 340ms)
+       *   2. the pill settles in (opacity + scale, 260ms)
+       *   3. one breath of accent light travels each thread (520ms) while the
+       *      pill glows once — then everything is perfectly still.
+       */
+
+      .arriving .lineL {
+        transform-origin: right center;
+        animation: threadDraw 340ms var(--ease-out) 60ms backwards;
+      }
+
+      .arriving .lineR {
+        transform-origin: left center;
+        animation: threadDraw 340ms var(--ease-out) 60ms backwards;
+      }
+
+      .arriving .line::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+        opacity: 0;
+      }
+
+      .arriving .lineL::after {
+        animation: sweepL 520ms var(--ease-out) 220ms backwards;
+      }
+
+      .arriving .lineR::after {
+        animation: sweepR 520ms var(--ease-out) 220ms backwards;
+      }
+
+      .arriving .pill {
+        animation:
+          pillSettle 260ms var(--ease-out) backwards,
+          pillGlow 560ms var(--ease-out) 180ms backwards;
+      }
+
+      @keyframes threadDraw {
+        from {
+          transform: scaleX(0);
+        }
+
+        to {
+          transform: scaleX(1);
+        }
+      }
+
+      @keyframes sweepL {
+        0% {
+          transform: translateX(100%);
+          opacity: 0.45;
+        }
+
+        100% {
+          transform: translateX(-100%);
+          opacity: 0;
+        }
+      }
+
+      @keyframes sweepR {
+        0% {
+          transform: translateX(-100%);
+          opacity: 0.45;
+        }
+
+        100% {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+      }
+
+      @keyframes pillSettle {
+        from {
+          opacity: 0;
+          transform: scale(0.92);
+        }
+
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes pillGlow {
+        0%,
+        100% {
+          box-shadow: 0 0 0 rgba(79, 140, 255, 0);
+        }
+
+        40% {
+          box-shadow: 0 0 14px rgba(79, 140, 255, 0.28);
+        }
+      }
+
+      /* The summary panel eases open when expanded right after arrival too */
+      .summary.arriving {
+        animation: pillSettle 220ms var(--ease-out) backwards;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .arriving .lineL,
+        .arriving .lineR,
+        .arriving .line::after,
+        .arriving .pill,
+        .summary.arriving {
+          animation: none !important;
+        }
+      }
+
+      .footnote {
+        margin-top: 24px;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: var(--bg-surface);
+        color: var(--text-muted);
+        font-size: var(--text-sm);
+        line-height: 1.6;
+      }
+
+      .footnote code {
+        font-family: var(--font-mono, monospace);
+        font-size: 11px;
+        color: var(--text);
+        background: var(--bg-surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 1px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <p class="eyebrow">Soul moment · proposal</p>
+      <h1>Compaction stitch</h1>
+      <p class="lede">
+        When Anodex folds older turns into a context snapshot, the marker currently just appears.
+        This gives that moment a single 700ms arrival: the threads draw outward from the pill, one
+        breath of accent light travels each thread, the pill settles — then it is perfectly still
+        forever. It only plays when compaction happens live, never when loading history.
+      </p>
+
+      <section class="toolbar" aria-label="Sample controls">
+        <button class="btn primary" id="compactBtn" type="button">Trigger compaction</button>
+        <button class="btn" id="resetBtn" type="button">Reset</button>
+        <button class="btn" id="themeBtn" type="button">Toggle light/dark</button>
+        <span class="note">Click the pill afterwards to expand the summary.</span>
+      </section>
+
+      <section class="chat" id="chat" aria-label="Mock conversation">
+        <div class="msg user"><span class="who">You</span>Walk me through the scheduler code.</div>
+        <div class="msg">
+          <span class="who">Anodex</span>The scheduler lives in SchedulerService — tasks are cron
+          parsed, persisted, and re-armed on boot…
+        </div>
+        <div class="msg user"><span class="who">You</span>Now refactor the retry logic.</div>
+        <div class="msg">
+          <span class="who">Anodex</span>Done — retries now back off exponentially and cap at five
+          attempts. Want tests for the failure path as well?
+        </div>
+      </section>
+
+      <p class="footnote">
+        <strong>Integration:</strong> add a <code>fresh</code> prop to
+        <code>CompactionMarker</code> — true only when the marker mounts because compaction just ran
+        (snapshot created within a few seconds), which applies the <code>arriving</code> class once.
+        Rendering old history omits it, so re-opening a chat is completely still. Honors
+        <code>prefers-reduced-motion</code>. Theme tokens only; verify in both modes with the toggle
+        above.
+      </p>
+    </main>
+
+    <script>
+      const chat = document.querySelector('#chat')
+      const compactBtn = document.querySelector('#compactBtn')
+      let marker = null
+
+      function makeMarker() {
+        const wrap = document.createElement('div')
+        wrap.className = 'wrap arriving'
+        wrap.innerHTML = `
+          <div class="dividerRow">
+            <div class="line lineL"></div>
+            <button type="button" class="pill">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+              <span>6 older turns summarized</span>
+              <span class="chev" aria-hidden="true">›</span>
+            </button>
+            <div class="line lineR"></div>
+          </div>`
+
+        const pill = wrap.querySelector('.pill')
+        const chev = wrap.querySelector('.chev')
+        let summaryEl = null
+        pill.addEventListener('click', () => {
+          if (summaryEl) {
+            summaryEl.remove()
+            summaryEl = null
+            chev.textContent = '›'
+            return
+          }
+          summaryEl = document.createElement('div')
+          summaryEl.className = 'summary arriving'
+          summaryEl.innerHTML = `
+            <span class="summaryMeta">Compacted at 4:12 PM</span>
+            <p class="summaryText">Explored SchedulerService: cron parsing, persistence, and re-arm on boot. Refactored retry logic to exponential backoff (max 5). Decided to keep task history in SQLite rather than JSON.</p>`
+          wrap.appendChild(summaryEl)
+          chev.textContent = '⌄'
+        })
+        return wrap
+      }
+
+      compactBtn.addEventListener('click', () => {
+        if (marker) marker.remove()
+        marker = makeMarker()
+        // Insert where the fold happened: between the older and newer turns
+        chat.insertBefore(marker, chat.children[2])
+      })
+
+      document.querySelector('#resetBtn').addEventListener('click', () => {
+        if (marker) marker.remove()
+        marker = null
+      })
+
+      document.querySelector('#themeBtn').addEventListener('click', () => {
+        const root = document.documentElement
+        root.dataset.themeMode = root.dataset.themeMode === 'light' ? '' : 'light'
+        if (!root.dataset.themeMode) delete root.dataset.themeMode
+      })
+    </script>
+  </body>
+</html>
