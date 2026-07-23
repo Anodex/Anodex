@@ -32,6 +32,9 @@
 .error .icon {
   color: var(--danger);
 }
+.pending .icon {
+  color: var(--accent);
+}
 
 .body {
   flex: 1;

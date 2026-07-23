@@ -8,7 +8,7 @@ import { logDiagnostic } from './diagnosticsStore'
 import { appendPendingConfirmation, removePendingConfirmation } from './pendingConfirmations'
 
 export type AppView = 'chat' | 'settings' | 'scheduler' | 'agent' | 'critical-thinking' | 'email'
-export type ToastKind = 'info' | 'success' | 'error'
+export type ToastKind = 'info' | 'success' | 'error' | 'pending'
 export type SettingsSection =
   | 'profile'
   | 'appearance'
@@ -51,6 +51,16 @@ interface UiState {
   markConversationRead: (conversationId: string, updatedAt: number) => void
   markConversationUnread: (conversationId: string, updatedAt: number) => void
   notify: (toast: Omit<Toast, 'id'>) => void
+  /**
+   * Shows a toast that stays put — no auto-dismiss, no chime — until
+   * `resolveToast` flips it to a final kind. For actions worth surfacing
+   * even if the user navigates away mid-flight (a scheduled task run).
+   * Returns the toast's id.
+   */
+  notifyPending: (title: string, message?: string) => string
+  /** Replaces a pending toast's content and kind, then starts its normal
+   *  auto-dismiss/chime lifecycle. No-op if the toast was already dismissed. */
+  resolveToast: (id: string, patch: Omit<Toast, 'id'>) => void
   dismissToast: (id: string) => void
   addPendingConfirmation: (request: ToolConfirmRequest) => void
   resolveConfirmation: (id: string, response: ToolConfirmResponse) => void
@@ -152,6 +162,23 @@ export const useUiStore = create<UiState>((set, get) => ({
 
     playChime(toast.kind === 'error' ? 'error' : 'success')
     if (toast.kind === 'success') notifyDesktop(toast.title, toast.message ?? '')
+  },
+
+  notifyPending: (title, message) => {
+    const id = createId('toast')
+    set((state) => ({ toasts: [...state.toasts, { id, kind: 'pending', title, message }] }))
+    return id
+  },
+
+  resolveToast: (id, patch) => {
+    if (!get().toasts.some((t) => t.id === id)) return
+    set((state) => ({ toasts: state.toasts.map((t) => (t.id === id ? { id, ...patch } : t)) }))
+    const ttl = patch.kind === 'error' ? 7000 : 4000
+    setTimeout(() => {
+      set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
+    }, ttl)
+    playChime(patch.kind === 'error' ? 'error' : 'success')
+    if (patch.kind === 'success') notifyDesktop(patch.title, patch.message ?? '')
   },
 
   dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))

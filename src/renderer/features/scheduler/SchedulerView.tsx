@@ -3,6 +3,7 @@ import type { ScheduledTask } from '@shared/scheduledTask.types'
 import type { IconName } from '../../components/Icon'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
+import { Spinner } from '../../components/ui/Spinner'
 import { SidebarSearch } from '../../components/sidebar/SidebarSearch'
 import { ToggleControl, SelectControl } from '../settings/controls'
 import { useSchedulerStore } from '../../stores/schedulerStore'
@@ -170,7 +171,7 @@ function TaskCard({
           aria-label="Run now"
           title="Run now"
         >
-          <Icon name="send" size={14} />
+          {runningId === task.id ? <Spinner size={14} /> : <Icon name="send" size={14} />}
         </button>
         <button
           type="button"

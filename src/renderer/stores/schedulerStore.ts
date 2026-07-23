@@ -5,7 +5,7 @@ import type {
   UpdateScheduledTaskRequest
 } from '@shared/scheduledTask.types'
 import { anodex } from '../lib/anodex'
-import { notifyError } from './uiStore'
+import { notifyError, useUiStore } from './uiStore'
 
 interface SchedulerState {
   tasks: ScheduledTask[]
@@ -22,7 +22,7 @@ interface SchedulerState {
 }
 
 /** Mirrors the persisted scheduled-task list from the main process. */
-export const useSchedulerStore = create<SchedulerState>((set) => ({
+export const useSchedulerStore = create<SchedulerState>((set, get) => ({
   tasks: [],
   keepAwake: false,
   loaded: false,
@@ -65,10 +65,41 @@ export const useSchedulerStore = create<SchedulerState>((set) => ({
   },
 
   runNow: async (id) => {
+    const name = get().tasks.find((t) => t.id === id)?.name ?? 'Scheduled task'
+    const { notifyPending, resolveToast } = useUiStore.getState()
+    const toastId = notifyPending(`Running "${name}"…`)
     try {
       await anodex.scheduler.runNow(id)
+      // A run failure inside the task itself (e.g. the agent errored) doesn't
+      // reject this promise — SchedulerService catches it, records
+      // `lastRunStatus`, and resolves normally. The freshly broadcast task
+      // list (updated before this promise resolves) is the real signal.
+      const finished = get().tasks.find((t) => t.id === id)
+      if (finished?.lastRunStatus === 'error') {
+        resolveToast(toastId, {
+          kind: 'error',
+          title: `"${name}" failed`,
+          message: finished.lastRunSummary ?? undefined
+        })
+      } else if (finished?.lastRunStatus === 'stopped') {
+        resolveToast(toastId, {
+          kind: 'info',
+          title: `"${name}" stopped`,
+          message: finished.lastRunSummary ?? undefined
+        })
+      } else {
+        resolveToast(toastId, {
+          kind: 'success',
+          title: `"${name}" finished`,
+          message: finished?.lastRunSummary ?? undefined
+        })
+      }
     } catch (error) {
-      notifyError('Could not run task', error instanceof Error ? error.message : undefined)
+      resolveToast(toastId, {
+        kind: 'error',
+        title: 'Could not run task',
+        message: error instanceof Error ? error.message : undefined
+      })
     }
   },
 

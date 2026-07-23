@@ -1,9 +1,10 @@
 import { useUiStore } from '../stores/uiStore'
 import { Icon, type IconName } from './Icon'
+import { Spinner } from './ui/Spinner'
 import type { ToastKind } from '../stores/uiStore'
 import styles from './Toasts.module.css'
 
-const ICON_BY_KIND: Record<ToastKind, IconName> = {
+const ICON_BY_KIND: Record<Exclude<ToastKind, 'pending'>, IconName> = {
   info: 'info',
   success: 'check',
   error: 'alert'
@@ -19,7 +20,11 @@ export function Toasts(): JSX.Element {
       {toasts.map((toast) => (
         <div key={toast.id} className={`${styles.toast} ${styles[toast.kind]}`}>
           <span className={styles.icon}>
-            <Icon name={ICON_BY_KIND[toast.kind]} size={16} />
+            {toast.kind === 'pending' ? (
+              <Spinner size={14} />
+            ) : (
+              <Icon name={ICON_BY_KIND[toast.kind]} size={16} />
+            )}
           </span>
           <div className={styles.body}>
             <div className={styles.title}>{toast.title}</div>
