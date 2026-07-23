@@ -40,6 +40,10 @@ export function MessageList({
   // it once here (instead of inside every MessageBubble) avoids an
   // O(bubbles × messages) rescan on every streamed token.
   const conversationStreaming = messages[messages.length - 1]?.streaming ?? false
+  // The conversation's first assistant turn is the only one eligible for the
+  // one-shot "first light" arrival; the bubble itself decides whether it is
+  // actually witnessing that reply stream in live.
+  const firstAssistantId = messages.find((m) => m.role === 'assistant')?.id ?? null
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -170,6 +174,7 @@ export function MessageList({
                   message={message}
                   previousUserContent={findPreviousUserContent(messages, index)}
                   conversationStreaming={conversationStreaming}
+                  firstLight={message.id === firstAssistantId}
                 />
               </div>
               {context?.activeSnapshot && message.id === compactionThroughId && (

@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anodex — first light</title>
+    <style>
+      :root {
+        /* Mirrors src/renderer/styles/themes/midnight.css (dark, default) */
+        --bg-base: #080808;
+        --bg-app: #0c0c0c;
+        --bg-surface: #111111;
+        --bg-surface-2: #161616;
+        --bg-elevated: #1c1c1c;
+        --border: #1f1f1f;
+        --border-strong: #2a2a2a;
+        --text: #f0f0f0;
+        --text-muted: #a0a0a0;
+        --text-faint: #606060;
+        --accent-cyan: #38bdf8;
+        --accent: #4f8cff;
+        --accent-soft: rgba(79, 140, 255, 0.12);
+
+        --radius-sm: 4px;
+        --radius-md: 6px;
+        --radius-lg: 8px;
+        --radius-pill: 999px;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-6: 24px;
+        --text-xs: 11px;
+        --text-sm: 12px;
+        --text-md: 14px;
+        --font-sans:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        --ease: cubic-bezier(0.4, 0, 0.2, 1);
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        --transition-fast: 120ms var(--ease);
+      }
+
+      :root[data-theme-mode='light'] {
+        /* Mirrors src/renderer/styles/themes/light.css */
+        --bg-base: #f2f0eb;
+        --bg-app: #f9f8f5;
+        --bg-surface: #f9f8f5;
+        --bg-surface-2: #f0eee8;
+        --bg-elevated: #e9e6df;
+        --border: #e3e0d8;
+        --border-strong: #d1cdc2;
+        --text: #23211d;
+        --text-muted: #6f6a60;
+        --text-faint: #a29c8f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: var(--font-sans);
+        color: var(--text);
+        background: var(--bg-base);
+        transition:
+          background 200ms var(--ease),
+          color 200ms var(--ease);
+      }
+
+      .page {
+        width: min(860px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0 56px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--accent-cyan);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.6rem, 3vw, 2.2rem);
+        letter-spacing: -0.03em;
+      }
+
+      .lede {
+        max-width: 76ch;
+        margin: 0;
+        color: var(--text-muted);
+        line-height: 1.6;
+        font-size: var(--text-md);
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+      }
+
+      .toolbar {
+        position: sticky;
+        top: 12px;
+        z-index: 5;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin: 20px 0 32px;
+        padding: 10px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        backdrop-filter: blur(8px);
+      }
+
+      .btn {
+        padding: 8px 14px;
+        background: var(--bg-surface-2);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-size: var(--text-sm);
+        transition:
+          background var(--transition-fast),
+          border-color var(--transition-fast);
+      }
+
+      .btn:hover {
+        background: var(--bg-elevated);
+      }
+
+      .btn.primary {
+        border-color: rgba(79, 140, 255, 0.5);
+        background: var(--accent-soft);
+      }
+
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      .note {
+        color: var(--text-faint);
+        font-size: var(--text-sm);
+      }
+
+      /* ---------- Mock chat (mirrors MessageBubble: flat assistant turns) ---------- */
+
+      .chat {
+        display: flex;
+        flex-direction: column;
+        min-height: 320px;
+        padding: var(--space-6);
+        background: var(--bg-app);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+      }
+
+      .row {
+        display: flex;
+        flex-direction: column;
+        padding: var(--space-3) 0;
+        transform-origin: 50% 0;
+        animation: messageIn 220ms var(--ease-out) both;
+      }
+
+      @keyframes messageIn {
+        from {
+          opacity: 0;
+          transform: translateY(8px) scale(0.995);
+        }
+
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      .row.user {
+        align-items: flex-end;
+      }
+
+      .row.user .bubble {
+        max-width: 72%;
+        padding: var(--space-2) var(--space-4);
+        background: var(--bg-surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        border-bottom-right-radius: var(--radius-sm);
+        font-size: var(--text-md);
+        line-height: 1.55;
+      }
+
+      .row.assistant {
+        position: relative;
+        align-items: stretch;
+        padding-top: var(--space-4);
+        padding-bottom: var(--space-4);
+      }
+
+      .meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-2);
+      }
+
+      .meta img {
+        border-radius: var(--radius-sm);
+      }
+
+      .author {
+        font-size: var(--text-sm);
+        font-weight: 600;
+      }
+
+      .time {
+        font-size: var(--text-xs);
+        color: var(--text-faint);
+      }
+
+      .content {
+        font-size: var(--text-md);
+        line-height: 1.6;
+        color: var(--text);
+        white-space: pre-wrap;
+      }
+
+      /* ---------- Thinking indicator (mirrors ThinkingIndicator) ---------- */
+
+      .thinkingRow {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+
+      .sparkle {
+        flex-shrink: 0;
+        width: 15px;
+        height: 15px;
+        color: var(--accent);
+        transform-origin: center;
+        animation: sparkleBreathe 2.6s var(--ease) infinite;
+      }
+
+      .thinking {
+        display: inline-block;
+        padding: var(--space-1) 0;
+        font-size: var(--text-md);
+        font-weight: 500;
+        background-image: linear-gradient(
+          90deg,
+          var(--text-faint) 0%,
+          var(--text-faint) 35%,
+          var(--text) 50%,
+          var(--text-faint) 65%,
+          var(--text-faint) 100%
+        );
+        background-size: 200% 100%;
+        background-clip: text;
+        -webkit-background-clip: text;
+        color: transparent;
+        animation: shimmer 1.8s linear infinite;
+      }
+
+      @keyframes shimmer {
+        0% {
+          background-position: 200% 0;
+        }
+
+        100% {
+          background-position: -200% 0;
+        }
+      }
+
+      @keyframes sparkleBreathe {
+        0%,
+        100% {
+          transform: scale(0.82) rotate(0deg);
+          opacity: 0.65;
+        }
+
+        50% {
+          transform: scale(1) rotate(12deg);
+          opacity: 1;
+        }
+      }
+
+      /*
+       * ---------- First light ----------
+       * Only for the FIRST assistant reply of a brand-new chat, at the moment
+       * the thinking indicator hands off to real words. Two layers, ~800ms:
+       *   1. the sparkle flares once and dissolves upward into the text
+       *   2. a faint band of accent light passes over the opening words
+       * Every later reply arrives plain — this is dawn, and dawn happens once.
+       */
+
+      .sparkle.flare {
+        animation: sparkleFlare 420ms var(--ease-out) forwards;
+      }
+
+      @keyframes sparkleFlare {
+        0% {
+          transform: scale(1) rotate(12deg);
+          opacity: 1;
+        }
+
+        45% {
+          transform: scale(1.7) rotate(40deg);
+          opacity: 0.9;
+        }
+
+        100% {
+          transform: scale(0.4) rotate(70deg);
+          opacity: 0;
+        }
+      }
+
+      .firstLightBand {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        border-radius: var(--radius-md);
+        pointer-events: none;
+      }
+
+      .firstLightBand::after {
+        content: '';
+        position: absolute;
+        inset: -20% -60%;
+        background: linear-gradient(
+          100deg,
+          transparent 34%,
+          rgba(79, 140, 255, 0.11) 46%,
+          rgba(178, 200, 255, 0.16) 50%,
+          rgba(79, 140, 255, 0.11) 54%,
+          transparent 66%
+        );
+        animation: firstLight 820ms var(--ease-out) 120ms both;
+      }
+
+      @keyframes firstLight {
+        0% {
+          transform: translateX(-55%);
+          opacity: 0;
+        }
+
+        18% {
+          opacity: 1;
+        }
+
+        100% {
+          transform: translateX(55%);
+          opacity: 0;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .sparkle,
+        .sparkle.flare,
+        .thinking,
+        .firstLightBand::after,
+        .row {
+          animation: none !important;
+        }
+
+        .thinking {
+          color: var(--text-faint);
+          background: none;
+        }
+      }
+
+      .footnote {
+        margin-top: 24px;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: var(--bg-surface);
+        color: var(--text-muted);
+        font-size: var(--text-sm);
+        line-height: 1.6;
+      }
+
+      .footnote code {
+        font-family: var(--font-mono, monospace);
+        font-size: 11px;
+        color: var(--text);
+        background: var(--bg-surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 1px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <p class="eyebrow">Soul moment · proposal</p>
+      <h1>First light</h1>
+      <p class="lede">
+        The very first reply of a brand-new chat is the conversation coming alive — so it arrives
+        with light, once. As the thinking indicator hands off to real words, the sparkle flares and
+        dissolves, and a faint band of accent light passes over the opening text (~800ms). Every
+        reply after that arrives plain: dawn happens once per conversation.
+      </p>
+
+      <section class="toolbar" aria-label="Sample controls">
+        <button class="btn primary" id="firstBtn" type="button">Send first message</button>
+        <button class="btn" id="secondBtn" type="button" disabled>Send follow-up (plain)</button>
+        <button class="btn" id="resetBtn" type="button">Reset</button>
+        <button class="btn" id="themeBtn" type="button">Toggle light/dark</button>
+      </section>
+
+      <section class="chat" id="chat" aria-label="Mock conversation"></section>
+
+      <p class="footnote">
+        <strong>Integration:</strong> <code>MessageList</code> passes a <code>firstLight</code> flag
+        to <code>MessageBubble</code> when the message is the conversation's first assistant turn
+        <em>and</em> it is streaming live (thinking → first content chunk in this mount). The flag
+        adds the flare to the indicator's sparkle and mounts the one-shot light band over the row;
+        history renders and every later reply omit it. Honors <code>prefers-reduced-motion</code>.
+        Theme tokens only — verify both modes with the toggle.
+      </p>
+    </main>
+
+    <script>
+      const chat = document.querySelector('#chat')
+      const firstBtn = document.querySelector('#firstBtn')
+      const secondBtn = document.querySelector('#secondBtn')
+
+      const SPARKLE_SVG =
+        '<svg class="sparkle" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2c.6 5.1 4.9 9.4 10 10-5.1.6-9.4 4.9-10 10-.6-5.1-4.9-9.4-10-10 5.1-.6 9.4-4.9 10-10Z"/></svg>'
+
+      const REPLIES = {
+        first:
+          'Welcome in. This workspace is wired to your local model, so everything we discuss stays on this machine. Tell me about the project and I will map the code, plan the change, and keep the context tidy as we go.',
+        second:
+          'On it — scanning the scheduler module now. The retry logic is in SchedulerService.retry(); I will sketch the refactor and flag anything that needs a test.'
+      }
+
+      function addUser(text) {
+        const row = document.createElement('div')
+        row.className = 'row user'
+        row.innerHTML = '<div class="bubble"></div>'
+        row.querySelector('.bubble').textContent = text
+        chat.appendChild(row)
+      }
+
+      function addAssistant({ firstLight }) {
+        const row = document.createElement('div')
+        row.className = 'row assistant'
+        row.innerHTML = `
+          <div class="meta">
+            <img src="../../src/renderer/assets/title-logo.png" alt="" width="18" height="18" />
+            <span class="author">Anodex</span>
+            <span class="time">now</span>
+          </div>
+          <div class="body">
+            <span class="thinkingRow">
+              ${SPARKLE_SVG}
+              <span class="thinking">Thinking</span>
+            </span>
+          </div>`
+        chat.appendChild(row)
+
+        const body = row.querySelector('.body')
+        const phrases = ['Thinking', 'Mapping it out', 'Drafting a response']
+        let i = 0
+        const cycle = setInterval(() => {
+          i = (i + 1) % phrases.length
+          const t = body.querySelector('.thinking')
+          if (t) t.textContent = phrases[i]
+        }, 1400)
+
+        // Hand-off: indicator dissolves into the first streamed words
+        setTimeout(() => {
+          clearInterval(cycle)
+          const sparkle = body.querySelector('.sparkle')
+          const phrase = body.querySelector('.thinking')
+          phrase.remove()
+
+          if (firstLight) {
+            sparkle.classList.add('flare')
+            const band = document.createElement('div')
+            band.className = 'firstLightBand'
+            row.appendChild(band)
+            setTimeout(() => band.remove(), 1200)
+            setTimeout(() => body.querySelector('.thinkingRow')?.remove(), 460)
+          } else {
+            body.querySelector('.thinkingRow').remove()
+          }
+
+          const content = document.createElement('div')
+          content.className = 'content'
+          body.appendChild(content)
+          const words = (firstLight ? REPLIES.first : REPLIES.second).split(' ')
+          let w = 0
+          const stream = setInterval(() => {
+            content.textContent = words.slice(0, ++w).join(' ')
+            if (w >= words.length) clearInterval(stream)
+          }, 34)
+        }, 2400)
+      }
+
+      firstBtn.addEventListener('click', () => {
+        firstBtn.disabled = true
+        addUser('Hey — new project. Help me refactor my scheduler?')
+        setTimeout(() => addAssistant({ firstLight: true }), 500)
+        setTimeout(() => (secondBtn.disabled = false), 5000)
+      })
+
+      secondBtn.addEventListener('click', () => {
+        secondBtn.disabled = true
+        addUser('Great — start with the retry logic.')
+        setTimeout(() => addAssistant({ firstLight: false }), 500)
+        setTimeout(() => (secondBtn.disabled = false), 5000)
+      })
+
+      document.querySelector('#resetBtn').addEventListener('click', () => {
+        chat.innerHTML = ''
+        firstBtn.disabled = false
+        secondBtn.disabled = true
+      })
+
+      document.querySelector('#themeBtn').addEventListener('click', () => {
+        const root = document.documentElement
+        root.dataset.themeMode = root.dataset.themeMode === 'light' ? '' : 'light'
+        if (!root.dataset.themeMode) delete root.dataset.themeMode
+      })
+    </script>
+  </body>
+</html>

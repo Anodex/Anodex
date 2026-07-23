@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
 import { AnodexLogo } from '../../components/AnodexLogo'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
@@ -28,7 +28,8 @@ import styles from './MessageBubble.module.css'
 export function MessageBubble({
   message,
   previousUserContent,
-  conversationStreaming
+  conversationStreaming,
+  firstLight = false
 }: {
   message: ChatMessage
   previousUserContent?: string
@@ -40,6 +41,13 @@ export function MessageBubble({
    * conversation from the store on every streamed token.
    */
   conversationStreaming: boolean
+  /**
+   * This is the conversation's first assistant turn. If this mount also
+   * witnesses its thinking → first-words handoff, the reply arrives with the
+   * one-shot "first light" (sparkle flare + a band of light over the words).
+   * History mounts arrive with content already present and never play it.
+   */
+  firstLight?: boolean
 }): JSX.Element {
   const isUser = message.role === 'user'
   const openSettings = useUiStore((s) => s.openSettings)
@@ -104,6 +112,24 @@ export function MessageBubble({
     message.streaming &&
     lastSegment?.type === 'toolGroup' &&
     !lastSegment.calls.some((call) => call.status === 'running')
+
+  // First light: 'waiting' until this mount sees the thinking indicator,
+  // 'armed' until the first words replace it, 'active' for the ~1.2s arrival,
+  // then 'done' forever. A bubble that mounts with content already present
+  // (history, re-opened chats) never leaves 'waiting'.
+  const [lightPhase, setLightPhase] = useState<'waiting' | 'armed' | 'active' | 'done'>(
+    firstLight ? 'waiting' : 'done'
+  )
+  const hasSegments = segments.length > 0
+  useEffect(() => {
+    if (lightPhase === 'waiting' && showThinking) setLightPhase('armed')
+    if (lightPhase === 'armed' && !showThinking && hasSegments) {
+      setLightPhase('active')
+      const timer = setTimeout(() => setLightPhase('done'), 1300)
+      return () => clearTimeout(timer)
+    }
+    return undefined
+  }, [lightPhase, showThinking, hasSegments])
   const showFooter =
     isUser || (message.stats && !message.streaming) || showCopy || showSkillDraft || showCheckpoint
 
@@ -118,6 +144,14 @@ export function MessageBubble({
       )}
 
       <div className={styles.bubble}>
+        {lightPhase === 'active' && (
+          <>
+            <span className={styles.firstLightFlare} aria-hidden="true">
+              <Icon name="sparkle" size={15} />
+            </span>
+            <span className={styles.firstLightBand} aria-hidden="true" />
+          </>
+        )}
         {message.attachments && message.attachments.length > 0 && (
           <div className={styles.attachments}>
             {message.attachments.map((attachment) => (
