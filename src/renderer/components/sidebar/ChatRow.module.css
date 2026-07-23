@@ -40,11 +40,13 @@
 
 .active {
   color: var(--text);
+  /* A gentle wash of light at the leading edge — not a bar. The accent sits
+     softly on the left and clears to plain surface by 45%, so the open chat
+     reads as lit rather than bracketed. */
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--accent) 28%, var(--bg-surface-2)),
-    color-mix(in srgb, var(--accent) 10%, var(--bg-surface-2)) 52%,
-    var(--bg-surface-2) 100%
+    color-mix(in srgb, var(--accent) 14%, var(--bg-surface-2)) 0%,
+    var(--bg-surface-2) 45%
   );
   box-shadow: none;
   animation: activeRowSettle var(--motion-medium, 220ms) var(--ease-out, ease-out) both;
