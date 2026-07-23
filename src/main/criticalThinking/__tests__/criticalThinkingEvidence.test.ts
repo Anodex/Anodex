@@ -242,6 +242,27 @@ describe('Critical Thinking evidence pipeline', () => {
     ).toEqual({ valid: true, issues: [], safetyIssues: [] })
   })
 
+  it('recognizes exact decimals when HTML table cells collapse against labels', () => {
+    const collapsedTableArtifact: ToolArtifact = {
+      ...primaryFetch,
+      passages: [
+        {
+          id: 'P1',
+          text: 'SpeciesInsect TypeLD50 (mg/kg)Toxicity LevelP. infuscatus (paper wasp)Social Wasp1.3Most toxic venomP. metricusSocial Wasp1.5High toxicityV. mandariniaHornet2.8Lower toxicity',
+          score: 100
+        }
+      ]
+    }
+
+    expect(
+      validateResearchReport(
+        'The cited table reports LD50 values of 1.3, 1.5, and 2.8 mg/kg [[S1:P1]].',
+        [collapsedTableArtifact],
+        sources
+      )
+    ).toEqual({ valid: true, issues: [], safetyIssues: [] })
+  })
+
   it('requires chart blocks to match the renderer grammar and cite their values', () => {
     const validChart = `\`\`\`chart
 {"type":"bar","title":"Measured improvement","labels":["A","B"],"datasets":[{"label":"Rate","values":[18,18]}],"unit":"%","source":"[[S1:P1]]"}
@@ -269,6 +290,28 @@ describe('Critical Thinking evidence pipeline', () => {
         sources
       ).issues.some((issue) => issue.includes('same unit'))
     ).toBe(true)
+  })
+
+  it('treats microgram spellings and symbols as the same chart unit', () => {
+    const doseArtifact: ToolArtifact = {
+      ...primaryFetch,
+      passages: [
+        {
+          id: 'P1',
+          text: 'The measured venom amounts were 59 micrograms and 10 micrograms.',
+          score: 100
+        }
+      ]
+    }
+    const chart = `\`\`\`chart
+{"type":"bar","title":"Venom amount","labels":["Bee","Wasp"],"datasets":[{"label":"Amount","values":[59,10]}],"unit":"μg","source":"[[S1:P1]]"}
+\`\`\``
+
+    expect(validateResearchReport(chart, [doseArtifact], sources)).toEqual({
+      valid: true,
+      issues: [],
+      safetyIssues: []
+    })
   })
 
   it('renders only known validated markers as deterministic Markdown links', () => {
@@ -361,6 +404,42 @@ describe('Critical Thinking evidence pipeline', () => {
     expect(packet.indexOf('[S3]')).toBeLessThan(packet.indexOf('[S2]'))
     expect(packet).toContain('[S1:P1]')
     expect(packet).toContain('[S3:P1]')
+  })
+
+  it('orders stronger sources first within each research step', () => {
+    const authoritySources: CriticalThinkingSource[] = [
+      {
+        id: 'S1',
+        title: 'General reference',
+        url: 'https://example.com/reference',
+        verified: true
+      },
+      {
+        id: 'S2',
+        title: 'Government clinical study',
+        url: 'https://evidence.gov/study',
+        verified: true
+      }
+    ]
+    const authorityArtifacts: ToolArtifact[] = authoritySources.map((source, index) => ({
+      ...primaryFetch,
+      id: `authority_${index}`,
+      requestedUrl: source.url,
+      finalUrl: source.url,
+      title: source.title,
+      passages: [
+        {
+          id: 'P1',
+          text: `Evidence retained from ${source.title} with enough detail for synthesis.`,
+          score: 100
+        }
+      ],
+      research: { stepId: 'same-step', roundId: 'round-1' }
+    }))
+
+    const packet = buildEvidencePacket(authorityArtifacts, authoritySources)
+
+    expect(packet.indexOf('[S2]')).toBeLessThan(packet.indexOf('[S1]'))
   })
 
   it('keeps a small-context packet useful when many verified sources exist', () => {

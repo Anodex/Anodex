@@ -293,7 +293,11 @@ not correctness or security — lowest priority item on this whole list.
   output budget to the active context and recovers broad failed drafts through
   independently validated per-step sections plus a constrained overview. Richer
   evidence fallbacks and persisted synthesis diagnostics prevent a short model
-  fragment from hiding or discarding a successful research run.
+  fragment from hiding or discarding a successful research run. Follow-up live
+  testing also added collapsed-table number recognition, unit-alias validation,
+  authority-ordered synthesis evidence, per-section deterministic salvage,
+  cited-only source lists, non-repeating overview fallback, and a dedicated
+  validated chart-selection phase.
 
 - **Context reliability and bounded Critical Thinking (2026-07-19)** — replaced
   GPU-backed mid-turn summaries with deterministic checkpoints, added durable

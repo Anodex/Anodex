@@ -230,8 +230,10 @@ The draft uses internal markers such as `[[S1]]` and `[[S1:P2]]`. Validation che
 - source and passage IDs exist in verified fetched evidence;
 - raw URLs are not substituted for internal citation markers;
 - quoted text appears in stored passages after normalization;
-- cited numeric claims appear in their cited evidence;
-- chart JSON is valid and chart values appear in cited evidence.
+- cited numeric claims appear in their cited evidence, including decimals whose
+  HTML table-cell boundary collapsed against a label;
+- chart JSON is valid and chart values appear in one cited passage with
+  normalized unit aliases such as `μg`, `ug`, and `micrograms`.
 
 One bounded, tool-free repair pass receives the validation issues and a reduced
 evidence packet. The repaired draft is validated again. When a broad local run is
@@ -239,7 +241,19 @@ still unusable, synthesis switches to hierarchical recovery: each researched ste
 gets its own bounded evidence packet and independently validated section (with one
 section repair when needed), then a constrained JSON phase produces only the
 executive summary and conclusion. The assembled report is validated as a whole and
-is compared with the earlier candidates before selection.
+is compared with the earlier candidates before selection. Sources are
+authority-ordered within each research step so primary, official, and scholarly
+evidence reaches the bounded context first. If both model attempts for one section
+remain unsafe, verified fetched-passage excerpts fill that section rather than
+omitting the approved research step. A deterministic overview avoids duplicating
+entire sections when the model overview fails, and the final Sources section lists
+only sources cited by retained report content.
+
+When the selected local-model report contains quantitative prose but no valid
+chart, one additional constrained, tool-free JSON phase may select up to two
+charts. It may also explicitly select none. Values must be directly stated in one
+cited passage—derived ratios, midpoints, conversions, and mixed endpoints are
+rejected—and chart failure never replaces an otherwise usable report.
 
 If model output still cannot produce a safe substantive report, a deterministic
 fallback preserves multiple passages from multiple sources per step. Only then are

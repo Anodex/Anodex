@@ -1,5 +1,6 @@
 import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
 import type { EvidencePassage, ToolArtifact } from '@shared/toolArtifacts.types'
+import { criticalThinkingSourceAuthorityScore } from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 export interface ReportValidationResult {
@@ -39,7 +40,7 @@ export function buildEvidencePacket(
     trustedVerifiedSources(sources).map((source) => [canonicalResearchUrl(source.url), source])
   )
   const passagesByUrl = fetchedPassagesByUrl(artifacts)
-  const candidates = balancedFetchedUrls(artifacts, passagesByUrl).flatMap((url) => {
+  const candidates = balancedFetchedUrls(artifacts, passagesByUrl, sourceByUrl).flatMap((url) => {
     const source = sourceByUrl.get(url)
     if (!source?.verified) return []
     const passages = passagesByUrl.get(url) ?? []
@@ -118,7 +119,8 @@ function minimumEvidenceLine(line: string): string | null {
 
 function balancedFetchedUrls(
   artifacts: ToolArtifact[],
-  passagesByUrl: Map<string, EvidencePassage[]>
+  passagesByUrl: Map<string, EvidencePassage[]>,
+  sourceByUrl: Map<string, CriticalThinkingSource>
 ): string[] {
   const stepByUrl = new Map<string, string>()
   for (const artifact of artifacts) {
@@ -133,6 +135,16 @@ function balancedFetchedUrls(
     const urls = groups.get(group) ?? []
     urls.push(url)
     groups.set(group, urls)
+  }
+  for (const urls of groups.values()) {
+    urls.sort((left, right) => {
+      const leftSource = sourceByUrl.get(left)
+      const rightSource = sourceByUrl.get(right)
+      return (
+        criticalThinkingSourceAuthorityScore(rightSource?.url ?? right, rightSource?.title ?? '') -
+        criticalThinkingSourceAuthorityScore(leftSource?.url ?? left, leftSource?.title ?? '')
+      )
+    })
   }
 
   const ordered: string[] = []
@@ -497,9 +509,14 @@ function numberAppears(text: string, value: number | string): boolean {
 }
 
 function extractNumbers(value: string): string[] {
-  return (
+  const normal =
     value.match(/\b\d+(?:,\d{3})*(?:\.\d+)?(?:%|\s+percentage\s+points?\b|\s+percent\b)?/gi) ?? []
-  )
+  // HTML table extraction can collapse a cell boundary into text such as
+  // "Wasp1.3Most toxic". Decimal values are still exact evidence and must not
+  // be rejected merely because the preceding letter removes the word boundary.
+  const collapsedDecimals =
+    value.match(/(?<=[\p{L})])\d+\.\d+(?:%|\s+percentage\s+points?\b|\s+percent\b)?/giu) ?? []
+  return [...new Set([...normal, ...collapsedDecimals])]
 }
 
 function normalizeNumber(value: number | string): string {
@@ -527,5 +544,35 @@ function chartValueAppears(text: string, value: number, unit: string | undefined
   ) {
     return numberAppears(text, `${value} percentage points`)
   }
-  return numberAppears(text, value) && normalizeQuote(text).includes(normalizeQuote(normalizedUnit))
+  return numberAppears(text, value) && evidenceContainsUnit(text, normalizedUnit)
+}
+
+function evidenceContainsUnit(text: string, unit: string): boolean {
+  const normalizedText = normalizeQuote(text)
+  const canonical = canonicalUnit(unit)
+  const aliases = UNIT_ALIASES[canonical]
+  if (!aliases) return normalizedText.includes(normalizeQuote(unit))
+  return aliases.some((alias) => alias.test(normalizedText))
+}
+
+function canonicalUnit(unit: string): string {
+  const normalized = unit.normalize('NFKC').trim().toLowerCase().replace(/\.$/, '')
+  for (const [canonical, aliases] of Object.entries(UNIT_INPUT_ALIASES)) {
+    if (aliases.includes(normalized)) return canonical
+  }
+  return normalized
+}
+
+const UNIT_INPUT_ALIASES: Record<string, string[]> = {
+  microgram: ['μg', 'µg', 'ug', 'mcg', 'microgram', 'micrograms'],
+  milligram: ['mg', 'milligram', 'milligrams'],
+  gram: ['g', 'gram', 'grams'],
+  kilogram: ['kg', 'kilogram', 'kilograms']
+}
+
+const UNIT_ALIASES: Record<string, RegExp[]> = {
+  microgram: [/\b(?:ug|mcg|micrograms?)\b/u, /(?:μg|µg)/u],
+  milligram: [/\b(?:mg|milligrams?)\b/u],
+  gram: [/\b(?:g|grams?)\b/u],
+  kilogram: [/\b(?:kg|kilograms?)\b/u]
 }

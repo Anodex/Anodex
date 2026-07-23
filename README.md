@@ -116,15 +116,21 @@ that need more than a quick web lookup:
   login-wall, discussion, metadata-only, and media-only hosts.
 - The final Markdown report includes clickable inline citations, a source trail,
   and explicit limits/open questions. Evidence-backed bar, line, and pie charts
-  are rendered when quantitative comparison is useful.
+  are rendered when quantitative comparison is useful. A separate constrained
+  chart-selection phase may add them after prose synthesis, but only exact values
+  from one cited passage survive validation.
 - Reports are synthesized in a separate tool-free phase from a bounded evidence
   packet. Every substantive prose/list/table block needs a verified citation;
   source IDs, quotations, raw URLs, numbers, and chart values are validated. One
   bounded repair pass runs first. If a broad local-model draft is still unusable,
   Anodex writes and validates one evidence-bounded section per research step,
-  then creates a constrained cross-section summary. Adaptive output budgets,
-  persisted synthesis diagnostics, and a richer deterministic fallback keep a
-  short or malformed generation from erasing the research already gathered.
+  then creates a constrained cross-section summary. If both attempts for one
+  section are unsafe, exact verified passages fill that section instead of
+  dropping the research topic. Evidence packets prioritize primary, official,
+  and academic sources within each step; final source lists include only
+  evidence cited by retained content. Adaptive output budgets, persisted
+  synthesis diagnostics, and a richer deterministic fallback keep a short or
+  malformed generation from erasing the research already gathered.
 - Reports persist locally across restarts and can be copied as Markdown or
   exported as a polished, report-only PDF with citations and charts intact.
 

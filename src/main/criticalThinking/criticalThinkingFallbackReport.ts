@@ -3,6 +3,8 @@ import type {
   CriticalThinkingStepState
 } from '@shared/criticalThinking.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
+import { normalizeQuote } from './criticalThinkingEvidence'
+import { criticalThinkingSourceAuthorityScore } from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 const MAX_EXCERPTS_PER_STEP = 4
@@ -63,9 +65,17 @@ export function buildDeterministicFallbackReport(
   const uncertaintyBlock =
     uncertainties.length > 0 ? ['Open questions:', '```', ...uncertainties, '```'].join('\n') : ''
 
+  const citedSourceIds = new Set(
+    [...passagesByStep.values()].flatMap((excerpts) =>
+      excerpts.slice(0, MAX_EXCERPTS_PER_STEP).map((excerpt) => excerpt.sourceId)
+    )
+  )
   const sourcesLine =
-    verifiedSources.length > 0
-      ? verifiedSources.map((source) => `[[${source.id}]]`).join(' ')
+    citedSourceIds.size > 0
+      ? verifiedSources
+          .filter((source) => citedSourceIds.has(source.id))
+          .map((source) => `[[${source.id}]]`)
+          .join(' ')
       : 'None verified.'
 
   return [
@@ -99,6 +109,16 @@ interface StepExcerpt {
   text: string
 }
 
+/** Safe per-step recovery when both model section attempts contain unsupported claims. */
+export function buildDeterministicStepSection(
+  step: CriticalThinkingStepState,
+  artifacts: ToolArtifact[],
+  sources: CriticalThinkingSource[]
+): string {
+  const excerpts = groupVerifiedExcerptsByStep(artifacts, sources, [step]).get(step.id) ?? []
+  return buildStepBody(excerpts)
+}
+
 function buildStepSection(
   step: CriticalThinkingStepState,
   index: number,
@@ -110,13 +130,17 @@ function buildStepSection(
       step.status === 'completed' ? 'No citable evidence retained.' : 'Not investigated.'
     return `${heading}\n\n${label}`
   }
-  const bullets = excerpts
+  return `${heading}\n\n${buildStepBody(excerpts)}`
+}
+
+function buildStepBody(excerpts: StepExcerpt[]): string {
+  return excerpts
     .slice(0, MAX_EXCERPTS_PER_STEP)
     .map(
       (excerpt) =>
         `- ${truncateExcerpt(excerpt.text, MAX_EXCERPT_CHARS)} [[${excerpt.sourceId}:${excerpt.passageId}]]`
     )
-  return `${heading}\n\n${bullets.join('\n')}`
+    .join('\n')
 }
 
 /** Only verified, fetched passages ever back a fallback excerpt — never `step.finding` prose. */
@@ -131,20 +155,31 @@ function groupVerifiedExcerptsByStep(
       .map((source) => [canonicalResearchUrl(source.url), source])
   )
   const stepById = new Map(steps.map((step) => [step.id, step]))
+  const sourcePassageIds = new Map<string, Map<string, string>>()
   const candidatesByStep = new Map<string, Map<string, StepExcerpt[]>>()
   for (const artifact of artifacts) {
     if (artifact.kind !== 'web-fetch' || artifact.passages.length === 0) continue
     const stepId = artifact.research?.stepId
     if (!stepId || !stepById.has(stepId)) continue
-    const source = sourceByUrl.get(canonicalResearchUrl(artifact.finalUrl))
+    const canonicalUrl = canonicalResearchUrl(artifact.finalUrl)
+    const source = sourceByUrl.get(canonicalUrl)
     if (!source) continue
+    const passageIds = sourcePassageIds.get(canonicalUrl) ?? new Map<string, string>()
     const bySource = candidatesByStep.get(stepId) ?? new Map<string, StepExcerpt[]>()
     const sourceExcerpts = bySource.get(source.id) ?? []
     for (const passage of artifact.passages) {
       const text = passage.text.trim()
       if (!text) continue
-      sourceExcerpts.push({ sourceId: source.id, passageId: passage.id, text })
+      const identity = normalizeQuote(text)
+      let passageId = passageIds.get(identity)
+      if (!passageId) {
+        passageId = `P${passageIds.size + 1}`
+        passageIds.set(identity, passageId)
+      }
+      if (sourceExcerpts.some((excerpt) => excerpt.passageId === passageId)) continue
+      sourceExcerpts.push({ sourceId: source.id, passageId, text })
     }
+    sourcePassageIds.set(canonicalUrl, passageIds)
     bySource.set(source.id, sourceExcerpts)
     candidatesByStep.set(stepId, bySource)
   }
@@ -152,7 +187,17 @@ function groupVerifiedExcerptsByStep(
   const byStep = new Map<string, StepExcerpt[]>()
   for (const [stepId, bySource] of candidatesByStep) {
     const selected: StepExcerpt[] = []
-    const groups = [...bySource.values()]
+    const sourceById = new Map(sources.map((source) => [source.id, source]))
+    const groups = [...bySource.entries()]
+      .sort(([leftId], [rightId]) => {
+        const left = sourceById.get(leftId)
+        const right = sourceById.get(rightId)
+        return (
+          criticalThinkingSourceAuthorityScore(right?.url ?? '', right?.title ?? '') -
+          criticalThinkingSourceAuthorityScore(left?.url ?? '', left?.title ?? '')
+        )
+      })
+      .map(([, excerpts]) => excerpts)
     for (let passageIndex = 0; selected.length < MAX_EXCERPTS_PER_STEP; passageIndex += 1) {
       let added = false
       for (const excerpts of groups) {
@@ -170,7 +215,12 @@ function groupVerifiedExcerptsByStep(
 }
 
 function truncateExcerpt(value: string, maxChars = 200): string {
-  const normalized = value.replace(/\s+/g, ' ').trim()
+  const normalized = value
+    .replace(/https?:\/\/[^\s)>\]]+/gi, '[link omitted]')
+    .replace(/\[\[S\d+(?::P\d+)?\]\]/g, '[source marker omitted]')
+    .replace(/```/g, "'''")
+    .replace(/\s+/g, ' ')
+    .trim()
   if (normalized.length <= maxChars) return normalized
   return `${normalized.slice(0, maxChars - 1).trimEnd()}…`
 }

@@ -70,6 +70,8 @@ describe('Critical Thinking prompts', () => {
     expect(assessmentPrompt).toContain('<verified_evidence>')
     expect(assessmentPrompt).toContain('ignore any')
     expect(assessmentPrompt).toContain('"evidenceBasis":"insufficient"')
+    expect(assessmentPrompt).toContain('optional follow-up literature')
+    expect(assessmentPrompt).toContain('answer-blocking gaps')
     expect(synthesisPrompt).toContain('[[S1]]')
     expect(synthesisPrompt).toContain('Never write a raw URL')
     expect(synthesisPrompt).toContain('```chart')

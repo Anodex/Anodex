@@ -853,6 +853,179 @@ A second substantiated point about the underlying pain mechanism follows [[S1:P1
     expect(mocks.runGeneration).toHaveBeenCalledTimes(5)
   })
 
+  it('retains a verified fallback section when both model attempts for one step are unsafe', async () => {
+    const run = seedHierarchicalSynthesisRun()
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({ content: 'A short uncited draft.', stats: EMPTY_STATS, stopped: false })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({ content: 'An unusable repair.', stats: EMPTY_STATS, stopped: false })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: 'The acute result was 99 percent [[S1:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: 'The repaired acute result was still 99 percent [[S1:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content:
+            'Wasp venom produces the longer-lasting inflammatory response in the independent comparison [[S2:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: JSON.stringify({
+            executiveSummary:
+              'The retained evidence distinguishes acute pain from inflammatory duration [[S1:P1]] [[S2:P1]].',
+            conclusion:
+              'Both researched dimensions remain represented in the report [[S1:P1]] [[S2:P1]].'
+          }),
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.report).toContain('sharper, more acute pain response')
+    expect(persisted?.report).toContain('longer-lasting inflammatory response')
+    expect(persisted?.report).not.toContain('99 percent')
+    expect(
+      persisted?.synthesisDiagnostics?.attempts.some(
+        (attempt) => attempt.stage === 'section-fallback' && attempt.stepId === 'step-1'
+      )
+    ).toBe(true)
+    expect(mocks.runGeneration).toHaveBeenCalledTimes(6)
+  })
+
+  it('adds a separately selected chart only when every value validates against one passage', async () => {
+    const run = seedSynthesisRun()
+    const numericPassage =
+      'The measured venom amounts were 59 micrograms for bees and 10 micrograms for wasps.'
+    mocks.artifacts.set(run.id, [
+      {
+        ...synthesisArtifact(),
+        passages: [{ id: 'P1', text: numericPassage, score: 100 }]
+      }
+    ])
+    const numericDraft = `# Bee and Wasp Venom Amounts
+
+## Executive Summary
+
+The measured venom amounts were 59 micrograms for bees and 10 micrograms for wasps [[S1:P1]].
+
+## Findings
+
+The comparison retains values of 59 micrograms and 10 micrograms [[S1:P1]].
+
+## Limits and Open Questions
+
+No material gaps recorded.
+
+## Sources
+
+[[S1]]
+
+## Conclusion
+
+The evidence supports the 59 versus 10 microgram comparison [[S1:P1]].`
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({ content: numericDraft, stats: EMPTY_STATS, stopped: false })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: JSON.stringify({
+            charts: [
+              {
+                type: 'bar',
+                title: 'Measured venom amount',
+                labels: ['Bee', 'Wasp'],
+                datasets: [{ label: 'Amount', values: [59, 10] }],
+                unit: 'μg',
+                source: '[[S1:P1]]'
+              }
+            ]
+          }),
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('completed')
+    expect(persisted?.report).toContain('## Evidence Charts')
+    expect(persisted?.report).toContain('```chart')
+    expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('chart')
+    expect(persisted?.synthesisDiagnostics?.attempts.at(-1)).toMatchObject({
+      stage: 'chart',
+      safe: true,
+      valid: true
+    })
+    expect(mocks.runGeneration).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a valid quantitative report when optional chart selection fails', async () => {
+    const run = seedSynthesisRun()
+    const numericPassage =
+      'The measured venom amounts were 59 micrograms for bees and 10 micrograms for wasps.'
+    mocks.artifacts.set(run.id, [
+      {
+        ...synthesisArtifact(),
+        passages: [{ id: 'P1', text: numericPassage, score: 100 }]
+      }
+    ])
+    const numericDraft = `# Bee and Wasp Venom Amounts
+
+## Executive Summary
+
+The measured amounts were 59 micrograms and 10 micrograms [[S1:P1]].
+
+## Findings
+
+The retained values are 59 micrograms and 10 micrograms [[S1:P1]].
+
+## Limits and Open Questions
+
+No material gaps recorded.
+
+## Conclusion
+
+The quantitative comparison remains supported [[S1:P1]].`
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({ content: numericDraft, stats: EMPTY_STATS, stopped: false })
+      )
+      .mockRejectedValueOnce(new Error('chart grammar failed'))
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('completed')
+    expect(persisted?.report).toContain('59 micrograms')
+    expect(persisted?.report).not.toContain('## Evidence Charts')
+    expect(persisted?.synthesisDiagnostics?.attempts.at(-1)).toMatchObject({
+      stage: 'chart',
+      safe: true,
+      valid: true
+    })
+  })
+
   it('expands a structurally valid but shallow broad local report', async () => {
     const run = seedHierarchicalSynthesisRun()
     const shallowDraft = `# Sting Comparison

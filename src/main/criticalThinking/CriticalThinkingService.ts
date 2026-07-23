@@ -34,14 +34,22 @@ import { criticalThinkingStore } from './CriticalThinkingStore'
 import {
   buildCriticalThinkingPlanPrompt,
   buildCriticalThinkingPlanRetryPrompt,
+  buildCriticalThinkingChartPrompt,
   buildCriticalThinkingRepairPrompt,
   buildCriticalThinkingOverviewPrompt,
   buildCriticalThinkingSectionPrompt,
   buildCriticalThinkingSectionRepairPrompt,
   buildCriticalThinkingSynthesisPrompt
 } from './criticalThinkingPrompts'
-import { buildEvidencePacket, renderResearchCitations } from './criticalThinkingEvidence'
-import { buildDeterministicFallbackReport } from './criticalThinkingFallbackReport'
+import {
+  buildEvidencePacket,
+  renderResearchCitations,
+  validateResearchReport
+} from './criticalThinkingEvidence'
+import {
+  buildDeterministicFallbackReport,
+  buildDeterministicStepSection
+} from './criticalThinkingFallbackReport'
 import {
   chooseBetterReportCandidate,
   evaluateReportCandidate,
@@ -69,6 +77,7 @@ import {
   type CriticalThinkingSynthesisLimits
 } from './criticalThinkingSynthesisBudget'
 import {
+  CRITICAL_THINKING_CHART_SELECTION_SCHEMA,
   CRITICAL_THINKING_OVERVIEW_SCHEMA,
   CRITICAL_THINKING_PLAN_SCHEMA,
   criticalThinkingAssessmentSchema,
@@ -81,6 +90,12 @@ import {
   parseHierarchicalOverview,
   type HierarchicalSectionCandidate
 } from './criticalThinkingHierarchicalReport'
+import {
+  appendCriticalThinkingCharts,
+  parseCriticalThinkingChartSelection,
+  reportHasEvidenceChart,
+  reportHasQuantitativeProse
+} from './criticalThinkingCharts'
 
 const log = createLogger('critical-thinking-service')
 const MAX_QUESTION_CHARS = 8_000
@@ -649,6 +664,48 @@ class CriticalThinkingService {
       }
     }
 
+    if (
+      candidate.usable &&
+      repairStopReason !== 'user' &&
+      run.provider === 'local' &&
+      reportHasQuantitativeProse(candidate.content) &&
+      !reportHasEvidenceChart(candidate.content)
+    ) {
+      try {
+        const chartRecovery = await this.runChartRecovery(
+          run,
+          artifacts,
+          question,
+          candidate,
+          limits,
+          signal
+        )
+        stats = addStats(stats, chartRecovery.stats)
+        recordDiagnostic(chartRecovery.attempt)
+        if (chartRecovery.candidate) {
+          candidate = chartRecovery.candidate
+          selectedStage = 'chart'
+        }
+        if (chartRecovery.stopReason === 'user') repairStopReason = 'user'
+      } catch (error) {
+        log.warn('Critical Thinking optional chart selection failed', {
+          runId: run.id,
+          error: errorMessage(error)
+        })
+        recordDiagnostic({
+          stage: 'chart',
+          contentChars: 0,
+          content: '',
+          safe: true,
+          usable: false,
+          valid: true,
+          citedBlockCount: 0,
+          issues: [`Optional chart selection failed: ${truncate(errorMessage(error), 240)}`]
+        })
+        if (signal.aborted && signal.reason === 'user') repairStopReason = 'user'
+      }
+    }
+
     // Fall back to the deterministic report ONLY when the model's own report
     // is not usable — it fabricated (a citation-safety violation) or produced
     // too little cited substance (P0-H: the exact live failure was a
@@ -844,6 +901,17 @@ class CriticalThinkingService {
         }
       }
 
+      if (!sectionCandidate.usable) {
+        const fallbackCandidate = evaluateHierarchicalSection(
+          buildDeterministicStepSection(step, stepArtifacts, run.sources),
+          stepArtifacts,
+          run.sources
+        )
+        attempts.push(
+          hierarchicalSectionDiagnostic('section-fallback', fallbackCandidate, undefined, step.id)
+        )
+        sectionCandidate = chooseBetterHierarchicalSection(sectionCandidate, fallbackCandidate)
+      }
       if (sectionCandidate.usable) sections.set(step.id, sectionCandidate.content)
       if (sectionStopReason && !isRecoverableContentStopReason(sectionStopReason)) {
         return { candidate: null, stats, attempts, stopReason: sectionStopReason }
@@ -916,6 +984,105 @@ class CriticalThinkingService {
     }
     attempts.push(reportCandidateDiagnostic('hierarchical-report', candidate))
     return { candidate, stats, attempts }
+  }
+
+  private async runChartRecovery(
+    run: CriticalThinkingRun,
+    artifacts: ToolArtifact[],
+    question: string,
+    report: ReportCandidate,
+    limits: CriticalThinkingSynthesisLimits,
+    signal: AbortSignal
+  ): Promise<{
+    candidate: ReportCandidate | null
+    stats: GenerationStats
+    attempt: CriticalThinkingSynthesisAttemptDiagnostic
+    stopReason?: GenerationStopReason
+  }> {
+    const boundedReport = truncatePromptText(
+      report.content,
+      Math.min(20_000, Math.floor(limits.maxPromptChars * 0.38))
+    )
+    const promptBase = buildCriticalThinkingChartPrompt(question, boundedReport, '')
+    const chartEvidence = buildEvidencePacket(
+      artifacts,
+      run.sources,
+      Math.max(0, Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptBase.length))
+    )
+    const outputTokens = Math.max(384, Math.min(1_536, Math.floor(limits.maxOutputTokens * 0.3)))
+    const result = await this.runToolFreeTurn(
+      run,
+      buildCriticalThinkingChartPrompt(question, boundedReport, chartEvidence),
+      signal,
+      false,
+      outputTokens,
+      Math.min(limits.thoughtTokens, Math.floor(outputTokens * 0.2)),
+      CRITICAL_THINKING_CHART_SELECTION_SCHEMA
+    )
+    const stopReason = signalStopReason(signal, result.stopReason)
+    const chartBlocks = parseCriticalThinkingChartSelection(result.content)
+    if (!chartBlocks) {
+      return {
+        candidate: null,
+        stats: result.stats,
+        attempt: rawSynthesisDiagnostic('chart', result.content, stopReason),
+        ...(stopReason ? { stopReason } : {})
+      }
+    }
+    if (chartBlocks.length === 0) {
+      return {
+        candidate: null,
+        stats: result.stats,
+        attempt: {
+          stage: 'chart',
+          contentChars: result.content.trim().length,
+          content: result.content.trim().slice(0, MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS),
+          ...(stopReason ? { stopReason } : {}),
+          safe: true,
+          usable: false,
+          valid: true,
+          citedBlockCount: 0,
+          issues: []
+        },
+        ...(stopReason ? { stopReason } : {})
+      }
+    }
+
+    const chartContent = chartBlocks.join('\n\n')
+    const validation = validateResearchReport(chartContent, artifacts, run.sources)
+    const safe = validation.safetyIssues.length === 0
+    const attempt: CriticalThinkingSynthesisAttemptDiagnostic = {
+      stage: 'chart',
+      contentChars: chartContent.length,
+      content: chartContent.slice(0, MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS),
+      ...(stopReason ? { stopReason } : {}),
+      safe,
+      usable: safe && validation.valid,
+      valid: validation.valid,
+      citedBlockCount: chartBlocks.length,
+      issues: validation.issues.slice(0, 24)
+    }
+    if (!validation.valid) {
+      return {
+        candidate: null,
+        stats: result.stats,
+        attempt,
+        ...(stopReason ? { stopReason } : {})
+      }
+    }
+
+    const augmented = evaluateReportCandidate(
+      appendCriticalThinkingCharts(report.content, chartBlocks),
+      artifacts,
+      run.sources,
+      run.steps.length
+    )
+    return {
+      candidate: augmented.safe ? augmented : null,
+      stats: result.stats,
+      attempt,
+      ...(stopReason ? { stopReason } : {})
+    }
   }
 
   private async runToolFreeTurn(
@@ -1427,7 +1594,7 @@ function reportNeedsHierarchicalRecovery(
 }
 
 function hierarchicalSectionDiagnostic(
-  stage: 'section' | 'section-repair' | 'overview',
+  stage: 'section' | 'section-repair' | 'section-fallback' | 'overview',
   candidate: HierarchicalSectionCandidate,
   stopReason?: GenerationStopReason,
   stepId?: string

@@ -1,6 +1,7 @@
 import type { CriticalThinkingCoverageAssessment } from '@shared/criticalThinking.types'
 import type { SearchResult } from '../tools/search/types'
 import { MAX_COMPACT_SOURCES } from './criticalThinkingSources'
+import { criticalThinkingSourceAuthorityScore } from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 export const DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY = {
@@ -113,7 +114,10 @@ export function selectResearchCandidates(
         query: batch.query,
         rank: index + 1,
         host: normalizedHost(parsed.hostname),
-        score: Math.min(termHits, 8) * 10 + researchAuthorityScore(parsed, result) - index
+        score:
+          Math.min(termHits, 8) * 10 +
+          criticalThinkingSourceAuthorityScore(parsed, result.title, result.snippet) -
+          index
       }
       const existing = candidateByUrl.get(canonical)
       if (!existing || candidate.score > existing.score) candidateByUrl.set(canonical, candidate)
@@ -146,41 +150,6 @@ export function selectResearchCandidates(
     query: candidate.query,
     rank: candidate.rank
   }))
-}
-
-function researchAuthorityScore(url: URL, result: SearchResult): number {
-  const host = normalizedHost(url.hostname)
-  const searchable = `${result.title} ${result.snippet}`.toLowerCase()
-  let score = 0
-
-  if (
-    host.endsWith('.gov') ||
-    host === 'pubmed.ncbi.nlm.nih.gov' ||
-    host === 'pmc.ncbi.nlm.nih.gov'
-  ) {
-    score += 70
-  } else if (host.endsWith('.edu') || host.includes('.ac.')) {
-    score += 50
-  } else if (
-    host.startsWith('doi.') ||
-    host.includes('springer') ||
-    host.includes('wiley') ||
-    host.includes('sciencedirect') ||
-    host.includes('frontiersin') ||
-    host.includes('nature.com')
-  ) {
-    score += 35
-  }
-
-  if (
-    /\b(systematic review|meta-analysis|clinical guideline|consensus|study|journal)\b/.test(
-      searchable
-    )
-  ) {
-    score += 18
-  }
-  if (/\b(blog|pest control|exterminator|sponsored|advertisement)\b/.test(searchable)) score -= 25
-  return score
 }
 
 /** The model proposes sufficiency; the service verifies a minimum evidence floor. */

@@ -102,7 +102,9 @@ export type CriticalThinkingSynthesisStage =
   | 'repair'
   | 'section'
   | 'section-repair'
+  | 'section-fallback'
   | 'overview'
+  | 'chart'
   | 'hierarchical-report'
   | 'deterministic-fallback'
 

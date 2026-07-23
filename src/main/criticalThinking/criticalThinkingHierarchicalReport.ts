@@ -92,16 +92,24 @@ export function assembleHierarchicalReport(input: {
     const content = input.sections.get(step.id)?.trim()
     return content ? [`### ${index + 1}. ${step.title}\n\n${content}`] : []
   })
-  const citedBlocks = sectionEntries
-    .flatMap(substantiveBlocks)
-    .filter((block) => CITATION_PATTERN.test(block))
+  const deterministicOverview = buildDeterministicOverview(input.steps, input.sections)
   const executiveSummary =
-    input.overview?.executiveSummary.trim() || citedBlocks[0] || 'Evidence summary unavailable.'
+    input.overview?.executiveSummary.trim() ||
+    deterministicOverview.executiveSummary ||
+    'Evidence summary unavailable.'
   const conclusion =
-    input.overview?.conclusion.trim() || citedBlocks.at(-1) || 'No safe synthesis available.'
+    input.overview?.conclusion.trim() ||
+    deterministicOverview.conclusion ||
+    'No safe synthesis available.'
   const limits = buildLimitsBlock(input.steps)
+  const citedSourceIds = new Set(
+    [executiveSummary, ...sectionEntries, conclusion]
+      .join('\n')
+      .match(/\[\[(S\d+)(?::P\d+)?\]\]/g)
+      ?.map((marker) => marker.slice(2).split(':')[0].replace(']]', '')) ?? []
+  )
   const sourceMarkers = input.sources
-    .filter((source) => source.verified)
+    .filter((source) => source.verified && citedSourceIds.has(source.id))
     .map((source) => `[[${source.id}]]`)
     .join(' ')
 
@@ -128,6 +136,42 @@ export function assembleHierarchicalReport(input: {
     '',
     conclusion
   ].join('\n')
+}
+
+function buildDeterministicOverview(
+  steps: CriticalThinkingStepState[],
+  sections: Map<string, string>
+): HierarchicalOverview {
+  const summaries = steps.flatMap((step) => {
+    const section = sections.get(step.id)
+    if (!section) return []
+    const block = substantiveBlocks(section).find((item) => CITATION_PATTERN.test(item))
+    if (!block) return []
+    const markers = [...block.matchAll(/\[\[S\d+(?::P\d+)?\]\]/g)].map((match) => match[0])
+    const prose = block
+      .replace(/\[\[S\d+(?::P\d+)?\]\]/g, '')
+      .replace(/^\s*[-*]\s+/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const firstSentence = /^.{1,600}?[.!?](?=\s|$)/.exec(prose)?.[0] ?? firstBoundedLine(prose)
+    if (!firstSentence || markers.length === 0) return []
+    return [`- ${firstSentence} ${[...new Set(markers)].join(' ')}`]
+  })
+  if (summaries.length === 0) return { executiveSummary: '', conclusion: '' }
+  const markers = [
+    ...new Set(summaries.flatMap((summary) => summary.match(/\[\[S\d+(?::P\d+)?\]\]/g) ?? []))
+  ]
+  return {
+    executiveSummary: summaries.join('\n'),
+    conclusion: `Taken together, the retained evidence supports the topic-by-topic findings above while the limits section preserves unresolved questions. ${markers.join(' ')}`
+  }
+}
+
+function firstBoundedLine(value: string): string {
+  const line = value.split('\n')[0]?.trim() ?? ''
+  if (line.length <= 600) return line
+  const boundary = line.lastIndexOf(' ', 599)
+  return `${line.slice(0, boundary > 80 ? boundary : 599).trimEnd()}…`
 }
 
 function buildLimitsBlock(steps: CriticalThinkingStepState[]): string {

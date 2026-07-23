@@ -222,7 +222,9 @@ function normalizeSynthesisDiagnostics(
     'repair',
     'section',
     'section-repair',
+    'section-fallback',
     'overview',
+    'chart',
     'hierarchical-report',
     'deterministic-fallback'
   ] as const

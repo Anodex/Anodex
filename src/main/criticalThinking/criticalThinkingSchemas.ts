@@ -72,3 +72,54 @@ export const CRITICAL_THINKING_OVERVIEW_SCHEMA: Record<string, unknown> = {
   required: ['executiveSummary', 'conclusion'],
   additionalProperties: false
 }
+
+const CHART_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['bar', 'line', 'pie'] },
+    title: { type: 'string' },
+    labels: {
+      type: 'array',
+      minItems: 2,
+      maxItems: 12,
+      items: { type: 'string' }
+    },
+    datasets: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 4,
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          values: {
+            type: 'array',
+            minItems: 2,
+            maxItems: 12,
+            items: { type: 'number' }
+          }
+        },
+        required: ['label', 'values'],
+        additionalProperties: false
+      }
+    },
+    unit: { type: 'string' },
+    source: { type: 'string' },
+    note: { type: 'string' }
+  },
+  required: ['type', 'title', 'labels', 'datasets', 'source'],
+  additionalProperties: false
+}
+
+export const CRITICAL_THINKING_CHART_SELECTION_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    charts: {
+      type: 'array',
+      maxItems: 2,
+      items: CHART_SCHEMA
+    }
+  },
+  required: ['charts'],
+  additionalProperties: false
+}
