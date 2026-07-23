@@ -8,6 +8,8 @@ dist/
 # Local model files (never commit large GGUF weights)
 *.gguf
 /models/
+/resources/llama-server/*
+!/resources/llama-server/README.md
 # Exception: the small embedding model bundled with Anodex itself (semantic
 # code search) ships as part of the app, not a user-downloaded chat model.
 !/resources/embedding-model/*.gguf

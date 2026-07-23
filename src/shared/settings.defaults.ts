@@ -19,6 +19,7 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
   return {
     modelsDirectory,
     addedModelPaths: [],
+    visionProjectorPaths: {},
     lastModelPath: undefined,
     generation: {
       temperature: 0.3,

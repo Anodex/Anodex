@@ -5,7 +5,7 @@ import { ok, err, toErrorMessage } from '@shared/result'
 import type { ModelLoadOptions } from '@shared/model.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
 import { llamaService } from '../llama/LlamaService'
-import { describeModel, scanModels } from '../llama/modelScanner'
+import { describeModel, isVisionProjectorFileName, scanModels } from '../llama/modelScanner'
 import { cancelDownload, downloadModel } from '../llama/modelDownloader'
 import { searchHuggingFaceModels, fetchTopModels } from '../models/huggingFaceCatalog'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
@@ -50,11 +50,55 @@ export function registerModelHandlers(): void {
     }
   })
 
+  ipcMain.handle(IpcChannel.Models.addVisionProjector, async (event, modelPath: string) => {
+    try {
+      const model = describeModel(modelPath)
+      if (!model) return err('models.not-found', 'The selected model file no longer exists.')
+
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const options: OpenDialogOptions = {
+        title: `Add vision projector for ${model.name}`,
+        properties: ['openFile'],
+        filters: [{ name: 'llama.cpp vision projectors', extensions: ['gguf'] }]
+      }
+      const picked = win
+        ? await dialog.showOpenDialog(win, options)
+        : await dialog.showOpenDialog(options)
+      if (picked.canceled || picked.filePaths.length === 0) return ok(null)
+
+      const projectorPath = picked.filePaths[0]
+      if (!isVisionProjectorFileName(projectorPath)) {
+        return err(
+          'models.invalid-projector',
+          'That GGUF does not look like a vision projector. Choose the matching mmproj file.'
+        )
+      }
+
+      const settings = settingsStore.get()
+      settingsStore.update({
+        visionProjectorPaths: {
+          ...settings.visionProjectorPaths,
+          [modelPath]: projectorPath
+        }
+      })
+      return ok(describeModel(modelPath))
+    } catch (error) {
+      return err(
+        'models.projector-add-failed',
+        'Could not add the vision projector.',
+        toErrorMessage(error)
+      )
+    }
+  })
+
   ipcMain.handle(IpcChannel.Models.load, async (_event, options: ModelLoadOptions) => {
     try {
       const info = describeModel(options.path)
       if (!info) return err('models.not-found', 'The selected model file no longer exists.')
-      const state = await llamaService.loadModel(options, info)
+      const state = await llamaService.loadModel(
+        { ...options, visionProjectorPath: info.visionProjectorPath },
+        info
+      )
       settingsStore.update({ lastModelPath: options.path })
       return ok(state)
     } catch (error) {
@@ -78,10 +122,17 @@ export function registerModelHandlers(): void {
       await rm(path, { force: true })
 
       const settings = settingsStore.get()
-      if (settings.addedModelPaths.includes(path) || settings.lastModelPath === path) {
+      if (
+        settings.addedModelPaths.includes(path) ||
+        settings.lastModelPath === path ||
+        settings.visionProjectorPaths[path]
+      ) {
+        const visionProjectorPaths = { ...settings.visionProjectorPaths }
+        delete visionProjectorPaths[path]
         settingsStore.update({
           addedModelPaths: settings.addedModelPaths.filter((p) => p !== path),
-          lastModelPath: settings.lastModelPath === path ? undefined : settings.lastModelPath
+          lastModelPath: settings.lastModelPath === path ? undefined : settings.lastModelPath,
+          visionProjectorPaths
         })
       }
       return ok(null)
@@ -95,10 +146,23 @@ export function registerModelHandlers(): void {
   ipcMain.handle(IpcChannel.Models.download, async (event, model: RecommendedModel) => {
     try {
       const win = BrowserWindow.fromWebContents(event.sender)
-      const path = await downloadModel(model, settingsStore.get().modelsDirectory, (progress) => {
-        win?.webContents.send(IpcChannel.Models.downloadProgress, progress)
-      })
-      const info = describeModel(path)
+      const downloaded = await downloadModel(
+        model,
+        settingsStore.get().modelsDirectory,
+        (progress) => {
+          win?.webContents.send(IpcChannel.Models.downloadProgress, progress)
+        }
+      )
+      if (downloaded.visionProjectorPath) {
+        const settings = settingsStore.get()
+        settingsStore.update({
+          visionProjectorPaths: {
+            ...settings.visionProjectorPaths,
+            [downloaded.modelPath]: downloaded.visionProjectorPath
+          }
+        })
+      }
+      const info = describeModel(downloaded.modelPath)
       if (!info) {
         return err('models.download-invalid', 'Downloaded file could not be read as a model.')
       }

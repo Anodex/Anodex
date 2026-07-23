@@ -72,13 +72,25 @@ The renderer branches on `result.ok`.
 
 ### Local model engine
 
-`src/main/llama/LlamaService.ts` owns the entire lifecycle:
+`src/main/llama/LlamaService.ts` owns the shared lifecycle:
 
 1. Lazy dynamic `import('node-llama-cpp')` on first use.
-2. `loadModel()` → `getLlama()` → `loadModel()` → `createContext()`.
-3. `generate()` streams tokens and can attach workspace tools.
-4. `LlamaChatSession` is reused per conversation; switching conversations replays
-   history.
+2. Text models use `loadModel()` → `getLlama()` → `loadModel()` →
+   `createContext()`.
+3. A model with `visionProjectorPath` uses `LlamaVisionService` and an
+   Anodex-owned `LlamaServerRuntime` process instead. It must remain
+   loopback-only, API-key protected, hidden, and stopped on unload/quit.
+4. `generate()` streams tokens and can attach the same guarded workspace tools
+   on either backend.
+5. Text-model `LlamaChatSession` is reused per conversation; switching
+   conversations replays history. Vision history is projected into bounded
+   OpenAI-compatible chat messages and reopens persisted image attachment paths.
+
+The pinned llama.cpp runtime is prepared by `npm run prepare:vision`, stored
+under ignored `resources/llama-server/<platform>-<arch>`, and packaged by
+`npm run dist`. Do not commit extracted runtime binaries. Projector GGUFs are
+model components: keep them out of the normal model list and store explicit
+model-to-projector pairings in `visionProjectorPaths`.
 
 ### Critical Thinking research
 

@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RecommendedModel } from '@shared/recommendedModels'
-import { recommendedModelFileName } from '@shared/recommendedModels'
+import {
+  recommendedModelFileName,
+  recommendedVisionProjectorFileName
+} from '@shared/recommendedModels'
 import { cancelDownload, downloadModel } from '../modelDownloader'
 
 const MODEL: RecommendedModel = {
@@ -49,10 +52,10 @@ describe('downloadModel', () => {
     })
 
     const progress: string[] = []
-    const path = await downloadModel(MODEL, dir, (p) => progress.push(p.status))
+    const downloaded = await downloadModel(MODEL, dir, (p) => progress.push(p.status))
 
-    expect(path).toBe(join(dir, recommendedModelFileName(MODEL)))
-    expect(await readFile(path, 'utf-8')).toBe('hello world')
+    expect(downloaded.modelPath).toBe(join(dir, recommendedModelFileName(MODEL)))
+    expect(await readFile(downloaded.modelPath, 'utf-8')).toBe('hello world')
     expect(progress.at(-1)).toBe('done')
     expect(progress).toContain('downloading')
     // No leftover .part file.
@@ -66,11 +69,36 @@ describe('downloadModel', () => {
     globalThis.fetch = fetchSpy
 
     const progress: string[] = []
-    const path = await downloadModel(MODEL, dir, (p) => progress.push(p.status))
+    const downloaded = await downloadModel(MODEL, dir, (p) => progress.push(p.status))
 
-    expect(path).toBe(existingPath)
+    expect(downloaded.modelPath).toBe(existingPath)
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(progress).toEqual(['done'])
+  })
+
+  it('downloads a vision projector beside the model and returns both paths', async () => {
+    const visionModel: RecommendedModel = {
+      ...MODEL,
+      id: 'test-vision-model',
+      visionProjectorUrl: 'https://example.com/models/resolve/main/mmproj-F16.gguf',
+      visionProjectorFileName: 'test-model-mmproj-F16.gguf'
+    }
+    globalThis.fetch = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Map([['content-length', url.includes('mmproj') ? '9' : '11']]),
+        body: bodyStream(url.includes('mmproj') ? 'projector' : 'hello world')
+      })
+    )
+
+    const downloaded = await downloadModel(visionModel, dir, () => {})
+    const projectorName = recommendedVisionProjectorFileName(visionModel)
+    expect(projectorName).not.toBeNull()
+    expect(downloaded.modelPath).toBe(join(dir, recommendedModelFileName(visionModel)))
+    expect(downloaded.visionProjectorPath).toBe(join(dir, projectorName!))
+    expect(await readFile(downloaded.modelPath, 'utf-8')).toBe('hello world')
+    expect(await readFile(downloaded.visionProjectorPath!, 'utf-8')).toBe('projector')
   })
 
   it('rejects and cleans up on a non-OK response', async () => {

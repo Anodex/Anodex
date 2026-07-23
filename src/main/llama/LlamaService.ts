@@ -24,6 +24,7 @@ import type {
   ChatCompactResult,
   ContextBudgetUsage,
   ChatHistoryTurn,
+  ChatImageInput,
   ChatTitleRequest,
   GenerationStopReason,
   GenerationOptions,
@@ -77,6 +78,7 @@ import {
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
 import { defaultToolThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
+import { LlamaVisionService } from './LlamaVisionService'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
@@ -188,6 +190,8 @@ export interface GenerateParams {
   context?: ConversationContext | null
   history: ChatHistoryTurn[]
   prompt: string
+  /** Ephemeral current-turn image bytes for a multimodal local backend. */
+  images?: ChatImageInput[]
   /**
    * `isolated` rebuilds the local chat session from the supplied empty/history
    * state before this call. Cloud providers are already request-isolated.
@@ -330,6 +334,9 @@ export interface GenerateOutcome {
  * snapshots; the IPC layer forwards these to the renderer.
  */
 class LlamaService extends EventEmitter {
+  private readonly visionService = new LlamaVisionService((message) => {
+    this.setState({ status: 'error', error: message })
+  })
   private modulePromise: Promise<LlamaModule> | null = null
   private loadedModule?: LlamaModule
   private llama?: Llama
@@ -378,6 +385,7 @@ class LlamaService extends EventEmitter {
       gpuLayersUsed: this.gpuLayersUsed,
       gpuLayersTotal: this.gpuLayersTotal,
       error: this.error,
+      vision: this.visionService.active,
       generating: this.generating,
       contextTokensUsed: this.contextSequence?.nextTokenIndex,
       contextTokensConversationId: this.activeConversationId
@@ -393,6 +401,7 @@ class LlamaService extends EventEmitter {
    * contributed this turn, used only for the token-activity usage stats.
    */
   countPromptTokens(prompt: string): number {
+    if (this.visionService.active) return this.visionService.countPromptTokens(prompt)
     if (!this.model) return 0
     return this.model.tokenize(prompt).length
   }
@@ -419,6 +428,19 @@ class LlamaService extends EventEmitter {
       log.info('Loading model', info.name)
 
       try {
+        if (options.visionProjectorPath) {
+          await this.visionService.load({ ...options, contextSize: requestedSize })
+          this.contextSize = requestedSize
+          this.gpuLayersUsed =
+            options.gpuLayers === 'auto' || options.gpuLayers === undefined
+              ? undefined
+              : options.gpuLayers
+          this.gpuLayersTotal = undefined
+          this.setState({ status: 'ready', error: undefined, contextSize: requestedSize })
+          log.info('Vision model ready:', info.name, `(ctx ${this.contextSize})`)
+          return this.getState()
+        }
+
         this.llama ??= await nlc.getLlama()
         this.model = await this.llama.loadModel({
           modelPath: options.path,
@@ -469,6 +491,7 @@ class LlamaService extends EventEmitter {
       } catch (error) {
         const message = describeLoadError(error, info)
         log.error('Failed to load model:', message)
+        await this.visionService.unload()
         await this.disposeModel()
         this.setState({ status: 'error', model: info, error: message })
         throw new Error(message)
@@ -480,6 +503,7 @@ class LlamaService extends EventEmitter {
 
   /** Unload the current model and free all associated resources. */
   async unload(): Promise<EngineState> {
+    await this.visionService.unload()
     await this.disposeModel()
     this.setState({ status: 'unloaded', model: undefined, error: undefined })
     return this.getState()
@@ -487,11 +511,22 @@ class LlamaService extends EventEmitter {
 
   /** Generate an assistant reply, streaming decoded tokens via `onToken`. */
   async generate(params: GenerateParams): Promise<GenerateOutcome> {
-    if (this.status !== 'ready' || !this.context) {
+    if (this.status !== 'ready' || (!this.context && !this.visionService.active)) {
       throw new Error('No model is loaded. Load a model from the Models tab first.')
     }
     if (this.generating) {
       throw new Error(GENERATION_IN_PROGRESS_ERROR)
+    }
+
+    if (this.visionService.active) {
+      this.generating = true
+      this.emitState()
+      try {
+        return await this.visionService.generate(params)
+      } finally {
+        this.generating = false
+        this.emitState()
+      }
     }
 
     // Take the lock before any awaited setup touches the shared context/session.
@@ -1279,23 +1314,25 @@ class LlamaService extends EventEmitter {
    * throwing, since the caller always has a safe static fallback string.
    */
   async summarizeForToast(text: string, maxWords: number): Promise<string | null> {
-    if (this.status !== 'ready' || !this.model) return null
+    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
 
     try {
-      const sequence = await this.ensureSummarySequence(1024)
       const truncated = text.length > 1200 ? `${text.slice(0, 1200)}…` : text
-      const finalText = await this.runSummaryPrompt(
-        sequence,
+      const prompt =
         `Summarize the following in ${maxWords} words or fewer. Reply with only the ` +
-          `summary itself — no quotes, no trailing punctuation, no preamble.\n\n${truncated}`,
-        {
-          // Generous relative to the target word count — leaves room for a
-          // model that still reasons a little before answering, without
-          // letting it ramble on at length for what's just a toast title.
-          maxTokens: Math.max(64, maxWords * 4),
-          temperature: 0.2
-        }
-      )
+        `summary itself — no quotes, no trailing punctuation, no preamble.\n\n${truncated}`
+      const finalText = this.visionService.active
+        ? await this.visionService.completeText(prompt, {
+            maxTokens: Math.max(64, maxWords * 4),
+            temperature: 0.2
+          })
+        : await this.runSummaryPrompt(await this.ensureSummarySequence(1024), prompt, {
+            // Generous relative to the target word count — leaves room for a
+            // model that still reasons a little before answering, without
+            // letting it ramble on at length for what's just a toast title.
+            maxTokens: Math.max(64, maxWords * 4),
+            temperature: 0.2
+          })
       return cleanToastSummary(finalText, maxWords)
     } catch (error) {
       log.warn('Toast summary generation failed:', error)
@@ -1305,19 +1342,21 @@ class LlamaService extends EventEmitter {
 
   /** Best-effort short title for a new conversation, based on the first completed turn. */
   async generateChatTitle(request: ChatTitleRequest): Promise<string | null> {
-    if (this.status !== 'ready' || !this.model) return null
+    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
 
     try {
-      const sequence = await this.ensureSummarySequence(1536)
       const context = renderTitleContext(request)
-      const finalText = await this.runSummaryPrompt(
-        sequence,
+      const prompt =
         'Create a concise title for this AI assistant conversation. The title should describe ' +
-          'the actual task or topic, not copy the first words verbatim. Use 3 to 6 words, ' +
-          'Title Case, no quotes, no trailing punctuation, no preamble. Prefer an action plus ' +
-          `object, such as "Fix Sidebar Hover Preview" or "Plan Garden Layout".\n\n${context}`,
-        { maxTokens: 64, temperature: 0.15 }
-      )
+        'the actual task or topic, not copy the first words verbatim. Use 3 to 6 words, ' +
+        'Title Case, no quotes, no trailing punctuation, no preamble. Prefer an action plus ' +
+        `object, such as "Fix Sidebar Hover Preview" or "Plan Garden Layout".\n\n${context}`
+      const finalText = this.visionService.active
+        ? await this.visionService.completeText(prompt, { maxTokens: 64, temperature: 0.15 })
+        : await this.runSummaryPrompt(await this.ensureSummarySequence(1536), prompt, {
+            maxTokens: 64,
+            temperature: 0.15
+          })
       return cleanChatTitle(finalText)
     } catch (error) {
       log.warn('Chat title generation failed:', error)
@@ -1334,7 +1373,7 @@ class LlamaService extends EventEmitter {
    * and audit history.
    */
   async compactConversationContext(request: ChatCompactRequest): Promise<ChatCompactResult | null> {
-    if (this.status !== 'ready' || !this.model) {
+    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) {
       throw new Error('No model is loaded. Load a model before compacting chat context.')
     }
 
@@ -1351,7 +1390,8 @@ class LlamaService extends EventEmitter {
     // replacement-style update instead of the old unbounded
     // `mergeContextSummaries` concatenation across successive manual
     // compactions.
-    const countTokens = (text: string): number => this.model!.tokenize(text).length
+    const countTokens = (text: string): number =>
+      this.model ? this.model.tokenize(text).length : this.visionService.countPromptTokens(text)
     const summary = await foldIntoRollingSummary({
       items: plan.older,
       previousSummary: plan.previousSummary ?? undefined,
@@ -1617,10 +1657,9 @@ class LlamaService extends EventEmitter {
     transcript: string,
     previousSummary?: string
   ): Promise<string | null> {
-    if (!this.model) return null
+    if (!this.model && !this.visionService.active) return null
 
     try {
-      const sequence = await this.ensureSummarySequence(4096)
       // The transcript is untrusted data to describe, not instructions to
       // follow — without this framing, a weak model can latch onto a short
       // reply embedded in the transcript (e.g. a literal "OK") and just echo
@@ -1636,13 +1675,18 @@ class LlamaService extends EventEmitter {
       // `MAX_COMPACTION_SUMMARY_WORDS * 4`) because the 4,096-token summary
       // context must also fit the previous summary and the transcript chunk
       // on the input side — see that constant's doc for the arithmetic.
-      const finalText = await this.runSummaryPrompt(
-        sequence,
-        previousSummary
-          ? buildCompactionUpdatePrompt(transcript, previousSummary)
-          : buildCompactionSummaryPrompt(transcript),
-        { maxTokens: MAX_COMPACTION_SUMMARY_TOKENS, temperature: 0.2 }
-      )
+      const prompt = previousSummary
+        ? buildCompactionUpdatePrompt(transcript, previousSummary)
+        : buildCompactionSummaryPrompt(transcript)
+      const finalText = this.visionService.active
+        ? await this.visionService.completeText(prompt, {
+            maxTokens: MAX_COMPACTION_SUMMARY_TOKENS,
+            temperature: 0.2
+          })
+        : await this.runSummaryPrompt(await this.ensureSummarySequence(4096), prompt, {
+            maxTokens: MAX_COMPACTION_SUMMARY_TOKENS,
+            temperature: 0.2
+          })
       // Reject degenerate "summaries" (too short to have preserved anything
       // useful) rather than polluting the system prompt with them — the
       // caller falls back to dropping the older turns instead.
@@ -2256,6 +2300,7 @@ async function describeInsufficientMemory(
   nlc: LlamaModule
 ): Promise<string | null> {
   const free = freemem()
+  const projectorBytes = info.visionProjectorSizeBytes ?? 0
 
   try {
     const fileInfo = await nlc.readGgufFileInfo(info.path)
@@ -2267,7 +2312,8 @@ async function describeInsufficientMemory(
       contextSize,
       modelGpuLayers: 0
     })
-    const required = (modelReq.cpuRam + contextReq.cpuRam) * MIN_FREE_RAM_MULTIPLIER
+    const required =
+      (modelReq.cpuRam + contextReq.cpuRam + projectorBytes) * MIN_FREE_RAM_MULTIPLIER
     if (free >= required) return null
     const freeGb = (free / 1024 ** 3).toFixed(1)
     const requiredGb = (required / 1024 ** 3).toFixed(1)
@@ -2278,10 +2324,11 @@ async function describeInsufficientMemory(
     )
   } catch (error) {
     log.warn('GGUF resource estimate failed, falling back to the file-size heuristic:', error)
-    const required = info.sizeBytes * MIN_FREE_RAM_MULTIPLIER
+    const totalModelBytes = info.sizeBytes + projectorBytes
+    const required = totalModelBytes * MIN_FREE_RAM_MULTIPLIER
     if (free >= required) return null
     const freeGb = (free / 1024 ** 3).toFixed(1)
-    const modelGb = (info.sizeBytes / 1024 ** 3).toFixed(1)
+    const modelGb = (totalModelBytes / 1024 ** 3).toFixed(1)
     return (
       `${info.name} is ${modelGb} GB, but only ${freeGb} GB of RAM is free right now. ` +
       'Close other applications, or choose a smaller model, then try again.'

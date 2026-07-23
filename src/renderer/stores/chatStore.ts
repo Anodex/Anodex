@@ -382,7 +382,13 @@ export const useChatStore = create<ChatState>()(
           content: trimmed,
           createdAt: now,
           attachments: attachments.length
-            ? attachments.map((a) => ({ path: a.path, name: a.name, sizeBytes: a.sizeBytes }))
+            ? attachments.map((a) => ({
+                path: a.path,
+                name: a.name,
+                sizeBytes: a.sizeBytes,
+                kind: a.kind,
+                mimeType: a.kind === 'image' ? a.mimeType : undefined
+              }))
             : undefined
         })
         convo.messages.push({
@@ -405,6 +411,15 @@ export const useChatStore = create<ChatState>()(
         context: existing?.context ?? null,
         history,
         prompt: buildPromptWithAttachments(trimmed, attachments),
+        images: attachments
+          .filter((attachment) => attachment.kind === 'image')
+          .map((attachment) => ({
+            path: attachment.path,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            dataUrl: attachment.dataUrl,
+            sizeBytes: attachment.sizeBytes
+          })),
         plan: existing?.plan ?? null,
         options: settings
           ? {
@@ -936,13 +951,23 @@ async function rehydrateAttachments(
 
         const result = await anodex.attachments.readFile(readPath)
         if (!result.ok) throw new Error(result.error.message)
-        return {
-          path: attachment.path,
-          name: attachment.name,
-          content: result.value.content,
-          sizeBytes: result.value.sizeBytes,
-          truncated: result.value.truncated
-        }
+        return result.value.kind === 'image'
+          ? {
+              kind: 'image' as const,
+              path: attachment.path,
+              name: attachment.name,
+              dataUrl: result.value.dataUrl,
+              mimeType: result.value.mimeType,
+              sizeBytes: result.value.sizeBytes
+            }
+          : {
+              kind: 'text' as const,
+              path: attachment.path,
+              name: attachment.name,
+              content: result.value.content,
+              sizeBytes: result.value.sizeBytes,
+              truncated: result.value.truncated
+            }
       })
     )
   } catch (error) {

@@ -18,6 +18,13 @@ export interface ModelInfo {
   sizeBytes: number
   /** Quantization label parsed from the filename, e.g. `Q4_K_M`. */
   quant?: string
+  /**
+   * Matching llama.cpp multimodal projector. Present when Anodex found a
+   * companion `mmproj` file or the user explicitly associated one.
+   */
+  visionProjectorPath?: string
+  /** Projector size, included in compatibility/memory messaging. */
+  visionProjectorSizeBytes?: number
   /** Where the model came from. Only `local` is supported today. */
   source: 'local'
 }
@@ -25,6 +32,8 @@ export interface ModelInfo {
 /** Options passed when loading a model into the engine. */
 export interface ModelLoadOptions {
   path: string
+  /** Load through Anodex's bundled llama.cpp multimodal runtime when present. */
+  visionProjectorPath?: string
   /** Context window size in tokens. Falls back to the model default when omitted. */
   contextSize?: number
   /** Number of layers to offload to GPU. `'auto'` lets the engine decide. */
@@ -40,6 +49,8 @@ export interface EngineState {
   error?: string
   /** Effective context size once the model is ready. */
   contextSize?: number
+  /** True when the active local backend accepts image inputs. */
+  vision?: boolean
   /**
    * Actual number of layers offloaded to the GPU for the loaded model — the
    * real number the engine resolved, whether `gpuLayers` was `'auto'` or a

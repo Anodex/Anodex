@@ -91,8 +91,8 @@ Remaining tool-side opportunities:
   Gmail, and memory conditions; keep future work in this area focused on clear
   setup actions rather than more catalog metadata.
 
-Avoid near-term work on broad semantic search or vision-as-a-tool until the
-larger infrastructure blockers in their existing backlog entries are resolved.
+Avoid near-term work on broad semantic search until the larger infrastructure
+blockers in its existing backlog entry are resolved.
 
 ### Skills for reusable workflows
 
@@ -203,22 +203,25 @@ small follow-up.
 
 ### 3. Vision support (multimodal image understanding)
 
-Whether a vision-capable local model could actually _see_ an attached/dropped
-image. Checked directly against `node_modules`: `node-llama-cpp` (pinned
-`^3.4.0`) has zero multimodal/vision plumbing in the installed version — no API
-to load a multimodal projector (`mmproj`) alongside a model, no way to pass
-image bytes into a generation at all, independent of whether the model file
-itself is vision-capable (e.g. LLaVA, Qwen-VL GGUFs). Genuinely blocked on
-upstream capability, not just unbuilt. Two paths if picked up again: (1) check
-whether a newer `node-llama-cpp` major version has added multimodal support
-before building anything custom — don't assume it's still missing without
-checking; (2) if not, bypass node-llama-cpp's JS wrapper and integrate
-directly with llama.cpp's own native multimodal/CLIP APIs (the same machinery
-`llava-cli`-style tools use) — real native addon work, categorically bigger
-than anything else in this backlog. Either way also needs: UI for image
-thumbnails in the composer/message bubbles (today's attach chips are
-text-file-shaped, no preview), and a way to tell the user whether their
-_currently loaded_ model is vision-capable at all before they try.
+Completed. Anodex now uses a two-path local engine: text-only GGUFs keep the
+existing `node-llama-cpp` lifecycle, while a model paired with a matching
+`mmproj` starts an Anodex-owned, pinned `llama-server` runtime with llama.cpp's
+`libmtmd` multimodal support. The process binds only to `127.0.0.1`, uses a new
+random API key and ephemeral port per load, has no visible web UI, and is
+stopped by the normal model unload/app shutdown lifecycle.
+
+The model scanner hides projector GGUFs as model components, automatically
+pairs a sole sibling projector, and persists explicit pairings when several
+exist. Hugging Face discovery excludes `mmproj` from main-model selection,
+selects a compatible projector, and downloads both files. The installed-model
+table provides a manual projector picker and Vision badge. The composer accepts
+up to four bounded PNG/JPEG/GIF/BMP images as true OpenAI-compatible multimodal
+content parts and keeps image bytes out of persisted conversation JSON.
+
+Keep future work focused on measured compatibility additions (more media
+formats or model families), not a second vision transport. Preserve loopback
+isolation, bounded payloads, the existing guarded Anodex tool handlers, and the
+text-only `node-llama-cpp` path.
 
 ### 4. User-defined slash-command shortcuts
 

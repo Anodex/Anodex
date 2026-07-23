@@ -177,6 +177,26 @@ describe('validatePatch', () => {
     expect(() => validatePatch(patch)).toThrow(/assistantStyle.globalStyle/)
   })
 
+  it('accepts dynamic model-to-projector path mappings', () => {
+    expect(() =>
+      validatePatch({
+        visionProjectorPaths: {
+          'C:\\models\\qwen.gguf': 'C:\\models\\mmproj-F16.gguf'
+        }
+      })
+    ).not.toThrow()
+  })
+
+  it('rejects empty vision projector mapping values', () => {
+    expect(() =>
+      validatePatch({
+        visionProjectorPaths: {
+          'C:\\models\\qwen.gguf': ''
+        }
+      })
+    ).toThrow(/visionProjectorPaths/)
+  })
+
   it('accepts supported sound themes and rejects unknown ones', () => {
     expect(() => validatePatch({ appearance: { soundTheme: 'sciFi' } })).not.toThrow()
     expect(() => validatePatch({ appearance: { soundTheme: 'orchestra' } } as never)).toThrow(

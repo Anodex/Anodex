@@ -53,13 +53,35 @@ export interface ChatAttachment {
   path: string
   name: string
   sizeBytes: number
+  /** Missing on conversations saved before image attachments were supported. */
+  kind?: 'text' | 'image'
+  /** Persisted for image rehydration; image bytes are deliberately not stored in chat JSON. */
+  mimeType?: string
 }
 
 /** Content read from a dropped/dragged file, for the composer to attach to the next message. */
-export interface AttachmentContent {
-  content: string
+export type AttachmentContent =
+  | {
+      kind: 'text'
+      content: string
+      sizeBytes: number
+      truncated: boolean
+    }
+  | {
+      kind: 'image'
+      dataUrl: string
+      mimeType: string
+      sizeBytes: number
+      truncated: false
+    }
+
+/** Ephemeral image bytes for one generation; never persisted in conversation JSON. */
+export interface ChatImageInput {
+  path: string
+  name: string
+  mimeType: string
+  dataUrl: string
   sizeBytes: number
-  truncated: boolean
 }
 
 /**
@@ -158,6 +180,8 @@ export interface ChatHistoryTurn {
   content: string
   /** Tool calls made during this (assistant) turn, retained for memory. */
   toolCalls?: ToolCall[]
+  /** Attachment metadata lets the local vision backend reopen user-selected images on later turns. */
+  attachments?: ChatAttachment[]
 }
 
 /**
@@ -178,6 +202,8 @@ export interface ChatRequest {
   context?: ConversationContext | null
   history: ChatHistoryTurn[]
   prompt: string
+  /** Current-turn image inputs. Text attachments are already folded into `prompt`. */
+  images?: ChatImageInput[]
   options?: GenerationOptions
   /** The conversation's current plan, if any, so plan tools can continue it across turns. */
   plan?: Plan | null

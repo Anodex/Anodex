@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { buildPromptWithAttachments, type ComposerAttachment } from '../attachments'
+import {
+  buildPromptWithAttachments,
+  type ComposerImageAttachment,
+  type ComposerTextAttachment
+} from '../attachments'
 
-function attachment(overrides: Partial<ComposerAttachment> = {}): ComposerAttachment {
+function attachment(overrides: Partial<ComposerTextAttachment> = {}): ComposerTextAttachment {
   return {
+    kind: 'text',
     path: 'src/app.js',
     name: 'app.js',
     content: 'console.log("hi")',
@@ -48,5 +53,18 @@ describe('buildPromptWithAttachments', () => {
     const result = buildPromptWithAttachments('', [attachment()])
 
     expect(result).toBe('--- Attached file: src/app.js ---\nconsole.log("hi")')
+  })
+
+  it('does not serialize image data into the text prompt', () => {
+    const image: ComposerImageAttachment = {
+      kind: 'image',
+      path: 'photo.png',
+      name: 'photo.png',
+      dataUrl: 'data:image/png;base64,AAAA',
+      mimeType: 'image/png',
+      sizeBytes: 3
+    }
+
+    expect(buildPromptWithAttachments('describe this', [image])).toBe('describe this')
   })
 })

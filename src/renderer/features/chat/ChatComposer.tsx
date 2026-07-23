@@ -33,6 +33,8 @@ import styles from './ChatComposer.module.css'
 const MAX_TEXTAREA_HEIGHT = 200
 /** Keeps a single turn's attached content bounded — mirrors the old read_file cap. */
 const MAX_ATTACHMENTS = 10
+/** Keeps image payloads and multimodal prompt processing predictably bounded. */
+const MAX_IMAGE_ATTACHMENTS = 4
 // Stable reference for the no-queue case — a fresh `[]` literal in the
 // selector would give useSyncExternalStore a new snapshot on every call,
 // which React treats as "state changed every render" and throws "Maximum
@@ -99,6 +101,7 @@ export function ChatComposer(): JSX.Element {
   // `chatStore.compactConversation`), regardless of which provider is active.
   const ready = isChatReady(settings, engine.status)
   const localReady = engine.status === 'ready'
+  const localVision = settings?.provider.active === 'local' && Boolean(engine.vision)
   // Driven off the active conversation's own streaming message rather than
   // the local engine's `generating` flag, which the Anthropic provider never
   // touches — this way Send/Stop toggles correctly for either provider.
@@ -214,6 +217,13 @@ export function ChatComposer(): JSX.Element {
   }
 
   const submit = (): void => {
+    if (attachments.some((attachment) => attachment.kind === 'image') && !localVision) {
+      notifyError(
+        'Vision model required',
+        'Load a local model with its matching mmproj vision projector before sending images.'
+      )
+      return
+    }
     if (generating) {
       if (!canQueue) return
       const value = expandComposerText(text)
@@ -282,6 +292,7 @@ export function ChatComposer(): JSX.Element {
 
   const attachFiles = async (candidates: { path: string; name: string }[]): Promise<void> => {
     let currentCount = attachments.length
+    let currentImageCount = attachments.filter((attachment) => attachment.kind === 'image').length
     const seenPaths = new Set(attachments.map((a) => a.path))
     for (const { path, name } of candidates) {
       if (currentCount >= MAX_ATTACHMENTS) {
@@ -294,10 +305,45 @@ export function ChatComposer(): JSX.Element {
         notifyError('Could not attach file', result.error.message)
         continue
       }
+      if (result.value.kind === 'image') {
+        const image = result.value
+        if (!localVision) {
+          notifyError(
+            'Vision model required',
+            'To attach images, load a local vision model with its matching mmproj projector.'
+          )
+          continue
+        }
+        if (currentImageCount >= MAX_IMAGE_ATTACHMENTS) {
+          notifyError(
+            'Too many images',
+            `Only ${MAX_IMAGE_ATTACHMENTS} images can be sent in one message.`
+          )
+          continue
+        }
+        seenPaths.add(path)
+        currentCount += 1
+        currentImageCount += 1
+        setAttachments((prev) => [
+          ...prev,
+          {
+            kind: 'image',
+            path,
+            name,
+            dataUrl: image.dataUrl,
+            mimeType: image.mimeType,
+            sizeBytes: image.sizeBytes
+          }
+        ])
+        continue
+      }
       seenPaths.add(path)
       currentCount += 1
       const { content, sizeBytes, truncated } = result.value
-      setAttachments((prev) => [...prev, { path, name, content, sizeBytes, truncated }])
+      setAttachments((prev) => [
+        ...prev,
+        { kind: 'text', path, name, content, sizeBytes, truncated }
+      ])
     }
   }
 
@@ -407,7 +453,11 @@ export function ChatComposer(): JSX.Element {
           <div className={styles.attachments}>
             {attachments.map((attachment) => (
               <div key={attachment.path} className={styles.attachment} title={attachment.path}>
-                <FileTypeIcon fileName={attachment.name} size={13} />
+                {attachment.kind === 'image' ? (
+                  <img className={styles.attachmentThumbnail} src={attachment.dataUrl} alt="" />
+                ) : (
+                  <FileTypeIcon fileName={attachment.name} size={13} />
+                )}
                 <span className={styles.attachmentName}>{attachment.name}</span>
                 <span className={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</span>
                 <button
@@ -512,8 +562,8 @@ export function ChatComposer(): JSX.Element {
             className={styles.ghostAction}
             onClick={() => void handleAttachClick()}
             disabled={!ready || attachments.length >= MAX_ATTACHMENTS}
-            title="Attach files"
-            aria-label="Attach files"
+            title={localVision ? 'Attach files or images' : 'Attach files'}
+            aria-label={localVision ? 'Attach files or images' : 'Attach files'}
           >
             <Icon name="paperclip" size={15} />
           </button>
@@ -610,7 +660,9 @@ export function ChatComposer(): JSX.Element {
       <div className={styles.hint}>
         {generating
           ? `Enter to queue for after this reply · Shift+Enter for a new line · ${SLASH_COMMAND_HINT}`
-          : `Enter to send · Shift+Enter for a new line · Drag or attach a file · Responses are generated locally · ${SLASH_COMMAND_HINT}`}
+          : `Enter to send · Shift+Enter for a new line · ${
+              localVision ? 'Drag or attach files and images' : 'Drag or attach a file'
+            } · Responses are generated locally · ${SLASH_COMMAND_HINT}`}
       </div>
     </div>
   )

@@ -107,6 +107,7 @@ export const IpcChannel = {
   Models: {
     list: 'models:list',
     add: 'models:add',
+    addVisionProjector: 'models:add-vision-projector',
     load: 'models:load',
     unload: 'models:unload',
     /** Permanently removes a model file from disk. */
@@ -389,6 +390,8 @@ export interface AnodexApi {
     list(): Promise<Result<ModelInfo[]>>
     /** Opens a file picker for a `.gguf` file; resolves `null` if cancelled. */
     add(): Promise<Result<ModelInfo | null>>
+    /** Associates a user-selected `mmproj` GGUF with an installed model. */
+    addVisionProjector(modelPath: string): Promise<Result<ModelInfo | null>>
     load(options: ModelLoadOptions): Promise<Result<EngineState>>
     unload(): Promise<Result<EngineState>>
     /** Permanently deletes the model file at `path` from disk. Unloads it first if active. */

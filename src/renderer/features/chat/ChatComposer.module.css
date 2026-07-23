@@ -143,6 +143,14 @@
   color: var(--text);
 }
 
+.attachmentThumbnail {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
 .attachmentSize {
   flex-shrink: 0;
   color: var(--text-faint);

@@ -20,7 +20,8 @@ export function messageToHistoryTurn(message: ChatMessage): ChatHistoryTurn {
     id: message.id,
     role: message.role,
     content: message.content,
-    toolCalls: message.toolCalls
+    toolCalls: message.toolCalls,
+    attachments: message.attachments
   })
 }
 

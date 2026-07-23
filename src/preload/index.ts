@@ -26,6 +26,8 @@ const api: AnodexApi = {
   models: {
     list: () => ipcRenderer.invoke(IpcChannel.Models.list),
     add: () => ipcRenderer.invoke(IpcChannel.Models.add),
+    addVisionProjector: (modelPath) =>
+      ipcRenderer.invoke(IpcChannel.Models.addVisionProjector, modelPath),
     load: (options) => ipcRenderer.invoke(IpcChannel.Models.load, options),
     unload: () => ipcRenderer.invoke(IpcChannel.Models.unload),
     delete: (path) => ipcRenderer.invoke(IpcChannel.Models.delete, path),

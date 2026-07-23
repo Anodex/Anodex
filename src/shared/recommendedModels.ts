@@ -45,6 +45,10 @@ export interface RecommendedModel {
   requiresGpuRecommended?: boolean
   /** Direct GGUF download URL (used by the upcoming downloader). */
   downloadUrl: string
+  /** Matching llama.cpp multimodal projector, when the repository publishes one. */
+  visionProjectorUrl?: string
+  /** Filename used for the locally downloaded projector. */
+  visionProjectorFileName?: string
   /** Broad capability tags for labelling. */
   tags: string[]
   /** Primary reason Anodex would recommend this model. */
@@ -327,6 +331,26 @@ export function recommendedModelFileName(model: RecommendedModel): string {
   const path = new URL(model.downloadUrl).pathname
   const name = path.slice(path.lastIndexOf('/') + 1)
   return name.toLowerCase().endsWith('.gguf') ? name : `${model.id}.gguf`
+}
+
+/** Stable local filename for a discovered model's companion vision projector. */
+export function recommendedVisionProjectorFileName(model: RecommendedModel): string | null {
+  if (!model.visionProjectorUrl) return null
+  if (model.visionProjectorFileName) {
+    const explicit = model.visionProjectorFileName.split(/[\\/]/).pop()
+    if (
+      explicit &&
+      explicit !== '.' &&
+      explicit !== '..' &&
+      explicit.toLowerCase().endsWith('.gguf')
+    ) {
+      return explicit
+    }
+  }
+  const modelName = recommendedModelFileName(model).replace(/\.gguf$/i, '')
+  const path = new URL(model.visionProjectorUrl).pathname
+  const projectorName = path.slice(path.lastIndexOf('/') + 1)
+  return `${modelName}-${projectorName || 'mmproj.gguf'}`
 }
 
 /**

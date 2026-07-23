@@ -945,7 +945,8 @@
   gap: var(--space-1);
 }
 
-.deleteModelButton {
+.deleteModelButton,
+.visionModelButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -959,12 +960,18 @@
   cursor: pointer;
 }
 
+.visionModelButton:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .deleteModelButton:hover:not(:disabled) {
   color: var(--danger);
   background: var(--danger-soft);
 }
 
-.deleteModelButton:disabled {
+.deleteModelButton:disabled,
+.visionModelButton:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -1067,12 +1074,33 @@
   min-width: 0;
 }
 
+.modelNameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .modelName {
   overflow: hidden;
+  min-width: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 650;
   color: var(--text);
+}
+
+.visionBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
 }
 
 .modelPath {

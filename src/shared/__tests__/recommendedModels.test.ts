@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   RECOMMENDED_MODELS,
   inferModelFamily,
-  recommendedModelFileName
+  recommendedModelFileName,
+  recommendedVisionProjectorFileName
 } from '../recommendedModels'
 
 describe('recommendedModelFileName', () => {
@@ -31,6 +32,18 @@ describe('recommendedModelFileName', () => {
       tags: []
     }
     expect(recommendedModelFileName(model)).toBe('weird-model.gguf')
+  })
+})
+
+describe('recommendedVisionProjectorFileName', () => {
+  it('strips directory traversal from a supplied projector filename', () => {
+    const model = {
+      ...RECOMMENDED_MODELS[0],
+      visionProjectorUrl: 'https://example.com/mmproj-F16.gguf',
+      visionProjectorFileName: '..\\outside.gguf'
+    }
+
+    expect(recommendedVisionProjectorFileName(model)).toBe('outside.gguf')
   })
 })
 

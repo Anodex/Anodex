@@ -1,10 +1,14 @@
 import { createWriteStream, existsSync, statSync } from 'node:fs'
 import { rename, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ModelDownloadProgress } from '@shared/model.types'
-import { recommendedModelFileName, type RecommendedModel } from '@shared/recommendedModels'
+import {
+  recommendedModelFileName,
+  recommendedVisionProjectorFileName,
+  type RecommendedModel
+} from '@shared/recommendedModels'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('downloader')
@@ -30,26 +34,30 @@ export function cancelAllDownloads(): void {
  * models are matched by filename, so this also naturally dedupes a model the
  * user already has.
  *
- * Resolves to the final file path on success. Rejects (and cleans up the
- * partial file) on a network error, a non-OK response, or cancellation via
- * {@link cancelDownload}.
+ * Resolves to the main model path and optional projector path on success.
+ * Rejects (and cleans up the active partial file) on a network error, a
+ * non-OK response, or cancellation via {@link cancelDownload}.
  */
 export async function downloadModel(
   model: RecommendedModel,
   targetDir: string,
   onProgress: (progress: ModelDownloadProgress) => void
-): Promise<string> {
-  const finalPath = join(targetDir, recommendedModelFileName(model))
+): Promise<{ modelPath: string; visionProjectorPath?: string }> {
+  const finalPath = resolveDownloadTarget(targetDir, recommendedModelFileName(model))
+  const projectorName = recommendedVisionProjectorFileName(model)
+  const projectorPath = projectorName ? resolveDownloadTarget(targetDir, projectorName) : undefined
 
-  if (existsSync(finalPath)) {
-    const sizeBytes = statSync(finalPath).size
+  if (existsSync(finalPath) && (!projectorPath || existsSync(projectorPath))) {
+    const sizeBytes =
+      statSync(finalPath).size +
+      (projectorPath && existsSync(projectorPath) ? statSync(projectorPath).size : 0)
     onProgress({
       modelId: model.id,
       receivedBytes: sizeBytes,
       totalBytes: sizeBytes,
       status: 'done'
     })
-    return finalPath
+    return { modelPath: finalPath, visionProjectorPath: projectorPath }
   }
 
   if (activeDownloads.has(model.id)) {
@@ -59,21 +67,51 @@ export async function downloadModel(
   const controller = new AbortController()
   activeDownloads.set(model.id, controller)
   try {
-    await downloadFile(
-      model.downloadUrl,
-      finalPath,
-      controller.signal,
-      (receivedBytes, totalBytes) =>
-        onProgress({ modelId: model.id, receivedBytes, totalBytes, status: 'downloading' })
-    )
-    const sizeBytes = statSync(finalPath).size
+    const knownModelBytes = existsSync(finalPath) ? statSync(finalPath).size : 0
+    const knownProjectorBytes =
+      projectorPath && existsSync(projectorPath) ? statSync(projectorPath).size : 0
+    let currentModelBytes = knownModelBytes
+    let currentProjectorBytes = knownProjectorBytes
+    const report = (
+      active: 'model' | 'projector',
+      received: number,
+      total: number | null
+    ): void => {
+      if (active === 'model') currentModelBytes = received
+      else currentProjectorBytes = received
+      const otherKnown = active === 'model' ? knownProjectorBytes : currentModelBytes
+      onProgress({
+        modelId: model.id,
+        receivedBytes: currentModelBytes + currentProjectorBytes,
+        totalBytes: total === null ? null : total + otherKnown,
+        status: 'downloading'
+      })
+    }
+
+    if (!existsSync(finalPath)) {
+      await downloadFile(model.downloadUrl, finalPath, controller.signal, (received, total) =>
+        report('model', received, total)
+      )
+      currentModelBytes = statSync(finalPath).size
+    }
+
+    if (model.visionProjectorUrl && projectorPath && !existsSync(projectorPath)) {
+      await downloadFile(
+        model.visionProjectorUrl,
+        projectorPath,
+        controller.signal,
+        (received, total) => report('projector', received, total)
+      )
+      currentProjectorBytes = statSync(projectorPath).size
+    }
+    const sizeBytes = currentModelBytes + currentProjectorBytes
     onProgress({
       modelId: model.id,
       receivedBytes: sizeBytes,
       totalBytes: sizeBytes,
       status: 'done'
     })
-    return finalPath
+    return { modelPath: finalPath, visionProjectorPath: projectorPath }
   } catch (error) {
     const canceled = controller.signal.aborted
     if (!canceled) log.warn('Model download failed', model.id, error)
@@ -88,6 +126,15 @@ export async function downloadModel(
   } finally {
     activeDownloads.delete(model.id)
   }
+}
+
+function resolveDownloadTarget(targetDir: string, fileName: string): string {
+  const root = resolve(targetDir)
+  const target = resolve(root, fileName)
+  if (!target.startsWith(`${root}${sep}`)) {
+    throw new Error('Refusing to download a model outside the configured models directory.')
+  }
+  return target
 }
 
 /**

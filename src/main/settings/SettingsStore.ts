@@ -320,6 +320,9 @@ function assertKnownKeys(
     }
     const patchValue = patch[key]
     const refValue = reference[key]
+    // This is an intentionally open string-to-string record. Its keys are
+    // absolute model paths, so they cannot appear in the canonical defaults.
+    if (`${path}${key}` === 'visionProjectorPaths') continue
     if (isPlainObject(refValue) && isPlainObject(patchValue)) {
       assertKnownKeys(patchValue, refValue, `${path}${key}.`)
     }
@@ -369,6 +372,20 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
   if (patch.modelsDirectory !== undefined) {
     if (typeof patch.modelsDirectory !== 'string' || patch.modelsDirectory.trim() === '') {
       throw new Error('modelsDirectory must be a non-empty string')
+    }
+  }
+
+  if (patch.visionProjectorPaths !== undefined) {
+    if (
+      typeof patch.visionProjectorPaths !== 'object' ||
+      patch.visionProjectorPaths === null ||
+      Array.isArray(patch.visionProjectorPaths) ||
+      Object.entries(patch.visionProjectorPaths).some(
+        ([modelPath, projectorPath]) =>
+          !modelPath.trim() || typeof projectorPath !== 'string' || !projectorPath.trim()
+      )
+    ) {
+      throw new Error('visionProjectorPaths must map model paths to non-empty projector paths')
     }
   }
 

@@ -126,7 +126,9 @@ export function extractQuant(filename: string): string | null {
 export function pickBestGgufFile(siblings: HfSibling[]): HfSibling | null {
   const candidates = siblings.filter(
     (file): file is HfSibling & { size: number } =>
-      typeof file.size === 'number' && isSingleFileGguf(file.rfilename)
+      typeof file.size === 'number' &&
+      isSingleFileGguf(file.rfilename) &&
+      !isVisionProjectorFile(file.rfilename)
   )
   if (candidates.length === 0) return null
 
@@ -140,6 +142,34 @@ export function pickBestGgufFile(siblings: HfSibling[]): HfSibling | null {
   return [...candidates].sort((a, b) => a.size - b.size)[0]
 }
 
+/** Pick the most broadly compatible projector precision published alongside a vision GGUF. */
+export function pickVisionProjector(siblings: HfSibling[]): HfSibling | null {
+  const candidates = siblings.filter(
+    (file): file is HfSibling & { size: number } =>
+      typeof file.size === 'number' &&
+      isSingleFileGguf(file.rfilename) &&
+      isVisionProjectorFile(file.rfilename)
+  )
+  if (candidates.length === 0) return null
+
+  for (const precision of ['f16', 'bf16', 'q8_0', 'f32']) {
+    const token = new RegExp(`(?:^|[-_.])${precision}(?:[-_.]|$)`, 'i')
+    const match = candidates.find((file) => token.test(file.rfilename))
+    if (match) return match
+  }
+  return [...candidates].sort((a, b) => a.size - b.size)[0]
+}
+
+function isVisionProjectorFile(filename: string): boolean {
+  const name = filename.toLowerCase()
+  return (
+    name.includes('mmproj') ||
+    name.includes('vision-projector') ||
+    name.includes('vision_projector') ||
+    name.includes('clip-model')
+  )
+}
+
 /**
  * Estimated RAM needed to run a model of this file size — used only for
  * Hugging Face discoveries, where (unlike the hand-curated catalog) nobody
@@ -148,7 +178,10 @@ export function pickBestGgufFile(siblings: HfSibling[]): HfSibling | null {
  * under-recommending risks a native OOM crash (a real, previously-hit failure
  * mode in this app) while over-recommending just means a cautious estimate.
  */
-export function estimateRamRequirements(sizeBytes: number): { minRamGb: number; idealRamGb: number } {
+export function estimateRamRequirements(sizeBytes: number): {
+  minRamGb: number
+  idealRamGb: number
+} {
   const sizeGb = sizeBytes / 1024 ** 3
   const minRamGb = Math.ceil(sizeGb * 2.8 + 3)
   const idealRamGb = Math.ceil(sizeGb * 4 + 4)
@@ -197,9 +230,15 @@ async function fetchJson<T>(url: string, timeoutMs: number): Promise<T> {
 }
 
 /** Converts one Hugging Face repo + its chosen file into a `RecommendedModel`. */
-function toRecommendedModel(hit: HfSearchHit, file: HfSibling, contextLength?: number): RecommendedModel {
+function toRecommendedModel(
+  hit: HfSearchHit,
+  file: HfSibling,
+  contextLength?: number,
+  projector?: HfSibling | null
+): RecommendedModel {
   const size = file.size ?? 0
-  const { minRamGb, idealRamGb } = estimateRamRequirements(size)
+  const totalRuntimeSize = size + (projector?.size ?? 0)
+  const { minRamGb, idealRamGb } = estimateRamRequirements(totalRuntimeSize)
   const quant = extractQuant(file.rfilename)
   const displayName = `${hit.id.split('/').pop() ?? hit.id}${quant ? ` (${quant.toUpperCase()})` : ''}`
   const primaryUse = inferPrimaryUse(hit.id, hit.tags ?? [])
@@ -214,12 +253,21 @@ function toRecommendedModel(hit: HfSearchHit, file: HfSibling, contextLength?: n
       contextLength && contextLength > 8192
         ? `Community GGUF from Hugging Face · ${contextLength.toLocaleString()}-token native context.`
         : 'Community GGUF from Hugging Face.',
-    approxSize: `${(size / 1024 ** 3).toFixed(1)} GB`,
+    approxSize: `${(totalRuntimeSize / 1024 ** 3).toFixed(1)} GB`,
     minRam: `${minRamGb} GB`,
     minRamGb,
     idealRamGb,
     downloadUrl: `https://huggingface.co/${hit.id}/resolve/main/${file.rfilename}`,
-    tags: primaryUse === 'coding' ? ['coding', 'community'] : ['community'],
+    visionProjectorUrl: projector
+      ? `https://huggingface.co/${hit.id}/resolve/main/${projector.rfilename}`
+      : undefined,
+    visionProjectorFileName: projector
+      ? `${hit.id.split('/').pop() ?? 'model'}-${projector.rfilename.split('/').pop()}`
+      : undefined,
+    tags:
+      primaryUse === 'coding'
+        ? ['coding', ...(projector ? ['vision'] : []), 'community']
+        : [...(projector ? ['vision'] : []), 'community'],
     primaryUse,
     // qualityRank/speedRank deliberately left unset — `scoreRecommendedModel`
     // already treats a missing rank as neutral (3/5), which is more honest
@@ -259,11 +307,16 @@ async function resolveHitsToModels(hits: HfSearchHit[]): Promise<RecommendedMode
         const detail = await fetchJson<HfModelDetail>(detailUrl, DETAIL_TIMEOUT_MS)
         const file = pickBestGgufFile(detail.siblings ?? [])
         if (!file) return null
-        return toRecommendedModel(hit, file, detail.gguf?.context_length)
+        const projector = pickVisionProjector(detail.siblings ?? [])
+        return toRecommendedModel(hit, file, detail.gguf?.context_length, projector)
       } catch (error) {
         // One repo failing (rate limit, malformed metadata) shouldn't drop the
         // rest of an otherwise-good result set.
-        log.warn('Skipping Hugging Face repo after detail fetch failure', hit.id, toErrorMessage(error))
+        log.warn(
+          'Skipping Hugging Face repo after detail fetch failure',
+          hit.id,
+          toErrorMessage(error)
+        )
         return null
       }
     })
@@ -344,7 +397,10 @@ export async function fetchTopModels(): Promise<Result<RecommendedModel[]>> {
       })
 
     const perPublisher = await Promise.all(
-      TRUSTED_PUBLISHERS.flatMap((author) => [fetchFor(author), fetchFor(author, CODING_SEARCH_TERM)])
+      TRUSTED_PUBLISHERS.flatMap((author) => [
+        fetchFor(author),
+        fetchFor(author, CODING_SEARCH_TERM)
+      ])
     )
     const byId = new Map<string, HfSearchHit>()
     for (const hit of perPublisher.flat()) {

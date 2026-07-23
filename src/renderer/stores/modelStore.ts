@@ -5,7 +5,7 @@ import { anodex } from '../lib/anodex'
 import { notifyError, useUiStore } from './uiStore'
 import { useSettingsStore } from './settingsStore'
 
-const INITIAL_ENGINE: EngineState = { status: 'unloaded', generating: false }
+const INITIAL_ENGINE: EngineState = { status: 'unloaded', generating: false, vision: false }
 
 interface ModelState {
   models: ModelInfo[]
@@ -16,6 +16,7 @@ interface ModelState {
   downloads: Record<string, ModelDownloadProgress>
   refresh: () => Promise<void>
   addModel: () => Promise<void>
+  addVisionProjector: (model: ModelInfo) => Promise<void>
   loadModel: (model: ModelInfo) => Promise<void>
   unloadModel: () => Promise<void>
   deleteModel: (model: ModelInfo) => Promise<void>
@@ -56,11 +57,42 @@ export const useModelStore = create<ModelState>((set, get) => ({
     }
   },
 
+  addVisionProjector: async (model) => {
+    const shouldReload = get().engine.model?.path === model.path && get().engine.status === 'ready'
+    if (shouldReload && get().engine.generating) {
+      notifyError('Model is busy', 'Stop the current reply before enabling vision.')
+      return
+    }
+    const result = await anodex.models.addVisionProjector(model.path)
+    if (!result.ok) {
+      notifyError('Could not add vision projector', result.error.detail ?? result.error.message)
+      return
+    }
+    if (!result.value) return
+    await get().refresh()
+    if (shouldReload) {
+      const unloaded = await anodex.models.unload()
+      if (!unloaded.ok) {
+        notifyError('Could not reload model', unloaded.error.message)
+        return
+      }
+      set({ engine: unloaded.value })
+      await get().loadModel(result.value)
+      return
+    }
+    useUiStore.getState().notify({
+      kind: 'success',
+      title: 'Vision enabled',
+      message: `${model.name} can now accept images.`
+    })
+  },
+
   loadModel: async (model) => {
     const settings = useSettingsStore.getState().settings
     set({ pendingPath: model.path })
     const result = await anodex.models.load({
       path: model.path,
+      visionProjectorPath: model.visionProjectorPath,
       contextSize: settings?.model.contextSize,
       gpuLayers: settings?.model.gpuLayers
     })
@@ -88,7 +120,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       return
     }
     if (get().engine.model?.path === model.path) {
-      set({ engine: { status: 'unloaded', generating: false } })
+      set({ engine: { status: 'unloaded', generating: false, vision: false } })
     }
     await get().refresh()
     useUiStore.getState().notify({ kind: 'success', title: 'Model deleted', message: model.name })

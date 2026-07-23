@@ -302,6 +302,14 @@ A side panel with configurable sections alongside the chat:
 
 - Point Anodex at any local `.gguf` file, or use the built-in catalog to
   **download a model in-app** with a real progress bar and cancel support.
+- **Local vision models**: pair a vision-capable GGUF (including Qwen3.6) with
+  its matching `mmproj` GGUF, then drag or attach PNG/JPEG/GIF/BMP images in
+  chat. Discovered Hugging Face models download their published projector
+  automatically; manually added models expose an **Add vision projector**
+  action in the installed-models table.
+- Vision inference stays inside Anodex. Packaged builds include a pinned
+  llama.cpp runtime that runs privately on loopback; text-only models continue
+  through the existing `node-llama-cpp` engine.
 - **Hardware-aware recommendations**: detects your RAM/VRAM/GPU and scores
   every catalog model against your actual machine (a 0-100 fit score), with
   "Best Overall / Best Coding / Fastest / Low RAM / Large Context" picks.
@@ -377,19 +385,24 @@ updates).
 ## Tech stack
 
 Electron + electron-vite, React 18 + TypeScript, Zustand for state,
-`node-llama-cpp` as the local inference engine, CSS Modules with a
+`node-llama-cpp` for text inference plus a pinned llama.cpp runtime for local
+vision, CSS Modules with a
 design-token theme (no CSS framework), Vitest + Playwright for testing.
 
 ## Getting started
 
 ```bash
 npm install   # installs deps, including node-llama-cpp's native binaries
+npm run prepare:vision # downloads the pinned llama.cpp vision runtime for this OS
 npm run dev   # launches Anodex with hot reload
 ```
 
 Load a model: **AI & Models → Recommended** to download one, or **Add
 model** to point at a `.gguf` file you already have. Once it shows "ready",
-start chatting.
+start chatting. For a manually downloaded vision model, use the image button
+beside the installed model to select its matching `mmproj` file; Anodex reloads
+the model with vision enabled. `npm run dist` prepares and packages the vision
+runtime automatically.
 
 See `AGENTS.md` for architecture, conventions, and contribution details, and
 `ROADMAP.md` for planned/in-progress features not covered above.

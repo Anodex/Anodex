@@ -277,6 +277,8 @@ export interface AppSettings {
   modelsDirectory: string
   /** Individual model files added by the user from outside the directory. */
   addedModelPaths: string[]
+  /** Explicit model-path -> multimodal-projector-path associations. */
+  visionProjectorPaths: Record<string, string>
   /** Path of the last successfully loaded model, restored on next launch. */
   lastModelPath?: string
   generation: GenerationSettings

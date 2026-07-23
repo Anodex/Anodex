@@ -374,6 +374,7 @@ export async function runGeneration(
       context: request.context,
       history: boundedHistory,
       prompt: request.prompt,
+      images: request.images,
       sessionMode: io.sessionMode,
       options: request.options,
       modelOverride: io.providerOverride?.model,

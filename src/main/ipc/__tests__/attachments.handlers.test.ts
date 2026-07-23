@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { isImagePath, isLikelyBinary } from '../attachments.handlers'
+import {
+  hasExpectedImageSignature,
+  imageMimeType,
+  isImagePath,
+  isLikelyBinary
+} from '../attachments.handlers'
 
 describe('isImagePath', () => {
   it('recognizes common raster image extensions', () => {
-    for (const path of ['photo.png', 'photo.JPG', 'a/b/icon.ico', 'shot.webp', 'anim.gif']) {
+    for (const path of ['photo.png', 'photo.JPG', 'a/b/image.bmp', 'anim.gif']) {
       expect(isImagePath(path)).toBe(true)
+    }
+  })
+
+  it('does not pass formats that llama.cpp cannot decode through stb_image', () => {
+    for (const path of ['icon.ico', 'shot.webp', 'photo.tiff', 'photo.avif']) {
+      expect(isImagePath(path)).toBe(false)
     }
   })
 
@@ -16,6 +27,30 @@ describe('isImagePath', () => {
 
   it('does not flag SVG, which is text-based XML, not raster', () => {
     expect(isImagePath('logo.svg')).toBe(false)
+  })
+})
+
+describe('imageMimeType', () => {
+  it('maps supported attachment formats to data URL MIME types', () => {
+    expect(imageMimeType('photo.png')).toBe('image/png')
+    expect(imageMimeType('photo.JPG')).toBe('image/jpeg')
+    expect(imageMimeType('anim.gif')).toBe('image/gif')
+    expect(imageMimeType('scan.bmp')).toBe('image/bmp')
+  })
+})
+
+describe('hasExpectedImageSignature', () => {
+  it('accepts matching PNG, JPEG, GIF, and BMP signatures', () => {
+    expect(
+      hasExpectedImageSignature('photo.png', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    ).toBe(true)
+    expect(hasExpectedImageSignature('photo.jpg', Buffer.from([0xff, 0xd8, 0xff]))).toBe(true)
+    expect(hasExpectedImageSignature('anim.gif', Buffer.from('GIF89a'))).toBe(true)
+    expect(hasExpectedImageSignature('scan.bmp', Buffer.from('BM'))).toBe(true)
+  })
+
+  it('rejects an extension whose bytes are not an image', () => {
+    expect(hasExpectedImageSignature('fake.png', Buffer.from('not an image'))).toBe(false)
   })
 })
 

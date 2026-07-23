@@ -157,6 +157,7 @@ function InstalledModelRow({
   const pendingPath = useModelStore((s) => s.pendingPath)
   const loadModel = useModelStore((s) => s.loadModel)
   const unloadModel = useModelStore((s) => s.unloadModel)
+  const addVisionProjector = useModelStore((s) => s.addVisionProjector)
   const deleteModel = useModelStore((s) => s.deleteModel)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -175,8 +176,19 @@ function InstalledModelRow({
             <ModelLogo family={inferModelFamily(model.name)} size={16} />
           </span>
           <div className={styles.modelNameBlock}>
-            <div className={styles.modelName} title={model.name}>
-              {model.name}
+            <div className={styles.modelNameRow}>
+              <div className={styles.modelName} title={model.name}>
+                {model.name}
+              </div>
+              {model.visionProjectorPath && (
+                <span
+                  className={styles.visionBadge}
+                  title={`Vision projector: ${model.visionProjectorPath}`}
+                >
+                  <Icon name="image" size={11} />
+                  Vision
+                </span>
+              )}
             </div>
             <div className={styles.modelPath} title={model.path}>
               {basename(model.path)}
@@ -218,6 +230,18 @@ function InstalledModelRow({
           )}
           {!isReady && isLast && <span className={styles.lastTag}>Last used</span>}
           <div className={styles.rowActions}>
+            {!model.visionProjectorPath && (
+              <button
+                type="button"
+                className={styles.visionModelButton}
+                title="Add the matching mmproj vision projector"
+                aria-label={`Add a vision projector for ${model.name}`}
+                disabled={isLoadingThis || deleting || engine.generating}
+                onClick={() => void addVisionProjector(model)}
+              >
+                <Icon name="image" size={14} />
+              </button>
+            )}
             {isReady ? (
               <Button
                 variant="secondary"

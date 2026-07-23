@@ -32,6 +32,11 @@ asarUnpack:
 extraResources:
   - from: resources/embedding-model
     to: embedding-model
+  # Official llama.cpp runtime prepared by `npm run prepare:vision`. It stays
+  # an implementation detail: Anodex starts it on loopback when a model has
+  # an associated multimodal projector.
+  - from: resources/llama-server
+    to: llama-server
 # Generated from src/renderer/assets/app-icon.png via scripts/generate-icons.mjs —
 # re-run that script (not a manual edit) if the brand mark ever changes.
 win:

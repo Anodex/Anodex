@@ -8,6 +8,7 @@ import {
   inferSupportsTools,
   isSingleFileGguf,
   pickBestGgufFile,
+  pickVisionProjector,
   resetTopModelsCacheForTests,
   searchHuggingFaceModels
 } from '../huggingFaceCatalog'
@@ -68,7 +69,9 @@ describe('pickBestGgufFile', () => {
   })
 
   it('returns null when nothing usable is available', () => {
-    expect(pickBestGgufFile([{ rfilename: 'model-q4_k_m-00001-of-00003.gguf', size: 1 }])).toBeNull()
+    expect(
+      pickBestGgufFile([{ rfilename: 'model-q4_k_m-00001-of-00003.gguf', size: 1 }])
+    ).toBeNull()
   })
 
   it('falls back to the smallest file when no recognized quant matches', () => {
@@ -77,6 +80,32 @@ describe('pickBestGgufFile', () => {
       { rfilename: 'model-other.gguf', size: 3_000_000_000 }
     ])
     expect(file?.rfilename).toBe('model-other.gguf')
+  })
+
+  it('never selects an mmproj file as the chat model', () => {
+    const file = pickBestGgufFile([
+      { rfilename: 'mmproj-F16.gguf', size: 800_000_000 },
+      { rfilename: 'model-q4_k_m.gguf', size: 4_000_000_000 }
+    ])
+    expect(file?.rfilename).toBe('model-q4_k_m.gguf')
+  })
+})
+
+describe('pickVisionProjector', () => {
+  it('prefers the F16 projector published alongside a vision model', () => {
+    const projector = pickVisionProjector([
+      { rfilename: 'model-q4_k_m.gguf', size: 4_000_000_000 },
+      { rfilename: 'mmproj-Q8_0.gguf', size: 450_000_000 },
+      { rfilename: 'mmproj-BF16.gguf', size: 780_000_000 },
+      { rfilename: 'mmproj-F16.gguf', size: 800_000_000 }
+    ])
+    expect(projector?.rfilename).toBe('mmproj-F16.gguf')
+  })
+
+  it('returns null when the repository has no projector', () => {
+    expect(
+      pickVisionProjector([{ rfilename: 'model-q4_k_m.gguf', size: 4_000_000_000 }])
+    ).toBeNull()
   })
 })
 
@@ -172,7 +201,12 @@ describe('searchHuggingFaceModels', () => {
           ok: true,
           json: () =>
             Promise.resolve([
-              { id: 'Qwen/Qwen2.5-Coder-7B-Instruct-GGUF', downloads: 154325, likes: 311, tags: ['code'] }
+              {
+                id: 'Qwen/Qwen2.5-Coder-7B-Instruct-GGUF',
+                downloads: 154325,
+                likes: 311,
+                tags: ['code']
+              }
             ])
         })
       }
@@ -184,7 +218,8 @@ describe('searchHuggingFaceModels', () => {
             gguf: { context_length: 131072 },
             siblings: [
               { rfilename: 'qwen2.5-coder-7b-instruct-q4_k_m.gguf', size: 4_683_073_536 },
-              { rfilename: 'qwen2.5-coder-7b-instruct-fp16.gguf', size: 15_000_000_000 }
+              { rfilename: 'qwen2.5-coder-7b-instruct-fp16.gguf', size: 15_000_000_000 },
+              { rfilename: 'mmproj-F16.gguf', size: 800_000_000 }
             ]
           })
       })
@@ -202,6 +237,10 @@ describe('searchHuggingFaceModels', () => {
     )
     expect(model.primaryUse).toBe('coding')
     expect(model.hfDownloads).toBe(154325)
+    expect(model.visionProjectorUrl).toBe(
+      'https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/mmproj-F16.gguf'
+    )
+    expect(model.tags).toContain('vision')
   })
 
   it('returns a friendly error when the search request itself fails', async () => {
@@ -285,7 +324,12 @@ describe('fetchTopModels', () => {
           ok: true,
           json: () =>
             Promise.resolve([
-              { id: 'Qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF', downloads: 200000, likes: 500, tags: [] }
+              {
+                id: 'Qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+                downloads: 200000,
+                likes: 500,
+                tags: []
+              }
             ])
         })
       }
@@ -298,7 +342,9 @@ describe('fetchTopModels', () => {
           Promise.resolve({
             id: 'Qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF',
             gguf: { context_length: 262144 },
-            siblings: [{ rfilename: 'qwen3-coder-30b-a3b-instruct-q4_k_m.gguf', size: 18_000_000_000 }]
+            siblings: [
+              { rfilename: 'qwen3-coder-30b-a3b-instruct-q4_k_m.gguf', size: 18_000_000_000 }
+            ]
           })
       })
     })
