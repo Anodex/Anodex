@@ -8,7 +8,9 @@ import { useProviderUsageStore } from '../../stores/providerUsageStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore } from '../../stores/uiStore'
 import { Icon } from '../Icon'
-import { StatusDot, type StatusTone } from '../ui/StatusDot'
+import { type StatusTone } from '../ui/StatusDot'
+import { ModelStatusDot } from './ModelStatusDot'
+import { useCometPhase } from './useCometPhase'
 import styles from './ModelStatusMenu.module.css'
 
 type CloudProvider = 'anthropic' | 'openai'
@@ -178,6 +180,8 @@ export function ModelStatusMenu(): JSX.Element {
   const cloudModel = providerActive === 'openai' ? openaiModel : anthropicModel
   const cloudApiKeySet = providerActive === 'openai' ? openaiKeySet : anthropicKeySet
   const footerStatus = providerStatus(engine, providerActive, cloudModel, cloudApiKeySet)
+  const footerTone = FOOTER_STATUS_TONE[footerStatus.tone]
+  const dotPhase = useCometPhase(footerTone)
   const hasActiveModel =
     engine.status === 'ready' ||
     ((providerActive === 'anthropic' || providerActive === 'openai') && cloudApiKeySet)
@@ -219,7 +223,7 @@ export function ModelStatusMenu(): JSX.Element {
         onClick={() => openSettings('ai-models')}
         title="Model status — click to open AI & Models settings"
       >
-        <StatusDot tone={FOOTER_STATUS_TONE[footerStatus.tone]} />
+        <ModelStatusDot tone={footerTone} phase={dotPhase} />
         <span className={styles.label}>{footerStatus.label}</span>
       </button>
     )
@@ -235,7 +239,7 @@ export function ModelStatusMenu(): JSX.Element {
         onMouseLeave={() => setHovering(false)}
         title="Model status — click to switch models"
       >
-        <StatusDot tone={FOOTER_STATUS_TONE[footerStatus.tone]} />
+        <ModelStatusDot tone={footerTone} phase={dotPhase} />
         <span className={styles.label}>{footerStatus.label}</span>
         <Icon name="chevron-down" size={12} className={styles.chevron} />
       </button>
