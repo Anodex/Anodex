@@ -3,7 +3,9 @@ import type { McpConnectionStatus, McpNewServerConfig, McpServerConfig } from '@
 import { useMcpStore } from '../../../../stores/mcpStore'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
-import { StatusDot, type StatusTone } from '../../../../components/ui/StatusDot'
+import { type StatusTone } from '../../../../components/ui/StatusDot'
+import { CometStatusDot } from '../../../../components/ui/CometStatusDot'
+import { useCometPhase } from '../../../../components/ui/useCometPhase'
 import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { ToggleControl } from '../../controls'
 import { McpServerDialog } from './McpServerDialog'
@@ -24,6 +26,15 @@ const STATUS_LABEL: Record<McpConnectionStatus, string> = {
   'auth-required': 'Needs authorization',
   error: 'Connection error',
   disconnected: 'Disconnected'
+}
+
+/** One dot per server card — `useCometPhase` needs a stable per-server
+ *  component instance to track that server's own connecting -> connected
+ *  transition, not a hook call shared across the whole list. */
+function ServerStatusDot({ status }: { status: McpConnectionStatus }): JSX.Element {
+  const tone = STATUS_TONE[status]
+  const phase = useCometPhase(tone)
+  return <CometStatusDot tone={tone} phase={phase} />
 }
 
 /**
@@ -130,7 +141,7 @@ export function McpSettings(): JSX.Element {
                       </span>
                     </div>
                     <div className={styles.statusGroup}>
-                      <StatusDot tone={STATUS_TONE[status.status]} />
+                      <ServerStatusDot status={status.status} />
                       <span className={styles.statusLabel}>
                         {STATUS_LABEL[status.status]}
                         {status.status === 'connected' &&
