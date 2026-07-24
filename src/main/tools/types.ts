@@ -75,6 +75,18 @@ export interface ToolRuntimeContext {
    */
   loopGuard: LoopGuardState
   /**
+   * Mutable per-generation flag, shared by every tool call in this
+   * generation, same pattern as `plan`/`turnGate`/`loopGuard` above — set by
+   * `runReadTool`/`runGuardedTool` (see `helpers.ts`) whenever a non-read
+   * tool call (anything but `kind: 'read'`) succeeds. `finish_goal` (see
+   * `agentTools.ts`) reads this and refuses to report success if nothing
+   * else happened this turn — otherwise a model can call `finish_goal`
+   * claiming work it never did (observed directly: a local model claimed
+   * "Created hello2.txt" three turns running without ever calling
+   * `write_file`, and the file never existed on disk).
+   */
+  progress: { madeChange: boolean }
+  /**
    * Read-only projection of this turn's active context budget, for sizing
    * tool results — a mutable box (same pattern as `plan`/`turnGate` above)
    * because the real, measured value isn't known until after the engine has

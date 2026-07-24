@@ -224,6 +224,93 @@ describe('runGuardedTool — untethered mode has almost no prompts', () => {
   })
 })
 
+describe('ctx.progress (finish_goal fabrication guard)', () => {
+  const root = 'C:\\workspace'
+
+  it('runReadTool does not mark progress for a read-kind call', async () => {
+    const ctx = createMockContext(root)
+    await runReadTool(ctx, {
+      name: 'read_file',
+      kind: 'read',
+      title: 'Read',
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    })
+
+    expect(ctx.progress.madeChange).toBe(false)
+  })
+
+  it('runReadTool marks progress for a non-read kind (e.g. write_plan)', async () => {
+    const ctx = createMockContext(root)
+    await runReadTool(ctx, {
+      name: 'write_plan',
+      kind: 'plan',
+      title: 'Write plan',
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    })
+
+    expect(ctx.progress.madeChange).toBe(true)
+  })
+
+  it('runReadTool never marks progress for finish_goal itself, even though its kind is non-read', async () => {
+    const ctx = createMockContext(root)
+    await runReadTool(ctx, {
+      name: 'finish_goal',
+      kind: 'plan',
+      title: 'Finish goal',
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    })
+
+    expect(ctx.progress.madeChange).toBe(false)
+  })
+
+  it('runReadTool does not mark progress when the call errors', async () => {
+    const ctx = createMockContext(root)
+    await runReadTool(ctx, {
+      name: 'write_plan',
+      kind: 'plan',
+      title: 'Write plan',
+      run: () => Promise.reject(new Error('boom'))
+    })
+
+    expect(ctx.progress.madeChange).toBe(false)
+  })
+
+  it('runGuardedTool marks progress once a write succeeds', async () => {
+    const { confirm } = captureConfirmations()
+    const ctx = { ...createMockContext(root), permissionMode: 'ask' as const, confirm }
+
+    await runGuardedTool(ctx, {
+      name: 'write_file',
+      kind: 'write',
+      title: 'Write file',
+      confirmDetail: 'foo.ts',
+      risk: 'safe',
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    })
+
+    expect(ctx.progress.madeChange).toBe(true)
+  })
+
+  it('runGuardedTool does not mark progress when the user denies the call', async () => {
+    const ctx = {
+      ...createMockContext(root),
+      permissionMode: 'ask' as const,
+      confirm: () => Promise.resolve({ approved: false })
+    }
+
+    await runGuardedTool(ctx, {
+      name: 'write_file',
+      kind: 'write',
+      title: 'Write file',
+      confirmDetail: 'foo.ts',
+      risk: 'safe',
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    })
+
+    expect(ctx.progress.madeChange).toBe(false)
+  })
+})
+
 describe('composeDenialMessage', () => {
   it('returns the generic message when no reason is given', () => {
     expect(composeDenialMessage()).toBe(

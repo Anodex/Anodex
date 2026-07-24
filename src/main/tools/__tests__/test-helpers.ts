@@ -46,6 +46,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     plan: { current: null },
     turnGate: { approved: false },
     loopGuard: createLoopGuardState(),
+    progress: { madeChange: false },
     modelResultBudget: { current: null },
     readCoverage: createReadCoverageTracker(),
     emit: () => {},

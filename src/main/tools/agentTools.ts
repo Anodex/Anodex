@@ -37,6 +37,20 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
         run() {
           const summary = truncate(args.summary.trim(), MAX_SUMMARY_CHARS)
           if (!summary) throw new Error('summary was empty.')
+          // Refuse to end the run on a claim alone — see
+          // `ToolRuntimeContext.progress`'s doc comment. A model that never
+          // took any real action this turn gets a corrective message instead
+          // of a silently-accepted, possibly fabricated "done".
+          if (!ctx.progress.madeChange) {
+            throw new Error(
+              'No other tool call has succeeded yet this turn, so this cannot be accepted as ' +
+                'the goal being complete — a claim of completion needs real action behind it. ' +
+                'If the goal requires doing something (creating or editing a file, running a ' +
+                'command, sending an email, etc.), do that first, then call finish_goal again. ' +
+                'If the goal is already satisfied or you genuinely cannot make further ' +
+                'progress, explain why in your reply instead of calling finish_goal.'
+            )
+          }
           return Promise.resolve({ modelResult: 'Run finished.', detail: summary })
         }
       })

@@ -182,6 +182,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
       effectiveModelResultCap(ctx, spec.modelResultCap)
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
+    markProgress(ctx, spec)
     ctx.emit({
       id,
       name: spec.name,
@@ -241,6 +242,17 @@ function normalizeTouchPath(ctx: ToolRuntimeContext, path: string): string {
     return toWorkspaceRelative(ctx.workspaceRoot, resolveInWorkspace(ctx.workspaceRoot, path))
   } catch {
     return path
+  }
+}
+
+/**
+ * Marks `ctx.progress` once a non-read tool call succeeds — see
+ * `ToolRuntimeContext.progress`'s doc comment. Excludes `finish_goal` itself
+ * so it can never satisfy its own precondition.
+ */
+function markProgress(ctx: ToolRuntimeContext, spec: { name: string; kind: ToolKind }): void {
+  if (spec.name !== 'finish_goal' && spec.kind !== 'read') {
+    ctx.progress.madeChange = true
   }
 }
 
@@ -337,6 +349,7 @@ export async function runGuardedTool(
       effectiveModelResultCap(ctx, spec.modelResultCap)
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
+    markProgress(ctx, spec)
     const changes = checkpointChanges ?? checkpointChangesFromDiff(diff)
     noteMutatedReadCoverage(ctx, spec.touch, changes)
     recordCheckpoint(ctx, changes)
