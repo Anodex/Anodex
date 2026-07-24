@@ -247,17 +247,20 @@ describe('buildTools', () => {
 
   it('keeps the Settings tool catalog in sync with registered tool names', () => {
     const catalogNames = new Set(TOOL_CATALOG.map((tool) => tool.name))
-
-    for (const name of [
+    const registeredNames = new Set([
       ...READ_ONLY_WORKSPACE_TOOLS,
       ...PROJECT_WORKSPACE_TOOLS,
       ...EMAIL_WORKSPACE_TOOLS,
       ...VISUAL_WORKSPACE_TOOLS,
       ...PROJECT_READ_ONLY_TOOLS,
       ...GLOBAL_OR_CONDITIONAL_TOOLS
-    ]) {
+    ])
+
+    for (const name of registeredNames) {
       expect(catalogNames).toContain(name)
     }
+    expect([...catalogNames].sort()).toEqual([...registeredNames].sort())
+    expect(TOOL_CATALOG.every((tool) => tool.description.trim().length > 0)).toBe(true)
   })
 
   it('flags requiresProject on the catalog exactly for tools gated behind workspaceRoot/projectId', () => {

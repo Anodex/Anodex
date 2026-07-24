@@ -24,7 +24,7 @@ interface ShellResult {
 export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Run a shell command in the workspace directory and return its output. Use for builds, tests, git, etc.',
+      'Run a real local shell command with the workspace as its starting directory and return its output. Unlike file tools, the shell is not confined to the workspace. Use for builds, tests, git, etc.',
     params: {
       type: 'object',
       properties: {

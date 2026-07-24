@@ -67,7 +67,7 @@ let resolveHost = async (hostname: string): Promise<string[]> => {
 }
 
 /**
- * fetch_url — read a public web page and return its text content.
+ * fetch_url — read a public web page and return bounded evidence passages.
  *
  * This is a read-only web tool: the assistant can fetch URLs it already knows
  * about (e.g. documentation, release notes, package readmes) but cannot perform
@@ -81,7 +81,7 @@ let resolveHost = async (hostname: string): Promise<string[]> => {
 export const fetchUrlTool: ToolFactory = (define, ctx) =>
   define({
     description:
-      'Fetch a public URL and return its readable text content. Use for documentation, release notes, or known web pages.',
+      'Fetch a public URL, retain a structured source artifact, and return up to eight bounded readable passages. Use for documentation, release notes, or known web pages.',
     params: {
       type: 'object',
       properties: {

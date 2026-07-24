@@ -60,6 +60,9 @@ describe('classifyCommandRisk', () => {
     expect(classifyCommandRisk('git reset --hard HEAD~1')).toBe('destructive')
     expect(classifyCommandRisk('DROP TABLE users;')).toBe('destructive')
     expect(classifyCommandRisk('format c: /q')).toBe('destructive')
+    expect(classifyCommandRisk('rmdir /s /q build')).toBe('destructive')
+    expect(classifyCommandRisk('Remove-Item . -Recurse -Force')).toBe('destructive')
+    expect(classifyCommandRisk('rm -r -f build')).toBe('destructive')
   })
 
   it('treats ordinary commands as sensitive, not destructive', () => {

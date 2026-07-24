@@ -498,8 +498,12 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // narrower than what was requested — the common case (nothing
           // already covered) stays exactly as it read before this existed.
           const skippedNote =
-            start !== normalized.startLine || actualEnd < normalized.endLine
-              ? ` Lines ${normalized.startLine}-${normalized.endLine} were requested; the rest was already read earlier this task, so only the new portion is shown.`
+            start !== normalized.startLine || target.end < normalized.endLine
+              ? ` Lines ${normalized.startLine}-${normalized.endLine} were requested; only the first unread segment is shown because other portions overlap earlier reads.`
+              : ''
+          const budgetNote =
+            actualEnd < target.end
+              ? ' Output stopped at the active context budget; continue from Next startLine.'
               : ''
           // Surfaced once, on what turns out to be the first read of a large
           // file — not on every call, which would just repeat the same
@@ -511,7 +515,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
               : ''
           return {
             modelResult:
-              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}${partialNote}${skippedNote}${outlineSuggestion}]\n` +
+              `[${normalized.path}: lines ${start}-${actualEnd} of ${lines.length}.${continuation}${partialNote}${skippedNote}${budgetNote}${outlineSuggestion}]\n` +
               content,
             detail: `lines ${start}-${actualEnd}`
           }

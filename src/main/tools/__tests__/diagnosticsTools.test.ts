@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
+import type { ToolConfirmRequest } from '@shared/tools.types'
 import { runProjectCheckTool } from '../diagnosticsTools'
 import { createMockContext, createMockDefine } from './test-helpers'
 
@@ -10,6 +11,31 @@ async function makeWorkspace(): Promise<string> {
 }
 
 describe('run_project_check', () => {
+  it('classifies a destructive custom command as destructive in untethered mode', async () => {
+    const workspace = await makeWorkspace()
+    try {
+      const requests: ToolConfirmRequest[] = []
+      const ctx = {
+        ...createMockContext(workspace),
+        projectId: 'project-1',
+        permissionMode: 'untethered' as const,
+        confirm: (request: ToolConfirmRequest) => {
+          requests.push(request)
+          return Promise.resolve({ approved: false })
+        }
+      }
+      const tool = runProjectCheckTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: unknown) => Promise<string>
+      }
+
+      await tool.handler({ kind: 'custom', command: 'rm -rf build' })
+
+      expect(requests[0]?.risk).toBe('destructive')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   it('runs a known npm script and returns a structured pass result', async () => {
     const workspace = await makeWorkspace()
     try {

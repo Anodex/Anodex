@@ -65,6 +65,18 @@ describe('create_directory', () => {
     const result = await tool.handler({ path: '../outside' })
     expect(result).toContain('outside the workspace')
   })
+
+  it('never deletes the workspace root', async () => {
+    const ctx = { ...createMockContext(workspace), permissionMode: 'untethered' as const }
+    const tool = deleteDirectoryTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: '.' })
+
+    expect(result).toContain('workspace root')
+    await expect(import('node:fs/promises').then((m) => m.stat(workspace))).resolves.toBeDefined()
+  })
 })
 
 describe('delete_directory', () => {

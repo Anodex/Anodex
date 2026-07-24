@@ -40,9 +40,10 @@ export const gitCommitSummaryTool: WorkspaceToolFactory = (define, ctx) =>
           const status = await runGit('status --short', cwd, ctx.signal)
           if (status.code !== 0) return gitError('status', status)
 
-          const diffNameFlag = args.staged ? 'diff --staged --name-only' : 'diff --name-only'
           const diffStatFlag = args.staged ? 'diff --staged --stat' : 'diff --stat'
-          const names = await runGit(diffNameFlag, cwd, ctx.signal)
+          const names = args.staged
+            ? await runGit('diff --staged --name-only', cwd, ctx.signal)
+            : { stdout: statusPaths(status.stdout).join('\n'), stderr: '', code: 0 }
           const stat = await runGit(diffStatFlag, cwd, ctx.signal)
           if (names.code !== 0) return gitError('diff --name-only', names)
           if (stat.code !== 0) return gitError('diff --stat', stat)
@@ -79,6 +80,14 @@ function suggestCommitMessage(files: string[]): string {
   const type = inferCommitType(files)
   const subject = inferSubject(type, files)
   return `${type}: ${subject}`
+}
+
+function statusPaths(status: string): string[] {
+  return status
+    .split('\n')
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean)
+    .map((path) => path.split(' -> ').at(-1) ?? path)
 }
 
 function inferCommitType(files: string[]): string {

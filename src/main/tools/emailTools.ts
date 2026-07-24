@@ -67,7 +67,10 @@ export const readEmailTool: ToolFactory = (define, ctx) =>
     params: {
       type: 'object',
       properties: {
-        messageId: { type: 'string', description: 'The message id returned by search_email.' }
+        messageId: {
+          type: 'string',
+          description: 'The latest message id returned by search_email or list_threads.'
+        }
       },
       required: ['messageId']
     } as const,
@@ -88,7 +91,11 @@ export const readEmailTool: ToolFactory = (define, ctx) =>
               '',
               message.body,
               '',
-              `Attachments: ${message.attachments.length}`
+              `Attachments: ${message.attachments.length}`,
+              ...message.attachments.map(
+                (attachment) =>
+                  `- ${attachment.filename} (messageId: ${attachment.messageId}; attachmentId: ${attachment.id}; ${attachment.mimeType}; ${attachment.size} bytes)`
+              )
             ].join('\n'),
             detail: message.subject
           }
@@ -149,7 +156,7 @@ export const findEmailAttachmentsTool: ToolFactory = (define, ctx) =>
             modelResult: attachments
               .map(
                 (attachment, index) =>
-                  `${index + 1}. ${attachment.filename} (${attachment.mimeType}, ${attachment.size} bytes)`
+                  `${index + 1}. ${attachment.filename} (messageId: ${attachment.messageId}; attachmentId: ${attachment.id}; ${attachment.mimeType}; ${attachment.size} bytes)`
               )
               .join('\n'),
             detail: `${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`
@@ -196,7 +203,11 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
     params: {
       type: 'object',
       properties: {
-        draftId: { type: 'string', description: 'Optional draft id returned by draft_email.' },
+        draftId: {
+          type: 'string',
+          description:
+            'Optional draft id returned by draft_email. When provided, the saved draft content is sent.'
+        },
         to: {
           type: 'array',
           items: { type: 'string' },
@@ -302,7 +313,7 @@ function formatThreads(threads: EmailThreadSummary[]): { modelResult: string; de
     modelResult: threads
       .map(
         (thread, index) =>
-          `${index + 1}. [${thread.id}] ${thread.subject}\nFrom: ${thread.from}\nUpdated: ${new Date(
+          `${index + 1}. [threadId: ${thread.id}; latestMessageId: ${thread.latestMessageId}] ${thread.subject}\nFrom: ${thread.from}\nUpdated: ${new Date(
             thread.updatedAt
           ).toISOString()}\n${thread.snippet}\nMessages: ${thread.messageCount}; Attachments: ${
             thread.attachmentCount

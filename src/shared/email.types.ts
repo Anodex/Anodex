@@ -12,6 +12,8 @@ export interface EmailConnectionStatus {
 
 export interface EmailThreadSummary {
   id: string
+  /** Newest message in the thread; usable with read_email. */
+  latestMessageId: string
   provider: EmailProvider
   subject: string
   from: string
@@ -39,6 +41,8 @@ export interface EmailMessage {
 
 export interface EmailAttachmentSummary {
   id: string
+  /** Message that owns this attachment; required by Gmail's attachment endpoint. */
+  messageId: string
   filename: string
   mimeType: string
   size: number
@@ -75,4 +79,3 @@ export interface EmailDraft {
 export interface EmailSendRequest extends EmailDraftRequest {
   draftId?: string
 }
-

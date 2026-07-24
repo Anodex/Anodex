@@ -41,8 +41,8 @@ interface GoogleTokenResponse {
   token_type?: string
 }
 
-interface GmailMessageListResponse {
-  messages?: { id: string; threadId: string }[]
+interface GmailThreadListResponse {
+  threads?: { id: string }[]
 }
 
 interface GmailProfileResponse {
@@ -210,7 +210,9 @@ class EmailService {
     const thread = await this.gmailFetch<GmailThreadResponse>(
       `/threads/${encodeURIComponent(id)}?format=full`
     )
-    return (thread.messages ?? []).flatMap((message) => extractAttachments(message.payload))
+    return (thread.messages ?? []).flatMap((message) =>
+      extractAttachments(message.payload, message.id)
+    )
   }
 
   async getAttachment(messageId: string, attachmentId: string): Promise<EmailAttachmentContent> {
@@ -223,7 +225,9 @@ class EmailService {
     const message = await this.gmailFetch<GmailApiMessage>(
       `/messages/${encodeURIComponent(id)}?format=full`
     )
-    const metadata = extractAttachments(message.payload).find((item) => item.id === attachment)
+    const metadata = extractAttachments(message.payload, message.id).find(
+      (item) => item.id === attachment
+    )
     if (!metadata) throw new Error('Attachment was not found on that message.')
 
     const response = await this.gmailFetch<GmailAttachmentResponse>(
@@ -255,12 +259,16 @@ class EmailService {
 
   async send(request: EmailSendRequest): Promise<void> {
     this.requireConnected()
-    validateDraftRequest(request)
+    const draft = request.draftId ? this.drafts.get(request.draftId) : undefined
+    if (request.draftId && !draft) throw new Error(`Email draft not found: ${request.draftId}`)
+    const message: EmailDraftRequest = draft ?? request
+    validateDraftRequest(message)
     await this.gmailFetch('/messages/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw: encodeBase64Url(buildMimeMessage(request)) })
+      body: JSON.stringify({ raw: encodeBase64Url(buildMimeMessage(message)) })
     })
+    if (request.draftId) this.drafts.delete(request.draftId)
   }
 
   private async fetchThreadSummaries(options: {
@@ -272,18 +280,15 @@ class EmailService {
     const params = new URLSearchParams({ maxResults: String(limit) })
     if (options.query) params.set('q', options.query)
     if (options.inboxOnly) params.append('labelIds', 'INBOX')
-    const result = await this.gmailFetch<GmailMessageListResponse>(`/messages?${params.toString()}`)
-    const messages = result.messages ?? []
-    const seenThreads = new Set<string>()
+    const result = await this.gmailFetch<GmailThreadListResponse>(`/threads?${params.toString()}`)
+    const threads = result.threads ?? []
     const summaries: EmailThreadSummary[] = []
 
-    for (const listed of messages) {
-      if (seenThreads.has(listed.threadId)) continue
-      seenThreads.add(listed.threadId)
-      const message = await this.gmailFetch<GmailApiMessage>(
-        `/messages/${encodeURIComponent(listed.id)}?format=metadata`
+    for (const listed of threads) {
+      const thread = await this.gmailFetch<GmailThreadResponse>(
+        `/threads/${encodeURIComponent(listed.id)}?format=metadata`
       )
-      summaries.push(toThreadSummary(message))
+      if (thread.messages?.length) summaries.push(toThreadSummary(thread))
       if (summaries.length >= limit) break
     }
 
@@ -424,17 +429,26 @@ function toGmailToken(response: GoogleTokenResponse): GmailToken {
   }
 }
 
-function toThreadSummary(message: GmailApiMessage): EmailThreadSummary {
+function toThreadSummary(thread: GmailThreadResponse): EmailThreadSummary {
+  const messages = thread.messages ?? []
+  const message = [...messages].sort(
+    (left, right) => Number(right.internalDate ?? 0) - Number(left.internalDate ?? 0)
+  )[0]
+  if (!message) throw new Error(`Gmail thread ${thread.id} contained no messages.`)
   return {
-    id: message.threadId,
+    id: thread.id,
+    latestMessageId: message.id,
     provider: 'gmail',
     subject: header(message, 'Subject') || '(no subject)',
     from: header(message, 'From') || 'Unknown sender',
     snippet: message.snippet ?? '',
     updatedAt: Number(message.internalDate ?? Date.now()),
     unread: Boolean(message.labelIds?.includes('UNREAD')),
-    messageCount: 1,
-    attachmentCount: extractAttachments(message.payload).length
+    messageCount: messages.length,
+    attachmentCount: messages.reduce(
+      (total, item) => total + extractAttachments(item.payload, item.id).length,
+      0
+    )
   }
 }
 
@@ -451,7 +465,7 @@ function toEmailMessage(message: GmailApiMessage): EmailMessage {
     date: Number(message.internalDate ?? Date.now()),
     snippet: message.snippet ?? '',
     body: extractBody(message.payload),
-    attachments: extractAttachments(message.payload)
+    attachments: extractAttachments(message.payload, message.id)
   }
 }
 
@@ -488,23 +502,30 @@ function extractBody(payload: GmailPayload | undefined): string {
   return ''
 }
 
-function extractAttachments(payload: GmailPayload | undefined): EmailAttachmentSummary[] {
+function extractAttachments(
+  payload: GmailPayload | undefined,
+  messageId: string
+): EmailAttachmentSummary[] {
   if (!payload) return []
   const current =
     payload.filename && payload.body?.attachmentId
       ? [
           {
             id: payload.body.attachmentId,
+            messageId,
             filename: payload.filename,
             mimeType: payload.mimeType ?? 'application/octet-stream',
             size: payload.body.size ?? 0
           }
         ]
       : []
-  return [...current, ...(payload.parts?.flatMap(extractAttachments) ?? [])]
+  return [
+    ...current,
+    ...(payload.parts?.flatMap((part) => extractAttachments(part, messageId)) ?? [])
+  ]
 }
 
-function buildMimeMessage(request: EmailSendRequest): string {
+function buildMimeMessage(request: EmailDraftRequest): string {
   const headers = [
     `To: ${request.to.join(', ')}`,
     request.cc?.length ? `Cc: ${request.cc.join(', ')}` : null,

@@ -491,7 +491,7 @@ describe('AI file tools', () => {
         expect(second).toContain('line 201')
         expect(second).not.toContain('line 150\n')
         expect(second).toContain(
-          'Lines 150-250 were requested; the rest was already read earlier this task'
+          'Lines 150-250 were requested; only the first unread segment is shown'
         )
       })
 
@@ -768,6 +768,8 @@ describe('AI file tools', () => {
       // not the requested endLine, and not off by one in either direction.
       expect(lines[nextStartLine - 2]).toBe(returnedBody.at(-1))
       expect(returnedBody).not.toContain(lines[nextStartLine - 1])
+      expect(result).toContain('Output stopped at the active context budget')
+      expect(result).not.toContain('rest was already read earlier')
     })
 
     it('labels a single line too long to fit whole as an honest partial, never a silent whole line', async () => {

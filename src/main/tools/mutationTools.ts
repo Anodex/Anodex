@@ -55,7 +55,8 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
           const beforeExists = await access(file)
             .then(() => true)
             .catch(() => false)
-          const beforeState = beforeExists ? encodeCheckpointBuffer(await readFile(file)) : null
+          const beforeBuffer = beforeExists ? await readFile(file) : null
+          const beforeState = beforeBuffer ? encodeCheckpointBuffer(beforeBuffer) : null
           const beforeText = beforeState?.encoding === 'utf8' ? beforeState.data : ''
           return {
             confirmDetail: `Write ${args.content.length} characters to ${args.path}:\n\n${preview(args.content)}`,
@@ -63,10 +64,11 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
               beforeState?.encoding === 'base64'
                 ? undefined
                 : diffOrUndefined(relativePath, beforeText, args.content),
-            data: { file, relativePath, beforeState, beforeText }
+            data: { file, relativePath, beforeBuffer, beforeState, beforeText }
           }
         },
-        async ({ file, relativePath, beforeState, beforeText }) => {
+        async ({ file, relativePath, beforeBuffer, beforeState, beforeText }) => {
+          await assertFileStateUnchanged(file, beforeBuffer, 'write')
           await mkdir(dirname(file), { recursive: true })
           await writeFile(file, args.content, 'utf-8')
           return {
@@ -274,13 +276,15 @@ export const deleteFileTool: WorkspaceToolFactory = (define, ctx) =>
         async () => {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
-          const before = encodeCheckpointBuffer(await readFile(file))
+          const beforeBuffer = await readFile(file)
+          const before = encodeCheckpointBuffer(beforeBuffer)
           return {
             confirmDetail: `Delete file ${args.path}`,
-            data: { file, relativePath, before }
+            data: { file, relativePath, beforeBuffer, before }
           }
         },
-        async ({ file, relativePath, before }) => {
+        async ({ file, relativePath, beforeBuffer, before }) => {
+          await assertFileStateUnchanged(file, beforeBuffer, 'deletion')
           await rm(file)
           return {
             modelResult: `Deleted ${relativePath}.`,
@@ -330,12 +334,14 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
           const target = resolveInWorkspace(ctx.workspaceRoot, args.targetPath)
           const sourceRelativePath = toWorkspaceRelative(ctx.workspaceRoot, source)
           const targetRelativePath = toWorkspaceRelative(ctx.workspaceRoot, target)
-          const sourceBefore = encodeCheckpointBuffer(await readFile(source))
+          const sourceBeforeBuffer = await readFile(source)
+          const sourceBefore = encodeCheckpointBuffer(sourceBeforeBuffer)
           const targetBeforeExists = await access(target)
             .then(() => true)
             .catch(() => false)
-          const targetBefore = targetBeforeExists
-            ? encodeCheckpointBuffer(await readFile(target))
+          const targetBeforeBuffer = targetBeforeExists ? await readFile(target) : null
+          const targetBefore = targetBeforeBuffer
+            ? encodeCheckpointBuffer(targetBeforeBuffer)
             : null
           return {
             confirmDetail: `Move ${args.sourcePath} to ${args.targetPath}`,
@@ -344,7 +350,9 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
               target,
               sourceRelativePath,
               targetRelativePath,
+              sourceBeforeBuffer,
               sourceBefore,
+              targetBeforeBuffer,
               targetBefore
             }
           }
@@ -354,9 +362,13 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
           target,
           sourceRelativePath,
           targetRelativePath,
+          sourceBeforeBuffer,
           sourceBefore,
+          targetBeforeBuffer,
           targetBefore
         }) => {
+          await assertFileStateUnchanged(source, sourceBeforeBuffer, 'move')
+          await assertFileStateUnchanged(target, targetBeforeBuffer, 'move target')
           await mkdir(dirname(target), { recursive: true })
           await rename(source, target)
           return {
@@ -381,6 +393,23 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
         }
       )
   })
+
+async function assertFileStateUnchanged(
+  path: string,
+  expected: Buffer | null,
+  action: string
+): Promise<void> {
+  const current = await readFile(path).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  })
+  if (
+    (expected === null && current !== null) ||
+    (expected !== null && (current === null || !current.equals(expected)))
+  ) {
+    throw new Error(`The file changed since this ${action} was proposed; read it again and retry.`)
+  }
+}
 
 function preview(text: string): string {
   return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}...` : text

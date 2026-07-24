@@ -170,7 +170,8 @@ additional tools are available on demand.
 
 - **Read (never need approval):** `list_directory`, `read_file`,
   `read_file_range`, `read_multiple_files`, `get_file_info`, `search_files`,
-  `find_files`, `code_outline` (compact imports/exported-symbol map),
+  `find_files`, `code_outline` (compact JavaScript/TypeScript
+  imports/exported-symbol map), `search_code` (project-indexed semantic search),
   `preview_html` (inline chat preview for HTML pages/games), `git_status`,
   `git_diff`, `git_commit_summary` (drafts a conventional commit message from
   status/diff stats), `show_image` (attaches a workspace image to the reply),
@@ -191,8 +192,15 @@ additional tools are available on demand.
   list the model can create and check off as it works.
 - **Project notes:** `update_project_notes` (writes to the project's
   `ANODEX.md`).
+- **Change tracking:** `propose_change`, `update_change_task`, `list_changes`,
+  and `archive_change` persist multi-step proposals under `.anodex/changes`
+  and fold completed work into the living project spec.
 - **Memory:** `remember_fact` saves approved global or project-scoped facts
   when memory is enabled.
+- **Email (when Gmail is enabled):** `list_threads`, `search_email`,
+  `read_email`, `summarize_thread`, `find_attachments`, `draft_email`, and
+  approval-gated `send_email`; `save_email_attachment` additionally requires
+  an open project.
 
 ## GitHub and MCP integrations
 

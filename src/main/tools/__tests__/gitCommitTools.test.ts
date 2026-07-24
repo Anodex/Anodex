@@ -27,6 +27,27 @@ async function makeRepo(): Promise<string> {
 }
 
 describe('git_commit_summary', () => {
+  it('includes staged and untracked files by default', async () => {
+    const workspace = await makeRepo()
+    try {
+      await writeFile(join(workspace, 'README.md'), '# Staged\n', 'utf-8')
+      await git(['add', 'README.md'], workspace)
+      await writeFile(join(workspace, 'new-file.ts'), 'export const value = 1\n', 'utf-8')
+      const tool = gitCommitSummaryTool(
+        createMockDefine(),
+        createMockContext(workspace)
+      ) as unknown as { handler: (args: unknown) => Promise<string> }
+
+      const result = await tool.handler({})
+
+      expect(result).toContain('README.md')
+      expect(result).toContain('new-file.ts')
+      expect(result).toContain('Files changed: 2')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   it('suggests a commit message from changed files and diff stats', async () => {
     const workspace = await makeRepo()
     try {

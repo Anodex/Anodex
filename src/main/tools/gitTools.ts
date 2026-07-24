@@ -15,7 +15,7 @@ interface GitResult {
 export const gitStatusTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Run git status --short in the workspace. Returns empty if the workspace is not a git repository.',
+      'Run git status --short in the workspace. Returns a clear error when the path is not a Git repository.',
     params: {
       type: 'object',
       properties: {
@@ -50,7 +50,7 @@ export const gitStatusTool: WorkspaceToolFactory = (define, ctx) =>
 export const gitDiffTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Run git diff in the workspace. Set staged to true to see staged changes. Returns empty if there are no changes or if the workspace is not a git repository.',
+      'Run git diff in the workspace. Set staged to true to see staged changes. Returns no changes for a clean diff and a clear error when the path is not a Git repository.',
     params: {
       type: 'object',
       properties: {

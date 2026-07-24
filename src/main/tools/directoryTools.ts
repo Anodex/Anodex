@@ -38,7 +38,7 @@ export const createDirectoryTool: WorkspaceToolFactory = (define, ctx) =>
 export const deleteDirectoryTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Delete an empty directory inside the workspace. Fails if the directory is not empty.',
+      'Delete an empty directory inside the workspace. Fails if it is not empty and never deletes the workspace root.',
     params: {
       type: 'object',
       properties: {
@@ -56,6 +56,9 @@ export const deleteDirectoryTool: WorkspaceToolFactory = (define, ctx) =>
         risk: 'sensitive',
         async run() {
           const dir = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          if (toWorkspaceRelative(ctx.workspaceRoot, dir) === '.') {
+            throw new Error('Deleting the workspace root is not allowed.')
+          }
           await rmdir(dir)
           return {
             modelResult: `Deleted directory ${toWorkspaceRelative(ctx.workspaceRoot, dir)}.`,

@@ -29,7 +29,7 @@ interface FileOutline {
 export const codeOutlineTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Return a compact code map for a file or folder: imports and exported top-level symbols. Use before reading whole source files to orient on project structure cheaply.',
+      'Return a compact JavaScript/TypeScript code map for a file or folder: imports and exported top-level symbols. Use before reading whole source files to orient on project structure cheaply.',
     params: {
       type: 'object',
       properties: {

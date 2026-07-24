@@ -2,8 +2,20 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EmailDraft, EmailDraftRequest, EmailSendRequest } from '@shared/email.types'
-import { draftEmailTool, saveEmailAttachmentTool, sendEmailTool } from '../emailTools'
+import type {
+  EmailAttachmentSummary,
+  EmailDraft,
+  EmailDraftRequest,
+  EmailMessage,
+  EmailSendRequest
+} from '@shared/email.types'
+import {
+  draftEmailTool,
+  findEmailAttachmentsTool,
+  readEmailTool,
+  saveEmailAttachmentTool,
+  sendEmailTool
+} from '../emailTools'
 import { checkpointStore } from '../../checkpoints/CheckpointStore'
 import { captureConfirmations, createMockContext, createMockDefine } from './test-helpers'
 
@@ -11,12 +23,16 @@ const createDraftMock = vi.fn<(request: EmailDraftRequest) => EmailDraft>()
 const sendMock = vi.fn<(request: EmailSendRequest) => void>()
 const getAttachmentMock =
   vi.fn<() => Promise<{ filename: string; mimeType: string; data: Buffer }>>()
+const readMessageMock = vi.fn<(id: string) => Promise<EmailMessage>>()
+const listAttachmentsMock = vi.fn<(id: string) => Promise<EmailAttachmentSummary[]>>()
 
 vi.mock('../../email/EmailService', () => ({
   emailService: {
     createDraft: (request: EmailDraftRequest) => createDraftMock(request),
     send: (request: EmailSendRequest) => sendMock(request),
-    getAttachment: () => getAttachmentMock()
+    getAttachment: () => getAttachmentMock(),
+    readMessage: (id: string) => readMessageMock(id),
+    listAttachments: (id: string) => listAttachmentsMock(id)
   }
 }))
 
@@ -25,6 +41,8 @@ describe('email tools', () => {
     createDraftMock.mockReset()
     sendMock.mockReset()
     getAttachmentMock.mockReset()
+    readMessageMock.mockReset()
+    listAttachmentsMock.mockReset()
     createDraftMock.mockImplementation((request) => ({
       id: 'draft-1',
       provider: 'gmail',
@@ -35,6 +53,45 @@ describe('email tools', () => {
       body: request.body,
       createdAt: 0
     }))
+  })
+
+  it('returns the identifiers needed to save a message attachment', async () => {
+    const attachment = {
+      id: 'attachment-1',
+      messageId: 'message-1',
+      filename: 'report.pdf',
+      mimeType: 'application/pdf',
+      size: 42
+    }
+    readMessageMock.mockResolvedValue({
+      id: 'message-1',
+      threadId: 'thread-1',
+      provider: 'gmail',
+      subject: 'Report',
+      from: 'sender@example.com',
+      to: ['user@example.com'],
+      cc: [],
+      bcc: [],
+      date: 0,
+      snippet: '',
+      body: 'Attached.',
+      attachments: [attachment]
+    })
+    listAttachmentsMock.mockResolvedValue([attachment])
+    const ctx = createMockContext('/workspace')
+    const readTool = readEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { messageId: string }) => Promise<string>
+    }
+    const findTool = findEmailAttachmentsTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { threadId: string }) => Promise<string>
+    }
+
+    expect(await readTool.handler({ messageId: 'message-1' })).toContain(
+      'messageId: message-1; attachmentId: attachment-1'
+    )
+    expect(await findTool.handler({ threadId: 'thread-1' })).toContain(
+      'messageId: message-1; attachmentId: attachment-1'
+    )
   })
 
   it('creates a local draft without asking for approval', async () => {

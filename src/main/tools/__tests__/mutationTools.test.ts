@@ -299,6 +299,25 @@ describe('write_file diff capture', () => {
     })
   })
 
+  it('does not overwrite a file changed while approval is pending', async () => {
+    await writeFile(join(workspace, 'existing.txt'), 'old content')
+    const ctx = {
+      ...createMockContext(workspace),
+      confirm: async () => {
+        await writeFile(join(workspace, 'existing.txt'), 'newer user content')
+        return { approved: true }
+      }
+    }
+    const tool = writeFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; content: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: 'existing.txt', content: 'assistant content' })
+
+    expect(result).toContain('changed since this write was proposed')
+    expect(await readFile(join(workspace, 'existing.txt'), 'utf-8')).toBe('newer user content')
+  })
+
   it('omits the diff for files larger than the size cap', async () => {
     const ctx = createMockContext(workspace)
     const capture = captureCalls<ToolCall>()

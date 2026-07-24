@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace } from './workspace'
 import { runGuardedTool } from './helpers'
+import { classifyCommandRisk } from './permissions'
 
 const DEFAULT_TIMEOUT_MS = 120_000
 const MAX_TIMEOUT_MS = 10 * 60_000
@@ -52,7 +53,7 @@ export const runProjectCheckTool: WorkspaceToolFactory = (define, ctx) =>
         title: `Check: ${args.kind}`,
         args,
         confirmDetail: describeCheck(args.kind, args.command),
-        risk: 'sensitive',
+        risk: args.command?.trim() ? classifyCommandRisk(args.command) : 'sensitive',
         async run() {
           const command = await resolveCheckCommand(ctx.workspaceRoot, args.kind, args.command)
           const result = await runCheck(

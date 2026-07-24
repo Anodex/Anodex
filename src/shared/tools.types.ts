@@ -200,7 +200,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: 'code_outline',
     kind: 'read',
-    description: 'Summarize imports and exported symbols for source files.',
+    description: 'Summarize imports and exported symbols for JavaScript/TypeScript files.',
     requiresProject: true
   },
   {
@@ -230,7 +230,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: 'fetch_url',
     kind: 'web',
-    description: 'Fetch a public URL and return its text content.'
+    description: 'Fetch a public URL and return bounded readable passages plus a source artifact.'
   },
   {
     name: 'web_search',
@@ -240,38 +240,43 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: 'write_file',
     kind: 'write',
-    description: 'Create or overwrite a file (asks for approval). Requires an open project.',
+    description:
+      'Create or overwrite a file. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'edit_file',
     kind: 'write',
-    description: 'Replace text within a file (asks for approval). Requires an open project.',
+    description:
+      'Replace exact unique text within a file. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'patch_file',
     kind: 'write',
     description:
-      'Apply multiple exact replacements in one file (asks for approval). Requires an open project.',
+      'Apply multiple exact replacements in one file. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'delete_file',
     kind: 'write',
-    description: 'Delete a file (asks for approval). Requires an open project.',
+    description:
+      'Delete a file. Approval depends on permission mode and risk. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'move_file',
     kind: 'write',
-    description: 'Move or rename a file (asks for approval). Requires an open project.',
+    description:
+      'Move or rename a file. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'delete_directory',
     kind: 'write',
-    description: 'Delete an empty directory (asks for approval). Requires an open project.',
+    description:
+      'Delete an empty directory, never the workspace root. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
@@ -284,14 +289,14 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'run_command',
     kind: 'command',
     description:
-      'Run a shell command in the workspace (asks for approval). Requires an open project.',
+      'Run a real local shell starting in the workspace; it is not workspace-confined. Approval depends on permission mode and risk. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'run_project_check',
     kind: 'command',
     description:
-      'Run test/typecheck/lint/build with structured pass/fail diagnostics (asks for approval). Requires an open project.',
+      'Run test/typecheck/lint/build or a custom command with structured diagnostics. Approval depends on permission mode and risk. Requires an open project.',
     requiresProject: true
   },
   {
@@ -318,28 +323,28 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'update_project_notes',
     kind: 'write',
     description:
-      'Record a durable note about this project into ANODEX.md (asks for approval). Requires an open project.',
+      'Record a durable note in ANODEX.md. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'propose_change',
     kind: 'write',
     description:
-      'Propose a persisted change (why + a task checklist) that survives the conversation (asks for approval). Requires an open project.',
+      'Persist a change rationale and task checklist. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'update_change_task',
     kind: 'write',
     description:
-      'Mark a persisted change’s task done or not done (asks for approval). Requires an open project.',
+      'Mark a persisted change task done or not done. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
     name: 'archive_change',
     kind: 'write',
     description:
-      'Archive a finished change into the project’s living spec (asks for approval). Requires an open project.',
+      'Archive a finished change into the project’s living spec. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {
@@ -352,7 +357,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'remember_fact',
     kind: 'write',
     description:
-      'Save a durable global or project memory when memory is enabled (asks for approval).'
+      'Save durable global or project memory. Approval depends on memory settings and permission mode.'
   },
   {
     name: 'list_threads',
@@ -393,7 +398,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'save_email_attachment',
     kind: 'write',
     description:
-      'Save an email attachment into the current workspace (asks for approval). Requires an open project.',
+      'Save an email attachment into the workspace. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   }
 ]
