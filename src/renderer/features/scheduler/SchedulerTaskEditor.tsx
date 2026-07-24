@@ -1,11 +1,6 @@
 import { useState } from 'react'
-import type {
-  IntervalUnit,
-  RecurrenceType,
-  ScheduledTask,
-  TaskRecurrence
-} from '@shared/scheduledTask.types'
-import { MIN_INTERVAL_MINUTES } from '@shared/scheduledTask.types'
+import type { ScheduledTask, TaskRecurrence } from '@shared/scheduledTask.types'
+import { describeRecurrence } from '@shared/parseWhen'
 import { TOOL_CATALOG, type ToolKind } from '@shared/tools.types'
 import { useProjectStore } from '../../stores/projectStore'
 import { useSchedulerStore } from '../../stores/schedulerStore'
@@ -13,10 +8,8 @@ import { Overlay } from '../../components/ui/Overlay'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/Icon'
 import { SelectControl } from '../settings/controls'
+import { WhenField } from './WhenField'
 import styles from './SchedulerTaskEditor.module.css'
-
-const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
-const WEEKDAYS_PRESET = [1, 2, 3, 4, 5]
 
 const KIND_ORDER: ToolKind[] = ['web', 'read', 'write', 'command', 'plan', 'mcp']
 const KIND_LABELS: Record<ToolKind, string> = {
@@ -48,15 +41,6 @@ interface SchedulerTaskEditorProps {
   onClose: () => void
 }
 
-function timeToInput(hour: number, minute: number): string {
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-}
-
-function inputToTime(value: string): { hour: number; minute: number } {
-  const [hour, minute] = value.split(':').map((part) => Number(part))
-  return { hour: hour || 0, minute: minute || 0 }
-}
-
 /** Create/edit form for a scheduled task: prompt, project scope, recurrence, and per-tool access. */
 export function SchedulerTaskEditor({
   task,
@@ -74,17 +58,10 @@ export function SchedulerTaskEditor({
   const [name, setName] = useState(task?.name ?? seed?.name ?? '')
   const [prompt, setPrompt] = useState(task?.prompt ?? seed?.prompt ?? '')
   const [projectId, setProjectId] = useState<string | null>(task?.projectId ?? null)
-  const [recurrenceType, setRecurrenceType] = useState<RecurrenceType>(initialRecurrence.type)
-  const [time, setTime] = useState(timeToInput(initialRecurrence.hour, initialRecurrence.minute))
-  const [weekdays, setWeekdays] = useState<number[]>(
-    initialRecurrence.weekdays && initialRecurrence.weekdays.length > 0
-      ? initialRecurrence.weekdays
-      : WEEKDAYS_PRESET
-  )
-  const [every, setEvery] = useState(initialRecurrence.every ?? 30)
-  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>(
-    initialRecurrence.intervalUnit ?? 'minutes'
-  )
+  const [recurrence, setRecurrence] = useState<TaskRecurrence>(initialRecurrence)
+  // Seeded from the schedule's own description so an existing task opens with
+  // the field already reading back what it's set to, not blank.
+  const [whenText, setWhenText] = useState(() => describeRecurrence(initialRecurrence))
   const [enabledTools, setEnabledTools] = useState<Set<string>>(
     new Set(task?.enabledTools ?? seed?.enabledTools ?? ['fetch_url', 'web_search'])
   )
@@ -94,8 +71,7 @@ export function SchedulerTaskEditor({
   const availableTools = TOOL_CATALOG.filter((tool) => !tool.requiresProject || hasProject)
   const canSave =
     prompt.trim().length > 0 &&
-    (recurrenceType !== 'weekly' || weekdays.length > 0) &&
-    (recurrenceType !== 'interval' || every >= 1)
+    (recurrence.type !== 'weekly' || (recurrence.weekdays ?? []).length > 0)
 
   const toggleTool = (toolName: string): void => {
     setEnabledTools((prev) => {
@@ -109,26 +85,9 @@ export function SchedulerTaskEditor({
   const selectAllTools = (): void => setEnabledTools(new Set(availableTools.map((t) => t.name)))
   const clearAllTools = (): void => setEnabledTools(new Set())
 
-  const toggleWeekday = (day: number): void => {
-    setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()))
-  }
-
   const handleSave = async (): Promise<void> => {
     if (!canSave || saving) return
     setSaving(true)
-    const { hour, minute } = inputToTime(time)
-    const recurrence: TaskRecurrence =
-      recurrenceType === 'weekly'
-        ? { type: 'weekly', hour, minute, weekdays }
-        : recurrenceType === 'interval'
-          ? {
-              type: 'interval',
-              hour: 0,
-              minute: 0,
-              every: intervalUnit === 'minutes' ? Math.max(every, MIN_INTERVAL_MINUTES) : every,
-              intervalUnit
-            }
-          : { type: recurrenceType, hour, minute }
 
     const request = {
       name: name.trim() || undefined,
@@ -156,10 +115,20 @@ export function SchedulerTaskEditor({
   }
 
   return (
-    <Overlay onClose={onClose} ariaLabel={task ? 'Edit scheduled task' : 'New scheduled task'} cardClassName={styles.card}>
+    <Overlay
+      onClose={onClose}
+      ariaLabel={task ? 'Edit scheduled task' : 'New scheduled task'}
+      cardClassName={styles.card}
+    >
       <div className={styles.header}>
         <h2 className={styles.title}>{task ? 'Edit task' : 'New scheduled task'}</h2>
-        <button type="button" className={styles.close} onClick={onClose} aria-label="Close" title="Close">
+        <button
+          type="button"
+          className={styles.close}
+          onClick={onClose}
+          aria-label="Close"
+          title="Close"
+        >
           <Icon name="close" size={16} />
         </button>
       </div>
@@ -199,66 +168,12 @@ export function SchedulerTaskEditor({
           />
         </label>
 
-        <div className={styles.field}>
-          <span className={styles.label}>Repeat</span>
-          <div className={styles.recurrenceRow}>
-            <SelectControl
-              value={recurrenceType}
-              onChange={(value) => setRecurrenceType(value as RecurrenceType)}
-              options={[
-                { label: 'Once', value: 'once' },
-                { label: 'Daily', value: 'daily' },
-                { label: 'Weekly', value: 'weekly' },
-                { label: 'Every...', value: 'interval' }
-              ]}
-            />
-            {recurrenceType === 'interval' ? (
-              <>
-                <span className={styles.intervalWord}>Every</span>
-                <input
-                  type="number"
-                  min={intervalUnit === 'minutes' ? MIN_INTERVAL_MINUTES : 1}
-                  className={styles.intervalNumber}
-                  value={every}
-                  onChange={(event) => setEvery(Number(event.target.value) || 1)}
-                />
-                <SelectControl
-                  value={intervalUnit}
-                  onChange={(value) => setIntervalUnit(value as IntervalUnit)}
-                  options={[
-                    { label: 'minutes', value: 'minutes' },
-                    { label: 'hours', value: 'hours' },
-                    { label: 'days', value: 'days' }
-                  ]}
-                />
-              </>
-            ) : (
-              <input
-                type="time"
-                className={styles.timeInput}
-                value={time}
-                onChange={(event) => setTime(event.target.value)}
-              />
-            )}
-          </div>
-          {recurrenceType === 'interval' && intervalUnit === 'minutes' && every < MIN_INTERVAL_MINUTES && (
-            <p className={styles.hint}>Minimum {MIN_INTERVAL_MINUTES} minutes.</p>
-          )}
-          {recurrenceType === 'weekly' && (
-            <div className={styles.weekdays}>
-              {WEEKDAY_LABELS.map((label, day) => (
-                <button
-                  key={day}
-                  type="button"
-                  className={`${styles.weekday} ${weekdays.includes(day) ? styles.weekdaySelected : ''}`}
-                  onClick={() => toggleWeekday(day)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <WhenField
+          value={recurrence}
+          onChange={setRecurrence}
+          text={whenText}
+          onTextChange={setWhenText}
+        />
 
         <div className={styles.field}>
           <div className={styles.toolsHeader}>
@@ -322,7 +237,12 @@ export function SchedulerTaskEditor({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => void handleSave()} disabled={!canSave} loading={saving}>
+          <Button
+            variant="primary"
+            onClick={() => void handleSave()}
+            disabled={!canSave}
+            loading={saving}
+          >
             {task ? 'Save' : 'Create task'}
           </Button>
         </div>

@@ -78,6 +78,12 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
     const general: Conversation[] = []
 
     for (const conversation of conversations) {
+      // A scheduled task's conversation is its run log, not a chat the user
+      // held — it lives inside the Scheduler, where the schedule, the run
+      // history and the controls for it already are. Leaving them here buried
+      // real conversations under one endlessly-appended thread per task.
+      if (conversation.origin === 'scheduled') continue
+
       if (!conversation.projectId) {
         if (!query || matchesQuery(conversation.title, query)) general.push(conversation)
         continue

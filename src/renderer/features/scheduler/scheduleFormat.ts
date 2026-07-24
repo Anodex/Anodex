@@ -1,55 +1,37 @@
-import type { TaskRecurrence } from '@shared/scheduledTask.types'
+export { describeRecurrence, formatTimeOfDay } from '@shared/parseWhen'
 
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const WEEKDAYS_PRESET = [1, 2, 3, 4, 5]
+/** A run over this is worth calling out as late rather than treating as on time. */
+const NOTABLE_DELAY_MS = 60_000
 
-export function formatTimeOfDay(hour: number, minute: number): string {
-  const period = hour < 12 ? 'AM' : 'PM'
-  const displayHour = hour % 12 === 0 ? 12 : hour % 12
-  return `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
+/** "In 5m 20s", or just "In 5m" when the smaller unit would read as zero. */
+function pair(value: number, unit: string, remainder: number, smallerUnit: string): string {
+  return remainder === 0 ? `In ${value}${unit}` : `In ${value}${unit} ${remainder}${smallerUnit}`
 }
 
-function isWeekdaysPreset(weekdays: number[]): boolean {
-  return (
-    weekdays.length === WEEKDAYS_PRESET.length &&
-    WEEKDAYS_PRESET.every((day) => weekdays.includes(day))
-  )
-}
-
-/** Human description of a recurrence, e.g. "Every day at 9:00 AM", "Every 30 minutes". */
-export function describeRecurrence(recurrence: TaskRecurrence): string {
-  if (recurrence.type === 'interval') {
-    const every = recurrence.every ?? 1
-    const unit = recurrence.intervalUnit ?? 'minutes'
-    return `Every ${every} ${every === 1 ? unit.slice(0, -1) : unit}`
-  }
-
-  const time = formatTimeOfDay(recurrence.hour, recurrence.minute)
-  if (recurrence.type === 'once') return `Once at ${time}`
-  if (recurrence.type === 'daily') return `Every day at ${time}`
-
-  const weekdays = [...(recurrence.weekdays ?? [])].sort((a, b) => a - b)
-  if (weekdays.length === 0) return `Weekly at ${time} — pick a day`
-  if (weekdays.length === 7) return `Every day at ${time}`
-  if (isWeekdaysPreset(weekdays)) return `Weekdays at ${time}`
-  return `Every ${weekdays.map((day) => WEEKDAY_LABELS[day]).join(', ')} at ${time}`
-}
-
-/** Compact countdown/description for a task's next run, e.g. "In 5m", "In 2h", "Due now", or a date once it's over a week out. */
-export function formatNextRun(timestamp: number | null): string {
+/**
+ * Compact countdown to a task's next run, counting seconds once it's inside an
+ * hour — e.g. "In 42s", "In 27m 14s", "In 14h 30m", "Due now". Falls back to an
+ * absolute date past a week, where a countdown stops being useful.
+ *
+ * `now` is injectable so tests can pin the result; the countdown is otherwise
+ * recomputed against the wall clock on every `useCountdown` tick.
+ */
+export function formatNextRun(timestamp: number | null, now: number = Date.now()): string {
   if (timestamp === null) return 'Not scheduled'
-  const diffMs = timestamp - Date.now()
+  const diffMs = timestamp - now
   if (diffMs <= 0) return 'Due now'
 
-  const minutes = Math.round(diffMs / 60_000)
-  if (minutes < 1) return 'In under a minute'
-  if (minutes < 60) return `In ${minutes}m`
+  const totalSeconds = Math.floor(diffMs / 1000)
+  if (totalSeconds < 60) return `In ${totalSeconds}s`
 
-  const hours = Math.round(diffMs / 3_600_000)
-  if (hours < 24) return `In ${hours}h`
+  const minutes = Math.floor(totalSeconds / 60)
+  if (minutes < 60) return pair(minutes, 'm', totalSeconds % 60, 's')
 
-  const days = Math.round(diffMs / 86_400_000)
-  if (days < 7) return `In ${days}d`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return pair(hours, 'h', minutes % 60, 'm')
+
+  const days = Math.floor(hours / 24)
+  if (days < 7) return pair(days, 'd', hours % 24, 'h')
 
   return new Date(timestamp).toLocaleString(undefined, {
     month: 'short',
@@ -57,4 +39,28 @@ export function formatNextRun(timestamp: number | null): string {
     hour: 'numeric',
     minute: '2-digit'
   })
+}
+
+/** How long a run took, e.g. "0.8s", "18.6s", "2m 04s". */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  const minutes = Math.floor(ms / 60_000)
+  const seconds = Math.round((ms % 60_000) / 1000)
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+}
+
+/**
+ * Why a run didn't happen when it should have, or null when it was on time and
+ * lost nothing — see `TaskRunRecord.delayedMs`/`skippedSlots`.
+ */
+export function describeRunTiming(delayedMs: number, skippedSlots: number): string | null {
+  const parts: string[] = []
+  if (delayedMs >= NOTABLE_DELAY_MS) {
+    parts.push(`started ${formatDuration(delayedMs)} late — another task was running`)
+  }
+  if (skippedSlots > 0) {
+    parts.push(`${skippedSlots} run${skippedSlots === 1 ? '' : 's'} skipped`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
 }

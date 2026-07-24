@@ -64,19 +64,35 @@ class SchedulerService {
   }
 
   private async tick(): Promise<void> {
-    if (this.runningTaskId) return
     const now = Date.now()
     const due = schedulerStore
       .list()
-      .find((task) => task.enabled && task.nextRunAt !== null && task.nextRunAt <= now)
-    if (!due) return
-    await this.runTask(due)
+      .filter((task) => task.enabled && task.nextRunAt !== null && task.nextRunAt <= now)
+    if (due.length === 0) return
+
+    // Only one task runs at a time. The rest aren't dropped — their `nextRunAt`
+    // is left alone, so the next tick picks them up as soon as the lock frees —
+    // but the wait is recorded as `delayedMs` on whichever run eventually
+    // happens, so a task that habitually runs late is visible instead of just
+    // feeling slow.
+    if (this.runningTaskId) {
+      log.info(
+        `${due.length} task(s) due while "${this.runningTaskId}" is running — they will start once it finishes`
+      )
+      return
+    }
+
+    // Oldest due slot first, so a task that has been waiting doesn't keep
+    // losing to one that just came due.
+    const next = due.sort((a, b) => (a.nextRunAt ?? 0) - (b.nextRunAt ?? 0))[0]
+    await this.runTask(next)
   }
 
   private async runTask(task: ScheduledTask): Promise<void> {
     this.runningTaskId = task.id
     const controller = new AbortController()
     this.activeController = controller
+    const startedAt = Date.now()
     log.info('Running scheduled task:', task.id, task.name)
 
     const conversation = this.getOrCreateConversation(task)
@@ -145,6 +161,8 @@ class SchedulerService {
         summary,
         conversationId: conversation.id,
         messageId: assistantMessageId,
+        userMessageId: userMessage.id,
+        startedAt,
         fabricationDetected: result.fabricationDetected ?? false
       })
       showToastWindow({
@@ -161,7 +179,9 @@ class SchedulerService {
         status: 'error',
         summary: error instanceof Error ? error.message : 'Run failed.',
         conversationId: conversation.id,
-        messageId: null
+        messageId: null,
+        userMessageId: userMessage.id,
+        startedAt
       })
       showToastWindow({
         title: task.name,

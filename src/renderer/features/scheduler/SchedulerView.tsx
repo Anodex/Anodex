@@ -13,7 +13,8 @@ import { useUiStore } from '../../stores/uiStore'
 import { formatRelativeTime } from '../../lib/time'
 import { describeRecurrence, formatNextRun } from './scheduleFormat'
 import { SchedulerTaskEditor, type SchedulerTaskEditorSeed } from './SchedulerTaskEditor'
-import { SchedulerTaskReport } from './SchedulerTaskReport'
+import { SchedulerConversation } from './SchedulerConversation'
+import { useCountdown } from './useCountdown'
 import styles from './SchedulerView.module.css'
 
 type SortMode = 'nextRun' | 'name'
@@ -121,6 +122,9 @@ function TaskCard({
 }): JSX.Element {
   const justArrived = useJustArrived(task)
   const lastRunClass = task.lastRunAt ? styles[`taskCard-${task.lastRunStatus ?? 'success'}`] : ''
+  // Re-renders this card on a timer so its next-run label counts down instead
+  // of freezing at whatever it read when the list was last drawn.
+  useCountdown(task.enabled ? task.nextRunAt : null)
 
   return (
     <div className={`${styles.taskCard} ${lastRunClass} ${justArrived ? styles.arrived : ''}`}>
@@ -136,7 +140,9 @@ function TaskCard({
           <span>
             <Icon name="calendar" size={12} /> {describeRecurrence(task.recurrence)}
           </span>
-          <span>{task.enabled ? formatNextRun(task.nextRunAt) : 'Paused'}</span>
+          <span className={styles.countdown}>
+            {task.enabled ? formatNextRun(task.nextRunAt) : 'Paused'}
+          </span>
           {task.lastRunAt && (
             <span
               className={`${styles.lastRun} ${styles[`status-${task.lastRunStatus ?? 'success'}`]}`}
@@ -209,7 +215,7 @@ export function SchedulerView(): JSX.Element {
   const runNow = useSchedulerStore((s) => s.runNow)
   const projects = useProjectStore((s) => s.projects)
   const setActiveProject = useProjectStore((s) => s.setActive)
-  const selectConversation = useChatStore((s) => s.selectConversation)
+  const forkConversation = useChatStore((s) => s.forkConversation)
   const setView = useUiStore((s) => s.setView)
   const notify = useUiStore((s) => s.notify)
 
@@ -217,11 +223,13 @@ export function SchedulerView(): JSX.Element {
   const [sortMode, setSortMode] = useState<SortMode>('nextRun')
   const [editingTask, setEditingTask] = useState<ScheduledTask | null>(null)
   const [creatingSeed, setCreatingSeed] = useState<SchedulerTaskEditorSeed | null>(null)
-  const [reportTaskId, setReportTaskId] = useState<string | null>(null)
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [runningId, setRunningId] = useState<string | null>(null)
 
   const editorOpen = editingTask !== null || creatingSeed !== null
-  const reportTask = tasks.find((task) => task.id === reportTaskId) ?? null
+  // Read from `tasks` rather than held in state, so a run finishing while its
+  // conversation is open updates in place instead of showing a stale snapshot.
+  const openTask = tasks.find((task) => task.id === openTaskId) ?? null
 
   const filteredTasks = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -244,13 +252,26 @@ export function SchedulerView(): JSX.Element {
   const projectName = (projectId: string | null): string | null =>
     projects.find((p) => p.id === projectId)?.name ?? null
 
-  const openConversation = (task: ScheduledTask): void => {
+  /**
+   * Carries a task's run log into an ordinary chat. The log itself stays
+   * read-only — it's a record of what ran unattended, and letting replies land
+   * in it would mean the next run inherits a side conversation as context.
+   */
+  const continueInChat = (task: ScheduledTask): void => {
     if (!task.conversationId) {
-      notify({ kind: 'info', title: 'Nothing to show yet', message: 'This task has not run yet.' })
+      notify({ kind: 'info', title: 'Nothing to continue', message: 'This task has not run yet.' })
+      return
+    }
+    const forkedId = forkConversation(task.conversationId, `${task.name} (continued)`)
+    if (!forkedId) {
+      notify({
+        kind: 'error',
+        title: 'Could not continue',
+        message: "This task's conversation is no longer available."
+      })
       return
     }
     void setActiveProject(task.projectId)
-    void selectConversation(task.conversationId)
     setView('chat')
   }
 
@@ -261,6 +282,33 @@ export function SchedulerView(): JSX.Element {
     } finally {
       setRunningId(null)
     }
+  }
+
+  // Drilled into one task: the whole pane becomes its run log, with the list
+  // one click away. The editor stays mounted so "Edit" works from in here too.
+  if (openTask) {
+    return (
+      <div className={styles.view}>
+        <SchedulerConversation
+          task={openTask}
+          running={runningId === openTask.id}
+          onBack={() => setOpenTaskId(null)}
+          onRunNow={() => void handleRunNow(openTask)}
+          onEdit={() => setEditingTask(openTask)}
+          onContinueInChat={() => continueInChat(openTask)}
+        />
+        {editorOpen && (
+          <SchedulerTaskEditor
+            task={editingTask}
+            seed={creatingSeed ?? undefined}
+            onClose={() => {
+              setEditingTask(null)
+              setCreatingSeed(null)
+            }}
+          />
+        )}
+      </div>
+    )
   }
 
   return (
@@ -316,7 +364,7 @@ export function SchedulerView(): JSX.Element {
               task={task}
               runningId={runningId}
               projectName={projectName}
-              onOpenReport={setReportTaskId}
+              onOpenReport={setOpenTaskId}
               onRunNow={(t) => void handleRunNow(t)}
               onEdit={setEditingTask}
             />
@@ -355,17 +403,6 @@ export function SchedulerView(): JSX.Element {
           onClose={() => {
             setEditingTask(null)
             setCreatingSeed(null)
-          }}
-        />
-      )}
-
-      {reportTask && (
-        <SchedulerTaskReport
-          task={reportTask}
-          onClose={() => setReportTaskId(null)}
-          onOpenConversation={() => {
-            setReportTaskId(null)
-            openConversation(reportTask)
           }}
         />
       )}

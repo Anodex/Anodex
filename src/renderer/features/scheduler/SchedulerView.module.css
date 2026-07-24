@@ -187,6 +187,12 @@
   gap: var(--space-1);
 }
 
+/* Ticks once a second inside the last hour, so digits must not reflow the row. */
+.countdown {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .lastRun.status-error {
   color: var(--danger);
 }

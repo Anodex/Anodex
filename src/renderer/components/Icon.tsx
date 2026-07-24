@@ -30,6 +30,7 @@ export type IconName =
   | 'monitor'
   | 'chevron-down'
   | 'chevron-right'
+  | 'chevron-left'
   | 'folder-plus'
   | 'search'
   | 'more-vertical'
@@ -208,6 +209,7 @@ const GLYPHS: Record<IconName, ReactNode> = {
   ),
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   'chevron-right': <path d="m9 18 6-6-6-6" />,
+  'chevron-left': <path d="m15 18-6-6 6-6" />,
   'folder-plus': (
     <>
       <path d="M2 6a2 2 0 0 1 2-2h4.5l2 2H20a2 2 0 0 1 2 2v8l-4 4H4a2 2 0 0 1-2-2V6z" />

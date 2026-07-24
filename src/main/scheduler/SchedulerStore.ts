@@ -5,11 +5,12 @@ import type {
   CreateScheduledTaskRequest,
   ScheduledTask,
   ScheduledTaskRunStatus,
+  TaskRecurrence,
   TaskRunRecord,
   UpdateScheduledTaskRequest
 } from '@shared/scheduledTask.types'
+import { computeNextRunAt, slotsBetween } from '@shared/nextRun'
 import { createLogger } from '../utils/logger'
-import { computeNextRunAt } from './recurrence'
 
 const log = createLogger('scheduler-store')
 
@@ -23,8 +24,23 @@ export interface RecordRunOptions {
   conversationId: string
   /** The assistant message holding the full reply, or null if the run errored before producing one. */
   messageId: string | null
+  /** The user message that opened this run, used to segment the transcript by run. */
+  userMessageId: string | null
+  /** When the run actually began, used for both duration and lateness. */
+  startedAt: number
   /** See `TaskRunRecord.fabricationDetected`'s doc comment. Defaults to false when omitted. */
   fabricationDetected?: boolean
+}
+
+/**
+ * Gives an `'interval'` recurrence a wall-clock anchor if it doesn't have one.
+ * `parseWhen` sets this itself, but a schedule built from the exact controls
+ * doesn't, and without it the recurrence silently falls back to the old
+ * drifting from-last-finish behaviour.
+ */
+function withAnchor(recurrence: TaskRecurrence, now: number): TaskRecurrence {
+  if (recurrence.type !== 'interval' || recurrence.anchorAt !== undefined) return recurrence
+  return { ...recurrence, anchorAt: now }
 }
 
 /**
@@ -56,22 +72,24 @@ class SchedulerStore {
 
   create(request: CreateScheduledTaskRequest): ScheduledTask {
     const now = Date.now()
+    const recurrence = withAnchor(request.recurrence, now)
     const task: ScheduledTask = {
       id: generateId(),
       name: request.name?.trim() || deriveName(request.prompt),
       prompt: request.prompt.trim(),
       projectId: request.projectId,
-      recurrence: request.recurrence,
+      recurrence,
       enabledTools: request.enabledTools,
       enabled: true,
       conversationId: null,
       createdAt: now,
       updatedAt: now,
-      nextRunAt: computeNextRunAt(request.recurrence, now, false),
+      nextRunAt: computeNextRunAt(recurrence, now, false),
       lastRunAt: null,
       lastRunStatus: null,
       lastRunSummary: null,
-      runs: []
+      runs: [],
+      runCount: 0
     }
     const tasks = this.ensureCache()
     tasks.unshift(task)
@@ -84,7 +102,11 @@ class SchedulerStore {
     const index = tasks.findIndex((task) => task.id === id)
     if (index === -1) throw new Error(`Scheduled task not found: ${id}`)
     const task = tasks[index]
-    const recurrence = request.recurrence ?? task.recurrence
+    // Saving a changed schedule re-anchors the interval grid to now, so the
+    // new cadence starts from when you set it rather than from a stale origin.
+    const recurrence = request.recurrence
+      ? withAnchor(request.recurrence, Date.now())
+      : task.recurrence
     const enabled = request.enabled ?? task.enabled
     const next: ScheduledTask = {
       ...task,
@@ -114,12 +136,19 @@ class SchedulerStore {
     if (index === -1) return undefined
     const task = tasks[index]
     const now = Date.now()
+    const nextRunAt = task.enabled ? computeNextRunAt(task.recurrence, now, true) : null
     const run: TaskRunRecord = {
       id: generateId(),
-      startedAt: now,
+      startedAt: options.startedAt,
+      durationMs: Math.max(0, now - options.startedAt),
       status: options.status,
       summary: options.summary,
       messageId: options.messageId,
+      userMessageId: options.userMessageId,
+      // `nextRunAt` was the slot this run was meant to fill; anything past it
+      // is time spent waiting for another task to release the run lock.
+      delayedMs: task.nextRunAt === null ? 0 : Math.max(0, options.startedAt - task.nextRunAt),
+      skippedSlots: slotsBetween(task.recurrence, task.nextRunAt, nextRunAt),
       fabricationDetected: options.fabricationDetected ?? false
     }
     const next: ScheduledTask = {
@@ -128,8 +157,9 @@ class SchedulerStore {
       lastRunAt: now,
       lastRunStatus: options.status,
       lastRunSummary: options.summary,
-      nextRunAt: task.enabled ? computeNextRunAt(task.recurrence, now, true) : null,
-      runs: [run, ...task.runs].slice(0, MAX_RUN_HISTORY)
+      nextRunAt,
+      runs: [run, ...task.runs].slice(0, MAX_RUN_HISTORY),
+      runCount: task.runCount + 1
     }
     tasks[index] = next
     this.persist(tasks)
@@ -145,8 +175,22 @@ class SchedulerStore {
     if (!existsSync(this.filePath)) return []
     try {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as ScheduledTask[]
-      // Tasks persisted before `runs` existed have no history array yet.
-      return raw.map((task) => ({ ...task, runs: task.runs ?? [] }))
+      // Tasks persisted before `runs` existed have no history array yet, and
+      // runs recorded before timing/lateness tracking have none of those
+      // fields — default them rather than rendering `undefined` in the report.
+      return raw.map((task) => ({
+        ...task,
+        // Tasks from before `runCount` existed start counting from whatever
+        // history they retained — the best lower bound available.
+        runCount: task.runCount ?? (task.runs ?? []).length,
+        runs: (task.runs ?? []).map((run) => ({
+          ...run,
+          durationMs: run.durationMs ?? 0,
+          userMessageId: run.userMessageId ?? null,
+          delayedMs: run.delayedMs ?? 0,
+          skippedSlots: run.skippedSlots ?? 0
+        }))
+      }))
     } catch (error) {
       log.warn('Failed to parse scheduled tasks, starting fresh:', error)
       return []

@@ -64,6 +64,13 @@ interface ChatState {
    * created without an explicit project must not silently inherit one.
    */
   newConversation: (projectId?: string | null) => string
+  /**
+   * Copies a conversation's history into a new, ordinary chat and selects it.
+   * Used to carry a scheduled task's run log into a chat the user can actually
+   * reply in, without turning the log itself into a conversation. Returns the
+   * new id, or null if the source is gone.
+   */
+  forkConversation: (sourceId: string, title: string) => string | null
   selectConversation: (id: string) => Promise<void>
   renameConversation: (id: string, title: string) => Promise<void>
   deleteConversation: (id: string) => Promise<void>
@@ -242,6 +249,34 @@ export const useChatStore = create<ChatState>()(
         messages: [],
         createdAt: now,
         updatedAt: now
+      }
+      set((state) => {
+        state.conversations.unshift(conversation)
+        state.activeId = id
+      })
+      useUiStore.getState().markConversationRead(id, now)
+      void persistConversation(conversation)
+      void persistActiveState(id)
+      return id
+    },
+
+    forkConversation: (sourceId, title) => {
+      const source = get().conversations.find((c) => c.id === sourceId)
+      if (!source) return null
+      const id = createId('c')
+      const now = Date.now()
+      const conversation: Conversation = {
+        ...source,
+        id,
+        title,
+        createdAt: now,
+        updatedAt: now,
+        // A fork is a chat the user is holding, so it drops the automated
+        // origin — that flag is what keeps scheduled run logs out of the
+        // sidebar's chat list, and this copy belongs there.
+        origin: undefined,
+        archived: false,
+        archivedAt: undefined
       }
       set((state) => {
         state.conversations.unshift(conversation)
