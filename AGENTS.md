@@ -159,9 +159,11 @@ drift away from the Settings/docs surface.
 present. Cloud providers and `LlamaVisionService` own that per-generation,
 four-image queue and inject drained images into the next provider round.
 Text-only `LlamaService` must not expose the tool. Its `ToolCallPreview`
-contains an ephemeral image data URL for the live transcript;
-`chatSanitizer.ts` must continue removing that preview from both `toolCalls`
-and timeline blocks before conversation persistence or model-history replay.
+contains an ephemeral image data URL plus a sandboxed
+`ConversationAssetStore` reference. `chatSanitizer.ts` must preserve the live
+data URL for rendering, remove only the data URL from persisted `toolCalls` and
+timeline blocks, and remove the entire preview from model-history replay.
+Permanent conversation deletion must remove its assets.
 
 #### Tool approval
 

@@ -12,7 +12,7 @@ export function sanitizeAssistantContent(text: string): string {
 export function sanitizeHistoryTurn(turn: ChatHistoryTurn): ChatHistoryTurn {
   if (turn.role !== 'assistant') return turn
   const content = stripKnownToolCallPayloads(turn.content)
-  const toolCalls = sanitizeToolCalls(turn.toolCalls)
+  const toolCalls = sanitizeToolCalls(turn.toolCalls, 'history')
   return content.changed || toolCalls.changed
     ? { ...turn, content: content.text, toolCalls: toolCalls.toolCalls }
     : turn
@@ -28,15 +28,19 @@ export function messageToHistoryTurn(message: ChatMessage): ChatHistoryTurn {
   })
 }
 
-export function sanitizeMessageTranscript(message: ChatMessage): {
+export function sanitizeMessageTranscript(
+  message: ChatMessage,
+  options?: { preserveImageData?: boolean }
+): {
   message: ChatMessage
   changed: boolean
 } {
   if (message.role !== 'assistant') return { message, changed: false }
 
+  const mode = options?.preserveImageData ? 'render' : 'persistence'
   const content = stripKnownToolCallPayloads(message.content)
-  const toolCalls = sanitizeToolCalls(message.toolCalls)
-  const blocks = sanitizeBlocks(message.blocks)
+  const toolCalls = sanitizeToolCalls(message.toolCalls, mode)
+  const blocks = sanitizeBlocks(message.blocks, mode)
   if (!content.changed && !toolCalls.changed && !blocks.changed) {
     return { message, changed: false }
   }
@@ -68,7 +72,12 @@ export function sanitizeConversationTranscript(conversation: Conversation): {
     : { conversation, changed }
 }
 
-function sanitizeBlocks(blocks: MessageBlock[] | undefined): {
+type ToolCallSanitizeMode = 'history' | 'persistence' | 'render'
+
+function sanitizeBlocks(
+  blocks: MessageBlock[] | undefined,
+  mode: ToolCallSanitizeMode
+): {
   blocks: MessageBlock[] | undefined
   changed: boolean
 } {
@@ -82,7 +91,7 @@ function sanitizeBlocks(blocks: MessageBlock[] | undefined): {
     // into thinking (a separate stream, never scanned for this) — pass it
     // through untouched like a tool block, not relabel it as text below.
     if (block.type === 'tool') {
-      const call = sanitizeToolCall(block.call)
+      const call = sanitizeToolCall(block.call, mode)
       if (call.changed) changed = true
       sanitized.push(call.changed ? { ...block, call: call.call } : block)
       continue
@@ -104,24 +113,36 @@ function sanitizeBlocks(blocks: MessageBlock[] | undefined): {
   }
 }
 
-function sanitizeToolCalls(toolCalls: ToolCall[] | undefined): {
+function sanitizeToolCalls(
+  toolCalls: ToolCall[] | undefined,
+  mode: ToolCallSanitizeMode
+): {
   toolCalls: ToolCall[] | undefined
   changed: boolean
 } {
   if (!toolCalls?.length) return { toolCalls, changed: false }
   let changed = false
   const sanitized = toolCalls.map((call) => {
-    const result = sanitizeToolCall(call)
+    const result = sanitizeToolCall(call, mode)
     if (result.changed) changed = true
     return result.call
   })
   return { toolCalls: changed ? sanitized : toolCalls, changed }
 }
 
-/** Image previews are a live UI convenience; base64 bytes never enter saved/model history. */
-function sanitizeToolCall(call: ToolCall): { call: ToolCall; changed: boolean } {
+/** Keep pixels in live rendering, durable refs on disk, and neither in model-history replay. */
+function sanitizeToolCall(
+  call: ToolCall,
+  mode: ToolCallSanitizeMode
+): { call: ToolCall; changed: boolean } {
   if (call.preview?.kind !== 'image') return { call, changed: false }
-  return { call: { ...call, preview: undefined }, changed: true }
+  if (mode === 'render') return { call, changed: false }
+  if (mode === 'history' || !call.preview.asset) {
+    return { call: { ...call, preview: undefined }, changed: true }
+  }
+  if (!call.preview.dataUrl) return { call, changed: false }
+  const { dataUrl: _dataUrl, ...durablePreview } = call.preview
+  return { call: { ...call, preview: durablePreview }, changed: true }
 }
 
 function stripKnownToolCallPayloads(text: string): { text: string; changed: boolean } {

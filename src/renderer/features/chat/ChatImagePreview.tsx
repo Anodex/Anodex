@@ -1,10 +1,45 @@
+import { useEffect, useState } from 'react'
 import type { ToolCallPreview } from '@shared/tools.types'
+import { anodex } from '../../lib/anodex'
 import styles from './ChatImagePreview.module.css'
 
 type ImagePreview = Extract<ToolCallPreview, { kind: 'image' }>
 
-/** Ephemeral screenshot/image shown immediately beneath an inspect_visual call. */
+/** Exact inspected pixels, loaded live from memory or later from the durable asset store. */
 export function ChatImagePreview({ preview }: { preview: ImagePreview }): JSX.Element {
+  const [dataUrl, setDataUrl] = useState(preview.dataUrl ?? null)
+  const [unavailable, setUnavailable] = useState(!preview.dataUrl && !preview.asset)
+
+  useEffect(() => {
+    if (preview.dataUrl) {
+      setDataUrl(preview.dataUrl)
+      setUnavailable(false)
+      return undefined
+    }
+    if (!preview.asset) {
+      setDataUrl(null)
+      setUnavailable(true)
+      return undefined
+    }
+
+    let cancelled = false
+    setDataUrl(null)
+    setUnavailable(false)
+    void anodex.conversations
+      .readVisualPreview(preview.asset.conversationId, preview.asset.id)
+      .then((result) => {
+        if (cancelled) return
+        if (result.ok) setDataUrl(result.value.dataUrl)
+        else setUnavailable(true)
+      })
+      .catch(() => {
+        if (!cancelled) setUnavailable(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [preview.asset, preview.dataUrl])
+
   return (
     <figure className={styles.wrap}>
       <figcaption className={styles.header}>
@@ -12,11 +47,19 @@ export function ChatImagePreview({ preview }: { preview: ImagePreview }): JSX.El
         <span className={styles.path}>{preview.path}</span>
       </figcaption>
       <div className={styles.canvas}>
-        <img
-          className={styles.image}
-          src={preview.dataUrl}
-          alt={`Visual inspection of ${preview.path}`}
-        />
+        {dataUrl ? (
+          <img
+            className={styles.image}
+            src={dataUrl}
+            alt={`Visual inspection of ${preview.path}`}
+          />
+        ) : (
+          <span className={styles.notice}>
+            {unavailable
+              ? 'This inspected screenshot is no longer available.'
+              : 'Loading screenshot…'}
+          </span>
+        )}
       </div>
     </figure>
   )

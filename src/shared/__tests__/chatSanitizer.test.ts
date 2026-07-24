@@ -70,7 +70,11 @@ describe('messageToHistoryTurn', () => {
             title: 'Rendered page.html',
             path: 'page.html',
             dataUrl: 'data:image/png;base64,cGl4ZWxz',
-            mimeType: 'image/png'
+            mimeType: 'image/png',
+            asset: {
+              conversationId: 'c1',
+              id: 'm1-preview.png'
+            }
           }
         }
       ]
@@ -128,7 +132,11 @@ describe('sanitizeMessageTranscript', () => {
       title: 'Rendered page.html',
       path: 'page.html',
       dataUrl: 'data:image/png;base64,cGl4ZWxz',
-      mimeType: 'image/png'
+      mimeType: 'image/png',
+      asset: {
+        conversationId: 'c1',
+        id: 'm1-preview.png'
+      }
     }
     const call = {
       id: 't1',
@@ -148,12 +156,66 @@ describe('sanitizeMessageTranscript', () => {
     })
 
     expect(result.changed).toBe(true)
-    expect(result.message.toolCalls?.[0].preview).toBeUndefined()
+    expect(result.message.toolCalls?.[0].preview).toEqual({
+      kind: 'image',
+      title: 'Rendered page.html',
+      path: 'page.html',
+      mimeType: 'image/png',
+      asset: {
+        conversationId: 'c1',
+        id: 'm1-preview.png'
+      }
+    })
     expect(result.message.blocks?.[0]).toMatchObject({
       type: 'tool',
-      call: { preview: undefined }
+      call: {
+        preview: {
+          asset: {
+            conversationId: 'c1',
+            id: 'm1-preview.png'
+          }
+        }
+      }
     })
     expect(call.preview).toBe(preview)
+  })
+
+  it('preserves live image bytes in the renderer sanitation path', () => {
+    const call = {
+      id: 't1',
+      name: 'inspect_visual',
+      kind: 'read' as const,
+      title: 'Inspect page.html',
+      status: 'success' as const,
+      preview: {
+        kind: 'image' as const,
+        title: 'Rendered page.html',
+        path: 'page.html',
+        dataUrl: 'data:image/png;base64,cGl4ZWxz',
+        mimeType: 'image/png'
+      }
+    }
+    const result = sanitizeMessageTranscript(
+      {
+        id: 'm1',
+        role: 'assistant',
+        content: 'Looks good.',
+        createdAt: 1,
+        toolCalls: [call],
+        blocks: [{ type: 'tool', call }]
+      },
+      { preserveImageData: true }
+    )
+
+    expect(result.changed).toBe(false)
+    expect(result.message.blocks?.[0]).toMatchObject({
+      type: 'tool',
+      call: {
+        preview: {
+          dataUrl: 'data:image/png;base64,cGl4ZWxz'
+        }
+      }
+    })
   })
 })
 

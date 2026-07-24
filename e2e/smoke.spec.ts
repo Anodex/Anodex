@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AnodexApi } from '../src/shared/ipc'
@@ -102,6 +102,79 @@ test('past user messages open the edit and regenerate review', async ({
     await expect(mainWindow.getByRole('dialog', { name: 'Edit message' })).toBeInViewport()
     await mainWindow.waitForTimeout(250)
     await mainWindow.screenshot({ path: testInfo.outputPath('edit-message-dialog.png') })
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
+
+test('persisted visual inspection screenshots reopen inside the conversation', async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-visual-preview-e2e-'))
+  const conversationId = 'visual-preview-test'
+  const assetId = 'message-1-preview.png'
+  const assetDir = join(userDataDir, 'conversation-assets', conversationId)
+  const conversationDir = join(userDataDir, 'conversations', 'general')
+  const preview = {
+    kind: 'image' as const,
+    title: 'Rendered page.html',
+    path: 'page.html',
+    mimeType: 'image/png',
+    asset: { conversationId, id: assetId }
+  }
+  const call = {
+    id: 'tool-1',
+    name: 'inspect_visual',
+    kind: 'read' as const,
+    title: 'Inspect page.html',
+    detail: 'HTML screenshot attached',
+    status: 'success' as const,
+    preview
+  }
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64'
+  )
+
+  await mkdir(assetDir, { recursive: true })
+  await mkdir(conversationDir, { recursive: true })
+  await writeFile(join(assetDir, assetId), png)
+  await writeFile(
+    join(conversationDir, `${conversationId}.json`),
+    JSON.stringify({
+      id: conversationId,
+      projectId: null,
+      title: 'Visual preview test',
+      messages: [
+        {
+          id: 'message-1',
+          role: 'assistant',
+          content: 'The page is ready.',
+          createdAt: 1,
+          toolCalls: [call],
+          blocks: [
+            { type: 'tool', call },
+            { type: 'text', text: 'The page is ready.' }
+          ]
+        }
+      ],
+      createdAt: 1,
+      updatedAt: 1
+    })
+  )
+  await writeFile(
+    join(userDataDir, 'conversations', 'state.json'),
+    JSON.stringify({ activeConversationId: conversationId })
+  )
+
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const mainWindow = await app.firstWindow()
+    const image = mainWindow.getByAltText('Visual inspection of page.html')
+    await expect(image).toBeVisible()
+    await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })

@@ -16,6 +16,9 @@ const electronMocks = vi.hoisted(() => ({
   capturePage: vi.fn<() => Promise<{ toPNG: () => Buffer }>>(),
   destroy: vi.fn()
 }))
+const assetMocks = vi.hoisted(() => ({
+  saveImage: vi.fn<() => Promise<string>>()
+}))
 
 vi.mock('electron', () => ({
   BrowserWindow: class {
@@ -37,6 +40,10 @@ vi.mock('../../projects/ProjectMemoryStore', () => ({
   projectMemoryStore: { recordTouch: vi.fn() }
 }))
 
+vi.mock('../../conversations/ConversationAssetStore', () => ({
+  conversationAssetStore: { saveImage: assetMocks.saveImage }
+}))
+
 describe('inspect_visual', () => {
   let workspace: string
 
@@ -45,6 +52,7 @@ describe('inspect_visual', () => {
     electronMocks.loadURL.mockReset().mockResolvedValue()
     electronMocks.capturePage.mockReset().mockResolvedValue({ toPNG: () => PNG })
     electronMocks.destroy.mockReset()
+    assetMocks.saveImage.mockReset().mockResolvedValue('test-message-preview.png')
   })
 
   afterEach(async () => {
@@ -72,7 +80,11 @@ describe('inspect_visual', () => {
     expect(preview).toMatchObject({
       kind: 'image',
       path: 'result.png',
-      mimeType: 'image/png'
+      mimeType: 'image/png',
+      asset: {
+        conversationId: 'test-conversation',
+        id: 'test-message-preview.png'
+      }
     })
   })
 
@@ -97,7 +109,11 @@ describe('inspect_visual', () => {
     expect(preview).toMatchObject({
       kind: 'image',
       title: 'Rendered page.html',
-      path: 'page.html'
+      path: 'page.html',
+      asset: {
+        conversationId: 'test-conversation',
+        id: 'test-message-preview.png'
+      }
     })
     expect(preview?.kind === 'image' ? preview.dataUrl : '').toMatch(/^data:image\/png;base64,/)
     expect(electronMocks.destroy).toHaveBeenCalled()

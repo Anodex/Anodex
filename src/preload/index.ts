@@ -118,7 +118,9 @@ const api: AnodexApi = {
     deleteAll: () => ipcRenderer.invoke(IpcChannel.Conversations.deleteAll),
     deleteArchived: (ids) => ipcRenderer.invoke(IpcChannel.Conversations.deleteArchived, ids),
     getState: () => ipcRenderer.invoke(IpcChannel.Conversations.getState),
-    setState: (state) => ipcRenderer.invoke(IpcChannel.Conversations.setState, state)
+    setState: (state) => ipcRenderer.invoke(IpcChannel.Conversations.setState, state),
+    readVisualPreview: (conversationId, assetId) =>
+      ipcRenderer.invoke(IpcChannel.Conversations.readVisualPreview, conversationId, assetId)
   },
   windowControls: {
     minimize: () => ipcRenderer.invoke(IpcChannel.Window.minimize),

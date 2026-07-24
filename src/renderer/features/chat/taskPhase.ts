@@ -156,7 +156,7 @@ export function groupSegmentsForTimeline(segments: RenderSegment[]): TimelineBlo
  * one-time compatibility path for old conversation history, not the norm.
  */
 export function messageBlocks(message: ChatMessage): MessageBlock[] {
-  const normalized = sanitizeMessageTranscript(message).message
+  const normalized = sanitizeMessageTranscript(message, { preserveImageData: true }).message
   if (normalized.blocks && normalized.blocks.length > 0) return normalized.blocks
   const fallback: MessageBlock[] = (message.toolCalls ?? []).map((call) => ({
     type: 'tool',

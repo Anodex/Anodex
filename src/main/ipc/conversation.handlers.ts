@@ -1,7 +1,9 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type { Conversation, ConversationState } from '@shared/conversation.types'
+import { err, ok, toErrorMessage } from '@shared/result'
 import { conversationStore } from '../conversations/ConversationStore'
+import { conversationAssetStore } from '../conversations/ConversationAssetStore'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:conversations')
@@ -76,4 +78,20 @@ export function registerConversationHandlers(): void {
       throw new Error('Could not save conversation state.')
     }
   })
+
+  ipcMain.handle(
+    IpcChannel.Conversations.readVisualPreview,
+    async (_event, conversationId: string, assetId: string) => {
+      try {
+        return ok(await conversationAssetStore.readImage(conversationId, assetId))
+      } catch (error) {
+        log.warn('Failed to read visual preview:', conversationId, assetId, error)
+        return err(
+          'conversations.visual-preview-unavailable',
+          'This inspected screenshot is no longer available.',
+          toErrorMessage(error)
+        )
+      }
+    }
+  )
 }

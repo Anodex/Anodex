@@ -57,13 +57,25 @@ export type ToolCallPreview =
       content: string
     }
   | {
-      /** Ephemeral image bytes for the live transcript; stripped before conversation persistence. */
+      /** Image bytes used immediately by the live transcript; never persisted in conversation JSON. */
       kind: 'image'
       title: string
       path: string
-      dataUrl: string
+      dataUrl?: string
       mimeType: string
+      /** Durable, sandboxed reference used to reopen the exact inspected pixels later. */
+      asset?: VisualPreviewAssetRef
     }
+
+export interface VisualPreviewAssetRef {
+  conversationId: string
+  id: string
+}
+
+export interface VisualPreviewContent {
+  dataUrl: string
+  mimeType: string
+}
 
 /** Full before/after content for a single file change, diffed for display. */
 export interface ToolCallDiff {

@@ -5,6 +5,7 @@ import type { Conversation, ConversationState } from '@shared/conversation.types
 import { sanitizeConversationTranscript } from '@shared/chatSanitizer'
 import { abortGeneration } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
+import { conversationAssetStore } from './ConversationAssetStore'
 
 const log = createLogger('conversations')
 
@@ -39,7 +40,9 @@ class ConversationStore {
 
   /** Must be called after `app.whenReady()`. */
   init(): void {
-    this.baseDir = join(app.getPath('userData'), 'conversations')
+    const userDataPath = app.getPath('userData')
+    this.baseDir = join(userDataPath, 'conversations')
+    conversationAssetStore.init(userDataPath)
     this.ensureDir(this.baseDir)
     this.ensureDir(join(this.baseDir, GENERAL_DIR))
     this.cache = null
@@ -132,6 +135,7 @@ class ConversationStore {
     const entry = this.ensureCache().get(id)
     if (!entry) return
     this.removeFile(entry.filePath)
+    conversationAssetStore.removeConversation(id)
     this.ensureCache().delete(id)
     const state = this.getState()
     if (state.activeConversationId === id) this.setState({ activeConversationId: null })
@@ -199,6 +203,10 @@ class ConversationStore {
   /** Permanently delete all conversations belonging to a project. */
   deleteByProjectPermanent(projectId: string): void {
     assertSafeId(projectId, 'project id')
+    const cache = this.ensureCache()
+    const conversationIds = [...cache]
+      .filter(([, entry]) => entry.conversation.projectId === projectId)
+      .map(([id]) => id)
     const dir = this.dirForProject(projectId)
     if (existsSync(dir)) {
       try {
@@ -207,12 +215,10 @@ class ConversationStore {
         log.warn('Failed to delete project conversations:', dir, error)
       }
     }
-    const cache = this.ensureCache()
-    for (const [id, entry] of cache) {
-      if (entry.conversation.projectId === projectId) {
-        cache.delete(id)
-        abortGeneration(id)
-      }
+    for (const id of conversationIds) {
+      conversationAssetStore.removeConversation(id)
+      cache.delete(id)
+      abortGeneration(id)
     }
   }
 
@@ -283,6 +289,7 @@ class ConversationStore {
           log.warn('Failed to rewrite sanitized conversation:', filePath, error)
         }
       }
+      conversationAssetStore.pruneConversation(normalized.conversation)
       return normalized.conversation
     } catch {
       return null

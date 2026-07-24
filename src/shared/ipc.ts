@@ -36,7 +36,12 @@ import type {
 } from './project.types'
 import type { Conversation, ConversationState } from './conversation.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
-import type { ToolActivityEvent, ToolConfirmRequest, ToolConfirmResponse } from './tools.types'
+import type {
+  ToolActivityEvent,
+  ToolConfirmRequest,
+  ToolConfirmResponse,
+  VisualPreviewContent
+} from './tools.types'
 import type { WorkspaceTreeNode } from './workspaceFiles.types'
 import type { WorkspaceFileContent } from './workspaceFileContent.types'
 import type { ToastContent } from './toast.types'
@@ -214,7 +219,8 @@ export const IpcChannel = {
     deleteAll: 'conversations:delete-all',
     deleteArchived: 'conversations:delete-archived',
     getState: 'conversations:get-state',
-    setState: 'conversations:set-state'
+    setState: 'conversations:set-state',
+    readVisualPreview: 'conversations:read-visual-preview'
   },
   System: {
     getInfo: 'system:get-info',
@@ -501,6 +507,11 @@ export interface AnodexApi {
     deleteArchived(ids: string[]): Promise<void>
     getState(): Promise<ConversationState>
     setState(state: ConversationState): Promise<void>
+    /** Reopen a main-owned visual inspection asset without exposing arbitrary filesystem access. */
+    readVisualPreview(
+      conversationId: string,
+      assetId: string
+    ): Promise<Result<VisualPreviewContent>>
   }
   windowControls: {
     minimize(): Promise<void>
