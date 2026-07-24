@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AnodexApi } from '../src/shared/ipc'
 
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64'
+)
+
 /**
  * Smoke test: launch the built Electron app and verify the main window
  * appears with the expected title.
@@ -130,14 +135,9 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     status: 'success' as const,
     preview
   }
-  const png = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    'base64'
-  )
-
   await mkdir(assetDir, { recursive: true })
   await mkdir(conversationDir, { recursive: true })
-  await writeFile(join(assetDir, assetId), png)
+  await writeFile(join(assetDir, assetId), ONE_PIXEL_PNG)
   await writeFile(
     join(conversationDir, `${conversationId}.json`),
     JSON.stringify({
@@ -173,6 +173,61 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
   try {
     const mainWindow = await app.firstWindow()
     const image = mainWindow.getByAltText('Visual inspection of page.html')
+    await expect(image).toBeVisible()
+    await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
+
+test('persisted uploaded images reopen inline in user messages', async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-inline-image-e2e-'))
+  const conversationId = 'inline-attachment-test'
+  const conversationDir = join(userDataDir, 'conversations', 'general')
+  const imagePath = join(userDataDir, 'robot.png')
+
+  await mkdir(conversationDir, { recursive: true })
+  await writeFile(imagePath, ONE_PIXEL_PNG)
+  await writeFile(
+    join(conversationDir, `${conversationId}.json`),
+    JSON.stringify({
+      id: conversationId,
+      projectId: null,
+      title: 'Inline attachment test',
+      messages: [
+        {
+          id: 'message-1',
+          role: 'user',
+          content: 'What is in this image?',
+          createdAt: 1,
+          attachments: [
+            {
+              path: imagePath,
+              name: 'robot.png',
+              sizeBytes: ONE_PIXEL_PNG.length,
+              kind: 'image',
+              mimeType: 'image/png'
+            }
+          ]
+        }
+      ],
+      createdAt: 1,
+      updatedAt: 1
+    })
+  )
+  await writeFile(
+    join(userDataDir, 'conversations', 'state.json'),
+    JSON.stringify({ activeConversationId: conversationId })
+  )
+
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const mainWindow = await app.firstWindow()
+    const image = mainWindow.getByAltText('robot.png')
     await expect(image).toBeVisible()
     await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
   } finally {

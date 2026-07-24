@@ -217,6 +217,9 @@ selects a compatible projector, and downloads both files. The installed-model
 table provides a manual projector picker and Vision badge. The composer accepts
 up to four bounded PNG/JPEG/GIF/BMP images as true OpenAI-compatible multimodal
 content parts and keeps image bytes out of persisted conversation JSON.
+Uploaded images also render inline in the user message. Reopened conversations
+load the pixels from the persisted attachment path, while missing files degrade
+to an unavailable-image card instead of breaking the transcript.
 
 The same attachment path now maps images into OpenAI Responses API input-image
 parts and Anthropic base64 image blocks when a cloud provider is selected.

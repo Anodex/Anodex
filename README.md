@@ -49,7 +49,9 @@ folder.
 - **Attachments**: drag a file into the composer to attach it to your next
   message (not sandboxed to a project — you chose the file explicitly).
   Image-capable local, OpenAI, and Anthropic models receive PNG/JPEG/GIF
-  attachments as real multimodal content rather than prompt text.
+  attachments as real multimodal content rather than prompt text. Uploaded
+  images render inline in the user message and reopen from their original path
+  without storing image bytes in conversation JSON.
 - Desktop notifications and a short AI-generated toast summary when a reply
   finishes while the window isn't focused.
 - A "jump to latest" button appears when you've scrolled up during a long or

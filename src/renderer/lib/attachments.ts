@@ -6,6 +6,11 @@
  */
 export const ANODEX_FILE_DRAG_TYPE = 'application/x-anodex-file'
 
+/** True for OS-absolute paths; workspace drags intentionally retain relative paths. */
+export function isAbsoluteAttachmentPath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('/') || path.startsWith('\\\\')
+}
+
 interface ComposerAttachmentBase {
   /** Absolute path (OS drop) or workspace-relative path (Files panel drag). */
   path: string

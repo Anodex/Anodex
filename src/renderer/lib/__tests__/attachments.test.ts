@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPromptWithAttachments,
+  isAbsoluteAttachmentPath,
   type ComposerImageAttachment,
   type ComposerTextAttachment
 } from '../attachments'
@@ -66,5 +67,17 @@ describe('buildPromptWithAttachments', () => {
     }
 
     expect(buildPromptWithAttachments('describe this', [image])).toBe('describe this')
+  })
+})
+
+describe('isAbsoluteAttachmentPath', () => {
+  it('recognizes Windows, UNC, and POSIX absolute paths', () => {
+    expect(isAbsoluteAttachmentPath('C:\\Pictures\\robot.png')).toBe(true)
+    expect(isAbsoluteAttachmentPath('\\\\server\\share\\robot.png')).toBe(true)
+    expect(isAbsoluteAttachmentPath('/home/user/robot.png')).toBe(true)
+  })
+
+  it('leaves workspace paths relative', () => {
+    expect(isAbsoluteAttachmentPath('art/robot.png')).toBe(false)
   })
 })

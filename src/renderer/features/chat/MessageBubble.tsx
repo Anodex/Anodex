@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
 import { AnodexLogo } from '../../components/AnodexLogo'
-import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
-import { formatBytes, formatClock } from '../../lib/format'
+import { formatClock } from '../../lib/format'
 import { savePendingSkillEditorDraft } from '../../lib/skillEditorDraftHandoff'
 import { buildSkillDraft } from '../../lib/skillDraft'
 import { useChatStore } from '../../stores/chatStore'
@@ -15,6 +14,7 @@ import { ThinkingIndicator } from './ThinkingIndicator'
 import { TurnRecap } from './TurnRecap'
 import { CheckpointDialog } from './CheckpointDialog'
 import { EditMessageDialog } from './EditMessageDialog'
+import { MessageAttachments } from './MessageAttachments'
 import { buildRenderSegments, groupSegmentsForTimeline, messageBlocks } from './taskPhase'
 import styles from './MessageBubble.module.css'
 
@@ -153,15 +153,7 @@ export function MessageBubble({
           </>
         )}
         {message.attachments && message.attachments.length > 0 && (
-          <div className={styles.attachments}>
-            {message.attachments.map((attachment) => (
-              <span key={attachment.path} className={styles.attachment} title={attachment.path}>
-                <FileTypeIcon fileName={attachment.name} size={13} />
-                <span className={styles.attachmentName}>{attachment.name}</span>
-                <span className={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</span>
-              </span>
-            ))}
-          </div>
+          <MessageAttachments attachments={message.attachments} />
         )}
         {!isUser && message.memoryUsed && message.memoryUsed.length > 0 && (
           <div className={styles.memoryUsed}>

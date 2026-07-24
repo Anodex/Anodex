@@ -21,7 +21,11 @@ import { useSettingsStore } from './settingsStore'
 import { useModelStore } from './modelStore'
 import { playChime } from '../lib/sound'
 import { notifyDesktop, shouldShowDesktopToast } from '../lib/notifications'
-import { buildPromptWithAttachments, type ComposerAttachment } from '../lib/attachments'
+import {
+  buildPromptWithAttachments,
+  isAbsoluteAttachmentPath,
+  type ComposerAttachment
+} from '../lib/attachments'
 import { reconcileMessageBlocks } from '../features/chat/reconcileMessageBlocks'
 import { quarantineStreamingToolPayload } from '../features/chat/streamingToolPayload'
 import { isChatReady } from '../lib/chatReadiness'
@@ -947,7 +951,7 @@ async function rehydrateAttachments(
     return await Promise.all(
       attachments.map(async (attachment) => {
         let readPath = attachment.path
-        if (!isAbsolutePath(readPath)) {
+        if (!isAbsoluteAttachmentPath(readPath)) {
           const resolved = await anodex.workspace.getAbsolutePath(readPath)
           if (!resolved.ok) throw new Error(resolved.error.message)
           readPath = resolved.value
@@ -981,10 +985,6 @@ async function rehydrateAttachments(
     )
     return null
   }
-}
-
-function isAbsolutePath(path: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('/') || path.startsWith('\\\\')
 }
 
 async function generateConversationTitle({

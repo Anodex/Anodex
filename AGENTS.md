@@ -86,6 +86,10 @@ The renderer branches on `result.ok`.
    conversations replays history. Vision history is projected into bounded
    OpenAI-compatible chat messages and reopens persisted image attachment paths.
 
+Persisted user image attachments remain metadata-only. `MessageAttachments`
+reopens their pixels through the typed preload bridge for inline transcript
+display; do not persist its data URLs in conversation JSON.
+
 The pinned llama.cpp runtime is prepared by `npm run prepare:vision`, stored
 under ignored `resources/llama-server/<platform>-<arch>`, and packaged by
 `npm run dist`. Do not commit extracted runtime binaries. Projector GGUFs are
