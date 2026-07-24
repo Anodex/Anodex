@@ -329,7 +329,8 @@ A side panel with configurable sections alongside the chat:
   available after reopening the conversation. Uploaded and inspected images
   share the same fullscreen zoom viewer. When the same workspace output is
   inspected more than once, including across separate turns, the newer activity
-  offers a responsive before/after comparison of the latest two captures.
+  opens a before/after comparison of the latest two captures immediately, with
+  both versions kept in the same side-by-side row.
   Explicitly labelled Before/After HTML previews are paired too, even when the
   model preserves the original under a temporary filename. Exact preview pixels
   live in bounded conversation assets; chat JSON stores only a small reference

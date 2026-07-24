@@ -134,11 +134,11 @@
 }
 
 @container (max-width: 600px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-
   .canvas {
     min-height: 120px;
+  }
+
+  .htmlFrame {
+    min-height: 200px;
   }
 }

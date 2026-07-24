@@ -285,14 +285,27 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
       mainWindow.getByRole('dialog', { name: 'Fullscreen image: Rendered page.html' })
     ).not.toBeVisible()
 
-    await mainWindow.getByRole('button', { name: 'Compare latest inspections' }).click()
+    await expect(
+      mainWindow.getByRole('button', { name: 'Compare latest inspections' })
+    ).toHaveAttribute('aria-expanded', 'true')
     await expect(mainWindow.getByAltText('Before: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('After: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('Assistant image of result.png')).toBeVisible()
 
-    await mainWindow.getByRole('button', { name: 'Compare before and after' }).click()
-    await expect(mainWindow.getByTitle('Before: Before — original header')).toBeVisible()
-    await expect(mainWindow.getByTitle('After: After — improved header')).toBeVisible()
+    const htmlComparisonToggle = mainWindow.getByRole('button', {
+      name: 'Compare before and after'
+    })
+    const beforeFrame = mainWindow.getByTitle('Before: Before — original header')
+    const afterFrame = mainWindow.getByTitle('After: After — improved header')
+    await expect(htmlComparisonToggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(beforeFrame).toBeVisible()
+    await expect(afterFrame).toBeVisible()
+    const beforeBox = await beforeFrame.boundingBox()
+    const afterBox = await afterFrame.boundingBox()
+    expect(beforeBox).not.toBeNull()
+    expect(afterBox).not.toBeNull()
+    expect(Math.abs((beforeBox?.y ?? 0) - (afterBox?.y ?? 0))).toBeLessThan(2)
+    expect((beforeBox?.x ?? 0) + (beforeBox?.width ?? 0)).toBeLessThanOrEqual(afterBox?.x ?? 0)
 
     await mainWindow.evaluate(async () => {
       const anodex = (globalThis as unknown as { anodex: AnodexApi }).anodex

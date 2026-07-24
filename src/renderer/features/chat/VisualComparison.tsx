@@ -6,7 +6,7 @@ import { useVisualPreviewImage, type ImagePreview } from './useVisualPreviewImag
 import styles from './VisualComparison.module.css'
 
 export function VisualComparison({ pair }: { pair: VisualComparisonPair }): JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const label = pair.kind === 'image' ? 'Compare latest inspections' : 'Compare before and after'
 
   return (

@@ -217,6 +217,7 @@ describe('ChatImagePreview', () => {
     )
 
     expect(html).toContain('Compare latest inspections')
-    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('alt="Before: page.html"')
+    expect(html).toContain('alt="After: page.html"')
   })
 })

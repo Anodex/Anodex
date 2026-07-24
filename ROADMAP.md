@@ -243,7 +243,8 @@ sandboxed references; base64 data and all preview metadata remain excluded from
 model-history replay. Permanently deleting a conversation removes its preview
 assets. Repeated successful inspections of the same workspace path offer a
 side-by-side comparison of the latest two captures, including when the captures
-occur in separate assistant turns. Explicit Before/After `preview_html`
+occur in separate assistant turns. The comparison starts open and keeps both
+versions in one row rather than stacking them. Explicit Before/After `preview_html`
 snapshots are also paired when the model keeps the original under a temporary
 path. Both are derived from existing ordered tool calls without adding
 persisted comparison state. Text-only local models never receive the tool.

@@ -94,7 +94,8 @@ behavior, zoom bounds, keyboard handling, and focus restoration do not drift.
 `visualComparisonsByMessage()` derives before/after pairs from repeated,
 successful `inspect_visual` calls for the same path across the full transcript,
 or from explicitly labelled Before/After `preview_html` snapshots. Comparison
-state is not persisted separately.
+state is not persisted separately. `VisualComparison` starts expanded and keeps
+both panes in one grid row at every width.
 
 The pinned llama.cpp runtime is prepared by `npm run prepare:vision`, stored
 under ignored `resources/llama-server/<platform>-<arch>`, and packaged by
