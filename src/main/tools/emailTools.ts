@@ -2,7 +2,7 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { EmailDraft, EmailDraftRequest, EmailThreadSummary } from '@shared/email.types'
 import type { ToolFactory, WorkspaceToolFactory } from './types'
-import { runGuardedTool, runReadTool } from './helpers'
+import { runGuardedTool, runGuardedToolWithPrepare, runReadTool } from './helpers'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { emailService } from '../email/EmailService'
 import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
@@ -110,7 +110,10 @@ export const summarizeEmailThreadTool: ToolFactory = (define, ctx) =>
     params: {
       type: 'object',
       properties: {
-        threadId: { type: 'string', description: 'The thread id returned by search_email.' }
+        threadId: {
+          type: 'string',
+          description: 'The thread id returned by search_email or list_threads.'
+        }
       },
       required: ['threadId']
     } as const,
@@ -134,7 +137,10 @@ export const findEmailAttachmentsTool: ToolFactory = (define, ctx) =>
     params: {
       type: 'object',
       properties: {
-        threadId: { type: 'string', description: 'The thread id returned by search_email.' }
+        threadId: {
+          type: 'string',
+          description: 'The thread id returned by search_email or list_threads.'
+        }
       },
       required: ['threadId']
     } as const,
@@ -221,29 +227,52 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
       required: ['to', 'subject', 'body']
     } as const,
     handler: (args: EmailDraftRequest & { draftId?: string }) =>
-      runGuardedTool(ctx, {
-        name: 'send_email',
-        kind: 'write',
-        title: `Send email to ${args.to.join(', ')}`,
-        args,
-        confirmDetail: [
-          `To: ${args.to.join(', ')}`,
-          args.cc?.length ? `Cc: ${args.cc.join(', ')}` : null,
-          args.bcc?.length ? `Bcc: ${args.bcc.join(', ')}` : null,
-          `Subject: ${args.subject}`,
-          '',
-          truncate(args.body, MAX_BODY_PREVIEW)
-        ]
-          .filter(Boolean)
-          .join('\n'),
-        risk: 'sensitive',
-        forceConfirm: true,
-        async run() {
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'send_email',
+          kind: 'write',
+          title: `Send email to ${args.to.join(', ')}`,
+          args,
+          risk: 'sensitive',
+          forceConfirm: true
+        },
+        // Resolve *before* the user sees the confirm prompt: when draftId is
+        // set, `EmailService.send` below sends the saved draft's content and
+        // silently ignores whatever to/subject/body the model passed
+        // alongside it (the schema requires them regardless). Confirming
+        // against those raw args instead of the draft would let the user
+        // approve one email while a different one gets sent.
+        () => {
+          const message = resolveEmailToSend(args)
+          return Promise.resolve({ confirmDetail: describeEmailToSend(message), data: message })
+        },
+        async (message) => {
           await emailService.send(args)
-          return { modelResult: 'Email sent.', detail: args.subject }
+          return { modelResult: 'Email sent.', detail: message.subject }
         }
-      })
+      )
   })
+
+function resolveEmailToSend(args: EmailDraftRequest & { draftId?: string }): EmailDraftRequest {
+  if (!args.draftId) return args
+  const draft = emailService.getDraft(args.draftId)
+  if (!draft) throw new Error(`Email draft not found: ${args.draftId}`)
+  return draft
+}
+
+function describeEmailToSend(message: EmailDraftRequest): string {
+  return [
+    `To: ${message.to.join(', ')}`,
+    message.cc?.length ? `Cc: ${message.cc.join(', ')}` : null,
+    message.bcc?.length ? `Bcc: ${message.bcc.join(', ')}` : null,
+    `Subject: ${message.subject}`,
+    '',
+    truncate(message.body, MAX_BODY_PREVIEW)
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
 
 export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
   define({

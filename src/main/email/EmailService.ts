@@ -257,6 +257,16 @@ class EmailService {
     return draft
   }
 
+  /**
+   * Look up a saved draft by id without sending it — lets a caller (the
+   * send_email tool) preview and confirm the content that `send` will
+   * actually use when `draftId` is set, instead of confirming against
+   * whatever placeholder to/subject/body the model passed alongside it.
+   */
+  getDraft(draftId: string): EmailDraft | undefined {
+    return this.drafts.get(draftId)
+  }
+
   async send(request: EmailSendRequest): Promise<void> {
     this.requireConnected()
     const draft = request.draftId ? this.drafts.get(request.draftId) : undefined

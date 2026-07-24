@@ -21,6 +21,7 @@ import { captureConfirmations, createMockContext, createMockDefine } from './tes
 
 const createDraftMock = vi.fn<(request: EmailDraftRequest) => EmailDraft>()
 const sendMock = vi.fn<(request: EmailSendRequest) => void>()
+const getDraftMock = vi.fn<(draftId: string) => EmailDraft | undefined>()
 const getAttachmentMock =
   vi.fn<() => Promise<{ filename: string; mimeType: string; data: Buffer }>>()
 const readMessageMock = vi.fn<(id: string) => Promise<EmailMessage>>()
@@ -30,6 +31,7 @@ vi.mock('../../email/EmailService', () => ({
   emailService: {
     createDraft: (request: EmailDraftRequest) => createDraftMock(request),
     send: (request: EmailSendRequest) => sendMock(request),
+    getDraft: (draftId: string) => getDraftMock(draftId),
     getAttachment: () => getAttachmentMock(),
     readMessage: (id: string) => readMessageMock(id),
     listAttachments: (id: string) => listAttachmentsMock(id)
@@ -40,6 +42,7 @@ describe('email tools', () => {
   beforeEach(() => {
     createDraftMock.mockReset()
     sendMock.mockReset()
+    getDraftMock.mockReset()
     getAttachmentMock.mockReset()
     readMessageMock.mockReset()
     listAttachmentsMock.mockReset()
@@ -159,6 +162,64 @@ describe('email tools', () => {
     })
 
     expect(result).toContain('not this one')
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('confirms against the saved draft, not the placeholder args, when sending by draftId', async () => {
+    getDraftMock.mockReturnValue({
+      id: 'draft-1',
+      provider: 'gmail',
+      to: ['real-recipient@example.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Real subject',
+      body: 'Real body',
+      createdAt: 0
+    })
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailSendRequest) => Promise<string>
+    }
+
+    // The model must still fill required to/subject/body even when sending
+    // a draft — this call deliberately sends stale/placeholder values that
+    // differ from the saved draft, to prove the approval prompt (and the
+    // reported result) reflect the draft that actually gets sent, not these.
+    const result = await tool.handler({
+      draftId: 'draft-1',
+      to: ['placeholder@example.com'],
+      subject: 'Placeholder subject',
+      body: 'Placeholder body'
+    })
+
+    expect(result).toBe('Email sent.')
+    expect(requests).toHaveLength(1)
+    expect(requests[0].detail).toContain('real-recipient@example.com')
+    expect(requests[0].detail).toContain('Real subject')
+    expect(requests[0].detail).toContain('Real body')
+    expect(requests[0].detail).not.toContain('placeholder@example.com')
+    expect(requests[0].detail).not.toContain('Placeholder subject')
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ draftId: 'draft-1' }))
+  })
+
+  it('fails cleanly with no confirm prompt when the referenced draft no longer exists', async () => {
+    getDraftMock.mockReturnValue(undefined)
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailSendRequest) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      draftId: 'missing-draft',
+      to: ['person@example.com'],
+      subject: 'Hello',
+      body: 'Send body'
+    })
+
+    expect(result).toContain('Email draft not found: missing-draft')
+    expect(requests).toHaveLength(0)
     expect(sendMock).not.toHaveBeenCalled()
   })
 
