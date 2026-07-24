@@ -66,6 +66,11 @@
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
 }
 
+.imageButton {
+  max-width: 100%;
+  max-height: min(54vh, 520px);
+}
+
 .notice {
   max-width: 360px;
   font-size: var(--text-sm);

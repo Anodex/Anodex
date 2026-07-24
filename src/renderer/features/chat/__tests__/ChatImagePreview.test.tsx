@@ -39,6 +39,7 @@ describe('ChatImagePreview', () => {
     expect(html).toContain('Rendered page.html')
     expect(html).toContain('data:image/png;base64,cGl4ZWxz')
     expect(html).toContain('Visual inspection of page.html')
+    expect(html).toContain('Open Rendered page.html fullscreen')
   })
 
   it('shows a successful inspected screenshot without requiring expansion', () => {

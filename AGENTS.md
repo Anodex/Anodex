@@ -88,7 +88,9 @@ The renderer branches on `result.ok`.
 
 Persisted user image attachments remain metadata-only. `MessageAttachments`
 reopens their pixels through the typed preload bridge for inline transcript
-display; do not persist its data URLs in conversation JSON.
+display; do not persist its data URLs in conversation JSON. Chat image surfaces
+use the shared `ExpandableImage`/`ImageLightbox` UI components so fullscreen
+behavior, zoom bounds, keyboard handling, and focus restoration do not drift.
 
 The pinned llama.cpp runtime is prepared by `npm run prepare:vision`, stored
 under ignored `resources/llama-server/<platform>-<arch>`, and packaged by

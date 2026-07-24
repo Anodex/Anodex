@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ChatAttachment } from '@shared/chat.types'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
+import { ExpandableImage } from '../../components/ui/ExpandableImage'
 import { formatBytes } from '../../lib/format'
 import { loadAttachmentImage } from './loadAttachmentImage'
 import styles from './MessageAttachments.module.css'
@@ -59,7 +60,13 @@ function InlineImageAttachment({ attachment }: { attachment: ChatAttachment }): 
     <figure className={styles.imageCard} title={attachment.path}>
       <div className={styles.imageFrame}>
         {dataUrl ? (
-          <img className={styles.image} src={dataUrl} alt={attachment.name} />
+          <ExpandableImage
+            src={dataUrl}
+            alt={attachment.name}
+            title={attachment.name}
+            imageClassName={styles.image}
+            triggerClassName={styles.imageButton}
+          />
         ) : (
           <span className={styles.imageStatus}>
             {unavailable ? 'Image unavailable' : 'Loading image…'}

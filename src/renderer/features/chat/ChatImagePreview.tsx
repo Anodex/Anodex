@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ToolCallPreview } from '@shared/tools.types'
+import { ExpandableImage } from '../../components/ui/ExpandableImage'
 import { anodex } from '../../lib/anodex'
 import styles from './ChatImagePreview.module.css'
 
@@ -48,10 +49,12 @@ export function ChatImagePreview({ preview }: { preview: ImagePreview }): JSX.El
       </figcaption>
       <div className={styles.canvas}>
         {dataUrl ? (
-          <img
-            className={styles.image}
+          <ExpandableImage
             src={dataUrl}
             alt={`Visual inspection of ${preview.path}`}
+            title={preview.title}
+            imageClassName={styles.image}
+            triggerClassName={styles.imageButton}
           />
         ) : (
           <span className={styles.notice}>

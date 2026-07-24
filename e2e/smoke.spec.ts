@@ -175,6 +175,19 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     const image = mainWindow.getByAltText('Visual inspection of page.html')
     await expect(image).toBeVisible()
     await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
+
+    await mainWindow.getByRole('button', { name: 'Open Rendered page.html fullscreen' }).click()
+    await expect(
+      mainWindow.getByRole('dialog', { name: 'Fullscreen image: Rendered page.html' })
+    ).toBeVisible()
+    await mainWindow.getByRole('button', { name: 'Zoom in' }).click()
+    await expect(
+      mainWindow.getByRole('button', { name: 'Reset zoom, currently 125%' })
+    ).toBeVisible()
+    await mainWindow.keyboard.press('Escape')
+    await expect(
+      mainWindow.getByRole('dialog', { name: 'Fullscreen image: Rendered page.html' })
+    ).not.toBeVisible()
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })
@@ -230,6 +243,14 @@ test('persisted uploaded images reopen inline in user messages', async () => {
     const image = mainWindow.getByAltText('robot.png')
     await expect(image).toBeVisible()
     await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
+
+    const openButton = mainWindow.getByRole('button', { name: 'Open robot.png fullscreen' })
+    await openButton.click()
+    await expect(
+      mainWindow.getByRole('dialog', { name: 'Fullscreen image: robot.png' })
+    ).toBeVisible()
+    await mainWindow.getByRole('button', { name: 'Close fullscreen image' }).click()
+    await expect(openButton).toBeFocused()
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })

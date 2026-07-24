@@ -51,7 +51,8 @@ folder.
   Image-capable local, OpenAI, and Anthropic models receive PNG/JPEG/GIF
   attachments as real multimodal content rather than prompt text. Uploaded
   images render inline in the user message and reopen from their original path
-  without storing image bytes in conversation JSON.
+  without storing image bytes in conversation JSON. Select any available chat
+  image to open a fullscreen, keyboard-accessible viewer with zoom controls.
 - Desktop notifications and a short AI-generated toast summary when a reply
   finishes while the window isn't focused.
 - A "jump to latest" button appears when you've scrolled up during a long or
@@ -322,9 +323,10 @@ A side panel with configurable sections alongside the chat:
   assistant can inspect workspace images or render an HTML page into a
   network-blocked, sandboxed screenshot, then use those pixels to revise its
   work. Each inspected image opens directly beneath its tool call and remains
-  available after reopening the conversation. Exact preview pixels live in
-  bounded conversation assets; chat JSON stores only a small reference and
-  never the base64 payload. Text-only local models do not receive this tool.
+  available after reopening the conversation. Uploaded and inspected images
+  share the same fullscreen zoom viewer. Exact preview pixels live in bounded
+  conversation assets; chat JSON stores only a small reference and never the
+  base64 payload. Text-only local models do not receive this tool.
 - **Hardware-aware recommendations**: detects your RAM/VRAM/GPU and scores
   every catalog model against your actual machine (a 0-100 fit score), with
   "Best Overall / Best Coding / Fastest / Low RAM / Large Context" picks.
