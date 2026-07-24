@@ -163,14 +163,14 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'preview_html',
     kind: 'read',
     description:
-      'Render interactive HTML inline; use inspect_visual instead for before/after screenshots.',
+      'Render interactive HTML inline; for before/after screenshots use inspect_visual on the same path instead, editing the file in place between captures.',
     requiresProject: true
   },
   {
     name: 'inspect_visual',
     kind: 'read',
     description:
-      'Capture a workspace image or HTML screenshot; repeat the same path before and after edits to compare.',
+      'Capture a workspace image or HTML screenshot; to compare, screenshot the same path, edit that file in place, then screenshot the same path again — never rename or copy it to make a "before".',
     requiresProject: true
   },
   {

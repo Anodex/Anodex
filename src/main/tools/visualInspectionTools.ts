@@ -23,7 +23,7 @@ const MAX_CAPTURE_IMAGE_BYTES = 5 * 1024 * 1024
 export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Capture and inspect the actual pixels of a workspace PNG/JPEG/GIF/BMP image or an HTML screenshot. For a visual before/after request, call inspect_visual once before editing and again after editing the same path; those two screenshots form the comparison. Do not substitute preview_html. Visual inspection is bounded per response.',
+      'Capture and inspect the actual pixels of a workspace PNG/JPEG/GIF/BMP image or an HTML screenshot. For a visual before/after comparison, call inspect_visual on a path, edit that same file in place, then call inspect_visual on the same path again — those two screenshots of one unchanged path form the comparison. "Before" and "after" are the same file at two moments, not two files: never rename, copy, or duplicate it to keep a separate "before" version, or the comparison will not appear. Do not substitute preview_html. Visual inspection is bounded per response.',
     params: {
       type: 'object',
       properties: {

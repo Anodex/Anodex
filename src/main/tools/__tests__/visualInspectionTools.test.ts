@@ -64,8 +64,8 @@ describe('inspect_visual', () => {
       description: string
     }
 
-    expect(tool.description).toContain('call inspect_visual once before editing')
-    expect(tool.description).toContain('again after editing the same path')
+    expect(tool.description).toContain('edit that same file in place')
+    expect(tool.description).toContain('never rename, copy, or duplicate')
     expect(tool.description).toContain('Do not substitute preview_html')
   })
 

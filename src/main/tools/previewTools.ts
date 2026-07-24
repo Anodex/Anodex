@@ -27,7 +27,7 @@ const PREVIEW_IMAGE_MIME_TYPES: Record<string, string> = {
 export const previewHtmlTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Render an HTML file as an interactive inline preview card. Use this to show a web page, game, or animation, but not for a before/after screenshot comparison; use inspect_visual before and after editing the same path for that.',
+      'Render an HTML file as an interactive inline preview card. Use this to show a web page, game, or animation, but not for a before/after screenshot comparison; for that, use inspect_visual on the same path, editing the file in place between screenshots — never rename or copy it to make a separate "before".',
     params: {
       type: 'object',
       properties: {
