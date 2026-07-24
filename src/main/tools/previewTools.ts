@@ -27,7 +27,7 @@ const PREVIEW_IMAGE_MIME_TYPES: Record<string, string> = {
 export const previewHtmlTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Render an HTML file as an inline preview card in chat. Use this when the user asks to see a web page, game, animation, or visual result in chat.',
+      'Render an HTML file as an interactive inline preview card. Use this to show a web page, game, or animation, but not for a before/after screenshot comparison; use inspect_visual before and after editing the same path for that.',
     params: {
       type: 'object',
       properties: {

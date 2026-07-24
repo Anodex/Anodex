@@ -23,7 +23,7 @@ const MAX_CAPTURE_IMAGE_BYTES = 5 * 1024 * 1024
 export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Inspect the actual pixels of a workspace PNG/JPEG/GIF/BMP image or render an HTML page to a screenshot. Use after creating or editing visual work, then revise any problems you see. Visual inspection is bounded per response.',
+      'Capture and inspect the actual pixels of a workspace PNG/JPEG/GIF/BMP image or an HTML screenshot. For a visual before/after request, call inspect_visual once before editing and again after editing the same path; those two screenshots form the comparison. Do not substitute preview_html. Visual inspection is bounded per response.',
     params: {
       type: 'object',
       properties: {

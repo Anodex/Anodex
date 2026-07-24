@@ -42,7 +42,6 @@ describe('latestVisualComparison', () => {
     )
 
     expect(pair).toMatchObject({
-      kind: 'image',
       afterCallId: 'second',
       before: { title: 'First render' },
       after: { title: 'Second render' }
@@ -69,28 +68,14 @@ describe('latestVisualComparison', () => {
     ).toBeNull()
   })
 
-  it('compares explicitly labelled before and after HTML previews', () => {
-    const pair = latestVisualComparison(
-      [],
-      [
-        htmlPreview('before', 'before.html', 'Before — original header'),
-        htmlPreview('after', 'index.html', 'After — improved header')
-      ]
-    )
-
-    expect(pair).toMatchObject({
-      kind: 'html',
-      afterCallId: 'after',
-      before: { path: 'before.html' },
-      after: { path: 'index.html' }
-    })
-  })
-
-  it('does not compare unrelated, unlabelled HTML previews', () => {
+  it('does not treat even labelled HTML previews as screenshot evidence', () => {
     expect(
       latestVisualComparison(
         [],
-        [htmlPreview('one', 'home.html', 'Home'), htmlPreview('two', 'about.html', 'About')]
+        [
+          htmlPreview('before', 'before.html', 'Before — original header'),
+          htmlPreview('after', 'index.html', 'After — improved header')
+        ]
       )
     ).toBeNull()
   })
@@ -113,7 +98,6 @@ describe('visualComparisonsByMessage', () => {
 
     expect(comparisons.has('message-before')).toBe(false)
     expect(comparisons.get('message-after')).toMatchObject({
-      kind: 'image',
       afterCallId: 'after'
     })
   })

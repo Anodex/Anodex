@@ -7,7 +7,6 @@ import styles from './VisualComparison.module.css'
 
 export function VisualComparison({ pair }: { pair: VisualComparisonPair }): JSX.Element {
   const [expanded, setExpanded] = useState(true)
-  const label = pair.kind === 'image' ? 'Compare latest inspections' : 'Compare before and after'
 
   return (
     <section className={styles.wrap} aria-label="Visual comparison">
@@ -18,25 +17,16 @@ export function VisualComparison({ pair }: { pair: VisualComparisonPair }): JSX.
         aria-expanded={expanded}
       >
         <Icon name="layers" size={14} />
-        <span>{label}</span>
-        <span className={styles.path}>
-          {pair.before.path === pair.after.path
-            ? pair.after.path
-            : `${pair.before.path} → ${pair.after.path}`}
-        </span>
+        <span>Compare latest inspections</span>
+        <span className={styles.path}>{pair.after.path}</span>
         <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={13} />
       </button>
-      {expanded && pair.kind === 'image' && <ImageComparison pair={pair} />}
-      {expanded && pair.kind === 'html' && <HtmlComparison pair={pair} />}
+      {expanded && <ImageComparison pair={pair} />}
     </section>
   )
 }
 
-function ImageComparison({
-  pair
-}: {
-  pair: Extract<VisualComparisonPair, { kind: 'image' }>
-}): JSX.Element {
+function ImageComparison({ pair }: { pair: VisualComparisonPair }): JSX.Element {
   const before = useVisualPreviewImage(pair.before)
   const after = useVisualPreviewImage(pair.after)
 
@@ -58,7 +48,7 @@ function ImageComparisonPane({
   state: ReturnType<typeof useVisualPreviewImage>
 }): JSX.Element {
   return (
-    <figure className={styles.pane}>
+    <figure className={styles.pane} aria-label={`${label} screenshot of ${preview.path}`}>
       <figcaption className={styles.paneHeader}>
         <span className={styles.label}>{label}</span>
         <span className={styles.title}>{preview.title}</span>
@@ -78,42 +68,6 @@ function ImageComparisonPane({
           </span>
         )}
       </div>
-    </figure>
-  )
-}
-
-function HtmlComparison({
-  pair
-}: {
-  pair: Extract<VisualComparisonPair, { kind: 'html' }>
-}): JSX.Element {
-  return (
-    <div className={styles.grid}>
-      <HtmlComparisonPane label="Before" preview={pair.before} />
-      <HtmlComparisonPane label="After" preview={pair.after} />
-    </div>
-  )
-}
-
-function HtmlComparisonPane({
-  label,
-  preview
-}: {
-  label: 'Before' | 'After'
-  preview: Extract<VisualComparisonPair, { kind: 'html' }>['before']
-}): JSX.Element {
-  return (
-    <figure className={styles.pane}>
-      <figcaption className={styles.paneHeader}>
-        <span className={styles.label}>{label}</span>
-        <span className={styles.title}>{preview.title}</span>
-      </figcaption>
-      <iframe
-        className={styles.htmlFrame}
-        srcDoc={preview.content}
-        sandbox="allow-scripts"
-        title={`${label}: ${preview.title}`}
-      />
     </figure>
   )
 }

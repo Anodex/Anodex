@@ -162,14 +162,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: 'preview_html',
     kind: 'read',
-    description: 'Render an HTML file as an inline, sandboxed preview in chat.',
+    description:
+      'Render interactive HTML inline; use inspect_visual instead for before/after screenshots.',
     requiresProject: true
   },
   {
     name: 'inspect_visual',
     kind: 'read',
     description:
-      'Inspect a workspace image or a sandboxed HTML screenshot with an image-capable model.',
+      'Capture a workspace image or HTML screenshot; repeat the same path before and after edits to compare.',
     requiresProject: true
   },
   {

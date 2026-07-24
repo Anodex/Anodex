@@ -59,6 +59,16 @@ describe('inspect_visual', () => {
     await rm(workspace, { recursive: true, force: true })
   })
 
+  it('guides providers to capture the same path before and after an edit', () => {
+    const tool = inspectVisualTool(createMockDefine(), createMockContext(workspace)) as unknown as {
+      description: string
+    }
+
+    expect(tool.description).toContain('call inspect_visual once before editing')
+    expect(tool.description).toContain('again after editing the same path')
+    expect(tool.description).toContain('Do not substitute preview_html')
+  })
+
   it('queues an existing workspace image for the provider next round', async () => {
     await writeFile(join(workspace, 'result.png'), PNG)
     const visualInputs = createVisualInputQueue()

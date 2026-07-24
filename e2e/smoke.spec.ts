@@ -163,34 +163,6 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
       asset: { conversationId, id: shownAssetId }
     }
   }
-  const beforeHtmlCall = {
-    id: 'tool-html-before',
-    name: 'preview_html',
-    kind: 'read' as const,
-    title: 'Preview before.html',
-    detail: 'inline preview',
-    status: 'success' as const,
-    preview: {
-      kind: 'html' as const,
-      title: 'Before — original header',
-      path: 'before.html',
-      content: '<!doctype html><html><body><header>Before</header></body></html>'
-    }
-  }
-  const afterHtmlCall = {
-    id: 'tool-html-after',
-    name: 'preview_html',
-    kind: 'read' as const,
-    title: 'Preview index.html',
-    detail: 'inline preview',
-    status: 'success' as const,
-    preview: {
-      kind: 'html' as const,
-      title: 'After — improved header',
-      path: 'index.html',
-      content: '<!doctype html><html><body><header>After</header></body></html>'
-    }
-  }
   await mkdir(assetDir, { recursive: true })
   await mkdir(conversationDir, { recursive: true })
   await writeFile(join(assetDir, beforeAssetId), ONE_PIXEL_PNG)
@@ -230,24 +202,6 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
             { type: 'tool', call },
             { type: 'tool', call: shownCall },
             { type: 'text', text: 'The updated page is ready.' }
-          ]
-        },
-        {
-          id: 'request-html-comparison',
-          role: 'user',
-          content: 'Fix the title bar and show me a before and after.',
-          createdAt: 4
-        },
-        {
-          id: 'message-html-comparison',
-          role: 'assistant',
-          content: 'Here is the title bar before and after.',
-          createdAt: 5,
-          toolCalls: [beforeHtmlCall, afterHtmlCall],
-          blocks: [
-            { type: 'tool', call: beforeHtmlCall },
-            { type: 'tool', call: afterHtmlCall },
-            { type: 'text', text: 'Here is the title bar before and after.' }
           ]
         }
       ],
@@ -292,16 +246,10 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     await expect(mainWindow.getByAltText('After: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('Assistant image of result.png')).toBeVisible()
 
-    const htmlComparisonToggle = mainWindow.getByRole('button', {
-      name: 'Compare before and after'
-    })
-    const beforeFrame = mainWindow.getByTitle('Before: Before — original header')
-    const afterFrame = mainWindow.getByTitle('After: After — improved header')
-    await expect(htmlComparisonToggle).toHaveAttribute('aria-expanded', 'true')
-    await expect(beforeFrame).toBeVisible()
-    await expect(afterFrame).toBeVisible()
-    const beforeBox = await beforeFrame.boundingBox()
-    const afterBox = await afterFrame.boundingBox()
+    const beforePane = mainWindow.getByLabel('Before screenshot of page.html')
+    const afterPane = mainWindow.getByLabel('After screenshot of page.html')
+    const beforeBox = await beforePane.boundingBox()
+    const afterBox = await afterPane.boundingBox()
     expect(beforeBox).not.toBeNull()
     expect(afterBox).not.toBeNull()
     expect(Math.abs((beforeBox?.y ?? 0) - (afterBox?.y ?? 0))).toBeLessThan(2)

@@ -117,15 +117,6 @@
   object-fit: contain;
 }
 
-.htmlFrame {
-  display: block;
-  width: 100%;
-  height: min(42vh, 360px);
-  min-height: 240px;
-  background: #fff;
-  border: 0;
-}
-
 .notice {
   padding: var(--space-3);
   font-size: var(--text-xs);
@@ -136,9 +127,5 @@
 @container (max-width: 600px) {
   .canvas {
     min-height: 120px;
-  }
-
-  .htmlFrame {
-    min-height: 200px;
   }
 }

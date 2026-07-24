@@ -174,6 +174,15 @@ describe('AI file tools', () => {
   })
 
   describe('preview_html', () => {
+    it('does not present interactive HTML as screenshot comparison evidence', () => {
+      const tool = previewHtmlTool(createMockDefine(), createMockContext(workspace)) as unknown as {
+        description: string
+      }
+
+      expect(tool.description).toContain('not for a before/after screenshot comparison')
+      expect(tool.description).toContain('use inspect_visual')
+    })
+
     it('emits an inline preview with local CSS and JS inlined', async () => {
       await writeFile(
         join(workspace, 'game.html'),
