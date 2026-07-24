@@ -151,6 +151,7 @@ The catalog shown in Settings is `TOOL_CATALOG` in `src/shared/tools.types.ts`.
    - Shell commands → `commandTools.ts`
    - Structured verification/check wrappers → `diagnosticsTools.ts`
    - Provider-visible image/HTML inspection → `visualInspectionTools.ts`
+   - User-visible workspace image replies → `imageDisplayTools.ts`
    - Email actions → `emailTools.ts`
 2. Export a `ToolFactory` that calls `define({ description, params, handler })`.
 3. Use `runReadTool()` for safe reads or `runGuardedTool()` for mutations.
@@ -172,6 +173,10 @@ contains an ephemeral image data URL plus a sandboxed
 `ConversationAssetStore` reference. `chatSanitizer.ts` must preserve the live
 data URL for rendering, remove only the data URL from persisted `toolCalls` and
 timeline blocks, and remove the entire preview from model-history replay.
+
+`show_image` is a different read-only workspace tool: it is available to text
+and vision models, displays a confined existing image to the user, persists the
+same durable preview reference, and never queues pixels back into the provider.
 Permanent conversation deletion must remove its assets.
 
 #### Tool approval

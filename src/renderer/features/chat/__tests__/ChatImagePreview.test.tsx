@@ -42,6 +42,24 @@ describe('ChatImagePreview', () => {
     expect(html).toContain('Open Rendered page.html fullscreen')
   })
 
+  it('labels an assistant-shown image without implying the model inspected it', () => {
+    const html = renderToStaticMarkup(
+      <ChatImagePreview
+        preview={{
+          kind: 'image',
+          source: 'assistant',
+          title: 'result.png',
+          path: 'result.png',
+          dataUrl: 'data:image/png;base64,cGl4ZWxz',
+          mimeType: 'image/png'
+        }}
+      />
+    )
+
+    expect(html).toContain('Assistant image of result.png')
+    expect(html).toContain('Open result.png fullscreen')
+  })
+
   it('shows a successful inspected screenshot without requiring expansion', () => {
     const html = renderToStaticMarkup(
       <ToolCallCard

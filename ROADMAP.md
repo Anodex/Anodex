@@ -246,6 +246,13 @@ side-by-side comparison of the latest two captures, derived from the existing
 ordered tool calls without adding persisted comparison state. Text-only local
 models never receive the tool.
 
+All workspace-backed models also receive `show_image`, a separate read-only
+display tool for attaching an existing PNG/JPEG/GIF/BMP to the assistant turn
+when the user asks to see a result. It uses the same confined reads, durable
+preview assets, transcript renderer, and fullscreen viewer, but deliberately
+does not enqueue pixels back to the provider or imply that a text-only model
+inspected them.
+
 Keep future work focused on measured compatibility additions (more media
 formats or model families), not a second vision transport. Preserve loopback
 isolation, bounded payloads, the existing guarded Anodex tool handlers, and the

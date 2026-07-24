@@ -19,7 +19,9 @@ export function ChatImagePreview({ preview }: { preview: ImagePreview }): JSX.El
         {dataUrl ? (
           <ExpandableImage
             src={dataUrl}
-            alt={`Visual inspection of ${preview.path}`}
+            alt={`${preview.source === 'assistant' ? 'Assistant image' : 'Visual inspection'} of ${
+              preview.path
+            }`}
             title={preview.title}
             imageClassName={styles.image}
             triggerClassName={styles.imageButton}

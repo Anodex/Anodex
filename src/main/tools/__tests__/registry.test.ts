@@ -29,6 +29,7 @@ const READ_ONLY_WORKSPACE_TOOLS = [
   'read_file_range',
   'read_multiple_files',
   'preview_html',
+  'show_image',
   'code_outline',
   'git_status',
   'git_diff',

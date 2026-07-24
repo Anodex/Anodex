@@ -172,8 +172,9 @@ additional tools are available on demand.
   `find_files`, `code_outline` (compact imports/exported-symbol map),
   `preview_html` (inline chat preview for HTML pages/games), `git_status`,
   `git_diff`, `git_commit_summary` (drafts a conventional commit message from
-  status/diff stats), and `inspect_visual` (lets an image-capable model inspect
-  a workspace image or a sandboxed screenshot of its HTML work).
+  status/diff stats), `show_image` (attaches a workspace image to the reply),
+  and `inspect_visual` (lets an image-capable model inspect a workspace image
+  or a sandboxed screenshot of its HTML work).
 - **Write/mutate (approval depends on permission mode):** `write_file`,
   `edit_file`, `patch_file`, `delete_file`, `move_file`, `delete_directory`,
   `create_directory` (always low-risk, never confirms), `run_command`,
@@ -330,6 +331,10 @@ A side panel with configurable sections alongside the chat:
   before/after comparison of the latest two captures. Exact preview pixels live
   in bounded conversation assets; chat JSON stores only a small reference and
   never the base64 payload. Text-only local models do not receive this tool.
+- Any model can use the read-only `show_image` tool to place an existing
+  workspace PNG/JPEG/GIF/BMP directly in its reply when the user asks to see a
+  result. This display-only path does not claim that a text model inspected the
+  pixels and uses the same durable preview storage and fullscreen viewer.
 - **Hardware-aware recommendations**: detects your RAM/VRAM/GPU and scores
   every catalog model against your actual machine (a 0-100 fit score), with
   "Best Overall / Best Coding / Fastest / Low RAM / Large Context" picks.

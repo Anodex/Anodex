@@ -59,6 +59,8 @@ export type ToolCallPreview =
   | {
       /** Image bytes used immediately by the live transcript; never persisted in conversation JSON. */
       kind: 'image'
+      /** Whether pixels were sent to the model or deliberately shown only to the user. */
+      source?: 'inspection' | 'assistant'
       title: string
       path: string
       dataUrl?: string
@@ -168,6 +170,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'read',
     description:
       'Inspect a workspace image or a sandboxed HTML screenshot with an image-capable model.',
+    requiresProject: true
+  },
+  {
+    name: 'show_image',
+    kind: 'read',
+    description: 'Display an existing workspace image directly in the assistant reply.',
     requiresProject: true
   },
   {

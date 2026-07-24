@@ -16,6 +16,7 @@ import {
   readMultipleFilesTool
 } from './fileTools'
 import { previewHtmlTool } from './previewTools'
+import { showImageTool } from './imageDisplayTools'
 import { inspectVisualTool } from './visualInspectionTools'
 import {
   editFileTool,
@@ -70,6 +71,7 @@ const READ_ONLY_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   read_file_range: readFileRangeTool,
   read_multiple_files: readMultipleFilesTool,
   preview_html: previewHtmlTool,
+  show_image: showImageTool,
   code_outline: codeOutlineTool,
   git_status: gitStatusTool,
   git_diff: gitDiffTool,

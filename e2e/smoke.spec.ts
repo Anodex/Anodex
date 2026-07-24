@@ -118,6 +118,7 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
   const conversationId = 'visual-preview-test'
   const beforeAssetId = 'message-1-before.png'
   const assetId = 'message-1-preview.png'
+  const shownAssetId = 'message-1-shown.png'
   const assetDir = join(userDataDir, 'conversation-assets', conversationId)
   const conversationDir = join(userDataDir, 'conversations', 'general')
   const preview = {
@@ -146,10 +147,27 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
       asset: { conversationId, id: beforeAssetId }
     }
   }
+  const shownCall = {
+    id: 'tool-shown',
+    name: 'show_image',
+    kind: 'read' as const,
+    title: 'Show result.png',
+    detail: 'image shown in conversation',
+    status: 'success' as const,
+    preview: {
+      kind: 'image' as const,
+      source: 'assistant' as const,
+      title: 'result.png',
+      path: 'result.png',
+      mimeType: 'image/png',
+      asset: { conversationId, id: shownAssetId }
+    }
+  }
   await mkdir(assetDir, { recursive: true })
   await mkdir(conversationDir, { recursive: true })
   await writeFile(join(assetDir, beforeAssetId), ONE_PIXEL_PNG)
   await writeFile(join(assetDir, assetId), ONE_PIXEL_PNG)
+  await writeFile(join(assetDir, shownAssetId), ONE_PIXEL_PNG)
   await writeFile(
     join(conversationDir, `${conversationId}.json`),
     JSON.stringify({
@@ -162,10 +180,11 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
           role: 'assistant',
           content: 'The page is ready.',
           createdAt: 1,
-          toolCalls: [beforeCall, call],
+          toolCalls: [beforeCall, call, shownCall],
           blocks: [
             { type: 'tool', call: beforeCall },
             { type: 'tool', call },
+            { type: 'tool', call: shownCall },
             { type: 'text', text: 'The page is ready.' }
           ]
         }
@@ -207,6 +226,7 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     await mainWindow.getByRole('button', { name: 'Compare latest inspections' }).click()
     await expect(mainWindow.getByAltText('Before: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('After: page.html')).toBeVisible()
+    await expect(mainWindow.getByAltText('Assistant image of result.png')).toBeVisible()
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })

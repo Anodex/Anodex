@@ -7,15 +7,13 @@ import { runReadTool } from './helpers'
 import { prepareHtmlPreview } from './previewTools'
 import { resolveInWorkspace } from './workspace'
 import { enqueueVisualInput, MAX_VISION_IMAGE_BYTES, readVisionImage } from '../vision/imageInputs'
-import { conversationAssetStore } from '../conversations/ConversationAssetStore'
-import { createLogger } from '../utils/logger'
+import { saveVisualPreviewAsset } from './visualPreviewAssets'
 
 const CAPTURE_WIDTH = 1280
 const CAPTURE_HEIGHT = 800
 const RENDER_SETTLE_MS = 500
 const MAX_CAPTURE_HTML_CHARS = 8 * 1024 * 1024
 const MAX_CAPTURE_IMAGE_BYTES = 5 * 1024 * 1024
-const log = createLogger('visual-inspection')
 
 /**
  * inspect_visual - give a multimodal provider pixels from a workspace image or
@@ -53,36 +51,21 @@ export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
             ? await captureHtmlPreview(ctx.workspaceRoot, args.path, ctx.signal)
             : await readVisionImage(file, basename(file))
           enqueueVisualInput(ctx.visualInputs, image)
-          let assetId: string | undefined
-          try {
-            assetId = await conversationAssetStore.saveImage(
-              ctx.conversationId,
-              ctx.messageId,
-              image
-            )
-          } catch (error) {
-            // The model can still inspect and the live UI can still render the
-            // data URL. Only cross-restart preview recovery is unavailable.
-            log.warn('Could not persist visual preview:', error)
-          }
+          const asset = await saveVisualPreviewAsset(ctx, image)
           return {
             modelResult:
               'The visual was captured and attached to the next model round. Inspect the pixels before deciding whether the work is finished.',
             detail: isHtml ? 'HTML screenshot attached' : 'image attached',
             preview: {
               kind: 'image',
+              source: 'inspection',
               title: isHtml
                 ? `Rendered ${basename(args.path)}`
                 : `Inspected ${basename(args.path)}`,
               path: args.path,
               dataUrl: image.dataUrl,
               mimeType: image.mimeType,
-              asset: assetId
-                ? {
-                    conversationId: ctx.conversationId,
-                    id: assetId
-                  }
-                : undefined
+              asset
             }
           }
         }
