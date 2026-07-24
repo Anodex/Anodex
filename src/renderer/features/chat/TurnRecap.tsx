@@ -4,6 +4,8 @@ import { Icon } from '../../components/Icon'
 import { formatDuration } from '../../lib/format'
 import { ThoughtsSection } from './ThoughtsSection'
 import { ToolCallCard } from './ToolCallCard'
+import { InspectionComparison } from './InspectionComparison'
+import { latestInspectionComparison } from './inspectionComparisonPair'
 import styles from './TurnRecap.module.css'
 
 type WorkSegment = Extract<RenderSegment, { type: 'thinking' | 'toolGroup' }>
@@ -29,6 +31,7 @@ export function TurnRecap({
   finalDurationMs?: number
 }): JSX.Element {
   const calls = segments.flatMap((segment) => (segment.type === 'toolGroup' ? segment.calls : []))
+  const comparison = latestInspectionComparison(calls)
   const hasImagePreview = calls.some((call) => call.preview?.kind === 'image')
   const [expanded, setExpanded] = useState(streaming || hasImagePreview)
   const [settledMs, setSettledMs] = useState<number | null>(null)
@@ -92,6 +95,7 @@ export function TurnRecap({
       <div className={`${styles.panel} ${expanded ? styles.panelExpanded : ''}`}>
         <div className={styles.panelInner}>
           <div className={styles.steps}>
+            {comparison && <InspectionComparison pair={comparison} />}
             {segments.map((segment, index) =>
               segment.type === 'thinking' ? (
                 <ThoughtsSection

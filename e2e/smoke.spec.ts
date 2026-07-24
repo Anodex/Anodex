@@ -116,6 +116,7 @@ test('past user messages open the edit and regenerate review', async ({
 test('persisted visual inspection screenshots reopen inside the conversation', async () => {
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-visual-preview-e2e-'))
   const conversationId = 'visual-preview-test'
+  const beforeAssetId = 'message-1-before.png'
   const assetId = 'message-1-preview.png'
   const assetDir = join(userDataDir, 'conversation-assets', conversationId)
   const conversationDir = join(userDataDir, 'conversations', 'general')
@@ -135,8 +136,19 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     status: 'success' as const,
     preview
   }
+  const beforeCall = {
+    ...call,
+    id: 'tool-before',
+    title: 'Inspect page.html before edit',
+    preview: {
+      ...preview,
+      title: 'Before page edit',
+      asset: { conversationId, id: beforeAssetId }
+    }
+  }
   await mkdir(assetDir, { recursive: true })
   await mkdir(conversationDir, { recursive: true })
+  await writeFile(join(assetDir, beforeAssetId), ONE_PIXEL_PNG)
   await writeFile(join(assetDir, assetId), ONE_PIXEL_PNG)
   await writeFile(
     join(conversationDir, `${conversationId}.json`),
@@ -150,8 +162,9 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
           role: 'assistant',
           content: 'The page is ready.',
           createdAt: 1,
-          toolCalls: [call],
+          toolCalls: [beforeCall, call],
           blocks: [
+            { type: 'tool', call: beforeCall },
             { type: 'tool', call },
             { type: 'text', text: 'The page is ready.' }
           ]
@@ -172,7 +185,7 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
 
   try {
     const mainWindow = await app.firstWindow()
-    const image = mainWindow.getByAltText('Visual inspection of page.html')
+    const image = mainWindow.getByAltText('Visual inspection of page.html').last()
     await expect(image).toBeVisible()
     await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
 
@@ -190,6 +203,10 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     await expect(
       mainWindow.getByRole('dialog', { name: 'Fullscreen image: Rendered page.html' })
     ).not.toBeVisible()
+
+    await mainWindow.getByRole('button', { name: 'Compare latest inspections' }).click()
+    await expect(mainWindow.getByAltText('Before: page.html')).toBeVisible()
+    await expect(mainWindow.getByAltText('After: page.html')).toBeVisible()
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })

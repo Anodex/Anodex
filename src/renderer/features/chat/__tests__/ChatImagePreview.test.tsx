@@ -145,4 +145,42 @@ describe('ChatImagePreview', () => {
     expect(html).toContain('aria-expanded="true"')
     expect(html).toContain('data:image/png;base64,cGl4ZWxz')
   })
+
+  it('offers a comparison for repeated inspections of the same path', () => {
+    const before = {
+      id: 'tool-before',
+      name: 'inspect_visual',
+      kind: 'read' as const,
+      title: 'First render',
+      status: 'success' as const,
+      preview: {
+        kind: 'image' as const,
+        title: 'First render',
+        path: 'page.html',
+        dataUrl: 'data:image/png;base64,YmVmb3Jl',
+        mimeType: 'image/png'
+      }
+    }
+    const after = {
+      ...before,
+      id: 'tool-after',
+      title: 'Second render',
+      preview: {
+        ...before.preview,
+        title: 'Second render',
+        dataUrl: 'data:image/png;base64,YWZ0ZXI='
+      }
+    }
+    const html = renderToStaticMarkup(
+      <TurnRecap
+        segments={[{ type: 'toolGroup', phase: 'inspecting', calls: [before, after] }]}
+        streaming={false}
+        startedAt={1}
+        finalDurationMs={1000}
+      />
+    )
+
+    expect(html).toContain('Compare latest inspections')
+    expect(html).toContain('aria-expanded="false"')
+  })
 })

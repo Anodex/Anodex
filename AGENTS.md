@@ -91,6 +91,9 @@ reopens their pixels through the typed preload bridge for inline transcript
 display; do not persist its data URLs in conversation JSON. Chat image surfaces
 use the shared `ExpandableImage`/`ImageLightbox` UI components so fullscreen
 behavior, zoom bounds, keyboard handling, and focus restoration do not drift.
+`latestInspectionComparison()` derives before/after pairs only from repeated,
+successful `inspect_visual` calls for the same path; comparison state is not
+persisted separately.
 
 The pinned llama.cpp runtime is prepared by `npm run prepare:vision`, stored
 under ignored `resources/llama-server/<platform>-<arch>`, and packaged by

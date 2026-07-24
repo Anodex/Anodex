@@ -241,7 +241,10 @@ card in the transcript, including after the chat is reopened. Preview bytes are
 stored as main-owned conversation assets while persisted tool calls retain only
 sandboxed references; base64 data and all preview metadata remain excluded from
 model-history replay. Permanently deleting a conversation removes its preview
-assets. Text-only local models never receive the tool.
+assets. Repeated successful inspections of the same workspace path offer a
+side-by-side comparison of the latest two captures, derived from the existing
+ordered tool calls without adding persisted comparison state. Text-only local
+models never receive the tool.
 
 Keep future work focused on measured compatibility additions (more media
 formats or model families), not a second vision transport. Preserve loopback
