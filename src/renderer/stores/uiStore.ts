@@ -6,6 +6,7 @@ import { playChime } from '../lib/sound'
 import { notifyDesktop } from '../lib/notifications'
 import { logDiagnostic } from './diagnosticsStore'
 import { appendPendingConfirmation, removePendingConfirmation } from './pendingConfirmations'
+import type { NavigationSeenAt, NotificationView } from '../lib/navigationBadges'
 
 export type AppView = 'chat' | 'settings' | 'scheduler' | 'agent' | 'critical-thinking' | 'email'
 export type ToastKind = 'info' | 'success' | 'error' | 'pending'
@@ -36,6 +37,7 @@ interface UiState {
   settingsSection: SettingsSection
   toasts: Toast[]
   readConversationAt: Record<string, number>
+  navigationSeenAt: NavigationSeenAt
   /**
    * Write/command approvals awaiting the user's decision. A queue, not a
    * single slot — node-llama-cpp (and the cloud providers) can genuinely
@@ -50,6 +52,7 @@ interface UiState {
   setSettingsSection: (section: SettingsSection) => void
   markConversationRead: (conversationId: string, updatedAt: number) => void
   markConversationUnread: (conversationId: string, updatedAt: number) => void
+  markNavigationSeen: (view: NotificationView, updatedAt: number) => void
   notify: (toast: Omit<Toast, 'id'>) => void
   /**
    * Shows a toast that stays put — no auto-dismiss, no chime — until
@@ -77,6 +80,7 @@ interface UiState {
 }
 
 const READ_MARKERS_KEY = 'anodex:readConversationAt'
+const NAVIGATION_SEEN_KEY = 'anodex:navigationSeenAt'
 
 function loadReadMarkers(): Record<string, number> {
   try {
@@ -99,12 +103,53 @@ function saveReadMarkers(markers: Record<string, number>): void {
   }
 }
 
+function defaultNavigationSeenAt(): NavigationSeenAt {
+  const now = Date.now()
+  return {
+    scheduler: now,
+    agent: now,
+    'critical-thinking': now
+  }
+}
+
+function loadNavigationSeenAt(): NavigationSeenAt {
+  const fallback = defaultNavigationSeenAt()
+  try {
+    if (typeof localStorage === 'undefined') return fallback
+    const raw = localStorage.getItem(NAVIGATION_SEEN_KEY)
+    if (!raw) {
+      localStorage.setItem(NAVIGATION_SEEN_KEY, JSON.stringify(fallback))
+      return fallback
+    }
+    const parsed = JSON.parse(raw) as Partial<NavigationSeenAt>
+    return {
+      scheduler: Number.isFinite(parsed.scheduler) ? Number(parsed.scheduler) : fallback.scheduler,
+      agent: Number.isFinite(parsed.agent) ? Number(parsed.agent) : fallback.agent,
+      'critical-thinking': Number.isFinite(parsed['critical-thinking'])
+        ? Number(parsed['critical-thinking'])
+        : fallback['critical-thinking']
+    }
+  } catch {
+    return fallback
+  }
+}
+
+function saveNavigationSeenAt(markers: NavigationSeenAt): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(NAVIGATION_SEEN_KEY, JSON.stringify(markers))
+  } catch {
+    /* noop */
+  }
+}
+
 /** Global, ephemeral UI state: the active view, toasts, and tool approvals. */
 export const useUiStore = create<UiState>((set, get) => ({
   view: 'chat',
   settingsSection: 'profile',
   toasts: [],
   readConversationAt: loadReadMarkers(),
+  navigationSeenAt: loadNavigationSeenAt(),
   pendingConfirmations: [],
 
   setView: (view) => set({ view }),
@@ -129,6 +174,15 @@ export const useUiStore = create<UiState>((set, get) => ({
       }
       saveReadMarkers(readConversationAt)
       return { readConversationAt }
+    })
+  },
+
+  markNavigationSeen: (view, updatedAt) => {
+    set((state) => {
+      if (updatedAt <= state.navigationSeenAt[view]) return state
+      const navigationSeenAt = { ...state.navigationSeenAt, [view]: updatedAt }
+      saveNavigationSeenAt(navigationSeenAt)
+      return { navigationSeenAt }
     })
   },
 

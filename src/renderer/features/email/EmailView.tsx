@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
-import type { EmailConnectionStatus, EmailThreadSummary } from '@shared/email.types'
+import { useEffect } from 'react'
 import type { AppSettings } from '@shared/settings.types'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useEmailStore } from '../../stores/emailStore'
 import { notifyError, useUiStore } from '../../stores/uiStore'
 import { anodex } from '../../lib/anodex'
 import { SelectControl, TextControl, ToggleControl } from '../settings/controls'
@@ -18,26 +18,13 @@ export function EmailView(): JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const updateSettings = useSettingsStore((s) => s.update)
   const notify = useUiStore((s) => s.notify)
-  const [status, setStatus] = useState<EmailConnectionStatus | null>(null)
-  const [threads, setThreads] = useState<EmailThreadSummary[]>([])
-
-  const loadEmail = async (): Promise<void> => {
-    if (!settings) return
-    const statusResult = await anodex.email.getStatus()
-    if (!statusResult.ok) return
-    setStatus(statusResult.value)
-    if (!statusResult.value.connected) {
-      setThreads([])
-      return
-    }
-    const threadsResult = await anodex.email.listThreads({ limit: 10 })
-    if (threadsResult.ok) setThreads(threadsResult.value)
-  }
+  const status = useEmailStore((s) => s.status)
+  const threads = useEmailStore((s) => s.threads)
+  const loadEmail = useEmailStore((s) => s.load)
 
   useEffect(() => {
     void loadEmail()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings?.email.provider, settings?.email.gmail.enabled])
+  }, [loadEmail, settings?.email.provider, settings?.email.gmail.enabled])
 
   if (!settings) {
     return <div className={styles.view} />
@@ -123,7 +110,8 @@ export function EmailView(): JSX.Element {
             <p>
               {status?.connected
                 ? status.address || 'Connected'
-                : status?.reason || (gmailActive ? 'Ready for account authorization.' : 'Not connected.')}
+                : status?.reason ||
+                  (gmailActive ? 'Ready for account authorization.' : 'Not connected.')}
             </p>
           </div>
           <span className={`${styles.statusBadge} ${status?.connected ? styles.statusReady : ''}`}>

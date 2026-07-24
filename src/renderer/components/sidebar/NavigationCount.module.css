@@ -1,0 +1,27 @@
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: auto;
+  padding: 0 5px;
+  color: var(--text-on-accent);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+}
+
+.rail {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0 4px;
+  box-shadow: 0 0 0 2px var(--bg-surface);
+}

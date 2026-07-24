@@ -330,6 +330,7 @@ export const IpcChannel = {
     openGmailWeb: 'email:open-gmail-web',
     connectGmail: 'email:connect-gmail',
     disconnectGmail: 'email:disconnect-gmail',
+    getUnreadThreadCount: 'email:get-unread-thread-count',
     listThreads: 'email:list-threads',
     search: 'email:search',
     readMessage: 'email:read-message',
@@ -647,6 +648,7 @@ export interface AnodexApi {
     openGmailWeb(): Promise<Result<void>>
     connectGmail(): Promise<Result<EmailConnectionStatus>>
     disconnectGmail(): Promise<Result<EmailConnectionStatus>>
+    getUnreadThreadCount(): Promise<Result<number>>
     listThreads(request?: EmailListThreadsRequest): Promise<Result<EmailThreadSummary[]>>
     search(request: EmailSearchRequest): Promise<Result<EmailThreadSummary[]>>
     readMessage(id: string): Promise<Result<EmailMessage>>

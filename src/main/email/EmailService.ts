@@ -49,6 +49,10 @@ interface GmailProfileResponse {
   emailAddress?: string
 }
 
+interface GmailLabelResponse {
+  threadsUnread?: number
+}
+
 interface GmailThreadResponse {
   id: string
   messages?: GmailApiMessage[]
@@ -141,6 +145,13 @@ class EmailService {
   async listThreads(request: EmailListThreadsRequest = {}): Promise<EmailThreadSummary[]> {
     this.requireConnected()
     return this.fetchThreadSummaries({ limit: request.limit, inboxOnly: true })
+  }
+
+  async getUnreadThreadCount(): Promise<number> {
+    this.requireConnected()
+    const label = await this.gmailFetch<GmailLabelResponse>('/labels/INBOX')
+    const count = Number(label.threadsUnread ?? 0)
+    return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0
   }
 
   async search(request: EmailSearchRequest): Promise<EmailThreadSummary[]> {

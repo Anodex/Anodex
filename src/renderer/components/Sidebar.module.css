@@ -99,6 +99,13 @@
   color: var(--text-faint);
 }
 
+.navItemLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .navItem:hover .navItemIcon {
   color: var(--text-muted);
 }

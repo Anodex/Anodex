@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { EmailConnectionStatus } from '@shared/email.types'
 import { useSettingsStore } from '../../../../stores/settingsStore'
+import { useEmailStore } from '../../../../stores/emailStore'
 import { useUiStore } from '../../../../stores/uiStore'
 import { anodex } from '../../../../lib/anodex'
 import { Button } from '../../../../components/ui/Button'
@@ -47,7 +48,10 @@ export function EmailSettings(): JSX.Element {
         provider: enabled ? 'gmail' : 'none',
         gmail: { enabled }
       }
-    }).then(loadStatus)
+    }).then(async () => {
+      await loadStatus()
+      await useEmailStore.getState().load()
+    })
   }
 
   const handleConnect = (): void => {
@@ -59,7 +63,10 @@ export function EmailSettings(): JSX.Element {
           title: 'Gmail connected',
           message: result.value.address || 'Your Gmail account is ready.'
         })
-        void useSettingsStore.getState().load()
+        void useSettingsStore
+          .getState()
+          .load()
+          .then(() => useEmailStore.getState().load())
         return
       }
       notify({
@@ -72,7 +79,10 @@ export function EmailSettings(): JSX.Element {
 
   const handleDisconnect = (): void => {
     void anodex.email.disconnectGmail().then((result) => {
-      if (result.ok) setStatus(result.value)
+      if (result.ok) {
+        setStatus(result.value)
+        void useEmailStore.getState().load()
+      }
     })
   }
 

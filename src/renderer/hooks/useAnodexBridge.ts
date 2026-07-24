@@ -10,6 +10,7 @@ import { useProviderUsageStore } from '../stores/providerUsageStore'
 import { useSchedulerStore } from '../stores/schedulerStore'
 import { useAgentStore } from '../stores/agentStore'
 import { useCriticalThinkingStore } from '../stores/criticalThinkingStore'
+import { useEmailStore } from '../stores/emailStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useMcpStore } from '../stores/mcpStore'
 import { useStartupStore } from '../stores/startupStore'
@@ -212,6 +213,10 @@ export function useAnodexBridge(): void {
     const offMcpStatus = anodex.mcp.onStatusChanged((state) => {
       useMcpStore.getState().setStatus(state)
     })
+    const refreshEmailOnFocus = (): void => {
+      void useEmailStore.getState().load()
+    }
+    window.addEventListener('focus', refreshEmailOnFocus)
     // Clicking a scheduled-task toast asks the main window to open the
     // conversation that run produced, instead of just focusing whatever view
     // already happened to be showing.
@@ -243,6 +248,7 @@ export function useAnodexBridge(): void {
       offCriticalThinkingRuns()
       offMcpStatus()
       offToastOpenConversation()
+      window.removeEventListener('focus', refreshEmailOnFocus)
     }
   }, [])
 }
@@ -276,6 +282,9 @@ async function hydrate(): Promise<void> {
   await useAgentStore.getState().load()
   await useCriticalThinkingStore.getState().load()
   await useMcpStore.getState().load()
+  // Gmail can require a token refresh and network round trip. Let its sidebar
+  // count arrive independently instead of holding the startup screen open.
+  void useEmailStore.getState().load()
 }
 
 /**

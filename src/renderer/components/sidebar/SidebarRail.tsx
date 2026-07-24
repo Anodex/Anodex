@@ -6,14 +6,20 @@ import { useUiStore } from '../../stores/uiStore'
 import { useSidebarCollapse } from '../../stores/sidebarCollapseStore'
 import { useCreateProject } from '../../hooks/useCreateProject'
 import { isChatReady } from '../../lib/chatReadiness'
+import type { NavigationBadgeCounts } from '../../lib/navigationBadges'
 import { Icon } from '../Icon'
 import { StatusDot } from '../ui/StatusDot'
+import { NavigationCount } from './NavigationCount'
 import styles from './SidebarRail.module.css'
+
+interface SidebarRailProps {
+  counts: NavigationBadgeCounts
+}
 
 /** Icon-only sidebar for narrow windows. Global nav still navigates directly;
  *  anything that needs the project/chat list opens the full sidebar as a
  *  temporary overlay instead of permanently squeezing the chat area. */
-export function SidebarRail(): JSX.Element {
+export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
   const view = useUiStore((s) => s.view)
   const setView = useUiStore((s) => s.setView)
   const openSettings = useUiStore((s) => s.openSettings)
@@ -40,37 +46,41 @@ export function SidebarRail(): JSX.Element {
         type="button"
         className={`${styles.railButton} ${view === 'scheduler' ? styles.railButtonActive : ''}`}
         onClick={() => setView('scheduler')}
-        aria-label="Scheduler"
-        title="Scheduler"
+        aria-label={`Scheduler${counts.scheduler > 0 ? `, ${counts.scheduler} new result${counts.scheduler === 1 ? '' : 's'}` : ''}`}
+        title={`Scheduler${counts.scheduler > 0 ? ` (${counts.scheduler})` : ''}`}
       >
         <Icon name="clock" size={16} />
+        <NavigationCount count={counts.scheduler} rail />
       </button>
       <button
         type="button"
         className={`${styles.railButton} ${view === 'agent' ? styles.railButtonActive : ''}`}
         onClick={() => setView('agent')}
-        aria-label="Agent"
-        title="Agent"
+        aria-label={`Agent${counts.agent > 0 ? `, ${counts.agent} notification${counts.agent === 1 ? '' : 's'}` : ''}`}
+        title={`Agent${counts.agent > 0 ? ` (${counts.agent})` : ''}`}
       >
         <Icon name="bot" size={16} />
+        <NavigationCount count={counts.agent} rail />
       </button>
       <button
         type="button"
         className={`${styles.railButton} ${view === 'critical-thinking' ? styles.railButtonActive : ''}`}
         onClick={() => setView('critical-thinking')}
-        aria-label="Critical Thinking"
-        title="Critical Thinking"
+        aria-label={`Critical Thinking${counts.criticalThinking > 0 ? `, ${counts.criticalThinking} notification${counts.criticalThinking === 1 ? '' : 's'}` : ''}`}
+        title={`Critical Thinking${counts.criticalThinking > 0 ? ` (${counts.criticalThinking})` : ''}`}
       >
         <Icon name="insight" size={16} />
+        <NavigationCount count={counts.criticalThinking} rail />
       </button>
       <button
         type="button"
         className={`${styles.railButton} ${view === 'email' ? styles.railButtonActive : ''}`}
         onClick={() => setView('email')}
-        aria-label="Email"
-        title="Email"
+        aria-label={`Email${counts.email > 0 ? `, ${counts.email} unread thread${counts.email === 1 ? '' : 's'}` : ''}`}
+        title={`Email${counts.email > 0 ? ` (${counts.email})` : ''}`}
       >
         <Icon name="mail" size={16} />
+        <NavigationCount count={counts.email} rail />
       </button>
 
       {activeProject && (

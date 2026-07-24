@@ -21,7 +21,11 @@ export function registerEmailHandlers(): void {
       return ok(undefined)
     } catch (error) {
       log.warn('Failed to open Gmail web:', error)
-      return err('email.open-web-failed', 'Could not open Gmail in the browser.', toErrorMessage(error))
+      return err(
+        'email.open-web-failed',
+        'Could not open Gmail in the browser.',
+        toErrorMessage(error)
+      )
     }
   })
 
@@ -40,6 +44,19 @@ export function registerEmailHandlers(): void {
     } catch (error) {
       log.warn('Failed to disconnect Gmail:', error)
       return err('email.disconnect-failed', 'Could not disconnect Gmail.', toErrorMessage(error))
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Email.getUnreadThreadCount, async () => {
+    try {
+      return ok(await emailService.getUnreadThreadCount())
+    } catch (error) {
+      log.warn('Failed to count unread email threads:', error)
+      return err(
+        'email.unread-count-failed',
+        'Could not count unread email threads.',
+        toErrorMessage(error)
+      )
     }
   })
 

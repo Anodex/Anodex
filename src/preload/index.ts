@@ -226,6 +226,7 @@ const api: AnodexApi = {
     openGmailWeb: () => ipcRenderer.invoke(IpcChannel.Email.openGmailWeb),
     connectGmail: () => ipcRenderer.invoke(IpcChannel.Email.connectGmail),
     disconnectGmail: () => ipcRenderer.invoke(IpcChannel.Email.disconnectGmail),
+    getUnreadThreadCount: () => ipcRenderer.invoke(IpcChannel.Email.getUnreadThreadCount),
     listThreads: (request = {}) => ipcRenderer.invoke(IpcChannel.Email.listThreads, request),
     search: (request) => ipcRenderer.invoke(IpcChannel.Email.search, request),
     readMessage: (id) => ipcRenderer.invoke(IpcChannel.Email.readMessage, id),

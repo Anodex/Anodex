@@ -6,6 +6,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import type { Project } from '@shared/project.types'
 import type { Conversation } from '@shared/conversation.types'
+import type { NavigationBadgeCounts } from '../lib/navigationBadges'
 import { Icon } from './Icon'
 import { useCreateProject } from '../hooks/useCreateProject'
 import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
@@ -16,6 +17,7 @@ import { ChatRow } from './sidebar/ChatRow'
 import { ChatsActionsMenu, type ChatSortMode } from './sidebar/ChatsActionsMenu'
 import { SidebarProfile } from './sidebar/SidebarProfile'
 import { ModelStatusMenu } from './sidebar/ModelStatusMenu'
+import { NavigationCount } from './sidebar/NavigationCount'
 import { ConfirmDialog } from './ui/ConfirmDialog'
 import styles from './Sidebar.module.css'
 
@@ -28,8 +30,12 @@ interface FilteredProject {
   conversations: Conversation[]
 }
 
+interface SidebarProps {
+  counts: NavigationBadgeCounts
+}
+
 /** Primary sidebar: top actions, collapsible project/chat trees, and profile footer. */
-export function Sidebar(): JSX.Element {
+export function Sidebar({ counts }: SidebarProps): JSX.Element {
   const view = useUiStore((s) => s.view)
   const setView = useUiStore((s) => s.setView)
   const openSettings = useUiStore((s) => s.openSettings)
@@ -220,9 +226,11 @@ export function Sidebar(): JSX.Element {
                 className={`${styles.navItem} ${view === 'scheduler' ? styles.navItemActive : ''}`}
                 onClick={() => setView('scheduler')}
                 aria-current={view === 'scheduler' ? 'page' : undefined}
+                aria-label={`Scheduler${counts.scheduler > 0 ? `, ${counts.scheduler} new result${counts.scheduler === 1 ? '' : 's'}` : ''}`}
               >
                 <Icon name="clock" size={14} className={styles.navItemIcon} />
-                <span>Scheduler</span>
+                <span className={styles.navItemLabel}>Scheduler</span>
+                <NavigationCount count={counts.scheduler} />
               </button>
 
               <button
@@ -230,9 +238,11 @@ export function Sidebar(): JSX.Element {
                 className={`${styles.navItem} ${view === 'agent' ? styles.navItemActive : ''}`}
                 onClick={() => setView('agent')}
                 aria-current={view === 'agent' ? 'page' : undefined}
+                aria-label={`Agent${counts.agent > 0 ? `, ${counts.agent} notification${counts.agent === 1 ? '' : 's'}` : ''}`}
               >
                 <Icon name="bot" size={14} className={styles.navItemIcon} />
-                <span>Agent</span>
+                <span className={styles.navItemLabel}>Agent</span>
+                <NavigationCount count={counts.agent} />
               </button>
 
               <button
@@ -242,9 +252,11 @@ export function Sidebar(): JSX.Element {
                 }`}
                 onClick={() => setView('critical-thinking')}
                 aria-current={view === 'critical-thinking' ? 'page' : undefined}
+                aria-label={`Critical Thinking${counts.criticalThinking > 0 ? `, ${counts.criticalThinking} notification${counts.criticalThinking === 1 ? '' : 's'}` : ''}`}
               >
                 <Icon name="insight" size={14} className={styles.navItemIcon} />
-                <span>Critical Thinking</span>
+                <span className={styles.navItemLabel}>Critical Thinking</span>
+                <NavigationCount count={counts.criticalThinking} />
               </button>
 
               <button
@@ -252,9 +264,11 @@ export function Sidebar(): JSX.Element {
                 className={`${styles.navItem} ${view === 'email' ? styles.navItemActive : ''}`}
                 onClick={() => setView('email')}
                 aria-current={view === 'email' ? 'page' : undefined}
+                aria-label={`Email${counts.email > 0 ? `, ${counts.email} unread thread${counts.email === 1 ? '' : 's'}` : ''}`}
               >
                 <Icon name="mail" size={14} className={styles.navItemIcon} />
-                <span>Email</span>
+                <span className={styles.navItemLabel}>Email</span>
+                <NavigationCount count={counts.email} />
               </button>
             </div>
 

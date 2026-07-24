@@ -8,6 +8,7 @@ import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
 import { useWorkspaceDock } from '../features/workspace-dock/useWorkspaceDock'
 import { useSidebarCollapse, SIDEBAR_COLLAPSE_BREAKPOINT } from '../stores/sidebarCollapseStore'
 import { useTheme } from '../hooks/useTheme'
+import { useNavigationBadgeCounts } from '../hooks/useNavigationBadgeCounts'
 import { Sidebar } from './Sidebar'
 import { SidebarRail } from './sidebar/SidebarRail'
 import { TitleBar } from './TitleBar'
@@ -60,6 +61,7 @@ function renderMainView(view: ReturnType<typeof useUiStore.getState>['view']): J
 
 export function AppShell(): JSX.Element {
   const view = useUiStore((s) => s.view)
+  const navigationBadges = useNavigationBadgeCounts()
   const appearance = useSettingsStore((s) => s.settings?.appearance)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const conversations = useStoreWithEqualityFn(
@@ -296,12 +298,12 @@ export function AppShell(): JSX.Element {
       <div className={styles.sidebar}>
         {isSidebarCollapsed ? (
           <ErrorBoundary label="Sidebar rail">
-            <SidebarRail />
+            <SidebarRail counts={navigationBadges} />
           </ErrorBoundary>
         ) : (
           <>
             <ErrorBoundary label="Sidebar">
-              <Sidebar />
+              <Sidebar counts={navigationBadges} />
             </ErrorBoundary>
             <div
               className={styles.resizeHandle}
@@ -327,7 +329,7 @@ export function AppShell(): JSX.Element {
       {isSidebarCollapsed && sidebarOverlayOpen && (
         <div className={styles.sidebarOverlay}>
           <ErrorBoundary label="Sidebar">
-            <Sidebar />
+            <Sidebar counts={navigationBadges} />
           </ErrorBoundary>
         </div>
       )}
