@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentRun, AgentRunStatus } from '@shared/agentRun.types'
-import type { Plan } from '@shared/plan.types'
-import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
-import { OPENAI_MODELS } from '@shared/openaiModels'
-import { Icon, type IconName } from '../../components/Icon'
-import { Spinner } from '../../components/ui/Spinner'
+import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { useAgentStore } from '../../stores/agentStore'
 import { useProjectStore } from '../../stores/projectStore'
@@ -12,31 +8,15 @@ import { useChatStore } from '../../stores/chatStore'
 import { useUiStore } from '../../stores/uiStore'
 import { formatRelativeTime } from '../../lib/time'
 import { AgentRunEditor, type AgentRunEditorSeed } from './AgentRunEditor'
+import { AgentRunConversation } from './AgentRunConversation'
+import {
+  STATUS_ICON,
+  STATUS_LABEL,
+  formatCompactTokens,
+  providerIcon,
+  providerLabel
+} from './agentRunFormat'
 import styles from './AgentView.module.css'
-
-/** Compact step-list preview of a run's plan — same visual shape as the Workspace Dock's PlanPanel. */
-function PlanPreview({ plan }: { plan: Plan }): JSX.Element {
-  return (
-    <ul className={styles.planSteps}>
-      {plan.steps.map((step, index) => (
-        <li key={step.id} className={`${styles.planStep} ${styles[`planStep-${step.status}`]}`}>
-          <span className={styles.planStepIcon}>
-            {step.status === 'completed' ? (
-              <Icon name="check" size={12} />
-            ) : step.status === 'in_progress' ? (
-              <Spinner size={11} />
-            ) : (
-              <Icon name="circle" size={12} />
-            )}
-          </span>
-          <span className={styles.planStepTitle}>
-            {index + 1}. {step.title}
-          </span>
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 /** IDs of runs whose "just arrived" card animation has already played this
  *  session — module-level (not component state) so switching away from
@@ -67,43 +47,6 @@ function useJustArrived(run: AgentRun): boolean {
   return justArrived
 }
 
-/** Short "backend used" label for a run card, e.g. "Local", "Claude · Claude Sonnet 5". */
-function providerLabel(run: AgentRun): string {
-  if (run.provider === 'local') return 'Local'
-  if (run.provider === 'anthropic') {
-    const label = ANTHROPIC_MODELS.find((m) => m.id === run.model)?.label ?? run.model
-    return `Claude${label ? ` · ${label}` : ''}`
-  }
-  const label = OPENAI_MODELS.find((m) => m.id === run.model)?.label ?? run.model
-  return `OpenAI${label ? ` · ${label}` : ''}`
-}
-
-/** Local runs use the engine icon; cloud runs (Claude/OpenAI) share a generic cloud-model icon. */
-function providerIcon(run: AgentRun): IconName {
-  return run.provider === 'local' ? 'cpu' : 'sparkle'
-}
-
-/** Compact token count for the live status badge, e.g. 12400 -> "12.4k". */
-function formatCompactTokens(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-}
-
-const STATUS_ICON: Record<AgentRunStatus, IconName> = {
-  running: 'activity',
-  'needs-review': 'eye',
-  done: 'check',
-  stopped: 'stop',
-  error: 'alert'
-}
-
-const STATUS_LABEL: Record<AgentRunStatus, string> = {
-  running: 'Running',
-  'needs-review': 'Needs review',
-  done: 'Done',
-  stopped: 'Stopped',
-  error: 'Error'
-}
-
 type StatusFilter = AgentRunStatus | 'all'
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
@@ -118,25 +61,19 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 function RunCard({
   run,
   stoppingId,
-  decidingId,
   projectName,
-  openConversation,
+  openRun,
   handleStop,
   retryRun,
-  deleteRun,
-  handleApprove,
-  handleReject
+  deleteRun
 }: {
   run: AgentRun
   stoppingId: string | null
-  decidingId: string | null
   projectName: (projectId: string | null) => string | null
-  openConversation: (run: AgentRun) => void
+  openRun: (run: AgentRun) => void
   handleStop: (run: AgentRun) => void
   retryRun: (run: AgentRun) => void
-  deleteRun: (id: string) => void
-  handleApprove: (run: AgentRun) => void
-  handleReject: (run: AgentRun) => void
+  deleteRun: (run: AgentRun) => void
 }): JSX.Element {
   const justArrived = useJustArrived(run)
 
@@ -147,7 +84,7 @@ function RunCard({
       }`}
     >
       <div className={styles.runRow}>
-        <button type="button" className={styles.runMain} onClick={() => openConversation(run)}>
+        <button type="button" className={styles.runMain} onClick={() => openRun(run)}>
           <div className={styles.runTitleRow}>
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
               <Icon
@@ -222,16 +159,6 @@ function RunCard({
           <button
             type="button"
             className={styles.iconAction}
-            onClick={() => openConversation(run)}
-            disabled={!run.conversationId}
-            aria-label="Open conversation"
-            title="Open conversation"
-          >
-            <Icon name="send" size={14} />
-          </button>
-          <button
-            type="button"
-            className={styles.iconAction}
             onClick={() => retryRun(run)}
             aria-label="Retry with these settings"
             title="Retry with these settings"
@@ -241,7 +168,7 @@ function RunCard({
           <button
             type="button"
             className={styles.iconAction}
-            onClick={() => deleteRun(run.id)}
+            onClick={() => deleteRun(run)}
             disabled={run.status === 'running'}
             aria-label="Delete run"
             title={run.status === 'running' ? 'Stop the run before deleting it' : 'Delete run'}
@@ -250,27 +177,6 @@ function RunCard({
           </button>
         </div>
       </div>
-      {run.status === 'needs-review' && run.plan && (
-        <div className={styles.planReview}>
-          <PlanPreview plan={run.plan} />
-          <div className={styles.planReviewActions}>
-            <Button
-              variant="secondary"
-              onClick={() => handleReject(run)}
-              disabled={decidingId === run.id}
-            >
-              Reject
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => handleApprove(run)}
-              loading={decidingId === run.id}
-            >
-              Approve
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -278,6 +184,10 @@ function RunCard({
 /**
  * Dedicated main view for autonomous agent runs — replaces the chat pane the
  * same way `SchedulerView` does (inline, not a popup or separate window).
+ *
+ * Clicking a run drills into its own log *inside Agent* rather than ejecting
+ * into the sidebar's chat list: a run is a machine working unattended, and its
+ * transcript belongs where its controls and history already are.
  */
 export function AgentView(): JSX.Element {
   const runs = useAgentStore((s) => s.runs)
@@ -287,7 +197,7 @@ export function AgentView(): JSX.Element {
   const rejectRunPlan = useAgentStore((s) => s.rejectPlan)
   const projects = useProjectStore((s) => s.projects)
   const setActiveProject = useProjectStore((s) => s.setActive)
-  const selectConversation = useChatStore((s) => s.selectConversation)
+  const forkConversation = useChatStore((s) => s.forkConversation)
   const setView = useUiStore((s) => s.setView)
   const notify = useUiStore((s) => s.notify)
 
@@ -296,6 +206,11 @@ export function AgentView(): JSX.Element {
   const [stoppingId, setStoppingId] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+
+  // Read the drilled-into run from `runs` (not held in state) so a run finishing
+  // or taking a turn while its log is open updates in place, never a stale copy.
+  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null
 
   const visibleRuns =
     statusFilter === 'all' ? runs : runs.filter((run) => run.status === statusFilter)
@@ -323,17 +238,31 @@ export function AgentView(): JSX.Element {
   const projectName = (projectId: string | null): string | null =>
     projects.find((p) => p.id === projectId)?.name ?? null
 
-  const openConversation = (run: AgentRun): void => {
+  /**
+   * Carries a run's log into an ordinary chat. The log itself stays read-only —
+   * it's a record of what ran unattended — so this forks a fresh conversation
+   * the user owns instead of reopening the run's own transcript for edits.
+   */
+  const continueInChat = (run: AgentRun): void => {
     if (!run.conversationId) {
       notify({
         kind: 'info',
-        title: 'Nothing to show yet',
-        message: 'This run has not started yet.'
+        title: 'Nothing to continue',
+        message: 'This run has not produced a conversation yet.'
+      })
+      return
+    }
+    const shortGoal = run.goal.length > 48 ? `${run.goal.slice(0, 48)}…` : run.goal
+    const forkedId = forkConversation(run.conversationId, `${shortGoal} (continued)`)
+    if (!forkedId) {
+      notify({
+        kind: 'error',
+        title: 'Could not continue',
+        message: "This run's conversation is no longer available."
       })
       return
     }
     void setActiveProject(run.projectId)
-    void selectConversation(run.conversationId)
     setView('chat')
   }
 
@@ -344,6 +273,11 @@ export function AgentView(): JSX.Element {
     } finally {
       setStoppingId(null)
     }
+  }
+
+  const handleDelete = async (run: AgentRun): Promise<void> => {
+    if (selectedRunId === run.id) setSelectedRunId(null)
+    await deleteRun(run.id)
   }
 
   const handleApprove = async (run: AgentRun): Promise<void> => {
@@ -362,6 +296,32 @@ export function AgentView(): JSX.Element {
     } finally {
       setDecidingId(null)
     }
+  }
+
+  const editor = (creating || retrySeed) && (
+    <AgentRunEditor seed={retrySeed ?? undefined} onClose={closeEditor} />
+  )
+
+  // Drilled into one run: the whole pane becomes its log, the list a click away.
+  if (selectedRun) {
+    return (
+      <div className={styles.view}>
+        <AgentRunConversation
+          run={selectedRun}
+          projectName={projectName(selectedRun.projectId)}
+          stopping={stoppingId === selectedRun.id}
+          deciding={decidingId === selectedRun.id}
+          onBack={() => setSelectedRunId(null)}
+          onStop={() => void handleStop(selectedRun)}
+          onRetry={() => retryRun(selectedRun)}
+          onDelete={() => void handleDelete(selectedRun)}
+          onApprove={() => void handleApprove(selectedRun)}
+          onReject={() => void handleReject(selectedRun)}
+          onContinueInChat={() => continueInChat(selectedRun)}
+        />
+        {editor}
+      </div>
+    )
   }
 
   return (
@@ -413,22 +373,17 @@ export function AgentView(): JSX.Element {
               key={run.id}
               run={run}
               stoppingId={stoppingId}
-              decidingId={decidingId}
               projectName={projectName}
-              openConversation={openConversation}
+              openRun={(r) => setSelectedRunId(r.id)}
               handleStop={(r) => void handleStop(r)}
               retryRun={retryRun}
-              deleteRun={(id) => void deleteRun(id)}
-              handleApprove={(r) => void handleApprove(r)}
-              handleReject={(r) => void handleReject(r)}
+              deleteRun={(r) => void handleDelete(r)}
             />
           ))}
         </div>
       )}
 
-      {(creating || retrySeed) && (
-        <AgentRunEditor seed={retrySeed ?? undefined} onClose={closeEditor} />
-      )}
+      {editor}
     </div>
   )
 }
