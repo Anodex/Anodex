@@ -184,6 +184,12 @@ IPC. Clearing assets must never delete conversations; stale references degrade
 through the unavailable-preview UI.
 Permanent conversation deletion must remove its assets.
 
+Missing user attachments use the native `attachments.pickImage` bridge and
+validate the replacement through `attachments.readFile` before rewriting only
+that message's attachment metadata. Missing tool previews retry their durable
+asset first; Re-inspect/Show Again creates an ordinary user follow-up so the
+normal tool registry, permissions, and workspace confinement still apply.
+
 #### Tool approval
 
 - Read tools (`runReadTool`): never ask.

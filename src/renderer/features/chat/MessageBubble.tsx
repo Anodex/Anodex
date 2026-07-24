@@ -153,7 +153,7 @@ export function MessageBubble({
           </>
         )}
         {message.attachments && message.attachments.length > 0 && (
-          <MessageAttachments attachments={message.attachments} />
+          <MessageAttachments attachments={message.attachments} messageId={message.id} />
         )}
         {!isUser && message.memoryUsed && message.memoryUsed.length > 0 && (
           <div className={styles.memoryUsed}>

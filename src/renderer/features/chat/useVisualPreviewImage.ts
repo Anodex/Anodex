@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ToolCallPreview } from '@shared/tools.types'
 import { anodex } from '../../lib/anodex'
 
@@ -7,6 +7,8 @@ export type ImagePreview = Extract<ToolCallPreview, { kind: 'image' }>
 export interface VisualPreviewImageState {
   dataUrl: string | null
   unavailable: boolean
+  loading: boolean
+  retry: () => void
 }
 
 /** Loads live preview pixels or reopens their durable conversation asset. */
@@ -16,6 +18,8 @@ export function useVisualPreviewImage(
 ): VisualPreviewImageState {
   const [dataUrl, setDataUrl] = useState(enabled ? (preview.dataUrl ?? null) : null)
   const [unavailable, setUnavailable] = useState(enabled && !preview.dataUrl && !preview.asset)
+  const [attempt, setAttempt] = useState(0)
+  const retry = useCallback(() => setAttempt((value) => value + 1), [])
 
   useEffect(() => {
     if (!enabled) {
@@ -50,7 +54,7 @@ export function useVisualPreviewImage(
     return () => {
       cancelled = true
     }
-  }, [enabled, preview.asset, preview.dataUrl])
+  }, [attempt, enabled, preview.asset, preview.dataUrl])
 
-  return { dataUrl, unavailable }
+  return { dataUrl, unavailable, loading: enabled && !dataUrl && !unavailable, retry }
 }

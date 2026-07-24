@@ -4,12 +4,15 @@ import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { ExpandableImage } from '../../components/ui/ExpandableImage'
 import { formatBytes } from '../../lib/format'
 import { loadAttachmentImage } from './loadAttachmentImage'
+import { relocateMessageAttachment } from './relocateMessageAttachment'
 import styles from './MessageAttachments.module.css'
 
 export function MessageAttachments({
-  attachments
+  attachments,
+  messageId
 }: {
   attachments: ChatAttachment[]
+  messageId: string
 }): JSX.Element {
   const images = attachments.filter((attachment) => attachment.kind === 'image')
   const files = attachments.filter((attachment) => attachment.kind !== 'image')
@@ -19,7 +22,11 @@ export function MessageAttachments({
       {images.length > 0 && (
         <div className={styles.images}>
           {images.map((attachment) => (
-            <InlineImageAttachment key={attachment.path} attachment={attachment} />
+            <InlineImageAttachment
+              key={attachment.path}
+              attachment={attachment}
+              messageId={messageId}
+            />
           ))}
         </div>
       )}
@@ -38,9 +45,18 @@ export function MessageAttachments({
   )
 }
 
-function InlineImageAttachment({ attachment }: { attachment: ChatAttachment }): JSX.Element {
+function InlineImageAttachment({
+  attachment,
+  messageId
+}: {
+  attachment: ChatAttachment
+  messageId: string
+}): JSX.Element {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
   const [unavailable, setUnavailable] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const [locating, setLocating] = useState(false)
+  const [locateError, setLocateError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -54,7 +70,15 @@ function InlineImageAttachment({ attachment }: { attachment: ChatAttachment }): 
     return () => {
       cancelled = true
     }
-  }, [attachment])
+  }, [attachment, attempt])
+
+  const locate = async (): Promise<void> => {
+    setLocating(true)
+    setLocateError('')
+    const result = await relocateMessageAttachment(messageId, attachment.path)
+    if (result.status === 'error') setLocateError(result.message)
+    setLocating(false)
+  }
 
   return (
     <figure className={styles.imageCard} title={attachment.path}>
@@ -68,9 +92,31 @@ function InlineImageAttachment({ attachment }: { attachment: ChatAttachment }): 
             triggerClassName={styles.imageButton}
           />
         ) : (
-          <span className={styles.imageStatus}>
-            {unavailable ? 'Image unavailable' : 'Loading image…'}
-          </span>
+          <div className={styles.imageStatus}>
+            <span>{unavailable ? 'Image unavailable' : 'Loading image…'}</span>
+            {unavailable && (
+              <span className={styles.recoveryActions}>
+                <button
+                  type="button"
+                  className={styles.recoveryButton}
+                  onClick={() => setAttempt((value) => value + 1)}
+                  aria-label={`Retry ${attachment.name}`}
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  className={styles.recoveryButton}
+                  onClick={() => void locate()}
+                  disabled={locating}
+                  aria-label={`Locate file for ${attachment.name}`}
+                >
+                  {locating ? 'Locating…' : 'Locate file'}
+                </button>
+              </span>
+            )}
+            {locateError && <span className={styles.recoveryError}>{locateError}</span>}
+          </div>
         )}
       </div>
       <figcaption className={styles.caption}>

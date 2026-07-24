@@ -227,6 +227,17 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     await expect(mainWindow.getByAltText('Before: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('After: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('Assistant image of result.png')).toBeVisible()
+
+    await mainWindow.evaluate(async () => {
+      const anodex = (globalThis as unknown as { anodex: AnodexApi }).anodex
+      await anodex.conversations.clearVisualPreviews()
+    })
+    await mainWindow.reload()
+    await expect(mainWindow.getByRole('button', { name: 'Retry Rendered page.html' })).toBeVisible()
+    await expect(
+      mainWindow.getByRole('button', { name: 'Re-inspect page.html' }).last()
+    ).toBeVisible()
+    await expect(mainWindow.getByRole('button', { name: 'Show again result.png' })).toBeVisible()
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })
@@ -290,6 +301,14 @@ test('persisted uploaded images reopen inline in user messages', async () => {
     ).toBeVisible()
     await mainWindow.getByRole('button', { name: 'Close fullscreen image' }).click()
     await expect(openButton).toBeFocused()
+
+    await rm(imagePath)
+    await mainWindow.reload()
+    await expect(mainWindow.getByText('Image unavailable')).toBeVisible()
+    await expect(mainWindow.getByRole('button', { name: 'Retry robot.png' })).toBeVisible()
+    await expect(
+      mainWindow.getByRole('button', { name: 'Locate file for robot.png' })
+    ).toBeVisible()
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })

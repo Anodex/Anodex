@@ -253,7 +253,8 @@ export const IpcChannel = {
   },
   Attachments: {
     readFile: 'attachments:read-file',
-    pickFiles: 'attachments:pick-files'
+    pickFiles: 'attachments:pick-files',
+    pickImage: 'attachments:pick-image'
   },
   Toast: {
     /** Show a themed desktop toast in its own always-on-top window. */
@@ -552,6 +553,8 @@ export interface AnodexApi {
     readFile(absolutePath: string): Promise<Result<AttachmentContent>>
     /** Open a native multi-select file picker for composer attachments. Empty array if cancelled. */
     pickFiles(): Promise<{ path: string; name: string }[]>
+    /** Locate one supported replacement image. Null if cancelled. */
+    pickImage(): Promise<{ path: string; name: string } | null>
   }
   system: {
     getInfo(): Promise<SystemInfo>

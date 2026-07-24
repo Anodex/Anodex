@@ -37,6 +37,7 @@ describe('MessageAttachments', () => {
   it('renders image loading cards and keeps ordinary files as compact chips', () => {
     const html = renderToStaticMarkup(
       <MessageAttachments
+        messageId="message-1"
         attachments={[
           IMAGE_ATTACHMENT,
           {

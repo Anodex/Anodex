@@ -259,6 +259,12 @@ Settings → Tools reports bytes, image count, conversation count, and both
 limits, with a confirmed clear action that removes preview pixels while leaving
 conversation JSON and messages intact.
 
+Unavailable uploaded images now offer Retry and a native Locate Image flow; a
+validated replacement updates the original message metadata and persists across
+restarts. Unavailable inspected and assistant-shown previews offer Retry plus a
+provider-appropriate Re-inspect or Show Again follow-up prompt. Recovery never
+bypasses workspace confinement or image signature/size validation.
+
 Keep future work focused on measured compatibility additions (more media
 formats or model families), not a second vision transport. Preserve loopback
 isolation, bounded payloads, the existing guarded Anodex tool handlers, and the

@@ -53,7 +53,8 @@ folder.
   images render inline in the user message and reopen from their original path
   without storing image bytes in conversation JSON. Select any available chat
   image to open a fullscreen, keyboard-accessible viewer with zoom, drag-to-pan,
-  copy, and save controls.
+  copy, and save controls. If the original file moved, the message offers Retry
+  and Locate File; choosing a replacement updates the saved attachment metadata.
 - Desktop notifications and a short AI-generated toast summary when a reply
   finishes while the window isn't focused.
 - A "jump to latest" button appears when you've scrolled up during a long or
@@ -338,7 +339,8 @@ A side panel with configurable sections alongside the chat:
 - **Tools → Visual preview storage** shows the local space used by inspected
   and assistant-shown images and can clear those pixels without deleting chat
   messages. Storage is bounded automatically to 64 MB per conversation and
-  256 MB total, removing the oldest previews first.
+  256 MB total, removing the oldest previews first. Missing previews offer Retry
+  plus Re-inspect or Show Again for the same workspace path.
 - **Hardware-aware recommendations**: detects your RAM/VRAM/GPU and scores
   every catalog model against your actual machine (a 0-100 fit score), with
   "Best Overall / Best Coding / Fastest / Low RAM / Large Context" picks.

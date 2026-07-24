@@ -74,6 +74,22 @@ async function pickFiles(event: IpcMainInvokeEvent): Promise<{ path: string; nam
   return picked.filePaths.map((path) => ({ path, name: basename(path) }))
 }
 
+async function pickImage(
+  event: IpcMainInvokeEvent
+): Promise<{ path: string; name: string } | null> {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const options: OpenDialogOptions = {
+    title: 'Locate image',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp'] }]
+  }
+  const picked = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options)
+  const path = picked.canceled ? undefined : picked.filePaths[0]
+  return path ? { path, name: basename(path) } : null
+}
+
 /**
  * IPC handler for reading a file the user dropped/dragged into the chat composer.
  *
@@ -87,6 +103,7 @@ async function pickFiles(event: IpcMainInvokeEvent): Promise<{ path: string; nam
  */
 export function registerAttachmentHandlers(): void {
   ipcMain.handle(IpcChannel.Attachments.pickFiles, (event) => pickFiles(event))
+  ipcMain.handle(IpcChannel.Attachments.pickImage, (event) => pickImage(event))
 
   ipcMain.handle(IpcChannel.Attachments.readFile, async (_event, absolutePath: string) => {
     try {

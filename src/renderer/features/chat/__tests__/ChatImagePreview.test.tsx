@@ -136,6 +136,24 @@ describe('ChatImagePreview', () => {
     expect(html).toContain('Loading screenshot')
   })
 
+  it('offers retry and re-inspection when preview pixels are unavailable', () => {
+    const html = renderToStaticMarkup(
+      <ChatImagePreview
+        preview={{
+          kind: 'image',
+          source: 'inspection',
+          title: 'Rendered page.html',
+          path: 'page.html',
+          mimeType: 'image/png'
+        }}
+      />
+    )
+
+    expect(html).toContain('This visual preview is no longer available.')
+    expect(html).toContain('aria-label="Retry Rendered page.html"')
+    expect(html).toContain('aria-label="Re-inspect page.html"')
+  })
+
   it('keeps the finished turn recap open when it contains an inspected image', () => {
     const call = {
       id: 'tool-1',
