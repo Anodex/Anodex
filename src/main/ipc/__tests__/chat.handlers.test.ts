@@ -211,4 +211,33 @@ describe('chat IPC handlers', () => {
     expect(message).not.toContain('Object is disposed')
     expect(message).toContain('reloaded')
   })
+
+  it('translates a raw "terminated" stream error into an actionable vision-runtime message', async () => {
+    registerChatHandlers()
+    const handler = mocks.handlers.get(IpcChannel.Chat.send)
+
+    mocks.generate.mockReset()
+    // undici throws a bare `terminated` when the vision llama-server drops the
+    // connection mid-reply — the user must never see that raw word.
+    mocks.generate.mockRejectedValue(new Error('terminated'))
+
+    const result = await handler?.({ sender: { isDestroyed: () => false, send: vi.fn() } }, {
+      conversationId: 'c1',
+      messageId: 'm1',
+      projectId: null,
+      systemPrompt: '',
+      context: undefined,
+      history: [],
+      prompt: 'hi',
+      plan: null
+    } satisfies ChatRequest)
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'chat.vision-runtime-stopped' }
+    })
+    const message = (result as { error: { message: string } }).error.message
+    expect(message).not.toBe('terminated')
+    expect(message.toLowerCase()).toContain('memory')
+  })
 })

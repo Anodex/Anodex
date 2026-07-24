@@ -17,6 +17,7 @@ import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import { createLogger } from '../utils/logger'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
+import { isDroppedStreamError } from './droppedStreamError'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import type { GenerateOutcome, GenerateParams } from './LlamaService'
 import type { ModelLoadOptions } from '@shared/model.types'
@@ -162,7 +163,7 @@ export class LlamaVisionService {
           stopped = true
           break
         }
-        throw error
+        throw await this.describeGenerationError(error)
       }
 
       if (outputTokens === 0) {
@@ -228,6 +229,28 @@ export class LlamaVisionService {
             ? 'token-limit'
             : undefined
     }
+  }
+
+  /**
+   * Rewrite a raw provider/transport error into something actionable. Node's
+   * `undici` surfaces a connection that dropped mid-stream as a bare
+   * `TypeError: terminated` — exactly what happens when the private llama-server
+   * process dies (most often an out-of-memory kill) while a reply is still
+   * streaming. Give the runtime a moment to record its exit, then fold its real
+   * exit code / stderr tail into the message instead of leaking `terminated`.
+   */
+  private async describeGenerationError(error: unknown): Promise<Error> {
+    if (!isDroppedStreamError(error)) {
+      return error instanceof Error ? error : new Error(String(error))
+    }
+    await this.runtime.settleExit()
+    const reason = this.runtime.describeUnexpectedStop()
+    return new Error(
+      reason ??
+        'The local vision model stopped unexpectedly while generating (most likely it ran out of ' +
+          'memory). Reload the model, lower its context size, or choose a smaller vision model, then ' +
+          'try again.'
+    )
   }
 
   async completeText(

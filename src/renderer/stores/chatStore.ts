@@ -477,6 +477,10 @@ export const useChatStore = create<ChatState>()(
         const convo = state.conversations.find((c) => c.id === conversationId)
         const message = convo?.messages.find((m) => m.id === assistantId)
         if (!convo || !message) return
+        // Captured before it's cleared: a failed turn salvages this in the
+        // error branch below (the ok branch recovers the same text from the
+        // authoritative server reply instead).
+        const quarantinedTail = pendingToolPayloadByMessage.get(assistantId) ?? ''
         pendingToolPayloadByMessage.delete(assistantId)
         message.streaming = false
         if (result.ok) {
@@ -519,6 +523,20 @@ export const useChatStore = create<ChatState>()(
           }
           if (result.value.thinking) message.thinking = result.value.thinking
         } else {
+          // A failed turn has no authoritative final reply to fall back on
+          // (unlike the ok branch's `result.value.content`), so any text still
+          // held in the tool-payload quarantine — tokens that *looked* like they
+          // might begin a tool call, but which no tool call ever arrived to
+          // consume, so they are real prose here — would otherwise be silently
+          // dropped. Fold it back into the partial reply the user already
+          // watched stream, so a mid-turn crash keeps its visible work.
+          if (quarantinedTail) {
+            message.content += quarantinedTail
+            if (!message.blocks) message.blocks = []
+            const lastBlock = message.blocks[message.blocks.length - 1]
+            if (lastBlock?.type === 'text') lastBlock.text += quarantinedTail
+            else message.blocks.push({ type: 'text', text: quarantinedTail })
+          }
           if (message.toolCalls?.length) {
             const toolNames = TOOL_CATALOG.map((tool) => tool.name)
             message.content = stripToolCallText(message.content, new Set(toolNames))

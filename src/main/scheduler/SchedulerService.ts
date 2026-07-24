@@ -70,6 +70,19 @@ class SchedulerService {
       .filter((task) => task.enabled && task.nextRunAt !== null && task.nextRunAt <= now)
     if (due.length === 0) return
 
+    // Never contend with a foreground reply. A due task waits (its `nextRunAt`
+    // is left untouched, so the next tick retries) rather than colliding with
+    // the user's own generation on the single local engine — otherwise the
+    // model lock would just queue this background run right behind their chat,
+    // and before that guard existed it failed outright with "A response is
+    // already being generated".
+    if (llamaService.isGenerating()) {
+      log.info(
+        `${due.length} task(s) due while a foreground reply is generating — deferring to a later tick`
+      )
+      return
+    }
+
     // Only one task runs at a time. The rest aren't dropped — their `nextRunAt`
     // is left alone, so the next tick picks them up as soon as the lock frees —
     // but the wait is recorded as `delayedMs` on whichever run eventually

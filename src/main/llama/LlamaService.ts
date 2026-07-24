@@ -79,6 +79,7 @@ import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
 import { defaultToolThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { LlamaVisionService } from './LlamaVisionService'
+import { createAsyncMutex } from './asyncMutex'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
@@ -379,6 +380,19 @@ class LlamaService extends EventEmitter {
    * instead of racing the native engine.
    */
   private loadingModel = false
+  /**
+   * Serializes every model-touching operation onto the single loaded model.
+   * The local vision runtime is a `llama-server` started with `--parallel 1`,
+   * so a second concurrent request — a toast summary or chat-title generation
+   * firing while a reply is still streaming — drops the in-flight HTTP stream
+   * and surfaces as a raw `terminated` error. This lock makes those auxiliary
+   * calls *defer* until the active generation finishes instead of racing it.
+   * Acquired only at the public entry points (`generate`, `summarizeForToast`,
+   * `generateChatTitle`, `compactConversationContext`); the shared internal
+   * summary helpers run under the caller's already-held lock, so a mid-turn
+   * compaction never deadlocks against it.
+   */
+  private readonly modelLock = createAsyncMutex()
 
   getState(): EngineState {
     return {
@@ -512,8 +526,39 @@ class LlamaService extends EventEmitter {
     return this.getState()
   }
 
-  /** Generate an assistant reply, streaming decoded tokens via `onToken`. */
+  /**
+   * Acquire the single-model serialization lock. Resolves to a `release`
+   * callback once any prior holder finishes. See {@link modelLock}.
+   */
+  private acquireModelLock(): Promise<() => void> {
+    return this.modelLock.acquire()
+  }
+
+  /**
+   * Whether an interactive/scheduled reply is currently generating. Auxiliary
+   * callers (e.g. the scheduler) check this to avoid queuing background work
+   * behind a live reply. Does not include the short summary/title helpers,
+   * which the model lock already serializes.
+   */
+  isGenerating(): boolean {
+    return this.generating
+  }
+
+  /**
+   * Generate an assistant reply, streaming decoded tokens via `onToken`.
+   * Holds the single-model lock for the whole turn so no auxiliary call can
+   * race the underlying runtime (see {@link modelLock}).
+   */
   async generate(params: GenerateParams): Promise<GenerateOutcome> {
+    const release = await this.acquireModelLock()
+    try {
+      return await this.generateInternal(params)
+    } finally {
+      release()
+    }
+  }
+
+  private async generateInternal(params: GenerateParams): Promise<GenerateOutcome> {
     if (this.status !== 'ready' || (!this.context && !this.visionService.active)) {
       throw new Error('No model is loaded. Load a model from the Models tab first.')
     }
@@ -1319,6 +1364,7 @@ class LlamaService extends EventEmitter {
   async summarizeForToast(text: string, maxWords: number): Promise<string | null> {
     if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
 
+    const release = await this.acquireModelLock()
     try {
       const truncated = text.length > 1200 ? `${text.slice(0, 1200)}…` : text
       const prompt =
@@ -1340,6 +1386,8 @@ class LlamaService extends EventEmitter {
     } catch (error) {
       log.warn('Toast summary generation failed:', error)
       return null
+    } finally {
+      release()
     }
   }
 
@@ -1347,6 +1395,7 @@ class LlamaService extends EventEmitter {
   async generateChatTitle(request: ChatTitleRequest): Promise<string | null> {
     if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
 
+    const release = await this.acquireModelLock()
     try {
       const context = renderTitleContext(request)
       const prompt =
@@ -1364,6 +1413,8 @@ class LlamaService extends EventEmitter {
     } catch (error) {
       log.warn('Chat title generation failed:', error)
       return null
+    } finally {
+      release()
     }
   }
 
@@ -1395,15 +1446,21 @@ class LlamaService extends EventEmitter {
     // compactions.
     const countTokens = (text: string): number =>
       this.model ? this.model.tokenize(text).length : this.visionService.countPromptTokens(text)
-    const summary = await foldIntoRollingSummary({
-      items: plan.older,
-      previousSummary: plan.previousSummary ?? undefined,
-      renderTranscript: renderTurnsForSummary,
-      itemTranscriptCost: (turn) => countTokens(renderTurnsForSummary([turn])),
-      countTokens,
-      summarize: (chunk, previousSummary) =>
-        this.summarizeHistoryForCompaction(chunk, previousSummary)
-    })
+    const release = await this.acquireModelLock()
+    let summary: string | undefined
+    try {
+      summary = await foldIntoRollingSummary({
+        items: plan.older,
+        previousSummary: plan.previousSummary ?? undefined,
+        renderTranscript: renderTurnsForSummary,
+        itemTranscriptCost: (turn) => countTokens(renderTurnsForSummary([turn])),
+        countTokens,
+        summarize: (chunk, previousSummary) =>
+          this.summarizeHistoryForCompaction(chunk, previousSummary)
+      })
+    } finally {
+      release()
+    }
     if (!summary || summary === plan.previousSummary) return null
 
     return {

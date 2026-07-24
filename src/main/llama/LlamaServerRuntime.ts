@@ -33,6 +33,13 @@ export class LlamaServerRuntime {
   private connection?: LlamaServerConnection
   private diagnosticOutput = ''
   private readonly expectedExits = new WeakSet<ChildProcessWithoutNullStreams>()
+  /**
+   * Details of the most recent process exit, captured whether or not it was
+   * expected, so a mid-generation stream failure can report the real reason
+   * (exit code + the tail of the process's own stdout/stderr) instead of the
+   * bare `terminated` that `undici` throws when the connection drops.
+   */
+  private lastExit?: { code: number | null; signal: NodeJS.Signals | null; diagnostic: string }
 
   constructor(private readonly onUnexpectedExit?: (message: string) => void) {}
 
@@ -107,6 +114,7 @@ export class LlamaServerRuntime {
         this.child = undefined
         this.connection = undefined
       }
+      this.lastExit = { code, signal, diagnostic: this.diagnosticOutput.trim() }
       if (!this.expectedExits.delete(child)) {
         const message = `The local vision runtime stopped unexpectedly (${code ?? signal ?? 'unknown'}). Reload the model to continue.`
         log.error(message)
@@ -150,6 +158,39 @@ export class LlamaServerRuntime {
       child.kill('SIGKILL')
       await Promise.race([exited, delay(1000)])
     }
+  }
+
+  /**
+   * Wait for the current child to finish exiting (or return immediately if none
+   * is running). Lets a caught mid-stream error give the `exit` handler a
+   * chance to record the exit code + stderr before a diagnostic is built.
+   */
+  async settleExit(timeoutMs = 1500): Promise<void> {
+    const child = this.child
+    if (!child) return
+    await Promise.race([
+      new Promise<void>((resolveExit) => child.once('exit', () => resolveExit())),
+      delay(timeoutMs)
+    ])
+  }
+
+  /**
+   * A human-readable reason the runtime is no longer serving requests, when it
+   * has stopped. Turns `undici`'s bare `terminated` — surfaced when the process
+   * drops the connection mid-generation, most often an out-of-memory kill —
+   * into an actionable message that names the real cause. Returns `undefined`
+   * while the runtime is still connected (i.e. the failure was not a stop).
+   */
+  describeUnexpectedStop(): string | undefined {
+    if (this.connection) return undefined
+    const exit = this.lastExit
+    const code = exit ? (exit.code ?? exit.signal ?? 'unknown') : 'unknown'
+    const tail = exit?.diagnostic ? `\n\n${tailLines(exit.diagnostic, 12)}` : ''
+    return (
+      `The local vision model's runtime stopped unexpectedly (exit ${code}) while generating. ` +
+      'This most often means it ran out of memory — reload the model, lower its context size, ' +
+      `or choose a smaller vision model, then try again.${tail}`
+    )
   }
 
   private async waitUntilReady(

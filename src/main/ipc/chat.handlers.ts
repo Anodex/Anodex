@@ -3,6 +3,7 @@ import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ChatCompactRequest, ChatRequest, ChatTitleRequest } from '@shared/chat.types'
 import { llamaService } from '../llama/LlamaService'
+import { isDroppedStreamMessage } from '../llama/droppedStreamError'
 import { requestToolConfirmation } from './tools.handlers'
 import { runBoundedChatGeneration } from '../chat/boundedChatRunner'
 import {
@@ -14,6 +15,10 @@ import {
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:chat')
+
+const VISION_RUNTIME_STOPPED_MESSAGE =
+  'The local vision model stopped unexpectedly (most likely it ran out of memory). Reload the ' +
+  'model, lower its context size, or choose a smaller vision model, then try again.'
 
 /** Abort every in-flight chat generation — called on app quit. */
 export function abortAllChatGenerations(): void {
@@ -89,6 +94,14 @@ export function registerChatHandlers(): void {
           message
         )
       }
+      // A bare `terminated` (or socket "other side closed") means the local
+      // vision runtime's llama-server process dropped the connection mid-reply,
+      // most often an out-of-memory kill. The vision provider already rewrites
+      // this with the runtime's real exit reason; this is a catch-all for any
+      // other path so the user never sees the raw word.
+      if (isDroppedStreamMessage(message)) {
+        return err('chat.vision-runtime-stopped', VISION_RUNTIME_STOPPED_MESSAGE, message)
+      }
       return err('chat.generation-failed', message)
     } finally {
       releaseGeneration(request.conversationId, controller)
@@ -105,6 +118,9 @@ export function registerChatHandlers(): void {
     } catch (error) {
       const message = toErrorMessage(error)
       log.error('Manual context compaction failed:', error)
+      if (isDroppedStreamMessage(message)) {
+        return err('chat.vision-runtime-stopped', VISION_RUNTIME_STOPPED_MESSAGE, message)
+      }
       return err('chat.compaction-failed', message)
     }
   })
