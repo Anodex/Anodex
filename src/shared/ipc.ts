@@ -107,6 +107,7 @@ import type {
   UndoCheckpointRequest,
   UndoCheckpointResult
 } from './checkpoint.types'
+import type { VisualPreviewClearResult, VisualPreviewStorageUsage } from './visualPreview.types'
 
 export const IpcChannel = {
   Models: {
@@ -220,7 +221,9 @@ export const IpcChannel = {
     deleteArchived: 'conversations:delete-archived',
     getState: 'conversations:get-state',
     setState: 'conversations:set-state',
-    readVisualPreview: 'conversations:read-visual-preview'
+    readVisualPreview: 'conversations:read-visual-preview',
+    getVisualPreviewUsage: 'conversations:get-visual-preview-usage',
+    clearVisualPreviews: 'conversations:clear-visual-previews'
   },
   System: {
     getInfo: 'system:get-info',
@@ -512,6 +515,8 @@ export interface AnodexApi {
       conversationId: string,
       assetId: string
     ): Promise<Result<VisualPreviewContent>>
+    getVisualPreviewUsage(): Promise<Result<VisualPreviewStorageUsage>>
+    clearVisualPreviews(): Promise<Result<VisualPreviewClearResult>>
   }
   windowControls: {
     minimize(): Promise<void>

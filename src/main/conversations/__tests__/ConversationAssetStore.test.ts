@@ -99,4 +99,50 @@ describe('ConversationAssetStore', () => {
       'Unsafe visual preview asset id'
     )
   })
+
+  it('reports usage and clears preview pixels without touching conversation data', async () => {
+    const first = await store.saveImage('conversation-1', 'message-1', IMAGE)
+    await store.saveImage('conversation-2', 'message-2', IMAGE)
+
+    await expect(store.getUsage()).resolves.toMatchObject({
+      totalBytes: PNG.length * 2,
+      fileCount: 2,
+      conversationCount: 2
+    })
+    await expect(store.clearAll()).resolves.toEqual({
+      removedBytes: PNG.length * 2,
+      removedFiles: 2
+    })
+    await expect(store.getUsage()).resolves.toMatchObject({
+      totalBytes: 0,
+      fileCount: 0,
+      conversationCount: 0
+    })
+    await expect(store.readImage('conversation-1', first)).rejects.toThrow()
+  })
+
+  it('automatically removes oldest previews over per-conversation and total limits', async () => {
+    const limited = new ConversationAssetStore({
+      conversationBytes: PNG.length * 2,
+      totalBytes: PNG.length * 2
+    })
+    limited.init(root)
+
+    await limited.saveImage('conversation-1', 'message-1', IMAGE)
+    await limited.saveImage('conversation-1', 'message-2', IMAGE)
+    const newest = await limited.saveImage('conversation-1', 'message-3', IMAGE)
+    await expect(limited.getUsage()).resolves.toMatchObject({
+      totalBytes: PNG.length * 2,
+      fileCount: 2,
+      conversationCount: 1
+    })
+    await expect(limited.readImage('conversation-1', newest)).resolves.toBeTruthy()
+
+    const other = await limited.saveImage('conversation-2', 'message-4', IMAGE)
+    await expect(limited.getUsage()).resolves.toMatchObject({
+      totalBytes: PNG.length * 2,
+      fileCount: 2
+    })
+    await expect(limited.readImage('conversation-2', other)).resolves.toBeTruthy()
+  })
 })

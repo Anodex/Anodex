@@ -120,7 +120,9 @@ const api: AnodexApi = {
     getState: () => ipcRenderer.invoke(IpcChannel.Conversations.getState),
     setState: (state) => ipcRenderer.invoke(IpcChannel.Conversations.setState, state),
     readVisualPreview: (conversationId, assetId) =>
-      ipcRenderer.invoke(IpcChannel.Conversations.readVisualPreview, conversationId, assetId)
+      ipcRenderer.invoke(IpcChannel.Conversations.readVisualPreview, conversationId, assetId),
+    getVisualPreviewUsage: () => ipcRenderer.invoke(IpcChannel.Conversations.getVisualPreviewUsage),
+    clearVisualPreviews: () => ipcRenderer.invoke(IpcChannel.Conversations.clearVisualPreviews)
   },
   windowControls: {
     minimize: () => ipcRenderer.invoke(IpcChannel.Window.minimize),

@@ -295,3 +295,39 @@ test('persisted uploaded images reopen inline in user messages', async () => {
     await rm(userDataDir, { recursive: true, force: true })
   }
 })
+
+test('visual preview storage reports usage and clears stored pixels', async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-preview-storage-e2e-'))
+  const assetDir = join(userDataDir, 'conversation-assets', 'storage-test')
+  await mkdir(assetDir, { recursive: true })
+  await writeFile(join(assetDir, 'message-1-preview.png'), ONE_PIXEL_PNG)
+
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const mainWindow = await app.firstWindow()
+    await mainWindow.getByRole('button', { name: 'Settings', exact: true }).click()
+    await mainWindow.getByRole('button', { name: 'Tools', exact: true }).click()
+
+    await expect(mainWindow.getByRole('heading', { name: 'Visual preview storage' })).toBeVisible()
+    await expect(mainWindow.getByText(/1 preview across 1 conversation/)).toBeVisible()
+    await mainWindow.getByRole('button', { name: 'Clear visual previews' }).click()
+    await expect(mainWindow.getByRole('dialog', { name: 'Clear visual previews?' })).toBeVisible()
+    await mainWindow.getByRole('button', { name: 'Clear previews' }).click()
+    await expect(mainWindow.getByText('No visual previews stored')).toBeVisible()
+
+    const usage = await mainWindow.evaluate(async () => {
+      const anodex = (globalThis as unknown as { anodex: AnodexApi }).anodex
+      return anodex.conversations.getVisualPreviewUsage()
+    })
+    expect(usage).toMatchObject({
+      ok: true,
+      value: { totalBytes: 0, fileCount: 0, conversationCount: 0 }
+    })
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})

@@ -335,6 +335,10 @@ A side panel with configurable sections alongside the chat:
   workspace PNG/JPEG/GIF/BMP directly in its reply when the user asks to see a
   result. This display-only path does not claim that a text model inspected the
   pixels and uses the same durable preview storage and fullscreen viewer.
+- **Tools → Visual preview storage** shows the local space used by inspected
+  and assistant-shown images and can clear those pixels without deleting chat
+  messages. Storage is bounded automatically to 64 MB per conversation and
+  256 MB total, removing the oldest previews first.
 - **Hardware-aware recommendations**: detects your RAM/VRAM/GPU and scores
   every catalog model against your actual machine (a 0-100 fit score), with
   "Best Overall / Best Coding / Fastest / Low RAM / Large Context" picks.

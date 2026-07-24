@@ -94,4 +94,30 @@ export function registerConversationHandlers(): void {
       }
     }
   )
+
+  ipcMain.handle(IpcChannel.Conversations.getVisualPreviewUsage, async () => {
+    try {
+      return ok(await conversationAssetStore.getUsage())
+    } catch (error) {
+      log.warn('Failed to read visual preview usage:', error)
+      return err(
+        'conversations.visual-preview-usage-failed',
+        'Could not read visual preview storage usage.',
+        toErrorMessage(error)
+      )
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Conversations.clearVisualPreviews, async () => {
+    try {
+      return ok(await conversationAssetStore.clearAll())
+    } catch (error) {
+      log.warn('Failed to clear visual previews:', error)
+      return err(
+        'conversations.visual-preview-clear-failed',
+        'Could not clear visual previews.',
+        toErrorMessage(error)
+      )
+    }
+  })
 }

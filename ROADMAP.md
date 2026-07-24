@@ -253,6 +253,12 @@ preview assets, transcript renderer, and fullscreen viewer, but deliberately
 does not enqueue pixels back to the provider or imply that a text-only model
 inspected them.
 
+Visual preview assets are capped at 64 MB per conversation and 256 MB across
+the app. The store removes oldest assets first when either bound is exceeded.
+Settings → Tools reports bytes, image count, conversation count, and both
+limits, with a confirmed clear action that removes preview pixels while leaving
+conversation JSON and messages intact.
+
 Keep future work focused on measured compatibility additions (more media
 formats or model families), not a second vision transport. Preserve loopback
 isolation, bounded payloads, the existing guarded Anodex tool handlers, and the

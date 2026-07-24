@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, rmSync, rmdirSync } from 'node:fs'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import type { ChatImageInput } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import type { ToolCallPreview, VisualPreviewContent } from '@shared/tools.types'
+import type {
+  VisualPreviewClearResult,
+  VisualPreviewStorageUsage
+} from '@shared/visualPreview.types'
 import {
   hasExpectedVisionImageSignature,
   MAX_VISION_IMAGE_BYTES,
@@ -15,10 +19,32 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('conversation-assets')
 const SAFE_ID = /^[A-Za-z0-9_-]+$/
 const SAFE_ASSET_ID = /^[A-Za-z0-9_-]+\.(?:png|jpg|jpeg|gif|bmp)$/
+export const MAX_VISUAL_PREVIEW_STORAGE_BYTES = 256 * 1024 * 1024
+export const MAX_CONVERSATION_PREVIEW_STORAGE_BYTES = 64 * 1024 * 1024
+
+interface ConversationAssetStoreLimits {
+  totalBytes: number
+  conversationBytes: number
+}
+
+interface StoredAsset {
+  path: string
+  conversationId: string
+  sizeBytes: number
+  modifiedAt: number
+}
 
 /** Binary screenshot/image storage kept beside, rather than inside, conversation JSON. */
 export class ConversationAssetStore {
   private baseDir = ''
+  private readonly limits: ConversationAssetStoreLimits
+
+  constructor(limits: Partial<ConversationAssetStoreLimits> = {}) {
+    this.limits = {
+      totalBytes: limits.totalBytes ?? MAX_VISUAL_PREVIEW_STORAGE_BYTES,
+      conversationBytes: limits.conversationBytes ?? MAX_CONVERSATION_PREVIEW_STORAGE_BYTES
+    }
+  }
 
   init(userDataPath: string): void {
     this.baseDir = join(userDataPath, 'conversation-assets')
@@ -42,7 +68,9 @@ export class ConversationAssetStore {
     const dir = this.dirForConversation(conversationId)
     this.ensureDir(dir)
     const assetId = `${messageId}-${randomUUID()}.${extension}`
-    await writeFile(join(dir, assetId), bytes, { flag: 'wx' })
+    const assetPath = join(dir, assetId)
+    await writeFile(assetPath, bytes, { flag: 'wx' })
+    await this.enforceLimits(conversationId, assetPath)
     return assetId
   }
 
@@ -104,6 +132,72 @@ export class ConversationAssetStore {
     }
   }
 
+  async getUsage(): Promise<VisualPreviewStorageUsage> {
+    this.assertInitialized()
+    const assets = await this.listAssets()
+    return {
+      totalBytes: assets.reduce((total, asset) => total + asset.sizeBytes, 0),
+      fileCount: assets.length,
+      conversationCount: new Set(assets.map((asset) => asset.conversationId)).size,
+      limitBytes: this.limits.totalBytes,
+      conversationLimitBytes: this.limits.conversationBytes
+    }
+  }
+
+  async clearAll(): Promise<VisualPreviewClearResult> {
+    this.assertInitialized()
+    const usage = await this.getUsage()
+    await rm(this.baseDir, { recursive: true, force: true })
+    this.ensureDir(this.baseDir)
+    return { removedBytes: usage.totalBytes, removedFiles: usage.fileCount }
+  }
+
+  private async enforceLimits(conversationId: string, protectedPath: string): Promise<void> {
+    const assets = await this.listAssets()
+    await removeOldestOverLimit(
+      assets.filter((asset) => asset.conversationId === conversationId),
+      this.limits.conversationBytes,
+      protectedPath
+    )
+    await removeOldestOverLimit(await this.listAssets(), this.limits.totalBytes, protectedPath)
+  }
+
+  private async listAssets(): Promise<StoredAsset[]> {
+    const assets: StoredAsset[] = []
+    let conversations
+    try {
+      conversations = await readdir(this.baseDir, { withFileTypes: true })
+    } catch {
+      return assets
+    }
+    for (const conversation of conversations) {
+      if (!conversation.isDirectory() || !SAFE_ID.test(conversation.name)) continue
+      const dir = join(this.baseDir, conversation.name)
+      let entries
+      try {
+        entries = await readdir(dir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        if (!entry.isFile() || !SAFE_ASSET_ID.test(entry.name)) continue
+        const path = join(dir, entry.name)
+        try {
+          const info = await stat(path)
+          assets.push({
+            path,
+            conversationId: conversation.name,
+            sizeBytes: info.size,
+            modifiedAt: info.mtimeMs
+          })
+        } catch {
+          // A concurrent clear/prune already removed it.
+        }
+      }
+    }
+    return assets
+  }
+
   private dirForConversation(conversationId: string): string {
     const dir = resolve(this.baseDir, conversationId)
     const expected = resolve(this.baseDir, conversationId)
@@ -117,6 +211,28 @@ export class ConversationAssetStore {
 
   private assertInitialized(): void {
     if (!this.baseDir) throw new Error('Conversation asset store is not initialized.')
+  }
+}
+
+async function removeOldestOverLimit(
+  assets: StoredAsset[],
+  limitBytes: number,
+  protectedPath: string
+): Promise<void> {
+  let total = assets.reduce((sum, asset) => sum + asset.sizeBytes, 0)
+  if (total <= limitBytes) return
+  const oldest = [...assets].sort(
+    (left, right) => left.modifiedAt - right.modifiedAt || left.path.localeCompare(right.path)
+  )
+  for (const asset of oldest) {
+    if (total <= limitBytes) break
+    if (asset.path === protectedPath) continue
+    try {
+      await rm(asset.path, { force: true })
+      total -= asset.sizeBytes
+    } catch {
+      // Best effort: a concurrent cleanup may already own this file.
+    }
   }
 }
 

@@ -11,6 +11,7 @@ import { useMcpStore } from '../../../../stores/mcpStore'
 import { StatusDot, type StatusTone } from '../../../../components/ui/StatusDot'
 import { SettingRow } from '../../SettingRow'
 import { RangeControl, SelectControl, TextControl, ToggleControl } from '../../controls'
+import { VisualPreviewStorage } from './VisualPreviewStorage'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './ToolsSkillsSettings.module.css'
 
@@ -241,6 +242,8 @@ export function ToolsSkillsSettings(): JSX.Element {
           </div>
         </details>
       </section>
+
+      <VisualPreviewStorage />
 
       <section className={pageStyles.section}>
         <h2 className={pageStyles.sectionTitle}>Web search</h2>

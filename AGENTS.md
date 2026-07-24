@@ -177,6 +177,11 @@ timeline blocks, and remove the entire preview from model-history replay.
 `show_image` is a different read-only workspace tool: it is available to text
 and vision models, displays a confined existing image to the user, persists the
 same durable preview reference, and never queues pixels back into the provider.
+
+`ConversationAssetStore` enforces both per-conversation and global byte limits,
+oldest-first, and owns usage/clear operations exposed through typed conversation
+IPC. Clearing assets must never delete conversations; stale references degrade
+through the unavailable-preview UI.
 Permanent conversation deletion must remove its assets.
 
 #### Tool approval
