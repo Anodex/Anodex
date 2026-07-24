@@ -184,6 +184,8 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     await expect(
       mainWindow.getByRole('button', { name: 'Reset zoom, currently 125%' })
     ).toBeVisible()
+    await expect(mainWindow.getByRole('button', { name: 'Copy image' })).toBeVisible()
+    await expect(mainWindow.getByRole('button', { name: 'Save image' })).toBeVisible()
     await mainWindow.keyboard.press('Escape')
     await expect(
       mainWindow.getByRole('dialog', { name: 'Fullscreen image: Rendered page.html' })

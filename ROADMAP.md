@@ -221,8 +221,8 @@ Uploaded images also render inline in the user message. Reopened conversations
 load the pixels from the persisted attachment path, while missing files degrade
 to an unavailable-image card instead of breaking the transcript. Available
 uploaded and inspected images open in a shared fullscreen viewer with bounded
-50%-300% zoom, Escape/backdrop close, keyboard shortcuts, focus restoration,
-and responsive mobile layout.
+50%-300% zoom, drag-to-pan, copy/save actions, Escape/backdrop close, keyboard
+shortcuts, focus restoration, and responsive mobile layout.
 
 The same attachment path now maps images into OpenAI Responses API input-image
 parts and Anthropic base64 image blocks when a cloud provider is selected.

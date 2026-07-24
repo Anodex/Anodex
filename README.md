@@ -52,7 +52,8 @@ folder.
   attachments as real multimodal content rather than prompt text. Uploaded
   images render inline in the user message and reopen from their original path
   without storing image bytes in conversation JSON. Select any available chat
-  image to open a fullscreen, keyboard-accessible viewer with zoom controls.
+  image to open a fullscreen, keyboard-accessible viewer with zoom, drag-to-pan,
+  copy, and save controls.
 - Desktop notifications and a short AI-generated toast summary when a reply
   finishes while the window isn't focused.
 - A "jump to latest" button appears when you've scrolled up during a long or
