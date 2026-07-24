@@ -163,6 +163,34 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
       asset: { conversationId, id: shownAssetId }
     }
   }
+  const beforeHtmlCall = {
+    id: 'tool-html-before',
+    name: 'preview_html',
+    kind: 'read' as const,
+    title: 'Preview before.html',
+    detail: 'inline preview',
+    status: 'success' as const,
+    preview: {
+      kind: 'html' as const,
+      title: 'Before — original header',
+      path: 'before.html',
+      content: '<!doctype html><html><body><header>Before</header></body></html>'
+    }
+  }
+  const afterHtmlCall = {
+    id: 'tool-html-after',
+    name: 'preview_html',
+    kind: 'read' as const,
+    title: 'Preview index.html',
+    detail: 'inline preview',
+    status: 'success' as const,
+    preview: {
+      kind: 'html' as const,
+      title: 'After — improved header',
+      path: 'index.html',
+      content: '<!doctype html><html><body><header>After</header></body></html>'
+    }
+  }
   await mkdir(assetDir, { recursive: true })
   await mkdir(conversationDir, { recursive: true })
   await writeFile(join(assetDir, beforeAssetId), ONE_PIXEL_PNG)
@@ -176,16 +204,50 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
       title: 'Visual preview test',
       messages: [
         {
-          id: 'message-1',
+          id: 'message-before',
           role: 'assistant',
-          content: 'The page is ready.',
+          content: 'Here is the first inspection.',
           createdAt: 1,
-          toolCalls: [beforeCall, call, shownCall],
+          toolCalls: [beforeCall],
           blocks: [
             { type: 'tool', call: beforeCall },
+            { type: 'text', text: 'Here is the first inspection.' }
+          ]
+        },
+        {
+          id: 'request-change',
+          role: 'user',
+          content: 'Change the page and inspect it again.',
+          createdAt: 2
+        },
+        {
+          id: 'message-after',
+          role: 'assistant',
+          content: 'The updated page is ready.',
+          createdAt: 3,
+          toolCalls: [call, shownCall],
+          blocks: [
             { type: 'tool', call },
             { type: 'tool', call: shownCall },
-            { type: 'text', text: 'The page is ready.' }
+            { type: 'text', text: 'The updated page is ready.' }
+          ]
+        },
+        {
+          id: 'request-html-comparison',
+          role: 'user',
+          content: 'Fix the title bar and show me a before and after.',
+          createdAt: 4
+        },
+        {
+          id: 'message-html-comparison',
+          role: 'assistant',
+          content: 'Here is the title bar before and after.',
+          createdAt: 5,
+          toolCalls: [beforeHtmlCall, afterHtmlCall],
+          blocks: [
+            { type: 'tool', call: beforeHtmlCall },
+            { type: 'tool', call: afterHtmlCall },
+            { type: 'text', text: 'Here is the title bar before and after.' }
           ]
         }
       ],
@@ -227,6 +289,10 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     await expect(mainWindow.getByAltText('Before: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('After: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('Assistant image of result.png')).toBeVisible()
+
+    await mainWindow.getByRole('button', { name: 'Compare before and after' }).click()
+    await expect(mainWindow.getByTitle('Before: Before — original header')).toBeVisible()
+    await expect(mainWindow.getByTitle('After: After — improved header')).toBeVisible()
 
     await mainWindow.evaluate(async () => {
       const anodex = (globalThis as unknown as { anodex: AnodexApi }).anodex

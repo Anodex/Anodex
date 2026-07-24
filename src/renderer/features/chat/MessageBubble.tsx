@@ -16,6 +16,7 @@ import { CheckpointDialog } from './CheckpointDialog'
 import { EditMessageDialog } from './EditMessageDialog'
 import { MessageAttachments } from './MessageAttachments'
 import { buildRenderSegments, groupSegmentsForTimeline, messageBlocks } from './taskPhase'
+import type { VisualComparisonPair } from './visualComparisonPair'
 import styles from './MessageBubble.module.css'
 
 /**
@@ -29,7 +30,8 @@ export function MessageBubble({
   message,
   previousUserContent,
   conversationStreaming,
-  firstLight = false
+  firstLight = false,
+  visualComparison
 }: {
   message: ChatMessage
   previousUserContent?: string
@@ -48,6 +50,8 @@ export function MessageBubble({
    * History mounts arrive with content already present and never play it.
    */
   firstLight?: boolean
+  /** Comparison derived from this message plus earlier visual previews. */
+  visualComparison?: VisualComparisonPair | null
 }): JSX.Element {
   const isUser = message.role === 'user'
   const openSettings = useUiStore((s) => s.openSettings)
@@ -173,6 +177,16 @@ export function MessageBubble({
               if (block.type === 'text') {
                 return <MessageContent key={`text-${index}`} content={block.text} />
               }
+              const blockCalls = block.segments.flatMap((segment) =>
+                segment.type === 'toolGroup' ? segment.calls : []
+              )
+              const blockComparison =
+                visualComparison === undefined
+                  ? undefined
+                  : visualComparison &&
+                      blockCalls.some((call) => call.id === visualComparison.afterCallId)
+                    ? visualComparison
+                    : null
               return (
                 <TurnRecap
                   key={`work-${index}`}
@@ -180,6 +194,7 @@ export function MessageBubble({
                   streaming={Boolean(message.streaming) && index === timeline.length - 1}
                   startedAt={message.createdAt}
                   finalDurationMs={message.stats?.durationMs}
+                  comparison={blockComparison}
                 />
               )
             })}

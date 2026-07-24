@@ -328,10 +328,12 @@ A side panel with configurable sections alongside the chat:
   work. Each inspected image opens directly beneath its tool call and remains
   available after reopening the conversation. Uploaded and inspected images
   share the same fullscreen zoom viewer. When the same workspace output is
-  inspected more than once in a turn, the activity offers a responsive
-  before/after comparison of the latest two captures. Exact preview pixels live
-  in bounded conversation assets; chat JSON stores only a small reference and
-  never the base64 payload. Text-only local models do not receive this tool.
+  inspected more than once, including across separate turns, the newer activity
+  offers a responsive before/after comparison of the latest two captures.
+  Explicitly labelled Before/After HTML previews are paired too, even when the
+  model preserves the original under a temporary filename. Exact preview pixels
+  live in bounded conversation assets; chat JSON stores only a small reference
+  and never the base64 payload. Text-only local models do not receive this tool.
 - Any model can use the read-only `show_image` tool to place an existing
   workspace PNG/JPEG/GIF/BMP directly in its reply when the user asks to see a
   result. This display-only path does not claim that a text model inspected the

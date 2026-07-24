@@ -4,8 +4,8 @@ import { Icon } from '../../components/Icon'
 import { formatDuration } from '../../lib/format'
 import { ThoughtsSection } from './ThoughtsSection'
 import { ToolCallCard } from './ToolCallCard'
-import { InspectionComparison } from './InspectionComparison'
-import { latestInspectionComparison } from './inspectionComparisonPair'
+import { VisualComparison } from './VisualComparison'
+import { latestVisualComparison, type VisualComparisonPair } from './visualComparisonPair'
 import styles from './TurnRecap.module.css'
 
 type WorkSegment = Extract<RenderSegment, { type: 'thinking' | 'toolGroup' }>
@@ -21,7 +21,8 @@ export function TurnRecap({
   segments,
   streaming,
   startedAt,
-  finalDurationMs
+  finalDurationMs,
+  comparison
 }: {
   segments: WorkSegment[]
   /** True while this specific run is still the live tail of a streaming message. */
@@ -29,11 +30,15 @@ export function TurnRecap({
   startedAt: number
   /** Authoritative total once the whole message has finished generating. */
   finalDurationMs?: number
+  /** Explicit message-level comparison, or undefined for standalone/in-turn derivation. */
+  comparison?: VisualComparisonPair | null
 }): JSX.Element {
   const calls = segments.flatMap((segment) => (segment.type === 'toolGroup' ? segment.calls : []))
-  const comparison = latestInspectionComparison(calls)
+  const resolvedComparison =
+    comparison === undefined ? latestVisualComparison([], calls) : comparison
   const hasImagePreview = calls.some((call) => call.preview?.kind === 'image')
-  const [expanded, setExpanded] = useState(streaming || hasImagePreview)
+  const hasVisualResult = hasImagePreview || Boolean(resolvedComparison)
+  const [expanded, setExpanded] = useState(streaming || hasVisualResult)
   const [settledMs, setSettledMs] = useState<number | null>(null)
   const [, forceTick] = useState(0)
   const wasStreaming = useRef(streaming)
@@ -51,7 +56,7 @@ export function TurnRecap({
     if (wasStreaming.current && !streaming) {
       setSettledMs(Date.now() - startedAt)
       wasStreaming.current = streaming
-      if (hasImagePreview) {
+      if (hasVisualResult) {
         setExpanded(true)
         return undefined
       }
@@ -60,7 +65,7 @@ export function TurnRecap({
     }
     wasStreaming.current = streaming
     return undefined
-  }, [hasImagePreview, streaming, startedAt])
+  }, [hasVisualResult, streaming, startedAt])
 
   const hasRunningCall = calls.some((call) => call.status === 'running')
   const elapsedMs = streaming ? Date.now() - startedAt : (finalDurationMs ?? settledMs ?? 0)
@@ -95,7 +100,7 @@ export function TurnRecap({
       <div className={`${styles.panel} ${expanded ? styles.panelExpanded : ''}`}>
         <div className={styles.panelInner}>
           <div className={styles.steps}>
-            {comparison && <InspectionComparison pair={comparison} />}
+            {resolvedComparison && <VisualComparison pair={resolvedComparison} />}
             {segments.map((segment, index) =>
               segment.type === 'thinking' ? (
                 <ThoughtsSection

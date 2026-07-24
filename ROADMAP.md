@@ -242,9 +242,11 @@ stored as main-owned conversation assets while persisted tool calls retain only
 sandboxed references; base64 data and all preview metadata remain excluded from
 model-history replay. Permanently deleting a conversation removes its preview
 assets. Repeated successful inspections of the same workspace path offer a
-side-by-side comparison of the latest two captures, derived from the existing
-ordered tool calls without adding persisted comparison state. Text-only local
-models never receive the tool.
+side-by-side comparison of the latest two captures, including when the captures
+occur in separate assistant turns. Explicit Before/After `preview_html`
+snapshots are also paired when the model keeps the original under a temporary
+path. Both are derived from existing ordered tool calls without adding
+persisted comparison state. Text-only local models never receive the tool.
 
 All workspace-backed models also receive `show_image`, a separate read-only
 display tool for attaching an existing PNG/JPEG/GIF/BMP to the assistant turn

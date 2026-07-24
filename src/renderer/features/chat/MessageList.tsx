@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
 import type { ConversationContext } from '@shared/context.types'
 import { CompactionMarker } from './CompactionMarker'
@@ -7,6 +7,7 @@ import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
 import { findLatestUserRequest, shouldPinCurrentRequest } from './messageTimeline'
+import { visualComparisonsByMessage } from './visualComparisonPair'
 import styles from './MessageList.module.css'
 
 /** Distance (px) from the bottom within which we keep auto-scrolling. */
@@ -40,6 +41,7 @@ export function MessageList({
   // it once here (instead of inside every MessageBubble) avoids an
   // O(bubbles × messages) rescan on every streamed token.
   const conversationStreaming = messages[messages.length - 1]?.streaming ?? false
+  const visualComparisons = useMemo(() => visualComparisonsByMessage(messages), [messages])
   // The conversation's first assistant turn is the only one eligible for the
   // one-shot "first light" arrival; the bubble itself decides whether it is
   // actually witnessing that reply stream in live.
@@ -175,6 +177,7 @@ export function MessageList({
                   previousUserContent={findPreviousUserContent(messages, index)}
                   conversationStreaming={conversationStreaming}
                   firstLight={message.id === firstAssistantId}
+                  visualComparison={visualComparisons.get(message.id) ?? null}
                 />
               </div>
               {context?.activeSnapshot && message.id === compactionThroughId && (
