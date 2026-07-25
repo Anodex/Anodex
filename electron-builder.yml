@@ -37,6 +37,11 @@ extraResources:
   # an associated multimodal projector.
   - from: resources/llama-server
     to: llama-server
+  # Sample personal skills, copied into `userData/skills` on first launch by
+  # SkillStore.init() so a new install has a working skill library to read,
+  # edit, or delete. Never read from here at runtime.
+  - from: resources/skills
+    to: skills
 # Generated from src/renderer/assets/app-icon.png via scripts/generate-icons.mjs —
 # re-run that script (not a manual edit) if the brand mark ever changes.
 win:

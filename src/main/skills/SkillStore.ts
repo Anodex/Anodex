@@ -10,8 +10,21 @@ import {
   deleteSkillMarkdown,
   type SkillWriteResult
 } from './skillLibrary'
+import { seedPersonalSkills } from './seedSkills'
 
 const log = createLogger('skill-store')
+
+/**
+ * Where the bundled sample skills live — differs between a dev run and a
+ * packaged build, same split as the bundled embedding model (see
+ * `EmbeddingService.resolveModelPath`) and driven by the matching
+ * `extraResources` entry in `electron-builder.yml`.
+ */
+function resolveBundledSkillsDir(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'skills')
+    : join(app.getAppPath(), 'resources', 'skills')
+}
 
 /**
  * Reads skills from project `.anodex/skills/*.md` files and personal
@@ -29,6 +42,18 @@ class SkillStore {
   init(): void {
     this.dir = join(app.getPath('userData'), 'skills')
     if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true })
+    // Best-effort: a missing or unreadable `resources/skills` means the user
+    // starts with an empty library, which is the pre-seeding behaviour — never
+    // a reason to fail startup.
+    try {
+      const seeded = seedPersonalSkills({
+        bundledDir: resolveBundledSkillsDir(),
+        personalDir: this.dir
+      })
+      if (seeded.length > 0) log.info(`Seeded ${seeded.length} sample skills:`, seeded.join(', '))
+    } catch (error) {
+      log.warn('Failed to seed sample skills:', error)
+    }
     log.info('Initialised at', this.dir)
   }
 
