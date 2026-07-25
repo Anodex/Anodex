@@ -146,6 +146,7 @@ export function ChatRow({
         createPortal(
           <ChatDetailCard
             rect={hoverRect}
+            conversationId={conversation.id}
             title={conversation.title}
             time={time}
             projectName={projectName}
@@ -290,6 +291,7 @@ function MenuItem({ label, disabled = false, onClick }: MenuItemProps): JSX.Elem
 
 interface ChatDetailCardProps {
   rect: DOMRect
+  conversationId: string
   title: string
   time: string
   projectName?: string
@@ -303,6 +305,7 @@ interface ChatDetailCardProps {
 
 function ChatDetailCard({
   rect,
+  conversationId,
   title,
   time,
   projectName,
@@ -315,6 +318,28 @@ function ChatDetailCard({
 }: ChatDetailCardProps): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(title)
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current)
+    }
+  }, [])
+
+  const copyId = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(conversationId)
+      setCopied(true)
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current)
+      // Confirmed in place rather than with a toast: the card is already under
+      // the cursor, and a notification for copying a string is more
+      // interruption than the act deserves.
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1400)
+    } catch (error) {
+      notifyError('Could not copy chat ID', error instanceof Error ? error.message : undefined)
+    }
+  }
   const top = Math.max(48, Math.min(rect.top - 10, window.innerHeight - 170))
   const left = Math.min(rect.right + 10, window.innerWidth - 340)
 
@@ -374,6 +399,15 @@ function ChatDetailCard({
         <StatusDot tone={running ? 'running' : 'success'} />
         <span>{running ? 'Assistant is responding' : 'Ready'}</span>
       </div>
+      <button
+        type="button"
+        className={`${styles.detailLine} ${styles.folderButton} ${styles.idButton}`}
+        onClick={() => void copyId()}
+        title="Copy this chat's ID"
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={13} />
+        <span className={styles.idValue}>{copied ? 'Copied to clipboard' : conversationId}</span>
+      </button>
     </div>
   )
 }
