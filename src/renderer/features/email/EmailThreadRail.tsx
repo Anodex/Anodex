@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { EmailMessage, EmailThreadSummary } from '@shared/email.types'
 import { Icon } from '../../components/Icon'
 import { useChatStore } from '../../stores/chatStore'
+import { notifyError } from '../../stores/uiStore'
 import { MessageList } from '../chat/MessageList'
 import { ChatComposer } from '../chat/ChatComposer'
 import styles from './EmailThreadRail.module.css'
@@ -73,10 +74,7 @@ export function EmailThreadRail({
   return (
     <aside className={styles.rail} aria-label="Assistant for this conversation">
       <div className={styles.railHeader}>
-        <span className={styles.railTitle}>
-          <Icon name="sparkle" size={13} />
-          About this thread
-        </span>
+        <ChatIdTitle conversationId={linked?.id ?? null} />
         <button
           type="button"
           className={styles.railButton}
@@ -126,6 +124,59 @@ export function EmailThreadRail({
 
       <ChatComposer />
     </aside>
+  )
+}
+
+/**
+ * The rail's title, and the id of the chat behind it.
+ *
+ * The id is the one thing here that is for a machine rather than a reader, so
+ * it stays out of the way until the title is hovered and then copies on a
+ * click. Hiding it entirely — as it was, reachable only by right-clicking the
+ * chat's row over in the sidebar — meant the id was effectively unavailable
+ * from the place the chat is actually being used.
+ */
+function ChatIdTitle({ conversationId }: { conversationId: string | null }): JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timer.current !== null) window.clearTimeout(timer.current)
+    }
+  }, [])
+
+  const copy = async (): Promise<void> => {
+    if (!conversationId) return
+    try {
+      await navigator.clipboard.writeText(conversationId)
+      setCopied(true)
+      if (timer.current !== null) window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setCopied(false), 1400)
+    } catch (error) {
+      notifyError('Could not copy chat ID', error instanceof Error ? error.message : undefined)
+    }
+  }
+
+  return (
+    <span className={styles.railTitleGroup}>
+      <span className={styles.railTitle}>
+        <Icon name="sparkle" size={13} />
+        About this thread
+      </span>
+      {conversationId && (
+        <button
+          type="button"
+          className={styles.chatId}
+          onClick={() => void copy()}
+          title={`Copy chat ID — ${conversationId}`}
+          aria-label={`Copy chat ID ${conversationId}`}
+        >
+          <Icon name={copied ? 'check' : 'copy'} size={11} />
+          <span className={styles.chatIdValue}>{copied ? 'Copied' : conversationId}</span>
+        </button>
+      )}
+    </span>
   )
 }
 

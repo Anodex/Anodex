@@ -24,13 +24,66 @@
   border-bottom: 1px solid var(--border);
 }
 
+.railTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .railTitle {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: var(--space-2);
   color: var(--text);
   font-size: var(--text-sm);
   font-weight: 600;
+}
+
+/**
+ * The chat's id, revealed by hovering the title. Kept out of sight until then
+ * because it is for copying into something else, not for reading — but it has
+ * to be reachable from where the chat is being used, not only from a
+ * right-click menu on a row in another part of the app.
+ */
+.chatId {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 2px var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  /* Not `display: none` — the id keeps its space in the row, so revealing it
+     cannot shove the hide button sideways under the cursor. */
+  opacity: 0;
+  transition:
+    opacity var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.railHeader:hover .chatId,
+.chatId:focus-visible {
+  opacity: 1;
+}
+
+.chatId:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.chatIdValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .railTitle svg {
