@@ -527,6 +527,12 @@ export const useChatStore = create<ChatState>()(
         const quarantinedTail = pendingToolPayloadByMessage.get(assistantId) ?? ''
         pendingToolPayloadByMessage.delete(assistantId)
         message.streaming = false
+        // The placeholder was stamped with the user message's time so the two
+        // sorted together while empty; restamp it now it exists, or a turn that
+        // took ten minutes of tool calls reads as having arrived instantly. The
+        // unattended paths (AgentRunService, SchedulerService) already stamp
+        // their assistant messages at completion — this matches them.
+        message.createdAt = Date.now()
         if (result.ok) {
           const content = sanitizeAssistantContent(result.value.content)
           message.content = content

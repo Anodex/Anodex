@@ -113,6 +113,13 @@ export interface ToolConfirmRequest {
    * confirm) — lets the UI explain that approving covers the rest of this
    * turn, not just this one action. */
   turnGate?: boolean
+  /**
+   * True when a real person must answer this prompt — see
+   * `ToolCatalogEntry.requiresHumanApproval`. Carried on the request so the
+   * headless confirm handlers the unattended surfaces install
+   * (`headlessConfirm`) can refuse it without knowing which tools those are.
+   */
+  requiresHumanApproval?: boolean
 }
 
 /** The user's answer to a `ToolConfirmRequest`. */
@@ -132,6 +139,16 @@ export interface ToolCatalogEntry {
   description: string
   /** True if this tool only registers when a project (workspace folder) is open. */
   requiresProject?: boolean
+  /**
+   * True if this tool may only ever run with a person present to approve the
+   * specific call. Unlike a risk tier, this is not something a permission mode
+   * can relax: `untethered` still confirms it, and the unattended surfaces
+   * (scheduled tasks, agent runs, critical-thinking research) refuse it rather
+   * than auto-approving, because their headless `confirm` is not a human
+   * saying yes. Set on the tools that reach outside the machine on the user's
+   * behalf and cannot be taken back — sending mail.
+   */
+  requiresHumanApproval?: boolean
 }
 
 export const TOOL_CATALOG: ToolCatalogEntry[] = [
@@ -320,6 +337,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Load a skill's full instructions by name."
   },
   {
+    name: 'schedule_task',
+    kind: 'write',
+    description:
+      'Create a Scheduler task that runs a prompt later, once or on a repeat. Always confirmed before saving.'
+  },
+  {
     name: 'update_project_notes',
     kind: 'write',
     description:
@@ -387,7 +410,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: 'send_email',
     kind: 'write',
-    description: 'Send an email, always requiring explicit approval.'
+    description: 'Send an email, always requiring explicit approval.',
+    requiresHumanApproval: true
   },
   {
     name: 'summarize_thread',
@@ -408,7 +432,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'reply_email',
     kind: 'write',
     description:
-      'Reply in-thread to an email message, always requiring explicit approval before sending.'
+      'Reply in-thread to an email message, always requiring explicit approval before sending.',
+    requiresHumanApproval: true
   },
   {
     name: 'manage_email',

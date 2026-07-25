@@ -340,7 +340,7 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
           title: `Send email to ${args.to.join(', ')}`,
           args,
           risk: 'sensitive',
-          forceConfirm: true
+          requiresHumanApproval: true
         },
         // Resolve *before* the user sees the confirm prompt: when draftId is
         // set, `EmailService.send` below sends the saved draft's content and
@@ -411,7 +411,7 @@ export const replyEmailTool: ToolFactory = (define, ctx) =>
           title: `Reply to ${truncate(args.messageId, 24)}`,
           args,
           risk: 'sensitive',
-          forceConfirm: true
+          requiresHumanApproval: true
         },
         // The recipients and subject come from the parent message, so the user
         // cannot know who this reaches from the model's arguments alone —

@@ -24,6 +24,7 @@ import {
 import { budgetExceededReason } from './agentBudgets'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
 import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
+import { headlessConfirm } from '../tools/headlessConfirm'
 
 const log = createLogger('agent-run-service')
 
@@ -502,8 +503,9 @@ class AgentRunService {
         signal,
         enabledTools,
         providerOverride,
-        // Same fail-closed-on-destructive stance as scheduled tasks — no one
-        // is present to click an approval modal on a run's behalf.
+        // Same headless approval policy as scheduled tasks — no one is present
+        // to click an approval modal on a run's behalf, so `headlessConfirm`
+        // fails closed on destructive and human-approval-only calls alike.
         permissionModeOverride: 'untethered',
         executionBudget: {
           ...AGENT_TURN_BUDGET,
@@ -511,8 +513,7 @@ class AgentRunService {
         },
         readCoverage,
         onActivity: (call) => toolCallsById.set(call.id, call),
-        confirm: (confirmRequest) =>
-          Promise.resolve({ approved: confirmRequest.risk !== 'destructive' })
+        confirm: headlessConfirm
       }
     )
 

@@ -43,6 +43,7 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'update_plan_step',
   'find_skill',
   'load_skill',
+  'schedule_task',
   'remember_fact',
   'list_email_accounts',
   'list_threads',

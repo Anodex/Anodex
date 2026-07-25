@@ -197,6 +197,10 @@ additional tools are available on demand.
   and fold completed work into the living project spec.
 - **Memory:** `remember_fact` saves approved global or project-scoped facts
   when memory is enabled.
+- **Scheduling:** `schedule_task` creates a Scheduler task from plain language
+  ("tomorrow at noon", "every weekday at 9am"), always confirmed before it is
+  saved. It uses the same parser as the Scheduler's own When field, so both
+  surfaces agree on what a phrase means.
 - **Email (when at least one account is linked):** `list_email_accounts`,
   `list_threads`, `search_email`, `read_email`, `summarize_thread`,
   `find_attachments`, `list_mailboxes`, `draft_email`, `manage_email`
@@ -205,6 +209,14 @@ additional tools are available on demand.
   an open project. Every tool takes an optional `account`, defaulting to the
   primary one, and `search_email` fans out across all accounts when none is
   named.
+
+Sending mail needs a person, not just a permission mode. `send_email` and
+`reply_email` are marked `requiresHumanApproval`, so they confirm in every mode
+and the unattended surfaces — scheduled tasks, agent runs, critical-thinking
+research — refuse them outright instead of auto-approving on the user's behalf.
+Those surfaces can still read, search, and `draft_email`, so a scheduled task
+prepares a reply and reports back rather than sending unseen. The Scheduler and
+Agent editors show the send tools disabled for the same reason.
 
 ## GitHub and MCP integrations
 

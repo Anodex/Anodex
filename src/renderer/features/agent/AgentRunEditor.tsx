@@ -111,7 +111,11 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const [creatingProject, setCreatingProject] = useState(false)
 
   const hasProject = projectId !== null
-  const availableTools = TOOL_CATALOG.filter((tool) => !tool.requiresProject || hasProject)
+  // Gates "Select all" and the save filter, so a run can't be started carrying
+  // a human-approval-only tool it could only ever be refused.
+  const availableTools = TOOL_CATALOG.filter(
+    (tool) => (!tool.requiresProject || hasProject) && !tool.requiresHumanApproval
+  )
   const canSave =
     goal.trim().length > 0 &&
     (!limitsEnabled || (maxTurns >= 1 && maxTokens >= 1 && maxDurationMinutes >= 1))
@@ -390,12 +394,21 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
                   )}
                   <div className={styles.toolList}>
                     {toolsInKind.map((tool) => {
-                      const disabled = Boolean(tool.requiresProject) && !hasProject
+                      // An agent run is unattended, so tools needing a live
+                      // approval are shown disabled rather than hidden —
+                      // ticking one would only ever be refused mid-run.
+                      const disabled =
+                        (Boolean(tool.requiresProject) && !hasProject) ||
+                        Boolean(tool.requiresHumanApproval)
                       return (
                         <label
                           key={tool.name}
                           className={`${styles.toolItem} ${disabled ? styles.toolItemDisabled : ''}`}
-                          title={tool.description}
+                          title={
+                            tool.requiresHumanApproval
+                              ? `${tool.description} Unavailable in agent runs: it needs a person to approve each action.`
+                              : tool.description
+                          }
                         >
                           <input
                             type="checkbox"

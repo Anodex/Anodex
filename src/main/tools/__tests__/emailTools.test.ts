@@ -19,6 +19,7 @@ import {
   sendEmailTool
 } from '../emailTools'
 import { checkpointStore } from '../../checkpoints/CheckpointStore'
+import { headlessConfirm } from '../headlessConfirm'
 import { captureConfirmations, createMockContext, createMockDefine } from './test-helpers'
 
 const createDraftMock = vi.fn<(request: EmailDraftRequest) => EmailDraft>()
@@ -157,6 +158,78 @@ describe('email tools', () => {
     expect(sendMock).toHaveBeenCalledWith(
       expect.objectContaining({ to: ['person@example.com'], subject: 'Hello' })
     )
+    // The flag has to reach the confirm request, or the headless handlers the
+    // unattended surfaces install cannot tell this apart from any other
+    // sensitive write and will approve it.
+    expect(requests[0].requiresHumanApproval).toBe(true)
+  })
+
+  it('cannot send in an unattended run', async () => {
+    // The real policy scheduled tasks and agent runs install, exercised through
+    // the tool rather than in isolation: `EmailSettings.sendRequiresApproval` is
+    // the literal `true`, so this is the test that keeps that claim honest.
+    const ctx = {
+      ...createMockContext('/workspace'),
+      permissionMode: 'untethered' as const,
+      confirm: headlessConfirm
+    }
+    const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailSendRequest) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      to: ['person@example.com'],
+      subject: 'Hello',
+      body: 'Send body'
+    })
+
+    expect(sendMock).not.toHaveBeenCalled()
+    expect(result).toContain('draft_email')
+  })
+
+  it('cannot reply in an unattended run', async () => {
+    prepareReplyMock.mockResolvedValue({
+      parentSubject: 'Urgent response',
+      message: {
+        to: ['person@example.com'],
+        subject: 'Re: Urgent response',
+        body: 'Reply body'
+      }
+    })
+    const ctx = {
+      ...createMockContext('/workspace'),
+      permissionMode: 'untethered' as const,
+      confirm: headlessConfirm
+    }
+    const tool = replyEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { messageId: string; body: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ messageId: 'msg-1', body: 'Reply body' })
+
+    expect(sendPreparedMock).not.toHaveBeenCalled()
+    expect(result).toContain('draft_email')
+  })
+
+  it('still lets an unattended run save a draft for the user to send', async () => {
+    // The other half of the contract: refusing to send must not also block the
+    // "prepare it and tell me" path a scheduled task is supposed to take.
+    const ctx = {
+      ...createMockContext('/workspace'),
+      permissionMode: 'untethered' as const,
+      confirm: headlessConfirm
+    }
+    const tool = draftEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailDraftRequest) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      to: ['person@example.com'],
+      subject: 'Hello',
+      body: 'Draft body'
+    })
+
+    expect(result).toContain('Draft id:')
   })
 
   it('does not send when the user denies approval', async () => {

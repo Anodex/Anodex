@@ -46,6 +46,7 @@ import {
 } from './changeTools'
 import { finishGoalTool } from './agentTools'
 import { buildMcpToolFunction } from './mcpTools'
+import { scheduleTaskTool } from './schedulerTools'
 import {
   draftEmailTool,
   findEmailAttachmentsTool,
@@ -138,7 +139,8 @@ const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
   write_plan: writePlanTool,
   update_plan_step: updatePlanStepTool,
   find_skill: findSkillTool,
-  load_skill: loadSkillTool
+  load_skill: loadSkillTool,
+  schedule_task: scheduleTaskTool
 }
 
 const EMAIL_FACTORIES: Record<string, ToolFactory> = {

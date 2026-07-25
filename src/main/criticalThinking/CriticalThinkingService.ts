@@ -108,6 +108,7 @@ import {
   parseCriticalThinkingConsistencyReview,
   sectionsNeedConsistencyReview
 } from './criticalThinkingConsistency'
+import { headlessConfirm } from '../tools/headlessConfirm'
 
 const log = createLogger('critical-thinking-service')
 const MAX_QUESTION_CHARS = 8_000
@@ -1204,7 +1205,10 @@ class CriticalThinkingService {
         permissionModeOverride: 'untethered',
         executionBudget: SYNTHESIS_BUDGET,
         onToken: stream ? (token) => this.broadcastStream(run.id, token) : undefined,
-        confirm: () => Promise.resolve({ approved: true })
+        // `enabledTools` is empty, so nothing can ask — but route through the
+        // shared unattended policy anyway rather than leaving a blanket
+        // approve-everything behind, in case this phase ever gains a tool.
+        confirm: headlessConfirm
       }
     )
   }

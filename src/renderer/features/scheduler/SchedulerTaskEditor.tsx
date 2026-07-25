@@ -68,7 +68,12 @@ export function SchedulerTaskEditor({
   const [saving, setSaving] = useState(false)
 
   const hasProject = projectId !== null
-  const availableTools = TOOL_CATALOG.filter((tool) => !tool.requiresProject || hasProject)
+  // Gates "Select all" and the save filter, so a task saved earlier with a
+  // human-approval-only tool ticked drops it here rather than carrying a
+  // selection the run can only refuse.
+  const availableTools = TOOL_CATALOG.filter(
+    (tool) => (!tool.requiresProject || hasProject) && !tool.requiresHumanApproval
+  )
   const canSave =
     prompt.trim().length > 0 &&
     (recurrence.type !== 'weekly' || (recurrence.weekdays ?? []).length > 0)
@@ -202,12 +207,21 @@ export function SchedulerTaskEditor({
                   )}
                   <div className={styles.toolList}>
                     {toolsInKind.map((tool) => {
-                      const disabled = Boolean(tool.requiresProject) && !hasProject
+                      // A scheduled run has no one to approve a send, so those
+                      // tools are shown disabled rather than hidden — ticking
+                      // one would only ever produce a refusal mid-run.
+                      const disabled =
+                        (Boolean(tool.requiresProject) && !hasProject) ||
+                        Boolean(tool.requiresHumanApproval)
                       return (
                         <label
                           key={tool.name}
                           className={`${styles.toolItem} ${disabled ? styles.toolItemDisabled : ''}`}
-                          title={tool.description}
+                          title={
+                            tool.requiresHumanApproval
+                              ? `${tool.description} Unavailable in scheduled tasks: it needs a person to approve each action.`
+                              : tool.description
+                          }
                         >
                           <input
                             type="checkbox"

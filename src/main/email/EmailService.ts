@@ -29,6 +29,7 @@ import {
   replySubject,
   type OutgoingMessage
 } from './mime'
+import { dedupeParticipants, threadPreview } from './threadSummary'
 import { authorizeProvider } from './providers/oauthClients'
 import { GmailAdapter } from './providers/GmailAdapter'
 import { MicrosoftAdapter } from './providers/MicrosoftAdapter'
@@ -296,10 +297,9 @@ class EmailService {
     if (messages.length === 0) return 'No messages found in this thread.'
 
     const ordered = [...messages].sort((left, right) => left.date - right.date)
-    const participants = Array.from(
-      new Set(ordered.flatMap((message) => [message.from, ...message.to]))
+    const participants = dedupeParticipants(
+      ordered.flatMap((message) => [message.from, ...message.to])
     )
-      .filter(Boolean)
       .slice(0, 8)
       .join('; ')
     const latest = ordered[ordered.length - 1]
@@ -312,8 +312,7 @@ class EmailService {
       `Latest: ${new Date(latest.date).toLocaleString()}`,
       '',
       ...ordered.slice(-5).map((message, index) => {
-        const preview = message.snippet.trim() || truncate(message.body, 180)
-        return `${index + 1}. ${message.from}: ${preview}`
+        return `${index + 1}. ${message.from}: ${threadPreview(message)}`
       })
     ]
       .filter(Boolean)
@@ -506,10 +505,6 @@ function validateDraftRequest(request: EmailDraftRequest): void {
   }
   if (!request.subject.trim()) throw new Error('subject is required.')
   if (!request.body.trim()) throw new Error('body is required.')
-}
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}...` : text
 }
 
 export const emailService = new EmailService()

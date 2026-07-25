@@ -126,6 +126,16 @@ interface GuardedToolSpec extends ReadToolSpec {
    * gate too whenever that setting was off, not just its own toggle.)
    */
   forceConfirm?: boolean
+  /**
+   * Stronger than `forceConfirm`: this call needs an actual person, so the
+   * unattended surfaces refuse it instead of auto-approving (see
+   * `headlessConfirm`). Implies `forceConfirm` — it confirms in every
+   * permission mode. Mirror any tool set here with `requiresHumanApproval` on
+   * its `TOOL_CATALOG` entry, so the Scheduler and Agent editors stop offering
+   * it for unattended runs rather than letting the user opt into a call that
+   * can only ever be refused.
+   */
+  requiresHumanApproval?: boolean
 }
 
 /**
@@ -306,7 +316,10 @@ export async function runGuardedTool(
     const permissionDecision = resolvePermission(ctx.permissionMode, spec.risk)
     const gatedByTurnStart = needsTurnGate(ctx.permissionMode, spec.risk, ctx.turnGate.approved)
     const needsConfirm =
-      spec.forceConfirm === true || permissionDecision === 'confirm' || gatedByTurnStart
+      spec.forceConfirm === true ||
+      spec.requiresHumanApproval === true ||
+      permissionDecision === 'confirm' ||
+      gatedByTurnStart
     if (needsConfirm) {
       const response = await ctx.confirm({
         id: randomUUID(),
@@ -321,7 +334,8 @@ export async function runGuardedTool(
         detail: spec.confirmDetail,
         risk: spec.risk,
         diff: spec.confirmDiff,
-        turnGate: gatedByTurnStart
+        turnGate: gatedByTurnStart,
+        requiresHumanApproval: spec.requiresHumanApproval
       })
       if (!response.approved) {
         ctx.emit({
@@ -445,7 +459,7 @@ export async function runGuardedToolWithPrepare<TData>(
   ctx: ToolRuntimeContext,
   spec: Pick<
     GuardedToolSpec,
-    'name' | 'kind' | 'title' | 'risk' | 'touch' | 'forceConfirm' | 'args'
+    'name' | 'kind' | 'title' | 'risk' | 'touch' | 'forceConfirm' | 'requiresHumanApproval' | 'args'
   >,
   prepare: () => Promise<PreparedGuardedCall<TData>>,
   run: (data: TData) => Promise<ToolOutcome>
