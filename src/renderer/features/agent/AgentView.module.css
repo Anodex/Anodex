@@ -1,19 +1,44 @@
 .view {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  max-width: 900px;
   height: 100%;
-  margin: 0 auto;
-  padding: var(--space-6);
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-base);
 }
 
+/* Full-bleed header bar over a scrolling body, matching Critical Thinking and
+   Email — the view fills the pane instead of sitting in a centred column. */
 .header {
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Wraps below the title once the pane is too narrow to hold both, so the
+   New run button stays inside the view instead of being clipped. */
+.headerText {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.header > button {
+  flex-shrink: 0;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-6);
+  overflow-y: auto;
 }
 
 .title {
@@ -24,9 +49,9 @@
 }
 
 .subtitle {
-  margin: calc(var(--space-3) * -1) 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-muted);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
 }
 
 .empty {

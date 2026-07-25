@@ -326,8 +326,14 @@ export function AgentView(): JSX.Element {
 
   return (
     <div className={styles.view}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>Agent</h1>
+      <header className={styles.header}>
+        <div className={styles.headerText}>
+          <h1 className={styles.title}>Agent</h1>
+          <p className={styles.subtitle}>
+            Hand off a goal and Anodex works it unattended, checking in as it goes, until it
+            finishes or runs out of turns.
+          </p>
+        </div>
         <Button
           variant="primary"
           iconLeft={<Icon name="plus" size={16} />}
@@ -335,53 +341,51 @@ export function AgentView(): JSX.Element {
         >
           New run
         </Button>
+      </header>
+
+      <div className={styles.body}>
+        {runs.length > 0 && (
+          <div className={styles.filterRow}>
+            {STATUS_FILTERS.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                className={`${styles.filterTab} ${statusFilter === filter.value ? styles.filterTabActive : ''}`}
+                onClick={() => setStatusFilter(filter.value)}
+                aria-pressed={statusFilter === filter.value}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {runs.length === 0 ? (
+          <div className={styles.empty}>
+            <Icon name="bot" size={40} className={styles.emptyIcon} />
+            <p>No agent runs yet.</p>
+          </div>
+        ) : visibleRuns.length === 0 ? (
+          <div className={styles.empty}>
+            <p>No {statusFilter} runs.</p>
+          </div>
+        ) : (
+          <div className={styles.runList}>
+            {visibleRuns.map((run) => (
+              <RunCard
+                key={run.id}
+                run={run}
+                stoppingId={stoppingId}
+                projectName={projectName}
+                openRun={(r) => setSelectedRunId(r.id)}
+                handleStop={(r) => void handleStop(r)}
+                retryRun={retryRun}
+                deleteRun={(r) => void handleDelete(r)}
+              />
+            ))}
+          </div>
+        )}
       </div>
-      <p className={styles.subtitle}>
-        Hand off a goal and Anodex works it unattended, checking in as it goes, until it finishes or
-        runs out of turns.
-      </p>
-
-      {runs.length > 0 && (
-        <div className={styles.filterRow}>
-          {STATUS_FILTERS.map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              className={`${styles.filterTab} ${statusFilter === filter.value ? styles.filterTabActive : ''}`}
-              onClick={() => setStatusFilter(filter.value)}
-              aria-pressed={statusFilter === filter.value}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {runs.length === 0 ? (
-        <div className={styles.empty}>
-          <Icon name="bot" size={40} className={styles.emptyIcon} />
-          <p>No agent runs yet.</p>
-        </div>
-      ) : visibleRuns.length === 0 ? (
-        <div className={styles.empty}>
-          <p>No {statusFilter} runs.</p>
-        </div>
-      ) : (
-        <div className={styles.runList}>
-          {visibleRuns.map((run) => (
-            <RunCard
-              key={run.id}
-              run={run}
-              stoppingId={stoppingId}
-              projectName={projectName}
-              openRun={(r) => setSelectedRunId(r.id)}
-              handleStop={(r) => void handleStop(r)}
-              retryRun={retryRun}
-              deleteRun={(r) => void handleDelete(r)}
-            />
-          ))}
-        </div>
-      )}
 
       {editor}
     </div>

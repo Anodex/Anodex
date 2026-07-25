@@ -313,8 +313,14 @@ export function SchedulerView(): JSX.Element {
 
   return (
     <div className={styles.view}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>Scheduled tasks</h1>
+      <header className={styles.header}>
+        <div className={styles.headerText}>
+          <h1 className={styles.title}>Scheduled tasks</h1>
+          <p className={styles.subtitle}>
+            Run tasks on a schedule, using only the tools you allow. Type a prompt, pick when it
+            runs, and Anodex takes it from there.
+          </p>
+        </div>
         <div className={styles.headerActions}>
           <SelectControl
             value={sortMode}
@@ -332,67 +338,65 @@ export function SchedulerView(): JSX.Element {
             New task
           </Button>
         </div>
-      </div>
-      <p className={styles.subtitle}>
-        Run tasks on a schedule, using only the tools you allow. Type a prompt, pick when it runs,
-        and Anodex takes it from there.
-      </p>
+      </header>
 
-      <SidebarSearch value={query} onChange={setQuery} />
+      <div className={styles.body}>
+        <SidebarSearch value={query} onChange={setQuery} />
 
-      <div className={styles.infoBar}>
-        <span>
-          <Icon name="info" size={14} /> Scheduled tasks only run while Anodex is open.
-        </span>
-        <label className={styles.keepAwake}>
-          <Icon name="power" size={14} />
-          Keep awake
-          <ToggleControl checked={keepAwake} onChange={(value) => void setKeepAwake(value)} />
-        </label>
-      </div>
-
-      {filteredTasks.length === 0 ? (
-        <div className={styles.empty}>
-          <Icon name="clock" size={40} className={styles.emptyIcon} />
-          <p>{tasks.length === 0 ? 'No scheduled tasks yet.' : 'No tasks match your search.'}</p>
+        <div className={styles.infoBar}>
+          <span>
+            <Icon name="info" size={14} /> Scheduled tasks only run while Anodex is open.
+          </span>
+          <label className={styles.keepAwake}>
+            <Icon name="power" size={14} />
+            Keep awake
+            <ToggleControl checked={keepAwake} onChange={(value) => void setKeepAwake(value)} />
+          </label>
         </div>
-      ) : (
-        <div className={styles.taskList}>
-          {filteredTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              runningId={runningId}
-              projectName={projectName}
-              onOpenReport={setOpenTaskId}
-              onRunNow={(t) => void handleRunNow(t)}
-              onEdit={setEditingTask}
-            />
-          ))}
-        </div>
-      )}
 
-      <div className={styles.divider} />
+        {filteredTasks.length === 0 ? (
+          <div className={styles.empty}>
+            <Icon name="clock" size={40} className={styles.emptyIcon} />
+            <p>{tasks.length === 0 ? 'No scheduled tasks yet.' : 'No tasks match your search.'}</p>
+          </div>
+        ) : (
+          <div className={styles.taskList}>
+            {filteredTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                runningId={runningId}
+                projectName={projectName}
+                onOpenReport={setOpenTaskId}
+                onRunNow={(t) => void handleRunNow(t)}
+                onEdit={setEditingTask}
+              />
+            ))}
+          </div>
+        )}
 
-      <div className={styles.examples}>
-        <h2 className={styles.examplesTitle}>Get started with an example</h2>
-        <div className={styles.exampleGrid}>
-          {EXAMPLES.map((example) => (
-            <button
-              key={example.title}
-              type="button"
-              className={styles.exampleCard}
-              onClick={() => setCreatingSeed(example.seed)}
-            >
-              <div className={styles.exampleIcon}>
-                <Icon name={example.icon} size={16} />
-              </div>
-              <div>
-                <p className={styles.exampleTitle}>{example.title}</p>
-                <p className={styles.exampleDescription}>{example.description}</p>
-              </div>
-            </button>
-          ))}
+        <div className={styles.divider} />
+
+        <div className={styles.examples}>
+          <h2 className={styles.examplesTitle}>Get started with an example</h2>
+          <div className={styles.exampleGrid}>
+            {EXAMPLES.map((example) => (
+              <button
+                key={example.title}
+                type="button"
+                className={styles.exampleCard}
+                onClick={() => setCreatingSeed(example.seed)}
+              >
+                <div className={styles.exampleIcon}>
+                  <Icon name={example.icon} size={16} />
+                </div>
+                <div>
+                  <p className={styles.exampleTitle}>{example.title}</p>
+                  <p className={styles.exampleDescription}>{example.description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
