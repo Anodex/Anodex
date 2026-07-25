@@ -29,7 +29,24 @@ export interface Conversation {
    * the chat is archived or deleted it leaves the active list and a fresh chat
    * is created on the next handoff.
    */
-  emailThread?: { accountId: string; threadId: string }
+  emailThread?: EmailThreadLink
+}
+
+/**
+ * Which email conversation a chat is about, and enough of it for the model to
+ * act without searching the mailbox again.
+ *
+ * `subject` and `latestMessageId` are refreshed every time the thread is
+ * opened, because a thread grows: the reply the user asks for should answer
+ * the newest message, not whichever one was newest when the chat started.
+ * They're optional so chats linked by an older build still load.
+ */
+export interface EmailThreadLink {
+  accountId: string
+  threadId: string
+  subject?: string
+  /** Id of the newest message in the thread, which `reply_email` addresses. */
+  latestMessageId?: string
 }
 
 /** Persisted UI state for the conversation list. */

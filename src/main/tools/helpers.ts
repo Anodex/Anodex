@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { ToolCallDiff, ToolCallPreview, ToolKind, ToolRisk } from '@shared/tools.types'
+import type {
+  EmailDraftPreview,
+  ToolCallDiff,
+  ToolCallPreview,
+  ToolKind,
+  ToolRisk
+} from '@shared/tools.types'
 import type { CheckpointFileChange } from '@shared/checkpoint.types'
 import type { FileTouchAction } from '@shared/projectMemory.types'
 import type { Plan } from '@shared/plan.types'
@@ -112,6 +118,8 @@ interface GuardedToolSpec extends ReadToolSpec {
   confirmDetail: string
   /** Before/after content for a file write/edit, so the prompt can render a real diff. */
   confirmDiff?: ToolCallDiff
+  /** The resolved outgoing message, when this call sends mail, so the prompt can render it as a draft. */
+  confirmEmailDraft?: EmailDraftPreview
   /** How risky this call is; decides whether the active permission mode confirms it. */
   risk: ToolRisk
   /**
@@ -334,6 +342,7 @@ export async function runGuardedTool(
         detail: spec.confirmDetail,
         risk: spec.risk,
         diff: spec.confirmDiff,
+        emailDraft: spec.confirmEmailDraft,
         turnGate: gatedByTurnStart,
         requiresHumanApproval: spec.requiresHumanApproval
       })
@@ -444,6 +453,7 @@ function checkpointChangesFromDiff(diff: ToolCallDiff | undefined): CheckpointFi
 interface PreparedGuardedCall<TData> {
   confirmDetail: string
   confirmDiff?: ToolCallDiff
+  confirmEmailDraft?: EmailDraftPreview
   data: TData
 }
 
@@ -485,6 +495,7 @@ export async function runGuardedToolWithPrepare<TData>(
     ...spec,
     confirmDetail: prepared.confirmDetail,
     confirmDiff: prepared.confirmDiff,
+    confirmEmailDraft: prepared.confirmEmailDraft,
     run: () => run(prepared.data)
   })
 }

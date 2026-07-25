@@ -11,9 +11,11 @@ import type {
   EmailMoveRequest,
   EmailSearchRequest,
   EmailSendRequest,
-  EmailSyncMode
+  EmailSyncMode,
+  EmailThreadDigestRequest
 } from '@shared/email.types'
 import { emailService } from '../email/EmailService'
+import { digestThreads } from '../email/threadDigests'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:email')
@@ -175,6 +177,20 @@ export function registerEmailHandlers(): void {
           'Could not open that conversation.',
           toErrorMessage(error)
         )
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannel.Email.digestThreads,
+    async (_event, requests: EmailThreadDigestRequest[]) => {
+      try {
+        return ok(await digestThreads(requests))
+      } catch (error) {
+        // Digests are an enhancement to a list that renders fine without them,
+        // so a failure here is worth a log and nothing louder.
+        log.warn('Failed to digest email threads:', error)
+        return ok([])
       }
     }
   )

@@ -35,6 +35,14 @@ interface EmailState {
   openMessages: EmailMessage[]
   openLoading: boolean
   busyThreadId: string | null
+  /**
+   * One-line digests by thread id, filled in behind the listing. Absent means
+   * "not yet" rather than "none" — the row shows its provider snippet until a
+   * digest arrives, and the arrival is the only thing that changes.
+   */
+  digests: Record<string, string>
+  /** True while a digest batch is in flight, so the list can say it's working. */
+  digesting: boolean
 
   load: () => Promise<void>
   /** Refreshes only the unread count, for the sidebar badge. */
@@ -47,10 +55,13 @@ interface EmailState {
   openThread: (thread: EmailThreadSummary) => Promise<void>
   closeThread: () => void
   applyFlag: (thread: EmailThreadSummary, action: EmailFlagAction) => Promise<void>
+  /** Fetches digests for whichever listed threads still lack one. */
+  loadDigests: () => Promise<void>
 }
 
 let loadRevision = 0
 let openRevision = 0
+let digestRevision = 0
 
 /** Shared mailbox state used by the Email view and its navigation counter. */
 export const useEmailStore = create<EmailState>((set, get) => ({
@@ -69,6 +80,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   openMessages: [],
   openLoading: false,
   busyThreadId: null,
+  digests: {},
+  digesting: false,
 
   load: async () => {
     const revision = ++loadRevision
@@ -122,6 +135,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           threadsResult.error.detail ?? threadsResult.error.message
         )
       }
+      // Deliberately not awaited: the list is already on screen and useful,
+      // and a digest pass involves a mailbox fetch and a model call per thread.
+      void get().loadDigests()
     } catch {
       if (revision === loadRevision) {
         set({ status: null, threads: [], unreadCount: 0, loaded: true })
@@ -238,6 +254,54 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       if (unreadResult.ok) set({ unreadCount: unreadResult.value })
     } finally {
       set({ busyThreadId: null })
+    }
+  },
+
+  /**
+   * Fills in the missing digests, a batch at a time.
+   *
+   * The main process caps how many it will generate per call, so this repeats
+   * until the listed threads are covered or a pass returns nothing new. A pass
+   * that adds nothing means there is no model loaded to summarize with (or the
+   * remaining threads keep failing), and retrying would spin — so it stops and
+   * leaves those rows on their snippets until the next listing.
+   */
+  loadDigests: async () => {
+    // Supersede rather than skip: a second listing must be able to take over
+    // from a batch still running for the previous one, or the new threads
+    // would never get digests at all.
+    const revision = ++digestRevision
+    set({ digesting: true })
+    try {
+      for (;;) {
+        // Re-read the threads each pass: a refresh may have replaced the list
+        // while the previous batch was in flight.
+        const state = get()
+        if (revision !== digestRevision) return
+        const pending = state.threads.filter((thread) => !state.digests[thread.id])
+        if (pending.length === 0) return
+
+        const result = await anodex.email.digestThreads(
+          pending.map((thread) => ({
+            accountId: thread.accountId,
+            threadId: thread.id,
+            latestMessageId: thread.latestMessageId
+          }))
+        )
+        if (revision !== digestRevision) return
+        if (!result.ok || result.value.length === 0) return
+
+        set((current) => ({
+          digests: {
+            ...current.digests,
+            ...Object.fromEntries(result.value.map((item) => [item.threadId, item.digest]))
+          }
+        }))
+      }
+    } finally {
+      // Only the newest pass owns the flag; a superseded one bowing out must
+      // not clear the indicator for the pass that replaced it.
+      if (revision === digestRevision) set({ digesting: false })
     }
   }
 }))

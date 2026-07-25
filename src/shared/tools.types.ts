@@ -94,6 +94,25 @@ export interface ToolActivityEvent {
 }
 
 /** A request for the user to approve a write or command before it runs. */
+/**
+ * An outgoing email as the approval prompt should show it.
+ *
+ * Deliberately the resolved message, not the model's arguments: a reply's
+ * recipients and subject come from the message being answered, and a send from
+ * a saved draft ignores whatever the model passed alongside the draft id. The
+ * user has to approve what will actually leave the machine.
+ */
+export interface EmailDraftPreview {
+  to: string[]
+  cc?: string[]
+  bcc?: string[]
+  subject: string
+  body: string
+  attachmentNames?: string[]
+  /** Subject of the message being answered, when this is a reply. */
+  inReplyToSubject?: string
+}
+
 export interface ToolConfirmRequest {
   id: string
   conversationId: string
@@ -108,6 +127,13 @@ export interface ToolConfirmRequest {
   risk: ToolRisk
   /** Before/after content for a file write/edit, so the prompt can render a real diff instead of a raw text preview. */
   diff?: ToolCallDiff
+  /**
+   * The message an email tool is about to send, when this prompt is gating
+   * one. Present so the approval can be rendered as the draft it is —
+   * recipients, subject, and body as prose — rather than as a block of
+   * pre-formatted detail text the reader has to parse before deciding.
+   */
+  emailDraft?: EmailDraftPreview
   /** True when this prompt exists specifically because of the once-per-turn
    * "first action" gate (full/untethered mode, not a normal risk-based
    * confirm) — lets the UI explain that approving covers the rest of this

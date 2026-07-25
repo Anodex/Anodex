@@ -7,6 +7,7 @@ import type {
   EmailOutgoingAttachment,
   EmailThreadSummary
 } from '@shared/email.types'
+import type { EmailDraftPreview } from '@shared/tools.types'
 import type { ToolFactory, ToolRuntimeContext, WorkspaceToolFactory } from './types'
 import { runGuardedTool, runGuardedToolWithPrepare, runReadTool } from './helpers'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
@@ -356,7 +357,11 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
             ...message,
             attachments: [...(message.attachments ?? []), ...attachments]
           }
-          return { confirmDetail: describeEmailToSend(outgoing), data: outgoing }
+          return {
+            confirmDetail: describeEmailToSend(outgoing),
+            confirmEmailDraft: previewEmailToSend(outgoing),
+            data: outgoing
+          }
         },
         async (message) => {
           await emailService.send({
@@ -430,6 +435,10 @@ export const replyEmailTool: ToolFactory = (define, ctx) =>
               `Replying to: ${prepared.parentSubject}`,
               describeEmailToSend(prepared.message)
             ].join('\n'),
+            confirmEmailDraft: {
+              ...previewEmailToSend(prepared.message),
+              inReplyToSubject: prepared.parentSubject
+            },
             data: prepared
           }
         },
@@ -664,6 +673,35 @@ function resolveEmailToSend(args: EmailDraftRequest & { draftId?: string }): Ema
   const draft = emailService.getDraft(args.draftId)
   if (!draft) throw new Error(`Email draft not found: ${args.draftId}`)
   return draft
+}
+
+/**
+ * The same message `describeEmailToSend` renders as text, kept structured so
+ * the approval card can lay it out as a draft.
+ *
+ * The body is not truncated here the way the text detail is: the text version
+ * is a preview line, but this one *is* the email, and approving something you
+ * were only shown the first part of is not consent. Attachments are named
+ * rather than carried — the card shows what is going, not the bytes.
+ */
+function previewEmailToSend(message: {
+  to: string[]
+  cc?: string[]
+  bcc?: string[]
+  subject: string
+  body: string
+  attachments?: EmailOutgoingAttachment[]
+}): EmailDraftPreview {
+  return {
+    to: message.to,
+    cc: message.cc?.length ? message.cc : undefined,
+    bcc: message.bcc?.length ? message.bcc : undefined,
+    subject: message.subject,
+    body: message.body,
+    attachmentNames: message.attachments?.length
+      ? message.attachments.map((attachment) => attachment.filename)
+      : undefined
+  }
 }
 
 function describeEmailToSend(message: {

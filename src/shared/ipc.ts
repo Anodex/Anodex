@@ -92,6 +92,8 @@ import type {
   EmailSearchRequest,
   EmailSendRequest,
   EmailSyncMode,
+  EmailThreadDigest,
+  EmailThreadDigestRequest,
   EmailThreadSummary
 } from './email.types'
 import type {
@@ -350,6 +352,8 @@ export const IpcChannel = {
     search: 'email:search',
     readMessage: 'email:read-message',
     getThreadMessages: 'email:get-thread-messages',
+    /** One-line "what does this want" digests for inbox rows. */
+    digestThreads: 'email:digest-threads',
     applyFlag: 'email:apply-flag',
     move: 'email:move',
     listMailboxes: 'email:list-mailboxes',
@@ -696,6 +700,12 @@ export interface AnodexApi {
     search(request: EmailSearchRequest): Promise<Result<EmailThreadSummary[]>>
     readMessage(id: string, accountId?: string): Promise<Result<EmailMessage>>
     getThreadMessages(threadId: string, accountId?: string): Promise<Result<EmailMessage[]>>
+    /**
+     * Digests for as many of the given threads as are cached or affordable
+     * right now. Threads missing from the result keep their provider snippet;
+     * calling again picks up where this left off.
+     */
+    digestThreads(requests: EmailThreadDigestRequest[]): Promise<Result<EmailThreadDigest[]>>
     applyFlag(request: EmailFlagRequest): Promise<Result<string>>
     move(request: EmailMoveRequest): Promise<Result<string>>
     listMailboxes(accountId?: string): Promise<Result<EmailMailbox[]>>

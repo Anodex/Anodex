@@ -1,0 +1,131 @@
+/**
+ * The assistant rail docked beside an open email thread. Hosts the real chat
+ * transcript and composer, so this file styles only the frame around them —
+ * anything that looks like chat is the chat feature's own CSS.
+ */
+.rail {
+  display: flex;
+  flex-direction: column;
+  /* The transcript inside is a flex child that scrolls; without this the rail
+     grows to fit the whole conversation and the composer walks off-screen. */
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+}
+
+.railHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.railTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.railTitle svg {
+  color: var(--accent);
+}
+
+.railControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.railButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.railButton:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* Widened is a state the rail stays in, so the control that set it stays lit
+   rather than looking like a button that did nothing. */
+.railButton[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
+}
+
+/* Shown until the thread's chat has its first turn — an empty transcript with
+   nothing to act on is a worse first impression than a few real openings. */
+.starters {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.startersLead {
+  margin: 0 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.starter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  text-align: left;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.starter svg {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.starter:hover:not(:disabled),
+.starter:hover:not(:disabled) svg {
+  color: var(--accent);
+}
+
+.starter:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.starter:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

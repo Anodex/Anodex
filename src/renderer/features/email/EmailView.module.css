@@ -1,19 +1,28 @@
+/**
+ * Full-bleed, like Critical Thinking's view: the page owns the whole panel
+ * rather than floating a capped column in the middle of it. The mail workspace
+ * is a set of panes to work in, and panes want the room.
+ *
+ * Nothing here is padded — each band below pads itself, so the header rule and
+ * the pane borders reach the edges instead of stopping short of them.
+ */
 .view {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  max-width: 900px;
   height: 100%;
-  margin: 0 auto;
-  padding: var(--space-6);
-  overflow-y: auto;
+  /* The columns inside scroll independently, so the page itself must not —
+     otherwise the rail's composer scrolls away with the mail. */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .header {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
 }
 
 .headerActions {
@@ -35,10 +44,15 @@
   font-size: var(--text-base);
 }
 
-.accountTabs {
+/* The bands between the header and the workspace. They pad themselves so the
+   header rule and the pane borders can run edge to edge. */
+.accountTabs,
+.mailboxTabs {
   display: flex;
+  flex-shrink: 0;
   flex-wrap: wrap;
   gap: var(--space-2);
+  padding: 0 var(--space-6) var(--space-3);
 }
 
 .accountTab {
@@ -66,11 +80,87 @@
   border-color: var(--accent);
 }
 
-.providerPanel,
-.mailboxPanel {
+.providerPanel {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+}
+
+/**
+ * The panel is the whole mail workspace, and it shows one thing at a time: the
+ * inbox list, or an opened thread beside the conversation about it. Opening a
+ * thread replaces the list rather than squeezing in next to it — Back in the
+ * reader's header is the way out.
+ *
+ * Which columns exist is decided in `EmailView.tsx`, because the rail must
+ * unmount rather than hide on a narrow window, so each layout class only has
+ * to name track sizes for the columns actually rendered.
+ */
+.mailboxPanel {
+  display: grid;
+  flex: 1;
+  /* Without this the grid takes its height from its content and the columns
+     never get a scrollbar of their own — the whole page scrolls instead. */
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  /* The rail widening is a change of shape, not a jump to a different screen —
+     animating the tracks keeps the mail and the answer visibly the same panes
+     that were there a moment ago. */
+  transition: grid-template-columns var(--motion-medium) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mailboxPanel {
+    transition: none;
+  }
+}
+
+.layoutList,
+.layoutReader {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Two widths for the rail, toggled from its own header. Narrow is enough to
+   read a summary beside the mail; wide is for when the answer is the thing
+   being read and the mail is just reference. Both keep the mail on screen —
+   the point of the rail is that you don't have to leave it. */
+.layoutReaderRail {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+}
+
+.layoutReaderRailWide {
+  /* A share rather than a fixed width, so widening means the same thing on a
+     laptop as on a large display. */
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 44%);
+}
+
+.listColumn,
+.readerColumn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.listColumn {
+  overflow-y: auto;
+}
+
+/* The reader keeps its own header out of the scroll (see `.readerHeader`), so
+   the column itself must not scroll — only the body inside it. */
+.readerColumn {
+  overflow: hidden;
+}
+
+/* The list header stays put while its rows scroll under it, so the mailbox
+   and account a row belongs to never leave the screen. */
+.listColumn .mailboxHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-surface);
 }
 
 .providerHeader {
@@ -197,6 +287,15 @@
   text-align: center;
 }
 
+/* An empty pane centres its message in the space it has, rather than pinning
+   it to the top of a mostly blank column. */
+.mailboxPanel > .emptyInbox,
+.listColumn > .emptyInbox,
+.reader > .emptyInbox {
+  flex: 1;
+  justify-content: center;
+}
+
 .emptyInbox p {
   max-width: 360px;
   margin: 0;
@@ -211,8 +310,12 @@
 
 .searchRow {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: var(--space-2);
+  /* Inset from the page edge like the tab bands above it, so the input reads
+     as a control on the page rather than another full-bleed band. */
+  margin: 0 var(--space-6) var(--space-4);
   padding: var(--space-2) var(--space-3);
   color: var(--text-faint);
   background: var(--bg-surface);
@@ -324,18 +427,27 @@
   cursor: default;
 }
 
+/* The scrolling body of the reader. Its header is a sibling, not a child, so
+   that Back and the thread's actions stay put while the mail scrolls. */
 .reader {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: var(--space-3);
+  min-height: 0;
   padding: var(--space-4);
+  overflow-y: auto;
 }
 
 .readerHeader {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .readerActions {
@@ -467,12 +579,6 @@
   cursor: default;
 }
 
-.mailboxTabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
 .loadMoreRow {
   display: flex;
   justify-content: center;
@@ -503,6 +609,14 @@
 .threadItem small {
   color: var(--text-faint);
   font-size: var(--text-xs);
+}
+
+/* A digest is the model's reading of the thread, not the thread's own words —
+   the accent edge marks that difference without a label on every row. */
+.threadDigest {
+  padding-left: var(--space-2);
+  color: var(--text-muted);
+  border-left: 2px solid var(--accent);
 }
 
 .threadItem p {

@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
+import type {
+  EmailDraftPreview,
+  ToolConfirmRequest,
+  ToolConfirmResponse
+} from '@shared/tools.types'
 import { useUiStore } from '../../stores/uiStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -104,16 +108,29 @@ function ConfirmItem({
     return () => window.removeEventListener('keydown', onKey)
   }, [listenForEscape, denying, onResolve])
 
-  const config = KIND_CONFIG[request.kind]
+  const draft = request.emailDraft
+  const config = draft
+    ? {
+        ...DRAFT_CONFIG,
+        title: draft.inReplyToSubject
+          ? `Send this reply to "${draft.inReplyToSubject}"?`
+          : 'Send this email?'
+      }
+    : KIND_CONFIG[request.kind]
 
   return (
-    <div className={styles.card} role="dialog" aria-label={config.title}>
+    <div
+      className={`${styles.card} ${draft ? styles.draftCard : ''}`}
+      role="dialog"
+      aria-label={config.title}
+    >
       <div className={styles.header}>
         <span className={`${styles.badge} ${styles[config.style]}`}>
           <Icon name={config.icon} size={14} />
         </span>
         <span className={styles.title}>{config.title}</span>
         {request.diff && <DiffStat before={request.diff.before} after={request.diff.after} />}
+        {draft && <span className={styles.unsentBadge}>Not sent</span>}
         {request.risk === 'destructive' && <span className={styles.riskBadge}>Destructive</span>}
       </div>
 
@@ -123,7 +140,9 @@ function ConfirmItem({
         </p>
       )}
 
-      {request.diff ? (
+      {draft ? (
+        <EmailDraftBody draft={draft} />
+      ) : request.diff ? (
         <div className={styles.diffWrap}>
           <DiffView
             before={request.diff.before}
@@ -142,7 +161,9 @@ function ConfirmItem({
             autoFocus
             className={styles.reasonInput}
             value={reason}
-            placeholder="Optional: tell it what to do differently…"
+            placeholder={
+              draft ? 'What should it say instead?' : 'Optional: tell it what to do differently…'
+            }
             onChange={(event) => setReason(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') onResolve({ approved: false, reason })
@@ -155,22 +176,32 @@ function ConfirmItem({
             className={styles.confirmDeny}
             onClick={() => onResolve({ approved: false, reason })}
           >
-            Deny
+            {draft ? 'Send back' : 'Deny'}
           </button>
         </div>
       ) : (
         <div className={styles.actions}>
-          <button className={styles.deny} onClick={() => setDenying(true)}>
-            Deny
+          <button className={styles.deny} onClick={() => onResolve({ approved: false })}>
+            {draft ? 'Discard' : 'Deny'}
           </button>
-          <button
-            className={styles.rememberApprove}
-            onClick={() => onResolve({ approved: true, remember: true })}
-          >
-            Always allow {request.toolName}
-          </button>
+          {draft ? (
+            // No "always allow" for mail. `send_email` and `reply_email` are
+            // `requiresHumanApproval` tools precisely because each message is
+            // its own decision that cannot be taken back — a remembered
+            // approval would be a standing permission to send.
+            <button className={styles.rememberApprove} onClick={() => setDenying(true)}>
+              Revise
+            </button>
+          ) : (
+            <button
+              className={styles.rememberApprove}
+              onClick={() => onResolve({ approved: true, remember: true })}
+            >
+              Always allow {request.toolName}
+            </button>
+          )}
           <button className={styles.approve} onClick={() => onResolve({ approved: true })}>
-            <Icon name="check" size={14} />
+            <Icon name={draft ? 'send' : 'check'} size={14} />
             {config.approveLabel}
           </button>
         </div>
@@ -178,6 +209,45 @@ function ConfirmItem({
     </div>
   )
 }
+
+/** The message itself, laid out the way mail is read rather than as tool detail. */
+function EmailDraftBody({ draft }: { draft: EmailDraftPreview }): JSX.Element {
+  return (
+    <div className={styles.draftBody}>
+      <dl className={styles.draftFields}>
+        <dt>To</dt>
+        <dd>{draft.to.join(', ')}</dd>
+        {draft.cc && (
+          <>
+            <dt>Cc</dt>
+            <dd>{draft.cc.join(', ')}</dd>
+          </>
+        )}
+        {draft.bcc && (
+          <>
+            <dt>Bcc</dt>
+            <dd>{draft.bcc.join(', ')}</dd>
+          </>
+        )}
+        <dt>Subject</dt>
+        <dd>{draft.subject}</dd>
+        {draft.attachmentNames && (
+          <>
+            <dt>Attached</dt>
+            <dd>{draft.attachmentNames.join(', ')}</dd>
+          </>
+        )}
+      </dl>
+      <div className={styles.draftText}>{draft.body}</div>
+    </div>
+  )
+}
+
+const DRAFT_CONFIG = {
+  icon: 'send',
+  style: 'draft',
+  approveLabel: 'Send'
+} as const
 
 const KIND_CONFIG: Record<
   'write' | 'command' | 'web' | 'mcp',

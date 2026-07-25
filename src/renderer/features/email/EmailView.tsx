@@ -10,8 +10,10 @@ import { Button } from '../../components/ui/Button'
 import { useEmailStore } from '../../stores/emailStore'
 import { useChatStore } from '../../stores/chatStore'
 import { notifyError, useUiStore } from '../../stores/uiStore'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { anodex } from '../../lib/anodex'
 import { HtmlMessageBody } from './HtmlMessageBody'
+import { EmailThreadRail } from './EmailThreadRail'
 import styles from './EmailView.module.css'
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -33,6 +35,8 @@ export function EmailView(): JSX.Element {
   const openMessages = useEmailStore((s) => s.openMessages)
   const openLoading = useEmailStore((s) => s.openLoading)
   const busyThreadId = useEmailStore((s) => s.busyThreadId)
+  const digests = useEmailStore((s) => s.digests)
+  const digesting = useEmailStore((s) => s.digesting)
   const storedQuery = useEmailStore((s) => s.query)
   const mailbox = useEmailStore((s) => s.mailbox)
   const mailboxes = useEmailStore((s) => s.mailboxes)
@@ -49,6 +53,13 @@ export function EmailView(): JSX.Element {
   const loadEmail = useEmailStore((s) => s.load)
 
   const [queryInput, setQueryInput] = useState(storedQuery)
+  const [railHidden, setRailHidden] = useState(false)
+  const [railExpanded, setRailExpanded] = useState(false)
+
+  // The rail carries the tool-approval card, so it is genuinely unmounted on a
+  // narrow window rather than hidden — an approval prompt the user cannot see
+  // would silently stall the model's turn.
+  const railFits = useMediaQuery('(min-width: 940px)')
 
   useEffect(() => {
     void loadEmail()
@@ -61,6 +72,19 @@ export function EmailView(): JSX.Element {
     accounts.find((account) => account.isPrimary) ??
     accounts[0]
   const openThreadSummary = threads.find((thread) => thread.id === openThreadId) ?? null
+
+  const showRail = Boolean(openThreadId) && railFits && !railHidden
+  // Opening a thread hands the whole pane to it: the mail and the conversation
+  // about it, and nothing else. The list is a place you were, not something to
+  // keep half-watching while reading — Back at the top of the reader is how
+  // you return to it.
+  const layoutClass = !openThreadId
+    ? 'layoutList'
+    : !showRail
+      ? 'layoutReader'
+      : railExpanded
+        ? 'layoutReaderRailWide'
+        : 'layoutReaderRail'
 
   const handleOpenWebmail = async (): Promise<void> => {
     const result = await anodex.email.openWebmail()
@@ -168,23 +192,8 @@ export function EmailView(): JSX.Element {
         </form>
       )}
 
-      <section className={styles.mailboxPanel}>
-        <div className={styles.mailboxHeader}>
-          <h2>
-            {storedQuery
-              ? `Results for "${storedQuery}"`
-              : mailbox
-                ? friendlyMailboxName(mailbox)
-                : 'Inbox'}
-          </h2>
-          <span>
-            {active
-              ? `${active.address} · ${PROVIDER_LABELS[active.provider] ?? active.provider}`
-              : PROVIDER_LABELS.none}
-          </span>
-        </div>
-
-        {!active?.connected ? (
+      {!active?.connected ? (
+        <section className={styles.mailboxPanel}>
           <div className={styles.emptyInbox}>
             <Icon name="mail" size={32} />
             <p>
@@ -193,56 +202,107 @@ export function EmailView(): JSX.Element {
                 : 'Add an account in Settings → Email to read, summarize, draft, and send from this page.'}
             </p>
           </div>
-        ) : openThreadId ? (
-          <ThreadReader
-            summary={openThreadSummary}
-            messages={openMessages}
-            loading={openLoading}
-            onClose={closeThread}
-          />
-        ) : threads.length === 0 ? (
-          <div className={styles.emptyInbox}>
-            <Icon name="mail" size={32} />
-            <p>{storedQuery ? 'No messages matched that search.' : 'No recent inbox threads.'}</p>
-          </div>
-        ) : (
-          <div className={styles.threadList}>
-            {threads.map((thread) => (
-              <ThreadRow
-                key={thread.id}
-                thread={thread}
-                busy={busyThreadId === thread.id}
-                onOpen={() => void openThread(thread)}
-                onFlag={(action) => void applyFlag(thread, action)}
-              />
-            ))}
-            {hasMore && (
-              <div className={styles.loadMoreRow}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={loadingMore}
-                  onClick={() => void loadMore()}
-                >
-                  {loadingMore ? 'Loading…' : 'Load more'}
-                </Button>
+        </section>
+      ) : (
+        <section className={`${styles.mailboxPanel} ${styles[layoutClass]}`}>
+          {!openThreadId && (
+            <div className={styles.listColumn}>
+              <div className={styles.mailboxHeader}>
+                <h2>
+                  {storedQuery
+                    ? `Results for "${storedQuery}"`
+                    : mailbox
+                      ? friendlyMailboxName(mailbox)
+                      : 'Inbox'}
+                </h2>
+                <span>
+                  {digesting
+                    ? 'Reading your mail…'
+                    : active
+                      ? `${active.address} · ${PROVIDER_LABELS[active.provider] ?? active.provider}`
+                      : PROVIDER_LABELS.none}
+                </span>
               </div>
-            )}
-          </div>
-        )}
-      </section>
+
+              {threads.length === 0 ? (
+                <div className={styles.emptyInbox}>
+                  <Icon name="mail" size={32} />
+                  <p>
+                    {storedQuery ? 'No messages matched that search.' : 'No recent inbox threads.'}
+                  </p>
+                </div>
+              ) : (
+                <div className={styles.threadList}>
+                  {threads.map((thread) => (
+                    <ThreadRow
+                      key={thread.id}
+                      thread={thread}
+                      digest={digests[thread.id]}
+                      busy={busyThreadId === thread.id}
+                      onOpen={() => void openThread(thread)}
+                      onFlag={(action) => void applyFlag(thread, action)}
+                    />
+                  ))}
+                  {hasMore && (
+                    <div className={styles.loadMoreRow}>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={loadingMore}
+                        onClick={() => void loadMore()}
+                      >
+                        {loadingMore ? 'Loading…' : 'Load more'}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {openThreadId && (
+            <div className={styles.readerColumn}>
+              <ThreadReader
+                summary={openThreadSummary}
+                messages={openMessages}
+                loading={openLoading}
+                onClose={closeThread}
+                // With the rail on screen the assistant is already here, so
+                // Summarize and Reply write into it. Without it — a narrow
+                // window — they still hand off to the Chat page, which is
+                // where the conversation would otherwise have nowhere to go.
+                assistInRail={showRail}
+                railHidden={railFits && !showRail}
+                onShowRail={() => setRailHidden(false)}
+              />
+            </div>
+          )}
+
+          {showRail && openThreadSummary && (
+            <EmailThreadRail
+              thread={openThreadSummary}
+              messages={openMessages}
+              expanded={railExpanded}
+              onToggleExpanded={() => setRailExpanded((value) => !value)}
+              onCollapse={() => setRailHidden(true)}
+            />
+          )}
+        </section>
+      )}
     </div>
   )
 }
 
 interface ThreadRowProps {
   thread: EmailThreadSummary
+  /** One-line digest of what the thread wants, once one has been generated. */
+  digest: string | undefined
   busy: boolean
   onOpen: () => void
   onFlag: (action: 'mark_read' | 'mark_unread' | 'star' | 'archive') => void
 }
 
-function ThreadRow({ thread, busy, onOpen, onFlag }: ThreadRowProps): JSX.Element {
+function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JSX.Element {
   return (
     <div className={`${styles.threadItem} ${thread.unread ? styles.threadUnread : ''}`}>
       <button type="button" className={styles.threadOpen} onClick={onOpen}>
@@ -254,7 +314,14 @@ function ThreadRow({ thread, busy, onOpen, onFlag }: ThreadRowProps): JSX.Elemen
           <span>{new Date(thread.updatedAt).toLocaleDateString()}</span>
         </div>
         <p>{thread.from}</p>
-        <small>{thread.snippet}</small>
+        {/* The digest replaces the snippet rather than joining it: a provider
+            snippet is the same words the digest was made from, so showing both
+            costs a line to say the same thing twice. */}
+        {digest ? (
+          <small className={styles.threadDigest}>{digest}</small>
+        ) : (
+          <small>{thread.snippet}</small>
+        )}
       </button>
 
       <div className={styles.threadActions}>
@@ -303,19 +370,42 @@ interface ThreadReaderProps {
   messages: EmailMessage[]
   loading: boolean
   onClose: () => void
+  /** True when the assistant rail is on screen to receive the instruction. */
+  assistInRail: boolean
+  /** True when the window is wide enough for the rail but the user hid it. */
+  railHidden: boolean
+  onShowRail: () => void
 }
 
-function ThreadReader({ summary, messages, loading, onClose }: ThreadReaderProps): JSX.Element {
+function ThreadReader({
+  summary,
+  messages,
+  loading,
+  onClose,
+  assistInRail,
+  railHidden,
+  onShowRail
+}: ThreadReaderProps): JSX.Element {
   const openEmailThreadConversation = useChatStore((s) => s.openEmailThreadConversation)
   const setPendingComposerText = useChatStore((s) => s.setPendingComposerText)
   const setView = useUiStore((s) => s.setView)
 
   /**
-   * Hands the thread to chat with the instruction pre-written rather than
-   * composing here. The model drafts through `reply_email`, which keeps the
-   * existing approval gate in front of anything actually being sent.
+   * Writes the instruction into a composer rather than sending it. The model
+   * drafts through `reply_email`, which keeps the existing approval gate in
+   * front of anything actually being sent, and the user still gets to edit or
+   * drop the instruction first.
+   *
+   * With the rail on screen that composer is right there and the rail has
+   * already linked the thread's chat, so nothing else is needed. On a window
+   * too narrow for the rail this falls back to the Chat page, which is the
+   * only other place the conversation can happen.
    */
-  const handOffToChat = (instruction: string, message: EmailMessage): void => {
+  const assist = (instruction: string, message: EmailMessage): void => {
+    if (assistInRail) {
+      setPendingComposerText(instruction)
+      return
+    }
     // The ids come along because the email tools address messages by id, not by
     // subject — without them the model would have to search the mailbox again
     // and might well act on the wrong message.
@@ -330,97 +420,117 @@ function ThreadReader({ summary, messages, loading, onClose }: ThreadReaderProps
     // Returns to the chat already discussing this thread when one is still
     // around, so a second Reply click continues the conversation rather than
     // starting a parallel one that has lost all the earlier context.
-    openEmailThreadConversation(message.accountId, message.threadId)
+    openEmailThreadConversation(message.accountId, message.threadId, {
+      subject: message.subject,
+      latestMessageId: message.id
+    })
     setView('chat')
-  }
-
-  if (loading) {
-    return (
-      <div className={styles.emptyInbox}>
-        <p>Opening conversation…</p>
-      </div>
-    )
   }
 
   const latest = messages[messages.length - 1]
 
   return (
-    <div className={styles.reader}>
+    <>
+      {/* Outside the scrolling body, and rendered while loading too: with the
+          list gone, this bar is the only way back to the inbox, so it must
+          neither scroll out of reach nor vanish while a slow mailbox opens. */}
       <div className={styles.readerHeader}>
         <Button
-          variant="ghost"
+          variant="secondary"
           size="sm"
           onClick={onClose}
           iconLeft={<Icon name="chevron-left" size={14} />}
         >
-          Back to list
+          Inbox
         </Button>
-        {latest && (
-          <div className={styles.readerActions}>
-            <Button
-              variant="secondary"
-              size="sm"
-              iconLeft={<Icon name="chat" size={14} />}
-              onClick={() => handOffToChat('Summarize this email thread for me.', latest)}
+        <div className={styles.readerActions}>
+          {latest && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                iconLeft={<Icon name="chat" size={14} />}
+                onClick={() => assist('Summarize this email thread for me.', latest)}
+              >
+                Summarize
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                iconLeft={<Icon name="pencil" size={14} />}
+                onClick={() =>
+                  assist('Draft a reply to this email and send it once I approve.', latest)
+                }
+              >
+                Reply
+              </Button>
+            </>
+          )}
+          {railHidden && (
+            <button
+              type="button"
+              className={styles.iconAction}
+              onClick={onShowRail}
+              title="Show the assistant"
+              aria-label="Show the assistant"
             >
-              Summarize
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              iconLeft={<Icon name="pencil" size={14} />}
-              onClick={() =>
-                handOffToChat('Draft a reply to this email and send it once I approve.', latest)
-              }
-            >
-              Reply
-            </Button>
+              <Icon name="panel-right" size={15} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className={styles.reader}>
+        {/* The list row already showed the subject, so carrying it through the
+            load keeps the reader recognisable instead of blanking to a
+            spinner and back. */}
+        <h3 className={styles.readerSubject}>
+          {summary?.subject ?? latest?.subject ?? '(no subject)'}
+        </h3>
+
+        {loading ? (
+          <div className={styles.emptyInbox}>
+            <p>Opening conversation…</p>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className={styles.emptyInbox}>
+            <p>This conversation has no readable messages.</p>
+          </div>
+        ) : (
+          <div className={styles.messageList}>
+            {messages.map((message) => (
+              <article key={message.id} className={styles.message}>
+                <div className={styles.messageMeta}>
+                  <strong>{message.from}</strong>
+                  <span>{new Date(message.date).toLocaleString()}</span>
+                </div>
+                {message.to.length > 0 && (
+                  <div className={styles.messageRecipients}>To: {message.to.join(', ')}</div>
+                )}
+                {message.bodyHtml ? (
+                  <HtmlMessageBody html={message.bodyHtml} />
+                ) : (
+                  <div className={styles.messageBody}>
+                    {message.body.trim() || message.snippet || '(no readable body)'}
+                  </div>
+                )}
+                {message.attachments.length > 0 && (
+                  <div className={styles.attachmentRow}>
+                    {message.attachments.map((attachment) => (
+                      <AttachmentChip
+                        key={attachment.id}
+                        attachment={attachment}
+                        accountId={message.accountId}
+                      />
+                    ))}
+                  </div>
+                )}
+              </article>
+            ))}
           </div>
         )}
       </div>
-
-      <h3 className={styles.readerSubject}>
-        {summary?.subject ?? latest?.subject ?? '(no subject)'}
-      </h3>
-
-      {messages.length === 0 ? (
-        <div className={styles.emptyInbox}>
-          <p>This conversation has no readable messages.</p>
-        </div>
-      ) : (
-        <div className={styles.messageList}>
-          {messages.map((message) => (
-            <article key={message.id} className={styles.message}>
-              <div className={styles.messageMeta}>
-                <strong>{message.from}</strong>
-                <span>{new Date(message.date).toLocaleString()}</span>
-              </div>
-              {message.to.length > 0 && (
-                <div className={styles.messageRecipients}>To: {message.to.join(', ')}</div>
-              )}
-              {message.bodyHtml ? (
-                <HtmlMessageBody html={message.bodyHtml} />
-              ) : (
-                <div className={styles.messageBody}>
-                  {message.body.trim() || message.snippet || '(no readable body)'}
-                </div>
-              )}
-              {message.attachments.length > 0 && (
-                <div className={styles.attachmentRow}>
-                  {message.attachments.map((attachment) => (
-                    <AttachmentChip
-                      key={attachment.id}
-                      attachment={attachment}
-                      accountId={message.accountId}
-                    />
-                  ))}
-                </div>
-              )}
-            </article>
-          ))}
-        </div>
-      )}
-    </div>
+    </>
   )
 }
 

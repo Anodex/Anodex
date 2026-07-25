@@ -1419,6 +1419,46 @@ class LlamaService extends EventEmitter {
   }
 
   /**
+   * One plain sentence describing what an email thread wants, for the row it
+   * occupies in the inbox list — the digest that replaces a raw provider
+   * snippet (which is just the first few words of the newest message, quoted
+   * boilerplate and all).
+   *
+   * Shares `summarizeForToast`'s shape deliberately: same throwaway session on
+   * the dedicated summary sequence, same model lock, same best-effort `null`
+   * on any failure. `null` is a first-class outcome here, not just an error
+   * path — no model loaded is the normal state on a fresh install, and the
+   * list falls back to the provider snippet, which is exactly what it showed
+   * before this existed.
+   */
+  async digestEmailThread(rendered: string): Promise<string | null> {
+    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
+
+    const release = await this.acquireModelLock()
+    try {
+      const truncated = rendered.length > 2000 ? `${rendered.slice(0, 2000)}…` : rendered
+      const prompt =
+        'Below is an email thread. In one sentence of at most 20 words, say what it asks of ' +
+        'the reader, or what it tells them if it asks nothing. Write plainly, in the third ' +
+        'person, naming who wants what. Do not greet, do not editorialize, and reply with ' +
+        'only the sentence — no quotes, no preamble, no bullet points.\n\n' +
+        `<thread>\n${truncated}\n</thread>`
+      const finalText = this.visionService.active
+        ? await this.visionService.completeText(prompt, { maxTokens: 96, temperature: 0.2 })
+        : await this.runSummaryPrompt(await this.ensureSummarySequence(4096), prompt, {
+            maxTokens: 96,
+            temperature: 0.2
+          })
+      return cleanThreadDigest(finalText)
+    } catch (error) {
+      log.warn('Email thread digest failed:', error)
+      return null
+    } finally {
+      release()
+    }
+  }
+
+  /**
    * Manually compact a conversation into a durable context snapshot.
    *
    * This is an explicit user action, not a pressure-triggered safety net. It
@@ -2227,6 +2267,27 @@ function cleanToastSummary(raw: string, maxWords: number): string | null {
     .join(' ')
     .replace(/[,;:]+$/, '')
   return `${trimmedWords}…`
+}
+
+/**
+ * Trims a digest down to the one sentence the row has space for.
+ *
+ * Small local models often answer a "one sentence" instruction with a
+ * sentence plus a helpful second one, or wrap the whole thing in quotes.
+ * Rather than reject that as malformed — which would leave the row with no
+ * digest at all — take the first sentence and let the rest go.
+ */
+function cleanThreadDigest(raw: string): string | null {
+  const cleaned = raw
+    .replace(/^["'“”\s]+|["'“”\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return null
+  // Split on sentence-ending punctuation followed by a space, so decimals and
+  // abbreviated names ("J. Okafor") don't count as the end of the sentence.
+  const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0]?.trim() ?? cleaned
+  const digest = firstSentence.length > 200 ? `${firstSentence.slice(0, 200)}…` : firstSentence
+  return digest || null
 }
 
 function renderTitleContext(request: ChatTitleRequest): string {

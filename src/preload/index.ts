@@ -240,6 +240,7 @@ const api: AnodexApi = {
     readMessage: (id, accountId) => ipcRenderer.invoke(IpcChannel.Email.readMessage, id, accountId),
     getThreadMessages: (threadId, accountId) =>
       ipcRenderer.invoke(IpcChannel.Email.getThreadMessages, threadId, accountId),
+    digestThreads: (requests) => ipcRenderer.invoke(IpcChannel.Email.digestThreads, requests),
     applyFlag: (request) => ipcRenderer.invoke(IpcChannel.Email.applyFlag, request),
     move: (request) => ipcRenderer.invoke(IpcChannel.Email.move, request),
     listMailboxes: (accountId) => ipcRenderer.invoke(IpcChannel.Email.listMailboxes, accountId),

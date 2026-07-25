@@ -349,6 +349,51 @@ describe('email tools', () => {
     expect(sendPreparedMock).toHaveBeenCalledTimes(1)
   })
 
+  it('carries the whole reply as a structured draft, not a truncated preview', async () => {
+    // The card renders this instead of the detail text, and approving a
+    // message you were shown only the first part of is not consent — so the
+    // body travels in full even though the text detail is capped.
+    const body = `Hi Dana,\n\n${'Long paragraph. '.repeat(80)}\n\nThanks.`
+    prepareReplyMock.mockResolvedValue({
+      accountId: 'account-1',
+      parentSubject: 'Quarterly numbers',
+      message: {
+        to: ['sender@example.com'],
+        cc: ['team@example.com'],
+        bcc: [],
+        subject: 'Re: Quarterly numbers',
+        body,
+        attachments: [{ filename: 'sheet.csv', content: Buffer.from('a') }],
+        inReplyTo: '<parent@example.com>',
+        references: ['<parent@example.com>'],
+        threadId: 'thread-1'
+      }
+    })
+    const { requests, confirm } = captureConfirmations()
+    const ctx = {
+      ...createMockContext('/workspace'),
+      permissionMode: 'untethered' as const,
+      confirm
+    }
+    const tool = replyEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { messageId: string; body: string }) => Promise<string>
+    }
+
+    await tool.handler({ messageId: 'message-1', body })
+
+    expect(requests[0].emailDraft).toMatchObject({
+      to: ['sender@example.com'],
+      cc: ['team@example.com'],
+      subject: 'Re: Quarterly numbers',
+      body,
+      attachmentNames: ['sheet.csv'],
+      inReplyToSubject: 'Quarterly numbers'
+    })
+    // Empty bcc is left out rather than shown as an empty row.
+    expect(requests[0].emailDraft?.bcc).toBeUndefined()
+    expect(requests[0].detail.length).toBeLessThan(body.length)
+  })
+
   it('does not send a reply when the user denies approval', async () => {
     prepareReplyMock.mockResolvedValue({
       accountId: 'account-1',

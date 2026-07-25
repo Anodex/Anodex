@@ -207,6 +207,24 @@ export interface EmailFlagRequest extends EmailAccountScoped {
   action: EmailFlagAction
 }
 
+/** One inbox row the list wants a plain-language digest for. */
+export interface EmailThreadDigestRequest {
+  accountId: string
+  threadId: string
+  /**
+   * The thread's newest message. Doubles as the digest's freshness token: a
+   * reply arriving changes it, which retires the old digest without anything
+   * having to watch the mailbox for changes.
+   */
+  latestMessageId: string
+}
+
+export interface EmailThreadDigest {
+  threadId: string
+  /** One sentence describing what the thread wants. */
+  digest: string
+}
+
 export interface EmailMailbox {
   id: string
   name: string
