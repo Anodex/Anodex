@@ -79,6 +79,7 @@ class OpenAiProvider implements LlmProvider {
           conversationId: params.conversationId,
           messageId: params.messageId,
           workspaceRoot: params.tools.workspaceRoot,
+          userFiles: params.tools.userFiles,
           projectId: params.tools.projectId,
           permissionMode: params.tools.permissionMode,
           commandShell: params.tools.commandShell,

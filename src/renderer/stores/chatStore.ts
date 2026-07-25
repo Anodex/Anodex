@@ -32,6 +32,7 @@ import { isChatReady } from '../lib/chatReadiness'
 import { buildMessageEditBranch } from '../features/chat/messageEdit'
 import { describeGenerationStop } from '../features/chat/generationStopMessages'
 import { withEmailThreadContext } from '../features/chat/emailThreadContext'
+import { conversationUserFiles } from '../features/chat/conversationUserFiles'
 
 export type { Conversation }
 
@@ -539,6 +540,9 @@ export const useChatStore = create<ChatState>()(
           buildPromptWithAttachments(trimmed, attachments),
           existing?.emailThread
         ),
+        // Read from `existing` — the pre-send snapshot — plus this turn's own
+        // attachments, which are not in it yet.
+        userFiles: conversationUserFiles(existing?.messages ?? [], attachments),
         images: attachments
           .filter((attachment) => attachment.kind === 'image')
           .map((attachment) => ({

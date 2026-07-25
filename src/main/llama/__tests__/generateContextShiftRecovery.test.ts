@@ -120,6 +120,7 @@ function prepareFakeEngine(access: LlamaServiceTestAccess): void {
 function webOnlyTools(onActivity: NonNullable<GenerateParams['tools']>['onActivity'] = () => {}) {
   return {
     workspaceRoot: null,
+    userFiles: [],
     projectId: null,
     permissionMode: 'untethered',
     webSearch: {

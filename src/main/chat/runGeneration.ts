@@ -254,6 +254,9 @@ export async function runGeneration(
   const tools = settings.tools.enabled
     ? {
         workspaceRoot,
+        // Present whether or not a workspace is: the user attaching a file is
+        // what makes it available to send, not having a project folder open.
+        userFiles: request.userFiles ?? [],
         permissionMode: io.permissionModeOverride ?? settings.general.permissionMode,
         commandShell: settings.general.defaultShell.trim() || undefined,
         projectId: activeProject?.id ?? null,

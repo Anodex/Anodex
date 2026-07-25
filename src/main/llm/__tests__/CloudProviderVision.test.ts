@@ -217,6 +217,7 @@ describe('cloud provider vision requests', () => {
 function toolParams(): NonNullable<GenerateParams['tools']> {
   return {
     workspaceRoot: 'C:\\workspace',
+    userFiles: [],
     projectId: 'project',
     permissionMode: 'ask',
     webSearch: {

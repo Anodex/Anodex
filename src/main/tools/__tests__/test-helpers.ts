@@ -19,6 +19,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     messageId: 'test-message',
     projectId: null,
     workspaceRoot,
+    userFiles: [],
     permissionMode: 'ask',
     commandShell: undefined,
     webSearch: {

@@ -47,7 +47,9 @@ describe('parseSkillFile', () => {
 
   it('throws when a required field is missing', () => {
     const raw = `---\nname: no-description\n---\nBody.\n`
-    expect(() => parseSkillFile(raw, '/skills/bad.md')).toThrow(/missing required field "description"/)
+    expect(() => parseSkillFile(raw, '/skills/bad.md')).toThrow(
+      /missing required field "description"/
+    )
   })
 
   it('throws on an invalid frontmatter line', () => {

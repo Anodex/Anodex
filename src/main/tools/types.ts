@@ -1,6 +1,7 @@
 import type { ChatSessionModelFunction } from 'node-llama-cpp'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
+import type { ChatUserFile } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
 import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { LoopGuardState } from './loopGuard'
@@ -33,6 +34,17 @@ export interface ToolRuntimeContext {
   projectId: string | null
   /** Absolute path all workspace tools are confined to, or null if none. */
   workspaceRoot: string | null
+  /**
+   * Files the user attached to this chat. Tools that *send* a file may read
+   * these regardless of whether a workspace is open — the user putting a file
+   * into the conversation is what makes it fair game, not where it happens to
+   * live on disk.
+   *
+   * Deliberately not a way around the workspace sandbox for anything else:
+   * these are read-only, and every tool that writes still confines itself to
+   * `workspaceRoot`.
+   */
+  userFiles: ChatUserFile[]
   /** Master permission mode; decides which risk levels auto-run vs. need confirmation. */
   permissionMode: PermissionMode
   /** Shell executable used by run_command, if the user configured one. */

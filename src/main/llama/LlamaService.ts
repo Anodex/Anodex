@@ -29,7 +29,8 @@ import type {
   GenerationStopReason,
   GenerationOptions,
   GenerationStats,
-  HistoryCompactionEvent
+  HistoryCompactionEvent,
+  ChatUserFile
 } from '@shared/chat.types'
 import type { ConversationContext } from '@shared/context.types'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
@@ -229,6 +230,8 @@ export interface GenerateParams {
   tools?: {
     /** Workspace folder for file/command tools, or null for web-only tools. */
     workspaceRoot: string | null
+    /** Files the user attached to this chat, which tools may send on. */
+    userFiles: ChatUserFile[]
     /** Id of the active project, or null in a general (non-project) chat. */
     projectId: string | null
     permissionMode: PermissionMode
@@ -1984,6 +1987,7 @@ class LlamaService extends EventEmitter {
       conversationId: params.conversationId,
       messageId: params.messageId,
       workspaceRoot: params.tools.workspaceRoot,
+      userFiles: params.tools.userFiles,
       projectId: params.tools.projectId,
       permissionMode: params.tools.permissionMode,
       commandShell: params.tools.commandShell,

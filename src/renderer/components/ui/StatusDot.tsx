@@ -12,7 +12,5 @@ interface StatusDotProps {
 }
 
 export function StatusDot({ tone, className }: StatusDotProps): JSX.Element {
-  return (
-    <span className={`${styles.dot} ${styles[tone]} ${className ?? ''}`} aria-hidden="true" />
-  )
+  return <span className={`${styles.dot} ${styles[tone]} ${className ?? ''}`} aria-hidden="true" />
 }

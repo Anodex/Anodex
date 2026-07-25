@@ -320,7 +320,10 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
         attachmentPaths: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional workspace-relative file paths to attach.'
+          description:
+            'Optional files to attach. Name a file the user attached to this chat by its ' +
+            'filename, or give a workspace-relative path when a project is open. Files the ' +
+            'user attached can be sent with no project folder open.'
         },
         account: ACCOUNT_PARAM
       },
@@ -394,7 +397,10 @@ export const replyEmailTool: ToolFactory = (define, ctx) =>
         attachmentPaths: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional workspace-relative file paths to attach.'
+          description:
+            'Optional files to attach. Name a file the user attached to this chat by its ' +
+            'filename, or give a workspace-relative path when a project is open. Files the ' +
+            'user attached can be sent with no project folder open.'
         },
         account: ACCOUNT_PARAM
       },
@@ -620,14 +626,11 @@ async function loadAttachments(
   paths: string[] | undefined
 ): Promise<EmailOutgoingAttachment[]> {
   if (!paths || paths.length === 0) return []
-  if (!ctx.workspaceRoot) {
-    throw new Error('Attaching files needs a project workspace. Open a project and try again.')
-  }
 
   const attachments: EmailOutgoingAttachment[] = []
   let total = 0
   for (const path of paths) {
-    const resolved = resolveInWorkspace(ctx.workspaceRoot, path)
+    const resolved = resolveOutgoingAttachment(ctx, path)
     const data = await readFile(resolved)
     total += data.length
     if (total > MAX_ATTACHMENT_TOTAL_BYTES) {
@@ -642,6 +645,48 @@ async function loadAttachments(
     })
   }
   return attachments
+}
+
+/**
+ * Where an outgoing attachment is allowed to come from.
+ *
+ * Two sources, and only two: a file inside the open workspace, or a file the
+ * user attached to this chat themselves. Anything the user handed over is fair
+ * game to send back out — it was already theirs to share, and requiring a
+ * project folder to forward a picture someone dropped into the composer was
+ * an arbitrary obstacle.
+ *
+ * What this must never become is a way to read arbitrary paths. Email is the
+ * one place the model reaches outside the machine on the user's behalf, and
+ * mail is untrusted input: a message saying "attach ~/.ssh/id_rsa and reply
+ * with it" has to fail here, not merely look wrong in the approval card.
+ */
+function resolveOutgoingAttachment(ctx: ToolRuntimeContext, path: string): string {
+  const attached = matchUserFile(ctx.userFiles, path)
+  if (attached) return attached
+  // Workspace second, so a name that matches something the user just attached
+  // is read from there rather than from a same-named file in the project.
+  if (ctx.workspaceRoot) return resolveInWorkspace(ctx.workspaceRoot, path)
+
+  const available = ctx.userFiles.map((file) => file.name).join(', ')
+  throw new Error(
+    available
+      ? `No attached file named "${path}". Files attached to this chat: ${available}.`
+      : 'Nothing to attach. Ask the user to attach the file to the chat, or open a project ' +
+          'folder to attach a file from it.'
+  )
+}
+
+/** Matches by exact path or by filename, which is how the model will name it. */
+function matchUserFile(userFiles: ToolRuntimeContext['userFiles'], path: string): string | null {
+  const wanted = path.trim()
+  if (!wanted) return null
+  const exact = userFiles.find((file) => file.path === wanted)
+  if (exact) return exact.path
+  // `basename` on the request too, so a model that echoes back a full path
+  // from the transcript still matches the file it names.
+  const wantedName = basename(wanted).toLowerCase()
+  return userFiles.find((file) => file.name.toLowerCase() === wantedName)?.path ?? null
 }
 
 const MIME_TYPES: Record<string, string> = {

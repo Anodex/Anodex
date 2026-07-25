@@ -85,6 +85,18 @@ export interface ChatImageInput {
 }
 
 /**
+ * A file the user attached to a chat, as tools see it: a name to refer to it
+ * by and a path to read it from. No content — a tool that needs the bytes
+ * reads them when it is actually going to use them.
+ */
+export interface ChatUserFile {
+  /** The filename as the user sees it, which is how the model will name it. */
+  name: string
+  /** Absolute path on disk. */
+  path: string
+}
+
+/**
  * One entry in a message's chronological render timeline — either a span of
  * streamed text or a tool call — in the exact order it happened during
  * generation. This is what the UI renders; `content`/`toolCalls` below
@@ -204,6 +216,21 @@ export interface ChatRequest {
   prompt: string
   /** Current-turn image inputs for any multimodal provider. Text attachments are in `prompt`. */
   images?: ChatImageInput[]
+  /**
+   * Every file the user has attached to this conversation, by name and path.
+   *
+   * Distinct from `images` (which exists so a vision model can *look* at the
+   * picture) and from `prompt` (which carries text attachments inline for the
+   * model to *read*): this is what lets a tool send the file on somewhere,
+   * e.g. attaching it to an email. Carrying the whole conversation's
+   * attachments rather than just this turn's is deliberate — attaching a
+   * picture and asking about it, then saying "send that" a turn later, is the
+   * ordinary way this comes up.
+   *
+   * It is also the boundary on what the model may attach: files the user put
+   * into the chat themselves, and nothing else on disk.
+   */
+  userFiles?: ChatUserFile[]
   options?: GenerationOptions
   /** The conversation's current plan, if any, so plan tools can continue it across turns. */
   plan?: Plan | null
