@@ -85,3 +85,62 @@ describe('chatStore token streaming guards', () => {
     expect(assistantMessage().content).toBe('partial reply')
   })
 })
+
+describe('openEmailThreadConversation', () => {
+  function emailChat(id: string, accountId: string, threadId: string): Conversation {
+    return {
+      id,
+      projectId: null,
+      title: 'Email chat',
+      createdAt: 1,
+      updatedAt: 1,
+      messages: [],
+      emailThread: { accountId, threadId }
+    }
+  }
+
+  beforeEach(() => {
+    useChatStore.setState({ conversations: [], activeId: null, loaded: true, pendingMessages: {} })
+  })
+
+  it('reuses the chat already linked to that thread instead of starting another', () => {
+    // Clicking Reply twice on one email used to spawn two chats, losing the
+    // earlier discussion each time.
+    useChatStore.setState({ conversations: [emailChat('c-email', 'acct-1', 'thread-1')] })
+
+    const id = useChatStore.getState().openEmailThreadConversation('acct-1', 'thread-1')
+
+    expect(id).toBe('c-email')
+    expect(useChatStore.getState().activeId).toBe('c-email')
+    expect(useChatStore.getState().conversations).toHaveLength(1)
+  })
+
+  it('starts a linked chat when the thread has none', () => {
+    const id = useChatStore.getState().openEmailThreadConversation('acct-1', 'thread-1')
+
+    const created = useChatStore.getState().conversations.find((c) => c.id === id)
+    expect(created?.emailThread).toEqual({ accountId: 'acct-1', threadId: 'thread-1' })
+    expect(useChatStore.getState().activeId).toBe(id)
+  })
+
+  it('does not reuse a chat from a different account with the same thread id', () => {
+    // IMAP thread ids are derived from the subject, so two accounts can easily
+    // produce the same one for unrelated mail.
+    useChatStore.setState({ conversations: [emailChat('c-email', 'acct-1', 'thread-1')] })
+
+    const id = useChatStore.getState().openEmailThreadConversation('acct-2', 'thread-1')
+
+    expect(id).not.toBe('c-email')
+    expect(useChatStore.getState().conversations).toHaveLength(2)
+  })
+
+  it('starts a fresh chat once the linked one is gone', () => {
+    // Archived and deleted chats are removed from `conversations`, so an empty
+    // list is exactly the "no longer alive" case.
+    useChatStore.setState({ conversations: [] })
+
+    const id = useChatStore.getState().openEmailThreadConversation('acct-1', 'thread-1')
+
+    expect(useChatStore.getState().conversations.find((c) => c.id === id)).toBeDefined()
+  })
+})

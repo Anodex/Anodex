@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import type { ModelSettingsRecommendation } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
@@ -33,6 +33,58 @@ const GPU_OPTIONS = [
   { label: 'CPU only', value: 'cpu' },
   { label: 'Custom', value: 'custom' }
 ]
+
+const TURN_TIME_LIMIT_MAX_MINUTES = 120
+const TURN_TIME_LIMIT_COMMIT_DELAY_MS = 250
+
+function formatTurnTimeLimit(value: number): string {
+  return value === 0 ? 'No limit' : `${value} min`
+}
+
+/**
+ * Wraps `RangeControl` with its own local drag state so the slider glides
+ * smoothly and never depends on the settings round-trip mid-drag — binding
+ * it directly to `settings.generation.turnTimeLimitMinutes` meant every
+ * pixel of movement fired an IPC call + disk write, and the thumb could
+ * visibly snap back if a stale response settled after a newer one. The
+ * commit to the store is debounced so a whole drag gesture persists once,
+ * on release, not once per pixel.
+ */
+function TurnTimeLimitSlider({
+  value,
+  onCommit
+}: {
+  value: number | null
+  onCommit: (minutes: number | null) => void
+}): JSX.Element {
+  const [local, setLocal] = useState(value ?? 0)
+  const commitTimer = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => {
+    setLocal(value ?? 0)
+  }, [value])
+
+  useEffect(() => {
+    return () => clearTimeout(commitTimer.current)
+  }, [])
+
+  return (
+    <RangeControl
+      value={local}
+      min={0}
+      max={TURN_TIME_LIMIT_MAX_MINUTES}
+      step={1}
+      format={formatTurnTimeLimit}
+      onChange={(next) => {
+        setLocal(next)
+        clearTimeout(commitTimer.current)
+        commitTimer.current = setTimeout(() => {
+          onCommit(next === 0 ? null : next)
+        }, TURN_TIME_LIMIT_COMMIT_DELAY_MS)
+      }}
+    />
+  )
+}
 
 type AiModelsTab = 'models' | 'compatibility' | 'providers' | 'advanced'
 
@@ -509,6 +561,18 @@ export function AiModelsSettings(): JSX.Element {
                     max={effectiveContextSize}
                     step={128}
                     onChange={(value) => void update({ generation: { maxTokens: value } })}
+                  />
+                }
+              />
+              <SettingRow
+                label="Per-turn time limit"
+                description="Wall-clock cap on a single reply, including all of its tool calls, before it's asked to wrap up and return partial work. Applies to chat and agent-run turns. Scheduled tasks and critical-thinking research keep their own fixed budgets."
+                control={
+                  <TurnTimeLimitSlider
+                    value={settings.generation.turnTimeLimitMinutes}
+                    onCommit={(minutes) =>
+                      void update({ generation: { turnTimeLimitMinutes: minutes } })
+                    }
                   />
                 }
               />

@@ -1,11 +1,37 @@
 import { describe, expect, it, vi } from 'vitest'
-import { GenerationBudget, interactiveBudgetForContext } from '../GenerationBudget'
+import {
+  GenerationBudget,
+  interactiveBudgetForContext,
+  turnTimeLimitOverride
+} from '../GenerationBudget'
 
 describe('GenerationBudget', () => {
   it('scales local context-shift tolerance with the configured context window', () => {
     expect(interactiveBudgetForContext(4_096).maxContextShifts).toBe(4)
     expect(interactiveBudgetForContext(8_192).maxContextShifts).toBe(8)
     expect(interactiveBudgetForContext(32_768).maxContextShifts).toBe(12)
+  })
+
+  it('derives the per-turn wall-clock cap from the configured minutes, or disables it when null', () => {
+    expect(turnTimeLimitOverride(15).maxDurationMs).toBe(15 * 60_000)
+    expect(turnTimeLimitOverride(null).maxDurationMs).toBeNull()
+    expect(interactiveBudgetForContext(8_192, 5).maxDurationMs).toBe(5 * 60_000)
+    expect(interactiveBudgetForContext(8_192, null).maxDurationMs).toBeNull()
+  })
+
+  it('never times out when the wall-clock cap is disabled', () => {
+    vi.useFakeTimers()
+    const budget = new GenerationBudget({
+      maxDurationMs: null,
+      maxTools: 1,
+      maxProviderRounds: 1,
+      maxContextShifts: 1
+    })
+    vi.advanceTimersByTime(365 * 24 * 60 * 60_000)
+    expect(budget.stopReason).toBeUndefined()
+    expect(budget.signal.aborted).toBe(false)
+    budget.dispose()
+    vi.useRealTimers()
   })
 
   it('blocks new work after the tool budget without mislabeling a user stop', () => {

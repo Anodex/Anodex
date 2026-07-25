@@ -57,8 +57,7 @@ describe('buildToolAvailabilityDetails', () => {
       buildToolAvailabilityDetails({
         workspaceRoot: null,
         webSearchProvider: 'none',
-        emailProvider: 'none',
-        gmailEnabled: false,
+        emailAccountCount: 0,
         memoryCrossChatEnabled: false,
         memoryPersonalEnabled: false
       })
@@ -69,7 +68,11 @@ describe('buildToolAvailabilityDetails', () => {
         tone: 'blocked'
       },
       { label: 'Web search', value: 'Choose a provider to enable web_search.', tone: 'muted' },
-      { label: 'Email tools', value: 'Connect Gmail to enable email tools.', tone: 'muted' },
+      {
+        label: 'Email tools',
+        value: 'Link an email account to enable email tools.',
+        tone: 'muted'
+      },
       {
         label: 'Memory tool',
         value: 'Enable project or personal memory to save facts.',
@@ -83,8 +86,7 @@ describe('buildToolAvailabilityDetails', () => {
       buildToolAvailabilityDetails({
         workspaceRoot: 'C:/repo',
         webSearchProvider: 'brave',
-        emailProvider: 'gmail',
-        gmailEnabled: true,
+        emailAccountCount: 2,
         memoryCrossChatEnabled: true,
         memoryPersonalEnabled: true
       })
@@ -95,7 +97,11 @@ describe('buildToolAvailabilityDetails', () => {
         tone: 'ready'
       },
       { label: 'Web search', value: 'web_search uses brave.', tone: 'ready' },
-      { label: 'Email tools', value: 'Gmail tools are ready.', tone: 'ready' },
+      {
+        label: 'Email tools',
+        value: 'Email tools are ready across 2 accounts.',
+        tone: 'ready'
+      },
       { label: 'Memory tool', value: 'Can save project and personal facts.', tone: 'ready' }
     ])
   })

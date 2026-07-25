@@ -305,6 +305,7 @@ export class LlamaVisionService {
       plan: { current: params.tools.plan },
       turnGate: { approved: false },
       loopGuard: createLoopGuardState(),
+      progress: { madeChange: false },
       modelResultBudget: { current: null },
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
       visualInputs,

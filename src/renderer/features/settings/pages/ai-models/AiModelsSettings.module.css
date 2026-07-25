@@ -1725,6 +1725,26 @@
   user-select: none;
 }
 
+/* The local entry is Anodex's own app icon, which already ships its own dark
+   rounded-square badge — so it fills the chip edge to edge instead of sitting
+   inset on the light backdrop the third-party vendor marks share. Selectors
+   are doubled up (`.providerLogolocal.providerLogoOfficial`) purely to
+   out-specify the shared `.providerLogoOfficial` rules above regardless of
+   source order. */
+.providerLogolocal.providerLogoOfficial {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.providerLogolocal.providerLogoOfficial img,
+.providerListItem .providerLogolocal.providerLogoOfficial img {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+}
+
 .providerLogoxai img {
   max-width: 25px;
   max-height: 14px;

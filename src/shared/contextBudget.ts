@@ -1,5 +1,14 @@
+import type { CloudModelOption } from './cloudModelOption'
 import { ANTHROPIC_MODELS } from './anthropicModels'
 import { OPENAI_MODELS } from './openaiModels'
+import { GOOGLE_MODELS } from './googleModels'
+import { XAI_MODELS } from './xaiModels'
+import { DEEPSEEK_MODELS } from './deepseekModels'
+import { MISTRAL_MODELS } from './mistralModels'
+import { GROQ_MODELS } from './groqModels'
+import { OPENROUTER_MODELS } from './openrouterModels'
+import { KIMI_MODELS } from './kimiModels'
+import { QWEN_MODELS } from './qwenModels'
 
 /**
  * Shared context-budget knobs used by both the main-process assembler and the
@@ -37,12 +46,43 @@ export const MAX_MODEL_TOOL_RESULT_CHARS = 1_200
  */
 export const DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS = 128_000
 
+/** Every non-local provider `cloudContextWindowTokens` can look up a catalog for. */
+export type CloudProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'xai'
+  | 'deepseek'
+  | 'mistral'
+  | 'groq'
+  | 'openrouter'
+  | 'azure'
+  | 'kimi'
+  | 'qwen'
+
+/**
+ * `azure` deliberately maps to an empty catalog: Azure has no fixed model
+ * catalog (a customer names their own deployment), so a lookup here always
+ * falls through to `DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS` rather than being
+ * a special case in `cloudContextWindowTokens` itself.
+ */
+const CLOUD_MODEL_CATALOGS: Record<CloudProvider, CloudModelOption[]> = {
+  anthropic: ANTHROPIC_MODELS,
+  openai: OPENAI_MODELS,
+  google: GOOGLE_MODELS,
+  xai: XAI_MODELS,
+  deepseek: DEEPSEEK_MODELS,
+  mistral: MISTRAL_MODELS,
+  groq: GROQ_MODELS,
+  openrouter: OPENROUTER_MODELS,
+  azure: [],
+  kimi: KIMI_MODELS,
+  qwen: QWEN_MODELS
+}
+
 /** Conservative context window for a configured cloud model. */
-export function cloudContextWindowTokens(
-  provider: 'openai' | 'anthropic',
-  modelId: string
-): number {
-  const models = provider === 'anthropic' ? ANTHROPIC_MODELS : OPENAI_MODELS
+export function cloudContextWindowTokens(provider: CloudProvider, modelId: string): number {
+  const models = CLOUD_MODEL_CATALOGS[provider] ?? []
   return (
     models.find((model) => model.id === modelId)?.contextWindowTokens ??
     DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS

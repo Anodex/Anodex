@@ -10,6 +10,13 @@ import {
   type NotificationView
 } from '../lib/navigationBadges'
 
+/**
+ * How often the unread count is re-checked. Each poll is one lightweight
+ * provider call, and for IMAP it now rides a pooled connection — but it is
+ * still network traffic, so this stays comfortably above a per-minute cadence.
+ */
+const EMAIL_POLL_MS = 5 * 60_000
+
 function latestSchedulerRunAt(): number {
   return Math.max(0, ...useSchedulerStore.getState().tasks.map((task) => task.lastRunAt ?? 0))
 }
@@ -34,6 +41,17 @@ export function useNavigationBadgeCounts(): NavigationBadgeCounts {
   const criticalThinkingRuns = useCriticalThinkingStore((state) => state.runs)
   const criticalThinkingLoaded = useCriticalThinkingStore((state) => state.loaded)
   const emailUnreadCount = useEmailStore((state) => state.unreadCount)
+  const refreshEmailUnread = useEmailStore((state) => state.refreshUnreadCount)
+
+  // The email badge used to populate only when the Email page mounted, so a
+  // freshly launched app claimed zero unread until the user went looking.
+  // Polling here — the one place the count is actually displayed — keeps it
+  // truthful without the Email view needing to be open.
+  useEffect(() => {
+    void refreshEmailUnread()
+    const timer = window.setInterval(() => void refreshEmailUnread(), EMAIL_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [refreshEmailUnread])
 
   const schedulerUpdateAt = Math.max(0, ...tasks.map((task) => task.lastRunAt ?? 0))
   const agentUpdateAt = Math.max(0, ...agentRuns.map((run) => run.updatedAt))

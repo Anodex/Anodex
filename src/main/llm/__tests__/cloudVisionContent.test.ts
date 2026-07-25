@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatImageInput } from '@shared/chat.types'
 import {
   anthropicUserContent,
+  chatCompletionsUserContent,
   cloudCompatibleImages,
   openAiUserContent
 } from '../cloudVisionContent'
@@ -40,9 +41,20 @@ describe('cloud vision content', () => {
     ])
   })
 
+  it('creates Chat Completions image_url content parts', () => {
+    expect(chatCompletionsUserContent('What is wrong?', [image])).toEqual([
+      { type: 'text', text: 'What is wrong?' },
+      {
+        type: 'image_url',
+        image_url: { url: image.dataUrl, detail: 'auto' }
+      }
+    ])
+  })
+
   it('keeps text-only messages unchanged', () => {
     expect(openAiUserContent('Hello', [])).toBe('Hello')
     expect(anthropicUserContent('Hello', [])).toBe('Hello')
+    expect(chatCompletionsUserContent('Hello', [])).toBe('Hello')
   })
 
   it('omits historical BMP images when switching to a cloud provider', () => {

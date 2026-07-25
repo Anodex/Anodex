@@ -131,15 +131,9 @@ function webOnlyTools(onActivity: NonNullable<GenerateParams['tools']>['onActivi
       requireApproval: false
     },
     email: {
-      provider: 'none',
-      gmail: {
-        enabled: false,
-        address: '',
-        oauthClientId: '',
-        oauthClientSecret: '',
-        syncMode: 'metadata',
-        sendRequiresApproval: true
-      }
+      accounts: [],
+      primaryAccountId: null,
+      sendRequiresApproval: true
     },
     memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false },
     plan: null,

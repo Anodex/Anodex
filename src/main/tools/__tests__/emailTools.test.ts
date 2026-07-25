@@ -12,7 +12,9 @@ import type {
 import {
   draftEmailTool,
   findEmailAttachmentsTool,
+  manageEmailTool,
   readEmailTool,
+  replyEmailTool,
   saveEmailAttachmentTool,
   sendEmailTool
 } from '../emailTools'
@@ -26,6 +28,9 @@ const getAttachmentMock =
   vi.fn<() => Promise<{ filename: string; mimeType: string; data: Buffer }>>()
 const readMessageMock = vi.fn<(id: string) => Promise<EmailMessage>>()
 const listAttachmentsMock = vi.fn<(id: string) => Promise<EmailAttachmentSummary[]>>()
+const prepareReplyMock = vi.fn<(request: unknown) => Promise<unknown>>()
+const sendPreparedMock = vi.fn<(prepared: unknown) => void>()
+const applyFlagMock = vi.fn<(request: unknown) => Promise<string>>()
 
 vi.mock('../../email/EmailService', () => ({
   emailService: {
@@ -34,7 +39,10 @@ vi.mock('../../email/EmailService', () => ({
     getDraft: (draftId: string) => getDraftMock(draftId),
     getAttachment: () => getAttachmentMock(),
     readMessage: (id: string) => readMessageMock(id),
-    listAttachments: (id: string) => listAttachmentsMock(id)
+    listAttachments: (id: string) => listAttachmentsMock(id),
+    prepareReply: (request: unknown) => prepareReplyMock(request),
+    sendPrepared: (prepared: unknown) => sendPreparedMock(prepared),
+    applyFlag: (request: unknown) => applyFlagMock(request)
   }
 }))
 
@@ -46,9 +54,13 @@ describe('email tools', () => {
     getAttachmentMock.mockReset()
     readMessageMock.mockReset()
     listAttachmentsMock.mockReset()
+    prepareReplyMock.mockReset()
+    sendPreparedMock.mockReset()
+    applyFlagMock.mockReset()
     createDraftMock.mockImplementation((request) => ({
       id: 'draft-1',
       provider: 'gmail',
+      accountId: 'account-1',
       to: request.to,
       cc: request.cc ?? [],
       bcc: request.bcc ?? [],
@@ -70,6 +82,7 @@ describe('email tools', () => {
       id: 'message-1',
       threadId: 'thread-1',
       provider: 'gmail',
+      accountId: 'account-1',
       subject: 'Report',
       from: 'sender@example.com',
       to: ['user@example.com'],
@@ -169,6 +182,7 @@ describe('email tools', () => {
     getDraftMock.mockReturnValue({
       id: 'draft-1',
       provider: 'gmail',
+      accountId: 'account-1',
       to: ['real-recipient@example.com'],
       cc: [],
       bcc: [],
@@ -221,6 +235,150 @@ describe('email tools', () => {
     expect(result).toContain('Email draft not found: missing-draft')
     expect(requests).toHaveLength(0)
     expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('confirms a reply against the resolved recipients, not the model arguments', async () => {
+    // The model never names the recipients on a reply — they come from the
+    // parent message — so the prompt has to show what `prepareReply` resolved.
+    prepareReplyMock.mockResolvedValue({
+      accountId: 'account-1',
+      parentSubject: 'Quarterly numbers',
+      message: {
+        to: ['sender@example.com'],
+        cc: ['team@example.com'],
+        bcc: [],
+        subject: 'Re: Quarterly numbers',
+        body: 'Looks good.',
+        attachments: [],
+        inReplyTo: '<parent@example.com>',
+        references: ['<parent@example.com>'],
+        threadId: 'thread-1'
+      }
+    })
+    const { requests, confirm } = captureConfirmations()
+    const ctx = {
+      ...createMockContext('/workspace'),
+      permissionMode: 'untethered' as const,
+      confirm
+    }
+    const tool = replyEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { messageId: string; body: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ messageId: 'message-1', body: 'Looks good.' })
+
+    expect(result).toBe('Reply sent.')
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({ toolName: 'reply_email', risk: 'sensitive' })
+    expect(requests[0].detail).toContain('Replying to: Quarterly numbers')
+    expect(requests[0].detail).toContain('sender@example.com')
+    expect(requests[0].detail).toContain('team@example.com')
+    expect(sendPreparedMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not send a reply when the user denies approval', async () => {
+    prepareReplyMock.mockResolvedValue({
+      accountId: 'account-1',
+      parentSubject: 'Quarterly numbers',
+      message: {
+        to: ['sender@example.com'],
+        cc: [],
+        bcc: [],
+        subject: 'Re: Quarterly numbers',
+        body: 'Looks good.',
+        attachments: []
+      }
+    })
+    const ctx = {
+      ...createMockContext('/workspace'),
+      confirm: () => Promise.resolve({ approved: false, reason: 'not yet' })
+    }
+    const tool = replyEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { messageId: string; body: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ messageId: 'message-1', body: 'Looks good.' })
+
+    expect(result).toContain('not yet')
+    expect(sendPreparedMock).not.toHaveBeenCalled()
+  })
+
+  it('attaches workspace files to an outgoing email and names them in the prompt', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'anodex-email-outgoing-'))
+    try {
+      await writeFile(join(workspace, 'notes.txt'), 'hello attachment')
+      const { requests, confirm } = captureConfirmations()
+      const ctx = { ...createMockContext(workspace), confirm }
+      const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: EmailSendRequest & { attachmentPaths?: string[] }) => Promise<string>
+      }
+
+      const result = await tool.handler({
+        to: ['person@example.com'],
+        subject: 'With a file',
+        body: 'See attached.',
+        attachmentPaths: ['notes.txt']
+      })
+
+      expect(result).toBe('Email sent.')
+      expect(requests[0].detail).toContain('Attachments: notes.txt')
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachments: [
+            {
+              filename: 'notes.txt',
+              mimeType: 'text/plain',
+              contentBase64: Buffer.from('hello attachment').toString('base64')
+            }
+          ]
+        })
+      )
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to attach files from outside the workspace', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'anodex-email-escape-'))
+    try {
+      const { requests, confirm } = captureConfirmations()
+      const ctx = { ...createMockContext(workspace), confirm }
+      const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: EmailSendRequest & { attachmentPaths?: string[] }) => Promise<string>
+      }
+
+      const result = await tool.handler({
+        to: ['person@example.com'],
+        subject: 'Exfiltration attempt',
+        body: 'See attached.',
+        attachmentPaths: ['../../../etc/passwd']
+      })
+
+      // Failing during prepare means the user is never even shown a prompt for
+      // a send that would have carried a file from outside the workspace.
+      expect(result).toContain('Error')
+      expect(requests).toHaveLength(0)
+      expect(sendMock).not.toHaveBeenCalled()
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('treats mailbox state changes as reversible rather than sensitive', async () => {
+    applyFlagMock.mockResolvedValue('Archived (removed from the inbox) on user@example.com.')
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = manageEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { action: string; threadId?: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ action: 'archive', threadId: 'thread-1' })
+
+    expect(result).toContain('Archived')
+    expect(requests[0]).toMatchObject({ toolName: 'manage_email', kind: 'write', risk: 'safe' })
+    expect(applyFlagMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'archive', threadId: 'thread-1' })
+    )
   })
 
   it('saves an email attachment into the workspace with approval', async () => {

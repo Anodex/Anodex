@@ -121,7 +121,8 @@ export class CriticalThinkingResearchRunner {
   ) {
     this.stepTimeoutMs = positiveDuration(
       options.stepTimeoutMs,
-      CRITICAL_THINKING_STEP_BUDGET.maxDurationMs
+      // Fixed background budget, never overridden to null — see GenerationBudget.ts.
+      CRITICAL_THINKING_STEP_BUDGET.maxDurationMs ?? 10 * 60_000
     )
   }
 

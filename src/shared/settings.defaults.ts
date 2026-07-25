@@ -1,6 +1,14 @@
 import type { AppSettings } from './settings.types'
 import { DEFAULT_ANTHROPIC_MODEL } from './anthropicModels'
 import { DEFAULT_OPENAI_MODEL } from './openaiModels'
+import { DEFAULT_GOOGLE_MODEL } from './googleModels'
+import { DEFAULT_XAI_MODEL } from './xaiModels'
+import { DEFAULT_DEEPSEEK_MODEL } from './deepseekModels'
+import { DEFAULT_MISTRAL_MODEL } from './mistralModels'
+import { DEFAULT_GROQ_MODEL } from './groqModels'
+import { DEFAULT_OPENROUTER_MODEL } from './openrouterModels'
+import { DEFAULT_KIMI_MODEL } from './kimiModels'
+import { DEFAULT_QWEN_MODEL } from './qwenModels'
 
 /**
  * Default settings, parameterised by the platform-specific models directory
@@ -24,7 +32,8 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     generation: {
       temperature: 0.3,
       topP: 0.9,
-      maxTokens: 2048
+      maxTokens: 2048,
+      turnTimeLimitMinutes: 15
     },
     model: {
       contextSize: 8192,
@@ -89,6 +98,53 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
         apiKey: '',
         model: DEFAULT_OPENAI_MODEL,
         dailyTokenCap: null
+      },
+      google: {
+        apiKey: '',
+        model: DEFAULT_GOOGLE_MODEL,
+        dailyTokenCap: null
+      },
+      xai: {
+        apiKey: '',
+        model: DEFAULT_XAI_MODEL,
+        dailyTokenCap: null
+      },
+      deepseek: {
+        apiKey: '',
+        model: DEFAULT_DEEPSEEK_MODEL,
+        dailyTokenCap: null
+      },
+      mistral: {
+        apiKey: '',
+        model: DEFAULT_MISTRAL_MODEL,
+        dailyTokenCap: null
+      },
+      groq: {
+        apiKey: '',
+        model: DEFAULT_GROQ_MODEL,
+        dailyTokenCap: null
+      },
+      openrouter: {
+        apiKey: '',
+        model: DEFAULT_OPENROUTER_MODEL,
+        dailyTokenCap: null
+      },
+      azure: {
+        apiKey: '',
+        resourceName: '',
+        deploymentName: '',
+        apiVersion: '2024-10-21',
+        dailyTokenCap: null
+      },
+      kimi: {
+        apiKey: '',
+        model: DEFAULT_KIMI_MODEL,
+        dailyTokenCap: null
+      },
+      qwen: {
+        apiKey: '',
+        model: DEFAULT_QWEN_MODEL,
+        dailyTokenCap: null
       }
     },
     webSearch: {
@@ -119,15 +175,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       keepAwake: false
     },
     email: {
-      provider: 'none',
-      gmail: {
-        enabled: false,
-        address: '',
-        oauthClientId: '',
-        oauthClientSecret: '',
-        syncMode: 'metadata',
-        sendRequiresApproval: true
-      }
+      accounts: [],
+      primaryAccountId: null,
+      sendRequiresApproval: true
     }
   }
 }

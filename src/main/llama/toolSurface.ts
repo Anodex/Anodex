@@ -159,7 +159,17 @@ function categoryScore(name: string, text: string): number {
     'http',
     'latest'
   ])
-  const emailTask = hasAny(text, ['email', 'gmail', 'inbox', 'attachment', 'thread', 'send mail'])
+  const emailTask = hasAny(text, [
+    'email',
+    'gmail',
+    'outlook',
+    'mailbox',
+    'inbox',
+    'attachment',
+    'thread',
+    'send mail',
+    'reply'
+  ])
   const githubTask = hasAny(text, [
     'github',
     'pull request',
@@ -452,13 +462,18 @@ const WRITE_TOOLS = new Set([
 const CHECK_TOOLS = new Set(['run_command', 'run_project_check', 'git_status', 'git_diff'])
 const WEB_TOOLS = new Set(['web_search', 'fetch_url'])
 const EMAIL_TOOLS = new Set([
+  'list_email_accounts',
   'list_threads',
   'search_email',
   'read_email',
   'summarize_thread',
   'find_attachments',
+  'list_mailboxes',
   'draft_email',
   'send_email',
+  'reply_email',
+  'manage_email',
+  'move_email',
   'save_email_attachment'
 ])
 const SKILL_TOOLS = new Set(['find_skill', 'load_skill'])

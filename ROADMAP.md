@@ -20,11 +20,24 @@ Actively being built (uncommitted work in the working tree as of 2026-07-10).
 If you're picking up other work, avoid these files unless you're the one
 building the feature — check with the user first.
 
-- **Email integration** — `src/main/email/` (`EmailAuthStore.ts`,
-  `EmailService.ts`, OAuth-flow-shaped: a local HTTP server for the OAuth
-  callback), `src/renderer/features/email/EmailView.tsx`,
-  `src/shared/email.types.ts`. Not yet documented in `README.md` — do that once
-  it lands.
+- **Email integration** — landed and documented in `README.md` /
+  `docs/FEATURES.md`. `src/main/email/` holds the account layer
+  (`EmailAccountStore.ts`, `EmailAuthStore.ts`, `EmailService.ts`), the
+  address-first `autoconfig.ts`, PKCE `oauth.ts`, and `providers/` with one
+  adapter per backend (Gmail, Microsoft Graph, IMAP/SMTP) behind
+  `providers/types.ts`. Adding a provider means implementing that interface and
+  registering it in `EmailService`'s `ADAPTERS` map — nothing above it should
+  need to change. Renderer: `src/renderer/features/email/EmailView.tsx` and
+  `features/settings/pages/email/`.
+  Two follow-ups worth doing:
+  - Set `ANODEX_GOOGLE_CLIENT_ID` / `ANODEX_MICROSOFT_CLIENT_ID` at build time
+    to enable one-click OAuth. Google's Gmail scopes are _restricted_, so a
+    published client needs Google verification (incl. a CASA assessment) or
+    users see the "unverified app" screen and a 100-user cap. Until then the
+    Advanced panel's own-client path is the only OAuth route.
+  - IMAP threads are grouped by normalized subject rather than by
+    `References` chain (see `ImapSmtpAdapter`'s doc comment). Good enough for a
+    mailbox view; a real chain walk would be more accurate.
 - **Scheduled / recurring AI tasks** — `src/main/scheduler/`
   (`SchedulerService.ts` runs generations via the same `runGeneration`/
   `LlamaService` path as normal chat, `SchedulerStore.ts`, `recurrence.ts` for

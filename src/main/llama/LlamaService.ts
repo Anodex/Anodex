@@ -2258,14 +2258,34 @@ function truncateForTitlePrompt(text: string): string {
  * than showing a title-less chat (see `generateConversationTitle` in
  * `chatStore.ts`, which no-ops on a `null` result).
  */
+/**
+ * Openers that a reasoning model uses to narrate, and that no plausible title
+ * starts with. Deliberately conservative: only phrases that would be strange as
+ * the first words of a title are listed, so a genuine title like "Plan Garden
+ * Layout" or "First Draft Review" is never discarded.
+ */
+const REASONING_PREAMBLE_RE =
+  /^(?:here(?:'s| is)\b|okay\b|ok[,\s]|alright\b|sure[,\s]|let(?:'s| me)\b|i(?:'ll| will| need to| should| can)\b|the user\b|we need\b|looking at\b|based on\b|to summari[sz]e\b|thinking process\b|thought process\b|step \d)/i
+
 const INSTRUCTION_ECHO_RE =
   /\b(?:3[\s-]to[\s-]6|3-6)\s*words?\b|\btitle\s*case\b|\bconcise\s*title\b|\bno\s*preamble\b|\bno\s*trailing\s*punctuation\b/i
 
 export function cleanChatTitle(raw: string): string | null {
-  const firstLine = raw
+  // Reasoning models emit their scratchpad before the answer. Taking the first
+  // non-empty line therefore titled a real conversation "Here's a thinking
+  // process" — observed directly with a Qwen3 local model. Drop the reasoning
+  // block, then skip any remaining narration lines to reach the actual title.
+  const withoutReasoning = raw
+    .replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '')
+    // An unterminated block means the whole tail is reasoning.
+    .replace(/<(?:think|thinking|reasoning)>[\s\S]*$/i, '')
+
+  const candidates = withoutReasoning
     .split('\n')
     .map((line) => line.trim())
-    .find(Boolean)
+    .filter(Boolean)
+
+  const firstLine = candidates.find((line) => !REASONING_PREAMBLE_RE.test(line)) ?? candidates[0]
   if (!firstLine) return null
 
   const cleaned = firstLine

@@ -16,6 +16,7 @@ import type {
 import type { ChatRequest } from '@shared/chat.types'
 import type { GenerationStats, GenerationStopReason } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
+import type { ProviderSettings } from '@shared/settings.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import {
   runGeneration,
@@ -24,6 +25,10 @@ import {
 } from '../chat/runGeneration'
 import { CRITICAL_THINKING_STEP_BUDGET } from '../chat/GenerationBudget'
 import { GENERATION_IN_PROGRESS_ERROR, llamaService } from '../llama/LlamaService'
+import {
+  isOpenAiCompatibleProviderId,
+  OPEN_AI_COMPATIBLE_CONFIGS
+} from '../llm/cloudProviderConfigs'
 import { settingsStore } from '../settings/SettingsStore'
 import { showToastWindow } from '../toastWindow'
 import { createSearchProvider } from '../tools/search'
@@ -112,6 +117,24 @@ const MAX_ACTIVITIES = 240
 const LOCAL_BUSY_RETRY_MS = 500
 const SYNTHESIS_BUDGET = { ...CRITICAL_THINKING_STEP_BUDGET, maxTools: 0 }
 
+/**
+ * The cloud model to pin on a new run, mirroring `runGeneration.ts`'s
+ * `activeModelDescriptor` resolution — `null` for `local` (the loaded model
+ * can change between the run's creation and when it actually generates, so
+ * local runs deliberately track "whatever's loaded" rather than a pinned id).
+ */
+function resolveCriticalThinkingModel(
+  provider: CriticalThinkingProvider,
+  providerSettings: ProviderSettings
+): string | null {
+  if (provider === 'local') return null
+  if (provider === 'anthropic') return providerSettings.anthropic.model
+  if (provider === 'openai') return providerSettings.openai.model
+  if (provider === 'azure') return providerSettings.azure.deploymentName || null
+  if (isOpenAiCompatibleProviderId(provider)) return providerSettings[provider].model
+  return null
+}
+
 /** Persisted, bounded research workflow with evidence outside the model transcript. */
 class CriticalThinkingService {
   private activeRunId: string | null = null
@@ -130,12 +153,7 @@ class CriticalThinkingService {
     this.assertSearchReady()
     this.assertModelReady(settings.provider.active)
     const provider = settings.provider.active
-    const model =
-      provider === 'anthropic'
-        ? settings.provider.anthropic.model
-        : provider === 'openai'
-          ? settings.provider.openai.model
-          : null
+    const model = resolveCriticalThinkingModel(provider, settings.provider)
     const run = criticalThinkingStore.create({ question, provider, model })
     this.broadcastRunsChanged()
     void this.runPlanning(run)
@@ -1560,14 +1578,28 @@ class CriticalThinkingService {
 
   private assertModelReady(provider: CriticalThinkingProvider): void {
     const settings = settingsStore.get()
-    if (provider === 'local' && llamaService.getState().status !== 'ready') {
-      throw new Error('Load a local model before starting Critical Thinking.')
+    if (provider === 'local') {
+      if (llamaService.getState().status !== 'ready') {
+        throw new Error('Load a local model before starting Critical Thinking.')
+      }
+      return
     }
     if (provider === 'anthropic' && !settings.provider.anthropic.apiKey.trim()) {
       throw new Error('Connect Anthropic in Settings → AI & Models before starting.')
     }
     if (provider === 'openai' && !settings.provider.openai.apiKey.trim()) {
       throw new Error('Connect OpenAI in Settings → AI & Models before starting.')
+    }
+    if (provider === 'azure') {
+      const azure = settings.provider.azure
+      if (!azure.apiKey.trim() || !azure.resourceName.trim() || !azure.deploymentName.trim()) {
+        throw new Error('Connect Azure OpenAI in Settings → AI & Models before starting.')
+      }
+    }
+    if (isOpenAiCompatibleProviderId(provider) && !settings.provider[provider].apiKey.trim()) {
+      throw new Error(
+        `Connect ${OPEN_AI_COMPATIBLE_CONFIGS[provider].displayName} in Settings → AI & Models before starting.`
+      )
     }
   }
 

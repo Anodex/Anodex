@@ -360,9 +360,14 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       'Save durable global or project memory. Approval depends on memory settings and permission mode.'
   },
   {
+    name: 'list_email_accounts',
+    kind: 'read',
+    description: 'List the linked email accounts and which one is the default.'
+  },
+  {
     name: 'list_threads',
     kind: 'read',
-    description: 'List recent email threads from the configured email provider.'
+    description: 'List recent email threads from a linked email account.'
   },
   {
     name: 'search_email',
@@ -393,6 +398,28 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'find_attachments',
     kind: 'read',
     description: 'Find attachments in an email thread.'
+  },
+  {
+    name: 'list_mailboxes',
+    kind: 'read',
+    description: 'List the mailboxes, labels, or folders on an email account.'
+  },
+  {
+    name: 'reply_email',
+    kind: 'write',
+    description:
+      'Reply in-thread to an email message, always requiring explicit approval before sending.'
+  },
+  {
+    name: 'manage_email',
+    kind: 'write',
+    description:
+      'Mark email read or unread, star, archive, or move it back to the inbox. Cannot delete mail.'
+  },
+  {
+    name: 'move_email',
+    kind: 'write',
+    description: 'Move an email thread or message to another mailbox, label, or folder.'
   },
   {
     name: 'save_email_attachment',

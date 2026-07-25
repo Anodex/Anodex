@@ -107,6 +107,26 @@ vi.mock('../../tools/webTools', () => ({
   fetchUrlEvidence: (...args: [string, string, AbortSignal]) => mocks.fetchUrlEvidence(...args)
 }))
 
+// Real generation itself goes through the mocked `runGeneration` above; this
+// service only reads `cloudProviderConfigs` for provider ids/display names
+// (`assertModelReady`/`resolveCriticalThinkingModel`) — mocked here so
+// loading it doesn't pull in the real tool registry's full module graph
+// (which `../../tools/webTools`'s mock above only partially covers).
+vi.mock('../../llm/cloudProviderConfigs', () => ({
+  OPEN_AI_COMPATIBLE_CONFIGS: {
+    google: { id: 'google', displayName: 'Google AI' },
+    xai: { id: 'xai', displayName: 'xAI' },
+    deepseek: { id: 'deepseek', displayName: 'DeepSeek' },
+    mistral: { id: 'mistral', displayName: 'Mistral AI' },
+    groq: { id: 'groq', displayName: 'Groq' },
+    openrouter: { id: 'openrouter', displayName: 'OpenRouter' },
+    kimi: { id: 'kimi', displayName: 'Kimi' },
+    qwen: { id: 'qwen', displayName: 'Qwen' }
+  },
+  isOpenAiCompatibleProviderId: (id: string) =>
+    ['google', 'xai', 'deepseek', 'mistral', 'groq', 'openrouter', 'kimi', 'qwen'].includes(id)
+}))
+
 vi.mock('../../chat/runGeneration', () => ({
   runGeneration: mocks.runGeneration
 }))

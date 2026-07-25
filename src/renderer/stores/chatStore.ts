@@ -63,7 +63,26 @@ interface ChatState {
    * never falls back to "whatever project happens to be active" — a chat
    * created without an explicit project must not silently inherit one.
    */
-  newConversation: (projectId?: string | null) => string
+  newConversation: (
+    projectId?: string | null,
+    emailThread?: { accountId: string; threadId: string }
+  ) => string
+  /**
+   * Selects the chat already tied to an email thread, or starts one and links
+   * it. Keeps all discussion of a given email in one chat instead of spawning
+   * a new one on every Reply or Summarize click.
+   */
+  openEmailThreadConversation: (accountId: string, threadId: string) => string
+  /**
+   * Text to drop into the composer the next time it renders, then clear.
+   *
+   * Lets another view hand work off to chat with the instruction already
+   * written — the Email page's Reply button, for one — while still leaving the
+   * user free to edit or discard it before sending. Sending outright would take
+   * that choice away.
+   */
+  pendingComposerText: string | null
+  setPendingComposerText: (text: string | null) => void
   /**
    * Copies a conversation's history into a new, ordinary chat and selects it.
    * Used to carry a scheduled task's run log into a chat the user can actually
@@ -239,7 +258,31 @@ export const useChatStore = create<ChatState>()(
       if (active) useUiStore.getState().markConversationRead(active.id, active.updatedAt)
     },
 
-    newConversation: (projectId = null) => {
+    pendingComposerText: null,
+
+    setPendingComposerText: (text) => set({ pendingComposerText: text }),
+
+    openEmailThreadConversation: (accountId, threadId) => {
+      // `conversations` holds only live chats — archiving or deleting removes
+      // an entry — so a hit here is by definition a chat the user can still
+      // return to, and a miss correctly starts fresh.
+      const existing = get().conversations.find(
+        (conversation) =>
+          conversation.emailThread?.threadId === threadId &&
+          conversation.emailThread.accountId === accountId
+      )
+
+      if (existing) {
+        set({ activeId: existing.id })
+        useUiStore.getState().markConversationRead(existing.id, existing.updatedAt)
+        void persistActiveState(existing.id)
+        return existing.id
+      }
+
+      return get().newConversation(null, { accountId, threadId })
+    },
+
+    newConversation: (projectId = null, emailThread) => {
       const id = createId('c')
       const now = Date.now()
       const conversation: Conversation = {
@@ -248,7 +291,8 @@ export const useChatStore = create<ChatState>()(
         title: DEFAULT_TITLE,
         messages: [],
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        ...(emailThread ? { emailThread } : {})
       }
       set((state) => {
         state.conversations.unshift(conversation)

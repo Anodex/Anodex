@@ -1,254 +1,362 @@
 import { randomUUID } from 'node:crypto'
 import type {
+  EmailAccount,
   EmailAttachmentSummary,
+  EmailAutoconfig,
+  EmailConnectOAuthRequest,
+  EmailConnectPasswordRequest,
   EmailConnectionStatus,
   EmailDraft,
   EmailDraftRequest,
+  EmailFlagRequest,
   EmailListThreadsRequest,
+  EmailMailbox,
   EmailMessage,
+  EmailMoveRequest,
+  EmailProvider,
+  EmailReplyRequest,
   EmailSearchRequest,
   EmailSendRequest,
   EmailThreadSummary
 } from '@shared/email.types'
-import { settingsStore } from '../settings/SettingsStore'
+import { emailAccountStore } from './EmailAccountStore'
 import { emailAuthStore } from './EmailAuthStore'
-import { runLoopbackAuthorization } from '../oauth/loopbackServer'
+import { discoverEmailConfig } from './autoconfig'
+import {
+  buildReferences,
+  extractAddress,
+  replyRecipients,
+  replySubject,
+  type OutgoingMessage
+} from './mime'
+import { authorizeProvider } from './providers/oauthClients'
+import { GmailAdapter } from './providers/GmailAdapter'
+import { MicrosoftAdapter } from './providers/MicrosoftAdapter'
+import { ImapSmtpAdapter } from './providers/ImapSmtpAdapter'
+import type { EmailAttachmentContent, EmailProviderAdapter } from './providers/types'
+import { createLogger } from '../utils/logger'
 
-const MAX_EMAIL_RESULTS = 20
-const AUTH_TIMEOUT_MS = 120_000
-const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me'
-const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
-const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
-const GMAIL_SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.compose',
-  'https://www.googleapis.com/auth/gmail.send'
-]
+const log = createLogger('email')
 
-interface GmailToken {
-  accessToken: string
-  refreshToken?: string
-  expiresAt: number
-  scope: string
-  tokenType: string
+/**
+ * Ceiling on threads returned to a caller.
+ *
+ * The Email page paginates and can legitimately ask for a few hundred, whereas
+ * a tool result goes straight into the model's context — so the tools clamp
+ * their own `limit` well below this before calling in (see `emailTools.ts`).
+ */
+const MAX_EMAIL_RESULTS = 200
+
+const ADAPTERS: Record<EmailProvider, EmailProviderAdapter> = {
+  gmail: new GmailAdapter(),
+  microsoft: new MicrosoftAdapter(),
+  imap: new ImapSmtpAdapter()
 }
 
-interface GoogleTokenResponse {
-  access_token: string
-  refresh_token?: string
-  expires_in: number
-  scope?: string
-  token_type?: string
+/** A reply resolved against its parent, ready to confirm and then send. */
+export interface PreparedReply {
+  accountId: string
+  message: OutgoingMessage
+  /** Subject of the message being answered, for the confirmation prompt. */
+  parentSubject: string
 }
 
-interface GmailThreadListResponse {
-  threads?: { id: string }[]
-}
-
-interface GmailProfileResponse {
-  emailAddress?: string
-}
-
-interface GmailLabelResponse {
-  threadsUnread?: number
-}
-
-interface GmailThreadResponse {
-  id: string
-  messages?: GmailApiMessage[]
-}
-
-interface GmailAttachmentResponse {
-  data?: string
-  size?: number
-}
-
-interface EmailAttachmentContent extends EmailAttachmentSummary {
-  data: Buffer
-}
-
-interface GmailApiMessage {
-  id: string
-  threadId: string
-  labelIds?: string[]
-  snippet?: string
-  internalDate?: string
-  payload?: GmailPayload
-}
-
-interface GmailPayload {
-  mimeType?: string
-  filename?: string
-  body?: {
-    data?: string
-    attachmentId?: string
-    size?: number
-  }
-  headers?: GmailHeader[]
-  parts?: GmailPayload[]
-}
-
-interface GmailHeader {
-  name: string
-  value: string
-}
-
+/**
+ * The single entry point for everything email, across every linked account.
+ *
+ * Its two jobs are resolving which account a request targets and dispatching to
+ * that account's provider adapter. Provider-specific behaviour lives entirely
+ * in `providers/`; anything here has to hold for Gmail, Outlook, and a plain
+ * IMAP server alike.
+ */
 class EmailService {
   private drafts = new Map<string, EmailDraft>()
 
   getStatus(): EmailConnectionStatus {
-    const { email } = settingsStore.get()
-    const gmail = email.gmail
-    const enabled = email.provider === 'gmail' && gmail.enabled
-    const connected = enabled && emailAuthStore.hasToken('gmail')
+    const accounts = emailAccountStore.list()
+    const primary = emailAccountStore.primary()
+    const statuses = accounts.map((account) => ({
+      id: account.id,
+      provider: account.provider,
+      address: account.address,
+      displayName: account.displayName,
+      connected: emailAuthStore.hasCredentials(account.id),
+      isPrimary: account.id === primary?.id,
+      reason: emailAuthStore.hasCredentials(account.id)
+        ? undefined
+        : 'Credentials are missing — reconnect this account.'
+    }))
 
+    const primaryStatus = statuses.find((status) => status.isPrimary)
     return {
-      provider: 'gmail',
-      enabled,
-      connected,
-      address: gmail.address,
-      syncMode: gmail.syncMode,
-      sendRequiresApproval: gmail.sendRequiresApproval,
-      reason: this.statusReason(enabled, connected)
+      enabled: accounts.length > 0,
+      connected: Boolean(primaryStatus?.connected),
+      accounts: statuses,
+      primaryAccountId: primary?.id ?? null,
+      address: primary?.address ?? '',
+      provider: primary?.provider ?? 'none',
+      syncMode: primary?.syncMode ?? 'metadata',
+      sendRequiresApproval: true,
+      reason: accounts.length === 0 ? 'No email account is linked yet.' : primaryStatus?.reason
     }
   }
 
-  async connectGmail(): Promise<EmailConnectionStatus> {
-    const { email } = settingsStore.get()
-    const gmail = email.gmail
-    if (email.provider !== 'gmail' || !gmail.enabled) {
-      throw new Error('Enable Gmail before connecting.')
+  discover(address: string): Promise<EmailAutoconfig> {
+    return discoverEmailConfig(address)
+  }
+
+  /**
+   * Links a Gmail or Outlook account through the browser. The provider's own
+   * profile is the source of truth for the address, so a user who typed a
+   * different one (or none) still ends up with the mailbox they authorized.
+   */
+  async connectOAuth(request: EmailConnectOAuthRequest): Promise<EmailConnectionStatus> {
+    const tokens = await authorizeProvider(request.provider, {
+      clientId: request.oauthClientId,
+      clientSecret: request.oauthClientSecret
+    })
+
+    // The account has to exist before `verify`, because the adapter reads its
+    // token from the credential store keyed by account id.
+    const provisional = emailAccountStore.add({
+      provider: request.provider,
+      address: request.address?.trim() || `pending-${randomUUID()}`,
+      displayName: request.address?.trim() || '',
+      authKind: 'oauth',
+      syncMode: 'metadata',
+      ...(request.oauthClientId?.trim() ? { oauthClientId: request.oauthClientId.trim() } : {})
+    })
+    emailAuthStore.setToken(provisional.id, tokens)
+    if (request.oauthClientSecret?.trim()) {
+      emailAuthStore.setClientSecret(provisional.id, request.oauthClientSecret.trim())
     }
 
-    const clientId = gmail.oauthClientId.trim()
-    if (!clientId) {
-      throw new Error('Add a Google OAuth desktop app Client ID in Settings -> Email.')
-    }
+    try {
+      const identity = await ADAPTERS[request.provider].verify(provisional)
 
-    const { code, redirectUri } = await waitForOAuthCode(clientId)
-    const token = await exchangeCodeForToken(code, redirectUri)
-    emailAuthStore.setToken('gmail', token)
+      // The user can type one address and then authorize a different one in the
+      // browser. When that other mailbox is already linked, adopt the existing
+      // account instead of leaving two entries pointing at the same inbox —
+      // which would make "the default account" ambiguous and double every
+      // cross-account search.
+      const duplicate = emailAccountStore
+        .list()
+        .find(
+          (account) =>
+            account.id !== provisional.id &&
+            account.provider === request.provider &&
+            account.address.toLowerCase() === identity.address.toLowerCase()
+        )
 
-    const profile = await this.getProfile().catch(() => null)
-    if (profile?.emailAddress && profile.emailAddress !== gmail.address) {
-      settingsStore.update({ email: { gmail: { address: profile.emailAddress } } })
+      if (duplicate) {
+        emailAuthStore.setToken(duplicate.id, tokens)
+        if (request.oauthClientSecret?.trim()) {
+          emailAuthStore.setClientSecret(duplicate.id, request.oauthClientSecret.trim())
+        }
+        emailAccountStore.remove(provisional.id)
+        log.info(`Reconnected existing ${request.provider} account ${identity.address}.`)
+      } else {
+        emailAccountStore.update(provisional.id, {
+          address: identity.address,
+          displayName: identity.displayName?.trim() || identity.address
+        })
+        log.info(`Connected ${request.provider} account ${identity.address}.`)
+      }
+    } catch (error) {
+      // A half-linked account with a bad token is worse than none — it shows as
+      // connected and fails every call. Roll it back and surface the failure.
+      emailAccountStore.remove(provisional.id)
+      throw error
     }
 
     return this.getStatus()
   }
 
-  disconnectGmail(): EmailConnectionStatus {
-    emailAuthStore.clearToken('gmail')
+  /**
+   * Links a mailbox over IMAP/SMTP. The credentials are proved against the
+   * server before anything is persisted as connected, so a typo surfaces
+   * immediately instead of at the first tool call.
+   */
+  async connectPassword(request: EmailConnectPasswordRequest): Promise<EmailConnectionStatus> {
+    const address = request.address.trim()
+    if (!address) throw new Error('An email address is required.')
+    if (!request.password) throw new Error('A password is required.')
+
+    const account = emailAccountStore.add({
+      provider: 'imap',
+      address,
+      displayName: request.displayName?.trim() || address,
+      authKind: 'password',
+      syncMode: 'metadata',
+      imap: request.imap,
+      smtp: request.smtp
+    })
+    emailAuthStore.setPassword(account.id, request.password)
+
+    try {
+      await ADAPTERS.imap.verify(account)
+      log.info(`Connected IMAP account ${address}.`)
+    } catch (error) {
+      emailAccountStore.remove(account.id)
+      throw new Error(
+        `Could not sign in to ${request.imap.host}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+
     return this.getStatus()
+  }
+
+  removeAccount(accountId: string): EmailConnectionStatus {
+    // Close any live session first — unlinking must not leave an authenticated
+    // connection open to a mailbox the user just disconnected.
+    for (const adapter of Object.values(ADAPTERS)) adapter.disconnect?.(accountId)
+    emailAccountStore.remove(accountId)
+    return this.getStatus()
+  }
+
+  setPrimaryAccount(accountId: string): EmailConnectionStatus {
+    emailAccountStore.setPrimary(accountId)
+    return this.getStatus()
+  }
+
+  setSyncMode(accountId: string, syncMode: 'metadata' | 'full'): EmailConnectionStatus {
+    emailAccountStore.update(accountId, { syncMode })
+    return this.getStatus()
+  }
+
+  listAccounts(): EmailAccount[] {
+    return emailAccountStore.list()
   }
 
   async listThreads(request: EmailListThreadsRequest = {}): Promise<EmailThreadSummary[]> {
-    this.requireConnected()
-    return this.fetchThreadSummaries({ limit: request.limit, inboxOnly: true })
-  }
-
-  async getUnreadThreadCount(): Promise<number> {
-    this.requireConnected()
-    const label = await this.gmailFetch<GmailLabelResponse>('/labels/INBOX')
-    const count = Number(label.threadsUnread ?? 0)
-    return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0
+    const { account, adapter } = this.resolve(request.accountId)
+    return adapter.listThreads(account, {
+      limit: normalizeLimit(request.limit),
+      mailbox: request.mailbox
+    })
   }
 
   async search(request: EmailSearchRequest): Promise<EmailThreadSummary[]> {
-    this.requireConnected()
     const query = request.query.trim()
     if (!query) throw new Error('query is required.')
-    return this.fetchThreadSummaries({ limit: request.limit, query })
+    const { account, adapter } = this.resolve(request.accountId)
+    return adapter.listThreads(account, { limit: normalizeLimit(request.limit), query })
   }
 
-  async readMessage(id: string): Promise<EmailMessage> {
-    this.requireConnected()
-    const messageId = id.trim()
-    if (!messageId) throw new Error('message id is required.')
-    const message = await this.gmailFetch<GmailApiMessage>(
-      `/messages/${encodeURIComponent(messageId)}?format=full`
+  /**
+   * Searches every linked account at once. Used when the model asks about
+   * email without naming an account and more than one is linked — otherwise a
+   * two-mailbox user silently only ever sees results from one of them.
+   */
+  async searchAll(request: Omit<EmailSearchRequest, 'accountId'>): Promise<EmailThreadSummary[]> {
+    const accounts = emailAccountStore.list()
+    if (accounts.length <= 1) return this.search(request)
+
+    const limit = normalizeLimit(request.limit)
+    const settled = await Promise.allSettled(
+      accounts.map((account) =>
+        ADAPTERS[account.provider].listThreads(account, { limit, query: request.query.trim() })
+      )
     )
-    return toEmailMessage(message)
+
+    const threads = settled.flatMap((result, index) => {
+      if (result.status === 'fulfilled') return result.value
+      log.warn(`Search failed for ${accounts[index].address}:`, result.reason)
+      return []
+    })
+    return threads.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, limit)
   }
 
-  async summarizeThread(threadId: string): Promise<string> {
-    this.requireConnected()
+  async getUnreadThreadCount(accountId?: string): Promise<number> {
+    const { account, adapter } = this.resolve(accountId)
+    return adapter.getUnreadThreadCount(account)
+  }
+
+  async readMessage(messageId: string, accountId?: string): Promise<EmailMessage> {
+    const id = messageId.trim()
+    if (!id) throw new Error('message id is required.')
+    const { account, adapter } = this.resolve(accountId)
+    return adapter.readMessage(account, id)
+  }
+
+  /** Full messages of one thread, oldest first — what the reading pane shows. */
+  async getThreadMessages(threadId: string, accountId?: string): Promise<EmailMessage[]> {
     const id = threadId.trim()
     if (!id) throw new Error('thread id is required.')
-    const thread = await this.gmailFetch<GmailThreadResponse>(
-      `/threads/${encodeURIComponent(id)}?format=full`
-    )
-    const messages = thread.messages ?? []
+    const { account, adapter } = this.resolve(accountId)
+    const messages = await adapter.getThreadMessages(account, id)
+    return [...messages].sort((left, right) => left.date - right.date)
+  }
+
+  async summarizeThread(threadId: string, accountId?: string): Promise<string> {
+    const id = threadId.trim()
+    if (!id) throw new Error('thread id is required.')
+    const { account, adapter } = this.resolve(accountId)
+    const messages = await adapter.getThreadMessages(account, id)
     if (messages.length === 0) return 'No messages found in this thread.'
-    const subject = header(messages[0], 'Subject') || '(no subject)'
+
+    const ordered = [...messages].sort((left, right) => left.date - right.date)
     const participants = Array.from(
-      new Set(messages.flatMap((message) => [header(message, 'From'), header(message, 'To')]))
+      new Set(ordered.flatMap((message) => [message.from, ...message.to]))
     )
       .filter(Boolean)
       .slice(0, 8)
       .join('; ')
-    const latest = messages[messages.length - 1]
+    const latest = ordered[ordered.length - 1]
+
     return [
-      `Subject: ${subject}`,
-      `Messages: ${messages.length}`,
+      `Subject: ${ordered[0].subject}`,
+      `Account: ${account.address}`,
+      `Messages: ${ordered.length}`,
       participants ? `Participants: ${participants}` : null,
-      `Latest: ${new Date(Number(latest.internalDate ?? Date.now())).toLocaleString()}`,
+      `Latest: ${new Date(latest.date).toLocaleString()}`,
       '',
-      ...messages.slice(-5).map((message, index) => {
-        const from = header(message, 'From') || 'Unknown sender'
-        return `${index + 1}. ${from}: ${message.snippet ?? truncate(extractBody(message.payload), 180)}`
+      ...ordered.slice(-5).map((message, index) => {
+        const preview = message.snippet.trim() || truncate(message.body, 180)
+        return `${index + 1}. ${message.from}: ${preview}`
       })
     ]
       .filter(Boolean)
       .join('\n')
   }
 
-  async listAttachments(threadId: string): Promise<EmailAttachmentSummary[]> {
-    this.requireConnected()
+  async listAttachments(threadId: string, accountId?: string): Promise<EmailAttachmentSummary[]> {
     const id = threadId.trim()
     if (!id) throw new Error('thread id is required.')
-    const thread = await this.gmailFetch<GmailThreadResponse>(
-      `/threads/${encodeURIComponent(id)}?format=full`
-    )
-    return (thread.messages ?? []).flatMap((message) =>
-      extractAttachments(message.payload, message.id)
-    )
+    const { account, adapter } = this.resolve(accountId)
+    const messages = await adapter.getThreadMessages(account, id)
+    return messages.flatMap((message) => message.attachments)
   }
 
-  async getAttachment(messageId: string, attachmentId: string): Promise<EmailAttachmentContent> {
-    this.requireConnected()
-    const id = messageId.trim()
+  async getAttachment(
+    messageId: string,
+    attachmentId: string,
+    accountId?: string
+  ): Promise<EmailAttachmentContent> {
+    const message = messageId.trim()
     const attachment = attachmentId.trim()
-    if (!id) throw new Error('message id is required.')
+    if (!message) throw new Error('message id is required.')
     if (!attachment) throw new Error('attachment id is required.')
+    const { account, adapter } = this.resolve(accountId)
+    return adapter.getAttachment(account, message, attachment)
+  }
 
-    const message = await this.gmailFetch<GmailApiMessage>(
-      `/messages/${encodeURIComponent(id)}?format=full`
-    )
-    const metadata = extractAttachments(message.payload, message.id).find(
-      (item) => item.id === attachment
-    )
-    if (!metadata) throw new Error('Attachment was not found on that message.')
-
-    const response = await this.gmailFetch<GmailAttachmentResponse>(
-      `/messages/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment)}`
-    )
-    if (!response.data) throw new Error('Attachment response did not include data.')
-    return {
-      ...metadata,
-      size: response.size ?? metadata.size,
-      data: decodeBase64UrlBuffer(response.data)
-    }
+  async listMailboxes(accountId?: string): Promise<EmailMailbox[]> {
+    const { account, adapter } = this.resolve(accountId)
+    return adapter.listMailboxes(account)
   }
 
   createDraft(request: EmailDraftRequest): EmailDraft {
     validateDraftRequest(request)
+    const { account } = this.resolve(request.accountId)
     const draft: EmailDraft = {
+      ...request,
       id: randomUUID(),
-      provider: 'gmail',
-      to: request.to.map((value) => value.trim()).filter(Boolean),
-      cc: request.cc?.map((value) => value.trim()).filter(Boolean) ?? [],
-      bcc: request.bcc?.map((value) => value.trim()).filter(Boolean) ?? [],
+      provider: account.provider,
+      accountId: account.id,
+      to: cleanAddresses(request.to),
+      cc: cleanAddresses(request.cc),
+      bcc: cleanAddresses(request.bcc),
       subject: request.subject.trim(),
       body: request.body.trim(),
       createdAt: Date.now()
@@ -258,295 +366,132 @@ class EmailService {
   }
 
   /**
-   * Look up a saved draft by id without sending it — lets a caller (the
-   * send_email tool) preview and confirm the content that `send` will
-   * actually use when `draftId` is set, instead of confirming against
-   * whatever placeholder to/subject/body the model passed alongside it.
+   * Looks up a saved draft without sending it — lets the send_email tool
+   * preview and confirm the content `send` will actually use when `draftId` is
+   * set, instead of confirming against whatever placeholder to/subject/body the
+   * model passed alongside it.
    */
   getDraft(draftId: string): EmailDraft | undefined {
     return this.drafts.get(draftId)
   }
 
   async send(request: EmailSendRequest): Promise<void> {
-    this.requireConnected()
     const draft = request.draftId ? this.drafts.get(request.draftId) : undefined
     if (request.draftId && !draft) throw new Error(`Email draft not found: ${request.draftId}`)
-    const message: EmailDraftRequest = draft ?? request
-    validateDraftRequest(message)
-    await this.gmailFetch('/messages/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw: encodeBase64Url(buildMimeMessage(message)) })
-    })
+
+    const source: EmailDraftRequest = draft ?? request
+    validateDraftRequest(source)
+    const { account, adapter } = this.resolve(draft?.accountId ?? request.accountId)
+
+    await adapter.send(account, toOutgoingMessage(source))
     if (request.draftId) this.drafts.delete(request.draftId)
   }
 
-  private async fetchThreadSummaries(options: {
-    limit?: number
-    query?: string
-    inboxOnly?: boolean
-  }): Promise<EmailThreadSummary[]> {
-    const limit = normalizeLimit(options.limit)
-    const params = new URLSearchParams({ maxResults: String(limit) })
-    if (options.query) params.set('q', options.query)
-    if (options.inboxOnly) params.append('labelIds', 'INBOX')
-    const result = await this.gmailFetch<GmailThreadListResponse>(`/threads?${params.toString()}`)
-    const threads = result.threads ?? []
-    const summaries: EmailThreadSummary[] = []
+  /**
+   * Resolves a reply against the message it answers: recipients, subject, and
+   * the `In-Reply-To`/`References` chain that makes other mail clients file it
+   * as part of the conversation rather than a new one. Returns the prepared
+   * message so the caller can show it for approval before
+   * {@link sendPrepared} actually sends it.
+   */
+  async prepareReply(request: EmailReplyRequest): Promise<PreparedReply> {
+    const messageId = request.messageId.trim()
+    if (!messageId) throw new Error('messageId is required.')
+    if (!request.body.trim()) throw new Error('body is required.')
 
-    for (const listed of threads) {
-      const thread = await this.gmailFetch<GmailThreadResponse>(
-        `/threads/${encodeURIComponent(listed.id)}?format=metadata`
-      )
-      if (thread.messages?.length) summaries.push(toThreadSummary(thread))
-      if (summaries.length >= limit) break
-    }
+    const { account, adapter } = this.resolve(request.accountId)
+    const parent = await adapter.readMessage(account, messageId)
 
-    return summaries
-  }
-
-  private async getProfile(): Promise<GmailProfileResponse> {
-    return this.gmailFetch<GmailProfileResponse>('/profile')
-  }
-
-  private async gmailFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const token = await this.getAccessToken()
-    const headers = new Headers(init.headers)
-    headers.set('Authorization', `Bearer ${token}`)
-    const response = await fetch(`${GMAIL_API_BASE}${path}`, {
-      ...init,
-      headers
+    const recipients = replyRecipients({
+      from: parent.from,
+      to: parent.to,
+      cc: parent.cc,
+      selfAddress: account.address,
+      replyAll: request.replyAll === true
     })
-    if (!response.ok) {
-      const detail = await response.text().catch(() => response.statusText)
-      throw new Error(`Gmail API ${response.status}: ${detail}`)
+    if (recipients.to.length === 0) {
+      throw new Error('Could not work out who to reply to on that message.')
     }
-    return (await response.json()) as T
-  }
 
-  private async getAccessToken(): Promise<string> {
-    const token = emailAuthStore.getToken<GmailToken>('gmail')
-    if (!token) throw new Error('Gmail is not connected.')
-    if (token.expiresAt > Date.now() + 60_000) return token.accessToken
-    if (!token.refreshToken)
-      throw new Error('Gmail token expired and no refresh token is available.')
-
-    const refreshed = await refreshToken(token.refreshToken)
-    const next: GmailToken = {
-      ...token,
-      accessToken: refreshed.accessToken,
-      expiresAt: refreshed.expiresAt,
-      scope: refreshed.scope || token.scope,
-      tokenType: refreshed.tokenType || token.tokenType
-    }
-    emailAuthStore.setToken('gmail', next)
-    return next.accessToken
-  }
-
-  private requireConnected(): void {
-    const status = this.getStatus()
-    if (!status.enabled) {
-      throw new Error('Gmail is disabled. Enable it in Settings -> Email.')
-    }
-    if (!status.connected) {
-      throw new Error(status.reason ?? 'Gmail is not connected.')
+    return {
+      accountId: account.id,
+      parentSubject: parent.subject,
+      message: {
+        to: recipients.to,
+        cc: cleanAddresses([...recipients.cc, ...(request.cc ?? [])]),
+        bcc: [],
+        subject: replySubject(parent.subject),
+        body: request.body.trim(),
+        attachments: request.attachments ?? [],
+        inReplyTo: parent.messageIdHeader,
+        references: buildReferences(parent.references, parent.messageIdHeader),
+        threadId: parent.threadId
+      }
     }
   }
 
-  private statusReason(enabled: boolean, connected: boolean): string | undefined {
-    const gmail = settingsStore.get().email.gmail
-    if (!enabled) return 'Gmail is disabled.'
-    if (!gmail.oauthClientId.trim()) return 'Add a Google OAuth desktop app Client ID.'
-    if (!connected) return 'Click Connect to authorize Gmail.'
-    return undefined
+  async sendPrepared(prepared: PreparedReply): Promise<void> {
+    const { account, adapter } = this.resolve(prepared.accountId)
+    await adapter.send(account, prepared.message)
+  }
+
+  async applyFlag(request: EmailFlagRequest): Promise<string> {
+    const { account, adapter } = this.resolve(request.accountId)
+    const result = await adapter.applyFlag(account, {
+      threadId: request.threadId?.trim() || undefined,
+      messageId: request.messageId?.trim() || undefined,
+      action: request.action
+    })
+    return `${result} on ${account.address}.`
+  }
+
+  async move(request: EmailMoveRequest): Promise<string> {
+    const { account, adapter } = this.resolve(request.accountId)
+    const result = await adapter.move(account, {
+      threadId: request.threadId?.trim() || undefined,
+      messageId: request.messageId?.trim() || undefined,
+      mailbox: request.mailbox
+    })
+    return `${result} on ${account.address}.`
+  }
+
+  /** Resolves the target account and refuses early if it has no credentials. */
+  private resolve(accountId?: string): { account: EmailAccount; adapter: EmailProviderAdapter } {
+    const account = emailAccountStore.resolve(accountId)
+    if (!emailAuthStore.hasCredentials(account.id)) {
+      throw new Error(
+        `${account.address} is linked but has no stored credentials. Reconnect it in Settings -> Email.`
+      )
+    }
+    return { account, adapter: ADAPTERS[account.provider] }
   }
 }
 
-async function waitForOAuthCode(clientId: string): Promise<{ code: string; redirectUri: string }> {
-  const state = randomUUID()
-  const { params, redirectUri } = await runLoopbackAuthorization({
-    expectedState: state,
-    timeoutMs: AUTH_TIMEOUT_MS,
-    buildAuthorizationUrl: (redirectUri) => {
-      const authParams = new URLSearchParams({
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        response_type: 'code',
-        scope: GMAIL_SCOPES.join(' '),
-        access_type: 'offline',
-        prompt: 'consent',
-        state
-      })
-      return `${GOOGLE_AUTH_URL}?${authParams.toString()}`
-    }
-  })
-  const code = params.get('code')
-  if (!code) throw new Error('Gmail authorization response was missing a code.')
-  return { code, redirectUri }
-}
-
-async function exchangeCodeForToken(code: string, redirectUri: string): Promise<GmailToken> {
-  const { email } = settingsStore.get()
-  const params = new URLSearchParams({
-    client_id: email.gmail.oauthClientId.trim(),
-    code,
-    grant_type: 'authorization_code',
-    redirect_uri: redirectUri
-  })
-  const clientSecret = email.gmail.oauthClientSecret.trim()
-  if (clientSecret) params.set('client_secret', clientSecret)
-  const response = await fetch(GOOGLE_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params
-  })
-  if (!response.ok) {
-    throw new Error(`Google token exchange failed: ${await response.text()}`)
-  }
-  return toGmailToken((await response.json()) as GoogleTokenResponse)
-}
-
-async function refreshToken(refreshTokenValue: string): Promise<GmailToken> {
-  const { email } = settingsStore.get()
-  const params = new URLSearchParams({
-    client_id: email.gmail.oauthClientId.trim(),
-    refresh_token: refreshTokenValue,
-    grant_type: 'refresh_token'
-  })
-  const clientSecret = email.gmail.oauthClientSecret.trim()
-  if (clientSecret) params.set('client_secret', clientSecret)
-  const response = await fetch(GOOGLE_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params
-  })
-  if (!response.ok) {
-    throw new Error(`Google token refresh failed: ${await response.text()}`)
-  }
+function toOutgoingMessage(request: EmailDraftRequest): OutgoingMessage {
   return {
-    ...toGmailToken((await response.json()) as GoogleTokenResponse),
-    refreshToken: refreshTokenValue
+    to: cleanAddresses(request.to),
+    cc: cleanAddresses(request.cc),
+    bcc: cleanAddresses(request.bcc),
+    subject: request.subject.trim(),
+    body: request.body.trim(),
+    attachments: request.attachments ?? [],
+    inReplyTo: request.inReplyTo,
+    references: request.references,
+    threadId: request.threadId
   }
 }
 
-function toGmailToken(response: GoogleTokenResponse): GmailToken {
-  return {
-    accessToken: response.access_token,
-    refreshToken: response.refresh_token,
-    expiresAt: Date.now() + Math.max(0, response.expires_in - 30) * 1000,
-    scope: response.scope ?? GMAIL_SCOPES.join(' '),
-    tokenType: response.token_type ?? 'Bearer'
-  }
-}
-
-function toThreadSummary(thread: GmailThreadResponse): EmailThreadSummary {
-  const messages = thread.messages ?? []
-  const message = [...messages].sort(
-    (left, right) => Number(right.internalDate ?? 0) - Number(left.internalDate ?? 0)
-  )[0]
-  if (!message) throw new Error(`Gmail thread ${thread.id} contained no messages.`)
-  return {
-    id: thread.id,
-    latestMessageId: message.id,
-    provider: 'gmail',
-    subject: header(message, 'Subject') || '(no subject)',
-    from: header(message, 'From') || 'Unknown sender',
-    snippet: message.snippet ?? '',
-    updatedAt: Number(message.internalDate ?? Date.now()),
-    unread: Boolean(message.labelIds?.includes('UNREAD')),
-    messageCount: messages.length,
-    attachmentCount: messages.reduce(
-      (total, item) => total + extractAttachments(item.payload, item.id).length,
-      0
-    )
-  }
-}
-
-function toEmailMessage(message: GmailApiMessage): EmailMessage {
-  return {
-    id: message.id,
-    threadId: message.threadId,
-    provider: 'gmail',
-    subject: header(message, 'Subject') || '(no subject)',
-    from: header(message, 'From') || 'Unknown sender',
-    to: splitAddresses(header(message, 'To')),
-    cc: splitAddresses(header(message, 'Cc')),
-    bcc: splitAddresses(header(message, 'Bcc')),
-    date: Number(message.internalDate ?? Date.now()),
-    snippet: message.snippet ?? '',
-    body: extractBody(message.payload),
-    attachments: extractAttachments(message.payload, message.id)
-  }
-}
-
-function header(message: GmailApiMessage, name: string): string {
-  return (
-    message.payload?.headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())
-      ?.value ?? ''
-  )
-}
-
-function splitAddresses(value: string): string[] {
-  return value
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-}
-
-function extractBody(payload: GmailPayload | undefined): string {
-  if (!payload) return ''
-  if (payload.mimeType === 'text/plain' && payload.body?.data)
-    return decodeBase64Url(payload.body.data)
-  if (payload.parts) {
-    const plain = payload.parts.map(extractBody).find((part) => part.trim())
-    if (plain) return plain
-  }
-  if (payload.mimeType === 'text/html' && payload.body?.data) {
-    return decodeBase64Url(payload.body.data)
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  }
-  return ''
-}
-
-function extractAttachments(
-  payload: GmailPayload | undefined,
-  messageId: string
-): EmailAttachmentSummary[] {
-  if (!payload) return []
-  const current =
-    payload.filename && payload.body?.attachmentId
-      ? [
-          {
-            id: payload.body.attachmentId,
-            messageId,
-            filename: payload.filename,
-            mimeType: payload.mimeType ?? 'application/octet-stream',
-            size: payload.body.size ?? 0
-          }
-        ]
-      : []
-  return [
-    ...current,
-    ...(payload.parts?.flatMap((part) => extractAttachments(part, messageId)) ?? [])
-  ]
-}
-
-function buildMimeMessage(request: EmailDraftRequest): string {
-  const headers = [
-    `To: ${request.to.join(', ')}`,
-    request.cc?.length ? `Cc: ${request.cc.join(', ')}` : null,
-    request.bcc?.length ? `Bcc: ${request.bcc.join(', ')}` : null,
-    `Subject: ${request.subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
-    '',
-    request.body
-  ]
-  return headers.filter((line) => line !== null).join('\r\n')
+function cleanAddresses(addresses: string[] | undefined): string[] {
+  const seen = new Set<string>()
+  return (addresses ?? [])
+    .map((value) => value.trim())
+    .filter((value) => {
+      if (!value) return false
+      const key = extractAddress(value).toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 }
 
 function normalizeLimit(limit: number | undefined): number {
@@ -556,27 +501,11 @@ function normalizeLimit(limit: number | undefined): number {
 }
 
 function validateDraftRequest(request: EmailDraftRequest): void {
-  const to = request.to.map((value) => value.trim()).filter(Boolean)
-  if (to.length === 0) throw new Error('At least one recipient is required.')
+  if (cleanAddresses(request.to).length === 0) {
+    throw new Error('At least one recipient is required.')
+  }
   if (!request.subject.trim()) throw new Error('subject is required.')
   if (!request.body.trim()) throw new Error('body is required.')
-}
-
-function encodeBase64Url(value: string): string {
-  return Buffer.from(value, 'utf-8')
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '')
-}
-
-function decodeBase64Url(value: string): string {
-  return decodeBase64UrlBuffer(value).toString('utf-8')
-}
-
-function decodeBase64UrlBuffer(value: string): Buffer {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
-  return Buffer.from(normalized, 'base64')
 }
 
 function truncate(text: string, max: number): string {

@@ -72,11 +72,19 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     ...(openaiKeySet ? [{ label: 'ChatGPT / Codex (OpenAI)', value: 'openai' }] : [])
   ]
 
+  // Agent runs only support local/Anthropic/OpenAI today (see `RunProvider`) —
+  // other globally-active providers (Grok, Kimi, etc.) fall back to Local
+  // here rather than mis-typing the run's own provider field. Extending
+  // Agent runs to the full provider set is a reasonable follow-up, not done
+  // as part of wiring up those providers for interactive chat.
+  const globalActiveAsRunProvider: RunProvider =
+    settings?.provider.active === 'anthropic' || settings?.provider.active === 'openai'
+      ? settings.provider.active
+      : 'local'
+
   const [goal, setGoal] = useState(seed?.goal ?? '')
   const [projectId, setProjectId] = useState<string | null>(seed?.projectId ?? null)
-  const [provider, setProvider] = useState<RunProvider>(
-    seed?.provider ?? settings?.provider.active ?? 'local'
-  )
+  const [provider, setProvider] = useState<RunProvider>(seed?.provider ?? globalActiveAsRunProvider)
   const [model, setModel] = useState(() => {
     if (seed?.provider === 'anthropic') return seed.model ?? DEFAULT_ANTHROPIC_MODEL
     if (seed?.provider === 'openai') return seed.model ?? DEFAULT_OPENAI_MODEL

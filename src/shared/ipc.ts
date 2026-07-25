@@ -77,13 +77,21 @@ import type {
   SkillSummary
 } from './skill.types'
 import type {
+  EmailAccount,
+  EmailAutoconfig,
+  EmailConnectOAuthRequest,
+  EmailConnectPasswordRequest,
   EmailConnectionStatus,
   EmailDraft,
   EmailDraftRequest,
+  EmailFlagRequest,
   EmailListThreadsRequest,
+  EmailMailbox,
   EmailMessage,
+  EmailMoveRequest,
   EmailSearchRequest,
   EmailSendRequest,
+  EmailSyncMode,
   EmailThreadSummary
 } from './email.types'
 import type {
@@ -327,13 +335,25 @@ export const IpcChannel = {
   },
   Email: {
     getStatus: 'email:get-status',
-    openGmailWeb: 'email:open-gmail-web',
-    connectGmail: 'email:connect-gmail',
-    disconnectGmail: 'email:disconnect-gmail',
+    /** Opens the primary account's provider in the system browser. */
+    openWebmail: 'email:open-webmail',
+    /** Looks up how to connect a typed address, before any credential is asked for. */
+    discover: 'email:discover',
+    connectOAuth: 'email:connect-oauth',
+    connectPassword: 'email:connect-password',
+    removeAccount: 'email:remove-account',
+    setPrimaryAccount: 'email:set-primary-account',
+    setSyncMode: 'email:set-sync-mode',
+    listAccounts: 'email:list-accounts',
     getUnreadThreadCount: 'email:get-unread-thread-count',
     listThreads: 'email:list-threads',
     search: 'email:search',
     readMessage: 'email:read-message',
+    getThreadMessages: 'email:get-thread-messages',
+    applyFlag: 'email:apply-flag',
+    move: 'email:move',
+    listMailboxes: 'email:list-mailboxes',
+    saveAttachment: 'email:save-attachment',
     createDraft: 'email:create-draft',
     send: 'email:send'
   },
@@ -374,9 +394,27 @@ export const IpcChannel = {
 
 /** Request to test whether a cloud provider API key (and model) works. */
 export interface VerifyProviderKeyRequest {
-  provider: 'anthropic' | 'openai'
+  provider:
+    | 'anthropic'
+    | 'openai'
+    | 'google'
+    | 'xai'
+    | 'deepseek'
+    | 'mistral'
+    | 'groq'
+    | 'openrouter'
+    | 'azure'
+    | 'kimi'
+    | 'qwen'
   apiKey: string
+  /** Model id for every provider except `azure`, which has no fixed model catalog. */
   model: string
+  /** Azure-only: the resource name, e.g. `my-resource` for `my-resource.openai.azure.com`. */
+  resourceName?: string
+  /** Azure-only: the deployment name (Azure's equivalent of a model id). */
+  deploymentName?: string
+  /** Azure-only: the REST API version, e.g. `2024-10-21`. */
+  apiVersion?: string
 }
 
 export interface ContextMenuItem {
@@ -645,13 +683,29 @@ export interface AnodexApi {
   }
   email: {
     getStatus(): Promise<Result<EmailConnectionStatus>>
-    openGmailWeb(): Promise<Result<void>>
-    connectGmail(): Promise<Result<EmailConnectionStatus>>
-    disconnectGmail(): Promise<Result<EmailConnectionStatus>>
-    getUnreadThreadCount(): Promise<Result<number>>
+    openWebmail(): Promise<Result<void>>
+    discover(address: string): Promise<Result<EmailAutoconfig>>
+    connectOAuth(request: EmailConnectOAuthRequest): Promise<Result<EmailConnectionStatus>>
+    connectPassword(request: EmailConnectPasswordRequest): Promise<Result<EmailConnectionStatus>>
+    removeAccount(accountId: string): Promise<Result<EmailConnectionStatus>>
+    setPrimaryAccount(accountId: string): Promise<Result<EmailConnectionStatus>>
+    setSyncMode(accountId: string, syncMode: EmailSyncMode): Promise<Result<EmailConnectionStatus>>
+    listAccounts(): Promise<Result<EmailAccount[]>>
+    getUnreadThreadCount(accountId?: string): Promise<Result<number>>
     listThreads(request?: EmailListThreadsRequest): Promise<Result<EmailThreadSummary[]>>
     search(request: EmailSearchRequest): Promise<Result<EmailThreadSummary[]>>
-    readMessage(id: string): Promise<Result<EmailMessage>>
+    readMessage(id: string, accountId?: string): Promise<Result<EmailMessage>>
+    getThreadMessages(threadId: string, accountId?: string): Promise<Result<EmailMessage[]>>
+    applyFlag(request: EmailFlagRequest): Promise<Result<string>>
+    move(request: EmailMoveRequest): Promise<Result<string>>
+    listMailboxes(accountId?: string): Promise<Result<EmailMailbox[]>>
+    /** Prompts for a location and writes the attachment there. Null path means cancelled. */
+    saveAttachment(request: {
+      messageId: string
+      attachmentId: string
+      filename: string
+      accountId?: string
+    }): Promise<Result<{ path: string | null }>>
     createDraft(request: EmailDraftRequest): Promise<Result<EmailDraft>>
     send(request: EmailSendRequest): Promise<Result<void>>
   }

@@ -18,6 +18,7 @@ import { schedulerStore } from './scheduler/SchedulerStore'
 import { schedulerService } from './scheduler/SchedulerService'
 import { setKeepAwake } from './scheduler/keepAwake'
 import { emailAuthStore } from './email/EmailAuthStore'
+import { emailAccountStore } from './email/EmailAccountStore'
 import { skillStore } from './skills/SkillStore'
 import { agentRunStore } from './agents/AgentRunStore'
 import { agentRunService } from './agents/AgentRunService'
@@ -66,6 +67,11 @@ if (!app.requestSingleInstanceLock()) {
       tokenActivityStore.init()
       updateService.init()
       emailAuthStore.init()
+      // Settings have loaded by now, so any credential without a matching
+      // account is an orphan — from an unlink that raced a crash, or a
+      // settings file restored from elsewhere. Drop it rather than leaving a
+      // live token on disk for a mailbox the app no longer shows.
+      emailAccountStore.pruneCredentials()
       skillStore.init()
       agentRunStore.init()
       criticalThinkingStore.init()

@@ -6,7 +6,9 @@ import type { AppSettings } from '@shared/settings.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import {
+  LEGACY_GMAIL_ACCOUNT_ID,
   migrateLegacyAssistantStyle,
+  migrateLegacyGmailAccount,
   migrateLegacyThemeMode,
   stripRetiredGeneralSettings,
   validatePatch
@@ -142,6 +144,106 @@ describe('migrateLegacyThemeMode', () => {
   })
 })
 
+describe('migrateLegacyGmailAccount', () => {
+  const legacyGmail = (overrides: Record<string, unknown> = {}) => ({
+    email: {
+      provider: 'gmail',
+      gmail: {
+        enabled: true,
+        address: 'person@gmail.com',
+        oauthClientId: 'client-123',
+        oauthClientSecret: 'secret-should-not-survive',
+        syncMode: 'full',
+        ...overrides
+      }
+    }
+  })
+
+  it('leaves settings alone when there is no legacy email block', () => {
+    const settings = baseSettings()
+
+    expect(migrateLegacyGmailAccount(settings, {})).toBe(settings)
+  })
+
+  it('turns a configured legacy Gmail account into the first linked account', () => {
+    const migrated = migrateLegacyGmailAccount(baseSettings(), legacyGmail())
+
+    expect(migrated.email.accounts).toHaveLength(1)
+    expect(migrated.email.accounts[0]).toMatchObject({
+      id: LEGACY_GMAIL_ACCOUNT_ID,
+      provider: 'gmail',
+      address: 'person@gmail.com',
+      authKind: 'oauth',
+      syncMode: 'full',
+      oauthClientId: 'client-123'
+    })
+    expect(migrated.email.primaryAccountId).toBe(LEGACY_GMAIL_ACCOUNT_ID)
+  })
+
+  it('keeps the account id equal to the old token key so the token still resolves', () => {
+    // EmailAuthStore used to key tokens by provider name. Reusing that string
+    // as the account id is what avoids a separate token-store migration.
+    const migrated = migrateLegacyGmailAccount(baseSettings(), legacyGmail())
+
+    expect(migrated.email.accounts[0].id).toBe('gmail')
+  })
+
+  it('drops the plaintext client secret rather than carrying it forward', () => {
+    const migrated = migrateLegacyGmailAccount(baseSettings(), legacyGmail())
+    const account = migrated.email.accounts[0] as unknown as Record<string, unknown>
+
+    expect(account.oauthClientSecret).toBeUndefined()
+    expect(JSON.stringify(migrated)).not.toContain('secret-should-not-survive')
+  })
+
+  it('strips the retired provider and gmail keys so the migration runs once', () => {
+    const migrated = migrateLegacyGmailAccount(baseSettings(), legacyGmail())
+    const email = migrated.email as unknown as Record<string, unknown>
+
+    expect(email.provider).toBeUndefined()
+    expect(email.gmail).toBeUndefined()
+  })
+
+  it('creates no account when Gmail was never configured', () => {
+    const migrated = migrateLegacyGmailAccount(baseSettings(), {
+      email: { provider: 'none', gmail: { enabled: false, address: '', oauthClientId: '' } }
+    })
+
+    expect(migrated.email.accounts).toEqual([])
+    expect(migrated.email.primaryAccountId).toBeNull()
+  })
+
+  it('migrates an account that was configured but left disabled', () => {
+    const migrated = migrateLegacyGmailAccount(
+      baseSettings(),
+      legacyGmail({ enabled: false, oauthClientId: '' })
+    )
+
+    expect(migrated.email.accounts).toHaveLength(1)
+    expect(migrated.email.accounts[0].address).toBe('person@gmail.com')
+  })
+
+  it('never overwrites accounts that already exist', () => {
+    const settings = baseSettings()
+    settings.email.accounts = [
+      {
+        id: 'existing',
+        provider: 'imap',
+        address: 'person@fastmail.com',
+        displayName: 'person@fastmail.com',
+        authKind: 'password',
+        syncMode: 'metadata',
+        createdAt: 1
+      }
+    ]
+
+    const migrated = migrateLegacyGmailAccount(settings, legacyGmail())
+
+    expect(migrated.email.accounts).toHaveLength(1)
+    expect(migrated.email.accounts[0].id).toBe('existing')
+  })
+})
+
 describe('stripRetiredGeneralSettings', () => {
   it('removes inactive General fields while preserving supported settings', () => {
     const result = stripRetiredGeneralSettings({
@@ -195,6 +297,17 @@ describe('validatePatch', () => {
         }
       })
     ).toThrow(/visionProjectorPaths/)
+  })
+
+  it('allows disabling the per-turn time limit, but bounds it when set', () => {
+    expect(() => validatePatch({ generation: { turnTimeLimitMinutes: null } })).not.toThrow()
+    expect(() => validatePatch({ generation: { turnTimeLimitMinutes: 5 } })).not.toThrow()
+    expect(() => validatePatch({ generation: { turnTimeLimitMinutes: 0 } })).toThrow(
+      /turnTimeLimitMinutes/
+    )
+    expect(() => validatePatch({ generation: { turnTimeLimitMinutes: 300 } })).toThrow(
+      /turnTimeLimitMinutes/
+    )
   })
 
   it('accepts supported sound themes and rejects unknown ones', () => {

@@ -56,6 +56,7 @@ export type IconName =
   | 'layers'
   | 'globe'
   | 'archive'
+  | 'star'
   | 'calendar'
   | 'mail'
   | 'bot'
@@ -354,6 +355,7 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M10 12h4" />
     </>
   ),
+  star: <path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" />,
   calendar: (
     <>
       <rect x="3" y="4" width="18" height="18" rx="2" />

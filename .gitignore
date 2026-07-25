@@ -45,5 +45,8 @@ Thumbs.db
 /project-1/
 /*.zip
 
+# Local generated UI samples
+/docs/ui-samples/
+
 # Test-runner artifacts
 /test-results/

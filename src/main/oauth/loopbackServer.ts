@@ -37,9 +37,16 @@ export async function runLoopbackAuthorization(options: {
    * doesn't need this and leaves it unset.
    */
   port?: number
+  /**
+   * Hostname used in the redirect URI. The socket always binds `127.0.0.1`;
+   * this only changes the string handed to the authorization server. Microsoft
+   * Entra only special-cases `http://localhost` for arbitrary-port desktop
+   * redirects, so its flow needs 'localhost' where Google accepts either.
+   */
+  redirectHost?: '127.0.0.1' | 'localhost'
 }): Promise<{ params: URLSearchParams; redirectUri: string }> {
   const { server, port } = await createLoopbackServer(options.port)
-  const redirectUri = `http://127.0.0.1:${port}`
+  const redirectUri = `http://${options.redirectHost ?? '127.0.0.1'}:${port}`
 
   const paramsPromise = new Promise<URLSearchParams>((resolve, reject) => {
     const timeout = setTimeout(() => {

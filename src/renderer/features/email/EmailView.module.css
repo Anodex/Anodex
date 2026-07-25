@@ -35,6 +35,37 @@
   font-size: var(--text-base);
 }
 
+.accountTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.accountTab {
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.accountTab:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.accountTabActive {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 .providerPanel,
 .mailboxPanel {
   background: var(--bg-surface);
@@ -178,16 +209,279 @@
   flex-direction: column;
 }
 
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-faint);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  background: none;
+  border: none;
+  outline: none;
+}
+
+.searchInput::placeholder {
+  color: var(--text-faint);
+}
+
 .threadItem {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 0;
   border-top: 1px solid var(--border);
 }
 
 .threadItem:first-child {
   border-top: none;
+}
+
+.threadItem:hover {
+  background: var(--bg-surface-2);
+}
+
+/* The whole row is the open affordance; the action buttons sit outside it so
+   they don't become nested interactive elements. */
+.threadOpen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.threadUnread .threadTitleRow strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.unreadDot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-right: var(--space-2);
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+.threadActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-top: var(--space-3);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.threadItem:hover .threadActions,
+.threadItem:focus-within .threadActions {
+  opacity: 1;
+}
+
+.iconAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.iconAction:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.iconAction:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.reader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.readerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.readerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.readerSubject {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.messageList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.messageMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.messageMeta strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messageMeta span,
+.messageRecipients {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.messageBody {
+  max-height: 420px;
+  overflow-y: auto;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.htmlBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.htmlFrame {
+  width: 100%;
+  background: transparent;
+  border: none;
+}
+
+.remoteNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.inlineLink {
+  padding: 0;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.attachmentRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.attachmentChip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-family: inherit;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.attachmentChip:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.attachmentChip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.mailboxTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.loadMoreRow {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.attachmentChip small {
+  color: var(--text-faint);
 }
 
 .threadTitleRow {
@@ -220,31 +514,6 @@
   white-space: nowrap;
 }
 
-.toolGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-3);
-  padding-bottom: var(--space-6);
-}
-
-.toolItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.toolItem svg {
-  flex-shrink: 0;
-  color: var(--text-faint);
-}
-
 @media (max-width: 760px) {
   .header,
   .providerHeader {
@@ -263,15 +532,5 @@
   .settingRow > select,
   .fixedValue {
     justify-self: start;
-  }
-
-  .toolGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 480px) {
-  .toolGrid {
-    grid-template-columns: 1fr;
   }
 }

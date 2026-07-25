@@ -22,6 +22,23 @@ vi.mock('../OpenAiProvider', () => ({
   openAiProvider: { id: 'openai', generate: vi.fn() }
 }))
 
+vi.mock('../AzureOpenAiProvider', () => ({
+  azureOpenAiProvider: { id: 'azure', generate: vi.fn() }
+}))
+
+vi.mock('../cloudProviderConfigs', () => ({
+  openAiCompatibleProviders: {
+    google: { id: 'google', generate: vi.fn() },
+    xai: { id: 'xai', generate: vi.fn() },
+    deepseek: { id: 'deepseek', generate: vi.fn() },
+    mistral: { id: 'mistral', generate: vi.fn() },
+    groq: { id: 'groq', generate: vi.fn() },
+    openrouter: { id: 'openrouter', generate: vi.fn() },
+    kimi: { id: 'kimi', generate: vi.fn() },
+    qwen: { id: 'qwen', generate: vi.fn() }
+  }
+}))
+
 const { getActiveProvider } = await import('../ProviderRegistry')
 
 describe('getActiveProvider', () => {
@@ -44,5 +61,19 @@ describe('getActiveProvider', () => {
   it('falls back to local for an unrecognized override id', () => {
     // @ts-expect-error deliberately invalid to exercise the fallback
     expect(getActiveProvider('not-a-real-provider').id).toBe('local')
+  })
+
+  it.each([
+    'google',
+    'xai',
+    'deepseek',
+    'mistral',
+    'groq',
+    'openrouter',
+    'azure',
+    'kimi',
+    'qwen'
+  ] as const)('routes to the %s provider when overridden', (id) => {
+    expect(getActiveProvider(id).id).toBe(id)
   })
 })

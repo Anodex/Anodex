@@ -9,7 +9,7 @@ import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
-import { AGENT_TURN_BUDGET } from '../chat/GenerationBudget'
+import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
 import { GENERATION_IN_PROGRESS_ERROR } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
@@ -505,7 +505,10 @@ class AgentRunService {
         // Same fail-closed-on-destructive stance as scheduled tasks — no one
         // is present to click an approval modal on a run's behalf.
         permissionModeOverride: 'untethered',
-        executionBudget: AGENT_TURN_BUDGET,
+        executionBudget: {
+          ...AGENT_TURN_BUDGET,
+          ...turnTimeLimitOverride(settingsStore.get().generation.turnTimeLimitMinutes)
+        },
         readCoverage,
         onActivity: (call) => toolCallsById.set(call.id, call),
         confirm: (confirmRequest) =>

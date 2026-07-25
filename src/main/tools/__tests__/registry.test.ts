@@ -44,13 +44,18 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'find_skill',
   'load_skill',
   'remember_fact',
+  'list_email_accounts',
   'list_threads',
   'search_email',
   'read_email',
   'draft_email',
   'send_email',
+  'reply_email',
   'summarize_thread',
-  'find_attachments'
+  'find_attachments',
+  'list_mailboxes',
+  'manage_email',
+  'move_email'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
@@ -218,31 +223,82 @@ describe('buildTools', () => {
       ...createMockContext('/workspace'),
       projectId: 'project-1',
       email: {
-        provider: 'gmail' as const,
-        gmail: {
-          enabled: true,
-          address: 'user@gmail.com',
-          oauthClientId: '',
-          oauthClientSecret: '',
-          syncMode: 'metadata' as const,
-          sendRequiresApproval: true as const
-        }
+        accounts: [
+          {
+            id: 'account-1',
+            provider: 'gmail' as const,
+            address: 'user@gmail.com',
+            displayName: 'user@gmail.com',
+            authKind: 'oauth' as const,
+            syncMode: 'metadata' as const,
+            createdAt: 0
+          }
+        ],
+        primaryAccountId: 'account-1',
+        sendRequiresApproval: true as const
       }
     }
     const tools = buildTools(createMockDefine(), ctx)
 
     for (const name of [
+      'list_email_accounts',
       'list_threads',
       'search_email',
       'read_email',
       'draft_email',
       'send_email',
+      'reply_email',
       'summarize_thread',
       'find_attachments',
+      'list_mailboxes',
+      'manage_email',
+      'move_email',
       'save_email_attachment'
     ]) {
       expect(tools).toHaveProperty(name)
     }
+  })
+
+  it('registers email tools for a non-Gmail account, not just Gmail', () => {
+    // The gate is "any account is linked", so an IMAP-only user gets the same
+    // tool surface — the tools resolve the provider themselves.
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      email: {
+        accounts: [
+          {
+            id: 'account-imap',
+            provider: 'imap' as const,
+            address: 'person@fastmail.com',
+            displayName: 'person@fastmail.com',
+            authKind: 'password' as const,
+            syncMode: 'metadata' as const,
+            createdAt: 0
+          }
+        ],
+        primaryAccountId: 'account-imap',
+        sendRequiresApproval: true as const
+      }
+    }
+
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('list_threads')
+    expect(tools).toHaveProperty('reply_email')
+  })
+
+  it('registers no email tools when nothing is linked', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      email: { accounts: [], primaryAccountId: null, sendRequiresApproval: true as const }
+    }
+
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).not.toHaveProperty('list_threads')
+    expect(tools).not.toHaveProperty('send_email')
   })
 
   it('keeps the Settings tool catalog in sync with registered tool names', () => {

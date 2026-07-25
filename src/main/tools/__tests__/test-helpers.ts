@@ -30,15 +30,9 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
       requireApproval: false
     },
     email: {
-      provider: 'none',
-      gmail: {
-        enabled: false,
-        address: '',
-        oauthClientId: '',
-        oauthClientSecret: '',
-        syncMode: 'metadata',
-        sendRequiresApproval: true
-      }
+      accounts: [],
+      primaryAccountId: null,
+      sendRequiresApproval: true
     },
     memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false },
     enabledTools: null,

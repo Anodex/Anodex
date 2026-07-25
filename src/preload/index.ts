@@ -223,13 +223,27 @@ const api: AnodexApi = {
   },
   email: {
     getStatus: () => ipcRenderer.invoke(IpcChannel.Email.getStatus),
-    openGmailWeb: () => ipcRenderer.invoke(IpcChannel.Email.openGmailWeb),
-    connectGmail: () => ipcRenderer.invoke(IpcChannel.Email.connectGmail),
-    disconnectGmail: () => ipcRenderer.invoke(IpcChannel.Email.disconnectGmail),
-    getUnreadThreadCount: () => ipcRenderer.invoke(IpcChannel.Email.getUnreadThreadCount),
+    openWebmail: () => ipcRenderer.invoke(IpcChannel.Email.openWebmail),
+    discover: (address) => ipcRenderer.invoke(IpcChannel.Email.discover, address),
+    connectOAuth: (request) => ipcRenderer.invoke(IpcChannel.Email.connectOAuth, request),
+    connectPassword: (request) => ipcRenderer.invoke(IpcChannel.Email.connectPassword, request),
+    removeAccount: (accountId) => ipcRenderer.invoke(IpcChannel.Email.removeAccount, accountId),
+    setPrimaryAccount: (accountId) =>
+      ipcRenderer.invoke(IpcChannel.Email.setPrimaryAccount, accountId),
+    setSyncMode: (accountId, syncMode) =>
+      ipcRenderer.invoke(IpcChannel.Email.setSyncMode, accountId, syncMode),
+    listAccounts: () => ipcRenderer.invoke(IpcChannel.Email.listAccounts),
+    getUnreadThreadCount: (accountId) =>
+      ipcRenderer.invoke(IpcChannel.Email.getUnreadThreadCount, accountId),
     listThreads: (request = {}) => ipcRenderer.invoke(IpcChannel.Email.listThreads, request),
     search: (request) => ipcRenderer.invoke(IpcChannel.Email.search, request),
-    readMessage: (id) => ipcRenderer.invoke(IpcChannel.Email.readMessage, id),
+    readMessage: (id, accountId) => ipcRenderer.invoke(IpcChannel.Email.readMessage, id, accountId),
+    getThreadMessages: (threadId, accountId) =>
+      ipcRenderer.invoke(IpcChannel.Email.getThreadMessages, threadId, accountId),
+    applyFlag: (request) => ipcRenderer.invoke(IpcChannel.Email.applyFlag, request),
+    move: (request) => ipcRenderer.invoke(IpcChannel.Email.move, request),
+    listMailboxes: (accountId) => ipcRenderer.invoke(IpcChannel.Email.listMailboxes, accountId),
+    saveAttachment: (request) => ipcRenderer.invoke(IpcChannel.Email.saveAttachment, request),
     createDraft: (request) => ipcRenderer.invoke(IpcChannel.Email.createDraft, request),
     send: (request) => ipcRenderer.invoke(IpcChannel.Email.send, request)
   },

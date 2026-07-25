@@ -20,6 +20,16 @@ export interface Conversation {
   context?: ConversationContext | null
   /** Set when every turn in this chat came from an automated scheduled task or agent run, not the user. */
   origin?: 'scheduled' | 'agent'
+  /**
+   * The email conversation this chat was opened for, when it started from the
+   * Email page's Reply or Summarize action.
+   *
+   * Reopening the same thread returns to this chat instead of starting another
+   * one, so the discussion about a given email stays in a single place. Once
+   * the chat is archived or deleted it leaves the active list and a fresh chat
+   * is created on the next handoff.
+   */
+  emailThread?: { accountId: string; threadId: string }
 }
 
 /** Persisted UI state for the conversation list. */

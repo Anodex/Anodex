@@ -1,6 +1,7 @@
 import type { GenerationStats, GenerationStopReason } from './chat.types'
 import type { Plan } from './plan.types'
 import type { ToolCallStatus } from './tools.types'
+import type { ProviderSettings } from './settings.types'
 import type { Result } from './result'
 
 export type CriticalThinkingStatus =
@@ -14,7 +15,14 @@ export type CriticalThinkingStatus =
   | 'stopped'
   | 'failed'
 
-export type CriticalThinkingProvider = 'local' | 'anthropic' | 'openai'
+/**
+ * Every provider a Critical Thinking run can pin at creation time — kept as
+ * its own named type (rather than inlining `ProviderSettings['active']`
+ * everywhere) since `CriticalThinkingRun.provider` is a per-run snapshot,
+ * not a live setting, but it intentionally matches that full set 1:1 so a
+ * run can pin any provider the rest of the app supports.
+ */
+export type CriticalThinkingProvider = ProviderSettings['active']
 
 export type CriticalThinkingTerminationReason = GenerationStopReason | 'evidence-limit'
 

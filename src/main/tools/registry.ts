@@ -49,8 +49,13 @@ import { buildMcpToolFunction } from './mcpTools'
 import {
   draftEmailTool,
   findEmailAttachmentsTool,
+  listEmailAccountsTool,
+  listEmailMailboxesTool,
   listEmailThreadsTool,
+  manageEmailTool,
+  moveEmailTool,
   readEmailTool,
+  replyEmailTool,
   saveEmailAttachmentTool,
   searchEmailTool,
   sendEmailTool,
@@ -137,13 +142,18 @@ const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
 }
 
 const EMAIL_FACTORIES: Record<string, ToolFactory> = {
+  list_email_accounts: listEmailAccountsTool,
   list_threads: listEmailThreadsTool,
   search_email: searchEmailTool,
   read_email: readEmailTool,
   summarize_thread: summarizeEmailThreadTool,
   find_attachments: findEmailAttachmentsTool,
+  list_mailboxes: listEmailMailboxesTool,
   draft_email: draftEmailTool,
-  send_email: sendEmailTool
+  send_email: sendEmailTool,
+  reply_email: replyEmailTool,
+  manage_email: manageEmailTool,
+  move_email: moveEmailTool
 }
 
 const EMAIL_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
@@ -198,7 +208,9 @@ export function buildTools(
     tools.web_search = webSearchTool(define, ctx)
   }
 
-  if (ctx.email.provider === 'gmail' && ctx.email.gmail.enabled) {
+  // Email tools appear once any account is linked, whatever its provider —
+  // the tools resolve the account themselves and never name Gmail specifically.
+  if (ctx.email.accounts.length > 0) {
     for (const [name, factory] of Object.entries(EMAIL_FACTORIES)) {
       if (isEnabled(name)) tools[name] = factory(define, ctx)
     }

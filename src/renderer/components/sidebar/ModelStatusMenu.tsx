@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EngineState, ModelInfo } from '@shared/model.types'
 import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
+import type { ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import { useModelStore } from '../../stores/modelStore'
@@ -13,11 +14,58 @@ import { CometStatusDot } from '../ui/CometStatusDot'
 import { useCometPhase } from '../ui/useCometPhase'
 import styles from './ModelStatusMenu.module.css'
 
+/** The two providers this menu offers a full quick-switch dropdown for. */
 type CloudProvider = 'anthropic' | 'openai'
 
-const CLOUD_PROVIDER_LABELS: Record<CloudProvider, string> = {
+/**
+ * Every non-local provider, including the ones this menu doesn't yet have a
+ * dedicated quick-switch section for (see `AnyCloudProvider` below) — needed
+ * so the footer status label/active-model check is still *correct* (not
+ * misleading) when one of those is the globally active provider, even
+ * though picking a different model for one still requires Settings → AI &
+ * Models rather than this dropdown. Extending this dropdown with a full
+ * per-provider section for all of them is a reasonable follow-up, not done
+ * here.
+ */
+type AnyCloudProvider = Exclude<ProviderSettings['active'], 'local'>
+
+const CLOUD_PROVIDER_LABELS: Record<AnyCloudProvider, string> = {
   anthropic: 'Claude',
-  openai: 'OpenAI'
+  openai: 'OpenAI',
+  google: 'Google AI',
+  xai: 'xAI',
+  deepseek: 'DeepSeek',
+  mistral: 'Mistral AI',
+  groq: 'Groq',
+  openrouter: 'OpenRouter',
+  azure: 'Azure OpenAI',
+  kimi: 'Kimi',
+  qwen: 'Qwen'
+}
+
+/**
+ * Resolve a model label + whether credentials are actually usable for ANY
+ * non-local provider, generic across the plain `{apiKey, model}` shape most
+ * providers use and Azure's distinct `{apiKey, resourceName, deploymentName}`
+ * shape. Used only for the footer's correctness (label/active-model check);
+ * the rich quick-switch sections below still only cover Anthropic/OpenAI.
+ */
+function anyCloudProviderState(
+  provider: ProviderSettings | undefined,
+  id: AnyCloudProvider
+): { model: string; apiKeySet: boolean } | null {
+  if (!provider) return null
+  if (id === 'azure') {
+    const azure = provider.azure
+    return {
+      model: azure.deploymentName.trim(),
+      apiKeySet: Boolean(
+        azure.apiKey.trim() && azure.resourceName.trim() && azure.deploymentName.trim()
+      )
+    }
+  }
+  const settings = provider[id]
+  return { model: settings.model, apiKeySet: Boolean(settings.apiKey.trim()) }
 }
 
 /** Stable sort putting the active item first, so it's visible without scrolling. */
@@ -139,17 +187,19 @@ const FOOTER_STATUS_TONE: Record<string, StatusTone> = {
 
 /** Footer status label/tone, aware of which provider is active — the local
  *  engine's `EngineState` only describes itself, so a cloud provider needs
- *  its own ready/idle read based on whether an API key is configured. */
+ *  its own ready/idle read based on whether credentials are configured. This
+ *  covers EVERY non-local provider (not just the two with a rich quick-switch
+ *  section below) so the footer is never misleading about what's actually
+ *  active, even for a provider this menu can't yet quick-switch models for. */
 function providerStatus(
   engine: EngineState,
-  providerActive: 'local' | CloudProvider | undefined,
-  cloudModel: string | undefined,
-  cloudApiKeySet: boolean
+  providerActive: ProviderSettings['active'] | undefined,
+  cloudState: { model: string; apiKeySet: boolean } | null
 ): { label: string; tone: string } {
-  if (providerActive === 'anthropic' || providerActive === 'openai') {
+  if (providerActive && providerActive !== 'local') {
     const providerLabel = CLOUD_PROVIDER_LABELS[providerActive]
-    return cloudApiKeySet
-      ? { label: `${providerLabel} — ${cloudModel ?? ''}`, tone: 'ready' }
+    return cloudState?.apiKeySet
+      ? { label: `${providerLabel} — ${cloudState.model}`, tone: 'ready' }
       : { label: `${providerLabel} — no API key`, tone: 'error' }
   }
   return { label: engine.model?.name ?? 'No model loaded', tone: statusTone(engine.status) }
@@ -173,6 +223,7 @@ export function ModelStatusMenu(): JSX.Element {
   const loadModel = useModelStore((s) => s.loadModel)
 
   const providerActive = useSettingsStore((s) => s.settings?.provider.active)
+  const provider = useSettingsStore((s) => s.settings?.provider)
   const anthropicModel = useSettingsStore((s) => s.settings?.provider.anthropic.model)
   const anthropicKeySet = useSettingsStore((s) =>
     Boolean(s.settings?.provider.anthropic.apiKey.trim())
@@ -194,14 +245,14 @@ export function ModelStatusMenu(): JSX.Element {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [open])
 
-  const cloudModel = providerActive === 'openai' ? openaiModel : anthropicModel
-  const cloudApiKeySet = providerActive === 'openai' ? openaiKeySet : anthropicKeySet
-  const footerStatus = providerStatus(engine, providerActive, cloudModel, cloudApiKeySet)
+  const cloudState =
+    providerActive && providerActive !== 'local'
+      ? anyCloudProviderState(provider, providerActive)
+      : null
+  const footerStatus = providerStatus(engine, providerActive, cloudState)
   const footerTone = FOOTER_STATUS_TONE[footerStatus.tone]
   const dotPhase = useCometPhase(footerTone)
-  const hasActiveModel =
-    engine.status === 'ready' ||
-    ((providerActive === 'anthropic' || providerActive === 'openai') && cloudApiKeySet)
+  const hasActiveModel = engine.status === 'ready' || Boolean(cloudState?.apiKeySet)
 
   // The currently active provider's own usage — what a hover glance should
   // show, since that's the model actually in use right now, not every
