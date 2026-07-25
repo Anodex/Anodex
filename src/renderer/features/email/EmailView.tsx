@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
   EmailAttachmentSummary,
   EmailMailbox,
@@ -14,7 +14,11 @@ import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { anodex } from '../../lib/anodex'
 import { HtmlMessageBody } from './HtmlMessageBody'
 import { EmailThreadRail } from './EmailThreadRail'
+import { DEFAULT_RAIL_WIDTH, clampRailWidth, loadRailWidth, saveRailWidth } from './railWidth'
 import styles from './EmailView.module.css'
+
+/** How far one arrow-key press nudges the rail's edge. */
+const RAIL_KEYBOARD_STEP = 24
 
 const PROVIDER_LABELS: Record<string, string> = {
   gmail: 'Gmail',
@@ -54,7 +58,8 @@ export function EmailView(): JSX.Element {
 
   const [queryInput, setQueryInput] = useState(storedQuery)
   const [railHidden, setRailHidden] = useState(false)
-  const [railExpanded, setRailExpanded] = useState(false)
+  const [railWidth, setRailWidth] = useState(loadRailWidth)
+  const panelRef = useRef<HTMLElement>(null)
 
   // The rail carries the tool-approval card, so it is genuinely unmounted on a
   // narrow window rather than hidden — an approval prompt the user cannot see
@@ -78,13 +83,34 @@ export function EmailView(): JSX.Element {
   // about it, and nothing else. The list is a place you were, not something to
   // keep half-watching while reading — Back at the top of the reader is how
   // you return to it.
-  const layoutClass = !openThreadId
-    ? 'layoutList'
-    : !showRail
-      ? 'layoutReader'
-      : railExpanded
-        ? 'layoutReaderRailWide'
-        : 'layoutReaderRail'
+  const layoutClass = !openThreadId ? 'layoutList' : showRail ? 'layoutReaderRail' : 'layoutReader'
+
+  /**
+   * Applies a dragged or nudged width, keeping it inside what the panel
+   * allows, and reports back what was actually applied — so a caller that
+   * wants to remember the width stores the clamped one rather than the
+   * request that overshot it.
+   */
+  const resizeRail = useCallback((width: number): number => {
+    const panelWidth = panelRef.current?.getBoundingClientRect().width ?? 0
+    const applied = clampRailWidth(width, panelWidth)
+    setRailWidth(applied)
+    return applied
+  }, [])
+
+  // Re-clamps when the window shrinks. Without this a rail dragged wide on a
+  // maximized window would still be that wide after a restore, leaving the
+  // mail a sliver — the bounds have to be re-applied, not just enforced at
+  // the moment of dragging.
+  useLayoutEffect(() => {
+    const panel = panelRef.current
+    if (!panel || !showRail) return
+    const observer = new ResizeObserver(([entry]) => {
+      setRailWidth((current) => clampRailWidth(current, entry.contentRect.width))
+    })
+    observer.observe(panel)
+    return () => observer.disconnect()
+  }, [showRail])
 
   const handleOpenWebmail = async (): Promise<void> => {
     const result = await anodex.email.openWebmail()
@@ -204,7 +230,13 @@ export function EmailView(): JSX.Element {
           </div>
         </section>
       ) : (
-        <section className={`${styles.mailboxPanel} ${styles[layoutClass]}`}>
+        <section
+          ref={panelRef}
+          className={`${styles.mailboxPanel} ${styles[layoutClass]}`}
+          // The rail's track is a dragged value, so it lives here rather than
+          // in a stylesheet that can only describe fixed states.
+          style={showRail ? { gridTemplateColumns: `minmax(0, 1fr) ${railWidth}px` } : undefined}
+        >
           {!openThreadId && (
             <div className={styles.listColumn}>
               <div className={styles.mailboxHeader}>
@@ -279,17 +311,102 @@ export function EmailView(): JSX.Element {
           )}
 
           {showRail && openThreadSummary && (
-            <EmailThreadRail
-              thread={openThreadSummary}
-              messages={openMessages}
-              expanded={railExpanded}
-              onToggleExpanded={() => setRailExpanded((value) => !value)}
-              onCollapse={() => setRailHidden(true)}
-            />
+            <>
+              <RailResizer panelRef={panelRef} width={railWidth} onResize={resizeRail} />
+              <EmailThreadRail
+                thread={openThreadSummary}
+                messages={openMessages}
+                onCollapse={() => setRailHidden(true)}
+              />
+            </>
           )}
         </section>
       )}
     </div>
+  )
+}
+
+interface RailResizerProps {
+  panelRef: React.RefObject<HTMLElement>
+  width: number
+  /** Applies a width and returns the one that survived clamping. */
+  onResize: (width: number) => number
+}
+
+/**
+ * The grab bar on the rail's inner edge.
+ *
+ * Sits outside the grid flow (absolutely positioned) rather than taking a
+ * track of its own, so dragging changes exactly one number — the rail's width
+ * — instead of shifting a third column around between the two panes.
+ *
+ * The width is derived from the pointer's distance to the panel's right edge
+ * rather than accumulated from deltas: a drag that runs past the clamp and
+ * comes back lands where the pointer actually is, instead of the bar drifting
+ * away from the cursor by however much travel was thrown away at the limit.
+ */
+function RailResizer({ panelRef, width, onResize }: RailResizerProps): JSX.Element {
+  const [dragging, setDragging] = useState(false)
+
+  const widthAt = (clientX: number): number => {
+    const panel = panelRef.current?.getBoundingClientRect()
+    return panel ? panel.right - clientX : width
+  }
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    // Pointer capture is what lets the drag keep working over the message
+    // bodies and the rail's own transcript, which would otherwise swallow the
+    // move events the moment the cursor left this 7px strip.
+    event.currentTarget.setPointerCapture(event.pointerId)
+    event.preventDefault()
+    setDragging(true)
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (!dragging) return
+    onResize(widthAt(event.clientX))
+  }
+
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (!dragging) return
+    setDragging(false)
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    // Persisted once the drag settles, not on every move — the stored value is
+    // where the user let go, and writing it 60 times a second to say so would
+    // be waste.
+    saveRailWidth(width)
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    // Left widens the rail because the edge is what moves, matching the drag.
+    const step =
+      event.key === 'ArrowLeft'
+        ? RAIL_KEYBOARD_STEP
+        : event.key === 'ArrowRight'
+          ? -RAIL_KEYBOARD_STEP
+          : 0
+    if (step === 0) return
+    event.preventDefault()
+    saveRailWidth(onResize(width + step))
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the assistant"
+      tabIndex={0}
+      className={`${styles.railResizer} ${dragging ? styles.railResizerActive : ''}`}
+      style={{ right: width }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onKeyDown={handleKeyDown}
+      // Back to the default width, the usual escape hatch from a layout the
+      // user has dragged somewhere they no longer want.
+      onDoubleClick={() => saveRailWidth(onResize(DEFAULT_RAIL_WIDTH))}
+    />
   )
 }
 

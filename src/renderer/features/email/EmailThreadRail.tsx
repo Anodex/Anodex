@@ -19,15 +19,10 @@ import styles from './EmailThreadRail.module.css'
 export function EmailThreadRail({
   thread,
   messages,
-  expanded,
-  onToggleExpanded,
   onCollapse
 }: {
   thread: EmailThreadSummary
   messages: EmailMessage[]
-  /** True when the rail is taking the wider share of the pane. */
-  expanded: boolean
-  onToggleExpanded: () => void
   onCollapse: () => void
 }): JSX.Element {
   const openEmailThreadConversation = useChatStore((s) => s.openEmailThreadConversation)
@@ -82,29 +77,15 @@ export function EmailThreadRail({
           <Icon name="sparkle" size={13} />
           About this thread
         </span>
-        <div className={styles.railControls}>
-          <button
-            type="button"
-            className={styles.railButton}
-            onClick={onToggleExpanded}
-            aria-pressed={expanded}
-            title={expanded ? 'Narrow the assistant' : 'Widen the assistant'}
-            aria-label={expanded ? 'Narrow the assistant' : 'Widen the assistant'}
-          >
-            {/* Points the way the edge will move: left opens the rail out over
-                the mail, right gives the room back. */}
-            <Icon name={expanded ? 'chevron-right' : 'chevron-left'} size={14} />
-          </button>
-          <button
-            type="button"
-            className={styles.railButton}
-            onClick={onCollapse}
-            title="Hide the assistant"
-            aria-label="Hide the assistant"
-          >
-            <Icon name="panel-right" size={14} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className={styles.railButton}
+          onClick={onCollapse}
+          title="Hide the assistant"
+          aria-label="Hide the assistant"
+        >
+          <Icon name="panel-right" size={14} />
+        </button>
       </div>
 
       {linked && linked.messages.length > 0 ? (

@@ -97,6 +97,7 @@
  * to name track sizes for the columns actually rendered.
  */
 .mailboxPanel {
+  position: relative;
   display: grid;
   flex: 1;
   /* Without this the grid takes its height from its content and the columns
@@ -105,16 +106,8 @@
   overflow: hidden;
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
-  /* The rail widening is a change of shape, not a jump to a different screen —
-     animating the tracks keeps the mail and the answer visibly the same panes
-     that were there a moment ago. */
-  transition: grid-template-columns var(--motion-medium) var(--ease-out);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mailboxPanel {
-    transition: none;
-  }
+  /* Deliberately not transitioned: the rail's width is dragged, and easing
+     every frame of a drag makes the edge lag behind the cursor. */
 }
 
 .layoutList,
@@ -122,18 +115,67 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* Two widths for the rail, toggled from its own header. Narrow is enough to
-   read a summary beside the mail; wide is for when the answer is the thing
-   being read and the mail is just reference. Both keep the mail on screen —
-   the point of the rail is that you don't have to leave it. */
+/* The rail's track is set inline from the dragged width (see `railWidth.ts`
+   for the bounds that keep it off the mail). This declaration is only the
+   fallback for the frame before that lands. */
 .layoutReaderRail {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  grid-template-columns: minmax(0, 1fr) 380px;
 }
 
-.layoutReaderRailWide {
-  /* A share rather than a fixed width, so widening means the same thing on a
-     laptop as on a large display. */
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 44%);
+/**
+ * The grab bar on the rail's inner edge. Positioned out of the grid flow and
+ * offset from the right by the rail's own width, so it tracks that edge
+ * without occupying a column between the panes.
+ *
+ * Wider than the 1px border it straddles, because a hairline is a miserable
+ * drag target — the visible line stays thin and the reachable area does not.
+ */
+.railResizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 9px;
+  /* Centres the strip on the rail's border rather than butting against it. */
+  margin-right: -5px;
+  cursor: col-resize;
+  /* Nothing here should start a text selection or a native image drag while
+     the pointer is being dragged across the mail. */
+  touch-action: none;
+  user-select: none;
+}
+
+.railResizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.railResizer:hover::after,
+.railResizer:focus-visible::after,
+.railResizerActive::after {
+  opacity: 1;
+}
+
+.railResizer:focus-visible {
+  outline: none;
+}
+
+/* While dragging, the cursor is often out over the mail or the transcript —
+   both of which would otherwise show their own cursor and fight the drag. */
+.railResizerActive {
+  cursor: col-resize;
+}
+
+.mailboxPanel:has(.railResizerActive) * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 
 .listColumn,

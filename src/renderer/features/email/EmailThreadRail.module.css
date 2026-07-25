@@ -37,12 +37,6 @@
   color: var(--accent);
 }
 
-.railControls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
 .railButton {
   display: flex;
   align-items: center;
@@ -66,12 +60,9 @@
   border-color: var(--accent);
 }
 
-/* Widened is a state the rail stays in, so the control that set it stays lit
-   rather than looking like a button that did nothing. */
-.railButton[aria-pressed='true'] {
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-color: var(--border-strong);
+.railButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* Shown until the thread's chat has its first turn — an empty transcript with
