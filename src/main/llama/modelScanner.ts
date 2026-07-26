@@ -99,13 +99,85 @@ function resolveVisionProjectorPath(modelPath: string): string | undefined {
   }
 
   try {
-    const candidates = listGgufFiles(dirname(modelPath)).filter(isVisionProjectorFileName)
-    if (candidates.length === 1) return candidates[0]
+    const siblings = listGgufFiles(dirname(modelPath))
+    const projectors = siblings.filter(isVisionProjectorFileName)
+    const named = projectors.filter((candidate) => namesTheSameModel(candidate, modelPath))
+    if (named.length === 1) return named[0]
+    if (named.length > 1) return undefined
+
+    // A projector named only for its role (`mmproj-model-f16.gguf`) says
+    // nothing about which model it serves. Trust it only where there is
+    // nothing else it could belong to.
+    const unnamed = projectors.filter(
+      (candidate) => identifyingTokens(basename(candidate)).length === 0
+    )
+    const models = siblings.filter((candidate) => !isVisionProjectorFileName(candidate))
+    if (unnamed.length === 1 && models.length === 1) return unnamed[0]
   } catch {
     // A manually-added model can live in an unreadable directory. It remains
     // a valid text model even when companion discovery is unavailable.
   }
   return undefined
+}
+
+/**
+ * Decide whether two file names claim the same model. Pairing a projector to
+ * the wrong model is not cosmetic — it switches the whole backend to
+ * llama-server and changes tokenization, tool calling and thinking behaviour —
+ * so the names have to vouch for the pair before it is made automatically.
+ *
+ * The test is that one name's identifying words appear whole inside the
+ * other's, which tolerates the vendor and repository prefixes projectors
+ * collect (`mmproj-google_gemma-3-27b-it-f16` still matches
+ * `gemma-3-27b-it-Q4_K_M`) while keeping `Qwen3.5-27B-…` and `Qwen3-8B-…`
+ * away from a `Qwen3.6-27B` projector. A single shared word is too thin to
+ * act on unless it is all either name has.
+ */
+function namesTheSameModel(projectorPath: string, modelPath: string): boolean {
+  const projectorTokens = identifyingTokens(basename(projectorPath))
+  const modelTokens = identifyingTokens(basename(modelPath))
+  const [shorter, longer] =
+    projectorTokens.length <= modelTokens.length
+      ? [projectorTokens, modelTokens]
+      : [modelTokens, projectorTokens]
+  if (shorter.length === 0) return false
+  if (shorter.length === 1 && longer.length > 1) return false
+
+  return longer.some(
+    (_token, start) =>
+      start + shorter.length <= longer.length &&
+      shorter.every((token, offset) => token === longer[start + offset])
+  )
+}
+
+// Words that describe a file's role or format rather than which model it is.
+const GENERIC_NAME_TOKENS = new Set([
+  'gguf',
+  'mmproj',
+  'proj',
+  'projector',
+  'vision',
+  'clip',
+  'model',
+  'instruct',
+  'chat',
+  'it'
+])
+
+/**
+ * Reduce a GGUF file name to the lowercase words that identify its model,
+ * dropping quantization tags and role words so that `Qwen3.6-27B-Q4_K_M` and
+ * `Qwen3.6-27B-GGUF-mmproj-F16` agree on `['qwen3', '6', '27b']`.
+ */
+function identifyingTokens(fileName: string): string[] {
+  return prettifyName(fileName)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 0 && !GENERIC_NAME_TOKENS.has(token) && !isQuantToken(token))
+}
+
+function isQuantToken(token: string): boolean {
+  return /^(q\d[a-z0-9]*|f16|f32|bf16|iq\d[a-z0-9]*|k|s|m|l|xs|xl)$/.test(token)
 }
 
 function hashPath(path: string): string {
