@@ -26,7 +26,8 @@ import {
   parseSender,
   senderInitial
 } from './threadRow'
-import { TONE_CLASS, toneFor, useSenderTone, useSenderToneStore } from './senderTones'
+import { formatThreadDateSpan, orderThreadMessagesNewestFirst } from './threadMessages'
+import { avatarPaint, colorFor, useSenderColor, useSenderToneStore } from './senderTones'
 import { SenderToneMenu, type SenderToneTarget } from './SenderToneMenu'
 import { describeQuietRun, groupQuietRuns } from './quietZone'
 import styles from './EmailView.module.css'
@@ -471,12 +472,15 @@ function AccountSwitcher({ accounts, active, onSelect }: AccountSwitcherProps): 
   }, [open])
 
   if (accounts.length < 2) {
+    const accountName = active.displayName.trim() || localPart(active.address)
     return (
       <span className={styles.accountChip} title={active.address}>
-        {localPart(active.address)}
+        <AccountIdentity name={accountName} address={active.address} />
       </span>
     )
   }
+
+  const accountName = active.displayName.trim() || localPart(active.address)
 
   return (
     <>
@@ -492,7 +496,7 @@ function AccountSwitcher({ accounts, active, onSelect }: AccountSwitcherProps): 
           setOpen((value) => !value)
         }}
       >
-        {localPart(active.address)}
+        <AccountIdentity name={accountName} address={active.address} />
         <Icon name="chevron-down" size={12} className={styles.accountChevron} />
       </button>
 
@@ -537,6 +541,17 @@ function AccountSwitcher({ accounts, active, onSelect }: AccountSwitcherProps): 
           document.body
         )}
     </>
+  )
+}
+
+function AccountIdentity({ name, address }: { name: string; address: string }): JSX.Element {
+  return (
+    <span className={styles.accountIdentity}>
+      <span className={styles.accountName}>{name}</span>
+      {name.toLowerCase() !== address.toLowerCase() && (
+        <span className={styles.accountAddress}>{address}</span>
+      )}
+    </span>
   )
 }
 
@@ -657,7 +672,7 @@ function ThreadRow({
   onPickTone
 }: ThreadRowProps): JSX.Element {
   const sender = parseSender(thread.from)
-  const tone = useSenderTone(sender.address)
+  const paint = avatarPaint(useSenderColor(sender.address))
 
   // Only a digest that lands while this row is on screen gets written in.
   // Returning from an opened thread remounts the whole list, and without this
@@ -695,7 +710,11 @@ function ThreadRow({
           .join('\n')}
       >
         {/* Decorative: the sender's name is right beside it in text. */}
-        <span className={`${styles.avatar} ${TONE_CLASS[tone]}`} aria-hidden="true">
+        <span
+          className={`${styles.avatar} ${paint.className}`}
+          style={paint.style}
+          aria-hidden="true"
+        >
           {senderInitial(sender)}
         </span>
 
@@ -789,10 +808,12 @@ function QuietRun({ threads, expanded, onToggle }: QuietRunProps): JSX.Element {
       <span className={styles.quietFaces} aria-hidden="true">
         {faces.map((thread) => {
           const sender = parseSender(thread.from)
+          const paint = avatarPaint(colorFor(overrides, sender.address))
           return (
             <span
               key={thread.id}
-              className={`${styles.quietFace} ${TONE_CLASS[toneFor(overrides, sender.address)]}`}
+              className={`${styles.quietFace} ${paint.className}`}
+              style={paint.style}
             >
               {senderInitial(sender)}
             </span>
@@ -896,7 +917,10 @@ function ThreadReader({
     setView('chat')
   }
 
-  const latest = messages[messages.length - 1]
+  const orderedMessages = orderThreadMessagesNewestFirst(messages)
+  const latest = orderedMessages[0]
+  const latestSender = latest ? parseSender(latest.from) : null
+  const dateSpan = formatThreadDateSpan(orderedMessages)
 
   return (
     <>
@@ -950,54 +974,97 @@ function ThreadReader({
       </div>
 
       <div className={styles.reader}>
-        {/* The list row already showed the subject, so carrying it through the
-            load keeps the reader recognisable instead of blanking to a
-            spinner and back. */}
-        <h3 className={styles.readerSubject}>
-          {summary?.subject ?? latest?.subject ?? '(no subject)'}
-        </h3>
+        <div className={styles.readerMeasure}>
+          {/* The list row already showed the subject, so carrying it through the
+              load keeps the reader recognisable instead of blanking to a
+              spinner and back. */}
+          <h3 className={styles.readerSubject}>
+            {summary?.subject ?? latest?.subject ?? '(no subject)'}
+          </h3>
 
-        {loading ? (
-          <div className={styles.emptyInbox}>
-            <p>Opening conversation…</p>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className={styles.emptyInbox}>
-            <p>This conversation has no readable messages.</p>
-          </div>
-        ) : (
-          <div className={styles.messageList}>
-            {messages.map((message) => (
-              <article key={message.id} className={styles.message}>
-                <div className={styles.messageMeta}>
-                  <strong>{message.from}</strong>
-                  <span>{new Date(message.date).toLocaleString()}</span>
-                </div>
-                {message.to.length > 0 && (
-                  <div className={styles.messageRecipients}>To: {message.to.join(', ')}</div>
+          {latestSender && (
+            <div className={styles.readerMeta}>
+              <span className={styles.readerParticipant}>
+                <span className={styles.readerAvatar} aria-hidden="true">
+                  {senderInitial(latestSender)}
+                </span>
+                <strong>{latestSender.name}</strong>
+                {latestSender.address !== latestSender.name && (
+                  <span className={styles.senderAddress}>{latestSender.address}</span>
                 )}
-                {message.bodyHtml ? (
-                  <HtmlMessageBody html={message.bodyHtml} />
-                ) : (
-                  <div className={styles.messageBody}>
-                    {message.body.trim() || message.snippet || '(no readable body)'}
-                  </div>
-                )}
-                {message.attachments.length > 0 && (
-                  <div className={styles.attachmentRow}>
-                    {message.attachments.map((attachment) => (
-                      <AttachmentChip
-                        key={attachment.id}
-                        attachment={attachment}
-                        accountId={message.accountId}
-                      />
-                    ))}
-                  </div>
-                )}
-              </article>
-            ))}
-          </div>
-        )}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>
+                {orderedMessages.length} {orderedMessages.length === 1 ? 'message' : 'messages'}
+              </span>
+              {dateSpan && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{dateSpan}</span>
+                </>
+              )}
+            </div>
+          )}
+
+          {loading ? (
+            <div className={styles.emptyInbox}>
+              <p>Opening conversation…</p>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className={styles.emptyInbox}>
+              <p>This conversation has no readable messages.</p>
+            </div>
+          ) : (
+            <div className={styles.messageList}>
+              {orderedMessages.map((message, index) => {
+                const sender = parseSender(message.from)
+                const messageDate = new Date(message.date)
+                const validDate = !Number.isNaN(messageDate.getTime())
+                return (
+                  <article
+                    key={message.id}
+                    className={`${styles.message} ${index === 0 ? styles.messageLatest : ''}`}
+                  >
+                    <div className={styles.messageMeta}>
+                      <span className={styles.messageSender}>
+                        <strong>{sender.name}</strong>
+                        {sender.address !== sender.name && (
+                          <span className={styles.senderAddress}>{sender.address}</span>
+                        )}
+                      </span>
+                      {validDate && (
+                        <time className={styles.messageTime} dateTime={messageDate.toISOString()}>
+                          {messageDate.toLocaleString()}
+                        </time>
+                      )}
+                    </div>
+                    {message.to.length > 0 && (
+                      <div className={styles.messageRecipients}>To: {message.to.join(', ')}</div>
+                    )}
+                    {message.bodyHtml ? (
+                      <HtmlMessageBody html={message.bodyHtml} />
+                    ) : (
+                      <div className={styles.messageBody}>
+                        {message.body.trim() || message.snippet || '(no readable body)'}
+                      </div>
+                    )}
+                    {message.attachments.length > 0 && (
+                      <div className={styles.attachmentRow}>
+                        {message.attachments.map((attachment) => (
+                          <AttachmentChip
+                            key={attachment.id}
+                            attachment={attachment}
+                            accountId={message.accountId}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </>
   )

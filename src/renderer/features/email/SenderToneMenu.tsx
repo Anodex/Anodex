@@ -2,17 +2,21 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../../components/Icon'
 import type { Sender } from './threadRow'
+import { customAvatarStyle, legibleHex } from './customTone'
 import {
+  isCustomColor,
   TONE_CLASS,
   TONE_LABEL,
   TONE_ORDER,
   useHasToneOverride,
-  useSenderTone,
-  useSenderToneStore
+  useSenderColor,
+  useSenderToneStore,
+  type SenderCustomColor
 } from './senderTones'
 import styles from './EmailView.module.css'
 
 const VIEWPORT_MARGIN = 8
+const SUGGESTED_CUSTOM = '#4f8cff'
 
 export interface SenderToneTarget {
   sender: Sender
@@ -36,7 +40,8 @@ interface SenderToneMenuProps {
 export function SenderToneMenu({ target, onClose }: SenderToneMenuProps): JSX.Element {
   const setTone = useSenderToneStore((state) => state.setTone)
   const clearTone = useSenderToneStore((state) => state.clearTone)
-  const current = useSenderTone(target.sender.address)
+  const current = useSenderColor(target.sender.address)
+  const custom = isCustomColor(current)
   const overridden = useHasToneOverride(target.sender.address)
 
   const menuRef = useRef<HTMLDivElement>(null)
@@ -120,7 +125,44 @@ export function SenderToneMenu({ target, onClose }: SenderToneMenuProps): JSX.El
             {tone === current && <Icon name="check" size={13} />}
           </button>
         ))}
+
+        {/* The OS colour picker, wearing the swatch's clothes. A native input
+            rather than a colour wheel of our own: it is the picker the reader
+            already knows, it remembers their recent colours, and it is one
+            element instead of a component to maintain. */}
+        <label
+          className={`${styles.toneSwatch} ${styles.toneSwatchCustom} ${
+            custom ? styles.toneSwatchOn : ''
+          }`}
+          style={custom ? customAvatarStyle(current) : undefined}
+          title="Custom colour…"
+        >
+          <input
+            type="color"
+            className={styles.toneColorInput}
+            aria-label="Custom colour"
+            value={custom ? current : (legibleHex(SUGGESTED_CUSTOM) ?? SUGGESTED_CUSTOM)}
+            // `onChange` rather than `onInput`'s equivalent commit-only event:
+            // dragging around the OS picker repaints the whole inbox live, so
+            // the choice is judged where it will actually be seen.
+            onChange={(event) =>
+              setTone(target.sender.address, event.target.value as SenderCustomColor)
+            }
+          />
+          {custom ? <Icon name="check" size={13} /> : <Icon name="palette" size={14} />}
+        </label>
       </div>
+
+      {custom && (
+        <p className={styles.toneCustomValue}>
+          {current}
+          {legibleHex(current) !== current && (
+            // Said plainly rather than silently corrected, or the reader picks
+            // a colour, sees a different one, and assumes the picker is broken.
+            <span className={styles.toneAdjusted}> · lightened to stay readable</span>
+          )}
+        </p>
+      )}
 
       <button
         type="button"

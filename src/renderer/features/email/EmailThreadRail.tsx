@@ -5,6 +5,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { notifyError } from '../../stores/uiStore'
 import { MessageList } from '../chat/MessageList'
 import { ChatComposer } from '../chat/ChatComposer'
+import { newestThreadMessage } from './threadMessages'
 import styles from './EmailThreadRail.module.css'
 
 /**
@@ -33,7 +34,7 @@ export function EmailThreadRail({
   )
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId) ?? null)
 
-  const latest = messages[messages.length - 1] ?? null
+  const latest = newestThreadMessage(messages)
   const latestMessageId = latest?.id
 
   // Selecting the linked conversation is what makes the shared composer and

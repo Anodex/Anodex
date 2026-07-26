@@ -518,7 +518,8 @@ Key capabilities:
 - Choose header-only or full-message sync scope per account.
 - List recent inbox threads.
 - Search mail — every linked account at once, unless one is named.
-- Read messages, summarize threads, and find attachments.
+- Read messages in a centered, newest-first thread spine with sender addresses visible,
+  summarize threads, and find attachments.
 - List mailboxes, labels, and folders.
 - Create drafts.
 - Send email only with confirmation, optionally attaching workspace files.

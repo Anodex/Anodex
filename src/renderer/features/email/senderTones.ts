@@ -10,11 +10,26 @@
  * behind it, not the mailbox that happened to send.
  */
 
+import type { CSSProperties } from 'react'
 import { create } from 'zustand'
 import { identityKey, senderTone, type SenderTone } from './threadRow'
+import { customAvatarStyle, parseHex } from './customTone'
 import styles from './EmailView.module.css'
 
 const STORAGE_KEY = 'anodex.email.sender-tones'
+
+/**
+ * What a sender can be drawn in: one of the five ramp tones, or any colour the
+ * reader picked, held as a hex string. The two are told apart by the leading
+ * `#`, which is also why a tone is never named after a colour that could be
+ * mistaken for one.
+ */
+export type SenderCustomColor = `#${string}`
+export type SenderColor = SenderTone | SenderCustomColor
+
+export function isCustomColor(value: SenderColor): value is SenderCustomColor {
+  return value.startsWith('#')
+}
 
 /** In ramp order, which is the order the picker offers them. */
 export const TONE_ORDER: readonly SenderTone[] = ['cyan', 'azure', 'blue', 'indigo', 'violet']
@@ -35,17 +50,24 @@ export const TONE_LABEL: Record<SenderTone, string> = {
   violet: 'Violet'
 }
 
-function isTone(value: unknown): value is SenderTone {
-  return typeof value === 'string' && (TONE_ORDER as readonly string[]).includes(value)
+/**
+ * True for a value this build can actually draw: a known tone name, or a hex
+ * that parses.
+ *
+ * The tone names have changed once already — an earlier palette used the app's
+ * status colours — and a stale `"green"` surviving into the lookup would
+ * resolve to no class at all and leave that sender's square unpainted. A
+ * malformed hex would do the same.
+ */
+function isDrawable(value: unknown): value is SenderColor {
+  if (typeof value !== 'string') return false
+  return (
+    (TONE_ORDER as readonly string[]).includes(value) ||
+    (value.startsWith('#') && parseHex(value) !== null)
+  )
 }
 
-/**
- * Reads the saved overrides, discarding anything that is not a tone this
- * build knows. The names have changed once already — an earlier palette used
- * the app's status colours — and a stale `"green"` surviving into the lookup
- * would resolve to no class at all and leave that sender's square unpainted.
- */
-function load(): Record<string, SenderTone> {
+function load(): Record<string, SenderColor> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return {}
@@ -53,7 +75,7 @@ function load(): Record<string, SenderTone> {
     if (!parsed || typeof parsed !== 'object') return {}
     return Object.fromEntries(
       Object.entries(parsed as Record<string, unknown>).filter(
-        (entry): entry is [string, SenderTone] => isTone(entry[1])
+        (entry): entry is [string, SenderColor] => isDrawable(entry[1])
       )
     )
   } catch {
@@ -61,7 +83,7 @@ function load(): Record<string, SenderTone> {
   }
 }
 
-function save(overrides: Record<string, SenderTone>): Record<string, SenderTone> {
+function save(overrides: Record<string, SenderColor>): Record<string, SenderColor> {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides))
   } catch {
@@ -71,16 +93,16 @@ function save(overrides: Record<string, SenderTone>): Record<string, SenderTone>
 }
 
 interface SenderToneState {
-  overrides: Record<string, SenderTone>
-  setTone: (address: string, tone: SenderTone) => void
+  overrides: Record<string, SenderColor>
+  setTone: (address: string, color: SenderColor) => void
   clearTone: (address: string) => void
 }
 
 export const useSenderToneStore = create<SenderToneState>((set) => ({
   overrides: load(),
 
-  setTone: (address, tone) =>
-    set((state) => ({ overrides: save({ ...state.overrides, [identityKey(address)]: tone }) })),
+  setTone: (address, color) =>
+    set((state) => ({ overrides: save({ ...state.overrides, [identityKey(address)]: color }) })),
 
   clearTone: (address) =>
     set((state) => {
@@ -90,8 +112,8 @@ export const useSenderToneStore = create<SenderToneState>((set) => ({
     })
 }))
 
-/** The tone this sender is actually drawn in: the reader's choice, or the hash. */
-export function useSenderTone(address: string): SenderTone {
+/** The colour this sender is actually drawn in: the reader's choice, or the hash. */
+export function useSenderColor(address: string): SenderColor {
   const override = useSenderToneStore((state) => state.overrides[identityKey(address)])
   return override ?? senderTone(address)
 }
@@ -101,11 +123,32 @@ export function useSenderTone(address: string): SenderTone {
  * once — a run of folded bulk mail shows four, and a hook cannot be called per
  * item of a map.
  */
-export function toneFor(overrides: Record<string, SenderTone>, address: string): SenderTone {
+export function colorFor(overrides: Record<string, SenderColor>, address: string): SenderColor {
   return overrides[identityKey(address)] ?? senderTone(address)
 }
 
 /** True when this sender's colour was chosen rather than derived. */
 export function useHasToneOverride(address: string): boolean {
   return useSenderToneStore((state) => state.overrides[identityKey(address)] !== undefined)
+}
+
+/**
+ * How to paint an avatar in a given colour.
+ *
+ * A ramp tone is a class, because it is a design decision that belongs in the
+ * stylesheet with the tokens it is built from. A custom colour is inline,
+ * because it is the reader's data and there is no class for it — it is the one
+ * place in this view where a colour does not come from `theme.css`, which is
+ * why `customAvatarStyle` puts it through a legibility clamp first.
+ */
+export function avatarPaint(color: SenderColor): {
+  className: string
+  style: CSSProperties | undefined
+} {
+  if (isCustomColor(color)) return { className: '', style: customAvatarStyle(color) }
+  const className = TONE_CLASS[color]
+  // A stored value that is neither a tone nor a colour cannot reach here —
+  // `isDrawable` filters those on load — but an unpainted square is a silent
+  // failure, so fall back to the accent rather than to nothing.
+  return { className: className ?? TONE_CLASS.blue, style: undefined }
 }
