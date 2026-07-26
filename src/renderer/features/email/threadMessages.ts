@@ -74,6 +74,23 @@ export function threadParticipants(messages: EmailMessage[]): Sender[] {
 }
 
 /**
+ * True when this message came from the mailbox being read.
+ *
+ * Worth knowing because the reader shows a conversation, and a conversation
+ * where both halves are labelled with an address reads as neither: the
+ * account's own replies are the ones it never needs to name.
+ */
+export function isSelfSender(sender: Sender, selfAddress: string | undefined): boolean {
+  if (!selfAddress) return false
+  return sender.address.trim().toLowerCase() === selfAddress.trim().toLowerCase()
+}
+
+/** `You` for the account's own messages, the sender's name for everyone else. */
+export function senderDisplayName(sender: Sender, selfAddress: string | undefined): string {
+  return isSelfSender(sender, selfAddress) ? 'You' : sender.name
+}
+
+/**
  * A timestamp on a message inside an open thread.
  *
  * `toLocaleString()` gave `7/25/2026, 2:40:11 PM` on every message: the

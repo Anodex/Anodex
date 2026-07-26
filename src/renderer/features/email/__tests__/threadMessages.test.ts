@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { EmailMessage } from '@shared/email.types'
+import { parseSender } from '../threadRow'
 import {
   formatMessageTime,
   formatThreadDateSpan,
+  isSelfSender,
   newestThreadMessage,
   orderThreadMessagesNewestFirst,
+  senderDisplayName,
   threadParticipants
 } from '../threadMessages'
 
@@ -98,6 +101,31 @@ describe('threadParticipants', () => {
 
   it('handles an empty thread', () => {
     expect(threadParticipants([])).toEqual([])
+  })
+})
+
+describe('senderDisplayName', () => {
+  const SELF = 'invictioncraft@gmail.com'
+
+  it('names the account\'s own messages "You"', () => {
+    expect(senderDisplayName(parseSender(`Gabe <${SELF}>`), SELF)).toBe('You')
+    expect(isSelfSender(parseSender(`Gabe <${SELF}>`), SELF)).toBe(true)
+  })
+
+  it('ignores case and stray whitespace on either side', () => {
+    expect(senderDisplayName(parseSender('Gabe <  INVICTIONCRAFT@Gmail.com >'), SELF)).toBe('You')
+  })
+
+  it('leaves everyone else alone', () => {
+    const other = parseSender('Gabriel Shaw <gabeshaw4christ@gmail.com>')
+    expect(senderDisplayName(other, SELF)).toBe('Gabriel Shaw')
+    expect(isSelfSender(other, SELF)).toBe(false)
+  })
+
+  it('claims nothing when the mailbox is unknown', () => {
+    // No account address means no basis to call anything "You".
+    expect(isSelfSender(parseSender(`Gabe <${SELF}>`), undefined)).toBe(false)
+    expect(senderDisplayName(parseSender(`Gabe <${SELF}>`), undefined)).toBe('Gabe')
   })
 })
 

@@ -30,7 +30,9 @@ import {
 import {
   formatMessageTime,
   formatThreadDateSpan,
+  isSelfSender,
   orderThreadMessagesNewestFirst,
+  senderDisplayName,
   threadParticipants
 } from './threadMessages'
 import { avatarPaint, colorFor, useSenderColor, useSenderToneStore } from './senderTones'
@@ -411,6 +413,7 @@ export function EmailView(): JSX.Element {
                 summary={openThreadSummary}
                 messages={openMessages}
                 loading={openLoading}
+                selfAddress={active?.address}
                 onClose={closeThread}
                 // With the rail on screen the assistant is already here, so
                 // Summarize and Reply write into it. Without it — a narrow
@@ -865,6 +868,8 @@ interface ThreadReaderProps {
   summary: EmailThreadSummary | null
   messages: EmailMessage[]
   loading: boolean
+  /** The mailbox being read, so its own messages can be labelled "You". */
+  selfAddress: string | undefined
   onClose: () => void
   /** True when the assistant rail is on screen to receive the instruction. */
   assistInRail: boolean
@@ -877,6 +882,7 @@ function ThreadReader({
   summary,
   messages,
   loading,
+  selfAddress,
   onClose,
   assistInRail,
   railHidden,
@@ -1005,7 +1011,7 @@ function ThreadReader({
                 className={styles.readerNames}
                 title={participants.map((each) => `${each.name} <${each.address}>`).join('\n')}
               >
-                {formatParticipants(participants)}
+                {formatParticipants(participants, selfAddress)}
               </span>
               <span className={styles.readerDot} aria-hidden="true">
                 ·
@@ -1041,7 +1047,9 @@ function ThreadReader({
                 return (
                   <article
                     key={message.id}
-                    className={`${styles.message} ${index === 0 ? styles.messageLatest : ''}`}
+                    className={`${styles.message} ${index === 0 ? styles.messageLatest : ''} ${
+                      isSelfSender(sender, selfAddress) ? styles.messageSelf : ''
+                    }`}
                     // The address and the recipients live here rather than on
                     // their own lines. Repeated under all four messages of a
                     // thread from one person they were pure noise; wanted, they
@@ -1065,7 +1073,9 @@ function ThreadReader({
                       aria-hidden="true"
                     />
                     <div className={styles.messageMeta}>
-                      <strong className={styles.messageSender}>{sender.name}</strong>
+                      <strong className={styles.messageSender}>
+                        {senderDisplayName(sender, selfAddress)}
+                      </strong>
                       {validDate && (
                         <time className={styles.messageTime} dateTime={messageDate.toISOString()}>
                           {formatMessageTime(message.date)}
@@ -1124,9 +1134,9 @@ function SenderAvatar({ sender, className, ...rest }: SenderAvatarProps): JSX.El
   )
 }
 
-/** `Gabriel Shaw and Namecheap Support`, or `Gabriel Shaw and 3 others`. */
-function formatParticipants(participants: Sender[]): string {
-  const names = participants.map((participant) => participant.name)
+/** `You and Gabriel Shaw`, or `Gabriel Shaw and 3 others`. */
+function formatParticipants(participants: Sender[], selfAddress: string | undefined): string {
+  const names = participants.map((participant) => senderDisplayName(participant, selfAddress))
   if (names.length <= 1) return names[0] ?? ''
   if (names.length === 2) return `${names[0]} and ${names[1]}`
   return `${names[0]} and ${names.length - 1} others`

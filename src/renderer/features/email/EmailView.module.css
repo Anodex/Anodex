@@ -989,6 +989,21 @@
     0 0 0 5px var(--avatar-fg);
 }
 
+/**
+ * The account's own messages. Marked with a quiet inset rather than a
+ * different colour, so the thread visibly alternates between the two sides
+ * without turning the reader into a chat app — these are still letters, and
+ * they are still in date order down one spine.
+ */
+.messageSelf > .messageAvatar {
+  border-radius: var(--radius-pill);
+}
+
+.messageSelf .messageSender {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .messageMeta {
   display: flex;
   align-items: baseline;

@@ -154,9 +154,52 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     }
   }
 
+  /**
+   * Every message in the conversation — including the ones the account sent.
+   *
+   * This used to read INBOX alone, which meant a thread only ever contained
+   * the other party's half of it. On screen that is worse than incomplete: a
+   * back-and-forth renders as one person talking, with the reader's own
+   * replies visible only as quoted text inside the answers to them.
+   *
+   * IMAP has no thread primitive, so a conversation is a subject match, and
+   * the account's own replies live in the server's Sent folder rather than the
+   * inbox. Both are searched and the results merged.
+   */
   async getThreadMessages(account: EmailAccount, threadId: string): Promise<EmailMessage[]> {
     const subject = decodeThreadId(threadId)
-    const mailbox = 'INBOX'
+    const mailboxes = ['INBOX', ...(await this.findSentMailbox(account))]
+
+    const collected: EmailMessage[] = []
+    for (const mailbox of mailboxes) {
+      // One unreadable folder must not cost the reader the whole thread — the
+      // inbox half is still worth showing.
+      try {
+        collected.push(...(await this.searchMailboxBySubject(account, mailbox, subject)))
+      } catch (error) {
+        log.warn(`Could not read ${mailbox} for thread "${subject}":`, error)
+      }
+    }
+
+    // A server may file one message in both folders — Gmail does for anything
+    // sent to yourself. The RFC 5322 Message-ID is what says they are the
+    // same message; without one, the mailbox-scoped id is the best available.
+    const seen = new Set<string>()
+    return collected
+      .filter((message) => {
+        const key = message.messageIdHeader ?? message.id
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .sort((left, right) => left.date - right.date)
+  }
+
+  private async searchMailboxBySubject(
+    account: EmailAccount,
+    mailbox: string,
+    subject: string
+  ): Promise<EmailMessage[]> {
     return this.withMailbox(account, mailbox, async (client) => {
       const uids = await client.search({ header: { subject } }, { uid: true })
       if (!uids || uids.length === 0) return []
@@ -169,8 +212,35 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       )) {
         messages.push(await fromSource(raw, account, mailbox))
       }
-      return messages.sort((left, right) => left.date - right.date)
+      return messages
     })
+  }
+
+  /**
+   * The server's Sent folder, as a zero- or one-element list so the caller can
+   * spread it. Empty when the server advertises none: a missing Sent folder
+   * makes a thread one-sided, which is how it behaved before, and is not worth
+   * failing the read over.
+   *
+   * `\Sent` is checked before the name for the same reason as the archive
+   * lookup below — Gmail over IMAP calls it "[Gmail]/Sent Mail", which no
+   * literal-name match would find.
+   */
+  private async findSentMailbox(account: EmailAccount): Promise<string[]> {
+    try {
+      return await this.withClient(account, async (client) => {
+        const mailboxes = await client.list()
+        const path =
+          mailboxes.find((mailbox) => mailbox.specialUse === '\\Sent')?.path ??
+          mailboxes.find((mailbox) =>
+            /^(?:\[gmail\]\/)?sent(?:\s?mail| items)?$/i.test(mailbox.path)
+          )?.path
+        return path ? [path] : []
+      })
+    } catch (error) {
+      log.warn(`Could not list mailboxes for ${account.address}:`, error)
+      return []
+    }
   }
 
   async readMessage(account: EmailAccount, messageId: string): Promise<EmailMessage> {
