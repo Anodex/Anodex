@@ -1,4 +1,7 @@
 import type { EmailMessage } from '@shared/email.types'
+import { identityKey, parseSender, type Sender } from './threadRow'
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
  * The reading order used by the email surface.
@@ -48,6 +51,60 @@ export function formatThreadDateSpan(
   const firstLabel = first.toLocaleDateString(locale, options)
   const lastLabel = last.toLocaleDateString(locale, options)
   return firstLabel === lastLabel ? firstLabel : `${firstLabel} – ${lastLabel}`
+}
+
+/**
+ * Everyone who has spoken in the thread, newest first.
+ *
+ * Deduplicated on identity rather than on the raw `From`, so one person who
+ * changed their display name — or wrote from two addresses at the same
+ * company — is one participant rather than two.
+ */
+export function threadParticipants(messages: EmailMessage[]): Sender[] {
+  const seen = new Set<string>()
+  const participants: Sender[] = []
+  for (const message of orderThreadMessagesNewestFirst(messages)) {
+    const sender = parseSender(message.from)
+    const key = identityKey(sender.address) + sender.name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    participants.push(sender)
+  }
+  return participants
+}
+
+/**
+ * A timestamp on a message inside an open thread.
+ *
+ * `toLocaleString()` gave `7/25/2026, 2:40:11 PM` on every message: the
+ * seconds are never useful, and the year is already in the thread's date span
+ * two lines above. What is actually being asked here is "how long ago, and was
+ * that before or after the one below it".
+ */
+export function formatMessageTime(timestamp: number, now = Date.now(), locale?: string): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  const today = new Date(now)
+  const time = date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
+
+  // Calendar days rather than elapsed hours, so a message sent at 11pm
+  // yesterday does not read as today from 8am.
+  const daysApart = Math.round((startOfDay(today) - startOfDay(date)) / DAY_MS)
+  if (daysApart === 0) return `Today ${time}`
+  if (daysApart > 0 && daysApart < 7) {
+    return `${date.toLocaleDateString(locale, { weekday: 'short' })} ${time}`
+  }
+
+  const day = date.toLocaleDateString(locale, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric'
+  })
+  return `${day}, ${time}`
+}
+
+function startOfDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
 }
 
 function sortableDate(message: EmailMessage): number {

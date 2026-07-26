@@ -24,9 +24,15 @@ import {
   formatThreadDate,
   identityKey,
   parseSender,
-  senderInitial
+  senderInitial,
+  type Sender
 } from './threadRow'
-import { formatThreadDateSpan, orderThreadMessagesNewestFirst } from './threadMessages'
+import {
+  formatMessageTime,
+  formatThreadDateSpan,
+  orderThreadMessagesNewestFirst,
+  threadParticipants
+} from './threadMessages'
 import { avatarPaint, colorFor, useSenderColor, useSenderToneStore } from './senderTones'
 import { SenderToneMenu, type SenderToneTarget } from './SenderToneMenu'
 import { describeQuietRun, groupQuietRuns } from './quietZone'
@@ -919,7 +925,7 @@ function ThreadReader({
 
   const orderedMessages = orderThreadMessagesNewestFirst(messages)
   const latest = orderedMessages[0]
-  const latestSender = latest ? parseSender(latest.from) : null
+  const participants = threadParticipants(orderedMessages)
   const dateSpan = formatThreadDateSpan(orderedMessages)
 
   return (
@@ -982,24 +988,36 @@ function ThreadReader({
             {summary?.subject ?? latest?.subject ?? '(no subject)'}
           </h3>
 
-          {latestSender && (
+          {participants.length > 0 && (
             <div className={styles.readerMeta}>
-              <span className={styles.readerParticipant}>
-                <span className={styles.readerAvatar} aria-hidden="true">
-                  {senderInitial(latestSender)}
-                </span>
-                <strong>{latestSender.name}</strong>
-                {latestSender.address !== latestSender.name && (
-                  <span className={styles.senderAddress}>{latestSender.address}</span>
-                )}
+              {/* Everyone who has spoken, not just whoever replied last — on a
+                  two-party thread the newest sender is an accident of timing. */}
+              <span className={styles.readerFaces} aria-hidden="true">
+                {participants.slice(0, 4).map((participant) => (
+                  <SenderAvatar
+                    key={participant.address}
+                    sender={participant}
+                    className={styles.readerFace}
+                  />
+                ))}
               </span>
-              <span aria-hidden="true">·</span>
+              <span
+                className={styles.readerNames}
+                title={participants.map((each) => `${each.name} <${each.address}>`).join('\n')}
+              >
+                {formatParticipants(participants)}
+              </span>
+              <span className={styles.readerDot} aria-hidden="true">
+                ·
+              </span>
               <span>
                 {orderedMessages.length} {orderedMessages.length === 1 ? 'message' : 'messages'}
               </span>
               {dateSpan && (
                 <>
-                  <span aria-hidden="true">·</span>
+                  <span className={styles.readerDot} aria-hidden="true">
+                    ·
+                  </span>
                   <span>{dateSpan}</span>
                 </>
               )}
@@ -1024,23 +1042,36 @@ function ThreadReader({
                   <article
                     key={message.id}
                     className={`${styles.message} ${index === 0 ? styles.messageLatest : ''}`}
+                    // The address and the recipients live here rather than on
+                    // their own lines. Repeated under all four messages of a
+                    // thread from one person they were pure noise; wanted, they
+                    // are one hover away.
+                    title={[
+                      sender.name === sender.address
+                        ? sender.address
+                        : `${sender.name} <${sender.address}>`,
+                      message.to.length > 0 ? `To: ${message.to.join(', ')}` : '',
+                      message.cc.length > 0 ? `Cc: ${message.cc.join(', ')}` : ''
+                    ]
+                      .filter(Boolean)
+                      .join('\n')}
                   >
+                    {/* The node on the spine is the sender, in the colour they
+                        already have in the inbox — so a change of speaker is
+                        visible before a word of the message is read. */}
+                    <SenderAvatar
+                      sender={sender}
+                      className={styles.messageAvatar}
+                      aria-hidden="true"
+                    />
                     <div className={styles.messageMeta}>
-                      <span className={styles.messageSender}>
-                        <strong>{sender.name}</strong>
-                        {sender.address !== sender.name && (
-                          <span className={styles.senderAddress}>{sender.address}</span>
-                        )}
-                      </span>
+                      <strong className={styles.messageSender}>{sender.name}</strong>
                       {validDate && (
                         <time className={styles.messageTime} dateTime={messageDate.toISOString()}>
-                          {messageDate.toLocaleString()}
+                          {formatMessageTime(message.date)}
                         </time>
                       )}
                     </div>
-                    {message.to.length > 0 && (
-                      <div className={styles.messageRecipients}>To: {message.to.join(', ')}</div>
-                    )}
                     {message.bodyHtml ? (
                       <HtmlMessageBody html={message.bodyHtml} />
                     ) : (
@@ -1068,6 +1099,37 @@ function ThreadReader({
       </div>
     </>
   )
+}
+
+interface SenderAvatarProps {
+  sender: Sender
+  className: string
+  'aria-hidden'?: boolean | 'true' | 'false'
+}
+
+/**
+ * A sender's monogram in that sender's colour.
+ *
+ * One component for every place a face appears — the inbox row, the reader's
+ * header, each message on the spine — because the whole value of the colour is
+ * that it is the same one everywhere, including when the reader has picked it
+ * by hand.
+ */
+function SenderAvatar({ sender, className, ...rest }: SenderAvatarProps): JSX.Element {
+  const paint = avatarPaint(useSenderColor(sender.address))
+  return (
+    <span className={`${className} ${paint.className}`} style={paint.style} {...rest}>
+      {senderInitial(sender)}
+    </span>
+  )
+}
+
+/** `Gabriel Shaw and Namecheap Support`, or `Gabriel Shaw and 3 others`. */
+function formatParticipants(participants: Sender[]): string {
+  const names = participants.map((participant) => participant.name)
+  if (names.length <= 1) return names[0] ?? ''
+  if (names.length === 2) return `${names[0]} and ${names[1]}`
+  return `${names[0]} and ${names.length - 1} others`
 }
 
 interface AttachmentChipProps {
