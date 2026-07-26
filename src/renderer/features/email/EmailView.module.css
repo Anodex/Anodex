@@ -671,29 +671,35 @@
   transform: scale(1.06);
 }
 
-.toneBlue {
-  --avatar-fg: var(--accent);
-  --avatar-bg: var(--accent-soft);
-}
-
+/**
+ * The logo's cyan → blue → violet ramp, sampled at five points. Every one is
+ * mixed from the three brand accents, so nothing here can collide with what
+ * `--success`, `--warn` or `--danger` mean everywhere else in the app — an
+ * avatar says "same sender", and it must not also look like a verdict.
+ */
 .toneCyan {
   --avatar-fg: var(--accent-cyan);
   --avatar-bg: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
 }
 
+.toneAzure {
+  --avatar-fg: color-mix(in srgb, var(--accent-cyan) 50%, var(--accent));
+  --avatar-bg: color-mix(in srgb, var(--accent-cyan) 6%, var(--accent-soft));
+}
+
+.toneBlue {
+  --avatar-fg: var(--accent);
+  --avatar-bg: var(--accent-soft);
+}
+
+.toneIndigo {
+  --avatar-fg: color-mix(in srgb, var(--accent) 45%, var(--accent-violet));
+  --avatar-bg: color-mix(in srgb, var(--accent) 6%, var(--accent-violet-soft));
+}
+
 .toneViolet {
   --avatar-fg: var(--accent-violet);
   --avatar-bg: var(--accent-violet-soft);
-}
-
-.toneGreen {
-  --avatar-fg: var(--success);
-  --avatar-bg: var(--success-soft);
-}
-
-.toneWarn {
-  --avatar-fg: var(--warn);
-  --avatar-bg: var(--warn-soft);
 }
 
 .sender {

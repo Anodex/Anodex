@@ -61,12 +61,14 @@ describe('senderTone', () => {
     expect(senderTone('no-reply@email.claude.com')).toBe(senderTone('billing@claude.com'))
   })
 
-  it('only ever returns one of the five tones', () => {
+  it('only ever returns a point on the logo ramp', () => {
+    // Never a status hue: an avatar means "same sender", and green or amber
+    // squares in an inbox read as a verdict on the mail.
     const tones = new Set(
       ['a@a.com', 'b@b.com', 'c@c.io', 'd@d.dev', 'e@e.net', 'f@f.org', 'g@g.co'].map(senderTone)
     )
     for (const tone of tones) {
-      expect(['blue', 'cyan', 'violet', 'green', 'warn']).toContain(tone)
+      expect(['cyan', 'azure', 'blue', 'indigo', 'violet']).toContain(tone)
     }
   })
 })

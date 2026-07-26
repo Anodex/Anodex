@@ -50,11 +50,11 @@ const WEBMAIL_PROVIDERS = new Set(['gmail', 'microsoft'])
  * nothing to notice — where this fails to compile.
  */
 const TONE_CLASS: Record<SenderTone, string> = {
-  blue: styles.toneBlue,
   cyan: styles.toneCyan,
-  violet: styles.toneViolet,
-  green: styles.toneGreen,
-  warn: styles.toneWarn
+  azure: styles.toneAzure,
+  blue: styles.toneBlue,
+  indigo: styles.toneIndigo,
+  violet: styles.toneViolet
 }
 
 export function EmailView(): JSX.Element {

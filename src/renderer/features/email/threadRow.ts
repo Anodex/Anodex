@@ -140,14 +140,20 @@ export function identityKey(address: string): string {
 }
 
 /**
- * The five avatar tones, drawn only from the logo ramp plus the two status
- * hues. A fixed, small set is the point: a hash over the full colour wheel
- * would give every correspondent an arbitrary colour and the list would read
- * as a rainbow rather than as one system.
+ * The five avatar tones: the logo's cyan → blue → violet ramp sampled at five
+ * points, `azure` and `indigo` being the mixes of the adjacent pairs.
+ *
+ * A fixed, small set is the point — a hash over the full colour wheel would
+ * give every correspondent an arbitrary colour and the list would read as a
+ * rainbow rather than as one system. Confined to the ramp for a second reason:
+ * an avatar carries no meaning beyond "this is the same sender as that one",
+ * so it must not borrow a hue that means something elsewhere. An earlier
+ * version of this used `--success` and `--warn`, and an inbox of green squares
+ * with one orange one looked exactly like a verdict on the mail.
  */
-export type SenderTone = 'blue' | 'cyan' | 'violet' | 'green' | 'warn'
+export type SenderTone = 'cyan' | 'azure' | 'blue' | 'indigo' | 'violet'
 
-const TONES: SenderTone[] = ['blue', 'cyan', 'violet', 'green', 'warn']
+const TONES: SenderTone[] = ['cyan', 'azure', 'blue', 'indigo', 'violet']
 
 export function senderTone(address: string): SenderTone {
   const key = identityKey(address)
