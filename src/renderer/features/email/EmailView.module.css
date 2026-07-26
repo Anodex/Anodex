@@ -527,6 +527,7 @@
 }
 
 .threadItem {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
@@ -542,48 +543,162 @@
   background: var(--bg-surface-2);
 }
 
+/**
+ * Unread is a left edge rather than a dot ahead of the subject. It reads as
+ * one continuous column down the list that the eye can run along, it survives
+ * at any row height, and it gives the subject back the space the dot took.
+ */
+.threadUnread::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
 /* The whole row is the open affordance; the action buttons sit outside it so
    they don't become nested interactive elements. */
 .threadOpen {
-  display: flex;
+  display: grid;
   flex: 1;
-  flex-direction: column;
-  gap: var(--space-1);
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
   min-width: 0;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
   text-align: left;
   background: none;
   border: none;
   cursor: pointer;
 }
 
-.threadUnread .threadTitleRow strong {
+.threadBody {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/**
+ * A monogram in a colour derived from the sender's identity (see
+ * `threadRow.ts`). The colours are a fixed set of five taken from the logo
+ * ramp plus the two status hues, so the list reads as one system rather than
+ * as a rainbow of arbitrary per-user colours.
+ */
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--avatar-fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: var(--avatar-bg);
+  border-radius: var(--radius-md);
+  transition: transform var(--transition) var(--ease-out);
+}
+
+.threadItem:hover .avatar {
+  transform: scale(1.06);
+}
+
+.tone-blue {
+  --avatar-fg: var(--accent);
+  --avatar-bg: var(--accent-soft);
+}
+
+.tone-cyan {
+  --avatar-fg: var(--accent-cyan);
+  --avatar-bg: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
+}
+
+.tone-violet {
+  --avatar-fg: var(--accent-violet);
+  --avatar-bg: var(--accent-violet-soft);
+}
+
+.tone-green {
+  --avatar-fg: var(--success);
+  --avatar-bg: var(--success-soft);
+}
+
+.tone-warn {
+  --avatar-fg: var(--warn);
+  --avatar-bg: var(--warn-soft);
+}
+
+.sender {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadUnread .sender,
+.threadUnread .subject {
   color: var(--text);
+}
+
+.threadUnread .subject {
   font-weight: 600;
 }
 
-.unreadDot {
-  display: inline-block;
+.threadMarks {
+  display: inline-flex;
   flex-shrink: 0;
-  width: 7px;
-  height: 7px;
-  margin-right: var(--space-2);
-  background: var(--accent);
-  border-radius: 50%;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-faint);
+  font-size: var(--text-2xs);
+}
+
+/**
+ * The date and the row's actions occupy one cell, one at a time. Showing the
+ * actions in a cell of their own would widen the row on hover and shuffle
+ * every subject on the page sideways.
+ */
+.threadRight {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 96px;
+  padding-top: var(--space-3);
+}
+
+.when {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.threadItem:hover .when,
+.threadItem:focus-within .when {
+  display: none;
 }
 
 .threadActions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding-top: var(--space-3);
+  gap: 2px;
   opacity: 0;
-  transition: opacity 0.12s ease;
+  transform: translateX(4px);
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition) var(--ease-out);
+  pointer-events: none;
 }
 
 .threadItem:hover .threadActions,
 .threadItem:focus-within .threadActions {
   opacity: 1;
+  transform: none;
+  pointer-events: auto;
 }
 
 .iconAction {
@@ -780,39 +895,38 @@
 .threadTitleRow {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.threadTitleRow strong {
+.subject {
   overflow: hidden;
-  color: var(--text);
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snippet,
+.threadDigest {
+  display: block;
+  overflow: hidden;
   font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.threadTitleRow span,
-.threadItem small {
+.snippet {
   color: var(--text-faint);
-  font-size: var(--text-xs);
 }
 
 /* A digest is the model's reading of the thread, not the thread's own words —
    the accent edge marks that difference without a label on every row. */
 .threadDigest {
+  margin-top: 2px;
   padding-left: var(--space-2);
   color: var(--text-muted);
   border-left: 2px solid var(--accent);
-}
-
-.threadItem p {
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 @media (max-width: 760px) {

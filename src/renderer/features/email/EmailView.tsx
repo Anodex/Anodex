@@ -17,6 +17,7 @@ import { anodex } from '../../lib/anodex'
 import { HtmlMessageBody } from './HtmlMessageBody'
 import { EmailThreadRail } from './EmailThreadRail'
 import { DEFAULT_RAIL_WIDTH, clampRailWidth, loadRailWidth, saveRailWidth } from './railWidth'
+import { cleanSnippet, formatThreadDate, parseSender, senderInitial, senderTone } from './threadRow'
 import styles from './EmailView.module.css'
 
 /** How far one arrow-key press nudges the rail's edge. */
@@ -536,42 +537,76 @@ interface ThreadRowProps {
   onFlag: (action: 'mark_read' | 'mark_unread' | 'star' | 'archive') => void
 }
 
+/**
+ * One inbox row, ordered the way it is actually triaged: who it is from, then
+ * what it is about, then a line of what it says.
+ *
+ * The subject used to lead and the sender used to sit under it in the muted
+ * grey reserved for detail, which is backwards — almost nobody decides what to
+ * do with a message before knowing who sent it.
+ */
 function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JSX.Element {
+  const sender = parseSender(thread.from)
+  const tone = senderTone(sender.address)
+  const preview = digest ?? cleanSnippet(thread.snippet)
+
   return (
     <div className={`${styles.threadItem} ${thread.unread ? styles.threadUnread : ''}`}>
-      <button type="button" className={styles.threadOpen} onClick={onOpen}>
-        <div className={styles.threadTitleRow}>
-          <strong>
-            {thread.unread && <span className={styles.unreadDot} aria-label="Unread" />}
-            {thread.subject}
-          </strong>
-          <span>{new Date(thread.updatedAt).toLocaleDateString()}</span>
-        </div>
-        <p>{thread.from}</p>
-        {/* The digest replaces the snippet rather than joining it: a provider
-            snippet is the same words the digest was made from, so showing both
-            costs a line to say the same thing twice. */}
-        {digest ? (
-          <small className={styles.threadDigest}>{digest}</small>
-        ) : (
-          <small>{thread.snippet}</small>
-        )}
+      <button
+        type="button"
+        className={styles.threadOpen}
+        onClick={onOpen}
+        title={`${sender.name === sender.address ? sender.address : `${sender.name} <${sender.address}>`}\n${thread.subject}`}
+      >
+        {/* Decorative: the sender's name is right beside it in text. */}
+        <span className={`${styles.avatar} ${styles[`tone-${tone}`]}`} aria-hidden="true">
+          {senderInitial(sender)}
+        </span>
+
+        <span className={styles.threadBody}>
+          <span className={styles.threadTitleRow}>
+            <span className={styles.sender}>{sender.name}</span>
+            {thread.messageCount > 1 && (
+              <span className={styles.threadMarks} title={`${thread.messageCount} messages`}>
+                <Icon name="chat" size={11} />
+                {thread.messageCount}
+              </span>
+            )}
+            {thread.attachmentCount > 0 && (
+              <span
+                className={styles.threadMarks}
+                title={`${thread.attachmentCount} attachment${thread.attachmentCount === 1 ? '' : 's'}`}
+              >
+                <Icon name="paperclip" size={11} />
+              </span>
+            )}
+          </span>
+          <span className={styles.subject}>{thread.subject || '(no subject)'}</span>
+          {/* A digest is the model's reading of the thread rather than the
+              thread's own words, so it is marked as such — see `.threadDigest`. */}
+          <small className={digest ? styles.threadDigest : styles.snippet}>{preview}</small>
+        </span>
       </button>
 
-      <div className={styles.threadActions}>
-        <IconAction
-          label={thread.unread ? 'Mark as read' : 'Mark as unread'}
-          icon={thread.unread ? 'check' : 'mail'}
-          disabled={busy}
-          onClick={() => onFlag(thread.unread ? 'mark_read' : 'mark_unread')}
-        />
-        <IconAction label="Star" icon="star" disabled={busy} onClick={() => onFlag('star')} />
-        <IconAction
-          label="Archive"
-          icon="archive"
-          disabled={busy}
-          onClick={() => onFlag('archive')}
-        />
+      {/* The date and the actions share one cell: the actions arrive exactly
+          where the date was, so hovering a row never reflows it. */}
+      <div className={styles.threadRight}>
+        <span className={styles.when}>{formatThreadDate(thread.updatedAt)}</span>
+        <div className={styles.threadActions}>
+          <IconAction
+            label={thread.unread ? 'Mark as read' : 'Mark as unread'}
+            icon={thread.unread ? 'check' : 'mail'}
+            disabled={busy}
+            onClick={() => onFlag(thread.unread ? 'mark_read' : 'mark_unread')}
+          />
+          <IconAction label="Star" icon="star" disabled={busy} onClick={() => onFlag('star')} />
+          <IconAction
+            label="Archive"
+            icon="archive"
+            disabled={busy}
+            onClick={() => onFlag('archive')}
+          />
+        </div>
       </div>
     </div>
   )
