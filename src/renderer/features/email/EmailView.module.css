@@ -959,6 +959,111 @@
   cursor: default;
 }
 
+/* The sender-colour picker, opened by right-clicking a row. */
+.toneMenu {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 232px;
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.toneMenuHead {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.toneMenuHead strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toneMenuHead small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toneSwatches {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Swatches rather than the colours' names: picking a colour off a list of
+   words is a worse way to pick a colour than looking at it. */
+.toneSwatch {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  color: var(--avatar-fg);
+  background: var(--avatar-bg);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    transform var(--transition-fast) var(--ease-out),
+    border-color var(--transition-fast);
+}
+
+.toneSwatch:hover {
+  border-color: var(--avatar-fg);
+  transform: translateY(-1px);
+}
+
+.toneSwatchOn {
+  border-color: var(--avatar-fg);
+}
+
+.toneMenuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.toneMenuItem:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.toneMenuItem:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toneMenuNote {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
 /**
  * The bar a folded run of bulk mail collapses to. Deliberately quieter than a
  * thread row — it is a thing to skip past, and the whole point is that the

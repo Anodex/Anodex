@@ -24,10 +24,10 @@ import {
   formatThreadDate,
   identityKey,
   parseSender,
-  senderInitial,
-  senderTone,
-  type SenderTone
+  senderInitial
 } from './threadRow'
+import { TONE_CLASS, toneFor, useSenderTone, useSenderToneStore } from './senderTones'
+import { SenderToneMenu, type SenderToneTarget } from './SenderToneMenu'
 import { describeQuietRun, groupQuietRuns } from './quietZone'
 import styles from './EmailView.module.css'
 
@@ -43,20 +43,6 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 /** Providers with a web interface the "Open webmail" button can reach. */
 const WEBMAIL_PROVIDERS = new Set(['gmail', 'microsoft'])
-
-/**
- * The avatar class per tone, listed rather than assembled from the tone name.
- * A CSS-module bundle decides for itself how class names are exported, and a
- * key built by hand that stopped matching would fail as a missing colour with
- * nothing to notice — where this fails to compile.
- */
-const TONE_CLASS: Record<SenderTone, string> = {
-  cyan: styles.toneCyan,
-  azure: styles.toneAzure,
-  blue: styles.toneBlue,
-  indigo: styles.toneIndigo,
-  violet: styles.toneViolet
-}
 
 export function EmailView(): JSX.Element {
   const status = useEmailStore((s) => s.status)
@@ -91,6 +77,8 @@ export function EmailView(): JSX.Element {
   const [queryInput, setQueryInput] = useState(storedQuery)
   /** Folded runs of bulk mail the reader has opened, by run id. */
   const [expandedRuns, setExpandedRuns] = useState<ReadonlySet<string>>(() => new Set())
+  /** The sender whose colour is being picked, and where the menu opens. */
+  const [toneTarget, setToneTarget] = useState<SenderToneTarget | null>(null)
   const [railHidden, setRailHidden] = useState(false)
   const [railWidth, setRailWidth] = useState(loadRailWidth)
   const panelRef = useRef<HTMLElement>(null)
@@ -158,6 +146,7 @@ export function EmailView(): JSX.Element {
         busy={busyThreadId === thread.id}
         onOpen={() => void openThread(thread)}
         onFlag={(action) => void applyFlag(thread, action)}
+        onPickTone={setToneTarget}
       />
     </Fragment>
   )
@@ -215,6 +204,7 @@ export function EmailView(): JSX.Element {
 
   return (
     <div className={styles.view}>
+      {toneTarget && <SenderToneMenu target={toneTarget} onClose={() => setToneTarget(null)} />}
       {/* One bar for the whole of the page's chrome. The title, which mailbox
           you are in, and the search that filters it are one thought, and they
           used to cost four stacked bands to say. */}
@@ -646,6 +636,8 @@ interface ThreadRowProps {
   busy: boolean
   onOpen: () => void
   onFlag: (action: 'mark_read' | 'mark_unread' | 'star' | 'archive') => void
+  /** Opens the sender-colour menu at the pointer. */
+  onPickTone: (target: SenderToneTarget) => void
 }
 
 /**
@@ -656,9 +648,16 @@ interface ThreadRowProps {
  * grey reserved for detail, which is backwards — almost nobody decides what to
  * do with a message before knowing who sent it.
  */
-function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JSX.Element {
+function ThreadRow({
+  thread,
+  digest,
+  busy,
+  onOpen,
+  onFlag,
+  onPickTone
+}: ThreadRowProps): JSX.Element {
   const sender = parseSender(thread.from)
-  const tone = senderTone(sender.address)
+  const tone = useSenderTone(sender.address)
 
   // Only a digest that lands while this row is on screen gets written in.
   // Returning from an opened thread remounts the whole list, and without this
@@ -668,7 +667,18 @@ function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JS
   const revealing = digest !== undefined && !hadDigestOnMount.current
 
   return (
-    <div className={`${styles.threadItem} ${thread.unread ? styles.threadUnread : ''}`}>
+    <div
+      className={`${styles.threadItem} ${thread.unread ? styles.threadUnread : ''}`}
+      // Deferred to when nothing is selected. Electron raises its own
+      // context-menu event regardless of what the DOM does with this one, and
+      // with a selection live that menu carries Copy — which the reader wants
+      // far more than a colour picker at that moment.
+      onContextMenu={(event) => {
+        if (window.getSelection()?.toString()) return
+        event.preventDefault()
+        onPickTone({ sender, x: event.clientX, y: event.clientY })
+      }}
+    >
       <button
         type="button"
         className={styles.threadOpen}
@@ -764,6 +774,8 @@ interface QuietRunProps {
  * what is under it rather than a lid over an unknown.
  */
 function QuietRun({ threads, expanded, onToggle }: QuietRunProps): JSX.Element {
+  const overrides = useSenderToneStore((state) => state.overrides)
+
   // One face per sender rather than per thread: nine newsletters from three
   // brands is three things to recognise, not nine.
   const faces = [
@@ -780,7 +792,7 @@ function QuietRun({ threads, expanded, onToggle }: QuietRunProps): JSX.Element {
           return (
             <span
               key={thread.id}
-              className={`${styles.quietFace} ${TONE_CLASS[senderTone(sender.address)]}`}
+              className={`${styles.quietFace} ${TONE_CLASS[toneFor(overrides, sender.address)]}`}
             >
               {senderInitial(sender)}
             </span>
