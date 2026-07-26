@@ -63,6 +63,12 @@
   white-space: nowrap;
 }
 
+/* A pass that produced nothing is a fault, not a status — amber, because the
+   page still works and the mail is still all there. */
+.digestStatusBlocked {
+  color: var(--warn);
+}
+
 .grow {
   flex: 1;
 }

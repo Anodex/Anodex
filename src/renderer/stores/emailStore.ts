@@ -43,6 +43,15 @@ interface EmailState {
   digests: Record<string, string>
   /** True while a digest batch is in flight, so the list can say it's working. */
   digesting: boolean
+  /**
+   * True when a pass ended with threads still undigested — no model loaded to
+   * summarize with, or the model gave nothing usable back.
+   *
+   * Worth a flag rather than silence: digests are the one thing this page does
+   * that a webmail tab doesn't, and a reader who never sees one has no way to
+   * tell whether the feature is broken, absent, or simply hasn't run.
+   */
+  digestBlocked: boolean
 
   load: () => Promise<void>
   /** Refreshes only the unread count, for the sidebar badge. */
@@ -82,6 +91,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   busyThreadId: null,
   digests: {},
   digesting: false,
+  digestBlocked: false,
 
   load: async () => {
     const revision = ++loadRevision
@@ -271,7 +281,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     // from a batch still running for the previous one, or the new threads
     // would never get digests at all.
     const revision = ++digestRevision
-    set({ digesting: true })
+    set({ digesting: true, digestBlocked: false })
     try {
       for (;;) {
         // Re-read the threads each pass: a refresh may have replaced the list
@@ -289,7 +299,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           }))
         )
         if (revision !== digestRevision) return
-        if (!result.ok || result.value.length === 0) return
+        // A pass that adds nothing means there is no model loaded to summarize
+        // with, or the remaining threads keep failing — retrying either would
+        // spin. Recorded rather than merely returned: this early exit used to
+        // be the whole of the feature's failure handling, and it left the page
+        // looking as though digests simply did not exist.
+        if (!result.ok || result.value.length === 0) {
+          set({ digestBlocked: true })
+          return
+        }
 
         set((current) => ({
           digests: {

@@ -10,6 +10,7 @@ import type {
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { useEmailStore } from '../../stores/emailStore'
+import { useModelStore } from '../../stores/modelStore'
 import { useChatStore } from '../../stores/chatStore'
 import { notifyError, useUiStore } from '../../stores/uiStore'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
@@ -68,6 +69,8 @@ export function EmailView(): JSX.Element {
   const busyThreadId = useEmailStore((s) => s.busyThreadId)
   const digests = useEmailStore((s) => s.digests)
   const digesting = useEmailStore((s) => s.digesting)
+  const digestBlocked = useEmailStore((s) => s.digestBlocked)
+  const loadDigests = useEmailStore((s) => s.loadDigests)
   const storedQuery = useEmailStore((s) => s.query)
   const mailbox = useEmailStore((s) => s.mailbox)
   const mailboxes = useEmailStore((s) => s.mailboxes)
@@ -83,6 +86,7 @@ export function EmailView(): JSX.Element {
   const runSearch = useEmailStore((s) => s.search)
   const loadEmail = useEmailStore((s) => s.load)
   const openSettings = useUiStore((s) => s.openSettings)
+  const engineStatus = useModelStore((s) => s.engine.status)
 
   const [queryInput, setQueryInput] = useState(storedQuery)
   /** Folded runs of bulk mail the reader has opened, by run id. */
@@ -113,6 +117,15 @@ export function EmailView(): JSX.Element {
   const sweepThreadId = digesting
     ? (threads.find((thread) => !digests[thread.id])?.id ?? null)
     : null
+  const undigested = threads.filter((thread) => !digests[thread.id]).length
+
+  // The two ways a pass comes back empty are worth telling apart: one is
+  // something the reader can fix in a click, the other is a fault they should
+  // know about rather than read as "this feature does nothing".
+  const blockedReason =
+    engineStatus === 'ready'
+      ? 'Could not read your mail — see the log'
+      : 'Load a model to have Anodex read your mail'
 
   // The Sweep: a band of light resting on the boundary between the threads the
   // model has read and the ones it has not. Its position is the progress —
@@ -223,10 +236,14 @@ export function EmailView(): JSX.Element {
           />
         )}
 
-        {/* The one thing on this bar a screen reader gets nothing else from:
-            the digest pass has no text of its own anywhere in the view. */}
-        <span className={styles.digestStatus} aria-live="polite">
-          {digesting ? 'Reading your mail…' : ''}
+        {/* Says what the Sweep is doing — and, when it cannot, why. A beam of
+            light is nothing to a screen reader, and a pass that quietly
+            produced no digests is nothing to anybody. */}
+        <span
+          className={`${styles.digestStatus} ${digestBlocked ? styles.digestStatusBlocked : ''}`}
+          aria-live="polite"
+        >
+          {digesting ? 'Reading your mail…' : digestBlocked ? blockedReason : ''}
         </span>
 
         <div className={styles.grow} />
@@ -253,6 +270,23 @@ export function EmailView(): JSX.Element {
               </button>
             )}
           </form>
+        )}
+
+        {active?.connected && (
+          <Button
+            variant="secondary"
+            size="sm"
+            iconLeft={<Icon name="sparkle" size={15} />}
+            disabled={digesting || undigested === 0}
+            title={
+              undigested === 0
+                ? 'Every thread here has already been read'
+                : `Summarize ${undigested} thread${undigested === 1 ? '' : 's'} in this list`
+            }
+            onClick={() => void loadDigests()}
+          >
+            Read my mail
+          </Button>
         )}
 
         {status && WEBMAIL_PROVIDERS.has(status.provider) && (
