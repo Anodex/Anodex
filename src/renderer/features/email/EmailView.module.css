@@ -16,17 +16,25 @@
   overflow: hidden;
 }
 
-.header {
+/**
+ * The page's entire chrome, on one line: what you are looking at, whose
+ * mailbox it is, and the search that filters it.
+ *
+ * This replaces a title block, an account tab strip, a mailbox tab strip and a
+ * search row — four stacked bands that between them pushed the first message
+ * a quarter of the way down the window.
+ */
+.cmdBar {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-5) var(--space-6);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
 }
 
-.headerActions {
+.cmdTitle {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: var(--space-2);
 }
@@ -34,50 +42,180 @@
 .title {
   margin: 0;
   color: var(--text);
-  font-size: var(--text-2xl);
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
-.subtitle {
-  margin: var(--space-1) 0 0;
-  color: var(--text-muted);
-  font-size: var(--text-base);
+/* The count is a number, not a sentence: "363 unread" cost a whole line of
+   subtitle to say what three digits say here. */
+.unreadPill {
+  padding: 1px 7px;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
 }
 
-/* The bands between the header and the workspace. They pad themselves so the
-   header rule and the pane borders can run edge to edge. */
-.accountTabs,
-.mailboxTabs {
+.digestStatus {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.grow {
+  flex: 1;
+}
+
+.accountChip {
   display: flex;
   flex-shrink: 0;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  padding: 0 var(--space-6) var(--space-3);
-}
-
-.accountTab {
-  padding: var(--space-1) var(--space-3);
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 220px;
+  padding: 3px var(--space-2);
+  overflow: hidden;
   color: var(--text-muted);
   font-size: var(--text-sm);
+  font-family: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   background: var(--bg-surface);
   border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.accountChipButton {
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.accountChipButton:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.accountChevron {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.accountMenu {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  padding: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.accountMenuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  color: var(--text-muted);
+  font-family: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.accountMenuItem:hover {
+  background: var(--bg-surface-2);
+}
+
+.accountMenuCheck {
+  color: var(--accent);
+}
+
+.accountMenuText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.accountMenuText strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.accountMenuText small {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+/**
+ * One row that scrolls sideways rather than wrapping to a second one. Eight
+ * long IMAP folder names used to wrap on a narrow pane, which moved the mail
+ * down the screen every time the window was resized.
+ */
+.mailboxBar {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  padding: 0 var(--space-4) var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mailboxBar::-webkit-scrollbar {
+  display: none;
+}
+
+.mbox {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  background: none;
+  border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition:
-    color 0.15s ease,
-    border-color 0.15s ease,
-    background 0.15s ease;
+    color var(--transition-fast),
+    background var(--transition-fast);
 }
 
-.accountTab:hover {
+.mbox:hover {
   color: var(--text);
-  border-color: var(--accent);
+  background: var(--bg-surface-2);
 }
 
-.accountTabActive {
+.mbox[aria-pressed='true'] {
+  color: var(--text);
+  font-weight: 500;
+  background: var(--bg-elevated);
+}
+
+.mboxCount {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.mbox[aria-pressed='true'] .mboxCount {
   color: var(--accent);
-  background: var(--accent-soft);
-  border-color: var(--accent);
+}
+
+.mboxClose {
+  color: var(--text-faint);
 }
 
 .providerPanel {
@@ -196,15 +334,6 @@
   overflow: hidden;
 }
 
-/* The list header stays put while its rows scroll under it, so the mailbox
-   and account a row belongs to never leave the screen. */
-.listColumn .mailboxHeader {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--bg-surface);
-}
-
 .providerHeader {
   display: flex;
   align-items: center;
@@ -230,8 +359,7 @@
   min-width: 0;
 }
 
-.providerTitleBlock h2,
-.mailboxHeader h2 {
+.providerTitleBlock h2 {
   margin: 0;
   color: var(--text);
   font-size: var(--text-lg);
@@ -306,19 +434,6 @@
   font-size: var(--text-sm);
 }
 
-.mailboxHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
-
-.mailboxHeader span {
-  color: var(--text-faint);
-  font-size: var(--text-xs);
-}
-
 .emptyInbox {
   display: flex;
   flex-direction: column;
@@ -350,19 +465,31 @@
   flex-direction: column;
 }
 
-.searchRow {
+/* Sits on the command bar rather than owning a band of its own, and takes the
+   extra room only while it is being used. */
+.searchInline {
   display: flex;
-  flex-shrink: 0;
+  flex: 0 1 240px;
   align-items: center;
   gap: var(--space-2);
-  /* Inset from the page edge like the tab bands above it, so the input reads
-     as a control on the page rather than another full-bleed band. */
-  margin: 0 var(--space-6) var(--space-4);
-  padding: var(--space-2) var(--space-3);
+  min-width: 120px;
+  padding: 3px var(--space-3);
   color: var(--text-faint);
-  background: var(--bg-surface);
+  background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
+  transition:
+    flex-basis var(--transition) var(--ease-out),
+    border-color var(--transition-fast);
+}
+
+.searchInline:hover {
+  border-color: var(--border-strong);
+}
+
+.searchInline:focus-within {
+  flex-basis: 340px;
+  border-color: var(--accent);
 }
 
 .searchInput {
@@ -375,6 +502,24 @@
   background: none;
   border: none;
   outline: none;
+}
+
+.searchClear {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.searchClear:hover {
+  color: var(--text);
 }
 
 .searchInput::placeholder {
@@ -671,13 +816,14 @@
 }
 
 @media (max-width: 760px) {
-  .header,
   .providerHeader {
     align-items: flex-start;
   }
 
-  .header {
-    flex-direction: column;
+  /* The bar stays one line at every width — the search gives up its room
+     first, and the account chip's address is already truncated. */
+  .digestStatus {
+    display: none;
   }
 
   .settingRow {

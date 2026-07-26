@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type {
+  EmailAccountStatus,
   EmailAttachmentSummary,
   EmailMailbox,
   EmailMessage,
@@ -131,91 +133,110 @@ export function EmailView(): JSX.Element {
 
   return (
     <div className={styles.view}>
-      <div className={styles.header}>
-        <div>
+      {/* One bar for the whole of the page's chrome. The title, which mailbox
+          you are in, and the search that filters it are one thought, and they
+          used to cost four stacked bands to say. */}
+      <div className={styles.cmdBar}>
+        <div className={styles.cmdTitle}>
           <h1 className={styles.title}>Email</h1>
-          <p className={styles.subtitle}>
-            {accounts.length === 0
-              ? 'Link a mailbox in Settings to search, summarize, and reply from here.'
-              : `${accounts.length} account${accounts.length === 1 ? '' : 's'} linked${
-                  unreadCount > 0 ? ` · ${unreadCount} unread` : ''
-                }`}
-          </p>
-        </div>
-        <div className={styles.headerActions}>
-          {status && WEBMAIL_PROVIDERS.has(status.provider) && (
-            <Button
-              variant="secondary"
-              iconLeft={<Icon name="web" size={16} />}
-              onClick={() => void handleOpenWebmail()}
-            >
-              Open webmail
-            </Button>
+          {unreadCount > 0 && (
+            <span className={styles.unreadPill} title={`${unreadCount} unread`}>
+              {unreadCount}
+            </span>
           )}
+        </div>
+
+        {active && (
+          <AccountSwitcher
+            accounts={accounts}
+            active={active}
+            onSelect={(accountId) => void selectAccount(accountId)}
+          />
+        )}
+
+        {/* The one thing on this bar a screen reader gets nothing else from:
+            the digest pass has no text of its own anywhere in the view. */}
+        <span className={styles.digestStatus} aria-live="polite">
+          {digesting ? 'Reading your mail…' : ''}
+        </span>
+
+        <div className={styles.grow} />
+
+        {active?.connected && (
+          <form className={styles.searchInline} onSubmit={submitSearch}>
+            <Icon name="search" size={14} />
+            <input
+              className={styles.searchInput}
+              value={queryInput}
+              placeholder="Search mail"
+              aria-label="Search mail — sender, subject, or keywords"
+              onChange={(event) => setQueryInput(event.target.value)}
+            />
+            {storedQuery && (
+              <button
+                type="button"
+                className={styles.searchClear}
+                title="Clear search"
+                aria-label="Clear search"
+                onClick={clearSearch}
+              >
+                <Icon name="close" size={12} />
+              </button>
+            )}
+          </form>
+        )}
+
+        {status && WEBMAIL_PROVIDERS.has(status.provider) && (
           <Button
             variant="secondary"
-            iconLeft={<Icon name="refresh" size={16} />}
-            onClick={() => void loadEmail()}
+            size="sm"
+            iconLeft={<Icon name="web" size={15} />}
+            onClick={() => void handleOpenWebmail()}
           >
-            Refresh
+            Open webmail
           </Button>
-        </div>
+        )}
+        <Button
+          variant="secondary"
+          size="sm"
+          iconLeft={<Icon name="refresh" size={15} />}
+          onClick={() => void loadEmail()}
+        >
+          Refresh
+        </Button>
       </div>
 
-      {accounts.length > 1 && (
-        <div className={styles.accountTabs}>
-          {accounts.map((account) => (
-            <button
-              key={account.id}
-              type="button"
-              className={`${styles.accountTab} ${
-                account.id === active?.id ? styles.accountTabActive : ''
-              }`}
-              onClick={() => void selectAccount(account.id)}
-            >
-              {account.address}
-            </button>
-          ))}
-        </div>
-      )}
-
+      {/* Scrolls rather than wraps: `orderMailboxes` caps the list at eight,
+          but eight long IMAP folder names still became two rows on a narrow
+          pane, which moved the mail down every time the window changed. */}
       {active?.connected && mailboxes.length > 0 && (
-        <div className={styles.mailboxTabs}>
+        <div className={styles.mailboxBar}>
+          {storedQuery && (
+            <button type="button" className={styles.mbox} aria-pressed={true} onClick={clearSearch}>
+              Results
+              <Icon name="close" size={11} className={styles.mboxClose} />
+            </button>
+          )}
           {orderMailboxes(mailboxes).map((candidate) => {
             const isInbox = candidate.name.toUpperCase() === 'INBOX'
-            const selected = isInbox ? mailbox === null : mailbox === candidate.name
+            const selected =
+              !storedQuery && (isInbox ? mailbox === null : mailbox === candidate.name)
             return (
               <button
                 key={candidate.id}
                 type="button"
-                className={`${styles.accountTab} ${selected ? styles.accountTabActive : ''}`}
+                className={styles.mbox}
+                aria-pressed={selected}
                 onClick={() => void selectMailbox(isInbox ? null : candidate.name)}
               >
                 {friendlyMailboxName(candidate.name)}
+                {isInbox && unreadCount > 0 && (
+                  <span className={styles.mboxCount}>{unreadCount}</span>
+                )}
               </button>
             )
           })}
         </div>
-      )}
-
-      {active?.connected && (
-        <form className={styles.searchRow} onSubmit={submitSearch}>
-          <Icon name="search" size={16} />
-          <input
-            className={styles.searchInput}
-            value={queryInput}
-            placeholder="Search mail — sender, subject, or keywords"
-            onChange={(event) => setQueryInput(event.target.value)}
-          />
-          {storedQuery && (
-            <Button variant="ghost" size="sm" onClick={clearSearch}>
-              Clear
-            </Button>
-          )}
-          <Button variant="secondary" size="sm" type="submit">
-            Search
-          </Button>
-        </form>
       )}
 
       {!active?.connected ? (
@@ -239,23 +260,6 @@ export function EmailView(): JSX.Element {
         >
           {!openThreadId && (
             <div className={styles.listColumn}>
-              <div className={styles.mailboxHeader}>
-                <h2>
-                  {storedQuery
-                    ? `Results for "${storedQuery}"`
-                    : mailbox
-                      ? friendlyMailboxName(mailbox)
-                      : 'Inbox'}
-                </h2>
-                <span>
-                  {digesting
-                    ? 'Reading your mail…'
-                    : active
-                      ? `${active.address} · ${PROVIDER_LABELS[active.provider] ?? active.provider}`
-                      : PROVIDER_LABELS.none}
-                </span>
-              </div>
-
               {threads.length === 0 ? (
                 <div className={styles.emptyInbox}>
                   <Icon name="mail" size={32} />
@@ -324,6 +328,119 @@ export function EmailView(): JSX.Element {
       )}
     </div>
   )
+}
+
+interface AccountSwitcherProps {
+  accounts: EmailAccountStatus[]
+  active: EmailAccountStatus
+  onSelect: (accountId: string) => void
+}
+
+/**
+ * Which mailbox you are reading, and the way to change it.
+ *
+ * A menu rather than the tab strip this replaces, because the strip's height
+ * grew with the number of linked accounts while the information it carried
+ * stayed the same: one address is current, the rest are somewhere else. With a
+ * single account there is nothing to choose, so it renders as a plain label.
+ */
+function AccountSwitcher({ accounts, active, onSelect }: AccountSwitcherProps): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [rect, setRect] = useState<DOMRect | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: MouseEvent): void => {
+      const target = event.target as Node
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const handleKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [open])
+
+  if (accounts.length < 2) {
+    return (
+      <span className={styles.accountChip} title={active.address}>
+        {localPart(active.address)}
+      </span>
+    )
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`${styles.accountChip} ${styles.accountChipButton}`}
+        title={active.address}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => {
+          setRect(triggerRef.current?.getBoundingClientRect() ?? null)
+          setOpen((value) => !value)
+        }}
+      >
+        {localPart(active.address)}
+        <Icon name="chevron-down" size={12} className={styles.accountChevron} />
+      </button>
+
+      {/* Portalled because the view clips its overflow — a menu rendered in
+          flow would be cut off by the pane it drops out of. */}
+      {open &&
+        rect &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            className={styles.accountMenu}
+            style={{ top: rect.bottom + 6, left: Math.max(8, rect.left) }}
+          >
+            {accounts.map((account) => (
+              <button
+                key={account.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={account.id === active.id}
+                className={styles.accountMenuItem}
+                onClick={() => {
+                  setOpen(false)
+                  if (account.id !== active.id) onSelect(account.id)
+                }}
+              >
+                <Icon
+                  name={account.id === active.id ? 'check' : 'mail'}
+                  size={14}
+                  className={account.id === active.id ? styles.accountMenuCheck : undefined}
+                />
+                <span className={styles.accountMenuText}>
+                  <strong>{account.address}</strong>
+                  <small>
+                    {PROVIDER_LABELS[account.provider] ?? account.provider}
+                    {account.connected ? '' : ' · disconnected'}
+                  </small>
+                </span>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
+
+/** `sinistercraftnetwork@gmail.com` -> `sinistercraftnetwork`. */
+function localPart(address: string): string {
+  return address.split('@')[0] || address
 }
 
 interface RailResizerProps {
