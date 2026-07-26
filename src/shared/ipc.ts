@@ -358,6 +358,8 @@ export const IpcChannel = {
     move: 'email:move',
     listMailboxes: 'email:list-mailboxes',
     saveAttachment: 'email:save-attachment',
+    /** Resolves an opened message's remote images to inline `data:` URIs. */
+    loadRemoteImages: 'email:load-remote-images',
     createDraft: 'email:create-draft',
     send: 'email:send'
   },
@@ -716,6 +718,16 @@ export interface AnodexApi {
       filename: string
       accountId?: string
     }): Promise<Result<{ path: string | null }>>
+    /**
+     * Fetches a message's blocked remote images and returns them keyed by the
+     * URL that asked for them, as `data:` URIs the reader's frame can show.
+     *
+     * Done here rather than in the renderer because a `srcdoc` iframe inherits
+     * the app's `img-src 'self' data:` policy and cannot widen it — see
+     * `main/email/remoteImages.ts`. A URL missing from the result stays
+     * blocked; it is never an error worth interrupting the reader over.
+     */
+    loadRemoteImages(urls: string[]): Promise<Result<Record<string, string>>>
     createDraft(request: EmailDraftRequest): Promise<Result<EmailDraft>>
     send(request: EmailSendRequest): Promise<Result<void>>
   }

@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
+import { anodex } from '../../lib/anodex'
+import { notifyError } from '../../stores/uiStore'
 import styles from './EmailView.module.css'
-import { buildFrameDocument, EMAIL_FRAME_SANDBOX } from './htmlFrameDocument'
+import {
+  buildFrameDocument,
+  collectRemoteImageUrls,
+  EMAIL_FRAME_SANDBOX,
+  fitFrameContents
+} from './htmlFrameDocument'
 
 interface HtmlMessageBodyProps {
   /** Sanitized HTML from the main process. Never raw provider output. */
@@ -67,15 +74,37 @@ const MAX_FRAME_HEIGHT = 20_000
 export function HtmlMessageBody({ html }: HtmlMessageBodyProps): JSX.Element {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = useState(240)
-  const [showRemote, setShowRemote] = useState(false)
+  const [images, setImages] = useState<Record<string, string> | null>(null)
+  const [loading, setLoading] = useState(false)
   const dark = useIsDarkTheme()
 
-  const hasRemoteImages = useMemo(() => html.includes('data-remote-src='), [html])
+  const remoteUrls = useMemo(() => collectRemoteImageUrls(html), [html])
 
   const document = useMemo(
-    () => buildFrameDocument(html, { dark, showRemote }),
-    [html, dark, showRemote]
+    () => buildFrameDocument(html, { dark, images: images ?? undefined }),
+    [html, dark, images]
   )
+
+  /**
+   * The fetch happens in the main process, not here: this frame inherits the
+   * app's `img-src 'self' data:` policy and cannot widen it, so a remote URL
+   * in an `<img>` is refused no matter what. What comes back is already a
+   * `data:` URI, which the policy has always allowed.
+   */
+  const loadImages = async (): Promise<void> => {
+    setLoading(true)
+    try {
+      const result = await anodex.email.loadRemoteImages(remoteUrls)
+      // An empty map still counts as answered — every image failed, and the
+      // notice should stop offering to try what has just been tried.
+      setImages(result.ok ? result.value : {})
+      if (!result.ok) {
+        notifyError('Could not load the images', result.error.detail ?? result.error.message)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     const frame = frameRef.current
@@ -84,11 +113,8 @@ export function HtmlMessageBody({ html }: HtmlMessageBodyProps): JSX.Element {
     let observer: ResizeObserver | null = null
 
     const measure = (): void => {
-      const frameDocument = frame.contentDocument
-      const body = frameDocument?.body
-      const root = frameDocument?.documentElement
-      if (!body || !root) return
-      const next = Math.min(Math.max(body.scrollHeight, root.scrollHeight) + 2, MAX_FRAME_HEIGHT)
+      const next = fitFrameContents(frame, MAX_FRAME_HEIGHT)
+      if (next === null) return
       setHeight((current) => (Math.abs(current - next) > 2 ? next : current))
     }
 
@@ -115,13 +141,33 @@ export function HtmlMessageBody({ html }: HtmlMessageBodyProps): JSX.Element {
 
   return (
     <div className={styles.htmlBody}>
-      {hasRemoteImages && !showRemote && (
+      {remoteUrls.length > 0 && images === null && (
         <div className={styles.remoteNotice}>
           <Icon name="image" size={14} />
-          <span>Images from the sender are blocked — loading them tells them you opened this.</span>
-          <button type="button" className={styles.inlineLink} onClick={() => setShowRemote(true)}>
-            Load images
+          <span>
+            {remoteUrls.length} image{remoteUrls.length === 1 ? '' : 's'} from the sender{' '}
+            {remoteUrls.length === 1 ? 'is' : 'are'} blocked — loading{' '}
+            {remoteUrls.length === 1 ? 'it' : 'them'} tells them you opened this.
+          </span>
+          <button
+            type="button"
+            className={styles.inlineLink}
+            disabled={loading}
+            onClick={() => void loadImages()}
+          >
+            {loading ? 'Loading…' : 'Load images'}
           </button>
+        </div>
+      )}
+      {/* Said plainly rather than left as a row of gaps: an image the sender's
+          host refused is not the same as one the reader chose to block. */}
+      {images !== null && Object.keys(images).length < remoteUrls.length && (
+        <div className={styles.remoteNotice}>
+          <Icon name="alert" size={14} />
+          <span>
+            {remoteUrls.length - Object.keys(images).length} of {remoteUrls.length} images could not
+            be loaded.
+          </span>
         </div>
       )}
       <iframe

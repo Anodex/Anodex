@@ -245,6 +245,7 @@ const api: AnodexApi = {
     move: (request) => ipcRenderer.invoke(IpcChannel.Email.move, request),
     listMailboxes: (accountId) => ipcRenderer.invoke(IpcChannel.Email.listMailboxes, accountId),
     saveAttachment: (request) => ipcRenderer.invoke(IpcChannel.Email.saveAttachment, request),
+    loadRemoteImages: (urls) => ipcRenderer.invoke(IpcChannel.Email.loadRemoteImages, urls),
     createDraft: (request) => ipcRenderer.invoke(IpcChannel.Email.createDraft, request),
     send: (request) => ipcRenderer.invoke(IpcChannel.Email.send, request)
   },

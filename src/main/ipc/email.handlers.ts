@@ -16,6 +16,7 @@ import type {
 } from '@shared/email.types'
 import { emailService } from '../email/EmailService'
 import { digestThreads } from '../email/threadDigests'
+import { loadRemoteImages } from '../email/remoteImages'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:email')
@@ -180,6 +181,16 @@ export function registerEmailHandlers(): void {
       }
     }
   )
+
+  ipcMain.handle(IpcChannel.Email.loadRemoteImages, async (_event, urls: string[]) => {
+    try {
+      return ok(await loadRemoteImages(Array.isArray(urls) ? urls : []))
+    } catch (error) {
+      // Images are an enhancement to a message that reads fine without them.
+      log.warn('Failed to load remote images:', error)
+      return ok({})
+    }
+  })
 
   ipcMain.handle(
     IpcChannel.Email.digestThreads,
