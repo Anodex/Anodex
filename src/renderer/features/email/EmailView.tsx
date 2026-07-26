@@ -36,6 +36,7 @@ import {
   threadParticipants
 } from './threadMessages'
 import { avatarPaint, colorFor, useSenderColor, useSenderToneStore } from './senderTones'
+import { SenderCard } from './SenderCard'
 import { SenderToneMenu, type SenderToneTarget } from './SenderToneMenu'
 import { describeQuietRun, groupQuietRuns } from './quietZone'
 import styles from './EmailView.module.css'
@@ -1050,19 +1051,6 @@ function ThreadReader({
                     className={`${styles.message} ${index === 0 ? styles.messageLatest : ''} ${
                       isSelfSender(sender, selfAddress) ? styles.messageSelf : ''
                     }`}
-                    // The address and the recipients live here rather than on
-                    // their own lines. Repeated under all four messages of a
-                    // thread from one person they were pure noise; wanted, they
-                    // are one hover away.
-                    title={[
-                      sender.name === sender.address
-                        ? sender.address
-                        : `${sender.name} <${sender.address}>`,
-                      message.to.length > 0 ? `To: ${message.to.join(', ')}` : '',
-                      message.cc.length > 0 ? `Cc: ${message.cc.join(', ')}` : ''
-                    ]
-                      .filter(Boolean)
-                      .join('\n')}
                   >
                     {/* The node on the spine is the sender, in the colour they
                         already have in the inbox — so a change of speaker is
@@ -1073,9 +1061,13 @@ function ThreadReader({
                       aria-hidden="true"
                     />
                     <div className={styles.messageMeta}>
-                      <strong className={styles.messageSender}>
-                        {senderDisplayName(sender, selfAddress)}
-                      </strong>
+                      <SenderCard
+                        sender={sender}
+                        label={senderDisplayName(sender, selfAddress)}
+                        to={message.to}
+                        cc={message.cc}
+                        triggerClassName={styles.messageSender}
+                      />
                       {validDate && (
                         <time className={styles.messageTime} dateTime={messageDate.toISOString()}>
                           {formatMessageTime(message.date)}

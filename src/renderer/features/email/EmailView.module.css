@@ -1013,13 +1013,112 @@
   min-height: 28px;
 }
 
+/* A button, because it opens the sender card — but it has to read as the
+   message's byline, not as a control sitting in the middle of the mail. */
 .messageSender {
   overflow: hidden;
+  padding: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  cursor: default;
+  transition: border-color var(--transition-fast);
+}
+
+.messageSender:hover,
+.messageSender:focus-visible {
+  border-bottom-color: var(--border-strong);
+}
+
+/**
+ * The sender card, replacing the `title` tooltip the browser used to draw.
+ *
+ * That tooltip could not be styled, could not be reached with the pointer, and
+ * disappeared the moment you moved towards it — so the address in it was
+ * visible and yet impossible to copy. This one is a real surface: it uses the
+ * same elevated background, border and shadow as every other popover in the
+ * app, and the pointer can travel into it.
+ */
+.senderCard {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 220px;
+  max-width: 380px;
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  /* The reason the card exists: the text in it is meant to be dragged over. */
+  user-select: text;
+}
+
+.senderCardName {
   color: var(--text);
   font-size: var(--text-sm);
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.senderCardRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.senderCardRecipients {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.senderCardLabel {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.senderCardValue {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.senderCardCopy {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.senderCardCopy:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .messageTime {
