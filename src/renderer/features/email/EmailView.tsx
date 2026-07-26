@@ -17,7 +17,15 @@ import { anodex } from '../../lib/anodex'
 import { HtmlMessageBody } from './HtmlMessageBody'
 import { EmailThreadRail } from './EmailThreadRail'
 import { DEFAULT_RAIL_WIDTH, clampRailWidth, loadRailWidth, saveRailWidth } from './railWidth'
-import { cleanSnippet, formatThreadDate, parseSender, senderInitial, senderTone } from './threadRow'
+import {
+  cleanSnippet,
+  formatThreadDate,
+  identityKey,
+  parseSender,
+  senderInitial,
+  senderTone
+} from './threadRow'
+import { describeQuietRun, groupQuietRuns } from './quietZone'
 import styles from './EmailView.module.css'
 
 /** How far one arrow-key press nudges the rail's edge. */
@@ -60,6 +68,8 @@ export function EmailView(): JSX.Element {
   const loadEmail = useEmailStore((s) => s.load)
 
   const [queryInput, setQueryInput] = useState(storedQuery)
+  /** Folded runs of bulk mail the reader has opened, by run id. */
+  const [expandedRuns, setExpandedRuns] = useState<ReadonlySet<string>>(() => new Set())
   const [railHidden, setRailHidden] = useState(false)
   const [railWidth, setRailWidth] = useState(loadRailWidth)
   const panelRef = useRef<HTMLElement>(null)
@@ -82,8 +92,45 @@ export function EmailView(): JSX.Element {
   const openThreadSummary = threads.find((thread) => thread.id === openThreadId) ?? null
 
   // Where the digest pass has got to: the first thread that still has no
-  // digest. -1 once they all do, which is also when `digesting` goes false.
-  const sweepIndex = digesting ? threads.findIndex((thread) => !digests[thread.id]) : -1
+  // digest. Null once they all do, which is when `digesting` goes false too.
+  const sweepThreadId = digesting
+    ? (threads.find((thread) => !digests[thread.id])?.id ?? null)
+    : null
+
+  // The Sweep: a band of light resting on the boundary between the threads the
+  // model has read and the ones it has not. Its position is the progress —
+  // rows above it carry digests, rows below still carry snippets — so the pass
+  // needs no spinner and no percentage.
+  const sweepBeam = <span className={styles.sweepBeam} aria-hidden="true" />
+
+  // Bulk mail is only folded away in the plain inbox listing. A search is a
+  // question the reader asked, and hiding part of its answer behind a bar
+  // would make the result quietly wrong.
+  const foldsBulk = !storedQuery && mailbox === null
+  const listItems = foldsBulk
+    ? groupQuietRuns(threads)
+    : threads.map((thread) => ({ kind: 'thread' as const, thread }))
+
+  const toggleRun = (id: string): void => {
+    setExpandedRuns((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }
+
+  const renderThread = (thread: EmailThreadSummary): JSX.Element => (
+    <Fragment key={thread.id}>
+      {thread.id === sweepThreadId && sweepBeam}
+      <ThreadRow
+        thread={thread}
+        digest={digests[thread.id]}
+        busy={busyThreadId === thread.id}
+        onOpen={() => void openThread(thread)}
+        onFlag={(action) => void applyFlag(thread, action)}
+      />
+    </Fragment>
+  )
 
   const showRail = Boolean(openThreadId) && railFits && !railHidden
   // Opening a thread hands the whole pane to it: the mail and the conversation
@@ -274,25 +321,27 @@ export function EmailView(): JSX.Element {
                 </div>
               ) : (
                 <div className={styles.threadList}>
-                  {threads.map((thread, index) => (
-                    <Fragment key={thread.id}>
-                      {/* The Sweep: a band of light resting on the boundary
-                          between the threads the model has read and the ones
-                          it has not. Its position is the progress — rows above
-                          it carry digests, rows below still carry snippets —
-                          so the pass needs no spinner and no percentage. */}
-                      {index === sweepIndex && (
-                        <span className={styles.sweepBeam} aria-hidden="true" />
-                      )}
-                      <ThreadRow
-                        thread={thread}
-                        digest={digests[thread.id]}
-                        busy={busyThreadId === thread.id}
-                        onOpen={() => void openThread(thread)}
-                        onFlag={(action) => void applyFlag(thread, action)}
-                      />
-                    </Fragment>
-                  ))}
+                  {listItems.map((item) => {
+                    if (item.kind === 'thread') return renderThread(item.thread)
+
+                    const expanded = expandedRuns.has(item.id)
+                    return (
+                      <Fragment key={item.id}>
+                        {/* A collapsed run still shows where the pass is, or
+                            the beam would vanish for as long as the model
+                            spent inside it. */}
+                        {!expanded &&
+                          item.threads.some((each) => each.id === sweepThreadId) &&
+                          sweepBeam}
+                        <QuietRun
+                          threads={item.threads}
+                          expanded={expanded}
+                          onToggle={() => toggleRun(item.id)}
+                        />
+                        {expanded && item.threads.map(renderThread)}
+                      </Fragment>
+                    )
+                  })}
                   {hasMore && (
                     <div className={styles.loadMoreRow}>
                       <Button
@@ -648,6 +697,57 @@ function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JS
         </div>
       </div>
     </div>
+  )
+}
+
+interface QuietRunProps {
+  threads: EmailThreadSummary[]
+  expanded: boolean
+  onToggle: () => void
+}
+
+/**
+ * A run of consecutive machine-sent threads, collapsed to one line.
+ *
+ * 363 unread is not 363 decisions, and an inbox that presents it as though it
+ * were is an inbox nobody finishes. The senders are still shown — as the
+ * monograms that identify them everywhere else — so the fold is a summary of
+ * what is under it rather than a lid over an unknown.
+ */
+function QuietRun({ threads, expanded, onToggle }: QuietRunProps): JSX.Element {
+  // One face per sender rather than per thread: nine newsletters from three
+  // brands is three things to recognise, not nine.
+  const faces = [
+    ...new Map(
+      threads.map((thread) => [identityKey(parseSender(thread.from).address), thread])
+    ).values()
+  ].slice(0, 4)
+
+  return (
+    <button type="button" className={styles.quietBar} aria-expanded={expanded} onClick={onToggle}>
+      <span className={styles.quietFaces} aria-hidden="true">
+        {faces.map((thread) => {
+          const sender = parseSender(thread.from)
+          return (
+            <span
+              key={thread.id}
+              className={`${styles.quietFace} ${styles[`tone-${senderTone(sender.address)}`]}`}
+            >
+              {senderInitial(sender)}
+            </span>
+          )
+        })}
+      </span>
+      <span className={styles.quietLabel}>
+        {expanded ? 'Hide bulk mail' : describeQuietRun(threads)}
+      </span>
+      <span className={styles.quietRule} />
+      <Icon
+        name="chevron-down"
+        size={14}
+        className={`${styles.quietChevron} ${expanded ? styles.quietChevronOpen : ''}`}
+      />
+    </button>
   )
 }
 

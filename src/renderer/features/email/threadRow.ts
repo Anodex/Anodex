@@ -121,6 +121,16 @@ export function brandLabel(address: string): string {
 }
 
 /**
+ * True when the domain's leading label is one a brand only ever sends from,
+ * e.g. `news.meshy.ai` or `email.claude.com`. A mailbox at such a subdomain is
+ * a bulk-mail rig rather than a person.
+ */
+export function hasSendingSubdomain(address: string): boolean {
+  const labels = domainOf(address).split('.').filter(Boolean)
+  return labels.length > 2 && SENDING_LABELS.has(labels[0])
+}
+
+/**
  * What a sender's identity is keyed on: the brand for a company, the whole
  * address for a person at a consumer mailbox.
  */

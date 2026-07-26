@@ -881,6 +881,76 @@
   cursor: default;
 }
 
+/**
+ * The bar a folded run of bulk mail collapses to. Deliberately quieter than a
+ * thread row — it is a thing to skip past, and the whole point is that the
+ * eye goes to the rows either side of it instead.
+ */
+.quietBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.quietBar:hover {
+  color: var(--text-muted);
+  background: var(--bg-surface-2);
+}
+
+.quietFaces {
+  display: flex;
+  flex-shrink: 0;
+}
+
+/* Overlapped, so four brands cost about the width of two. */
+.quietFace {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: -6px;
+  color: var(--avatar-fg);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  background: var(--avatar-bg);
+  border: 1px solid var(--bg-surface);
+  border-radius: var(--radius-sm);
+}
+
+.quietLabel {
+  flex-shrink: 0;
+  margin-left: var(--space-2);
+}
+
+.quietRule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.quietChevron {
+  flex-shrink: 0;
+  transition: transform var(--transition) var(--ease-out);
+}
+
+.quietChevronOpen {
+  transform: rotate(180deg);
+}
+
 .loadMoreRow {
   display: flex;
   justify-content: center;
