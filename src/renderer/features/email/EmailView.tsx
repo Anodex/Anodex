@@ -15,6 +15,7 @@ import { notifyError, useUiStore } from '../../stores/uiStore'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { anodex } from '../../lib/anodex'
 import { HtmlMessageBody } from './HtmlMessageBody'
+import { EmailEmptyState } from './EmailEmptyState'
 import { EmailThreadRail } from './EmailThreadRail'
 import { DEFAULT_RAIL_WIDTH, clampRailWidth, loadRailWidth, saveRailWidth } from './railWidth'
 import {
@@ -66,6 +67,7 @@ export function EmailView(): JSX.Element {
   const applyFlag = useEmailStore((s) => s.applyFlag)
   const runSearch = useEmailStore((s) => s.search)
   const loadEmail = useEmailStore((s) => s.load)
+  const openSettings = useUiStore((s) => s.openSettings)
 
   const [queryInput, setQueryInput] = useState(storedQuery)
   /** Folded runs of bulk mail the reader has opened, by run id. */
@@ -293,14 +295,12 @@ export function EmailView(): JSX.Element {
 
       {!active?.connected ? (
         <section className={styles.mailboxPanel}>
-          <div className={styles.emptyInbox}>
-            <Icon name="mail" size={32} />
-            <p>
-              {active
-                ? (active.reason ?? 'Reconnect this account in Settings to read its inbox.')
-                : 'Add an account in Settings → Email to read, summarize, draft, and send from this page.'}
-            </p>
-          </div>
+          <EmailEmptyState
+            kind={active ? 'disconnected' : 'no-account'}
+            reason={active?.reason}
+            onOpenSettings={() => openSettings('email')}
+            onClearSearch={clearSearch}
+          />
         </section>
       ) : (
         <section
@@ -313,12 +313,12 @@ export function EmailView(): JSX.Element {
           {!openThreadId && (
             <div className={styles.listColumn}>
               {threads.length === 0 ? (
-                <div className={styles.emptyInbox}>
-                  <Icon name="mail" size={32} />
-                  <p>
-                    {storedQuery ? 'No messages matched that search.' : 'No recent inbox threads.'}
-                  </p>
-                </div>
+                <EmailEmptyState
+                  kind={storedQuery ? 'no-results' : 'inbox-zero'}
+                  query={storedQuery}
+                  onOpenSettings={() => openSettings('email')}
+                  onClearSearch={clearSearch}
+                />
               ) : (
                 <div className={styles.threadList}>
                   {listItems.map((item) => {

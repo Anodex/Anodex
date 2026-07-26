@@ -447,7 +447,9 @@
 /* An empty pane centres its message in the space it has, rather than pinning
    it to the top of a mostly blank column. */
 .mailboxPanel > .emptyInbox,
+.mailboxPanel > .emptyState,
 .listColumn > .emptyInbox,
+.listColumn > .emptyState,
 .reader > .emptyInbox {
   flex: 1;
   justify-content: center;
@@ -458,6 +460,70 @@
   margin: 0;
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.emptyBody {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.emptyMark {
+  color: var(--accent);
+}
+
+.emptyMarkWarn {
+  color: var(--warn);
+}
+
+.emptyMarkGood {
+  color: var(--success);
+}
+
+/* The two loose points drift, barely. This is the one screen a reader sits on
+   with nothing to do — and unlike an inbox they might be staring at for a
+   while, there is nothing here for the movement to interfere with. */
+.emptyDrift1 {
+  animation: emptyDrift 9s var(--ease) infinite;
+}
+
+.emptyDrift2 {
+  animation: emptyDrift 11s var(--ease) infinite reverse;
+}
+
+@keyframes emptyDrift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emptyDrift1,
+  .emptyDrift2 {
+    animation: none;
+  }
 }
 
 .threadList {
