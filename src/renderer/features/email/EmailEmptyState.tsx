@@ -84,7 +84,7 @@ function describe(kind: EmailEmptyKind, reason?: string, query?: string): EmptyC
         mark: <NoResultsMark />,
         title: 'Nothing matched that search',
         body: query
-          ? `No message in this mailbox mentions “${query}”. Try fewer words, or a sender's name.`
+          ? `No message in this mailbox mentions “${query}”. Try fewer words, or a sender’s name.`
           : 'Try fewer words, or a sender’s name.'
       }
     case 'inbox-zero':

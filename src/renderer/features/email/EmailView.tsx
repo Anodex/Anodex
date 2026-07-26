@@ -24,7 +24,8 @@ import {
   identityKey,
   parseSender,
   senderInitial,
-  senderTone
+  senderTone,
+  type SenderTone
 } from './threadRow'
 import { describeQuietRun, groupQuietRuns } from './quietZone'
 import styles from './EmailView.module.css'
@@ -41,6 +42,20 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 /** Providers with a web interface the "Open webmail" button can reach. */
 const WEBMAIL_PROVIDERS = new Set(['gmail', 'microsoft'])
+
+/**
+ * The avatar class per tone, listed rather than assembled from the tone name.
+ * A CSS-module bundle decides for itself how class names are exported, and a
+ * key built by hand that stopped matching would fail as a missing colour with
+ * nothing to notice — where this fails to compile.
+ */
+const TONE_CLASS: Record<SenderTone, string> = {
+  blue: styles.toneBlue,
+  cyan: styles.toneCyan,
+  violet: styles.toneViolet,
+  green: styles.toneGreen,
+  warn: styles.toneWarn
+}
 
 export function EmailView(): JSX.Element {
   const status = useEmailStore((s) => s.status)
@@ -636,7 +651,7 @@ function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JS
           .join('\n')}
       >
         {/* Decorative: the sender's name is right beside it in text. */}
-        <span className={`${styles.avatar} ${styles[`tone-${tone}`]}`} aria-hidden="true">
+        <span className={`${styles.avatar} ${TONE_CLASS[tone]}`} aria-hidden="true">
           {senderInitial(sender)}
         </span>
 
@@ -731,7 +746,7 @@ function QuietRun({ threads, expanded, onToggle }: QuietRunProps): JSX.Element {
           return (
             <span
               key={thread.id}
-              className={`${styles.quietFace} ${styles[`tone-${senderTone(sender.address)}`]}`}
+              className={`${styles.quietFace} ${TONE_CLASS[senderTone(sender.address)]}`}
             >
               {senderInitial(sender)}
             </span>

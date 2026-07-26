@@ -671,27 +671,27 @@
   transform: scale(1.06);
 }
 
-.tone-blue {
+.toneBlue {
   --avatar-fg: var(--accent);
   --avatar-bg: var(--accent-soft);
 }
 
-.tone-cyan {
+.toneCyan {
   --avatar-fg: var(--accent-cyan);
   --avatar-bg: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
 }
 
-.tone-violet {
+.toneViolet {
   --avatar-fg: var(--accent-violet);
   --avatar-bg: var(--accent-violet-soft);
 }
 
-.tone-green {
+.toneGreen {
   --avatar-fg: var(--success);
   --avatar-bg: var(--success-soft);
 }
 
-.tone-warn {
+.toneWarn {
   --avatar-fg: var(--warn);
   --avatar-bg: var(--warn-soft);
 }
