@@ -907,6 +907,15 @@
   white-space: nowrap;
 }
 
+/* The snippet and the digest are stacked in one cell, so a row says a
+   different thing after the pass without becoming a taller row. */
+.previewSlot {
+  position: relative;
+  display: block;
+  min-width: 0;
+  margin-top: 2px;
+}
+
 .snippet,
 .threadDigest {
   display: block;
@@ -918,15 +927,121 @@
 
 .snippet {
   color: var(--text-faint);
+  transition: opacity var(--motion-short) var(--ease);
+}
+
+/* Clears out of the way rather than dimming: the digest is stacked on top of
+   it, and two lines of text sharing one line of space is unreadable at any
+   opacity. It keeps its box, which is what holds the row's height still. The
+   words are not lost — the row's tooltip still carries them. */
+.hasDigest .snippet {
+  opacity: 0;
 }
 
 /* A digest is the model's reading of the thread, not the thread's own words —
    the accent edge marks that difference without a label on every row. */
 .threadDigest {
-  margin-top: 2px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
   padding-left: var(--space-2);
   color: var(--text-muted);
   border-left: 2px solid var(--accent);
+}
+
+/**
+ * The Sweep.
+ *
+ * A digest pass is the one moment in this pane where the machine is visibly
+ * doing something no other mail client does, and it used to surface as the
+ * words "Reading your mail…" in grey. The beam rests on the boundary between
+ * the threads that have been read and the ones that have not, so its position
+ * is the progress; it advances as each batch lands, and goes when the pass is
+ * over. Bounded by a real operation — never an ambient loop.
+ */
+.sweepBeam {
+  position: relative;
+  z-index: 1;
+  display: block;
+  height: 0;
+  pointer-events: none;
+}
+
+.sweepBeam::before {
+  content: '';
+  position: absolute;
+  top: -60px;
+  right: 0;
+  left: 0;
+  height: 120px;
+  /* The logo's cyan → blue → violet ramp, which is reserved for the rare
+     "arrival" moments that earn a richer accent than the flat blue. */
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--accent-cyan) 6%, transparent) 30%,
+    color-mix(in srgb, var(--accent) 14%, transparent) 55%,
+    color-mix(in srgb, var(--accent-violet) 6%, transparent) 78%,
+    transparent
+  );
+  animation:
+    sweepArrive var(--motion-long) var(--ease-emphasized) both,
+    sweepBreathe 1800ms var(--ease) var(--motion-long) infinite;
+}
+
+/* Replayed each time the beam moves down to the next undigested thread, which
+   is what sells a jump between two rows as travel rather than a teleport. */
+@keyframes sweepArrive {
+  from {
+    opacity: 0;
+    transform: translateY(-28px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sweepBreathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Written in from the left, the way it was read — after a beat, so the
+   snippet underneath has finished clearing before the first word lands. */
+.revealing {
+  animation: digestWriteIn var(--motion-long) var(--ease-out) var(--motion-short) both;
+}
+
+@keyframes digestWriteIn {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+  }
+
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweepBeam::before,
+  .revealing {
+    animation: none;
+  }
+
+  .snippet {
+    transition: none;
+  }
 }
 
 @media (max-width: 760px) {

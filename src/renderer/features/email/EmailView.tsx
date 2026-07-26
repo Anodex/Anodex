@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type {
   EmailAccountStatus,
@@ -80,6 +80,10 @@ export function EmailView(): JSX.Element {
     accounts.find((account) => account.isPrimary) ??
     accounts[0]
   const openThreadSummary = threads.find((thread) => thread.id === openThreadId) ?? null
+
+  // Where the digest pass has got to: the first thread that still has no
+  // digest. -1 once they all do, which is also when `digesting` goes false.
+  const sweepIndex = digesting ? threads.findIndex((thread) => !digests[thread.id]) : -1
 
   const showRail = Boolean(openThreadId) && railFits && !railHidden
   // Opening a thread hands the whole pane to it: the mail and the conversation
@@ -270,15 +274,24 @@ export function EmailView(): JSX.Element {
                 </div>
               ) : (
                 <div className={styles.threadList}>
-                  {threads.map((thread) => (
-                    <ThreadRow
-                      key={thread.id}
-                      thread={thread}
-                      digest={digests[thread.id]}
-                      busy={busyThreadId === thread.id}
-                      onOpen={() => void openThread(thread)}
-                      onFlag={(action) => void applyFlag(thread, action)}
-                    />
+                  {threads.map((thread, index) => (
+                    <Fragment key={thread.id}>
+                      {/* The Sweep: a band of light resting on the boundary
+                          between the threads the model has read and the ones
+                          it has not. Its position is the progress — rows above
+                          it carry digests, rows below still carry snippets —
+                          so the pass needs no spinner and no percentage. */}
+                      {index === sweepIndex && (
+                        <span className={styles.sweepBeam} aria-hidden="true" />
+                      )}
+                      <ThreadRow
+                        thread={thread}
+                        digest={digests[thread.id]}
+                        busy={busyThreadId === thread.id}
+                        onOpen={() => void openThread(thread)}
+                        onFlag={(action) => void applyFlag(thread, action)}
+                      />
+                    </Fragment>
                   ))}
                   {hasMore && (
                     <div className={styles.loadMoreRow}>
@@ -548,7 +561,13 @@ interface ThreadRowProps {
 function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JSX.Element {
   const sender = parseSender(thread.from)
   const tone = senderTone(sender.address)
-  const preview = digest ?? cleanSnippet(thread.snippet)
+
+  // Only a digest that lands while this row is on screen gets written in.
+  // Returning from an opened thread remounts the whole list, and without this
+  // every row that already had one would replay the reveal at once — which is
+  // the difference between a moment that means something and mere decoration.
+  const hadDigestOnMount = useRef(digest !== undefined)
+  const revealing = digest !== undefined && !hadDigestOnMount.current
 
   return (
     <div className={`${styles.threadItem} ${thread.unread ? styles.threadUnread : ''}`}>
@@ -556,7 +575,16 @@ function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JS
         type="button"
         className={styles.threadOpen}
         onClick={onOpen}
-        title={`${sender.name === sender.address ? sender.address : `${sender.name} <${sender.address}>`}\n${thread.subject}`}
+        // Carries the sender's full address and, once a digest has covered it
+        // over, the thread's own words — so the model's reading stays
+        // checkable against the source it was made from.
+        title={[
+          sender.name === sender.address ? sender.address : `${sender.name} <${sender.address}>`,
+          thread.subject,
+          digest ? cleanSnippet(thread.snippet) : ''
+        ]
+          .filter(Boolean)
+          .join('\n')}
       >
         {/* Decorative: the sender's name is right beside it in text. */}
         <span className={`${styles.avatar} ${styles[`tone-${tone}`]}`} aria-hidden="true">
@@ -582,9 +610,20 @@ function ThreadRow({ thread, digest, busy, onOpen, onFlag }: ThreadRowProps): JS
             )}
           </span>
           <span className={styles.subject}>{thread.subject || '(no subject)'}</span>
-          {/* A digest is the model's reading of the thread rather than the
-              thread's own words, so it is marked as such — see `.threadDigest`. */}
-          <small className={digest ? styles.threadDigest : styles.snippet}>{preview}</small>
+
+          {/* The digest sits over the snippet rather than under it, so the row
+              keeps its height while it changes what it says — twenty rows all
+              growing a line mid-pass would shove the list around under whoever
+              was reading it. A digest is the model's reading of the thread and
+              not the thread's own words, which is what the accent edge marks. */}
+          <span className={`${styles.previewSlot} ${digest ? styles.hasDigest : ''}`}>
+            <small className={styles.snippet}>{cleanSnippet(thread.snippet)}</small>
+            {digest !== undefined && (
+              <small className={`${styles.threadDigest} ${revealing ? styles.revealing : ''}`}>
+                {digest}
+              </small>
+            )}
+          </span>
         </span>
       </button>
 
