@@ -1023,7 +1023,9 @@
 }
 
 .htmlFrame {
+  display: block;
   width: 100%;
+  overflow: hidden;
   background: transparent;
   border: none;
 }

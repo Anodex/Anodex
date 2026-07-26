@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import styles from './EmailView.module.css'
+import { buildFrameDocument, EMAIL_FRAME_SANDBOX } from './htmlFrameDocument'
 
 interface HtmlMessageBodyProps {
   /** Sanitized HTML from the main process. Never raw provider output. */
@@ -43,16 +44,18 @@ function readIsDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
-/** Upper bound on the auto-sized frame, so one long newsletter can't fill the view. */
-const MAX_FRAME_HEIGHT = 900
+/** Hard safety ceiling against pathological fixed-height email templates. */
+const MAX_FRAME_HEIGHT = 20_000
 
 /**
  * Renders an email's HTML body inside a locked-down iframe.
  *
- * The `sandbox` attribute omits both `allow-scripts` and `allow-same-origin`,
- * so the document cannot execute anything or reach back into the app, and the
- * injected CSP blocks every network destination except the `data:` images that
- * were already embedded server-side. `allow-popups` plus
+ * The `sandbox` attribute omits `allow-scripts`, so the document cannot execute
+ * anything or reach back into the app, and the injected CSP blocks every
+ * network destination except the `data:` images that were already embedded
+ * server-side. `allow-same-origin` lets this component measure the inert
+ * document so the outer reader, rather than every message, owns scrolling.
+ * `allow-popups` plus
  * `allow-popups-to-escape-sandbox` is the one capability granted, so that a
  * clicked link reaches the main process's window-open handler and opens in the
  * user's real browser rather than silently doing nothing.
@@ -78,19 +81,34 @@ export function HtmlMessageBody({ html }: HtmlMessageBodyProps): JSX.Element {
     const frame = frameRef.current
     if (!frame) return
 
+    let observer: ResizeObserver | null = null
+
     const measure = (): void => {
-      const body = frame.contentDocument?.body
-      if (!body) return
-      const next = Math.min(body.scrollHeight + 16, MAX_FRAME_HEIGHT)
+      const frameDocument = frame.contentDocument
+      const body = frameDocument?.body
+      const root = frameDocument?.documentElement
+      if (!body || !root) return
+      const next = Math.min(Math.max(body.scrollHeight, root.scrollHeight) + 2, MAX_FRAME_HEIGHT)
       setHeight((current) => (Math.abs(current - next) > 2 ? next : current))
     }
 
-    frame.addEventListener('load', measure)
-    // Images finishing later change the height, and a sandboxed document can't
-    // tell us itself, so poll briefly after load rather than measuring once.
-    const timers = [80, 300, 900].map((delay) => window.setTimeout(measure, delay))
+    const beginObserving = (): void => {
+      observer?.disconnect()
+      measure()
+      const body = frame.contentDocument?.body
+      if (!body) return
+      observer = new ResizeObserver(measure)
+      observer.observe(body)
+    }
+
+    frame.addEventListener('load', beginObserving)
+    if (frame.contentDocument?.readyState === 'complete') beginObserving()
+    // A few delayed reads cover image and font layout in clients where a
+    // ResizeObserver notification is coalesced during iframe load.
+    const timers = [80, 300, 900, 2_000].map((delay) => window.setTimeout(measure, delay))
     return () => {
-      frame.removeEventListener('load', measure)
+      frame.removeEventListener('load', beginObserving)
+      observer?.disconnect()
       for (const timer of timers) window.clearTimeout(timer)
     }
   }, [document])
@@ -111,69 +129,9 @@ export function HtmlMessageBody({ html }: HtmlMessageBodyProps): JSX.Element {
         className={styles.htmlFrame}
         style={{ height }}
         title="Email message"
-        sandbox="allow-popups allow-popups-to-escape-sandbox"
+        sandbox={EMAIL_FRAME_SANDBOX}
         srcDoc={document}
       />
     </div>
   )
-}
-
-function buildFrameDocument(html: string, options: { dark: boolean; showRemote: boolean }): string {
-  // `img-src` widens to remote hosts only after an explicit opt-in, and script
-  // sources stay disallowed either way. `default-src 'none'` means anything not
-  // named here — fetches, frames, fonts, media — is refused outright.
-  const imgSrc = options.showRemote ? 'data: https: http:' : 'data:'
-  const csp = [
-    "default-src 'none'",
-    `img-src ${imgSrc}`,
-    "style-src 'unsafe-inline'",
-    "font-src 'none'",
-    "script-src 'none'"
-  ].join('; ')
-
-  const restoreRemote = options.showRemote
-    ? `<style>img[data-remote-src]{visibility:visible}</style>`
-    : ''
-
-  const body = options.showRemote ? html.replace(/\sdata-remote-src=/gi, ' src=') : html
-
-  const foreground = options.dark ? '#e8ebf0' : '#1a1d23'
-  const muted = options.dark ? '#9aa3b2' : '#5b6472'
-  const link = options.dark ? '#7aa7ff' : '#2f6fed'
-
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
-<style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    color: ${foreground};
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-size: 14px;
-    line-height: 1.6;
-    overflow-wrap: anywhere;
-  }
-  /* Email HTML is written for fixed-width desktop clients and will otherwise
-     force horizontal scrolling inside the panel. */
-  img, table, video { max-width: 100% !important; height: auto; }
-  table { border-collapse: collapse; }
-  a { color: ${link}; }
-  blockquote {
-    margin: 0 0 0 8px;
-    padding-left: 12px;
-    border-left: 2px solid ${muted};
-    color: ${muted};
-  }
-  pre { white-space: pre-wrap; }
-  /* A blocked remote image would otherwise show a broken-image glyph. */
-  img[data-remote-src] { visibility: hidden; }
-</style>
-${restoreRemote}
-</head>
-<body>${body}</body>
-</html>`
 }
