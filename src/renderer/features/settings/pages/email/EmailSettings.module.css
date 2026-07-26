@@ -85,6 +85,36 @@
   gap: var(--space-2);
 }
 
+.star {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.star:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The default account's star stays lit and inert — there is nothing to set. */
+.starActive,
+.starActive:hover {
+  color: var(--accent);
+  background: transparent;
+  cursor: default;
+  opacity: 1;
+}
+
 .badge {
   padding: 2px var(--space-2);
   color: var(--accent);

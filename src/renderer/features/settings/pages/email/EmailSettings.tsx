@@ -214,6 +214,7 @@ export function EmailSettings(): JSX.Element {
         <h2 className={pageStyles.sectionTitle}>Linked accounts</h2>
         <p className={pageStyles.sectionDesc}>
           Tools use the default account unless they are told otherwise.
+          {accounts.length > 1 && ' Star another one to make it the default.'}
         </p>
 
         {accounts.length === 0 ? (
@@ -244,14 +245,32 @@ export function EmailSettings(): JSX.Element {
                   </span>
                 </div>
                 <div className={styles.accountActions}>
-                  {!account.isPrimary && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                  {/* Only a chooser when there is something to choose between —
+                      with one account the "Default" badge already says it. */}
+                  {accounts.length > 1 && (
+                    <button
+                      type="button"
+                      className={`${styles.star} ${account.isPrimary ? styles.starActive : ''}`}
+                      aria-pressed={account.isPrimary}
+                      aria-label={
+                        account.isPrimary
+                          ? `${account.address} is the default account`
+                          : `Make ${account.address} the default account`
+                      }
+                      title={
+                        account.isPrimary
+                          ? 'Default account — used unless a tool names another'
+                          : 'Make this the default account'
+                      }
+                      disabled={account.isPrimary}
                       onClick={() => void handleSetPrimary(account.id)}
                     >
-                      Make default
-                    </Button>
+                      <Icon
+                        name="star"
+                        size={16}
+                        fill={account.isPrimary ? 'currentColor' : 'none'}
+                      />
+                    </button>
                   )}
                   <Button
                     variant="secondary"

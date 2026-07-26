@@ -45,7 +45,6 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     profile: {
       displayName: 'Anodex User',
-      email: '',
       avatarBase64: null,
       planTier: 'free',
       accountStatus: 'active',

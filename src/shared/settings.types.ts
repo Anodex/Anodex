@@ -60,11 +60,14 @@ export interface AssistantStyleSettings {
   globalStyle: string
 }
 
+/**
+ * Deliberately holds no email address: the one shown on the profile is the
+ * primary linked account's, read from `email.accounts`. A second, hand-typed
+ * copy would drift the moment an account is unlinked or the default changes.
+ */
 export interface ProfileSettings {
   /** Display name shown in the UI header and settings. */
   displayName: string
-  /** Contact email for sync / identification. */
-  email: string
   /** Base64-encoded avatar image, or null if none is set. */
   avatarBase64: string | null
   /** Account tier shown for transparency. */

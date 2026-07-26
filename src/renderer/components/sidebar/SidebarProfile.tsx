@@ -1,3 +1,4 @@
+import { useEmailStore } from '../../stores/emailStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import styles from './SidebarProfile.module.css'
 
@@ -25,6 +26,9 @@ function initials(name: string): string {
 /** Pinned user profile footer for the sidebar. */
 export function SidebarProfile({ active, onClick }: SidebarProfileProps): JSX.Element {
   const profile = useSettingsStore((s) => s.settings?.profile)
+  // The primary linked account's address, or '' when nothing is linked — so
+  // the line appears on connect and disappears on unlink, with nothing to sync.
+  const address = useEmailStore((s) => s.status?.address ?? '')
 
   return (
     <button
@@ -45,7 +49,7 @@ export function SidebarProfile({ active, onClick }: SidebarProfileProps): JSX.El
           <span className={styles.name}>{profile?.displayName ?? 'Settings'}</span>
           <span className={styles.plan}>{PLAN_LABEL[profile?.planTier ?? 'free']} plan</span>
         </span>
-        {profile?.email && <span className={styles.email}>{profile.email}</span>}
+        {address && <span className={styles.email}>{address}</span>}
       </span>
     </button>
   )
