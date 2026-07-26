@@ -2281,17 +2281,56 @@ function cleanToastSummary(raw: string, maxWords: number): string | null {
  * Rather than reject that as malformed — which would leave the row with no
  * digest at all — take the first sentence and let the rest go.
  */
-function cleanThreadDigest(raw: string): string | null {
-  const cleaned = raw
+/**
+ * One line of the model's actual answer, with a reasoning model's scratchpad
+ * dropped — both the tagged kind and the untagged narration that comes before
+ * it. Returns nothing when narration is all there was.
+ */
+function answerLines(raw: string): string[] {
+  return (
+    raw
+      .replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '')
+      // An unterminated block means the whole tail is reasoning.
+      .replace(/<(?:think|thinking|reasoning)>[\s\S]*$/i, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+  )
+}
+
+/**
+ * The digest as it should appear on an inbox row, or null when the model gave
+ * nothing usable.
+ *
+ * Null matters as much as the happy path here. This used to accept whatever
+ * came back as long as it was non-empty, so a model that narrated instead of
+ * answering — "Here's a thinking process: 1." — put that on the row. And since
+ * the narration is generic, it put the *same* sentence on every row in the
+ * inbox, which is a worse outcome than no digests at all: identical text on
+ * twenty rows reads as a broken page rather than as a feature that didn't run.
+ * Returning null instead leaves each row on its own snippet.
+ */
+export function cleanThreadDigest(raw: string): string | null {
+  // No fallback to a rejected line, unlike `cleanChatTitle`: a row that has
+  // narration on it is worse than a row that has its snippet on it, and the
+  // snippet is always there.
+  const line = answerLines(raw)
+    .filter((candidate) => !REASONING_MONOLOGUE_RE.test(candidate))
+    .find((candidate) => !REASONING_PREAMBLE_RE.test(candidate))
+  if (!line) return null
+
+  const cleaned = line
     .replace(/^["'“”\s]+|["'“”\s]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
   if (!cleaned) return null
-  // Split on sentence-ending punctuation followed by a space, so decimals and
-  // abbreviated names ("J. Okafor") don't count as the end of the sentence.
-  const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0]?.trim() ?? cleaned
+
+  const firstSentence = firstSentenceOf(cleaned).trim()
   const digest = firstSentence.length > 200 ? `${firstSentence.slice(0, 200)}…` : firstSentence
-  return digest || null
+
+  // Too short to be a sentence about anything — a stray "1." or "Sure".
+  if (digest.length < 12) return null
+  return digest
 }
 
 function renderTitleContext(request: ChatTitleRequest): string {
@@ -2335,21 +2374,57 @@ const REASONING_PREAMBLE_RE =
 const INSTRUCTION_ECHO_RE =
   /\b(?:3[\s-]to[\s-]6|3-6)\s*words?\b|\btitle\s*case\b|\bconcise\s*title\b|\bno\s*preamble\b|\bno\s*trailing\s*punctuation\b/i
 
+/**
+ * Unmistakable reasoning monologue.
+ *
+ * Separate from `REASONING_PREAMBLE_RE` because the two answer different
+ * questions. That one guesses from a line's *first words* and is allowed to be
+ * wrong — "Sure Thing Bakery Website" trips it and is a perfectly good title,
+ * which is why callers may fall back to a line it rejected. This one matches
+ * on content that cannot appear in any real title or digest, so a match is
+ * conclusive and the line is discarded outright.
+ *
+ * Every phrase here was observed on screen: a local Qwen3.6 titled a chat
+ * "Here's a thinking pr…" and put "Here's a thinking process: 1." on all
+ * twenty rows of an inbox, because the broad guard rejected the line and the
+ * fallback then handed it back anyway.
+ */
+const REASONING_MONOLOGUE_RE =
+  /\b(?:thinking|thought)\s+process\b|\blet me (?:think|start|begin|work)\b|\bthe user (?:wants|asked|asks|is asking|needs)\b|\bfirst,?\s+i\s+(?:need|should|will|must)\b|^\s*step\s*\d/i
+
+/** Trailing tokens that end in a period without ending a sentence. */
+const ABBREVIATION_RE =
+  /(?:^|\s)(?:[A-Za-z]|Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|No|Inc|Ltd|Co|approx|dept|fig)\.$/i
+
+/**
+ * The first sentence, rejoining splits that landed on an abbreviation.
+ *
+ * A plain split on "period then space" cuts "J. Okafor asks…" down to "J.",
+ * which is how a digest for a real thread became two characters.
+ */
+function firstSentenceOf(text: string): string {
+  const parts = text.split(/(?<=[.!?])\s+/)
+  let sentence = parts[0] ?? text
+  for (let index = 1; index < parts.length && ABBREVIATION_RE.test(sentence); index += 1) {
+    sentence = `${sentence} ${parts[index]}`
+  }
+  return sentence
+}
+
 export function cleanChatTitle(raw: string): string | null {
   // Reasoning models emit their scratchpad before the answer. Taking the first
   // non-empty line therefore titled a real conversation "Here's a thinking
   // process" — observed directly with a Qwen3 local model. Drop the reasoning
   // block, then skip any remaining narration lines to reach the actual title.
-  const withoutReasoning = raw
-    .replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '')
-    // An unterminated block means the whole tail is reasoning.
-    .replace(/<(?:think|thinking|reasoning)>[\s\S]*$/i, '')
-
-  const candidates = withoutReasoning
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-
+  //
+  // A line of outright monologue is dropped before the fallback can reach it.
+  // That fallback is how "Here's a thinking pr…" ended up in the sidebar
+  // despite the guard: a model that put its whole monologue on one line left
+  // nothing for `find` to return, so the monologue was handed back anyway. It
+  // still has to exist, though — the preamble guard is a first-words guess and
+  // rejects real titles like "Sure Thing Bakery Website", which the fallback
+  // is what rescues.
+  const candidates = answerLines(raw).filter((line) => !REASONING_MONOLOGUE_RE.test(line))
   const firstLine = candidates.find((line) => !REASONING_PREAMBLE_RE.test(line)) ?? candidates[0]
   if (!firstLine) return null
 

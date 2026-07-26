@@ -88,4 +88,14 @@ describe('cleanChatTitle', () => {
     // derived title", so returning something is not worse here.
     expect(cleanChatTitle("Here's a summary of it")).toBe("Here's a summary of it")
   })
+
+  it('refuses an outright reasoning monologue rather than falling back to it', () => {
+    // Observed in the sidebar as "Here's a thinking pr…": the preamble guard
+    // rejected the line, found no other candidate, and the fallback above
+    // handed the monologue back. A monologue is never a mediocre title — it is
+    // a wrong one, and the derived title is right there.
+    expect(cleanChatTitle("Here's a thinking process: 1. Identify the subject")).toBeNull()
+    expect(cleanChatTitle('Let me think about what to call this')).toBeNull()
+    expect(cleanChatTitle('The user wants a title for their chat')).toBeNull()
+  })
 })
