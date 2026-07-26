@@ -1,5 +1,6 @@
 import OpenAI, { APIUserAbortError } from 'openai'
 import type {
+  ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageFunctionToolCall,
   ChatCompletionMessageParam,
   ChatCompletionTool
@@ -17,6 +18,7 @@ import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import { createLogger } from '../utils/logger'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
+import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
 import { isDroppedStreamError } from './droppedStreamError'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import type { GenerateOutcome, GenerateParams } from './LlamaService'
@@ -253,6 +255,14 @@ export class LlamaVisionService {
     )
   }
 
+  /**
+   * One prompt in, one short answer out — the transport behind chat titles,
+   * toast summaries, inbox digests and compaction folds.
+   *
+   * Every caller caps the reply at a few dozen tokens, so the request must ask
+   * the model not to think; see `directAnswer.ts` for why that is not the
+   * default and what it costs when it doesn't happen.
+   */
   async completeText(
     prompt: string,
     options: { maxTokens: number; temperature: number; signal?: AbortSignal }
@@ -265,13 +275,19 @@ export class LlamaVisionService {
       timeout: 5 * 60_000,
       maxRetries: 0
     })
+    const body: ChatCompletionCreateParamsNonStreaming = {
+      model: connection.modelId,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: options.maxTokens,
+      temperature: options.temperature,
+      stream: false
+    }
     const response = await client.chat.completions.create(
-      {
-        model: connection.modelId,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: options.maxTokens,
-        temperature: options.temperature,
-        stream: false
+      // `chat_template_kwargs` is outside the OpenAI schema — a llama.cpp
+      // extension the SDK serializes through untouched. Widened here rather
+      // than on the literal above so the standard fields keep their checking.
+      { ...body, chat_template_kwargs: DIRECT_ANSWER_TEMPLATE_KWARGS } as typeof body & {
+        chat_template_kwargs: Readonly<Record<string, unknown>>
       },
       { signal: options.signal }
     )

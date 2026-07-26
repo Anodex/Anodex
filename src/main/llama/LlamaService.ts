@@ -58,6 +58,7 @@ import {
   seedContextFromSnapshot
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
+import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
 import { buildDeterministicCheckpoint } from './deterministicCheckpoint'
 import {
@@ -1452,7 +1453,19 @@ class LlamaService extends EventEmitter {
             maxTokens: 96,
             temperature: 0.2
           })
-      return cleanThreadDigest(finalText)
+      const digest = cleanThreadDigest(finalText)
+      // Logged because the silent version of this was genuinely expensive to
+      // diagnose: a thinking model answered every digest with truncated
+      // scratchpad, the cleaner rightly refused all of it, and the only trace
+      // anywhere was an inbox banner saying to try again. The rejected text is
+      // the one thing that tells these apart, so it goes in the line.
+      if (!digest) {
+        log.warn(
+          'Email thread digest rejected as unusable:',
+          JSON.stringify(finalText.slice(0, 200))
+        )
+      }
+      return digest
     } catch (error) {
       log.warn('Email thread digest failed:', error)
       return null
@@ -1559,6 +1572,10 @@ class LlamaService extends EventEmitter {
     // that's the resolved wrapper. Verified directly: without this,
     // `session.prompt()` returned an empty string because the whole reply
     // went into the (unsurfaced) thinking segment.
+    //
+    // Only some wrappers carry that lever, and a model newer than the bundled
+    // wrappers resolves to a plain Jinja one that doesn't — hence the thought
+    // budget on the prompt below, which every wrapper honours.
     if (session.chatWrapper instanceof nlc.QwenChatWrapper) {
       session.dispose()
       session = new nlc.LlamaChatSession({
@@ -1572,6 +1589,10 @@ class LlamaService extends EventEmitter {
       const meta = await session.promptWithMeta(prompt, {
         maxTokens: options.maxTokens,
         temperature: options.temperature,
+        // Closes a thought segment the instant it opens, so the token
+        // allowance above buys an answer rather than a scratchpad the callers
+        // would only throw away — see `directAnswer.ts`.
+        budgets: DIRECT_ANSWER_BUDGETS,
         onResponseChunk: (chunk) => {
           if (chunk.type === 'segment') segmentText += chunk.text
           else responseText += chunk.text
