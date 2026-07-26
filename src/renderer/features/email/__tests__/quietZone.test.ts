@@ -16,6 +16,7 @@ function thread(from: string, overrides: Partial<EmailThreadSummary> = {}): Emai
     snippet: '',
     updatedAt: 0,
     unread: false,
+    starred: false,
     messageCount: 1,
     attachmentCount: 0,
     ...overrides

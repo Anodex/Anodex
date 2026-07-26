@@ -256,7 +256,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       set((state) => ({
         threads: state.threads.map((candidate) =>
           candidate.id === thread.id
-            ? { ...candidate, unread: action === 'mark_unread' }
+            ? {
+                ...candidate,
+                unread:
+                  action === 'mark_unread'
+                    ? true
+                    : action === 'mark_read'
+                      ? false
+                      : candidate.unread,
+                starred: action === 'star' ? true : action === 'unstar' ? false : candidate.starred
+              }
             : candidate
         )
       }))

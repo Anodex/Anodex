@@ -92,6 +92,7 @@ export interface EmailThreadSummary {
   snippet: string
   updatedAt: number
   unread: boolean
+  starred: boolean
   messageCount: number
   attachmentCount: number
 }
@@ -122,6 +123,8 @@ export interface EmailMessage {
   attachments: EmailAttachmentSummary[]
   /** Unknown for providers that omit read state from a given fetch. */
   unread?: boolean
+  /** Unknown for providers that omit starred/flagged state from a given fetch. */
+  starred?: boolean
   /** RFC 5322 Message-ID, needed to thread a reply onto this message. */
   messageIdHeader?: string
   /** Existing References chain, extended when replying. */

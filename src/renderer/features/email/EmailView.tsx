@@ -660,7 +660,7 @@ interface ThreadRowProps {
   digest: string | undefined
   busy: boolean
   onOpen: () => void
-  onFlag: (action: 'mark_read' | 'mark_unread' | 'star' | 'archive') => void
+  onFlag: (action: 'mark_read' | 'mark_unread' | 'star' | 'unstar' | 'archive') => void
   /** Opens the sender-colour menu at the pointer. */
   onPickTone: (target: SenderToneTarget) => void
 }
@@ -775,7 +775,13 @@ function ThreadRow({
             disabled={busy}
             onClick={() => onFlag(thread.unread ? 'mark_read' : 'mark_unread')}
           />
-          <IconAction label="Star" icon="star" disabled={busy} onClick={() => onFlag('star')} />
+          <IconAction
+            label={thread.starred ? 'Remove star' : 'Star'}
+            icon="star"
+            active={thread.starred}
+            disabled={busy}
+            onClick={() => onFlag(thread.starred ? 'unstar' : 'star')}
+          />
           <IconAction
             label="Archive"
             icon="archive"
@@ -846,21 +852,29 @@ function QuietRun({ threads, expanded, onToggle }: QuietRunProps): JSX.Element {
 interface IconActionProps {
   label: string
   icon: Parameters<typeof Icon>[0]['name']
+  active?: boolean
   disabled: boolean
   onClick: () => void
 }
 
-function IconAction({ label, icon, disabled, onClick }: IconActionProps): JSX.Element {
+function IconAction({
+  label,
+  icon,
+  active = false,
+  disabled,
+  onClick
+}: IconActionProps): JSX.Element {
   return (
     <button
       type="button"
-      className={styles.iconAction}
+      className={`${styles.iconAction} ${active ? styles.iconActionActive : ''}`}
       title={label}
       aria-label={label}
+      aria-pressed={active}
       disabled={disabled}
       onClick={onClick}
     >
-      <Icon name={icon} size={15} />
+      <Icon name={icon} size={15} className={active ? styles.iconActiveGlyph : undefined} />
     </button>
   )
 }

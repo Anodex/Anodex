@@ -725,6 +725,7 @@ function fromEnvelope(
     body: '',
     attachments: [],
     unread: isUnread(raw),
+    starred: isStarred(raw),
     messageIdHeader: envelope?.messageId,
     references: []
   }
@@ -733,6 +734,10 @@ function fromEnvelope(
 /** IMAP marks read state with the `\Seen` system flag; absent means unread. */
 function isUnread(raw: FetchMessageObject): boolean {
   return raw.flags ? !raw.flags.has('\\Seen') : false
+}
+
+function isStarred(raw: FetchMessageObject): boolean {
+  return raw.flags ? raw.flags.has('\\Flagged') : false
 }
 
 async function fromSource(
@@ -766,6 +771,7 @@ async function fromSource(
       toAttachmentSummary(attachment, index, encodeMessageId(mailbox, raw.uid))
     ),
     unread: isUnread(raw),
+    starred: isStarred(raw),
     messageIdHeader: parsed.messageId,
     references: normalizeReferences(parsed.references)
   }
@@ -871,6 +877,7 @@ function groupIntoThreads(
       snippet: latest.snippet,
       updatedAt: latest.date,
       unread: sorted.some((message) => message.unread === true),
+      starred: sorted.some((message) => message.starred === true),
       messageCount: sorted.length,
       attachmentCount: sorted.reduce((total, message) => total + message.attachments.length, 0)
     })

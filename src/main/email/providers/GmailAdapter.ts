@@ -342,6 +342,7 @@ function toThreadSummary(thread: GmailThreadResponse, account: EmailAccount): Em
     snippet: message.snippet ?? '',
     updatedAt: Number(message.internalDate ?? Date.now()),
     unread: Boolean(message.labelIds?.includes(LABEL_UNREAD)),
+    starred: messages.some((item) => item.labelIds?.includes(LABEL_STARRED)),
     messageCount: messages.length,
     attachmentCount: messages.reduce(
       (total, item) => total + extractAttachments(item.payload, item.id).length,
@@ -366,6 +367,7 @@ function toEmailMessage(message: GmailApiMessage, account: EmailAccount): EmailM
     body: extractBody(message.payload),
     attachments: extractAttachments(message.payload, message.id),
     unread: Boolean(message.labelIds?.includes(LABEL_UNREAD)),
+    starred: Boolean(message.labelIds?.includes(LABEL_STARRED)),
     messageIdHeader: header(message, 'Message-ID') || undefined,
     references: parseReferences(header(message, 'References'))
   }

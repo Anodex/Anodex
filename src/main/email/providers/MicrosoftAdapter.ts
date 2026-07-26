@@ -318,6 +318,7 @@ export class MicrosoftAdapter implements EmailProviderAdapter {
       ...(bodyHtml ? { bodyHtml } : {}),
       attachments,
       unread: message.isRead === false,
+      starred: message.flag?.flagStatus === 'flagged',
       messageIdHeader: message.internetMessageId,
       references: parseHeaderList(message.internetMessageHeaders, 'References')
     }
@@ -455,6 +456,7 @@ function groupIntoThreads(
       snippet: latest.bodyPreview ?? '',
       updatedAt: receivedAt(latest),
       unread: sorted.some((message) => message.isRead === false),
+      starred: sorted.some((message) => message.flag?.flagStatus === 'flagged'),
       messageCount: sorted.length,
       attachmentCount: sorted.filter((message) => message.hasAttachments).length
     })

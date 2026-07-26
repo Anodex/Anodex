@@ -829,6 +829,14 @@
   border-color: var(--accent);
 }
 
+.iconActionActive {
+  color: var(--accent);
+}
+
+.iconActiveGlyph {
+  fill: currentColor;
+}
+
 .iconAction:disabled {
   opacity: 0.4;
   cursor: default;
