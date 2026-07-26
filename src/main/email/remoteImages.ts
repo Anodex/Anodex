@@ -49,6 +49,8 @@ const ALLOWED_TYPES = new Set([
   'image/svg+xml'
 ])
 
+const GENERIC_IMAGE_TYPES = new Set(['', 'application/octet-stream', 'binary/octet-stream'])
+
 /**
  * Resolves each URL to a `data:` URI. Anything that fails is simply absent
  * from the result, which leaves that one image blocked rather than failing the
@@ -77,19 +79,28 @@ export async function loadRemoteImages(urls: string[]): Promise<Record<string, s
 }
 
 function isFetchable(url: string): boolean {
+  const normalized = normalizeImageUrl(url)
+  if (!normalized) return false
+  return normalized.protocol === 'https:' || normalized.protocol === 'http:'
+}
+
+function normalizeImageUrl(url: string): URL | null {
   try {
-    const parsed = new URL(url)
-    return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+    if (url.startsWith('//')) return new URL(`https:${url}`)
+    return new URL(url)
   } catch {
     // Relative URLs, `cid:` references the message never supplied, and outright
     // junk all land here. None of them are things to go to the network for.
-    return false
+    return null
   }
 }
 
 async function fetchImage(url: string): Promise<{ dataUri: string; bytes: number } | null> {
   try {
-    const response = await fetch(url, {
+    const normalized = normalizeImageUrl(url)
+    if (!normalized) return null
+
+    const response = await fetch(normalized, {
       redirect: 'follow',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
@@ -102,9 +113,6 @@ async function fetchImage(url: string): Promise<{ dataUri: string; bytes: number
     })
     if (!response.ok) return null
 
-    const mimeType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
-    if (!ALLOWED_TYPES.has(mimeType)) return null
-
     // Checked before reading where the server declares it, and again after,
     // since `content-length` is a claim rather than a guarantee.
     const declared = Number(response.headers.get('content-length'))
@@ -112,6 +120,10 @@ async function fetchImage(url: string): Promise<{ dataUri: string; bytes: number
 
     const buffer = Buffer.from(await response.arrayBuffer())
     if (buffer.byteLength === 0 || buffer.byteLength > MAX_IMAGE_BYTES) return null
+
+    const declaredMimeType = normalizeMimeType(response.headers.get('content-type'))
+    const mimeType = resolveImageMimeType(declaredMimeType, buffer)
+    if (!mimeType) return null
 
     return {
       dataUri: `data:${mimeType};base64,${buffer.toString('base64')}`,
@@ -121,4 +133,39 @@ async function fetchImage(url: string): Promise<{ dataUri: string; bytes: number
     log.warn(`Could not load remote image ${url}:`, error)
     return null
   }
+}
+
+function normalizeMimeType(value: string | null): string {
+  return (value ?? '').split(';')[0].trim().toLowerCase()
+}
+
+function resolveImageMimeType(declaredMimeType: string, buffer: Buffer): string | null {
+  if (ALLOWED_TYPES.has(declaredMimeType)) return declaredMimeType
+  if (!GENERIC_IMAGE_TYPES.has(declaredMimeType)) return null
+  return sniffImageMimeType(buffer)
+}
+
+function sniffImageMimeType(buffer: Buffer): string | null {
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png'
+  }
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg'
+  if (buffer.subarray(0, 6).toString('ascii') === 'GIF87a') return 'image/gif'
+  if (buffer.subarray(0, 6).toString('ascii') === 'GIF89a') return 'image/gif'
+  if (
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'image/webp'
+  }
+  if (buffer.subarray(4, 12).toString('ascii') === 'ftypavif') return 'image/avif'
+  if (buffer.subarray(0, 2).toString('ascii') === 'BM') return 'image/bmp'
+  if (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01 && buffer[3] === 0x00) {
+    return 'image/x-icon'
+  }
+
+  const textStart = buffer.subarray(0, 256).toString('utf8').trimStart().toLowerCase()
+  if (textStart.startsWith('<svg') || textStart.startsWith('<?xml')) return 'image/svg+xml'
+
+  return null
 }
