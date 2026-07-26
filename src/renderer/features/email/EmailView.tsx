@@ -113,7 +113,7 @@ export function EmailView(): JSX.Element {
   // know about rather than read as "this feature does nothing".
   const blockedReason =
     engineStatus === 'ready'
-      ? 'Could not read your mail — see the log'
+      ? 'Could not create email summaries — try again'
       : 'Load a model to have Anodex read your mail'
 
   // The Sweep: a band of light resting on the boundary between the threads the

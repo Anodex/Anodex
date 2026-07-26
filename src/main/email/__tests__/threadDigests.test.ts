@@ -74,6 +74,32 @@ describe('digestThreads', () => {
     expect(digestEmailThread).toHaveBeenCalledTimes(1)
   })
 
+  it('shares a digest already in progress with an overlapping caller', async () => {
+    let finishDigest: ((digest: string) => void) | undefined
+    digestEmailThread.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishDigest = resolve
+        })
+    )
+
+    const overlapping = request({ threadId: 'overlapping', latestMessageId: 'm1' })
+    const first = digestThreads([overlapping])
+    await vi.waitFor(() => expect(digestEmailThread).toHaveBeenCalledTimes(1))
+    const second = digestThreads([overlapping])
+
+    finishDigest?.('Dana wants the seat count corrected to 48.')
+
+    await expect(first).resolves.toEqual([
+      { threadId: 'overlapping', digest: 'Dana wants the seat count corrected to 48.' }
+    ])
+    await expect(second).resolves.toEqual([
+      { threadId: 'overlapping', digest: 'Dana wants the seat count corrected to 48.' }
+    ])
+    expect(getThreadMessages).toHaveBeenCalledTimes(1)
+    expect(digestEmailThread).toHaveBeenCalledTimes(1)
+  })
+
   it('regenerates once a newer message lands in the thread', async () => {
     await digestThreads([request({ threadId: 'moving', latestMessageId: 'm1' })])
     await digestThreads([request({ threadId: 'moving', latestMessageId: 'm2' })])
