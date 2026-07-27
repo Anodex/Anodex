@@ -14,6 +14,8 @@ export type IconName =
   | 'trash'
   | 'folder'
   | 'refresh'
+  | 'rotate-ccw'
+  | 'rotate-cw'
   | 'check'
   | 'alert'
   | 'cpu'
@@ -111,6 +113,18 @@ const GLYPHS: Record<IconName, ReactNode> = {
   refresh: (
     <>
       <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+    </>
+  ),
+  'rotate-ccw': (
+    <>
+      <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
+      <path d="M3 3v5h5" />
+    </>
+  ),
+  'rotate-cw': (
+    <>
+      <path d="M21 12a9 9 0 1 1-2.6-6.4L21 8" />
       <path d="M21 3v5h-5" />
     </>
   ),
