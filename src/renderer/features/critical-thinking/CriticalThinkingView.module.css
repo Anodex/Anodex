@@ -691,6 +691,25 @@
   border-radius: var(--radius-sm);
 }
 
+/* A row the model just produced is written in from the left, the way the mail
+   digest is — this list is the closest thing the view has to a heartbeat, and
+   rows used to simply pop into place. Only the row whose arrival was actually
+   witnessed animates; see `useNewestActivity`. */
+.activityArrived {
+  animation: activityWriteIn var(--motion-long, 420ms) var(--ease-out, ease-out) both;
+}
+
+@keyframes activityWriteIn {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
 .activityIcon {
   display: flex;
   color: var(--accent);

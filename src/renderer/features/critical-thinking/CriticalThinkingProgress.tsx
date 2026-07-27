@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   CriticalThinkingActivity,
   CriticalThinkingRoundStatus,
@@ -129,12 +129,36 @@ function PlanProgress({ plan, steps, currentStep }: PlanProgressProps): JSX.Elem
   )
 }
 
+/**
+ * The id of the activity that has just appeared, or null.
+ *
+ * Only a row this component *watches* arrive is flagged: on first mount the
+ * whole list is history, however recent, so opening a run mid-research must not
+ * write in its last row as though it just happened. Re-rendering for any other
+ * reason — scrolling, expanding the earlier activities — leaves the flag where
+ * it is, because nothing new arrived.
+ */
+function useNewestActivity(activities: CriticalThinkingActivity[]): string | null {
+  const [newestId, setNewestId] = useState<string | null>(null)
+  const seenRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const latest = activities.at(-1)?.id ?? null
+    if (latest === null) return
+    if (seenRef.current !== null && seenRef.current !== latest) setNewestId(latest)
+    seenRef.current = latest
+  }, [activities])
+
+  return newestId
+}
+
 export function ActivityTimeline({
   activities
 }: {
   activities: CriticalThinkingActivity[]
 }): JSX.Element {
   const [showAll, setShowAll] = useState(false)
+  const newestId = useNewestActivity(activities)
   if (activities.length === 0) {
     return <p className={styles.activityEmpty}>Waiting for the first research action…</p>
   }
@@ -152,7 +176,12 @@ export function ActivityTimeline({
         </button>
       )}
       {visible.map((activity) => (
-        <div key={activity.id} className={styles.activityRow}>
+        <div
+          key={activity.id}
+          className={`${styles.activityRow} ${
+            activity.id === newestId ? styles.activityArrived : ''
+          }`}
+        >
           <span className={styles.activityIcon}>
             {activity.status === 'running' ? (
               <Spinner size={11} />
