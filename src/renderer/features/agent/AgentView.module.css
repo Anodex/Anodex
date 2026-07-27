@@ -98,10 +98,127 @@
   background: var(--accent-soft);
 }
 
+/* ---------------------------------------------------------------------------
+   While you were away.
+
+   The band states the fact and stays until dismissed — information doesn't
+   expire on a timer. The beam is the motion, and it runs exactly once per app
+   launch (see `useAwayArrivals`): it rests on each landing in turn so several
+   arrivals read as a sequence you can follow, rather than every card flashing
+   at once in whatever order the list happens to be in.
+   --------------------------------------------------------------------------- */
+.awayBand {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--accent-cyan) 7%, var(--bg-surface)),
+    var(--bg-surface) 60%
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: var(--radius-md);
+}
+
+.awayIcon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+
+.awayText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.awayTitle {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.awayDetail {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.awayAction,
+.awayDismiss {
+  flex: none;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.awayAction {
+  color: var(--accent);
+}
+
+.awayAction:hover {
+  background: var(--accent-soft);
+}
+
+.awayDismiss {
+  color: var(--text-faint);
+}
+
+.awayDismiss:hover {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
 .runList {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* The mail Sweep's beam, repurposed: it rests on the run it's announcing and
+   travels to the next, so its position is which landing is being shown. Same
+   cyan → blue → violet ramp the app reserves for genuine arrivals. */
+.sweepBeam {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 3;
+  height: 0;
+  pointer-events: none;
+  transition: top var(--motion-long, 420ms) var(--ease-emphasized, ease-out);
+}
+
+.sweepBeam::before {
+  content: '';
+  position: absolute;
+  top: -46px;
+  right: 0;
+  left: 0;
+  height: 92px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--accent-cyan) 7%, transparent) 30%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 55%,
+    color-mix(in srgb, var(--accent-violet) 7%, transparent) 78%,
+    transparent
+  );
 }
 
 .runCard {

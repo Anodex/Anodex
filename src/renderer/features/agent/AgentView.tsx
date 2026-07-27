@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AgentRun, AgentRunStatus } from '@shared/agentRun.types'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
@@ -18,6 +18,7 @@ import {
   providerIcon,
   providerLabel
 } from './agentRunFormat'
+import { useAwayArrivals } from './useAwayArrivals'
 import styles from './AgentView.module.css'
 
 /**
@@ -26,12 +27,13 @@ import styles from './AgentView.module.css'
  * own id identifies the landing — unlike a scheduled task, which runs again
  * and again and has to fold in which run.
  *
- * Only used for a lone arrival: when several runs land together the view
- * sequences them itself (see `useAwayArrivals`) rather than letting every card
- * announce independently.
+ * `orchestrated` stands this down when the view is announcing a homecoming
+ * itself (see `useAwayArrivals`). Passing null rather than skipping the call
+ * keeps the hook order fixed while handing the moment to the parent.
  */
-function useJustArrived(run: AgentRun): boolean {
-  return useArrival(isTerminalStatus(run.status) ? run.id : null, run.updatedAt)
+function useJustArrived(run: AgentRun, orchestrated: boolean): boolean {
+  const eligible = !orchestrated && isTerminalStatus(run.status)
+  return useArrival(eligible ? run.id : null, run.updatedAt)
 }
 
 /** Fraction of a budget past which it's worth warning rather than just reporting. */
@@ -116,6 +118,62 @@ function BudgetMeters({ run }: { run: AgentRun }): JSX.Element {
   )
 }
 
+/**
+ * States the homecoming in words: several runs finished unattended and you've
+ * just come back to find them.
+ *
+ * Stays until dismissed or acted on, unlike the beam that announces it. Motion
+ * is bounded because it's a performance; this is a fact about the list, and
+ * facts don't expire on a timer.
+ */
+function AwayBand({
+  runs,
+  filtered,
+  onShow,
+  onClearFilter,
+  onDismiss
+}: {
+  runs: AgentRun[]
+  filtered: boolean
+  onShow: () => void
+  onClearFilter: () => void
+  onDismiss: () => void
+}): JSX.Element {
+  const counts = { done: 0, stopped: 0, error: 0, 'needs-review': 0, running: 0 }
+  runs.forEach((run) => (counts[run.status] += 1))
+  const parts = [
+    counts.done > 0 ? `${counts.done} done` : null,
+    counts['needs-review'] > 0 ? `${counts['needs-review']} needs review` : null,
+    counts.stopped > 0 ? `${counts.stopped} stopped` : null,
+    counts.error > 0 ? `${counts.error} failed` : null
+  ].filter(Boolean)
+  const newest = runs.reduce((latest, run) => Math.max(latest, run.updatedAt), 0)
+
+  return (
+    <section className={styles.awayBand} aria-label="Runs that finished while you were away">
+      <span className={styles.awayIcon}>
+        <Icon name="layers" size={15} />
+      </span>
+      <span className={styles.awayText}>
+        <span className={styles.awayTitle}>{runs.length} runs finished while you were away</span>
+        <span className={styles.awayDetail}>
+          {parts.join(' · ')} — the last one landed {formatRelativeTime(newest)}
+        </span>
+      </span>
+      <button
+        type="button"
+        className={styles.awayAction}
+        onClick={filtered ? onClearFilter : onShow}
+      >
+        {filtered ? 'Show all runs' : 'Show only these'}
+      </button>
+      <button type="button" className={styles.awayDismiss} onClick={onDismiss}>
+        Dismiss
+      </button>
+    </section>
+  )
+}
+
 type StatusFilter = AgentRunStatus | 'all'
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
@@ -134,7 +192,10 @@ function RunCard({
   openRun,
   handleStop,
   retryRun,
-  deleteRun
+  deleteRun,
+  orchestrated = false,
+  spotlit = false,
+  cardRef
 }: {
   run: AgentRun
   stoppingId: string | null
@@ -143,13 +204,20 @@ function RunCard({
   handleStop: (run: AgentRun) => void
   retryRun: (run: AgentRun) => void
   deleteRun: (run: AgentRun) => void
+  /** The view is announcing this landing itself; don't self-announce. */
+  orchestrated?: boolean
+  /** The homecoming beam is resting on this run right now. */
+  spotlit?: boolean
+  cardRef?: (element: HTMLDivElement | null) => void
 }): JSX.Element {
-  const justArrived = useJustArrived(run)
+  const justArrived = useJustArrived(run, orchestrated)
+  const arrived = orchestrated ? spotlit : justArrived
 
   return (
     <div
+      ref={cardRef}
       className={`${styles.runCard} ${styles[`runCard-${run.status}`]} ${
-        justArrived ? styles.arrived : ''
+        arrived ? styles.arrived : ''
       }`}
     >
       {run.status === 'running' && (
@@ -259,6 +327,7 @@ function RunCard({
  */
 export function AgentView(): JSX.Element {
   const runs = useAgentStore((s) => s.runs)
+  const loaded = useAgentStore((s) => s.loaded)
   const stopRun = useAgentStore((s) => s.stop)
   const deleteRun = useAgentStore((s) => s.delete)
   const approveRunPlan = useAgentStore((s) => s.approvePlan)
@@ -275,13 +344,33 @@ export function AgentView(): JSX.Element {
   const [decidingId, setDecidingId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [awayOnly, setAwayOnly] = useState(false)
+
+  const away = useAwayArrivals(runs, loaded)
+  const listRef = useRef<HTMLDivElement>(null)
+  const cardEls = useRef(new Map<string, HTMLDivElement>())
+  const [beamTop, setBeamTop] = useState<number | null>(null)
+
+  // The beam is positioned from the spotlit card's own box rather than a row
+  // height guess, so it stays on the run it's announcing however tall that
+  // card happens to be (goals wrap to two lines, summaries don't always exist).
+  useEffect(() => {
+    if (away.spotlightId === null) return
+    const element = cardEls.current.get(away.spotlightId)
+    if (!element) return
+    setBeamTop(element.offsetTop + element.offsetHeight / 2)
+  }, [away.spotlightId])
 
   // Read the drilled-into run from `runs` (not held in state) so a run finishing
   // or taking a turn while its log is open updates in place, never a stale copy.
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null
 
-  const visibleRuns =
-    statusFilter === 'all' ? runs : runs.filter((run) => run.status === statusFilter)
+  const awayIds = new Set(away.runs.map((run) => run.id))
+  const visibleRuns = awayOnly
+    ? runs.filter((run) => awayIds.has(run.id))
+    : statusFilter === 'all'
+      ? runs
+      : runs.filter((run) => run.status === statusFilter)
 
   const closeEditor = (): void => {
     setCreating(false)
@@ -412,15 +501,36 @@ export function AgentView(): JSX.Element {
       </header>
 
       <div className={styles.body}>
+        {away.runs.length > 0 && !away.dismissed && (
+          <AwayBand
+            runs={away.runs}
+            filtered={awayOnly}
+            onShow={() => {
+              setAwayOnly(true)
+              setStatusFilter('all')
+            }}
+            onClearFilter={() => setAwayOnly(false)}
+            onDismiss={() => {
+              setAwayOnly(false)
+              away.dismiss()
+            }}
+          />
+        )}
+
         {runs.length > 0 && (
           <div className={styles.filterRow}>
             {STATUS_FILTERS.map((filter) => (
               <button
                 key={filter.value}
                 type="button"
-                className={`${styles.filterTab} ${statusFilter === filter.value ? styles.filterTabActive : ''}`}
-                onClick={() => setStatusFilter(filter.value)}
-                aria-pressed={statusFilter === filter.value}
+                className={`${styles.filterTab} ${
+                  !awayOnly && statusFilter === filter.value ? styles.filterTabActive : ''
+                }`}
+                onClick={() => {
+                  setAwayOnly(false)
+                  setStatusFilter(filter.value)
+                }}
+                aria-pressed={!awayOnly && statusFilter === filter.value}
               >
                 {filter.label}
               </button>
@@ -438,7 +548,14 @@ export function AgentView(): JSX.Element {
             <p>No {statusFilter} runs.</p>
           </div>
         ) : (
-          <div className={styles.runList}>
+          <div className={styles.runList} ref={listRef}>
+            {away.sweeping && beamTop !== null && (
+              <span
+                className={styles.sweepBeam}
+                style={{ top: `${beamTop}px` }}
+                aria-hidden="true"
+              />
+            )}
             {visibleRuns.map((run) => (
               <RunCard
                 key={run.id}
@@ -449,6 +566,12 @@ export function AgentView(): JSX.Element {
                 handleStop={(r) => void handleStop(r)}
                 retryRun={retryRun}
                 deleteRun={(r) => void handleDelete(r)}
+                orchestrated={away.orchestrated(run.id)}
+                spotlit={away.spotlightId === run.id}
+                cardRef={(element) => {
+                  if (element) cardEls.current.set(run.id, element)
+                  else cardEls.current.delete(run.id)
+                }}
               />
             ))}
           </div>
