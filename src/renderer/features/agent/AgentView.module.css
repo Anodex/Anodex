@@ -195,8 +195,40 @@
   border-left-color: var(--accent);
 }
 
+/* A run paused in needs-review has produced a plan, stopped, and will sit there
+   indefinitely until a human answers. As a static border it carried the same
+   weight as a run that finished hours ago and needs nothing from anyone.
+
+   This reuses `ToolConfirmCard`'s pulsing accent edge verbatim, because it is
+   the same request: a run asking for plan approval should feel like a tool
+   asking for confirmation in chat. It's also the one place an indefinite loop
+   is honest — the waiting genuinely is indefinite, and it ends the moment you
+   answer.
+
+   The static border has to clear first. `--info` and `--accent` are the same
+   hex, so a pulse laid over an identical solid border is very nearly a no-op:
+   the border shows through at every opacity the pulse reaches. */
 .runCard-needs-review {
-  border-left-color: var(--info);
+  border-left-color: transparent;
+}
+
+.runCard-needs-review::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 3px;
+  background: var(--info);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  animation: waitingEdgePulse 1.8s ease-in-out infinite;
+}
+
+@keyframes waitingEdgePulse {
+  50% {
+    opacity: 0.3;
+    box-shadow: 0 0 16px color-mix(in srgb, var(--info) 55%, transparent);
+  }
 }
 
 .runCard-done {
