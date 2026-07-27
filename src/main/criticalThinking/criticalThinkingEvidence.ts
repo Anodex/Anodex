@@ -306,20 +306,79 @@ function passagesForCitations(
   })
 }
 
-/** Convert validated internal IDs into deterministic clickable Markdown links. */
+/**
+ * Locates the report's own "Sources" section, so its body can be replaced with
+ * a generated reference list rather than left as a row of bare markers. Ends at
+ * the next heading of the same or higher level — the section is not always last
+ * (a "Conclusion" often follows it), so scanning to the end of the report would
+ * swallow real content.
+ */
+function findSourcesSection(report: string): { start: number; end: number } | null {
+  const heading = /^(#{1,6})[ \t]*sources[ \t]*$/im.exec(report)
+  if (!heading) return null
+  const level = heading[1].length
+  const start = heading.index + heading[0].length
+  const rest = report.slice(start)
+  const next = new RegExp(`^#{1,${level}}[ \\t]+\\S`, 'm').exec(rest)
+  return { start, end: next ? start + next.index : report.length }
+}
+
+/**
+ * Convert validated internal IDs into clickable numbered references.
+ *
+ * Citations used to expand into the source's full page title — up to 160
+ * characters — inline, mid-sentence. Because a handful of sources get cited
+ * many times over, that made citation markup roughly 40% of a finished report
+ * and turned dense passages into unreadable walls; a citation cluster between
+ * two sentences could run longer than either sentence. Numbers carry the same
+ * link and the same traceability at three characters, with the titles listed
+ * once under "Sources".
+ *
+ * Numbering follows first appearance in the body, so a reader meeting [1] has
+ * not yet seen [2]. The report's own Sources section is excluded from that scan
+ * — it names every source and would otherwise fix the order before the prose
+ * ever gets a say — and its body is then replaced with the generated list.
+ */
 export function renderResearchCitations(report: string, sources: CriticalThinkingSource[]): string {
   const sourceById = new Map(trustedVerifiedSources(sources).map((source) => [source.id, source]))
-  return report
-    .split(/(```[\s\S]*?```)/g)
-    .map((block) => {
-      if (block.startsWith('```chart')) return renderChartCitation(block, sourceById)
-      if (block.startsWith('```')) return block
-      return block.replace(/\[\[(S\d+)(?::(P\d+))?\]\]/g, (marker, sourceId: string) => {
-        const source = sourceById.get(sourceId)
-        return source ? markdownCitation(source) : marker
+  const numbers = new Map<string, number>()
+  const ordered: CriticalThinkingSource[] = []
+
+  const numberFor = (sourceId: string): number | null => {
+    const source = sourceById.get(sourceId)
+    if (!source) return null
+    const existing = numbers.get(sourceId)
+    if (existing !== undefined) return existing
+    const next = ordered.push(source)
+    numbers.set(sourceId, next)
+    return next
+  }
+
+  const renderBody = (text: string): string =>
+    text
+      .split(/(```[\s\S]*?```)/g)
+      .map((block) => {
+        if (block.startsWith('```chart')) return renderChartCitation(block, sourceById, numberFor)
+        if (block.startsWith('```')) return block
+        return block.replace(/\[\[(S\d+)(?::(P\d+))?\]\]/g, (marker, sourceId: string) => {
+          const source = sourceById.get(sourceId)
+          if (!source) return marker
+          return numberedCitation(numberFor(sourceId)!, source)
+        })
       })
-    })
-    .join('')
+      .join('')
+
+  const section = findSourcesSection(report)
+  if (!section) return renderBody(report)
+
+  // Rendered before the list is built, so the list reflects the order the prose
+  // actually introduced each source.
+  const head = renderBody(report.slice(0, section.start))
+  const tail = renderBody(report.slice(section.end))
+  const list = ordered
+    .map((source, index) => `${index + 1}. ${markdownCitation(source)}`)
+    .join('\n')
+  return `${head}\n\n${list || '_No verified sources were cited._'}\n${tail}`
 }
 
 function validateCitationCoverage(report: string, collector: IssueCollector): void {
@@ -387,7 +446,8 @@ function wordCount(value: string): number {
 
 function renderChartCitation(
   block: string,
-  sourceById: Map<string, CriticalThinkingSource>
+  sourceById: Map<string, CriticalThinkingSource>,
+  numberFor: (sourceId: string) => number | null
 ): string {
   const match = /^```chart\s*([\s\S]*?)```$/.exec(block)
   if (!match) return block
@@ -397,11 +457,21 @@ function renderChartCitation(
     const sourceId = /\[\[(S\d+)(?::P\d+)?\]\]/.exec(chart.source)?.[1]
     const source = sourceId ? sourceById.get(sourceId) : undefined
     if (!source) return block
+    // A chart's source is a standalone caption, not something a reader has to
+    // step over mid-sentence, so it keeps the full title — but it still claims
+    // a number, so the same source reads as the same reference everywhere.
+    numberFor(sourceId!)
     chart.source = markdownCitation(source)
     return `\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\``
   } catch {
     return block
   }
+}
+
+/** A citation a reader can step over: the reference number, linking to the source. */
+function numberedCitation(index: number, source: CriticalThinkingSource): string {
+  const url = source.url.replace(/\\/g, '%5C').replace(/\(/g, '%28').replace(/\)/g, '%29')
+  return `[${index}](${url})`
 }
 
 function markdownCitation(source: CriticalThinkingSource): string {

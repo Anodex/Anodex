@@ -339,15 +339,74 @@ describe('Critical Thinking evidence pipeline', () => {
     })
   })
 
-  it('renders only known validated markers as deterministic Markdown links', () => {
+  it('renders only known validated markers, as numbered references', () => {
     expect(renderResearchCitations('Supported [[S1:P1]].', sources)).toBe(
-      'Supported [Primary study](https://example.com/study).'
+      'Supported [1](https://example.com/study).'
     )
     expect(
       renderResearchCitations('Unsafe [[S9]].', [
         { id: 'S9', title: 'Unsafe source', url: 'javascript:alert(1)', verified: true }
       ])
     ).toBe('Unsafe [[S9]].')
+  })
+
+  it('reuses one number for a source however many times it is cited', () => {
+    const twoSources: CriticalThinkingSource[] = [
+      ...sources,
+      { id: 'S2', title: 'Second study', url: 'https://example.com/second', verified: true }
+    ]
+    const rendered = renderResearchCitations(
+      'First [[S1]]. Second [[S2:P3]]. First again [[S1:P9]].',
+      twoSources
+    )
+    expect(rendered).toBe(
+      'First [1](https://example.com/study). Second [2](https://example.com/second). ' +
+        'First again [1](https://example.com/study).'
+    )
+  })
+
+  it('numbers by first appearance in the prose, not by source id', () => {
+    const twoSources: CriticalThinkingSource[] = [
+      ...sources,
+      { id: 'S2', title: 'Second study', url: 'https://example.com/second', verified: true }
+    ]
+    const rendered = renderResearchCitations('Later source first [[S2]], then [[S1]].', twoSources)
+    expect(rendered).toContain('[1](https://example.com/second)')
+    expect(rendered).toContain('[2](https://example.com/study)')
+  })
+
+  it('replaces the report’s Sources section with a numbered reference list', () => {
+    const twoSources: CriticalThinkingSource[] = [
+      ...sources,
+      { id: 'S2', title: 'Second study', url: 'https://example.com/second', verified: true }
+    ]
+    const report = [
+      '## Findings',
+      '',
+      'A claim [[S1]] and another [[S2]].',
+      '',
+      '## Sources',
+      '',
+      '[[S1]] [[S2]]',
+      '',
+      '## Conclusion',
+      '',
+      'Done.'
+    ].join('\n')
+    const rendered = renderResearchCitations(report, twoSources)
+
+    expect(rendered).toContain('1. [Primary study](https://example.com/study)')
+    expect(rendered).toContain('2. [Second study](https://example.com/second)')
+    // The section is not the last one; what follows it must survive.
+    expect(rendered).toContain('## Conclusion')
+    expect(rendered.trimEnd().endsWith('Done.')).toBe(true)
+    // The bare markers that used to sit in that section are gone.
+    expect(rendered).not.toContain('[[S1]] [[S2]]')
+  })
+
+  it('says so plainly when a report cites nothing verifiable', () => {
+    const report = '## Findings\n\nNo citations here.\n\n## Sources\n\n[[S404]]\n'
+    expect(renderResearchCitations(report, sources)).toContain('No verified sources were cited.')
   })
 
   it('sanitizes source titles and rewrites chart citations without corrupting JSON', () => {
