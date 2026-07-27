@@ -455,8 +455,39 @@ interface RunDetailProps {
   onExportPdf: () => void
 }
 
+/**
+ * True once, for the run whose first report text this component watched appear.
+ *
+ * A run spends minutes searching and reading before any of the answer exists,
+ * and the transition from nothing to the opening paragraph is the moment the
+ * answer starts being real — the same thinking-to-words handoff `MessageBubble`
+ * marks in chat, at a much larger scale and once per run.
+ *
+ * Gated on witnessing the transition: opening a finished run, or switching to
+ * one in the history list, starts from "already had a report" and flares
+ * nothing. A report that was there before this mounted was not an arrival.
+ */
+function useReportFirstLight(runId: string, hasReport: boolean): boolean {
+  const [flared, setFlared] = useState(false)
+  const watching = useRef<{ runId: string; hadReport: boolean } | null>(null)
+
+  useEffect(() => {
+    const previous = watching.current
+    watching.current = { runId, hadReport: hasReport }
+    // A different run is a fresh observation, never an arrival on its own.
+    if (previous === null || previous.runId !== runId) {
+      setFlared(false)
+      return
+    }
+    if (!previous.hadReport && hasReport) setFlared(true)
+  }, [runId, hasReport])
+
+  return flared
+}
+
 function RunDetail(props: RunDetailProps): JSX.Element {
   const { run } = props
+  const firstLight = useReportFirstLight(run.id, Boolean(run.report))
   const active = isActiveStatus(run.status)
   const lifetimeEvidenceLimit = run.steps.some(
     (step) => step.terminationReason === 'evidence-limit'
@@ -591,7 +622,9 @@ function RunDetail(props: RunDetailProps): JSX.Element {
         <>
           <CriticalThinkingProgress run={run} />
           {(run.status === 'synthesizing' || run.status === 'validating') && run.report ? (
-            <section className={styles.reportCard}>
+            <section
+              className={`${styles.reportCard} ${firstLight ? styles.reportFirstLight : ''}`}
+            >
               <div className={styles.writingLabel}>
                 <Spinner size={12} /> Writing report
               </div>

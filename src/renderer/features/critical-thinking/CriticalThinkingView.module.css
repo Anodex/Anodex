@@ -737,6 +737,40 @@
   padding: clamp(var(--space-4), 4vw, var(--space-7));
 }
 
+/* First light: the run spent minutes gathering, and this is the moment any of
+   the answer exists. One band of accent passes over the opening text, the same
+   way chat marks its thinking-to-words handoff. Fires only when the transition
+   was witnessed live — see `useReportFirstLight`. */
+.reportFirstLight {
+  position: relative;
+  overflow: hidden;
+}
+
+.reportFirstLight::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 34%,
+    color-mix(in srgb, var(--accent) 11%, transparent) 46%,
+    color-mix(in srgb, var(--accent-cyan) 16%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 11%, transparent) 54%,
+    transparent 66%
+  );
+  animation: reportFirstLight 820ms var(--ease-out, ease-out) 120ms both;
+}
+
+@keyframes reportFirstLight {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
 .writingLabel {
   display: flex;
   align-items: center;
