@@ -27,6 +27,7 @@ import {
   createVisualInputQueue,
   drainVisualInputs,
   isValidVisionImageInput,
+  LOCAL_VISION_MIME_TYPES,
   MAX_VISION_IMAGES,
   reopenChatImage,
   type VisualInputQueue
@@ -84,7 +85,7 @@ export class LlamaVisionService {
       timeout: 15 * 60_000,
       maxRetries: 0
     })
-    const visualInputs = createVisualInputQueue()
+    const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, LOCAL_VISION_MIME_TYPES)
     const allToolFunctions = params.tools
       ? this.buildToolFunctions(params, visualInputs)
       : undefined

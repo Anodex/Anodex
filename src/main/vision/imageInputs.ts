@@ -12,6 +12,19 @@ export const CLOUD_VISION_MIME_TYPES = new Set([
   'image/gif',
   'image/webp'
 ])
+/**
+ * What the local llama.cpp transport can decode. Deliberately not the same set
+ * as the cloud one: llama.cpp decodes with stb_image, which handles BMP but not
+ * WebP. Workspace inspection never produced either mismatch (its extension
+ * allow-list stops at BMP), but an email attachment is whatever the sender
+ * chose, so the local queue needs a real gate rather than an assumption.
+ */
+export const LOCAL_VISION_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/bmp'
+])
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp'])
 const SUPPORTED_DATA_URL = /^data:image\/(?:png|jpeg|gif|bmp|webp);base64,/i
@@ -42,18 +55,39 @@ export function visionImageMimeType(path: string): string | null {
 
 /** Verify that a supported extension agrees with the file's leading signature bytes. */
 export function hasExpectedVisionImageSignature(path: string, buffer: Buffer): boolean {
-  switch (extname(path).toLowerCase()) {
-    case '.png':
+  // The extension allow-list stays authoritative for file-backed images, so a
+  // `.webp` on disk is still refused here exactly as it was before this check
+  // learned to work from MIME types too.
+  if (!isSupportedVisionImagePath(path)) return false
+  const mimeType = visionImageMimeType(path)
+  return mimeType ? matchesVisionImageSignature(mimeType, buffer) : false
+}
+
+/**
+ * Verify bytes against the format their MIME type claims.
+ *
+ * The path-based check above cannot serve content that never touches disk — an
+ * email attachment arrives as a buffer plus a sender-supplied MIME type, and a
+ * sender-supplied type is a claim, not evidence. Checking the leading bytes is
+ * what keeps "image/png" from being an arbitrary payload handed to a decoder.
+ */
+export function matchesVisionImageSignature(mimeType: string, buffer: Buffer): boolean {
+  switch (mimeType.toLowerCase()) {
+    case 'image/png':
       return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-    case '.jpg':
-    case '.jpeg':
+    case 'image/jpeg':
       return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
-    case '.gif': {
+    case 'image/gif': {
       const signature = buffer.subarray(0, 6).toString('ascii')
       return signature === 'GIF87a' || signature === 'GIF89a'
     }
-    case '.bmp':
+    case 'image/bmp':
       return buffer.subarray(0, 2).toString('ascii') === 'BM'
+    case 'image/webp':
+      return (
+        buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+        buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+      )
     default:
       return false
   }
@@ -93,6 +127,54 @@ export async function readVisionImage(path: string, name: string): Promise<ChatI
     sizeBytes: info.size,
     dataUrl: `data:${mimeType};base64,${data.toString('base64')}`
   }
+}
+
+/**
+ * Validate image bytes that never touched the filesystem — today, an email
+ * attachment fetched straight from a provider.
+ *
+ * `reference` fills `ChatImageInput.path`, which for this source is a label
+ * rather than a location: nothing reads it back off disk (providers use
+ * `dataUrl` alone), and deliberately keeping it non-path-shaped means no later
+ * caller can mistake it for something readable.
+ */
+export function readVisionImageBuffer(
+  data: Buffer,
+  options: { name: string; mimeType: string; reference: string }
+): ChatImageInput {
+  const mimeType = options.mimeType.toLowerCase()
+  if (!VISION_IMAGE_MIME_TYPES.has(mimeType)) {
+    throw new Error(
+      `"${options.name}" is ${options.mimeType || 'an unknown type'}, which cannot be viewed as an image. Supported: PNG, JPEG, GIF, BMP, WebP.`
+    )
+  }
+  if (data.length <= 0 || data.length > MAX_VISION_IMAGE_BYTES) {
+    throw new Error(`"${options.name}" must be larger than 0 bytes and smaller than 15 MB.`)
+  }
+  if (!matchesVisionImageSignature(mimeType, data)) {
+    throw new Error(`"${options.name}" does not contain valid ${options.mimeType} image data.`)
+  }
+  return {
+    path: options.reference,
+    name: options.name,
+    mimeType,
+    sizeBytes: data.length,
+    dataUrl: `data:${mimeType};base64,${data.toString('base64')}`
+  }
+}
+
+/** Every raster type any provider here can accept; the queue narrows per provider. */
+const VISION_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/bmp',
+  'image/webp'
+])
+
+/** True for a MIME type worth offering to a vision model at all. */
+export function isVisionImageMimeType(mimeType: string): boolean {
+  return VISION_IMAGE_MIME_TYPES.has(mimeType.toLowerCase())
 }
 
 /** Reopen persisted attachment metadata without ever persisting its image bytes. */
