@@ -1,8 +1,8 @@
 import { lookup } from 'node:dns/promises'
 import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
-import { convert } from 'html-to-text'
 import { Agent } from 'undici'
+import { htmlToReadableText } from './htmlToText'
 import type { EvidencePassage, WebFetchArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ToolFactory } from './types'
 import { recordToolArtifact } from './types'
@@ -296,12 +296,16 @@ async function readResponseBody(
 
 /**
  * A passage that is a long run of short list-marker-delimited items with
- * essentially no sentence structure is navigation/menu/footer chrome that
- * `html-to-text` flattened, not readable prose — observed live: a
+ * essentially no sentence structure is navigation/menu/footer chrome rather
+ * than readable prose — observed live: a
  * bee-products shop's menu ("Body care * Massage oils * Soaps * Foot care …")
  * and a video page's footer both got extracted and then verified as research
  * "evidence." Rejecting these by structure keeps junk out of the evidence
  * packet and the report generically, without a host-by-host denylist.
+ *
+ * Kept as a second line of defence now that `htmlToReadableText` drops page
+ * chrome at the source: it can only do that for pages that mark their nav and
+ * footers as such, and plenty mark nothing.
  * Deliberately conservative — it takes 6+ list markers AND at most one
  * sentence-ending punctuation mark, so a genuine bulleted list of
  * full-sentence findings (e.g. first-aid steps) is kept.
@@ -558,12 +562,7 @@ function extractPageEvidence(
             return
           }
           try {
-            const text = convert(body, {
-              selectors: [
-                { selector: 'a', options: { ignoreHref: true } },
-                { selector: 'img', format: 'skip' }
-              ]
-            }).trim()
+            const text = htmlToReadableText(body)
             resolve({
               title: extractHtmlTitle(body),
               contentHash: createHash('sha256').update(body).digest('hex'),
