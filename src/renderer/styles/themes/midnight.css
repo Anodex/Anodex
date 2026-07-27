@@ -47,6 +47,23 @@
   --accent-hover: #3d7be8;
   --accent-soft: rgba(79, 140, 255, 0.12);
 
+  /* Chart series — categorical identity for research charts, in fixed order.
+     NOT derived from --accent: this palette is deliberately monochromatic, and
+     --accent against --accent-violet measures ΔE 11.5 in normal vision, under
+     the 15 floor — two series nobody could tell apart. A brand this restrained
+     can anchor a categorical palette but cannot donate one.
+
+     Computed per surface rather than picked, with lightness staggered so the
+     pairs that collapse under deuteranopia (pink vs teal, ΔE 1.3 on hue alone)
+     separate on lightness instead. Validated all-pairs against --bg-surface:
+     worst deutan ΔE 12.0, every check passing. Light mode has its own steps in
+     ./light.css — it is a re-stepping, not a dimming. Re-validate before
+     changing any value here. */
+  --series-1: #6e53ff;
+  --series-2: #00ac8f;
+  --series-3: #b67700;
+  --series-4: #c3006b;
+
   /* Status */
   --success: #3ccf7a;
   --success-soft: rgba(60, 207, 122, 0.12);

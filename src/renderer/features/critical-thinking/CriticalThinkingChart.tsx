@@ -2,7 +2,22 @@ import type { ReactNode } from 'react'
 import type { CriticalThinkingChartSpec } from './criticalThinkingCharts'
 import styles from './CriticalThinkingChart.module.css'
 
-const COLORS = ['#7165e8', '#16a085', '#e09b36', '#d45f8c']
+/**
+ * Categorical series colours, in fixed order, read from the theme rather than
+ * baked in — the previous hardcoded set was one palette painted onto two very
+ * different surfaces, too light against near-black and under 3:1 against cream.
+ * Each mode now supplies its own steps; see the note in `themes/midnight.css`.
+ *
+ * Applied through `style` rather than the `fill`/`stroke` presentation
+ * attributes, which don't resolve `var()`.
+ *
+ * KNOWN GAP: callers below still wrap with `% COLORS.length` for pie charts, so
+ * a fifth slice repeats the first slice's colour. Cycling a categorical palette
+ * makes two categories indistinguishable; the fix is to fold the tail into an
+ * "Other" slice rather than to invent a fifth hue, which is a change to what
+ * the chart *says* and wants its own decision.
+ */
+const COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)']
 const WIDTH = 720
 const HEIGHT = 350
 const LEFT = 66
@@ -42,7 +57,7 @@ function Legend({ spec }: { spec: CriticalThinkingChartSpec }): JSX.Element | nu
     <g aria-hidden="true">
       {spec.datasets.map((dataset, index) => (
         <g key={dataset.label} transform={`translate(${LEFT + index * 150}, 16)`}>
-          <rect width="11" height="11" rx="2" fill={COLORS[index]} />
+          <rect width="11" height="11" rx="2" style={{ fill: COLORS[index] }} />
           <text x="17" y="10" className={styles.legendText}>
             {shortLabel(dataset.label)}
           </text>
@@ -112,7 +127,7 @@ function CartesianChart({ spec }: { spec: CriticalThinkingChartSpec }): JSX.Elem
                   width={Math.max(2, barWidth - 2)}
                   height={Math.max(1, Math.abs(zeroY - valueY))}
                   rx="2"
-                  fill={COLORS[datasetIndex]}
+                  style={{ fill: COLORS[datasetIndex] }}
                 >
                   <title>{`${dataset.label}, ${spec.labels[valueIndex]}: ${formatValue(value, spec.unit)}`}</title>
                 </rect>
@@ -131,7 +146,7 @@ function CartesianChart({ spec }: { spec: CriticalThinkingChartSpec }): JSX.Elem
                 <polyline
                   points={points.map((point) => `${point.x},${point.y}`).join(' ')}
                   fill="none"
-                  stroke={COLORS[datasetIndex]}
+                  style={{ stroke: COLORS[datasetIndex] }}
                   strokeWidth="3"
                   strokeLinejoin="round"
                   strokeLinecap="round"
@@ -142,7 +157,7 @@ function CartesianChart({ spec }: { spec: CriticalThinkingChartSpec }): JSX.Elem
                     cx={point.x}
                     cy={point.y}
                     r="4"
-                    fill={COLORS[datasetIndex]}
+                    style={{ fill: COLORS[datasetIndex] }}
                   >
                     <title>{`${dataset.label}, ${point.label}: ${formatValue(point.value, spec.unit)}`}</title>
                   </circle>
@@ -180,7 +195,7 @@ function PieChart({ spec }: { spec: CriticalThinkingChartSpec }): JSX.Element {
             : `M ${centerX} ${centerY} L ${pointOnCircle(centerX, centerY, radius, start)} A ${radius} ${radius} 0 ${slice > Math.PI ? 1 : 0} 1 ${pointOnCircle(centerX, centerY, radius, end)} Z`
         const label = `${spec.labels[index]}: ${formatValue(value, spec.unit)} (${Math.round((value / total) * 100)}%)`
         return path ? (
-          <path key={spec.labels[index]} d={path} fill={COLORS[index % COLORS.length]}>
+          <path key={spec.labels[index]} d={path} style={{ fill: COLORS[index % COLORS.length] }}>
             <title>{label}</title>
           </path>
         ) : (
@@ -189,7 +204,7 @@ function PieChart({ spec }: { spec: CriticalThinkingChartSpec }): JSX.Element {
             cx={centerX}
             cy={centerY}
             r={radius}
-            fill={COLORS[index % COLORS.length]}
+            style={{ fill: COLORS[index % COLORS.length] }}
           >
             <title>{label}</title>
           </circle>
@@ -197,7 +212,7 @@ function PieChart({ spec }: { spec: CriticalThinkingChartSpec }): JSX.Element {
       })}
       {spec.labels.map((label, index) => (
         <g key={label} transform={`translate(390, ${55 + index * 31})`}>
-          <rect width="12" height="12" rx="2" fill={COLORS[index % COLORS.length]} />
+          <rect width="12" height="12" rx="2" style={{ fill: COLORS[index % COLORS.length] }} />
           <text x="20" y="11" className={styles.legendText}>
             {`${shortLabel(label)} - ${Math.round((values[index] / total) * 100)}%`}
           </text>
