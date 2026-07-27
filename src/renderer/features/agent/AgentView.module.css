@@ -364,6 +364,70 @@
   color: var(--warn);
 }
 
+/* Three budgets as hairlines rather than accounting inside the status pill.
+   `maxDurationMinutes` gets one too — it's enforced by the run loop but until
+   now appeared nowhere in the list, so a run could be stopped by a limit the
+   UI had never mentioned. */
+.meters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-top: var(--space-1);
+}
+
+.meter {
+  display: flex;
+  flex: 1 1 108px;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 108px;
+}
+
+.meterHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--text-2xs);
+}
+
+.meterHead b {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.meterTrack {
+  height: 2px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.meterFill {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--radius-pill);
+  transition: width var(--transition);
+}
+
+.meterWarn .meterFill {
+  background: var(--warn);
+}
+
+.meterWarn .meterHead b {
+  color: var(--warn);
+}
+
+/* An unlimited run has no ceiling to fill against, so it gets a broken rule
+   rather than a bar sitting at some arbitrary fraction. */
+.openEndedRule {
+  height: 2px;
+  background: repeating-linear-gradient(to right, var(--border-strong) 0 4px, transparent 4px 8px);
+}
+
 .runResult {
   display: -webkit-box;
   margin: 0;

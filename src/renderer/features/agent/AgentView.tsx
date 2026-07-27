@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AgentRun, AgentRunStatus } from '@shared/agentRun.types'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
@@ -32,6 +32,88 @@ import styles from './AgentView.module.css'
  */
 function useJustArrived(run: AgentRun): boolean {
   return useArrival(isTerminalStatus(run.status) ? run.id : null, run.updatedAt)
+}
+
+/** Fraction of a budget past which it's worth warning rather than just reporting. */
+const BUDGET_WARN_AT = 0.8
+
+/**
+ * Re-renders a running card every half minute so its elapsed-time budget keeps
+ * up. Without it the time meter only advances when a turn completes, which on a
+ * slow local model means a bar that sits still for minutes while the budget it
+ * describes is genuinely draining.
+ */
+function useElapsedTick(active: boolean): void {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const timer = setInterval(() => setTick((value) => value + 1), 30_000)
+    return () => clearInterval(timer)
+  }, [active])
+}
+
+/**
+ * A run's budgets as three hairlines instead of thirty-odd characters of
+ * accounting inside the status pill. "Nearly out of turns" becomes a glance
+ * rather than a subtraction, and the token bar tints toward `--warn` as it
+ * approaches a ceiling that costs real money.
+ *
+ * An unlimited run gets no fill at all — there is no ceiling to draw against,
+ * so it shows the raw counts over a dashed rule. You can't fill something with
+ * no end, and pretending otherwise would be the one dishonest thing this could
+ * do.
+ */
+function BudgetMeters({ run }: { run: AgentRun }): JSX.Element {
+  useElapsedTick(run.status === 'running')
+  const elapsedMinutes = (Date.now() - run.createdAt) / 60_000
+
+  const meters = run.limitsEnabled
+    ? [
+        {
+          label: 'Turns',
+          text: `${run.turnsUsed}/${run.maxTurns}`,
+          fraction: run.turnsUsed / run.maxTurns
+        },
+        {
+          label: 'Tokens',
+          text: `${formatCompactTokens(run.tokensUsed)}/${formatCompactTokens(run.maxTokens)}`,
+          fraction: run.tokensUsed / run.maxTokens
+        },
+        {
+          label: 'Time',
+          text: `${Math.floor(elapsedMinutes)}/${run.maxDurationMinutes} min`,
+          fraction: elapsedMinutes / run.maxDurationMinutes
+        }
+      ]
+    : [
+        { label: 'Turns', text: String(run.turnsUsed), fraction: null },
+        { label: 'Tokens', text: formatCompactTokens(run.tokensUsed), fraction: null },
+        { label: 'Time', text: `${Math.floor(elapsedMinutes)} min`, fraction: null }
+      ]
+
+  return (
+    <div className={styles.meters}>
+      {meters.map((meter) => {
+        const clamped = meter.fraction === null ? null : Math.min(1, Math.max(0, meter.fraction))
+        const warn = clamped !== null && clamped >= BUDGET_WARN_AT
+        return (
+          <div key={meter.label} className={`${styles.meter} ${warn ? styles.meterWarn : ''}`}>
+            <span className={styles.meterHead}>
+              <span>{meter.label}</span>
+              <b>{meter.text}</b>
+            </span>
+            {clamped === null ? (
+              <span className={styles.openEndedRule} aria-hidden="true" />
+            ) : (
+              <span className={styles.meterTrack} aria-hidden="true">
+                <span className={styles.meterFill} style={{ width: `${clamped * 100}%` }} />
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 type StatusFilter = AgentRunStatus | 'all'
@@ -82,10 +164,6 @@ function RunCard({
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
               <Icon name={STATUS_ICON[run.status]} size={12} />
               {STATUS_LABEL[run.status]}
-              {run.status === 'running' &&
-                (run.limitsEnabled
-                  ? ` · turn ${run.turnsUsed}/${run.maxTurns} · ${formatCompactTokens(run.tokensUsed)}/${formatCompactTokens(run.maxTokens)} tokens`
-                  : ` · turn ${run.turnsUsed} · ${formatCompactTokens(run.tokensUsed)} tokens (unlimited)`)}
             </span>
             {projectName(run.projectId) && (
               <span className={styles.runProject}>{projectName(run.projectId)}</span>
@@ -117,6 +195,7 @@ function RunCard({
               </span>
             )}
           </div>
+          {run.status === 'running' && <BudgetMeters run={run} />}
           {(run.summary || run.lastError) && (
             <p
               className={`${styles.runResult} ${
