@@ -11,7 +11,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useUiStore } from '../../stores/uiStore'
 import { formatRelativeTime } from '../../lib/time'
-import { describeRecurrence, formatNextRun } from './scheduleFormat'
+import { describeRecurrence, formatNextRun, nextRunProgress, IMMINENT_MS } from './scheduleFormat'
 import { SchedulerTaskEditor, type SchedulerTaskEditorSeed } from './SchedulerTaskEditor'
 import { SchedulerConversation } from './SchedulerConversation'
 import { useCountdown } from './useCountdown'
@@ -123,8 +123,17 @@ function TaskCard({
   const justArrived = useJustArrived(task)
   const lastRunClass = task.lastRunAt ? styles[`taskCard-${task.lastRunStatus ?? 'success'}`] : ''
   // Re-renders this card on a timer so its next-run label counts down instead
-  // of freezing at whatever it read when the list was last drawn.
+  // of freezing at whatever it read when the list was last drawn. The rail
+  // below rides the same tick.
   useCountdown(task.enabled ? task.nextRunAt : null)
+
+  // The wait began at the previous run, or at creation for a task that has
+  // never run — see `nextRunProgress` for why this isn't derived from the
+  // recurrence period.
+  const progress = task.enabled
+    ? nextRunProgress(task.lastRunAt ?? task.createdAt, task.nextRunAt)
+    : null
+  const imminent = task.nextRunAt !== null && task.nextRunAt - Date.now() <= IMMINENT_MS
 
   return (
     <div
@@ -204,6 +213,11 @@ function TaskCard({
           <Icon name="trash" size={14} />
         </button>
       </div>
+      {progress !== null && (
+        <div className={`${styles.rail} ${imminent ? styles.railImminent : ''}`} aria-hidden="true">
+          <div className={styles.railFill} style={{ width: `${(progress * 100).toFixed(2)}%` }} />
+        </div>
+      )}
     </div>
   )
 }

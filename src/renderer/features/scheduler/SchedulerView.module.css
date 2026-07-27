@@ -119,6 +119,7 @@
 }
 
 .taskCard {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: var(--space-3);
@@ -130,6 +131,39 @@
 
 .taskCard:hover {
   border-color: var(--border-strong);
+}
+
+/* The wait to the next run, as a position rather than a sentence. This is a
+   *state*, not an animation: it advances at real-world rate, so on anything
+   longer than a few minutes it never visibly moves — it's there to be scanned
+   against the other cards, not watched. Drawn only when there's an honest
+   fraction to draw (see `nextRunProgress`), so a card that can't claim one
+   shows no track at all rather than an empty one. */
+.rail {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.railFill {
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  transition:
+    width 1s linear,
+    background var(--transition),
+    box-shadow var(--transition);
+}
+
+/* Inside the last minute the rail is the only thing that has to say "now",
+   so this is where it earns a full-strength accent. */
+.railImminent .railFill {
+  background: var(--accent);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 /* A paused task isn't going to do anything, and shouldn't carry the same weight
