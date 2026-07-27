@@ -22,6 +22,42 @@ directories:
 files:
   - out/**/*
   - package.json
+  # electron-builder copies production `node_modules` into the asar regardless
+  # of the patterns above. Most of that is genuinely needed — `externalizeDeps`
+  # keeps every main-process dependency out of the bundle so it resolves from
+  # node_modules at runtime. These two groups are not.
+  #
+  # 1. Renderer-only libraries. Vite bundles them into out/renderer, so their
+  #    package sources ship a second time for nothing. Verified: no file under
+  #    src/main or src/preload imports any of them. If that ever changes, the
+  #    app will fail at require-time in a packaged build but work in dev, so
+  #    re-check this list before moving one of them into the main process.
+  - '!node_modules/highlight.js/**/*'
+  - '!node_modules/@xterm/**/*'
+  - '!node_modules/zustand/**/*'
+  - '!node_modules/immer/**/*'
+  - '!node_modules/use-sync-external-store/**/*'
+  - '!node_modules/diff/**/*'
+  # 2. The parts of pdf.js that a text-only consumer never loads. Anodex uses
+  #    exactly one entry point, `pdfjs-dist/legacy/build/pdf.mjs` (see
+  #    email/attachmentText.ts), so the modern build, the viewer UI, the image
+  #    decoders, and the render-time font data are all dead weight. `cmaps` is
+  #    excluded because `cMapUrl` is not configured, so pdf.js cannot load them
+  #    anyway — wiring that up is what would improve CJK text extraction, not
+  #    shipping the files.
+  - '!node_modules/pdfjs-dist/build/**/*'
+  - '!node_modules/pdfjs-dist/web/**/*'
+  - '!node_modules/pdfjs-dist/image_decoders/**/*'
+  - '!node_modules/pdfjs-dist/cmaps/**/*'
+  - '!node_modules/pdfjs-dist/standard_fonts/**/*'
+  - '!node_modules/pdfjs-dist/types/**/*'
+  # Source maps for shipped dependencies: never read in production, and they
+  # are a large share of what several SDKs weigh. Note the narrow markdown
+  # pattern — a blanket `*.md` exclusion would also drop the `LICENSE.md`
+  # files some packages use, which are exactly what has to ship.
+  - '!node_modules/**/*.map'
+  - '!node_modules/**/{README,readme,CHANGELOG,changelog,CONTRIBUTING,SECURITY}.md'
+  - '!node_modules/**/{test,tests,__tests__,example,examples,docs}/**/*'
 # node-llama-cpp ships prebuilt binaries; keep them unpacked so they load at runtime.
 asarUnpack:
   - node_modules/node-llama-cpp/**/*
