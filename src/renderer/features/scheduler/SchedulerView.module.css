@@ -215,32 +215,53 @@
 }
 
 /* Sweeps back and forth (`alternate`) rather than looping one way — the
-   reversal is what reads as "working", the same way it does on a chat row. */
+   reversal is what reads as "working", the same way it does on a chat row.
+
+   Two layers, matching the real `runScan`: a soft halo spilling light onto the
+   card, and a narrow white-hot core on the edge itself. A single flat gradient
+   on a 2px sliver is legible in isolation and invisible in a list — the halo is
+   what makes the movement readable without making the card louder. */
 .wakeComet {
   position: absolute;
   z-index: 2;
   top: 0;
   bottom: 0;
   left: 0;
-  width: 2px;
+  width: 18px;
   overflow: hidden;
   pointer-events: none;
-  background: var(--accent-soft);
   border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+/* Same height and offset as the core, sharing one keyframe set, so the halo
+   stays centred on the core instead of trailing it. */
+.wakeCometHalo {
+  position: absolute;
+  top: -46%;
+  left: -8px;
+  width: 26px;
+  height: 46%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent) 50%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 38%,
+    transparent 72%
+  );
+  animation: wakeComet 2.1s var(--ease, ease-in-out) infinite alternate;
 }
 
 .wakeCometCore {
   position: absolute;
   top: -46%;
   left: 0;
-  width: 100%;
+  width: 2px;
   height: 46%;
   background: linear-gradient(
     to bottom,
     transparent,
-    color-mix(in srgb, var(--accent-cyan) 70%, transparent) 35%,
-    var(--accent) 50%,
-    color-mix(in srgb, var(--accent-violet) 70%, transparent) 65%,
+    var(--accent-cyan) 26%,
+    #eaf2ff 50%,
+    var(--accent-violet) 74%,
     transparent
   );
   animation: wakeComet 2.1s var(--ease, ease-in-out) infinite alternate;

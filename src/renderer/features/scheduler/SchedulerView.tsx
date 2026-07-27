@@ -181,6 +181,7 @@ function TaskCard({
     >
       {wake === 'running' && (
         <span className={styles.wakeComet} aria-hidden="true">
+          <span className={styles.wakeCometHalo} />
           <span className={styles.wakeCometCore} />
         </span>
       )}
