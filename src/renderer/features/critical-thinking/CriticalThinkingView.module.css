@@ -766,6 +766,78 @@
   border-radius: var(--radius-sm);
 }
 
+/* The evidence banked so far, shown while it's being banked rather than only
+   once a report exists. Compact by design — the full grid with snippets still
+   runs under the finished report; this is the trail, not the bibliography. */
+.trailCard {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.trailHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.trailHead .cardEyebrow {
+  margin: 0;
+}
+
+.trailCount {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.trailList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.trailRow {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  color: inherit;
+  text-decoration: none;
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.trailRow:hover {
+  background: var(--bg-elevated);
+}
+
+.trailMark {
+  display: flex;
+  color: var(--success);
+}
+
+.trailTitle {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trailHost {
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* A row the model just produced is written in from the left, the way the mail
    digest is — this list is the closest thing the view has to a heartbeat, and
    rows used to simply pop into place. Only the row whose arrival was actually
