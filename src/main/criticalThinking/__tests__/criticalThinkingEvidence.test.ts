@@ -339,6 +339,53 @@ describe('Critical Thinking evidence pipeline', () => {
     })
   })
 
+  it('accepts a bare figure whose evidence carries the unit, so ranges survive', () => {
+    // "82-93%" is the ordinary way to write a percentage range and yields a
+    // bare first claim; the evidence stating "82% to 93%" must satisfy it.
+    const rangeSources: CriticalThinkingSource[] = [
+      { id: 'S1', title: 'Rates', url: 'https://example.com/rates', verified: true }
+    ]
+    const rangeArtifacts: ToolArtifact[] = [
+      {
+        ...artifacts[0],
+        requestedUrl: 'https://example.com/rates',
+        finalUrl: 'https://example.com/rates',
+        passages: [
+          {
+            id: 'P1',
+            text: 'Sensitization rates of 82% to 93% were observed in sting patients.'
+          }
+        ]
+      } as ToolArtifact
+    ]
+    const result = validateResearchReport(
+      'Sensitization ran 82-93% across cohorts [[S1:P1]].',
+      rangeArtifacts,
+      rangeSources
+    )
+    expect(result.safetyIssues).toEqual([])
+  })
+
+  it('still rejects a claim that invents a unit the evidence never gave', () => {
+    const bareSources: CriticalThinkingSource[] = [
+      { id: 'S1', title: 'Counts', url: 'https://example.com/counts', verified: true }
+    ]
+    const bareArtifacts: ToolArtifact[] = [
+      {
+        ...artifacts[0],
+        requestedUrl: 'https://example.com/counts',
+        finalUrl: 'https://example.com/counts',
+        passages: [{ id: 'P1', text: 'The cohort included 82 participants overall.' }]
+      } as ToolArtifact
+    ]
+    const result = validateResearchReport(
+      'Response reached 82% of the cohort [[S1:P1]].',
+      bareArtifacts,
+      bareSources
+    )
+    expect(result.safetyIssues.join(' ')).toContain('82%')
+  })
+
   it('renders only known validated markers, as numbered references', () => {
     expect(renderResearchCitations('Supported [[S1:P1]].', sources)).toBe(
       'Supported [1](https://example.com/study).'

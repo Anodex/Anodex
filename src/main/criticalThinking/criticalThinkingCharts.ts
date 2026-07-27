@@ -30,10 +30,13 @@ export function parseCriticalThinkingChartSelection(content: string): string[] |
 export function appendCriticalThinkingCharts(report: string, charts: string[]): string {
   if (charts.length === 0) return report
   const section = ['## Evidence Charts', '', ...charts].join('\n\n')
+  // Tested against undefined rather than falsiness: a heading found at index 0
+  // is a real match, and `!0` would send it down the append-at-end path.
   const insertion = /^## Limits and Open Questions\s*$/im.exec(report)
-  const withCharts = !insertion?.index
-    ? `${report.trim()}\n\n${section}`
-    : `${report.slice(0, insertion.index).trimEnd()}\n\n${section}\n\n${report.slice(insertion.index)}`
+  const withCharts =
+    insertion?.index === undefined
+      ? `${report.trim()}\n\n${section}`
+      : `${report.slice(0, insertion.index).trimEnd()}\n\n${section}\n\n${report.slice(insertion.index)}`
   return addChartSourcesToBibliography(withCharts, charts)
 }
 
@@ -72,7 +75,7 @@ function addChartSourcesToBibliography(report: string, charts: string[]): string
   ]
   if (chartSourceIds.length === 0) return report
   const sourceHeading = /^## Sources\s*$/im.exec(report)
-  if (!sourceHeading?.index) return report
+  if (sourceHeading?.index === undefined) return report
   const bodyStart = sourceHeading.index + sourceHeading[0].length
   const followingHeading = /^##\s+/m.exec(report.slice(bodyStart))
   const bodyEnd = followingHeading ? bodyStart + followingHeading.index : report.length

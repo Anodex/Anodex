@@ -627,7 +627,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function numberAppears(text: string, value: number | string): boolean {
   const expected = normalizeNumber(value)
-  return extractNumbers(text).some((candidate) => normalizeNumber(candidate) === expected)
+  const candidates = extractNumbers(text).map(normalizeNumber)
+  if (candidates.includes(expected)) return true
+
+  // A claim that carries no unit is satisfied by the same figure carrying one.
+  // Ranges are why this matters: "82-93%" is the ordinary way to write a
+  // percentage range, and it yields a *bare* first claim ("82") because the
+  // sign sits at the end. Evidence reading "82% to 93%" would then fail
+  // forever — `number:82` never equals `percent:82` — rejecting a correctly
+  // cited report over its punctuation.
+  //
+  // The asymmetry is deliberate and is the whole safety property: a bare claim
+  // may match a united figure, because the number really is in the evidence and
+  // the claim merely says less than the source. The reverse must still fail —
+  // a claim of "82%" against evidence saying only "82" is the model attaching a
+  // unit the source never gave, which is exactly the fabrication this guards.
+  if (!expected.startsWith('number:')) return false
+  const figure = expected.slice('number:'.length)
+  return candidates.some((candidate) => candidate.slice(candidate.indexOf(':') + 1) === figure)
 }
 
 function extractNumbers(value: string): string[] {
