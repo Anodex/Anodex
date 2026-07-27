@@ -98,20 +98,6 @@
   background: var(--accent-soft);
 }
 
-.pulseIcon {
-  animation: pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-
 .runList {
   display: flex;
   flex-direction: column;
@@ -119,6 +105,7 @@
 }
 
 .runCard {
+  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);
@@ -126,6 +113,70 @@
   border-left: 3px solid var(--border);
   border-radius: var(--radius-md);
   transition: border-color var(--transition-fast);
+}
+
+/* A run working unattended is the same fact about the world as a chat that's
+   generating, so it gets the same signal: the comet the sidebar already rides
+   along a busy chat row, here on the status border the card already has.
+   Replaces a 1.6s opacity blink on the status glyph — the one place this view
+   was written in someone else's handwriting.
+
+   Two layers, matching the real `runScan`: a soft halo spilling light onto the
+   card, and a narrow white-hot core on the border line. One flat gradient on a
+   3px sliver disappears against the border it sits on. Both share a height and
+   a keyframe set so the halo stays centred on the core. */
+.cometEdge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 18px;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.cometHalo {
+  position: absolute;
+  top: -46%;
+  left: -7px;
+  width: 26px;
+  height: 46%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent) 50%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 38%,
+    transparent 72%
+  );
+  animation: cometRun 2.1s var(--ease, ease-in-out) infinite alternate;
+}
+
+.cometCore {
+  position: absolute;
+  top: -46%;
+  left: 0;
+  width: 3px;
+  height: 46%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--accent-cyan) 26%,
+    #eaf2ff 50%,
+    var(--accent-violet) 74%,
+    transparent
+  );
+  animation: cometRun 2.1s var(--ease, ease-in-out) infinite alternate;
+}
+
+/* Reverses rather than looping one way — the reversal is what reads as
+   "working". Bounded by a real run: the element only exists while one is. */
+@keyframes cometRun {
+  from {
+    top: -46%;
+  }
+  to {
+    top: 100%;
+  }
 }
 
 .runRow {

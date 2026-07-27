@@ -70,15 +70,17 @@ function RunCard({
         justArrived ? styles.arrived : ''
       }`}
     >
+      {run.status === 'running' && (
+        <span className={styles.cometEdge} aria-hidden="true">
+          <span className={styles.cometHalo} />
+          <span className={styles.cometCore} />
+        </span>
+      )}
       <div className={styles.runRow}>
         <button type="button" className={styles.runMain} onClick={() => openRun(run)}>
           <div className={styles.runTitleRow}>
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
-              <Icon
-                name={STATUS_ICON[run.status]}
-                size={12}
-                className={run.status === 'running' ? styles.pulseIcon : undefined}
-              />
+              <Icon name={STATUS_ICON[run.status]} size={12} />
               {STATUS_LABEL[run.status]}
               {run.status === 'running' &&
                 (run.limitsEnabled
