@@ -595,19 +595,94 @@
 .progressSteps {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin: var(--space-3) 0 0;
   padding: 0;
   list-style: none;
 }
 
 .progressSteps li {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: 1.4;
+}
+
+/* The plan is one investigation moving through an argument, and it rendered as
+   a stack of unrelated rows. A thread between the markers makes it a path: the
+   segment behind a completed step is lit, because that part of the argument is
+   already grounded in evidence, and the step being worked carries the comet.
+   Every state drawn here is one the component already computes. */
+.progressSteps li::before {
+  content: '';
+  position: absolute;
+  top: 18px;
+  bottom: calc(-1 * var(--space-3));
+  left: 6px;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.progressSteps li:last-child::before {
+  display: none;
+}
+
+.step-completed::before {
+  background: color-mix(in srgb, var(--success) 45%, var(--border-strong));
+}
+
+.stepComet {
+  position: absolute;
+  top: 18px;
+  bottom: calc(-1 * var(--space-3));
+  left: 4px;
+  width: 5px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.stepCometHalo,
+.stepCometCore {
+  position: absolute;
+  left: 50%;
+  height: 34%;
+  animation: stepCometRun 2.1s var(--ease, ease-in-out) infinite alternate;
+}
+
+.stepCometHalo {
+  width: 22px;
+  margin-left: -11px;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent) 50%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 40%,
+    transparent 72%
+  );
+}
+
+.stepCometCore {
+  width: 1px;
+  margin-left: -0.5px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--accent-cyan) 26%,
+    #eaf2ff 50%,
+    var(--accent-violet) 74%,
+    transparent
+  );
+}
+
+@keyframes stepCometRun {
+  from {
+    top: -34%;
+  }
+  to {
+    top: 100%;
+  }
 }
 
 .stepIcon {

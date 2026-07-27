@@ -102,6 +102,12 @@ function PlanProgress({ plan, steps, currentStep }: PlanProgressProps): JSX.Elem
                   : planStep.status
           return (
             <li key={planStep.id} className={styles[`step-${displayStatus}`]}>
+              {displayStatus === 'in_progress' && (
+                <span className={styles.stepComet} aria-hidden="true">
+                  <span className={styles.stepCometHalo} />
+                  <span className={styles.stepCometCore} />
+                </span>
+              )}
               <span className={styles.stepIcon}>
                 {displayStatus === 'completed' ? (
                   <Icon name="check" size={12} />
