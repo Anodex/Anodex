@@ -132,6 +132,30 @@
   border-color: var(--border-strong);
 }
 
+/* A paused task isn't going to do anything, and shouldn't carry the same weight
+   as one firing in six minutes — until now the only difference between them was
+   the word "Paused" replacing the countdown. No motion and no colour spent here,
+   just hierarchy: dimmed, dashed, and the name drops a weight. */
+.paused {
+  background: color-mix(in srgb, var(--bg-surface) 55%, var(--bg-base));
+  border-style: dashed;
+}
+
+.paused .taskName {
+  font-weight: 500;
+}
+
+.paused .taskName,
+.paused .taskPrompt,
+.paused .taskMeta {
+  opacity: 0.55;
+}
+
+.pausedLabel {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 .taskCard-success {
   --arrival-glow: var(--success);
 }

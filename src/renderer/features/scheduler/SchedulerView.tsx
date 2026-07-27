@@ -127,7 +127,11 @@ function TaskCard({
   useCountdown(task.enabled ? task.nextRunAt : null)
 
   return (
-    <div className={`${styles.taskCard} ${lastRunClass} ${justArrived ? styles.arrived : ''}`}>
+    <div
+      className={`${styles.taskCard} ${lastRunClass} ${justArrived ? styles.arrived : ''} ${
+        task.enabled ? '' : styles.paused
+      }`}
+    >
       <button type="button" className={styles.taskMain} onClick={() => onOpenReport(task.id)}>
         <div className={styles.taskTitleRow}>
           <span className={styles.taskName}>{task.name}</span>
@@ -140,9 +144,11 @@ function TaskCard({
           <span>
             <Icon name="calendar" size={12} /> {describeRecurrence(task.recurrence)}
           </span>
-          <span className={styles.countdown}>
-            {task.enabled ? formatNextRun(task.nextRunAt) : 'Paused'}
-          </span>
+          {task.enabled ? (
+            <span className={styles.countdown}>{formatNextRun(task.nextRunAt)}</span>
+          ) : (
+            <span className={styles.pausedLabel}>Paused</span>
+          )}
           {task.lastRunAt && (
             <span
               className={`${styles.lastRun} ${styles[`status-${task.lastRunStatus ?? 'success'}`]}`}
