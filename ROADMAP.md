@@ -350,6 +350,35 @@ not correctness or security — lowest priority item on this whole list.
   model switch UI, project selection, file preview, approval prompt flow.
   Current E2E is Playwright, config in `playwright.config.ts`, tests in `e2e/`.
 
+### 9. Verify the packaged build after the `node_modules` trims
+
+**One-time check, but do it before the next release rather than after.**
+
+`c2713d1` excluded renderer-only packages (`highlight.js`, `@xterm/*`,
+`zustand`, `immer`, `use-sync-external-store`, `diff`) and unused `pdfjs-dist`
+subdirectories from the asar, taking it from 54.3 MB to 40.4 MB. The reasoning
+is that Vite bundles those libraries into `out/renderer`, so their package
+sources were shipping a second time for nothing.
+
+That was verified structurally — no `src/main` or `src/preload` file imports
+any of them, and the renderer bundle demonstrably inlines them — but **not by
+running the packaged app**, and this is the one class of mistake that cannot
+show up in development. `npm run dev` resolves from `node_modules`, so a missed
+import works perfectly right up until it fails at require-time for a user.
+
+To close it: launch `dist/win-unpacked`, open a chat containing a code block
+(exercises `highlight.js`), open the Workspace Dock's Terminal panel
+(exercises `@xterm/*`), and view a diff (exercises `diff`). A failure here is
+loud, not subtle.
+
+The same reasoning applies to `pdfjs-dist`: only
+`legacy/build/pdf.mjs` is kept, so `read_email_attachment` on a real PDF is
+worth one pass in the packaged build too.
+
+**If any of those libraries ever moves into the main process, revisit the
+exclusion list in `electron-builder.yml` first** — the failure mode is a
+packaged-only break, exactly as above.
+
 ## Recently resolved (kept briefly for context, not action items)
 
 - **Detailed local-model Critical Thinking reports (2026-07-22)** — corrected the
