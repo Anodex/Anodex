@@ -197,6 +197,31 @@ export class MicrosoftAdapter implements EmailProviderAdapter {
     })
   }
 
+  async saveDraft(account: EmailAccount, message: OutgoingMessage): Promise<string> {
+    // POSTing to /messages creates the message in Drafts rather than sending
+    // it — Graph has no "save" flag on /sendMail, so this is a different
+    // endpoint with the same payload shape minus the send wrapper.
+    await this.fetch(account, '/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subject: message.subject,
+        body: { contentType: 'Text', content: message.body },
+        toRecipients: message.to.map(toGraphRecipient),
+        ccRecipients: message.cc.map(toGraphRecipient),
+        bccRecipients: message.bcc.map(toGraphRecipient),
+        attachments: message.attachments.map((attachment) => ({
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: attachment.filename,
+          contentType: attachment.mimeType,
+          contentBytes: attachment.contentBase64
+        })),
+        internetMessageHeaders: threadingHeaders(message)
+      })
+    })
+    return `Saved to Drafts on ${account.address}`
+  }
+
   async applyFlag(account: EmailAccount, target: FlagTarget): Promise<string> {
     const messageIds = await this.targetMessageIds(account, target)
 

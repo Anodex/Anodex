@@ -2,7 +2,7 @@ import type { EmailThreadDigest, EmailThreadDigestRequest } from '@shared/email.
 import { llamaService } from '../llama/LlamaService'
 import { createLogger } from '../utils/logger'
 import { emailService } from './EmailService'
-import { dedupeParticipants, threadPreview } from './threadSummary'
+import { dedupeParticipants, describeAttachmentsBriefly, threadPreview } from './threadSummary'
 
 const log = createLogger('email:digest')
 
@@ -148,7 +148,14 @@ async function renderThreadForDigest(request: EmailThreadDigestRequest): Promise
     '',
     // Newest last, and only the last few — a long thread's early messages are
     // usually settled business, and the row is describing what is outstanding.
-    ...ordered.slice(-3).map((message) => `${message.from}: ${threadPreview(message)}`)
+    ...ordered.slice(-3).map((message) => {
+      // A photo sent with no words has neither body nor snippet, so without
+      // the attachment note the digest model would be summarizing an empty
+      // string and the row would say less than the snippet it replaced.
+      const attached = describeAttachmentsBriefly(message.attachments)
+      const said = [threadPreview(message), attached].filter(Boolean).join(' ')
+      return `${message.from}: ${said}`
+    })
   ]
     .filter(Boolean)
     .join('\n')

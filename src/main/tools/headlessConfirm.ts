@@ -26,7 +26,10 @@ export function headlessConfirm(request: ToolConfirmRequest): Promise<ToolConfir
   if (request.requiresHumanApproval) {
     return Promise.resolve({
       approved: false,
-      reason: `${request.toolName} needs a person to approve the specific action, and this run is unattended. Prepare the work instead — draft_email saves a draft the user can review and send themselves — and say plainly in your reply that it still needs sending.`
+      // Names the strongest available fallback: `save_email_draft` puts the
+      // work in the user's real Drafts folder, where they will find it in their
+      // normal mail app, rather than in a draft that dies with this process.
+      reason: `${request.toolName} needs a person to approve the specific action, and this run is unattended. Prepare the work instead — save_email_draft leaves it in the user's Drafts folder for them to review and send themselves — and say plainly in your reply that it still needs sending.`
     })
   }
   if (request.risk === 'destructive') {

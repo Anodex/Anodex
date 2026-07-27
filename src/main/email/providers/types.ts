@@ -74,6 +74,15 @@ export interface EmailProviderAdapter {
   send(account: EmailAccount, message: OutgoingMessage): Promise<void>
 
   /**
+   * Stores a message in the account's own Drafts folder without sending it.
+   *
+   * Distinct from `EmailService`'s in-memory drafts, which live and die with
+   * the app: this is the draft the user opens later in Gmail or Outlook on
+   * their phone. Returns a short human description of where it landed.
+   */
+  saveDraft(account: EmailAccount, message: OutgoingMessage): Promise<string>
+
+  /**
    * Applies a non-destructive state change. Returns a short human description
    * of what changed, which surfaces in the tool result.
    */

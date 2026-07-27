@@ -3,6 +3,8 @@ import {
   buildMimeMessage,
   buildReferences,
   extractAddress,
+  forwardSubject,
+  forwardedHeader,
   htmlToPlainText,
   parseReferences,
   replyRecipients,
@@ -163,6 +165,47 @@ describe('reply helpers', () => {
   it('pulls the bare address out of a display-name header', () => {
     expect(extractAddress('Person Name <person@example.com>')).toBe('person@example.com')
     expect(extractAddress('  person@example.com ')).toBe('person@example.com')
+  })
+})
+
+describe('forwardSubject', () => {
+  it('marks a fresh forward', () => {
+    expect(forwardSubject('Concept')).toBe('Fwd: Concept')
+  })
+
+  it('does not stack a second marker, including the FW: other clients use', () => {
+    expect(forwardSubject('Fwd: Concept')).toBe('Fwd: Concept')
+    expect(forwardSubject('FW: Concept')).toBe('FW: Concept')
+  })
+
+  it('still produces something readable for a subjectless message', () => {
+    expect(forwardSubject('   ')).toBe('Fwd: (no subject)')
+  })
+})
+
+describe('forwardedHeader', () => {
+  it('attributes the original so it does not read as the sender’s own words', () => {
+    const header = forwardedHeader({
+      from: 'Gabriel <gabe@example.com>',
+      to: ['user@example.com'],
+      subject: 'Concept',
+      date: Date.UTC(2026, 6, 26)
+    })
+
+    expect(header).toContain('---------- Forwarded message ----------')
+    expect(header).toContain('From: Gabriel <gabe@example.com>')
+    expect(header).toContain('Subject: Concept')
+  })
+
+  it('omits the Cc line when there was none', () => {
+    const header = forwardedHeader({
+      from: 'a@example.com',
+      to: ['b@example.com'],
+      subject: 'Hi',
+      date: 0
+    })
+
+    expect(header).not.toContain('Cc:')
   })
 })
 

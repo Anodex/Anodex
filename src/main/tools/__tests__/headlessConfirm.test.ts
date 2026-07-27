@@ -25,7 +25,7 @@ describe('headlessConfirm', () => {
     // The reason reaches the model as its denial message, so it has to name the
     // alternative rather than just refusing.
     expect(response.reason).toContain('send_email')
-    expect(response.reason).toContain('draft_email')
+    expect(response.reason).toContain('save_email_draft')
   })
 
   it('refuses destructive calls', async () => {

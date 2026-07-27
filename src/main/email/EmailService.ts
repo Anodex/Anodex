@@ -8,11 +8,13 @@ import type {
   EmailConnectionStatus,
   EmailDraft,
   EmailDraftRequest,
+  EmailFlagAction,
   EmailFlagRequest,
   EmailListThreadsRequest,
   EmailMailbox,
   EmailMessage,
   EmailMoveRequest,
+  EmailOutgoingAttachment,
   EmailProvider,
   EmailReplyRequest,
   EmailSearchRequest,
@@ -25,11 +27,14 @@ import { discoverEmailConfig } from './autoconfig'
 import {
   buildReferences,
   extractAddress,
+  forwardSubject,
+  forwardedHeader,
+  MAX_ATTACHMENT_TOTAL_BYTES,
   replyRecipients,
   replySubject,
   type OutgoingMessage
 } from './mime'
-import { dedupeParticipants, threadPreview } from './threadSummary'
+import { dedupeParticipants, describeAttachment, threadPreview } from './threadSummary'
 import { authorizeProvider } from './providers/oauthClients'
 import { GmailAdapter } from './providers/GmailAdapter'
 import { MicrosoftAdapter } from './providers/MicrosoftAdapter'
@@ -54,11 +59,16 @@ const ADAPTERS: Record<EmailProvider, EmailProviderAdapter> = {
   imap: new ImapSmtpAdapter()
 }
 
-/** A reply resolved against its parent, ready to confirm and then send. */
-export interface PreparedReply {
+/**
+ * An outgoing message resolved against the one it derives from, ready to
+ * confirm and then send. Shared by replies and forwards: both take their
+ * subject — and a forward its attachments — from a parent the model never
+ * spelled out, so both have to be resolved before the user is asked to approve.
+ */
+export interface PreparedOutgoing {
   accountId: string
   message: OutgoingMessage
-  /** Subject of the message being answered, for the confirmation prompt. */
+  /** Subject of the message being answered or forwarded, for the prompt. */
   parentSubject: string
 }
 
@@ -289,7 +299,20 @@ class EmailService {
     return [...messages].sort((left, right) => left.date - right.date)
   }
 
-  async summarizeThread(threadId: string, accountId?: string): Promise<string> {
+  /**
+   * The thread rendered for a model to summarize.
+   *
+   * `canViewImages` decides how attachments are described, not whether they
+   * appear: a thread whose newest message is just a photo used to render as a
+   * sender and an empty body, so the summary had nothing to work from and said
+   * so. Naming the attachments fixes that on its own, and on a vision-capable
+   * model the lines also point at the tool that can open them.
+   */
+  async summarizeThread(
+    threadId: string,
+    accountId?: string,
+    options: { canViewImages?: boolean } = {}
+  ): Promise<string> {
     const id = threadId.trim()
     if (!id) throw new Error('thread id is required.')
     const { account, adapter } = this.resolve(accountId)
@@ -311,9 +334,15 @@ class EmailService {
       participants ? `Participants: ${participants}` : null,
       `Latest: ${new Date(latest.date).toLocaleString()}`,
       '',
-      ...ordered.slice(-5).map((message, index) => {
-        return `${index + 1}. ${message.from}: ${threadPreview(message)}`
-      })
+      ...ordered
+        .slice(-5)
+        .flatMap((message, index) => [
+          `${index + 1}. ${message.from}: ${threadPreview(message) || '(no message text)'}`,
+          ...message.attachments.map(
+            (attachment) =>
+              `   attached: ${describeAttachment(attachment, options.canViewImages ?? false)}`
+          )
+        ])
     ]
       .filter(Boolean)
       .join('\n')
@@ -393,7 +422,7 @@ class EmailService {
    * message so the caller can show it for approval before
    * {@link sendPrepared} actually sends it.
    */
-  async prepareReply(request: EmailReplyRequest): Promise<PreparedReply> {
+  async prepareReply(request: EmailReplyRequest): Promise<PreparedOutgoing> {
     const messageId = request.messageId.trim()
     if (!messageId) throw new Error('messageId is required.')
     if (!request.body.trim()) throw new Error('body is required.')
@@ -429,9 +458,183 @@ class EmailService {
     }
   }
 
-  async sendPrepared(prepared: PreparedReply): Promise<void> {
+  async sendPrepared(prepared: PreparedOutgoing): Promise<void> {
     const { account, adapter } = this.resolve(prepared.accountId)
     await adapter.send(account, prepared.message)
+  }
+
+  /**
+   * Writes a message into the account's Drafts folder.
+   *
+   * The counterpart to {@link createDraft}, which only ever held a draft in
+   * this process's memory — useful for handing an id to `send_email`, useless
+   * for "write it up and I'll look it over in Gmail later". Sends nothing.
+   */
+  async saveDraftToMailbox(request: EmailDraftRequest): Promise<string> {
+    validateDraftRequest(request)
+    const { account, adapter } = this.resolve(request.accountId)
+    return adapter.saveDraft(account, toOutgoingMessage(request))
+  }
+
+  /** Stores an already-resolved outgoing message (a reply or forward) as a draft. */
+  async saveDraftPrepared(prepared: PreparedOutgoing): Promise<string> {
+    const { account, adapter } = this.resolve(prepared.accountId)
+    return adapter.saveDraft(account, prepared.message)
+  }
+
+  /**
+   * Resolves a forward against the message being passed on.
+   *
+   * Deliberately *not* threaded: no `inReplyTo`, `references`, or `threadId`.
+   * A forward starts a new conversation with a new audience, and filing it into
+   * the original thread would show it to people who were never meant to see it
+   * — or bury it in a thread the new recipient cannot read.
+   *
+   * The original attachments are fetched here rather than named, because the
+   * point of forwarding a photo is that the photo goes too. They are also what
+   * makes the size cap matter: the parent's attachments are not something the
+   * caller chose, so exceeding the limit has to fail with the reason rather
+   * than as an opaque provider rejection at send time.
+   */
+  async prepareForward(request: {
+    messageId: string
+    to: string[]
+    cc?: string[]
+    body?: string
+    includeAttachments?: boolean
+    accountId?: string
+  }): Promise<PreparedOutgoing> {
+    const messageId = request.messageId.trim()
+    if (!messageId) throw new Error('messageId is required.')
+    const to = cleanAddresses(request.to)
+    if (to.length === 0) throw new Error('At least one recipient is required.')
+
+    const { account, adapter } = this.resolve(request.accountId)
+    const parent = await adapter.readMessage(account, messageId)
+
+    const attachments =
+      request.includeAttachments === false
+        ? []
+        : await this.collectForwardAttachments(account, adapter, parent)
+
+    const note = request.body?.trim()
+    return {
+      accountId: account.id,
+      parentSubject: parent.subject,
+      message: {
+        to,
+        cc: cleanAddresses(request.cc),
+        bcc: [],
+        subject: forwardSubject(parent.subject),
+        body: [
+          note,
+          forwardedHeader({
+            from: parent.from,
+            to: parent.to,
+            cc: parent.cc,
+            subject: parent.subject,
+            date: parent.date
+          }),
+          '',
+          parent.body
+        ]
+          .filter((part): part is string => Boolean(part))
+          .join('\n\n'),
+        attachments
+      }
+    }
+  }
+
+  private async collectForwardAttachments(
+    account: EmailAccount,
+    adapter: EmailProviderAdapter,
+    parent: EmailMessage
+  ): Promise<EmailOutgoingAttachment[]> {
+    const attachments: EmailOutgoingAttachment[] = []
+    let total = 0
+    for (const summary of parent.attachments) {
+      const content = await adapter.getAttachment(account, parent.id, summary.id)
+      total += content.data.length
+      if (total > MAX_ATTACHMENT_TOTAL_BYTES) {
+        throw new Error(
+          `The attachments on "${parent.subject}" total more than ${Math.floor(
+            MAX_ATTACHMENT_TOTAL_BYTES / (1024 * 1024)
+          )}MB, which providers reject. Forward it without attachments, or send them separately.`
+        )
+      }
+      attachments.push({
+        filename: content.filename,
+        mimeType: content.mimeType,
+        contentBase64: content.data.toString('base64')
+      })
+    }
+    return attachments
+  }
+
+  /**
+   * The threads a batch action would touch, resolved before anyone is asked to
+   * approve it.
+   *
+   * Returned rather than acted on so the approval prompt can name real
+   * subjects. "Archive everything from that newsletter" is only meaningful if
+   * the user can see what matched — a query that is one character off would
+   * otherwise sweep the wrong mail with the same single click, and archiving 40
+   * threads is tedious to undo one at a time.
+   */
+  async previewBatch(request: {
+    query?: string
+    mailbox?: string
+    limit: number
+    accountId?: string
+  }): Promise<{ accountId: string; threads: EmailThreadSummary[] }> {
+    const { account, adapter } = this.resolve(request.accountId)
+    const query = request.query?.trim()
+    const threads = await adapter.listThreads(account, {
+      limit: Math.min(Math.max(1, Math.floor(request.limit)), MAX_EMAIL_RESULTS),
+      ...(query ? { query } : {}),
+      ...(request.mailbox?.trim() ? { mailbox: request.mailbox.trim() } : {})
+    })
+    return { accountId: account.id, threads }
+  }
+
+  /**
+   * Applies one action across already-resolved threads.
+   *
+   * Failures are collected instead of thrown: a batch that stops on the first
+   * unmovable thread leaves the user with a half-finished sweep and no record
+   * of where it stopped. The summary says what actually happened to all of it.
+   */
+  async applyBatch(request: {
+    accountId: string
+    threadIds: string[]
+    action: EmailFlagAction | 'move'
+    destination?: string
+  }): Promise<string> {
+    const { account, adapter } = this.resolve(request.accountId)
+    const failures: string[] = []
+    let applied = 0
+
+    for (const threadId of request.threadIds) {
+      try {
+        if (request.action === 'move') {
+          const mailbox = request.destination?.trim()
+          if (!mailbox) throw new Error('A destination mailbox is required to move mail.')
+          await adapter.move(account, { threadId, mailbox })
+        } else {
+          await adapter.applyFlag(account, { threadId, action: request.action })
+        }
+        applied += 1
+      } catch (error) {
+        failures.push(`${threadId}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    const summary = `${applied} of ${request.threadIds.length} thread${
+      request.threadIds.length === 1 ? '' : 's'
+    } updated on ${account.address}.`
+    return failures.length === 0
+      ? summary
+      : [summary, `${failures.length} failed:`, ...failures.slice(0, 5)].join('\n')
   }
 
   async applyFlag(request: EmailFlagRequest): Promise<string> {

@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_THREAD_PREVIEW, dedupeParticipants, threadPreview } from '../threadSummary'
+import type { EmailAttachmentSummary } from '@shared/email.types'
+import {
+  MAX_THREAD_PREVIEW,
+  dedupeParticipants,
+  describeAttachment,
+  describeAttachmentsBriefly,
+  threadPreview
+} from '../threadSummary'
+
+const attachment = (overrides: Partial<EmailAttachmentSummary> = {}): EmailAttachmentSummary => ({
+  id: 'attachment-1',
+  messageId: 'message-1',
+  filename: 'photo.jpg',
+  mimeType: 'image/jpeg',
+  size: 5_200_000,
+  ...overrides
+})
 
 describe('threadPreview', () => {
   it('shows only the new words of a reply', () => {
@@ -68,6 +84,51 @@ describe('threadPreview', () => {
 
   it('returns empty when there is nothing to show', () => {
     expect(threadPreview({ body: '', snippet: '' })).toBe('')
+  })
+})
+
+describe('describeAttachment', () => {
+  it('names the tool that opens an image when one is available', () => {
+    const line = describeAttachment(attachment(), true)
+
+    expect(line).toContain('messageId: message-1; attachmentId: attachment-1')
+    expect(line).toContain('call view_email_attachment')
+  })
+
+  it('says an image is out of reach rather than pointing at a missing tool', () => {
+    // A text-only model told to "call view_email_attachment" would chase a tool
+    // that was never registered.
+    const line = describeAttachment(attachment(), false)
+
+    expect(line).toContain('cannot view')
+    expect(line).not.toContain('call view_email_attachment')
+  })
+
+  it('leaves non-images as plain metadata either way', () => {
+    const pdf = attachment({ filename: 'invoice.pdf', mimeType: 'application/pdf' })
+
+    expect(describeAttachment(pdf, true)).not.toContain('image')
+    expect(describeAttachment(pdf, true)).toBe(describeAttachment(pdf, false))
+  })
+})
+
+describe('describeAttachmentsBriefly', () => {
+  it('gives a picture-only message something to summarize', () => {
+    expect(describeAttachmentsBriefly([attachment()])).toBe('[attached: photo.jpg (image)]')
+  })
+
+  it('counts the overflow instead of listing every file', () => {
+    const many = Array.from({ length: 6 }, (_, index) =>
+      attachment({ id: `a${index}`, filename: `f${index}.pdf`, mimeType: 'application/pdf' })
+    )
+
+    expect(describeAttachmentsBriefly(many)).toBe(
+      '[attached: f0.pdf, f1.pdf, f2.pdf, f3.pdf, and 2 more]'
+    )
+  })
+
+  it('stays silent when there is nothing attached', () => {
+    expect(describeAttachmentsBriefly([])).toBeNull()
   })
 })
 

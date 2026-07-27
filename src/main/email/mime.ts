@@ -105,6 +105,50 @@ export function replySubject(subject: string): string {
 }
 
 /**
+ * `Subject: Fwd: ...`. Accepts the `FW:` other clients use as an existing
+ * marker, so a message forwarded onward from Outlook doesn't become
+ * "Fwd: FW: ...".
+ */
+export function forwardSubject(subject: string): string {
+  const trimmed = subject.trim()
+  return /^(fwd?|fw):/i.test(trimmed) ? trimmed : `Fwd: ${trimmed || '(no subject)'}`
+}
+
+/**
+ * The attribution block every mail client puts above a forwarded message.
+ *
+ * Kept deliberately close to the conventional wording: the recipient needs to
+ * see who originally wrote this and when, and a forward that merely pastes the
+ * body reads as if the sender wrote it themselves.
+ */
+export function forwardedHeader(original: {
+  from: string
+  to: readonly string[]
+  cc?: readonly string[]
+  subject: string
+  date: number
+}): string {
+  return [
+    '---------- Forwarded message ----------',
+    `From: ${original.from}`,
+    `Date: ${new Date(original.date).toLocaleString()}`,
+    `Subject: ${original.subject}`,
+    `To: ${original.to.join(', ')}`,
+    original.cc?.length ? `Cc: ${original.cc.join(', ')}` : null
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n')
+}
+
+/**
+ * Gmail caps a message at 25MB *after* base64 expansion (~33% overhead), and
+ * the other providers sit near the same mark. Capping the raw total at 18MB
+ * keeps an encoded message under every provider's limit, and fails locally with
+ * a clear message rather than as an opaque provider rejection at send time.
+ */
+export const MAX_ATTACHMENT_TOTAL_BYTES = 18 * 1024 * 1024
+
+/**
  * Picks the addresses a reply goes to. `replyAll` keeps every original
  * participant except the account's own address, which would otherwise mail the
  * user a copy of their own reply on every send.

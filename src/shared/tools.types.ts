@@ -59,8 +59,13 @@ export type ToolCallPreview =
   | {
       /** Image bytes used immediately by the live transcript; never persisted in conversation JSON. */
       kind: 'image'
-      /** Whether pixels were sent to the model or deliberately shown only to the user. */
-      source?: 'inspection' | 'assistant'
+      /**
+       * Where the pixels came from, which decides how they can be recovered
+       * once the durable asset is gone: `inspection` and `email` were both sent
+       * to the model but are re-fetched by different tools, and `assistant` was
+       * deliberately shown only to the user.
+       */
+      source?: 'inspection' | 'assistant' | 'email'
       title: string
       path: string
       dataUrl?: string
@@ -434,10 +439,29 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: 'Create a local email draft without sending it.'
   },
   {
+    name: 'save_email_draft',
+    kind: 'write',
+    description:
+      "Save a draft into the account's Drafts folder for the user to finish. Sends nothing."
+  },
+  {
     name: 'send_email',
     kind: 'write',
     description: 'Send an email, always requiring explicit approval.',
     requiresHumanApproval: true
+  },
+  {
+    name: 'forward_email',
+    kind: 'write',
+    description:
+      'Forward a message to someone else with its attachments, always requiring explicit approval.',
+    requiresHumanApproval: true
+  },
+  {
+    name: 'batch_email',
+    kind: 'write',
+    description:
+      'Apply one action (mark read, star, archive, move) to every thread matching a query. Cannot delete mail.'
   },
   {
     name: 'summarize_thread',
@@ -448,6 +472,17 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'find_attachments',
     kind: 'read',
     description: 'Find attachments in an email thread.'
+  },
+  {
+    name: 'view_email_attachment',
+    kind: 'read',
+    description:
+      'Look at the pixels of an image attached to an email. Only available when the active model can see images.'
+  },
+  {
+    name: 'read_email_attachment',
+    kind: 'read',
+    description: 'Read the text of a PDF, CSV, JSON, or text attachment on an email.'
   },
   {
     name: 'list_mailboxes',

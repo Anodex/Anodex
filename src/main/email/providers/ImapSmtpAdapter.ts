@@ -18,7 +18,7 @@ import type {
   MoveTarget
 } from './types'
 import type { OutgoingMessage } from '../mime'
-import { htmlToPlainText } from '../mime'
+import { buildMimeMessage, htmlToPlainText } from '../mime'
 import { sanitizeEmailHtml, type InlineImage } from '../htmlBody'
 import { emailAuthStore } from '../EmailAuthStore'
 import { createLogger } from '../../utils/logger'
@@ -315,6 +315,38 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     } finally {
       transport.close()
     }
+  }
+
+  /**
+   * IMAP has no "save draft" verb — a draft is simply a message APPENDed to
+   * the Drafts folder carrying the `\Draft` flag. SMTP is not involved at all,
+   * which is exactly the property that makes this safe: nothing can leave for
+   * a recipient down this path.
+   */
+  async saveDraft(account: EmailAccount, message: OutgoingMessage): Promise<string> {
+    const mailbox = await this.findDraftsMailbox(account)
+    const raw = buildMimeMessage(message)
+    await this.withClient(account, async (client) => {
+      await client.append(mailbox, Buffer.from(raw, 'utf-8'), ['\\Draft'])
+    })
+    return `Saved to ${mailbox} on ${account.address}`
+  }
+
+  private async findDraftsMailbox(account: EmailAccount): Promise<string> {
+    return this.withClient(account, async (client) => {
+      const mailboxes = await client.list()
+      const path =
+        mailboxes.find((mailbox) => mailbox.specialUse === '\\Drafts')?.path ??
+        mailboxes.find((mailbox) => mailbox.path.toLowerCase().endsWith('drafts'))?.path
+      if (!path) {
+        throw new Error(
+          `${account.address} has no drafts folder. Available: ${mailboxes
+            .map((mailbox) => mailbox.path)
+            .join(', ')}`
+        )
+      }
+      return path
+    })
   }
 
   async applyFlag(account: EmailAccount, target: FlagTarget): Promise<string> {

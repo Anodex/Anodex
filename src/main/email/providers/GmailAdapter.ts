@@ -229,6 +229,22 @@ export class GmailAdapter implements EmailProviderAdapter {
     })
   }
 
+  async saveDraft(account: EmailAccount, message: OutgoingMessage): Promise<string> {
+    const draft: { message: { raw: string; threadId?: string } } = {
+      message: { raw: encodeBase64Url(buildMimeMessage(message)) }
+    }
+    // A draft reply keeps its thread for the same reason a sent one does —
+    // opening it in Gmail should show it in the conversation it answers.
+    if (message.threadId) draft.message.threadId = message.threadId
+
+    await this.fetch(account, '/drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft)
+    })
+    return `Saved to Drafts on ${account.address}`
+  }
+
   async applyFlag(account: EmailAccount, target: FlagTarget): Promise<string> {
     const modification = FLAG_LABELS[target.action]
     const path = target.threadId
