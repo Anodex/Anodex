@@ -105,6 +105,42 @@ function useJustArrived(task: ScheduledTask): boolean {
   return justArrived
 }
 
+/** How long the ignition beam takes to cross the card. */
+const IGNITE_MS = 620
+
+type WakePhase = 'idle' | 'ignite' | 'running'
+
+/**
+ * Drives the first two beats of a run the user is actually watching: the
+ * ignition beam, then the comet that rides the card's edge while it works.
+ * The third beat — the arrival — belongs to `useJustArrived`, which already
+ * owns that glow and is already gated against replaying one; running both
+ * would animate the same card twice for a single landing.
+ *
+ * Only a transition this component *witnesses* ignites. A card that mounts
+ * while its task is already mid-run opens on `running`, because that much is
+ * true, but it never plays an ignition it didn't see.
+ */
+function useWakePhase(running: boolean): WakePhase {
+  const [phase, setPhase] = useState<WakePhase>(running ? 'running' : 'idle')
+  const wasRunning = useRef(running)
+
+  useEffect(() => {
+    const started = running && !wasRunning.current
+    wasRunning.current = running
+
+    if (started) {
+      setPhase('ignite')
+      const timer = setTimeout(() => setPhase('running'), IGNITE_MS)
+      return () => clearTimeout(timer)
+    }
+    if (!running) setPhase('idle')
+    return undefined
+  }, [running])
+
+  return phase
+}
+
 function TaskCard({
   task,
   runningId,
@@ -134,13 +170,19 @@ function TaskCard({
     ? nextRunProgress(task.lastRunAt ?? task.createdAt, task.nextRunAt)
     : null
   const imminent = task.nextRunAt !== null && task.nextRunAt - Date.now() <= IMMINENT_MS
+  const wake = useWakePhase(runningId === task.id)
 
   return (
     <div
       className={`${styles.taskCard} ${lastRunClass} ${justArrived ? styles.arrived : ''} ${
         task.enabled ? '' : styles.paused
-      }`}
+      } ${wake === 'idle' ? '' : styles[`wake-${wake}`]}`}
     >
+      {wake === 'running' && (
+        <span className={styles.wakeComet} aria-hidden="true">
+          <span className={styles.wakeCometCore} />
+        </span>
+      )}
       <button type="button" className={styles.taskMain} onClick={() => onOpenReport(task.id)}>
         <div className={styles.taskTitleRow}>
           <span className={styles.taskName}>{task.name}</span>

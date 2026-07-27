@@ -166,6 +166,95 @@
   box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+/* ---------------------------------------------------------------------------
+   The wake moment.
+
+   A run the user is watching used to be a spinner swapping in and back out
+   again. It now gets a beginning and a middle: the logo's cyan → blue → violet
+   ramp crosses the card once at ignition, then a comet rides the left edge for
+   as long as the run lasts. The end — the arrival glow below — is `.arrived`,
+   which already existed and is already gated against replaying.
+
+   Both beats are bounded by a real run; neither loops once it's over. The rail
+   goes dark for the duration because the wait it measures is no longer running.
+   --------------------------------------------------------------------------- */
+.wake-ignite,
+.wake-running {
+  overflow: hidden;
+}
+
+.wake-ignite .rail,
+.wake-running .rail {
+  opacity: 0;
+}
+
+.wake-ignite::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 34%,
+    color-mix(in srgb, var(--accent-cyan) 10%, transparent) 44%,
+    color-mix(in srgb, var(--accent) 20%, transparent) 50%,
+    color-mix(in srgb, var(--accent-violet) 10%, transparent) 56%,
+    transparent 66%
+  );
+  animation: wakeIgnite 620ms var(--ease-out, ease-out) 1;
+}
+
+@keyframes wakeIgnite {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Sweeps back and forth (`alternate`) rather than looping one way — the
+   reversal is what reads as "working", the same way it does on a chat row. */
+.wakeComet {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--accent-soft);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.wakeCometCore {
+  position: absolute;
+  top: -46%;
+  left: 0;
+  width: 100%;
+  height: 46%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--accent-cyan) 70%, transparent) 35%,
+    var(--accent) 50%,
+    color-mix(in srgb, var(--accent-violet) 70%, transparent) 65%,
+    transparent
+  );
+  animation: wakeComet 2.1s var(--ease, ease-in-out) infinite alternate;
+}
+
+@keyframes wakeComet {
+  from {
+    top: -46%;
+  }
+  to {
+    top: 100%;
+  }
+}
+
 /* A paused task isn't going to do anything, and shouldn't carry the same weight
    as one firing in six minutes — until now the only difference between them was
    the word "Paused" replacing the countdown. No motion and no colour spent here,
