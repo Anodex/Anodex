@@ -14,6 +14,7 @@ import { formatRelativeTime } from '../../lib/time'
 import { describeRecurrence, formatNextRun, nextRunProgress, IMMINENT_MS } from './scheduleFormat'
 import { SchedulerTaskEditor, type SchedulerTaskEditorSeed } from './SchedulerTaskEditor'
 import { SchedulerConversation } from './SchedulerConversation'
+import { TodayStrip } from './TodayStrip'
 import { useCountdown } from './useCountdown'
 import styles from './SchedulerView.module.css'
 
@@ -415,6 +416,10 @@ export function SchedulerView(): JSX.Element {
             <ToggleControl checked={keepAwake} onChange={(value) => void setKeepAwake(value)} />
           </label>
         </div>
+
+        {/* Built from every task, not the filtered view — a day with half its
+            runs hidden by a search box would be a different day. */}
+        <TodayStrip tasks={tasks} />
 
         {filteredTasks.length === 0 ? (
           <div className={styles.empty}>
