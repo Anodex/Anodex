@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { AgentRun, AgentRunStatus } from '@shared/agentRun.types'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
+import { useArrival } from '../../components/ui/useArrival'
 import { useAgentStore } from '../../stores/agentStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -13,38 +14,24 @@ import {
   STATUS_ICON,
   STATUS_LABEL,
   formatCompactTokens,
+  isTerminalStatus,
   providerIcon,
   providerLabel
 } from './agentRunFormat'
 import styles from './AgentView.module.css'
 
-/** IDs of runs whose "just arrived" card animation has already played this
- *  session — module-level (not component state) so switching away from
- *  Agent and back doesn't replay it, but a fresh app launch can. */
-const announcedRunIds = new Set<string>()
-const ARRIVAL_WINDOW_MS = 5 * 60 * 1000
-
 /**
  * True for one render pass when a run reaches a terminal status the user
- * hasn't been shown yet — whether they were watching it happen live, or
- * (the realistic case for an unattended run) they're opening Agent for the
- * first time after it already finished. Recency-gated so reopening this
- * view after being away for days doesn't make the whole list glow at once.
+ * hasn't been shown yet. A run reaches a terminal status exactly once, so its
+ * own id identifies the landing — unlike a scheduled task, which runs again
+ * and again and has to fold in which run.
+ *
+ * Only used for a lone arrival: when several runs land together the view
+ * sequences them itself (see `useAwayArrivals`) rather than letting every card
+ * announce independently.
  */
 function useJustArrived(run: AgentRun): boolean {
-  const isTerminal = run.status === 'done' || run.status === 'stopped' || run.status === 'error'
-  const [justArrived, setJustArrived] = useState(false)
-  const announcedRef = useRef(false)
-
-  useEffect(() => {
-    if (!isTerminal || announcedRef.current || announcedRunIds.has(run.id)) return
-    if (Date.now() - run.updatedAt > ARRIVAL_WINDOW_MS) return
-    announcedRunIds.add(run.id)
-    announcedRef.current = true
-    setJustArrived(true)
-  }, [run.id, isTerminal, run.updatedAt])
-
-  return justArrived
+  return useArrival(isTerminalStatus(run.status) ? run.id : null, run.updatedAt)
 }
 
 type StatusFilter = AgentRunStatus | 'all'

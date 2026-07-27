@@ -8,6 +8,11 @@ import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import type { IconName } from '../../components/Icon'
 
+/** A run that has stopped moving on its own — done, stopped, or errored. */
+export function isTerminalStatus(status: AgentRunStatus): boolean {
+  return status === 'done' || status === 'stopped' || status === 'error'
+}
+
 /** Short "backend used" label for a run, e.g. "Local", "Claude · Claude Sonnet 5". */
 export function providerLabel(run: AgentRun): string {
   if (run.provider === 'local') return 'Local'

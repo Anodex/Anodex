@@ -4,6 +4,7 @@ import type { IconName } from '../../components/Icon'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
+import { useArrival } from '../../components/ui/useArrival'
 import { SidebarSearch } from '../../components/sidebar/SidebarSearch'
 import { ToggleControl, SelectControl } from '../settings/controls'
 import { useSchedulerStore } from '../../stores/schedulerStore'
@@ -76,34 +77,14 @@ const EXAMPLES: Example[] = [
   }
 ]
 
-/** IDs of tasks whose "just arrived" card animation has already played this
- *  session — see the same mechanism (and reasoning) in AgentView.tsx. */
-const announcedTaskRuns = new Set<string>()
-const ARRIVAL_WINDOW_MS = 5 * 60 * 1000
-
 /**
- * True for one render pass when a task's most recent run just landed and
- * the user hasn't been shown it — including opening Scheduler for the first
- * time after an unattended run already finished. Keyed on `lastRunAt` (not
- * just the task id) so a *later* run on the same task can announce itself
- * again after the first one already has.
+ * True for one render pass when a task's most recent run just landed and the
+ * user hasn't been shown it. Keyed on `lastRunAt` as well as the task id so a
+ * *later* run on the same task can announce itself again after the first one
+ * already has — a task runs over and over, unlike an agent run.
  */
 function useJustArrived(task: ScheduledTask): boolean {
-  const isTerminal = task.lastRunAt !== null
-  const announceKey = `${task.id}:${task.lastRunAt}`
-  const [justArrived, setJustArrived] = useState(false)
-  const announcedRef = useRef(false)
-
-  useEffect(() => {
-    if (!isTerminal || task.lastRunAt === null) return
-    if (announcedRef.current || announcedTaskRuns.has(announceKey)) return
-    if (Date.now() - task.lastRunAt > ARRIVAL_WINDOW_MS) return
-    announcedTaskRuns.add(announceKey)
-    announcedRef.current = true
-    setJustArrived(true)
-  }, [announceKey, isTerminal, task.lastRunAt])
-
-  return justArrived
+  return useArrival(task.lastRunAt === null ? null : `${task.id}:${task.lastRunAt}`, task.lastRunAt)
 }
 
 /** How long the ignition beam takes to cross the card. */
