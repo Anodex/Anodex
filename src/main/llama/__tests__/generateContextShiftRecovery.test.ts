@@ -547,8 +547,67 @@ describe('LlamaService.generate() context-shift recovery', () => {
         onToken: () => {}
       })
 
+      // Clamping to the measured ceiling alone is NOT enough: that would let
+      // hidden reasoning take 100% of the turn precisely when the ceiling
+      // collapsed, which is the live Critical Thinking failure — a synthesis
+      // that asked for 3,276 of an assumed 8,192, met a smaller real cap, and
+      // returned a zero-character report. A visible-output majority must
+      // survive any request.
       expect(observedBudgets?.thoughtTokens).toBeDefined()
-      expect(observedBudgets?.thoughtTokens).toBeLessThanOrEqual(100)
+      expect(observedBudgets!.thoughtTokens!).toBeLessThanOrEqual(40)
+    })
+
+    it('applies a default thought budget to a grammar-constrained turn, whose caller must parse the visible reply', async () => {
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      access.model = { tokenizer: () => [] }
+      access.llama = { createGrammarForJsonSchema: () => Promise.resolve({}) }
+      let observedBudgets: { thoughtTokens?: number; commentTokens?: number } | undefined
+      access.session = {
+        promptWithMeta: vi.fn(
+          (
+            _prompt: unknown,
+            options: {
+              budgets?: { thoughtTokens?: number; commentTokens?: number }
+              onResponseChunk?: (chunk: unknown) => void
+            }
+          ) => {
+            observedBudgets = options.budgets
+            options.onResponseChunk?.({
+              type: undefined,
+              segmentType: undefined,
+              text: '{"queries":["a"]}',
+              tokens: [1]
+            })
+            return Promise.resolve({
+              response: [],
+              responseText: '{"queries":["a"]}',
+              stopReason: 'eogToken'
+            })
+          }
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+
+      await llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'assess the evidence coverage',
+        // The Critical Thinking research-phase call shape: no tools, a schema
+        // the caller parses, and no explicit budget. Unbounded reasoning here
+        // cut the JSON off mid-string on 19 of 21 live rounds, because
+        // node-llama-cpp's own default budget is a fraction of the whole
+        // context — far above one bounded phase's cap.
+        options: { maxTokens: 1_024, jsonSchema: { type: 'object' } },
+        onToken: () => {}
+      })
+
+      expect(observedBudgets?.thoughtTokens).toBeDefined()
+      expect(observedBudgets!.thoughtTokens!).toBeGreaterThan(0)
+      expect(observedBudgets!.thoughtTokens!).toBeLessThan(1_024 * 0.5)
     })
 
     it('applies a default thought budget for a tool-enabled turn when none was explicitly requested', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultToolThoughtTokenBudget, resolveLocalOutputBudget } from '../localOutputBudget'
+import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from '../localOutputBudget'
 
 describe('resolveLocalOutputBudget', () => {
   it('reserves a bounded fraction of measured headroom for a tool turn instead of a flat quarter of context', () => {
@@ -142,10 +142,10 @@ describe('resolveLocalOutputBudget', () => {
   })
 })
 
-describe('defaultToolThoughtTokenBudget', () => {
+describe('defaultThoughtTokenBudget', () => {
   it('reserves a minority for thought, guaranteeing a majority for visible output', () => {
     const effectiveMaxTokens = 2_832 // the exact reproduced live 8K tool-turn budget
-    const thoughtTokens = defaultToolThoughtTokenBudget(effectiveMaxTokens)
+    const thoughtTokens = defaultThoughtTokenBudget(effectiveMaxTokens)
 
     expect(thoughtTokens).toBeGreaterThan(0)
     expect(thoughtTokens).toBeLessThan(effectiveMaxTokens)
@@ -155,7 +155,7 @@ describe('defaultToolThoughtTokenBudget', () => {
 
   it('never exceeds the total it is drawn from, across a range of budgets', () => {
     for (const effectiveMaxTokens of [0, 1, 512, 2_832, 8_192, 100_000]) {
-      const thoughtTokens = defaultToolThoughtTokenBudget(effectiveMaxTokens)
+      const thoughtTokens = defaultThoughtTokenBudget(effectiveMaxTokens)
       expect(thoughtTokens).toBeGreaterThanOrEqual(0)
       expect(thoughtTokens).toBeLessThanOrEqual(effectiveMaxTokens)
     }

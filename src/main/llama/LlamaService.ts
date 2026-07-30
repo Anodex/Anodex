@@ -79,7 +79,7 @@ import {
 } from './generationDiagnostics'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
-import { defaultToolThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
+import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { LlamaVisionService } from './LlamaVisionService'
 import { createAsyncMutex } from './asyncMutex'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
@@ -896,23 +896,40 @@ class LlamaService extends EventEmitter {
           topP: params.options?.topP,
           maxTokens: outputBudget.effectiveMaxTokens,
           // Sub-budget within maxTokens, not additional — see
-          // `GenerationOptions.thoughtTokens`'s doc comment. An explicit
-          // caller-supplied budget always wins; otherwise, tool-enabled turns
-          // fall back to a default guaranteed-visible-output reserve (see
-          // `defaultToolThoughtTokenBudget`) rather than leaving hidden
-          // reasoning free to consume the whole cap before one function call
-          // completes. Tool-less turns get no default — finishing its own
-          // thinking before answering is normal there. Never request more
-          // thought room than this turn's total hard cap actually has.
+          // `GenerationOptions.thoughtTokens`'s doc comment. A turn that
+          // structurally requires visible output — a function call, or a
+          // grammar-constrained reply the caller has to parse — gets the
+          // default guaranteed-visible reserve when it names no budget of its
+          // own, rather than leaving hidden reasoning free to consume the
+          // whole cap before the answer begins. Observed directly: Critical
+          // Thinking's grammar-constrained coverage assessments (1,024-token
+          // cap, no requested budget) spent ~700 tokens thinking and had
+          // their JSON cut off mid-string on 19 of 21 rounds, because
+          // node-llama-cpp's own default thought budget is a fraction of the
+          // whole CONTEXT (24,576 tokens at 32K) — far above any single
+          // bounded phase's cap, so effectively no bound at all. An ordinary
+          // free-text turn still gets no default: finishing its own thinking
+          // before answering is normal there.
+          //
+          // Whatever the source, the budget is clamped to
+          // `defaultThoughtTokenBudget` — see that function's doc comment for
+          // why the effective cap alone is not a safe clamp.
           budgets: (() => {
+            const thoughtCeiling = defaultThoughtTokenBudget(outputBudget.effectiveMaxTokens)
+            const requiresVisibleOutput = functions != null || grammar != null
             const requested =
-              params.options?.thoughtTokens ??
-              (functions != null
-                ? defaultToolThoughtTokenBudget(outputBudget.effectiveMaxTokens)
-                : undefined)
-            return requested != null
-              ? { thoughtTokens: Math.max(0, Math.min(requested, outputBudget.effectiveMaxTokens)) }
-              : undefined
+              params.options?.thoughtTokens ?? (requiresVisibleOutput ? thoughtCeiling : undefined)
+            if (requested == null) return undefined
+            const budget = Math.max(0, Math.min(requested, thoughtCeiling))
+            // Both hidden-output segment types get the same budget.
+            // node-llama-cpp budgets "thought" and "comment" separately, and
+            // an unset one defaults to a fraction of the whole CONTEXT — far
+            // above any single phase's cap. This code treats every segment
+            // chunk as hidden reasoning (see `onResponseChunk`) and counts it
+            // against the same hard ceiling, so budgeting only one of the two
+            // leaves the other free to consume the call, depending on which
+            // segment type the resolved chat wrapper happens to emit.
+            return { thoughtTokens: budget, commentTokens: budget }
           })(),
           // node-llama-cpp's standard repeatPenalty is a soft probability
           // nudge and doesn't prevent verbatim broken-record looping — DRY
