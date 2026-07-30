@@ -42,7 +42,9 @@ const api: AnodexApi = {
     recommendSettingsForFile: (path) =>
       ipcRenderer.invoke(IpcChannel.Models.recommendSettings, path),
     discover: (query) => ipcRenderer.invoke(IpcChannel.Models.discover, query),
-    fetchTopModels: () => ipcRenderer.invoke(IpcChannel.Models.fetchTopModels)
+    fetchTopModels: () => ipcRenderer.invoke(IpcChannel.Models.fetchTopModels),
+    getLoadRecovery: () => ipcRenderer.invoke(IpcChannel.Models.getLoadRecovery),
+    dismissLoadRecovery: () => ipcRenderer.invoke(IpcChannel.Models.dismissLoadRecovery)
   },
   chat: {
     send: (request) => ipcRenderer.invoke(IpcChannel.Chat.send, request),

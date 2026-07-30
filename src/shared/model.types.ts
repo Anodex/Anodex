@@ -94,6 +94,46 @@ export interface ModelSettingsRecommendation {
   rationale: string
 }
 
+/**
+ * A model load that started and never reported an outcome — recorded on disk
+ * before the native engine is touched and cleared the moment it returns, so
+ * finding one at startup means the previous run died mid-load.
+ *
+ * The failure this exists for is not catchable in JavaScript: a GPU-backend
+ * crash inside llama.cpp takes the whole process down, leaving no error to
+ * report and no state to read. Without this record the app auto-restores the
+ * same model with the same settings on the next launch and crashes again, with
+ * no way out that doesn't involve editing settings.json by hand.
+ */
+export interface InterruptedModelLoad {
+  modelPath: string
+  modelName: string
+  /** The offload setting that was in effect, exactly as requested. */
+  gpuLayers: number | 'auto'
+  /** Requested context size, before any engine-side shrinking. */
+  contextSize?: number
+  /** True when the load went through the multimodal runtime. */
+  vision: boolean
+  /** ISO timestamp of when the load began. */
+  startedAt: string
+}
+
+/** What to tell the user about an {@link InterruptedModelLoad}, and what to retry with. */
+export interface ModelLoadRecovery {
+  interrupted: InterruptedModelLoad
+  /** Load options for the safer retry — never the ones that just crashed. */
+  retry: { gpuLayers: number; contextSize?: number }
+  headline: string
+  explanation: string
+  /** Action label for the safer retry, naming what actually changes. */
+  retryLabel: string
+  /**
+   * True when GPU offload was already off, so the graphics driver isn't the
+   * suspect and the retry has to reduce something else instead.
+   */
+  alreadyCpuOnly: boolean
+}
+
 /** Progress of an in-app recommended-model download, broadcast to the renderer. */
 export interface ModelDownloadProgress {
   /** `RecommendedModel.id` of the model being downloaded. */

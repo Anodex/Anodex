@@ -323,11 +323,18 @@ export async function retryStartup(): Promise<void> {
 }
 
 /**
- * On first launch, seed context/GPU/token defaults from the detected hardware so
- * the app is tuned to the user's machine out of the box. Runs once (guarded by
- * `model.autoConfigured`); never overrides the user's later manual choices.
+ * Re-load whichever model was active when the app last closed, so a restart
+ * lands the user back where they were instead of on an empty engine.
  */
 async function restoreLastModel(): Promise<void> {
+  // Before anything else: if the previous run died loading a model, restoring
+  // it now is exactly how an app becomes permanently unlaunchable. Hand the
+  // decision to the user instead — `SafeModeDialog` renders the prompt.
+  // Checked ahead of `lastModelPath` on purpose, since a model that crashed on
+  // its first load never became the last *successfully* loaded one.
+  const recovery = await useModelStore.getState().checkLoadRecovery()
+  if (recovery) return
+
   const settings = useSettingsStore.getState().settings
   const lastPath = settings?.lastModelPath
   if (!lastPath) return

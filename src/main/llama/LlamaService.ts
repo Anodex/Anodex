@@ -59,6 +59,7 @@ import {
   seedContextFromSnapshot
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
+import { beginModelLoad, finishModelLoad } from './loadSentinel'
 import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
 import { buildDeterministicCheckpoint } from './deterministicCheckpoint'
@@ -458,6 +459,18 @@ class LlamaService extends EventEmitter {
       this.setState({ status: 'loading', model: info, error: undefined })
       log.info('Loading model', info.name)
 
+      // Everything below this line can take the whole process down without
+      // raising anything catchable — see `loadSentinel.ts`. The record is
+      // cleared in the `finally`, so only a real crash leaves one behind.
+      beginModelLoad({
+        modelPath: info.path,
+        modelName: info.name,
+        gpuLayers: options.gpuLayers ?? 'auto',
+        contextSize: requestedSize,
+        vision: Boolean(options.visionProjectorPath),
+        startedAt: new Date().toISOString()
+      })
+
       try {
         if (options.visionProjectorPath) {
           await this.visionService.load({ ...options, contextSize: requestedSize })
@@ -526,6 +539,10 @@ class LlamaService extends EventEmitter {
         await this.disposeModel()
         this.setState({ status: 'error', model: info, error: message })
         throw new Error(message)
+      } finally {
+        // A caught failure is not a crash — the app is alive and has already
+        // told the user what went wrong, so it needs no recovery prompt.
+        finishModelLoad()
       }
     } finally {
       this.loadingModel = false

@@ -31,8 +31,33 @@ import { mcpManager } from './mcp/McpManager'
 import { createLogger } from './utils/logger'
 import { diagnosticsReporter } from './diagnostics/DiagnosticsReporter'
 import { registerCrashHandlers } from './diagnostics/crashHandlers'
+import { finishModelLoad, getLoadRecovery, initLoadSentinel } from './llama/loadSentinel'
 
 const log = createLogger('main')
+
+/**
+ * Surface a previous run's crashed model load in Diagnostics too, not only in
+ * the recovery prompt. The prompt is answered once and gone; a bug report
+ * filed a week later still needs the crash in the log.
+ */
+function reportInterruptedLoad(): void {
+  const recovery = getLoadRecovery()
+  if (!recovery) return
+  const { interrupted } = recovery
+  diagnosticsReporter.report({
+    severity: 'error',
+    category: 'model',
+    message: recovery.headline,
+    detail:
+      `model: ${interrupted.modelPath}\n` +
+      `gpuLayers: ${interrupted.gpuLayers}\n` +
+      `contextSize: ${interrupted.contextSize ?? 'default'}\n` +
+      `vision: ${interrupted.vision}\n` +
+      `startedAt: ${interrupted.startedAt}`,
+    suggestedFix: recovery.explanation,
+    scope: 'model-load'
+  })
+}
 
 /** Give startup (model auto-load, window paint) a moment before an update
  *  check adds its own network activity — same reasoning as the model
@@ -67,6 +92,10 @@ if (!app.requestSingleInstanceLock()) {
       // First, so every subsystem below logs into the file and the Diagnostics
       // page from its very first line.
       diagnosticsReporter.init()
+      // Before any subsystem can load a model, so the record of a load that
+      // never finished is read while it still means "the last run crashed".
+      initLoadSentinel()
+      reportInterruptedLoad()
       settingsStore.init()
       projectStore.init()
       projectMemoryStore.init()
@@ -123,6 +152,9 @@ if (!app.requestSingleInstanceLock()) {
     criticalThinkingService.stopAll()
     cancelAllDownloads()
     closeToast()
+    // Quitting during a load is a clean exit, not a crash — drop the sentinel
+    // so the next launch doesn't offer to recover from it.
+    finishModelLoad()
     llamaService.unload().catch((error) => {
       log.error('Error unloading model on quit:', error)
     })

@@ -12,6 +12,7 @@ import type {
   ModelDownloadProgress,
   ModelInfo,
   ModelLoadOptions,
+  ModelLoadRecovery,
   ModelSettingsRecommendation
 } from './model.types'
 import type { ModelReliabilityRecord } from './modelReliability.types'
@@ -140,7 +141,11 @@ export const IpcChannel = {
     /** Live-search Hugging Face for downloadable GGUF models. */
     discover: 'models:discover',
     /** Auto-populate "Recommended for your PC" with current models from trusted publishers. */
-    fetchTopModels: 'models:fetch-top-models'
+    fetchTopModels: 'models:fetch-top-models',
+    /** A model load the previous run started and never finished — see `loadSentinel.ts`. */
+    getLoadRecovery: 'models:get-load-recovery',
+    /** Forget the pending crash recovery once the user has answered it. */
+    dismissLoadRecovery: 'models:dismiss-load-recovery'
   },
   Chat: {
     send: 'chat:send',
@@ -477,6 +482,14 @@ export interface AnodexApi {
     discover(query: string): Promise<Result<RecommendedModel[]>>
     /** Auto-populate "Recommended for your PC" with current models from trusted publishers. */
     fetchTopModels(): Promise<Result<RecommendedModel[]>>
+    /**
+     * Set when the previous run died partway through loading a model, with the
+     * safer settings to retry under. Auto-restore must check this before
+     * loading anything, or it repeats the crash.
+     */
+    getLoadRecovery(): Promise<ModelLoadRecovery | null>
+    /** Forget the pending recovery once the user has chosen what to do about it. */
+    dismissLoadRecovery(): Promise<void>
   }
   chat: {
     send(request: ChatRequest): Promise<Result<ChatResult>>

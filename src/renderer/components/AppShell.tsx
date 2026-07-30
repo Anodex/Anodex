@@ -23,6 +23,7 @@ import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
 import { useWorkspaceDockProjectId } from '../features/workspace-dock/useWorkspaceDockAvailability'
 import { ShortcutHelpOverlay } from '../features/shortcuts/ShortcutHelpOverlay'
+import { SafeModeDialog } from '../features/startup/SafeModeDialog'
 import { ContextMenu } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
 import styles from './AppShell.module.css'
@@ -361,6 +362,9 @@ export function AppShell(): JSX.Element {
       <Toasts />
       <ContextMenu />
       <ShortcutHelpOverlay />
+      <ErrorBoundary label="Model recovery">
+        <SafeModeDialog />
+      </ErrorBoundary>
       {view === 'settings' && (
         <ErrorBoundary label="Settings">
           <SettingsModal />

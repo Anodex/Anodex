@@ -5,6 +5,7 @@ import { ok, err, toErrorMessage } from '@shared/result'
 import type { ModelLoadOptions } from '@shared/model.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
 import { llamaService } from '../llama/LlamaService'
+import { clearLoadRecovery, getLoadRecovery } from '../llama/loadSentinel'
 import { describeModel, isVisionProjectorFileName, scanModels } from '../llama/modelScanner'
 import { cancelDownload, downloadModel } from '../llama/modelDownloader'
 import { searchHuggingFaceModels, fetchTopModels } from '../models/huggingFaceCatalog'
@@ -212,4 +213,10 @@ export function registerModelHandlers(): void {
   )
 
   ipcMain.handle(IpcChannel.Models.fetchTopModels, () => fetchTopModels())
+
+  // Reads an in-memory value captured at startup, so unlike its neighbours
+  // there is nothing here that can fail — no Result wrapper, same as getState.
+  ipcMain.handle(IpcChannel.Models.getLoadRecovery, () => getLoadRecovery())
+
+  ipcMain.handle(IpcChannel.Models.dismissLoadRecovery, () => clearLoadRecovery())
 }
