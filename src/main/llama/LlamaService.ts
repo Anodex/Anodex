@@ -43,6 +43,7 @@ import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { reservedNonHistoryTokens } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
+import { environmentDateFromPrompt } from '@shared/prompts'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import { createLoopGuardState } from '../tools/loopGuard'
@@ -354,6 +355,12 @@ class LlamaService extends EventEmitter {
   private activeContextShiftHandler?: () => void
   private session?: LlamaChatSession
   private activeConversationId?: string
+  /**
+   * Calendar date baked into the live session's system prompt, or null when it
+   * has none (see `ensureSession`). Never `undefined`, so the reuse check below
+   * compares like with like for a prompt-less session.
+   */
+  private activeEnvironmentDate: string | null = null
   /** Refreshed before every generation; reused session strategies read it lazily. */
   private activeToolSchemaReserveTokens = 0
 
@@ -1634,6 +1641,11 @@ class LlamaService extends EventEmitter {
    * changes, the session is rebuilt and the prior turns are replayed so context
    * is preserved. Staying on the same conversation reuses the session (and its
    * KV cache) across turns.
+   *
+   * The one exception is a date rollover: the session's system prompt is baked
+   * in at construction, so a conversation left open past midnight would keep
+   * telling the model it is yesterday. That's rebuilt too — once per day at
+   * most, and only for a conversation actually still in use.
    */
   private async ensureSession(
     conversationId: string,
@@ -1648,8 +1660,22 @@ class LlamaService extends EventEmitter {
     // strategy is reused, but the enabled/MCP tool surface can change between
     // turns; its lazy getter below reads this refreshed value.
     this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
-    if (!forceRebuild && this.session && this.activeConversationId === conversationId) {
+    const environmentDate = environmentDateFromPrompt(systemPrompt)
+    if (
+      !forceRebuild &&
+      this.session &&
+      this.activeConversationId === conversationId &&
+      environmentDate === this.activeEnvironmentDate
+    ) {
       return this.session
+    }
+    if (this.session && this.activeEnvironmentDate && environmentDate) {
+      if (environmentDate !== this.activeEnvironmentDate) {
+        log.info(
+          `Date rolled over from ${this.activeEnvironmentDate} to ${environmentDate} — ` +
+            `rebuilding the session so the model isn't told the wrong day.`
+        )
+      }
     }
     if (!this.context || !this.contextSequence) throw new Error('No model loaded.')
 
@@ -1714,6 +1740,7 @@ class LlamaService extends EventEmitter {
     if (items.length > 0) this.session.setChatHistory(items)
 
     this.activeConversationId = conversationId
+    this.activeEnvironmentDate = environmentDate
     return this.session
   }
 
@@ -2198,6 +2225,7 @@ class LlamaService extends EventEmitter {
     }
     this.session = undefined
     this.activeConversationId = undefined
+    this.activeEnvironmentDate = null
   }
 
   /**
