@@ -299,7 +299,42 @@ IPC/main-process work needed if shortcuts are stored in existing `AppSettings`
 client-side in `chatStore.ts`/`ChatComposer.tsx` before `sendMessage` is
 called.
 
-### 5. AI-generated commit messages
+### 5. Shortcuts that need a feature built before they can be bound
+
+The editable keyboard-shortcut system is built and documented in `README.md`
+(`src/shared/keyboardShortcuts.ts` holds the key map and definitions,
+`src/renderer/hooks/useGlobalKeyboardShortcuts.ts` dispatches them,
+Settings → Keyboard edits them, `Ctrl+/` shows the cheat sheet). Three
+shortcuts were designed alongside it and deliberately left unbound, because
+each needs a real feature underneath rather than a key wired to nothing:
+
+- **Find in current view (`Ctrl+F`).** Conspicuously missing — the chat
+  transcript, the email list, and the file viewer all want it, and they want
+  different things (transcript search wants match-stepping across a long
+  virtualized list; the file viewer already has CodeMirror, which has its own
+  search extension). Probably three surfaces sharing one key rather than one
+  generic implementation. Bind it once at least one surface exists.
+- **Close file viewer tab (`Ctrl+W`).** `Ctrl+S` save already exists in the
+  file viewer, so the pair is expected. Needs a real close path in the dock's
+  file-viewer panel first — the risk is a plain `Ctrl+W` reading as "close the
+  window" to anyone whose muscle memory comes from a browser, so it must be
+  unambiguously scoped to the panel.
+- **Previous/next conversation.** `Ctrl+Alt+Up`/`Ctrl+Alt+Down` rather than
+  plain `Ctrl+Up`/`Down`, which collide with textarea navigation. Needs a
+  defined ordering to step through (the sidebar's current filtered/sorted
+  view, not raw `conversations` order) and a decision about whether it skips
+  archived, scheduled-origin, and agent-origin rows — `ChatRow.tsx` already
+  distinguishes those.
+
+**When adding any of these:** the key map is a closed union
+(`KeyboardShortcutId` in `src/shared/settings.types.ts`), so a new entry needs
+the id, a `DEFAULT_KEYBOARD_SHORTCUTS` binding, and a
+`KEYBOARD_SHORTCUT_DEFINITIONS` entry — a test asserts those three stay in
+sync, and another asserts `Ctrl+Shift+P` stays unclaimed for a future command
+palette. Bindings need a Ctrl/Alt/Meta modifier (or `Escape`/an F-key);
+`isBindableShortcut` enforces that on both sides of the IPC boundary.
+
+### 6. AI-generated commit messages
 
 A "generate a commit message from my staged changes" action — `git_status` and
 `git_diff` are already wired up as AI tools, so the underlying data already
