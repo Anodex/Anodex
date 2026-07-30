@@ -16,32 +16,65 @@
   margin-bottom: var(--space-3);
 }
 
-/* Primary action: starting a new chat is the thing people reach for most,
-   so it gets a real button up top rather than a small + in a section header. */
+/* Primary action: starting a new chat is the thing people reach for most, so
+   it gets a real button up top rather than a small + in a section header.
+
+   It is deliberately NOT accent-filled. This button is on screen every second
+   the app is open, and a saturated slab here outshouts the conversation it
+   sits next to. Instead it matches SidebarSearch's geometry exactly — same
+   34px row, same padding, same trailing keycap — so the two read as one pair
+   of controls rather than a loud button above a quiet row. The accent survives
+   on the + glyph alone, which is enough to mark it as the primary action. */
 .newChatButton {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: var(--space-2);
   width: 100%;
   min-height: 34px;
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-sm);
-  font-weight: 550;
+  font-weight: 500;
   color: var(--text);
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  text-align: left;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .newChatButton:hover {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
 }
 
 .newChatButton svg {
   flex-shrink: 0;
+}
+
+.newChatIcon {
+  color: var(--accent);
+}
+
+.newChatLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Mirrors SidebarSearch's .shortcut so Ctrl+N and Ctrl+K sit identically. */
+.newChatShortcut {
+  flex-shrink: 0;
+  padding: 1px var(--space-1);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 .scroll {

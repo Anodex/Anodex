@@ -64,6 +64,9 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
   const searchShortcut =
     useSettingsStore((s) => s.settings?.keyboard.shortcuts.searchSidebar) ??
     DEFAULT_KEYBOARD_SHORTCUTS.searchSidebar
+  const newChatShortcut =
+    useSettingsStore((s) => s.settings?.keyboard.shortcuts.newChat) ??
+    DEFAULT_KEYBOARD_SHORTCUTS.newChat
   const handleCreateProject = useCreateProject()
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -216,8 +219,11 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
     <aside className={styles.sidebar}>
       <div className={styles.actions}>
         <button type="button" className={styles.newChatButton} onClick={() => handleNewChat()}>
-          <Icon name="plus" size={14} />
-          <span>New chat</span>
+          <Icon name="plus" size={14} className={styles.newChatIcon} />
+          <span className={styles.newChatLabel}>New chat</span>
+          {newChatShortcut && (
+            <kbd className={styles.newChatShortcut}>{newChatShortcut.replace(/\+/g, ' ')}</kbd>
+          )}
         </button>
         <SidebarSearch value={searchQuery} onChange={setSearchQuery} shortcut={searchShortcut} />
       </div>
