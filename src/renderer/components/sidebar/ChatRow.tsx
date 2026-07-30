@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent
+} from 'react'
 import { createPortal } from 'react-dom'
 import type { Conversation } from '../../stores/chatStore'
 import { formatRelativeTime } from '../../lib/time'
@@ -202,6 +210,32 @@ interface ChatContextMenuProps {
   onClose: () => void
 }
 
+/** One row of the chat context menu. A `separator` carries nothing else. */
+type ChatMenuEntry =
+  | { kind: 'separator'; id: string }
+  | {
+      kind: 'item'
+      id: string
+      label: string
+      /**
+       * Single character typed on its own to fire the row while the menu is
+       * open, shown right-aligned. Menu-local, so it is not part of the
+       * configurable global bindings in Settings → Keyboard.
+       */
+      accelerator: string
+      disabled: boolean
+      run?: () => void | Promise<void>
+    }
+
+async function copyText(label: string, value?: string): Promise<void> {
+  if (!value) return
+  try {
+    await navigator.clipboard.writeText(value)
+  } catch (error) {
+    notifyError(`Could not copy ${label}`, error instanceof Error ? error.message : undefined)
+  }
+}
+
 function ChatContextMenu({
   point,
   conversation,
@@ -212,79 +246,183 @@ function ChatContextMenu({
   onOpenProjectFolder,
   onClose
 }: ChatContextMenuProps): JSX.Element {
-  const menuWidth = 190
-  const menuHeight = 290
+  const menuRef = useRef<HTMLDivElement>(null)
+  const menuWidth = 216
+  const menuHeight = 300
   const left = Math.max(8, Math.min(point.x, window.innerWidth - menuWidth - 8))
   const top = Math.max(8, Math.min(point.y, window.innerHeight - menuHeight - 8))
 
-  const run =
-    (action?: () => void | Promise<void>) =>
-    (event: MouseEvent<HTMLButtonElement>): void => {
-      event.stopPropagation()
-      if (!action) return
-      onClose()
-      void action()
-    }
+  const entries = useMemo<ChatMenuEntry[]>(
+    () => [
+      { kind: 'item', id: 'pin', label: 'Pin chat', accelerator: 'P', disabled: true },
+      {
+        kind: 'item',
+        id: 'rename',
+        label: 'Rename chat',
+        accelerator: 'R',
+        disabled: !onRename,
+        run: onRename
+      },
+      {
+        kind: 'item',
+        id: 'archive',
+        label: 'Archive chat',
+        accelerator: 'A',
+        disabled: !onArchive,
+        run: onArchive
+      },
+      {
+        kind: 'item',
+        id: 'unread',
+        label: 'Mark as unread',
+        accelerator: 'U',
+        disabled: !onMarkUnread,
+        run: onMarkUnread
+      },
+      { kind: 'separator', id: 'sep-1' },
+      {
+        kind: 'item',
+        id: 'explorer',
+        label: 'Open in Explorer',
+        accelerator: 'E',
+        disabled: !onOpenProjectFolder,
+        run: onOpenProjectFolder
+      },
+      {
+        kind: 'item',
+        id: 'copy-cwd',
+        label: 'Copy working directory',
+        accelerator: 'W',
+        disabled: !projectPath,
+        run: () => copyText('working directory', projectPath)
+      },
+      {
+        kind: 'item',
+        id: 'copy-id',
+        label: 'Copy chat ID',
+        accelerator: 'I',
+        disabled: false,
+        run: () => copyText('chat ID', conversation.id)
+      },
+      {
+        kind: 'item',
+        id: 'copy-link',
+        label: 'Copy deeplink',
+        accelerator: 'L',
+        disabled: false,
+        run: () => copyText('deeplink', `anodex://chat/${conversation.id}`)
+      },
+      { kind: 'separator', id: 'sep-2' },
+      {
+        kind: 'item',
+        id: 'new-window',
+        label: 'Open in new window',
+        accelerator: 'N',
+        disabled: true
+      }
+    ],
+    [conversation.id, onArchive, onMarkUnread, onOpenProjectFolder, onRename, projectPath]
+  )
 
-  const copyText = async (label: string, value?: string): Promise<void> => {
-    if (!value) return
-    try {
-      await navigator.clipboard.writeText(value)
-    } catch (error) {
-      notifyError(`Could not copy ${label}`, error instanceof Error ? error.message : undefined)
+  const activate = useCallback(
+    (entry: ChatMenuEntry): void => {
+      if (entry.kind !== 'item' || entry.disabled || !entry.run) return
+      onClose()
+      void entry.run()
+    },
+    [onClose]
+  )
+
+  // Focus the menu itself so arrow keys work straight away — a right-click
+  // leaves focus wherever it was, and nothing here is focused by default.
+  useEffect(() => {
+    menuRef.current?.focus()
+  }, [])
+
+  const moveFocus = (delta: number, from?: HTMLElement): void => {
+    const buttons = [
+      ...(menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+    ]
+    if (buttons.length === 0) return
+    const current = from ? buttons.indexOf(from as HTMLButtonElement) : -1
+    const next = current === -1 ? (delta > 0 ? 0 : buttons.length - 1) : current + delta
+    buttons[(next + buttons.length) % buttons.length]?.focus()
+  }
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const active = document.activeElement
+      moveFocus(
+        event.key === 'ArrowDown' ? 1 : -1,
+        active instanceof HTMLElement && menuRef.current?.contains(active) ? active : undefined
+      )
+      return
     }
+    // Bare letters only: with a modifier held the user means a global binding.
+    if (event.ctrlKey || event.altKey || event.metaKey || event.key.length !== 1) return
+    const typed = event.key.toUpperCase()
+    const match = entries.find(
+      (entry) => entry.kind === 'item' && !entry.disabled && entry.accelerator === typed
+    )
+    if (!match) return
+    event.preventDefault()
+    event.stopPropagation()
+    activate(match)
   }
 
   return (
     <div
+      ref={menuRef}
       className={styles.contextMenu}
       style={{ top, left }}
       role="menu"
+      tabIndex={-1}
       onMouseDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.stopPropagation()}
+      onKeyDown={handleKeyDown}
     >
-      <MenuItem label="Pin chat" disabled />
-      <MenuItem label="Rename chat" onClick={run(onRename)} disabled={!onRename} />
-      <MenuItem label="Archive chat" onClick={run(onArchive)} disabled={!onArchive} />
-      <MenuItem label="Mark as unread" onClick={run(onMarkUnread)} disabled={!onMarkUnread} />
-      <div className={styles.contextSeparator} />
-      <MenuItem
-        label="Open in Explorer"
-        onClick={run(onOpenProjectFolder)}
-        disabled={!onOpenProjectFolder}
-      />
-      <MenuItem
-        label="Copy working directory"
-        onClick={run(() => copyText('working directory', projectPath))}
-        disabled={!projectPath}
-      />
-      <MenuItem label="Copy chat ID" onClick={run(() => copyText('chat ID', conversation.id))} />
-      <MenuItem
-        label="Copy deeplink"
-        onClick={run(() => copyText('deeplink', `anodex://chat/${conversation.id}`))}
-      />
-      <div className={styles.contextSeparator} />
-      <MenuItem label="Open in new window" disabled />
+      {entries.map((entry) =>
+        entry.kind === 'separator' ? (
+          <div key={entry.id} className={styles.contextSeparator} role="separator" />
+        ) : (
+          <MenuItem
+            key={entry.id}
+            label={entry.label}
+            accelerator={entry.accelerator}
+            disabled={entry.disabled}
+            onClick={(event) => {
+              event.stopPropagation()
+              activate(entry)
+            }}
+          />
+        )
+      )}
     </div>
   )
 }
 
 interface MenuItemProps {
   label: string
+  accelerator: string
   disabled?: boolean
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void
 }
 
-function MenuItem({ label, disabled = false, onClick }: MenuItemProps): JSX.Element {
+function MenuItem({ label, accelerator, disabled = false, onClick }: MenuItemProps): JSX.Element {
   return (
     <button
       type="button"
       className={styles.contextItem}
       role="menuitem"
       disabled={disabled}
+      aria-keyshortcuts={accelerator}
       onClick={onClick}
     >
-      {label}
+      <span className={styles.contextLabel}>{label}</span>
+      <span className={styles.contextAccelerator} aria-hidden="true">
+        {accelerator}
+      </span>
     </button>
   )
 }

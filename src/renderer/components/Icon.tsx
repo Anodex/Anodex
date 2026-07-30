@@ -28,6 +28,7 @@ export type IconName =
   | 'user'
   | 'palette'
   | 'sliders'
+  | 'keyboard'
   | 'activity'
   | 'monitor'
   | 'chevron-down'
@@ -208,6 +209,17 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <line x1="1" y1="14" x2="7" y2="14" />
       <line x1="9" y1="8" x2="15" y2="8" />
       <line x1="17" y1="16" x2="23" y2="16" />
+    </>
+  ),
+  /* Keyboard with the logo's 45° cut on the top-right corner, so it belongs to
+     the same family as `chat`/`folder`/`models`. The key row needs butt caps:
+     the SVG-wide round cap adds half a stroke width at each end of a dash,
+     which would swell "2.5 3" into a near-solid line at nav size. */
+  keyboard: (
+    <>
+      <path d="M2 7.5A2.5 2.5 0 0 1 4.5 5H16l6 5.5v6A2.5 2.5 0 0 1 19.5 19h-15A2.5 2.5 0 0 1 2 16.5v-9z" />
+      <path d="M6 10h8" strokeDasharray="2.5 3" strokeLinecap="butt" />
+      <path d="M8 14.5h8" />
     </>
   ),
   activity: (

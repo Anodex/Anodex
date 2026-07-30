@@ -201,7 +201,7 @@
 .contextMenu {
   position: fixed;
   z-index: var(--z-popover);
-  width: 190px;
+  width: 216px;
   padding: var(--space-1);
   color: var(--text);
   background: var(--bg-elevated);
@@ -211,9 +211,15 @@
   animation: menuIn var(--motion-short, 160ms) var(--ease-out, ease-out) both;
 }
 
+.contextMenu:focus {
+  outline: none;
+}
+
 .contextItem {
   display: flex;
   align-items: center;
+  gap: var(--space-3);
+  justify-content: space-between;
   width: 100%;
   min-height: 28px;
   padding: 0 var(--space-3);
@@ -230,6 +236,29 @@
 .contextItem:focus-visible {
   background: var(--bg-surface-2);
   outline: none;
+}
+
+.contextLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Quiet by design: the letter is a reminder for people who already know the
+   menu, not a second thing to read on the way to the label. */
+.contextAccelerator {
+  flex: none;
+  min-width: 12px;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  transition: color var(--transition-fast);
+}
+
+.contextItem:hover .contextAccelerator,
+.contextItem:focus-visible .contextAccelerator {
+  color: var(--text-muted);
 }
 
 .contextItem:disabled {

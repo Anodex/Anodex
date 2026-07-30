@@ -36,7 +36,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'profile', label: 'Profile', icon: <Icon name="user" size={18} /> },
       { id: 'appearance', label: 'Appearance', icon: <Icon name="palette" size={18} /> },
-      { id: 'keyboard', label: 'Keyboard', icon: <Icon name="sliders" size={18} /> }
+      { id: 'keyboard', label: 'Keyboard', icon: <Icon name="keyboard" size={18} /> }
     ]
   },
   {
