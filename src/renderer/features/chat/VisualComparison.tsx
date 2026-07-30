@@ -16,7 +16,7 @@ export function VisualComparison({ pair }: { pair: VisualComparisonPair }): JSX.
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
       >
-        <Icon name="layers" size={14} />
+        <Icon name="compare" size={14} />
         <span>Compare latest inspections</span>
         <span className={styles.path}>{pair.after.path}</span>
         <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={13} />

@@ -25,7 +25,7 @@ export function MemoryUsedCard({ entries }: { entries: MemoryEntry[] }): JSX.Ele
     <div className={styles.card}>
       <button type="button" className={styles.row} onClick={() => setExpanded((value) => !value)}>
         <span className={styles.icon}>
-          <Icon name="layers" size={14} />
+          <Icon name="memory" size={14} />
         </span>
         <span className={styles.title}>
           Used {entries.length} {entries.length === 1 ? 'memory' : 'memories'}

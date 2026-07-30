@@ -10,8 +10,8 @@ export interface DockPanelConfig {
 }
 
 export const DOCK_PANELS: DockPanelConfig[] = [
-  { id: 'plan', label: 'Plan', icon: 'sparkle' },
-  { id: 'changes', label: 'Changes', icon: 'layers' },
+  { id: 'plan', label: 'Plan', icon: 'plan' },
+  { id: 'changes', label: 'Changes', icon: 'diff' },
   { id: 'checkpoints', label: 'Checkpoints', icon: 'restore' },
   { id: 'git', label: 'Git', icon: 'git-branch' },
   { id: 'files', label: 'Files', icon: 'folder' },

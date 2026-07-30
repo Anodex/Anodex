@@ -13,9 +13,9 @@ import styles from './ToolCallCard.module.css'
 const KIND_ICON: Record<ToolCall['kind'], IconName> = {
   read: 'folder',
   write: 'copy',
-  command: 'cpu',
+  command: 'terminal',
   web: 'web',
-  plan: 'sparkle',
+  plan: 'plan',
   mcp: 'plug'
 }
 

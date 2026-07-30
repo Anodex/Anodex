@@ -162,7 +162,7 @@ function ChatIdTitle({ conversationId }: { conversationId: string | null }): JSX
   return (
     <span className={styles.railTitleGroup}>
       <span className={styles.railTitle}>
-        <Icon name="sparkle" size={13} />
+        <Icon name="summary" size={13} />
         About this thread
       </span>
       {conversationId && (

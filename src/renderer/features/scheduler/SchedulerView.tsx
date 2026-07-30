@@ -43,7 +43,7 @@ const EXAMPLES: Example[] = [
     }
   },
   {
-    icon: 'layers',
+    icon: 'summary',
     title: 'Weekly summary',
     description: "A short summary of this week's work in this project, every Friday afternoon.",
     seed: {

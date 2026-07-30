@@ -42,7 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Assistant',
     items: [
-      { id: 'memory', label: 'Memory', icon: <Icon name="layers" size={18} /> },
+      { id: 'memory', label: 'Memory', icon: <Icon name="memory" size={18} /> },
       { id: 'projects', label: 'Skills', icon: <Icon name="lightbulb" size={18} /> },
       { id: 'tools-skills', label: 'Tools', icon: <Icon name="wrench" size={18} /> }
     ]

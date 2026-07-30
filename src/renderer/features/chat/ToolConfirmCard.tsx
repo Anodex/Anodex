@@ -252,7 +252,7 @@ const DRAFT_CONFIG = {
 const KIND_CONFIG: Record<
   'write' | 'command' | 'web' | 'mcp',
   {
-    icon: 'copy' | 'cpu' | 'web' | 'plug'
+    icon: 'copy' | 'terminal' | 'web' | 'plug'
     style: 'write' | 'command' | 'web' | 'mcp'
     title: string
     approveLabel: string
@@ -265,7 +265,7 @@ const KIND_CONFIG: Record<
     approveLabel: 'Apply'
   },
   command: {
-    icon: 'cpu',
+    icon: 'terminal',
     style: 'command',
     title: 'Run command?',
     approveLabel: 'Run'

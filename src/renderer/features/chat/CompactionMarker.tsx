@@ -27,7 +27,7 @@ export function CompactionMarker({
       <div className={styles.dividerRow}>
         <div className={styles.line} />
         <button type="button" className={styles.pill} onClick={() => setExpanded((v) => !v)}>
-          <Icon name="layers" size={12} />
+          <Icon name="compact" size={12} />
           <span>
             {snapshot.removedTurns} older {snapshot.removedTurns === 1 ? 'turn' : 'turns'}{' '}
             summarized

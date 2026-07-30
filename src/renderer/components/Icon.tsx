@@ -70,6 +70,11 @@ export type IconName =
   | 'zap'
   | 'git-branch'
   | 'diff'
+  | 'compact'
+  | 'compare'
+  | 'summary'
+  | 'plan'
+  | 'memory'
   | 'insight'
 
 const GLYPHS: Record<IconName, ReactNode> = {
@@ -451,11 +456,71 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M18 9a9 9 0 0 1-9 9" />
     </>
   ),
+  /* Butt caps on the dashed rule for the same reason as `keyboard`: the
+     SVG-wide round cap extends each dash by half a stroke width, closing the
+     gaps into a solid line. */
   diff: (
     <>
       <path d="M12 4v6M9 7h6" />
       <path d="M9 17h6" />
-      <path d="M4 12h16" strokeDasharray="2 3" />
+      <path d="M4 12h16" strokeDasharray="2.5 3" strokeLinecap="butt" />
+    </>
+  ),
+  /* Two arrows closing on a rule — many turns folded down to a summary. Drawn
+     twice: converging chevrons read as a bowtie, and a dashed "seam" version
+     collapsed into a plain hamburger at the 12px the transcript marker uses.
+     This one costs five strokes but keeps a vertical silhouette nothing else
+     in the transcript has. */
+  compact: (
+    <>
+      <path d="M4 12h16" />
+      <path d="M12 3.5v5" />
+      <path d="m9 6 3 2.5 3-2.5" />
+      <path d="M12 20.5v-5" />
+      <path d="m9 18 3-2.5 3 2.5" />
+    </>
+  ),
+  /* The contrast trick from `palette`, squared off: one half filled, one empty.
+     Before-and-after without an extra stroke. */
+  compare: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path
+        d="M5.5 4H12v16H5.5A2.5 2.5 0 0 1 3 17.5v-11A2.5 2.5 0 0 1 5.5 4z"
+        fill="currentColor"
+        stroke="none"
+      />
+      <path d="M12 4v16" />
+    </>
+  ),
+  /* A page cut by the facet rather than folded like `file`, with a last line
+     that falls short — a body that has been condensed. */
+  summary: (
+    <>
+      <path d="M4 4a2 2 0 0 1 2-2h7.5L20 8.5V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" />
+      <path d="M8 11h8M8 14.5h8M8 18h4" />
+    </>
+  ),
+  /* A checklist, one item done and one open — which is what the Plan panel
+     actually shows. Frees `sparkle` from meaning both "the model is thinking"
+     and "here are the steps". */
+  plan: (
+    <>
+      <path d="m3 7.6 1.7 1.7L7.7 5.6" />
+      <path d="M11 8h10" />
+      <path d="M3.5 15.6h4" />
+      <path d="M11 16h10" />
+    </>
+  ),
+  /* An open ledger — honest to the implementation, since memory here is a
+     folder of written facts, one per file. Two earlier attempts started from
+     the system's geometry instead (a hex cell with a core, a bullet on a
+     facet-cut card) and read as shapes that happened to be labelled Memory.
+     Nothing else in the set is a book, so the silhouette survives 12px. */
+  memory: (
+    <>
+      <path d="M12 6.5C10.5 5 8.5 4.5 4 4.5v12c4.5 0 6.5.5 8 2 1.5-1.5 3.5-2 8-2v-12c-4.5 0-6.5.5-8 2z" />
+      <path d="M12 6.5v10" />
     </>
   ),
   /* Magnifier with the AI spark in the lens — critical thinking / deep research. */

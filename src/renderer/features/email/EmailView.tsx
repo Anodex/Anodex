@@ -276,7 +276,7 @@ export function EmailView(): JSX.Element {
           <Button
             variant="secondary"
             size="sm"
-            iconLeft={<Icon name="sparkle" size={15} />}
+            iconLeft={<Icon name="summary" size={15} />}
             disabled={digesting || undigested === 0}
             title={
               undigested === 0

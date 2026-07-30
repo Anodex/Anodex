@@ -152,7 +152,7 @@ function AwayBand({
   return (
     <section className={styles.awayBand} aria-label="Runs that finished while you were away">
       <span className={styles.awayIcon}>
-        <Icon name="layers" size={15} />
+        <Icon name="bot" size={15} />
       </span>
       <span className={styles.awayText}>
         <span className={styles.awayTitle}>{runs.length} runs finished while you were away</span>
