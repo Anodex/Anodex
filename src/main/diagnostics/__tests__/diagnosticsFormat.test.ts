@@ -116,6 +116,30 @@ describe('suggestedFixFor', () => {
   it('stays silent when nothing is confidently known', () => {
     expect(suggestedFixFor('Something unexpected happened')).toBeUndefined()
   })
+
+  it('does not blame the network for a dropped loopback connection to the local engine', () => {
+    const text = 'Email thread digest failed\nError: Connection error.\nCaused by: read ECONNRESET'
+
+    // Without the scope it reads as an ordinary network failure...
+    expect(suggestedFixFor(text)).toContain('network connection')
+    // ...but inside the local engine it is Anodex's own bundled server.
+    const local = suggestedFixFor(text, 'llama')
+    expect(local).toContain('local model server')
+    expect(local).not.toContain('VPN')
+  })
+
+  it('still gives the local engine ordinary advice for non-connection failures', () => {
+    expect(suggestedFixFor('ENOSPC: no space left on device', 'llama')).toContain('disk is full')
+  })
+})
+
+describe('IPC failure codes', () => {
+  it('classifies a failure code the same way as a logger scope', () => {
+    expect(categoryForScope('models.load-failed')).toBe('model')
+    expect(categoryForScope('email.send-failed')).toBe('integration')
+    expect(categoryForScope('workspace.read-failed')).toBe('file')
+    expect(categoryForScope('model-reliability')).toBe('model')
+  })
 })
 
 describe('truncate', () => {

@@ -21,13 +21,27 @@ describe('diagnosticsStore settings', () => {
     ])
   })
 
-  it('captures extra detail only when verbose logging is enabled', () => {
-    useDiagnosticsStore.getState().add({ ...makeEntry('quiet'), detail: 'debug detail' })
+  it('captures extra detail on non-errors only when verbose logging is enabled', () => {
+    useDiagnosticsStore.getState().add({ ...makeEntry('quiet', 'warning'), detail: 'debug detail' })
     expect(useDiagnosticsStore.getState().entries[0].detail).toBeUndefined()
 
     configureDiagnostics({ maxEntries: 250, clearOnRestart: false, verbose: true })
-    useDiagnosticsStore.getState().add({ ...makeEntry('verbose'), detail: 'debug detail' })
+    useDiagnosticsStore
+      .getState()
+      .add({ ...makeEntry('verbose', 'warning'), detail: 'debug detail' })
     expect(useDiagnosticsStore.getState().entries[0].detail).toBe('debug detail')
+  })
+
+  it('always keeps an error’s detail — it is the only explanation the user gets', () => {
+    configureDiagnostics({ maxEntries: 250, clearOnRestart: false, verbose: false })
+
+    useDiagnosticsStore
+      .getState()
+      .add({ ...makeEntry('load failed', 'error'), detail: 'needs more VRAM than is available' })
+
+    expect(useDiagnosticsStore.getState().entries[0].detail).toBe(
+      'needs more VRAM than is available'
+    )
   })
 
   it('removes info entries on startup while retaining warnings and errors', () => {

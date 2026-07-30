@@ -17,6 +17,7 @@
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { IpcChannel } from '@shared/ipc'
+import { setResultErrorReporter, type AnodexError } from '@shared/result'
 import type { DiagnosticEntry } from '@shared/settings.types'
 import { broadcastToWindows } from '../broadcast'
 import { setLogSink, type LogLevel } from '../utils/logger'
@@ -67,6 +68,7 @@ class DiagnosticsReporter {
     )
 
     setLogSink((level, scope, args) => this.onLog(level, scope, args))
+    setResultErrorReporter((error) => this.onResultError(error))
   }
 
   private onLog(level: LogLevel, scope: string, args: unknown[]): void {
@@ -85,11 +87,29 @@ class DiagnosticsReporter {
         category: categoryForScope(scope),
         message: formatted.message,
         detail: formatted.detail,
-        suggestedFix: suggestedFixFor(`${formatted.message}\n${formatted.detail ?? ''}`),
+        suggestedFix: suggestedFixFor(`${formatted.message}\n${formatted.detail ?? ''}`, scope),
         scope
       },
       timestamp
     )
+  }
+
+  /**
+   * Record a failure returned to the renderer through `err()`. Reported as a
+   * warning, not an error: many are ordinary conditions ("no workspace
+   * selected", "that file no longer exists") rather than something broken. The
+   * value is the detail — the renderer only ever receives a short sentence, so
+   * without this the technical cause was reaching nobody at all.
+   */
+  private onResultError(error: AnodexError): void {
+    this.report({
+      severity: 'warning',
+      category: categoryForScope(error.code),
+      message: error.message,
+      detail: error.detail ? `code: ${error.code}\n${error.detail}` : `code: ${error.code}`,
+      suggestedFix: suggestedFixFor(`${error.message}\n${error.detail ?? ''}`, error.code),
+      scope: error.code
+    })
   }
 
   /**

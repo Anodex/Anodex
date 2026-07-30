@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { err, ok, toErrorMessage } from '../result'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { err, ok, setResultErrorReporter, toErrorMessage } from '../result'
+
+afterEach(() => {
+  setResultErrorReporter(null)
+})
 
 describe('result', () => {
   describe('ok', () => {
@@ -24,6 +28,61 @@ describe('result', () => {
       const result = err('test.failed', 'Something went wrong', 'extra context')
       expect(result.ok).toBe(false)
       if (!result.ok) expect(result.error.detail).toBe('extra context')
+    })
+  })
+
+  describe('failure observer', () => {
+    it('reports every failure to an attached observer', () => {
+      const reporter = vi.fn()
+      setResultErrorReporter(reporter)
+
+      err('models.load-failed', 'Failed to load the model.', 'out of VRAM')
+
+      expect(reporter).toHaveBeenCalledWith({
+        code: 'models.load-failed',
+        message: 'Failed to load the model.',
+        detail: 'out of VRAM'
+      })
+    })
+
+    it('does not let a throwing observer turn one failure into two', () => {
+      setResultErrorReporter(() => {
+        throw new Error('reporter is broken')
+      })
+
+      expect(() => err('a.b', 'message')).not.toThrow()
+      expect(err('a.b', 'message').ok).toBe(false)
+    })
+
+    it('does not recurse when the observer itself fails through err', () => {
+      let calls = 0
+      setResultErrorReporter(() => {
+        calls += 1
+        err('reporter.failed', 'The reporter could not record that.')
+      })
+
+      err('original.failed', 'Something failed.')
+
+      expect(calls).toBe(1)
+    })
+
+    it('stops reporting once detached', () => {
+      const reporter = vi.fn()
+      setResultErrorReporter(reporter)
+      setResultErrorReporter(null)
+
+      err('a.b', 'message')
+
+      expect(reporter).not.toHaveBeenCalled()
+    })
+
+    it('never reports a success', () => {
+      const reporter = vi.fn()
+      setResultErrorReporter(reporter)
+
+      ok(42)
+
+      expect(reporter).not.toHaveBeenCalled()
     })
   })
 

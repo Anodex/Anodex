@@ -22,7 +22,9 @@ export const MAX_DETAIL_CHARS = 2000
  */
 const SCOPE_CATEGORIES: Array<[RegExp, Category]> = [
   // Local inference: the engine, model files, downloads, embeddings, vision.
-  [/^(llama|scanner|downloader|model-reliability|hf-catalog|embedding-service|vision)/, 'model'],
+  // `model` (not `model-reliability`) so IPC failure codes like
+  // `models.load-failed` classify here too — see `categoryForScope`.
+  [/^(llama|model|scanner|downloader|hf-catalog|embedding-service|vision)/, 'model'],
   // Cloud LLM providers.
   [/^(anthropic|openai|cloud-provider)/, 'provider'],
   // External services Anodex connects out to.
@@ -39,7 +41,11 @@ const SCOPE_CATEGORIES: Array<[RegExp, Category]> = [
   ]
 ]
 
-/** Classify a logger scope (`createLogger('llama:vision')`) for the UI. */
+/**
+ * Classify a logger scope (`createLogger('llama:vision')`) or an IPC failure
+ * code (`models.load-failed`) for the UI — both are dotted/colon-prefixed
+ * subsystem names, so one table covers them.
+ */
 export function categoryForScope(scope: string): Category {
   for (const [pattern, category] of SCOPE_CATEGORIES) {
     if (pattern.test(scope)) return category
@@ -194,8 +200,19 @@ const FIXES: Array<[RegExp, string]> = [
   ]
 ]
 
-/** Best-effort suggested next step, or undefined when nothing is confidently known. */
-export function suggestedFixFor(text: string): string | undefined {
+const CONNECTION_FAILURE = /ECONNRESET|ECONNREFUSED|fetch failed|Connection error|socket hang up/i
+
+/**
+ * Best-effort suggested next step, or undefined when nothing is confidently
+ * known. `scope` matters for one real case: a dropped connection inside the
+ * local engine is a loopback failure against Anodex's own bundled model server,
+ * so the generic "check your network / VPN / firewall" advice is actively
+ * misleading there.
+ */
+export function suggestedFixFor(text: string, scope?: string): string | undefined {
+  if (scope?.startsWith('llama') && CONNECTION_FAILURE.test(text)) {
+    return 'The connection to Anodex’s own local model server dropped — this is not an internet problem. Reload the model in Settings → AI Models; if it keeps dropping, the model likely ran out of memory mid-request.'
+  }
   for (const [pattern, fix] of FIXES) {
     if (pattern.test(text)) return fix
   }

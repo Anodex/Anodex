@@ -83,7 +83,12 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
   add: (entry) => {
     const diagnostic: DiagnosticEntry = {
       ...entry,
-      detail: runtimeSettings.verbose ? entry.detail : undefined,
+      // Errors always keep their detail. Verbose governs debug chatter on
+      // warnings and info; dropping it from an error deletes the only
+      // explanation the user gets — a real symptom of this was "Failed to load
+      // model" showing with nothing behind it while the engine's actual
+      // "needs more RAM/VRAM, try CPU-only" guidance sat in the discarded field.
+      detail: runtimeSettings.verbose || entry.severity === 'error' ? entry.detail : undefined,
       id: createId('diag'),
       timestamp: Date.now()
     }
