@@ -322,6 +322,40 @@
   color: var(--text-muted);
 }
 
+.detailBlock {
+  max-height: 260px;
+  margin: 0;
+  padding: 10px 11px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-muted);
+  background: var(--bg-surface-3);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.copyDetail {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: var(--space-2);
+  padding: 4px 8px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.copyDetail:hover {
+  color: var(--text);
+  background: var(--bg-surface-3);
+}
+
 .fix {
   display: flex;
   flex-direction: column;

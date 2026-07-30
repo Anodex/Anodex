@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import type { AppSettings, DiagnosticEntry } from '@shared/settings.types'
+import { useEffect, useState } from 'react'
+import type { AppSettings, DiagnosticEntry, DiagnosticLogFile } from '@shared/settings.types'
+import { anodex } from '../../../../lib/anodex'
 import { useDiagnosticsStore } from '../../../../stores/diagnosticsStore'
 import { Icon } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
@@ -23,10 +24,17 @@ const SEVERITY_FILTER: Array<{ label: string; value: DiagnosticEntry['severity']
 const CATEGORY_LABELS: Record<DiagnosticEntry['category'], string> = {
   model: 'Model',
   provider: 'Provider',
+  integration: 'Integration',
   file: 'File',
   permission: 'Permission',
   runtime: 'Runtime',
   general: 'General'
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsProps): JSX.Element {
@@ -37,6 +45,14 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
   const exportText = useDiagnosticsStore((s) => s.exportText)
 
   const [filter, setFilter] = useState<DiagnosticEntry['severity'] | 'all'>('all')
+  const [logFile, setLogFile] = useState<DiagnosticLogFile | null>(null)
+
+  // Re-read on every visit (and after each new entry) so the size shown is
+  // current rather than whatever it was when the app started.
+  useEffect(() => {
+    void anodex.diagnostics.getLogFile().then(setLogFile)
+  }, [entries.length])
+
   const filtered = filter === 'all' ? entries : entries.filter((entry) => entry.severity === filter)
   const errorCount = entries.filter((entry) => entry.severity === 'error').length
   const warningCount = entries.filter((entry) => entry.severity === 'warning').length
@@ -60,7 +76,8 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
           <p className={pageStyles.pageKicker}>System</p>
           <h1 className={pageStyles.pageTitle}>Diagnostics</h1>
           <p className={pageStyles.pageDesc}>
-            Runtime events, errors, and warnings from the local engine and assistant tools.
+            Errors and warnings from the local engine, background services, and assistant tools —
+            including failures that happened before this window opened.
           </p>
         </div>
         <Button
@@ -120,8 +137,27 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
 
         <div className={styles.settingList}>
           <SettingRow
+            label="Log file"
+            description={
+              logFile?.available
+                ? `Every background-service line, with full stacks — the file to attach to a bug report. ${formatSize(logFile.sizeBytes)}, rotated at 2 MB.`
+                : 'File logging could not be started on this machine; entries below are still recorded in the app.'
+            }
+            control={
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!logFile?.available}
+                iconLeft={<Icon name="folder" size={14} />}
+                onClick={() => void anodex.diagnostics.revealLogFile()}
+              >
+                Reveal
+              </Button>
+            }
+          />
+          <SettingRow
             label="Verbose logging"
-            description="Include extra debug detail in new diagnostic entries."
+            description="Include extra debug detail in new in-app entries. Background-service errors always keep their full detail."
             control={
               <ToggleControl
                 checked={diagnostics.verbose}
@@ -230,13 +266,33 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
                     </span>
                     <span className={styles.entryMain}>
                       <strong>{entry.message}</strong>
-                      <small>{CATEGORY_LABELS[entry.category]}</small>
+                      <small>
+                        {CATEGORY_LABELS[entry.category]}
+                        {entry.scope && ` · ${entry.scope}`}
+                        {entry.source === 'main' && ' · background service'}
+                      </small>
                     </span>
                     <time>{new Date(entry.timestamp).toLocaleString()}</time>
                     <Icon name="chevron-down" size={14} />
                   </summary>
                   <div className={styles.entryDetail}>
-                    <p>{entry.detail ?? 'No additional technical detail was recorded.'}</p>
+                    {entry.detail ? (
+                      // Stacks and structured context need their own line breaks
+                      // and a monospace face to be readable at all.
+                      <pre className={styles.detailBlock}>{entry.detail}</pre>
+                    ) : (
+                      <p>No additional technical detail was recorded.</p>
+                    )}
+                    {entry.detail && (
+                      <button
+                        type="button"
+                        className={styles.copyDetail}
+                        onClick={() => void navigator.clipboard.writeText(detailReport(entry))}
+                      >
+                        <Icon name="copy" size={12} />
+                        Copy report
+                      </button>
+                    )}
                     {entry.suggestedFix && (
                       <div className={styles.fix}>
                         <strong>Suggested fix</strong>
@@ -260,6 +316,20 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
       </section>
     </div>
   )
+}
+
+/** One entry as a self-contained block, for pasting into a bug report. */
+function detailReport(entry: DiagnosticEntry): string {
+  const lines = [
+    `${entry.severity.toUpperCase()}: ${entry.message}`,
+    `When: ${new Date(entry.timestamp).toISOString()}`,
+    `Where: ${CATEGORY_LABELS[entry.category]}${entry.scope ? ` (${entry.scope})` : ''}${
+      entry.source === 'main' ? ' — background service' : ''
+    }`
+  ]
+  if (entry.detail) lines.push('', entry.detail)
+  if (entry.suggestedFix) lines.push('', `Suggested fix: ${entry.suggestedFix}`)
+  return lines.join('\n')
 }
 
 function SummaryCard({

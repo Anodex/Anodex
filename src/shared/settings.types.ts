@@ -258,10 +258,19 @@ export interface DiagnosticEntry {
   id: string
   timestamp: number
   severity: 'error' | 'warning' | 'info'
-  category: 'model' | 'provider' | 'file' | 'permission' | 'runtime' | 'general'
+  category: 'model' | 'provider' | 'integration' | 'file' | 'permission' | 'runtime' | 'general'
   message: string
   detail?: string
   suggestedFix?: string
+  /**
+   * Which process raised it. `main` entries come from background services (the
+   * local engine, mailboxes, MCP, the updater) and carry full stacks; `renderer`
+   * entries are raised by the UI itself. Absent on entries stored before this
+   * distinction existed — treat as `renderer`.
+   */
+  source?: 'main' | 'renderer'
+  /** Logger scope for a `main` entry, e.g. `llama` or `email:imap`. */
+  scope?: string
 }
 
 export interface DiagnosticSettings {
@@ -271,6 +280,14 @@ export interface DiagnosticSettings {
   clearOnRestart: boolean
   /** Include verbose debug entries (not implemented yet). */
   verbose: boolean
+}
+
+/** Where the main-process log file lives, for the Diagnostics page. */
+export interface DiagnosticLogFile {
+  path: string
+  sizeBytes: number
+  /** False when file logging could not be started (the reason is on stderr). */
+  available: boolean
 }
 
 export interface MemorySettings {

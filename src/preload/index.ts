@@ -16,6 +16,7 @@ import type {
   CriticalThinkingStreamChunk
 } from '@shared/criticalThinking.types'
 import type { McpServerState } from '@shared/mcp.types'
+import type { DiagnosticEntry } from '@shared/settings.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -166,6 +167,12 @@ const api: AnodexApi = {
     installAndRestart: () => ipcRenderer.invoke(IpcChannel.Updates.installAndRestart),
     onStatusChanged: (listener) =>
       subscribe<UpdateStatus>(IpcChannel.Updates.statusChanged, listener)
+  },
+  diagnostics: {
+    list: () => ipcRenderer.invoke(IpcChannel.Diagnostics.list),
+    onEntry: (listener) => subscribe<DiagnosticEntry>(IpcChannel.Diagnostics.entry, listener),
+    getLogFile: () => ipcRenderer.invoke(IpcChannel.Diagnostics.getLogFile),
+    revealLogFile: () => ipcRenderer.invoke(IpcChannel.Diagnostics.revealLogFile)
   },
   stats: {
     getUsageProfile: () => ipcRenderer.invoke(IpcChannel.Stats.getUsageProfile),

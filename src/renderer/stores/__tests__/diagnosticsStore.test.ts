@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { DiagnosticEntry } from '@shared/settings.types'
 import { configureDiagnostics, useDiagnosticsStore } from '../diagnosticsStore'
 
 beforeEach(() => {
@@ -44,9 +45,73 @@ describe('diagnosticsStore settings', () => {
   })
 })
 
+describe('diagnosticsStore.ingest', () => {
+  it('merges main-process entries newest first', () => {
+    useDiagnosticsStore.getState().add(makeEntry('from the window'))
+
+    useDiagnosticsStore
+      .getState()
+      .ingest([makeMainEntry('older', 1000), makeMainEntry('newer', Date.now() + 5000)])
+
+    expect(useDiagnosticsStore.getState().entries.map((entry) => entry.message)).toEqual([
+      'newer',
+      'from the window',
+      'older'
+    ])
+  })
+
+  it('ignores entries it already has, so a replayed backlog cannot duplicate', () => {
+    const entry = makeMainEntry('model failed to load', 2000)
+
+    useDiagnosticsStore.getState().ingest([entry])
+    useDiagnosticsStore.getState().ingest([entry, makeMainEntry('second failure', 3000)])
+
+    expect(useDiagnosticsStore.getState().entries.map((entry) => entry.message)).toEqual([
+      'second failure',
+      'model failed to load'
+    ])
+  })
+
+  it('keeps the technical detail even with verbose logging off', () => {
+    configureDiagnostics({ maxEntries: 250, clearOnRestart: false, verbose: false })
+
+    useDiagnosticsStore
+      .getState()
+      .ingest([{ ...makeMainEntry('crashed', 4000), detail: 'Error: boom\n    at load()' }])
+
+    expect(useDiagnosticsStore.getState().entries[0].detail).toBe('Error: boom\n    at load()')
+  })
+
+  it('honors the retention limit across both sources', () => {
+    configureDiagnostics({ maxEntries: 2, clearOnRestart: false, verbose: false })
+    useDiagnosticsStore.getState().add(makeEntry('in-app'))
+
+    useDiagnosticsStore
+      .getState()
+      .ingest([makeMainEntry('one', Date.now() + 1000), makeMainEntry('two', Date.now() + 2000)])
+
+    expect(useDiagnosticsStore.getState().entries.map((entry) => entry.message)).toEqual([
+      'two',
+      'one'
+    ])
+  })
+})
+
 function makeEntry(
   message: string,
   severity: 'error' | 'warning' | 'info' = 'error'
 ): Parameters<ReturnType<typeof useDiagnosticsStore.getState>['add']>[0] {
   return { severity, category: 'runtime', message }
+}
+
+function makeMainEntry(message: string, timestamp: number): DiagnosticEntry {
+  return {
+    id: `main-${message}`,
+    timestamp,
+    severity: 'error',
+    category: 'model',
+    message,
+    source: 'main',
+    scope: 'llama'
+  }
 }

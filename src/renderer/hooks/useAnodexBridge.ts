@@ -13,6 +13,7 @@ import { useCriticalThinkingStore } from '../stores/criticalThinkingStore'
 import { useEmailStore } from '../stores/emailStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useMcpStore } from '../stores/mcpStore'
+import { useDiagnosticsStore } from '../stores/diagnosticsStore'
 import { useStartupStore } from '../stores/startupStore'
 import { useUiStore } from '../stores/uiStore'
 import { TokenBatcher } from './tokenBatcher'
@@ -213,6 +214,18 @@ export function useAnodexBridge(): void {
     const offMcpStatus = anodex.mcp.onStatusChanged((state) => {
       useMcpStore.getState().setStatus(state)
     })
+    // Background-service warnings and errors (local engine, mailboxes, MCP,
+    // updater, crash handlers) are recorded in the main process. Replay the
+    // backlog first — startup failures happen before this window exists, and a
+    // renderer crash means the live broadcast had nowhere to go — then follow
+    // along live.
+    const offDiagnosticEntry = anodex.diagnostics.onEntry((entry) => {
+      useDiagnosticsStore.getState().ingest([entry])
+    })
+    void anodex.diagnostics.list().then((entries) => {
+      if (cancelled) return
+      useDiagnosticsStore.getState().ingest(entries)
+    })
     const refreshEmailOnFocus = (): void => {
       void useEmailStore.getState().load()
     }
@@ -247,6 +260,7 @@ export function useAnodexBridge(): void {
       offCriticalThinkingStream()
       offCriticalThinkingRuns()
       offMcpStatus()
+      offDiagnosticEntry()
       offToastOpenConversation()
       window.removeEventListener('focus', refreshEmailOnFocus)
     }

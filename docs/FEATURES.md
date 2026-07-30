@@ -662,8 +662,14 @@ Anodex includes diagnostic and maintenance surfaces in Settings.
 Diagnostics capabilities:
 
 - Show local runtime diagnostic entries.
+- Surface background-service failures (local engine, mailboxes, MCP, updater) with the
+  scope they came from, the full technical detail, and a suggested next step.
+- Capture failures raised before the window existed — startup errors, unhandled
+  rejections, and renderer/child-process crashes — and replay them once it opens.
+- Write every main-process log line to a rotating file on disk (`anodex.log`, 2 MB × 2)
+  and reveal it from Settings, so a packaged install can produce a real bug report.
 - Filter by severity.
-- Export diagnostic logs.
+- Export diagnostic logs, or copy a single entry as a self-contained report.
 - Clear diagnostic entries.
 - Configure verbose logging.
 - Set diagnostic history limits.

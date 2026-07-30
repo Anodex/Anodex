@@ -29,6 +29,8 @@ import { mcpServerStore } from './mcp/McpServerStore'
 import { mcpAuthStore } from './mcp/McpAuthStore'
 import { mcpManager } from './mcp/McpManager'
 import { createLogger } from './utils/logger'
+import { diagnosticsReporter } from './diagnostics/DiagnosticsReporter'
+import { registerCrashHandlers } from './diagnostics/crashHandlers'
 
 const log = createLogger('main')
 
@@ -47,6 +49,11 @@ if (process.platform === 'win32') app.setAppUserModelId('com.anodex.app')
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  // Before anything else: an unhandled failure during startup itself is exactly
+  // the kind that used to vanish. Entries are buffered in memory until a window
+  // exists to receive them, so nothing raised here is lost.
+  registerCrashHandlers()
+
   app.on('second-instance', () => {
     const [existing] = BrowserWindow.getAllWindows()
     if (!existing) return
@@ -57,6 +64,9 @@ if (!app.requestSingleInstanceLock()) {
   app
     .whenReady()
     .then(() => {
+      // First, so every subsystem below logs into the file and the Diagnostics
+      // page from its very first line.
+      diagnosticsReporter.init()
       settingsStore.init()
       projectStore.init()
       projectMemoryStore.init()
@@ -121,5 +131,7 @@ if (!app.requestSingleInstanceLock()) {
     mcpManager.disconnectAll().catch((error) => {
       log.error('Error disconnecting MCP servers on quit:', error)
     })
+    // Last: flush whatever the shutdown above just logged to disk.
+    diagnosticsReporter.shutdown()
   })
 }

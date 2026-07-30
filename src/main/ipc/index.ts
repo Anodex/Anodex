@@ -17,6 +17,7 @@ import { registerToastHandlers } from './toast.handlers'
 import { registerAttachmentHandlers } from './attachments.handlers'
 import { registerUpdateHandlers } from './update.handlers'
 import { registerStatsHandlers } from './stats.handlers'
+import { registerDiagnosticsHandlers } from './diagnostics.handlers'
 import { registerMemoryHandlers } from './memory.handlers'
 import { registerSkillHandlers } from './skill.handlers'
 import { registerChangeHandlers } from './change.handlers'
@@ -51,6 +52,7 @@ export function registerIpcHandlers(): void {
   registerAttachmentHandlers()
   registerUpdateHandlers()
   registerStatsHandlers()
+  registerDiagnosticsHandlers()
   registerMemoryHandlers()
   registerSkillHandlers()
   registerChangeHandlers()

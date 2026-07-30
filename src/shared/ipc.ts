@@ -27,7 +27,7 @@ import type {
   ChatTitleRequest,
   HistoryCompactionEvent
 } from './chat.types'
-import type { AppSettings, DeepPartial } from './settings.types'
+import type { AppSettings, DeepPartial, DiagnosticEntry, DiagnosticLogFile } from './settings.types'
 import type {
   CreateProjectRequest,
   Project,
@@ -281,6 +281,14 @@ export const IpcChannel = {
     installAndRestart: 'updates:install-and-restart',
     /** main → renderer broadcast whenever the update state changes. */
     statusChanged: 'updates:status-changed'
+  },
+  Diagnostics: {
+    /** Every main-process warning/error since launch — replayed when a window opens. */
+    list: 'diagnostics:list',
+    /** main → renderer broadcast of a newly recorded main-process warning/error. */
+    entry: 'diagnostics:entry',
+    getLogFile: 'diagnostics:get-log-file',
+    revealLogFile: 'diagnostics:reveal-log-file'
   },
   Stats: {
     getUsageProfile: 'stats:get-usage-profile',
@@ -625,6 +633,20 @@ export interface AnodexApi {
     /** Only meaningful once status is `downloaded` — quits and installs. */
     installAndRestart(): Promise<void>
     onStatusChanged(listener: (status: UpdateStatus) => void): () => void
+  }
+  diagnostics: {
+    /**
+     * Main-process warnings and errors recorded since launch, newest first.
+     * Called on mount so a window sees failures that happened before it existed
+     * (startup errors) or while it was gone (a renderer crash + reload).
+     */
+    list(): Promise<DiagnosticEntry[]>
+    /** Fires as each new main-process warning/error is recorded. */
+    onEntry(listener: (entry: DiagnosticEntry) => void): () => void
+    /** Path and size of the rotating main-process log file. */
+    getLogFile(): Promise<DiagnosticLogFile>
+    /** Show the log file in the OS file manager. */
+    revealLogFile(): Promise<void>
   }
   stats: {
     /** All-time token-generation activity, independent of individual conversations. */
