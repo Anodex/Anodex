@@ -222,9 +222,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M8 14.5h8" />
     </>
   ),
+  /* A trace that ends in a filled head, borrowing the comet the app already uses
+     for live activity (Spinner, the status dots, the tool progress bar) rather
+     than Lucide's plain ECG. */
   activity: (
     <>
-      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+      <path d="M2 12h4l3 6 4-12 2.5 6H19" />
+      <circle cx="20.5" cy="12" r="1.8" fill="currentColor" stroke="none" />
     </>
   ),
   monitor: (
@@ -352,10 +356,12 @@ const GLYPHS: Record<IconName, ReactNode> = {
   flame: (
     <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
   ),
+  /* Hexagonal bezel — still unmistakably a clock, but in the logo's geometry so
+     Scheduler reads as part of the same family as `models`/`settings`/`bot`. */
   clock: (
     <>
-      <circle cx="12" cy="12" r="9" />
-      <polyline points="12 7 12 12 16 14" />
+      <path d="M12 2.8l7.9 4.6v9.2L12 21.2l-7.9-4.6V7.4z" />
+      <path d="M12 7.5V12l3.5 2" />
     </>
   ),
   layers: (
@@ -365,20 +371,23 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <polyline points="2 12 12 17 22 12" />
     </>
   ),
+  /* Three strokes, not five: the original's overlapping meridians turned into a
+     grey smear at the 12px the scheduler rows render at. */
   globe: (
     <>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M2 12h20" />
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-      <path d="M7.5 4.5a15 15 0 0 0 0 15" />
-      <path d="M16.5 4.5a15 15 0 0 1 0 15" />
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" />
     </>
   ),
+  /* The facet does the lid's work, so the separate lid rect goes away — one
+     stroke fewer is what lets this hold together at the 12px the chat rows use.
+     The lid line lands exactly where the cut meets the right edge. */
   archive: (
     <>
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
-      <path d="M10 12h4" />
+      <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h9L21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-11z" />
+      <path d="M3 9.5h18" />
+      <path d="M10 13.5h4" />
     </>
   ),
   star: <path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" />,
@@ -390,10 +399,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M3 10h18" />
     </>
   ),
+  /* Envelope cut on the top-right, with the flap's right arm turned to -45° so
+     it mirrors the cut instead of fighting it. Email is a whole workspace; it
+     had been carrying it on a plain Lucide rectangle. */
   mail: (
     <>
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="m3 7 9 6 9-6" />
+      <path d="M2 7a2 2 0 0 1 2-2h11.5L22 10.5v6.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z" />
+      <path d="m3 6.4 9 6.4 5.2-5.2" />
     </>
   ),
   /* Hexagonal head, antenna, two eyes — the Anodex take on a robot. */
@@ -411,10 +423,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M12 16v6" />
     </>
   ),
+  /* Framed to match its dock siblings — as two bare strokes it read lighter than
+     every tab beside it. The frame carries the facet. */
   terminal: (
     <>
-      <polyline points="4 17 10 11 4 5" />
-      <line x1="12" y1="19" x2="20" y2="19" />
+      <path d="M2 6.5A2.5 2.5 0 0 1 4.5 4H16l6 5.5v8A2.5 2.5 0 0 1 19.5 20h-15A2.5 2.5 0 0 1 2 17.5v-11z" />
+      <path d="m7 10.5 2.5 2.5L7 15.5" />
+      <path d="M12.5 15.5h4" />
     </>
   ),
   lightbulb: (
