@@ -9,6 +9,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { isChatReady } from '../../lib/chatReadiness'
+import { COMPOSER_INPUT_ATTR } from '../../hooks/useGlobalKeyboardShortcuts'
 import { Icon, type IconName } from '../../components/Icon'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { anodex } from '../../lib/anodex'
@@ -547,6 +548,7 @@ export function ChatComposer(): JSX.Element {
       <div className={`${styles.inputShell} ${!ready ? styles.disabled : ''}`}>
         <textarea
           ref={textareaRef}
+          {...{ [COMPOSER_INPUT_ATTR]: '' }}
           className={styles.textarea}
           value={text}
           rows={1}

@@ -4,6 +4,7 @@ import { useUiStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
 import type { Project } from '@shared/project.types'
 import type { Conversation } from '@shared/conversation.types'
 import type { NavigationBadgeCounts } from '../lib/navigationBadges'
@@ -60,6 +61,9 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
   const openProjectFolder = useProjectStore((s) => s.openFolder)
   const archiveProject = useProjectStore((s) => s.archive)
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
+  const searchShortcut =
+    useSettingsStore((s) => s.settings?.keyboard.shortcuts.searchSidebar) ??
+    DEFAULT_KEYBOARD_SHORTCUTS.searchSidebar
   const handleCreateProject = useCreateProject()
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -215,7 +219,7 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
           <Icon name="plus" size={14} />
           <span>New chat</span>
         </button>
-        <SidebarSearch value={searchQuery} onChange={setSearchQuery} shortcutHint="Ctrl K" />
+        <SidebarSearch value={searchQuery} onChange={setSearchQuery} shortcut={searchShortcut} />
       </div>
 
       <div className={styles.scroll}>

@@ -341,6 +341,35 @@ export interface SchedulerSettings {
   keepAwake: boolean
 }
 
+export type KeyboardShortcutId =
+  | 'newChat'
+  | 'newProject'
+  | 'goChat'
+  | 'goScheduler'
+  | 'goAgent'
+  | 'goCriticalThinking'
+  | 'goEmail'
+  | 'searchSidebar'
+  | 'openSettings'
+  | 'toggleSidebar'
+  | 'toggleWorkspaceDock'
+  | 'focusComposer'
+  | 'stopGeneration'
+  | 'showShortcutHelp'
+  | 'toggleDockPlan'
+  | 'toggleDockFiles'
+  | 'toggleDockTerminal'
+
+export type KeyboardShortcutMap = Record<KeyboardShortcutId, string>
+
+export interface KeyboardSettings {
+  /**
+   * User-editable app shortcuts. Empty string disables a shortcut. Values use
+   * a normalized display form such as "Ctrl+Shift+P".
+   */
+  shortcuts: KeyboardShortcutMap
+}
+
 export interface EmailSettings {
   /**
    * Linked accounts, in the order they were added. Only the non-secret
@@ -382,6 +411,7 @@ export interface AppSettings {
   memory: MemorySettings
   transcriptRecall: TranscriptRecallSettings
   scheduler: SchedulerSettings
+  keyboard: KeyboardSettings
   email: EmailSettings
 }
 

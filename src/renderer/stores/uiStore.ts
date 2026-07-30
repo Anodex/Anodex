@@ -13,6 +13,7 @@ export type ToastKind = 'info' | 'success' | 'error' | 'pending'
 export type SettingsSection =
   | 'profile'
   | 'appearance'
+  | 'keyboard'
   | 'projects'
   | 'tools-skills'
   | 'archive'
@@ -46,6 +47,9 @@ interface UiState {
    * the same time.
    */
   pendingConfirmations: ToolConfirmRequest[]
+  /** Whether the keyboard cheat sheet is showing over the current view. */
+  shortcutHelpOpen: boolean
+  setShortcutHelpOpen: (open: boolean) => void
   setView: (view: AppView) => void
   /** Switch to the settings view, optionally jumping straight to a specific section (defaults to 'profile'). */
   openSettings: (section?: SettingsSection) => void
@@ -151,6 +155,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   readConversationAt: loadReadMarkers(),
   navigationSeenAt: loadNavigationSeenAt(),
   pendingConfirmations: [],
+  shortcutHelpOpen: false,
+
+  setShortcutHelpOpen: (shortcutHelpOpen) => set({ shortcutHelpOpen }),
 
   setView: (view) => set({ view }),
 

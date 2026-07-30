@@ -7,16 +7,15 @@ export interface DockPanelConfig {
   id: DockPanelId
   label: string
   icon: IconName
-  shortcut?: string
 }
 
 export const DOCK_PANELS: DockPanelConfig[] = [
-  { id: 'plan', label: 'Plan', icon: 'sparkle', shortcut: 'Ctrl+Shift+P' },
+  { id: 'plan', label: 'Plan', icon: 'sparkle' },
   { id: 'changes', label: 'Changes', icon: 'layers' },
   { id: 'checkpoints', label: 'Checkpoints', icon: 'restore' },
   { id: 'git', label: 'Git', icon: 'git-branch' },
-  { id: 'files', label: 'Files', icon: 'folder', shortcut: 'Ctrl+Shift+F' },
+  { id: 'files', label: 'Files', icon: 'folder' },
   { id: 'activity', label: 'Activity', icon: 'activity' },
   { id: 'outputs', label: 'Outputs', icon: 'file' },
-  { id: 'terminal', label: 'Terminal', icon: 'terminal', shortcut: 'Ctrl+Shift+T' }
+  { id: 'terminal', label: 'Terminal', icon: 'terminal' }
 ]

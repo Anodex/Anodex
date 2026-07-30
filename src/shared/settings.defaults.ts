@@ -9,6 +9,7 @@ import { DEFAULT_GROQ_MODEL } from './groqModels'
 import { DEFAULT_OPENROUTER_MODEL } from './openrouterModels'
 import { DEFAULT_KIMI_MODEL } from './kimiModels'
 import { DEFAULT_QWEN_MODEL } from './qwenModels'
+import { DEFAULT_KEYBOARD_SHORTCUTS } from './keyboardShortcuts'
 
 /**
  * Default settings, parameterised by the platform-specific models directory
@@ -172,6 +173,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     scheduler: {
       keepAwake: false
+    },
+    keyboard: {
+      shortcuts: DEFAULT_KEYBOARD_SHORTCUTS
     },
     email: {
       accounts: [],

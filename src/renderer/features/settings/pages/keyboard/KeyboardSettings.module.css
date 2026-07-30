@@ -1,0 +1,89 @@
+.shortcutList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.shortcutRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.shortcutText {
+  min-width: 0;
+}
+
+.shortcutLabel {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.shortcutDescription {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.shortcutControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.recordButton {
+  min-width: 150px;
+  justify-content: center;
+  font-family: var(--font-mono);
+}
+
+.recording {
+  color: var(--accent);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.recordingHint {
+  color: var(--accent);
+  font-family: var(--font-sans);
+}
+
+.emptyShortcut {
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+}
+
+.status {
+  min-height: 18px;
+  margin: var(--space-3) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.error {
+  color: var(--danger);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .shortcutRow {
+    grid-template-columns: 1fr;
+  }
+
+  .shortcutControls {
+    justify-content: flex-start;
+  }
+}

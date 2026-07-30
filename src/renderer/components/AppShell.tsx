@@ -9,6 +9,7 @@ import { useWorkspaceDock } from '../features/workspace-dock/useWorkspaceDock'
 import { useSidebarCollapse, SIDEBAR_COLLAPSE_BREAKPOINT } from '../stores/sidebarCollapseStore'
 import { useTheme } from '../hooks/useTheme'
 import { useNavigationBadgeCounts } from '../hooks/useNavigationBadgeCounts'
+import { useGlobalKeyboardShortcuts } from '../hooks/useGlobalKeyboardShortcuts'
 import { Sidebar } from './Sidebar'
 import { SidebarRail } from './sidebar/SidebarRail'
 import { TitleBar } from './TitleBar'
@@ -21,6 +22,7 @@ import { CriticalThinkingView } from '../features/critical-thinking/CriticalThin
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
 import { useWorkspaceDockProjectId } from '../features/workspace-dock/useWorkspaceDockAvailability'
+import { ShortcutHelpOverlay } from '../features/shortcuts/ShortcutHelpOverlay'
 import { ContextMenu } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
 import styles from './AppShell.module.css'
@@ -106,6 +108,7 @@ export function AppShell(): JSX.Element {
   // rubber-bands into place instead of tracking it 1:1.
   const [isResizingLive, setIsResizingLive] = useState(false)
   useTheme({ appearance })
+  useGlobalKeyboardShortcuts()
 
   useEffect(() => {
     if (!activeProjectId || !chatsLoaded) return
@@ -357,6 +360,7 @@ export function AppShell(): JSX.Element {
       )}
       <Toasts />
       <ContextMenu />
+      <ShortcutHelpOverlay />
       {view === 'settings' && (
         <ErrorBoundary label="Settings">
           <SettingsModal />

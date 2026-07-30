@@ -5,6 +5,11 @@ import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
+import {
+  DEFAULT_KEYBOARD_SHORTCUTS,
+  isBindableShortcut,
+  normalizeShortcut
+} from '@shared/keyboardShortcuts'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('settings')
@@ -528,6 +533,38 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
   if (patch.webSearch?.resultCount !== undefined) {
     if (!isFiniteNumber(patch.webSearch.resultCount) || patch.webSearch.resultCount < 0) {
       throw new Error('webSearch.resultCount must be a non-negative finite number')
+    }
+  }
+
+  if (patch.keyboard?.shortcuts !== undefined) {
+    if (!isPlainObject(patch.keyboard.shortcuts)) {
+      throw new Error('keyboard.shortcuts must be an object')
+    }
+    for (const [id, value] of Object.entries(patch.keyboard.shortcuts)) {
+      if (!(id in DEFAULT_KEYBOARD_SHORTCUTS)) {
+        throw new Error(`keyboard.shortcuts contains an unknown shortcut: ${id}`)
+      }
+      if (typeof value !== 'string') {
+        throw new Error(`keyboard.shortcuts.${id} must be a string`)
+      }
+      if (value && normalizeShortcut(value) !== value) {
+        throw new Error(`keyboard.shortcuts.${id} must use normalized shortcut syntax`)
+      }
+      if (value && !isBindableShortcut(value)) {
+        throw new Error(
+          `keyboard.shortcuts.${id} needs a Ctrl, Alt, or Meta modifier (or Escape / an F-key)`
+        )
+      }
+    }
+    // Two actions on one binding would fire both. The settings UI blocks this,
+    // but the IPC channel is the real boundary.
+    const claimed = new Map<string, string>()
+    for (const [id, value] of Object.entries(patch.keyboard.shortcuts)) {
+      if (typeof value !== 'string' || !value) continue
+      const owner = claimed.get(value)
+      if (owner)
+        throw new Error(`keyboard.shortcuts: ${value} is assigned to both ${owner} and ${id}`)
+      claimed.set(value, id)
     }
   }
 

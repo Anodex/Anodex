@@ -62,6 +62,11 @@ folder.
 - Built-in slash-command shortcuts in the composer: `/test`, `/review`,
   `/refactor`, and `/summarize` expand into reusable prompts for common
   workflows.
+- Keyboard shortcuts cover creation (new chat, new project), navigation
+  (`Ctrl+1`-`Ctrl+5` follow the sidebar's own order), layout (sidebar, workspace
+  dock and its panels), and chat (focus composer, `Esc` to stop a reply). Every
+  binding is editable in Settings -> Keyboard, with per-shortcut reset and clear
+  controls; `Ctrl+/` opens a cheat sheet of the currently active bindings.
 - Assistant turns that change project files keep a compact checkpoint. The
   message footer opens a review dialog with created/modified/deleted labels,
   before/after diffs, and selective restore. Files changed again after the AI

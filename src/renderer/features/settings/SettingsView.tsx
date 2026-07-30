@@ -6,6 +6,7 @@ import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
 import { ProfileSettings } from './pages/profile/ProfileSettings'
 import { AppearanceSettings } from './pages/appearance/AppearanceSettings'
+import { KeyboardSettings } from './pages/keyboard/KeyboardSettings'
 import { AiModelsSettings } from './pages/ai-models/AiModelsSettings'
 import { DiagnosticsSettings } from './pages/diagnostics/DiagnosticsSettings'
 import { AboutSettings } from './pages/about/AboutSettings'
@@ -34,7 +35,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Personal',
     items: [
       { id: 'profile', label: 'Profile', icon: <Icon name="user" size={18} /> },
-      { id: 'appearance', label: 'Appearance', icon: <Icon name="palette" size={18} /> }
+      { id: 'appearance', label: 'Appearance', icon: <Icon name="palette" size={18} /> },
+      { id: 'keyboard', label: 'Keyboard', icon: <Icon name="sliders" size={18} /> }
     ]
   },
   {
@@ -124,6 +126,12 @@ export function SettingsView(): JSX.Element {
                   settings={settings}
                   update={(patch) => void update({ appearance: patch })}
                   updateGeneral={(patch) => void update({ general: patch })}
+                />
+              )}
+              {section === 'keyboard' && (
+                <KeyboardSettings
+                  settings={settings}
+                  update={(patch) => void update({ keyboard: patch })}
                 />
               )}
               {section === 'memory' && <MemorySettings />}
