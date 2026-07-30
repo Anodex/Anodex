@@ -96,16 +96,26 @@ export const fetchUrlTool: ToolFactory = (define, ctx) =>
         title: `Fetch ${truncate(args.url, 60)}`,
         args,
         async run() {
+          ctx.webSources?.recordAttempt()
           const draft = await fetchUrlEvidence(args.url, ctx.evidenceFocus ?? '', ctx.signal)
           const artifact = recordToolArtifact(ctx, draft)
           const passageText = draft.passages
             .map((passage) => `[${passage.id}] ${passage.text}`)
             .join('\n\n')
+          // Verified only when the page actually gave up readable text — a 200
+          // that extracts to nothing is no better evidence than a search hit,
+          // and claiming otherwise is the whole failure this is meant to catch.
+          const sourceId = ctx.webSources?.register({
+            title: draft.title,
+            url: draft.finalUrl,
+            verified: draft.status >= 200 && draft.status < 300 && draft.passages.length > 0
+          })
           return {
             modelResult:
               `Source artifact: ${artifact.id}\nTitle: ${draft.title}\nFinal URL: ${draft.finalUrl}\n` +
-              `HTTP ${draft.status}; ${draft.contentType}\n\n` +
-              (passageText || '(no readable text)'),
+              `HTTP ${draft.status}; ${draft.contentType}\n` +
+              (sourceId ? `Cite as [${sourceId}]\n` : '') +
+              `\n${passageText || '(no readable text)'}`,
             detail: `${draft.contentChars} chars · ${draft.passages.length} focused passages`
           }
         }

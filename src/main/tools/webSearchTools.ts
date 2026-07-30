@@ -43,6 +43,12 @@ export const webSearchTool: ToolFactory = (define, ctx) =>
             }
           }
 
+          // Counted before the search runs, so a provider error or an empty
+          // result set still records that the model tried to look. An answer
+          // built after a failed search is exactly the case the reader needs
+          // flagged, and it leaves no sources behind to infer it from.
+          ctx.webSources?.recordAttempt()
+
           const resultCount =
             args.numResults !== undefined
               ? Math.max(1, Math.min(Math.floor(args.numResults), 10))
@@ -67,11 +73,21 @@ export const webSearchTool: ToolFactory = (define, ctx) =>
             }
           }
 
+          // Each result carries the id the model should cite if it uses that
+          // result. The id trails the snippet rather than sitting next to the
+          // URL so the leading `N. **title** — url` shape every other reader
+          // of this text already expects stays byte-identical.
           const formatted = results
-            .map(
-              (result, index) =>
-                `${index + 1}. **${result.title}** — ${result.url}\n${result.snippet}`
-            )
+            .map((result, index) => {
+              const line = `${index + 1}. **${result.title}** — ${result.url}\n${result.snippet}`
+              const id = ctx.webSources?.register({
+                title: result.title,
+                url: result.url,
+                snippet: result.snippet,
+                verified: false
+              })
+              return id ? `${line}\nCite as [${id}]` : line
+            })
             .join('\n\n')
 
           // No truncation here: `runGuardedTool`'s own MAX_MODEL_RESULT_CHARS

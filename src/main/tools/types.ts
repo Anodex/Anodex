@@ -8,6 +8,7 @@ import type { LoopGuardState } from './loopGuard'
 import type { ToolArtifact, ToolArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ModelToolResultBudget } from './modelResultBudget'
 import type { ReadCoverageTracker } from './readCoverage'
+import type { WebSourceRegistry } from './WebSourceRegistry'
 import type { VisualInputQueue } from '../vision/imageInputs'
 
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
@@ -130,6 +131,14 @@ export interface ToolRuntimeContext {
   evidenceFocus?: string
   /** Persist a full structured result before the model-facing text is truncated. */
   recordArtifact?: (artifact: ToolArtifact) => void
+  /**
+   * Per-turn web source registry. Web tools register what they retrieved and
+   * put the returned id in their model-facing text, so the model can attribute
+   * a claim to a specific page and the finished message can show what it stood
+   * on. Absent for callers that don't attribute sources (Critical Thinking
+   * keeps its own richer source state).
+   */
+  webSources?: WebSourceRegistry
   /** Return a model-facing limit message to block this call, or null to run it. */
   beforeTool?: (name: string, args: unknown) => string | null
   /**

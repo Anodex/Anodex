@@ -23,3 +23,47 @@
   border: 1px solid var(--border);
   border-radius: 5px;
 }
+
+/* A claim's source, sitting just above the baseline so it reads as a reference
+   rather than something to step over mid-sentence. */
+.citation {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  margin-left: 2px;
+  vertical-align: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.citation:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* A search hit whose page was never fetched. The model saw a title and a
+   snippet, not the text — so it is drawn as an outline, not a solid chip, and
+   never gets to look as settled as verified evidence. */
+.citationLead {
+  color: var(--text-muted);
+  background: transparent;
+  border-color: var(--border-strong);
+}
+
+.citationLead:hover {
+  color: var(--text);
+  background: var(--bg-surface-2);
+  border-color: var(--border-strong);
+}

@@ -7,6 +7,8 @@ import type {
 } from '@shared/chat.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { MemoryEntry } from '@shared/memory.types'
+import type { WebSource } from '@shared/webSources.types'
+import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
 import type { ConversationContext } from '@shared/context.types'
@@ -85,6 +87,14 @@ export interface RunGenerationIo {
   /** Evidence focus and durable artifact sink for research-oriented callers. */
   evidenceFocus?: string
   onArtifact?: (artifact: ToolArtifact) => void
+  /**
+   * Shared web source registry for a caller-owned multi-cycle turn. Source ids
+   * must be unique across the whole assistant message, so a runner that calls
+   * `runGeneration` more than once for one reply has to own the registry —
+   * otherwise each cycle restarts numbering at S1 and two different pages end
+   * up citing the same id. Omitted for a single-shot call, which gets its own.
+   */
+  webSources?: WebSourceRegistry
   /** Optional stricter per-turn policy; interactive defaults remain bounded too. */
   executionBudget?: GenerationBudgetPolicy
   /**
@@ -111,6 +121,14 @@ export interface RunGenerationResult {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /** Web pages this turn searched up or fetched, in the order the model first saw them. */
+  webSources?: WebSource[]
+  /**
+   * True if any web tool ran this turn, regardless of what it returned. With an
+   * empty `webSources` this is the "looked and found nothing" case, which the
+   * source list alone cannot express.
+   */
+  webSearchAttempted?: boolean
   /**
    * A new compacted context snapshot produced this turn, if any — only ever
    * set on the cloud-provider path (`boundHistoryForCloudProvider`), since
@@ -243,6 +261,10 @@ export async function runGeneration(
   const activeProject = projects.projects.find((p) => p.id === requestProjectId) ?? null
   const workspaceRoot = activeProject?.folderPath ?? null
   let hadToolActivity = false
+  // Collects what the web tools retrieved this turn so the finished message can
+  // show what it stood on — and, just as importantly, say so when the model
+  // went looking and came back with nothing.
+  const webSourceRegistry = io.webSources ?? new WebSourceRegistry()
   const toolNamesThisTurn: string[] = []
   // Real, verified outcomes this turn — for ProjectRecallEvent, as opposed to
   // the assistant's own prose claim about what it did. See recordEvent below.
@@ -280,6 +302,7 @@ export async function runGeneration(
         mcpTools: mcpManager.listTools(),
         evidenceFocus: io.evidenceFocus,
         recordArtifact: io.onArtifact,
+        webSources: webSourceRegistry,
         beforeTool: () => execution?.beforeTool() ?? null,
         onActivity: (call: ToolCall) => {
           hadToolActivity = true
@@ -489,6 +512,8 @@ export async function runGeneration(
     contextBudget: outcome.contextBudget,
     memoryUsed: memory?.entries,
     transcriptRecallUsed: transcriptRecall?.results,
+    webSources: webSourceRegistry.list(),
+    webSearchAttempted: webSourceRegistry.attempted,
     context: contextUpdate,
     checkpoint:
       activeProject && workspaceRoot

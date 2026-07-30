@@ -1,4 +1,6 @@
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, useMemo, type ReactNode } from 'react'
+import type { WebSource } from '@shared/webSources.types'
+import { citedSourceMap, type CitedSource } from './citedSources'
 import { CodeBlock } from './CodeBlock'
 import styles from './MessageContent.module.css'
 
@@ -52,9 +54,13 @@ function parseSegments(text: string): Segment[] {
   return segments
 }
 
-/** Render `inline code` and **bold** spans within a single line. */
-function renderInline(text: string, keyBase: string): ReactNode[] {
-  return text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((part, index) => {
+/** Render `inline code`, **bold**, and `[S1]` source citations within a single line. */
+function renderInline(
+  text: string,
+  keyBase: string,
+  sources?: Map<string, CitedSource>
+): ReactNode[] {
+  return text.split(/(`[^`]+`|\*\*[^*]+\*\*|\[S[1-9]\d*\])/g).map((part, index) => {
     const key = `${keyBase}-${index}`
     if (/^`[^`]+`$/.test(part)) {
       return (
@@ -66,12 +72,51 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
     if (/^\*\*[^*]+\*\*$/.test(part)) {
       return <strong key={key}>{part.slice(2, -2)}</strong>
     }
+    if (/^\[S[1-9]\d*\]$/.test(part)) {
+      const cited = sources?.get(part.slice(1, -1))
+      // An unresolved marker is left as literal text on purpose. The model
+      // inventing [S7] when only three sources exist is exactly the kind of
+      // fabrication worth leaving visible rather than dressing up as a link.
+      if (!cited) return <Fragment key={key}>{part}</Fragment>
+      return <CitationChip key={key} source={cited} />
+    }
     return <Fragment key={key}>{part}</Fragment>
   })
 }
 
+function CitationChip({ source: cited }: { source: CitedSource }): JSX.Element {
+  const { source, number } = cited
+  return (
+    <a
+      href={source.url}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={`${styles.citation} ${source.verified ? '' : styles.citationLead}`}
+      title={
+        source.verified
+          ? `${source.title} — ${hostOf(source.url)}`
+          : `${source.title} — ${hostOf(source.url)} (search result, page not fetched)`
+      }
+    >
+      {number}
+    </a>
+  )
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
 /** Render a text segment as paragraphs, preserving single line breaks. */
-function renderTextSegment(text: string, keyBase: string): ReactNode {
+function renderTextSegment(
+  text: string,
+  keyBase: string,
+  sources?: Map<string, CitedSource>
+): ReactNode {
   return text
     .split(/\n{2,}/)
     .filter((paragraph) => paragraph.trim().length > 0)
@@ -80,22 +125,31 @@ function renderTextSegment(text: string, keyBase: string): ReactNode {
         {paragraph.split('\n').map((line, lIndex) => (
           <Fragment key={lIndex}>
             {lIndex > 0 && <br />}
-            {renderInline(line, `${keyBase}-p${pIndex}-l${lIndex}`)}
+            {renderInline(line, `${keyBase}-p${pIndex}-l${lIndex}`, sources)}
           </Fragment>
         ))}
       </p>
     ))
 }
 
-export function MessageContent({ content }: { content: string }): JSX.Element {
+export function MessageContent({
+  content,
+  sources
+}: {
+  content: string
+  sources?: WebSource[]
+}): JSX.Element {
   const segments = parseSegments(content)
+  const sourceMap = useMemo(() => citedSourceMap(sources), [sources])
   return (
     <div className={styles.content}>
       {segments.map((segment, index) =>
         segment.type === 'code' ? (
           <CodeBlock key={index} code={segment.content} language={segment.language} />
         ) : (
-          <Fragment key={index}>{renderTextSegment(segment.content, `s${index}`)}</Fragment>
+          <Fragment key={index}>
+            {renderTextSegment(segment.content, `s${index}`, sourceMap)}
+          </Fragment>
         )
       )}
     </div>

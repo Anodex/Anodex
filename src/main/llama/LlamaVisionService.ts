@@ -319,6 +319,7 @@ export class LlamaVisionService {
       mcpTools: params.tools.mcpTools,
       evidenceFocus: params.tools.evidenceFocus,
       recordArtifact: params.tools.recordArtifact,
+      webSources: params.tools.webSources,
       beforeTool: params.tools.beforeTool,
       plan: { current: params.tools.plan },
       turnGate: { approved: false },

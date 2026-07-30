@@ -10,6 +10,7 @@ import { useUiStore } from '../../stores/uiStore'
 import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
+import { MessageSources } from './MessageSources'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { TurnRecap } from './TurnRecap'
 import { CheckpointDialog } from './CheckpointDialog'
@@ -175,7 +176,13 @@ export function MessageBubble({
           <div className={styles.segments}>
             {timeline.map((block, index) => {
               if (block.type === 'text') {
-                return <MessageContent key={`text-${index}`} content={block.text} />
+                return (
+                  <MessageContent
+                    key={`text-${index}`}
+                    content={block.text}
+                    sources={message.webSources}
+                  />
+                )
               }
               const blockCalls = block.segments.flatMap((segment) =>
                 segment.type === 'toolGroup' ? segment.calls : []
@@ -206,6 +213,14 @@ export function MessageBubble({
           </div>
         )}
         {message.streaming && lastSegment?.type === 'text' && <span className={styles.caret} />}
+
+        {!isUser && (
+          <MessageSources
+            sources={message.webSources}
+            attempted={Boolean(message.webSearchAttempted)}
+            streaming={Boolean(message.streaming)}
+          />
+        )}
 
         {message.error &&
           (message.errorKind === 'bounded' ? (

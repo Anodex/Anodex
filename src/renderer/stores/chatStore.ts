@@ -613,6 +613,13 @@ export const useChatStore = create<ChatState>()(
           if (result.value.transcriptRecallUsed?.length) {
             message.transcriptRecallUsed = result.value.transcriptRecallUsed
           }
+          if (result.value.webSources?.length) message.webSources = result.value.webSources
+          // Kept even when no sources came back — with an empty list that is
+          // precisely the signal the reader needs, so it must not be dropped
+          // as "falsy, therefore uninteresting".
+          if (result.value.webSearchAttempted) {
+            message.webSearchAttempted = true
+          }
           if (result.value.checkpoint?.changedFiles.length) {
             message.checkpoint = result.value.checkpoint
           }

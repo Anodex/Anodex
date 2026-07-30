@@ -87,6 +87,7 @@ class AnthropicProvider implements LlmProvider {
           mcpTools: params.tools.mcpTools,
           evidenceFocus: params.tools.evidenceFocus,
           recordArtifact: params.tools.recordArtifact,
+          webSources: params.tools.webSources,
           beforeTool: params.tools.beforeTool,
           // A mutable box, not the plan value itself — shared by every tool
           // call in this generation, matching LlamaService's own wiring.

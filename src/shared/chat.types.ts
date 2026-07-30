@@ -3,6 +3,7 @@
 import type { ToolCall } from './tools.types'
 import type { Plan } from './plan.types'
 import type { MemoryEntry } from './memory.types'
+import type { WebSource } from './webSources.types'
 import type { TranscriptRecallResult } from './transcriptRecall.types'
 import type { ConversationContext, ConversationContextSnapshot } from './context.types'
 import type { CheckpointSummary } from './checkpoint.types'
@@ -146,6 +147,19 @@ export interface ChatMessage {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /**
+   * Web pages this turn searched up or fetched, in the order the model first
+   * saw them. Their ids are what `[S1]` markers inside `content` refer to, so
+   * the prose and this list are only meaningful together.
+   */
+  webSources?: WebSource[]
+  /**
+   * True if any web tool ran this turn, whatever it returned. Paired with an
+   * empty `webSources` it marks the case worth surfacing loudly: the model went
+   * looking, came back with nothing, and answered anyway — so what it said came
+   * from training data, not from the web.
+   */
+  webSearchAttempted?: boolean
   /** Restorable snapshot for file changes made by this assistant turn. */
   checkpoint?: CheckpointSummary
   /**
@@ -325,6 +339,10 @@ export interface ChatResult {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /** See `ChatMessage.webSources`'s doc comment. */
+  webSources?: WebSource[]
+  /** See `ChatMessage.webSearchAttempted`'s doc comment. */
+  webSearchAttempted?: boolean
   /** Restorable snapshot for file changes made by this assistant turn. */
   checkpoint?: CheckpointSummary
   /** See `ChatMessage.thinking`'s doc comment. */

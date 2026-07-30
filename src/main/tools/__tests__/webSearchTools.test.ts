@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createSearchProvider } from '../search'
 import { webSearchTool } from '../webSearchTools'
+import { WebSourceRegistry } from '../WebSourceRegistry'
+import { sourcesFromSearchResult } from '../../criticalThinking/criticalThinkingSources'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 describe('web search providers', () => {
@@ -256,6 +258,120 @@ describe('web_search tool', () => {
       query: 'hello world',
       provider: 'searxng'
     })
+  })
+
+  it('registers each result and tells the model the id to cite', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Map(),
+      text: () => Promise.resolve(''),
+      json: () =>
+        Promise.resolve({
+          results: [
+            { title: 'First', url: 'https://a.example/1', content: 'One' },
+            { title: 'Second', url: 'https://b.example/2', content: 'Two' }
+          ]
+        })
+    })
+
+    const ctx = createMockContext('/tmp/workspace')
+    const registry = new WebSourceRegistry()
+    ctx.webSources = registry
+    ctx.webSearch = {
+      provider: 'searxng',
+      apiKey: '',
+      searchEngineId: '',
+      baseUrl: 'http://localhost:8080',
+      resultCount: 5,
+      requireApproval: false
+    }
+
+    const tool = webSearchTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { query: string }) => Promise<string>
+    }
+    const result = await tool.handler({ query: 'news' })
+
+    expect(result).toContain('Cite as [S1]')
+    expect(result).toContain('Cite as [S2]')
+    expect(registry.list().map((source) => source.url)).toEqual([
+      'https://a.example/1',
+      'https://b.example/2'
+    ])
+    // A search hit is a lead until the page itself is fetched.
+    expect(registry.hasVerified()).toBe(false)
+    expect(registry.attempted).toBe(true)
+  })
+
+  it('keeps the legacy result line shape intact for the research parser', async () => {
+    // criticalThinkingSources' legacy parser matches `N. **title** — url\nsnippet`
+    // on persisted activities, so the citation hint has to live on its own line
+    // below the snippet rather than anywhere in those two.
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Map(),
+      text: () => Promise.resolve(''),
+      json: () =>
+        Promise.resolve({
+          results: [{ title: 'Result', url: 'https://example.com/a', content: 'Snippet' }]
+        })
+    })
+
+    const ctx = createMockContext('/tmp/workspace')
+    ctx.webSources = new WebSourceRegistry()
+    ctx.webSearch = {
+      provider: 'searxng',
+      apiKey: '',
+      searchEngineId: '',
+      baseUrl: 'http://localhost:8080',
+      resultCount: 5,
+      requireApproval: false
+    }
+
+    const tool = webSearchTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { query: string }) => Promise<string>
+    }
+    const result = await tool.handler({ query: 'q' })
+
+    expect(result).toContain('1. **Result** — https://example.com/a\nSnippet\nCite as [S1]')
+    expect(sourcesFromSearchResult(result)).toMatchObject([
+      { title: 'Result', url: 'https://example.com/a', snippet: 'Snippet' }
+    ])
+  })
+
+  it('records the attempt even when the search comes back empty', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Map(),
+      text: () => Promise.resolve(''),
+      json: () => Promise.resolve({ results: [] })
+    })
+
+    const ctx = createMockContext('/tmp/workspace')
+    const registry = new WebSourceRegistry()
+    ctx.webSources = registry
+    ctx.webSearch = {
+      provider: 'searxng',
+      apiKey: '',
+      searchEngineId: '',
+      baseUrl: 'http://localhost:8080',
+      resultCount: 5,
+      requireApproval: false
+    }
+
+    const tool = webSearchTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { query: string }) => Promise<string>
+    }
+    await tool.handler({ query: 'nothing matches this' })
+
+    // Exactly the state the unsourced notice keys off: looked, found nothing.
+    expect(registry.attempted).toBe(true)
+    expect(registry.list()).toHaveLength(0)
   })
 
   it('truncates a large formatted result set and reports the real total size', async () => {

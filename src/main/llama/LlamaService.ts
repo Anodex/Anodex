@@ -80,6 +80,7 @@ import {
 } from './generationDiagnostics'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
+import type { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { LlamaVisionService } from './LlamaVisionService'
 import { createAsyncMutex } from './asyncMutex'
@@ -254,6 +255,8 @@ export interface GenerateParams {
     /** Optional focus and artifact sink used by evidence-led workflows. */
     evidenceFocus?: string
     recordArtifact?: (artifact: ToolArtifact) => void
+    /** Per-turn web source registry — see `ToolRuntimeContext.webSources`. */
+    webSources?: WebSourceRegistry
     beforeTool?: (name: string, args: unknown) => string | null
     onActivity: (call: ToolCall) => void
     confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
@@ -2064,6 +2067,7 @@ class LlamaService extends EventEmitter {
       mcpTools: params.tools.mcpTools,
       evidenceFocus: params.tools.evidenceFocus,
       recordArtifact: params.tools.recordArtifact,
+      webSources: params.tools.webSources,
       beforeTool: params.tools.beforeTool,
       // A mutable box, not the plan value itself — shared by every tool call
       // in this generation so `update_plan_step` sees `write_plan`'s result
