@@ -123,6 +123,15 @@ export interface CriticalThinkingSynthesisAttemptDiagnostic {
   contentChars: number
   /** Bounded visible output retained locally so a failed report can be diagnosed after restart. */
   content: string
+  /**
+   * Hidden-reasoning characters this attempt produced, when the provider
+   * reports them. The pair (`contentChars`, `thinkingChars`) is what
+   * distinguishes "the model wrote a bad report" from "the model spent its
+   * whole output budget thinking and never started one" — the live failure
+   * that produced a zero-character report from 53 verified sources. Undefined
+   * for a model or provider that reports no separate reasoning.
+   */
+  thinkingChars?: number
   stopReason?: GenerationStopReason
   safe: boolean
   usable: boolean

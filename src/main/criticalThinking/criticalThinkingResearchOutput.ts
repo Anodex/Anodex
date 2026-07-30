@@ -87,7 +87,10 @@ export function parseResearchAssessment(
   maxQueries: number
 ): ParsedResearchAssessment {
   const parsed = parseJsonObject(content)
-  const finding = truncate(stringValue(parsed?.finding) || content.trim(), MAX_FINDING_CHARS)
+  const finding = truncate(
+    stringValue(parsed?.finding) || plainTextFallbackFinding(content),
+    MAX_FINDING_CHARS
+  )
   const uncertainties = boundStrings(parsed?.uncertainties, 8, MAX_GAP_CHARS)
   const verdict = validVerdict(parsed?.verdict)
   const evidenceBasis = validEvidenceBasis(parsed?.evidenceBasis)
@@ -116,6 +119,21 @@ export function parseResearchAssessment(
         : null,
     valid
   }
+}
+
+/**
+ * A model that answers in prose instead of the requested object still has a
+ * usable finding in that prose, so unparseable output is kept as the finding
+ * — but only when it is actually prose. Output that opens as a JSON object
+ * and failed to parse is a *cut-off* object, not a finding: observed
+ * directly, a step stored 1,110 characters of raw JSON ending mid-string
+ * (`"remainingGaps":["Specific names of general contr`) as its finding, which
+ * then travelled into the synthesis prompt as navigation context. Dropping it
+ * leaves the step honestly empty instead.
+ */
+function plainTextFallbackFinding(content: string): string {
+  const trimmed = content.trim()
+  return trimmed.startsWith('{') || trimmed.startsWith('[') ? '' : trimmed
 }
 
 function parseJsonObject(content: string): Record<string, unknown> | null {

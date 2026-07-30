@@ -31,6 +31,12 @@ import type { SearchResult } from '../../tools/search/types'
 
 const EMPTY_STATS = { tokens: 0, durationMs: 0, tokensPerSecond: 0 }
 
+/** The hidden-reasoning sub-budget a phase asked this generation for, if any. */
+function thoughtBudgetOf(request: unknown): number | undefined {
+  const options = (request as { options?: { thoughtTokens?: unknown } } | null)?.options
+  return typeof options?.thoughtTokens === 'number' ? options.thoughtTokens : undefined
+}
+
 const POLICY: CriticalThinkingResearchPolicy = {
   maxRoundsPerStep: 3,
   maxQueriesPerRound: 3,
@@ -1236,6 +1242,68 @@ describe('CriticalThinkingService research: failure salvage', () => {
     // The report is built from the verified passage, not fabricated.
     expect(persisted?.report).toContain('sharper, more acute pain response')
     expect(persisted?.lastError).toContain('Object is disposed')
+  })
+
+  it('retries a phase without reasoning when it produced no visible output at all', async () => {
+    const run = seedSynthesisRun()
+    const budgets: (number | undefined)[] = []
+    mocks.runGeneration
+      .mockImplementationOnce((request: unknown) => {
+        budgets.push(thoughtBudgetOf(request))
+        // Reasoning consumed the whole call: a token-limit stop with nothing
+        // visible to show for it.
+        return Promise.resolve({
+          content: '',
+          thinking: 'Considering the evidence… '.repeat(300),
+          stats: EMPTY_STATS,
+          stopped: true,
+          stopReason: 'token-limit'
+        })
+      })
+      .mockImplementationOnce((request: unknown) => {
+        budgets.push(thoughtBudgetOf(request))
+        return Promise.resolve({ content: VALID_DRAFT, stats: EMPTY_STATS, stopped: false })
+      })
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    // The retry disables reasoning outright rather than asking the engine to
+    // close the segment partway, which is the guarantee that actually holds.
+    expect(budgets).toHaveLength(2)
+    expect(budgets[0]).toBeGreaterThan(0)
+    expect(budgets[1]).toBe(0)
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.report).toContain('sharper, more acute pain response')
+    expect(persisted?.status).not.toBe('failed')
+  })
+
+  it('salvages a report when synthesis spends its whole budget thinking and writes nothing', async () => {
+    const run = seedSynthesisRun()
+    // The live 32K local failure: the model produced zero visible characters —
+    // the entire output budget went to hidden reasoning — and stopped on the
+    // token limit. The run used to finish with `report: ''`, throwing away
+    // every verified source behind it (53 of them, and 119 evidence artifacts,
+    // after 29 minutes of research). An empty draft is a reason to fall back
+    // to the evidence, not to discard the investigation.
+    mocks.runGeneration.mockResolvedValue({
+      content: '',
+      thinking: 'Let me consider the evidence… '.repeat(400),
+      stats: EMPTY_STATS,
+      stopped: true,
+      stopReason: 'token-limit'
+    })
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('partial')
+    expect(persisted?.report).toContain('sharper, more acute pain response')
+    // The stored attempt has to show WHERE the budget went, so a repeat is
+    // diagnosable from the run on disk rather than by guesswork.
+    const attempt = persisted?.synthesisDiagnostics?.attempts.at(0)
+    expect(attempt?.contentChars).toBe(0)
+    expect(attempt?.thinkingChars).toBeGreaterThan(0)
+    expect(attempt?.stopReason).toBe('token-limit')
   })
 
   it('reports an actionable failure when a research error leaves no verified evidence', async () => {

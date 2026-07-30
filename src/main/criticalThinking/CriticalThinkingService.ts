@@ -116,6 +116,14 @@ const MAX_PLAN_STEPS = 12
 const MAX_PLAN_STEP_CHARS = 240
 const MAX_ACTIVITIES = 240
 const LOCAL_BUSY_RETRY_MS = 500
+/**
+ * How the run's time budget is split. Synthesis is several bounded model
+ * calls — a draft, a repair, one pass per section, a consistency review, an
+ * overview — so on a local model it needs real minutes, not leftovers.
+ */
+const SYNTHESIS_BUDGET_SHARE = 0.3
+const MIN_SYNTHESIS_WINDOW_MS = 8 * 60_000
+const MIN_RESEARCH_WINDOW_MS = 5 * 60_000
 const SYNTHESIS_BUDGET = { ...CRITICAL_THINKING_STEP_BUDGET, maxTools: 0 }
 
 /**
@@ -348,10 +356,24 @@ class CriticalThinkingService {
     this.activeController = controller
     let totalTimedOut = false
     const usage: CriticalThinkingRunUsage = { rounds: 0, searches: 0, fetches: 0 }
-    const totalTimer = setTimeout(() => {
+    // Writing the report is the payoff for every minute of research, so it
+    // gets a guaranteed share of the run's budget instead of whatever happens
+    // to be left. Observed live: research consumed nearly the whole hour and
+    // synthesis was cut off mid-repair, with its overview and chart stages
+    // both ending on `time-limit` — an hour of gathering, then no room to
+    // write it up. Research is bounded to the remainder so the configured
+    // budget still means what it says end to end.
+    const startedAt = Date.now()
+    const runBudgetMs = initialRun.researchPolicy.maxRunMs
+    const synthesisReserveMs = Math.max(
+      MIN_SYNTHESIS_WINDOW_MS,
+      Math.floor(runBudgetMs * SYNTHESIS_BUDGET_SHARE)
+    )
+    const researchBudgetMs = Math.max(MIN_RESEARCH_WINDOW_MS, runBudgetMs - synthesisReserveMs)
+    let totalTimer = setTimeout(() => {
       totalTimedOut = true
       controller.abort('time-limit')
-    }, initialRun.researchPolicy.maxRunMs)
+    }, researchBudgetMs)
 
     try {
       // Approval may have queued deletion of evidence from an earlier plan.
@@ -366,6 +388,18 @@ class CriticalThinkingService {
         return
       }
       this.reconcileEvidenceReferences(initialRun.id)
+      // Research is done; re-arm the clock for synthesis. It gets whatever is
+      // left of the run budget, never less than the reserve — so finishing
+      // research early buys the report more room, and overrunning research
+      // cannot take the report's room away.
+      clearTimeout(totalTimer)
+      totalTimer = setTimeout(
+        () => {
+          totalTimedOut = true
+          controller.abort('time-limit')
+        },
+        Math.max(synthesisReserveMs, runBudgetMs - (Date.now() - startedAt))
+      )
       await this.runSynthesis(this.requireRun(initialRun.id), controller.signal)
     } catch (error) {
       log.error('Critical Thinking research failed:', initialRun.id, error)
@@ -572,6 +606,7 @@ class CriticalThinkingService {
       limits.thoughtTokens
     )
     const draft = synthesis.content.trim()
+    const thinkingChars = synthesis.thinking?.length
     let stats = addStats(run.stats, synthesis.stats)
     const synthesisStopReason = signalStopReason(signal, synthesis.stopReason)
     const synthesisUserStopped = synthesisStopReason === 'user'
@@ -584,8 +619,26 @@ class CriticalThinkingService {
     const draftWorthValidating =
       draft.length > 0 && isRecoverableContentStopReason(synthesisStopReason)
     if (synthesisUserStopped || !draftWorthValidating) {
-      recordDiagnostic(rawSynthesisDiagnostic('draft', draft, synthesisStopReason))
+      recordDiagnostic(
+        rawSynthesisDiagnostic('draft', draft, synthesisStopReason, undefined, thinkingChars)
+      )
       synthesisDiagnostics = { ...synthesisDiagnostics, completedAt: Date.now() }
+      // A synthesis that wrote nothing at all is not a reason to throw away
+      // the investigation behind it. Observed directly: a run holding 53
+      // verified sources and 119 evidence artifacts finished with an empty
+      // report because the model spent its entire output budget on hidden
+      // reasoning and produced zero visible characters (`thinkingChars`
+      // above records that, so the next occurrence is diagnosable from the
+      // stored run alone). The deterministic, citation-checked fallback is
+      // built from evidence rather than model prose, so it is available
+      // whether or not the model ever wrote a word — use it instead of
+      // finishing with `report: ''`. A user Stop stays resumable, and a
+      // non-empty draft keeps its existing path.
+      if (!synthesisUserStopped && !draft) {
+        criticalThinkingStore.update(run.id, { stats, synthesisDiagnostics })
+        this.finishWithSalvagedReport(run.id, 'partial', stoppedReasonMessage(synthesisStopReason))
+        return
+      }
       this.finish(run.id, synthesisUserStopped ? 'stopped' : 'partial', {
         report: draft,
         stats,
@@ -605,7 +658,9 @@ class CriticalThinkingService {
       approvedStepCount
     )
     let selectedStage: CriticalThinkingSynthesisStage = 'draft'
-    recordDiagnostic(reportCandidateDiagnostic('draft', candidate, synthesisStopReason))
+    recordDiagnostic(
+      reportCandidateDiagnostic('draft', candidate, synthesisStopReason, undefined, thinkingChars)
+    )
     let repairStopReason: GenerationStopReason | undefined
     if (!candidate.overallValid) {
       const repairIssues = boundPromptItems(
@@ -638,7 +693,13 @@ class CriticalThinkingService {
         // recoverable to check — keep the original draft and remember why.
         repairStopReason = repairStopReasonCandidate ?? 'yielded'
         recordDiagnostic(
-          rawSynthesisDiagnostic('repair', repair.content, repairStopReasonCandidate)
+          rawSynthesisDiagnostic(
+            'repair',
+            repair.content,
+            repairStopReasonCandidate,
+            undefined,
+            repair.thinking?.length
+          )
         )
       } else if (repair.content.trim()) {
         // Either the repair completed cleanly, or it stopped on a
@@ -654,7 +715,13 @@ class CriticalThinkingService {
           approvedStepCount
         )
         recordDiagnostic(
-          reportCandidateDiagnostic('repair', repairedCandidate, repairStopReasonCandidate)
+          reportCandidateDiagnostic(
+            'repair',
+            repairedCandidate,
+            repairStopReasonCandidate,
+            undefined,
+            repair.thinking?.length
+          )
         )
         const selected = chooseBetterReportCandidate(candidate, repairedCandidate)
         if (selected === repairedCandidate) selectedStage = 'repair'
@@ -825,9 +892,14 @@ class CriticalThinkingService {
     const attempts: CriticalThinkingSynthesisAttemptDiagnostic[] = []
     const sections = new Map<string, string>()
     let stats: GenerationStats = { tokens: 0, durationMs: 0, tokensPerSecond: 0 }
+    // A section's prompt is small — one step's evidence, capped at 18,000
+    // characters — so the context has room to spare here. The old 3,072
+    // ceiling was below what this model spends on hidden reasoning alone,
+    // which is why four of six sections in a live run returned zero visible
+    // characters and fell back to raw excerpt dumps.
     const sectionOutputTokens = Math.max(
       512,
-      Math.min(3_072, Math.floor(limits.maxOutputTokens * 0.65))
+      Math.min(8_192, Math.floor(limits.maxOutputTokens * 0.65))
     )
     const sectionThoughtTokens = Math.min(
       limits.thoughtTokens,
@@ -878,7 +950,13 @@ class CriticalThinkingService {
         run.sources
       )
       attempts.push(
-        hierarchicalSectionDiagnostic('section', sectionCandidate, sectionStopReason, step.id)
+        hierarchicalSectionDiagnostic(
+          'section',
+          sectionCandidate,
+          sectionStopReason,
+          step.id,
+          sectionResult.thinking?.length
+        )
       )
 
       if (
@@ -918,7 +996,8 @@ class CriticalThinkingService {
             'section-repair',
             repairedCandidate,
             repairedStopReason,
-            step.id
+            step.id,
+            repaired.thinking?.length
           )
         )
         sectionCandidate = chooseBetterHierarchicalSection(sectionCandidate, repairedCandidate)
@@ -966,7 +1045,7 @@ class CriticalThinkingService {
       const consistencyEvidence = buildEvidencePacket(artifacts, run.sources, evidenceBudget)
       const consistencyOutputTokens = Math.max(
         384,
-        Math.min(1_536, Math.floor(limits.maxOutputTokens * 0.3))
+        Math.min(3_072, Math.floor(limits.maxOutputTokens * 0.3))
       )
       const consistencyResult = await this.runToolFreeTurn(
         run,
@@ -1022,9 +1101,12 @@ class CriticalThinkingService {
       sectionItems,
       Math.max(0, Math.min(36_000, limits.maxPromptChars - overviewBase.length))
     ).join('\n\n')
+    // The overview returned zero characters on a live run: its 2,048
+    // ceiling left nothing after hidden reasoning, so the report fell back to
+    // a deterministic summary and conclusion.
     const overviewOutputTokens = Math.max(
       384,
-      Math.min(2_048, Math.floor(limits.maxOutputTokens * 0.4))
+      Math.min(4_096, Math.floor(limits.maxOutputTokens * 0.4))
     )
     const overviewResult = await this.runToolFreeTurn(
       run,
@@ -1045,7 +1127,13 @@ class CriticalThinkingService {
         run.sources
       )
       attempts.push(
-        hierarchicalSectionDiagnostic('overview', overviewCandidate, overviewStopReason)
+        hierarchicalSectionDiagnostic(
+          'overview',
+          overviewCandidate,
+          overviewStopReason,
+          undefined,
+          overviewResult.thinking?.length
+        )
       )
     } else {
       attempts.push(rawSynthesisDiagnostic('overview', overviewResult.content, overviewStopReason))
@@ -1178,7 +1266,72 @@ class CriticalThinkingService {
     }
   }
 
+  /**
+   * One bounded model call for a research or synthesis phase, with a single
+   * retry that disables hidden reasoning outright when the first attempt
+   * produced no visible text at all.
+   *
+   * A requested `thoughtTokens` sub-budget asks the engine to close the
+   * reasoning segment partway through; a budget of zero prevents the segment
+   * from ever opening, which is a stronger and simpler guarantee. Phases here
+   * already pass a sub-budget, yet live runs still produced attempts with
+   * zero characters against a token-limit stop — several sections, the
+   * overview, and a whole synthesis that returned an empty report from 53
+   * verified sources. Rather than depend on the partway close alone, treat an
+   * empty visible reply as proof that reasoning consumed the call, and spend
+   * one more call getting an answer instead of returning nothing. Retried at
+   * most once, local provider only (no other provider exposes the budget),
+   * and never after a user Stop.
+   */
   private async runToolFreeTurn(
+    run: CriticalThinkingRun,
+    prompt: string,
+    signal: AbortSignal,
+    stream: boolean,
+    maxTokens: number,
+    thoughtTokens?: number,
+    jsonSchema?: Record<string, unknown>
+  ): Promise<RunGenerationResult> {
+    const first = await this.generateToolFreeTurn(
+      run,
+      prompt,
+      signal,
+      stream,
+      maxTokens,
+      thoughtTokens,
+      jsonSchema
+    )
+    if (
+      run.provider !== 'local' ||
+      thoughtTokens === 0 ||
+      signal.aborted ||
+      first.content.trim() !== '' ||
+      !isRecoverableContentStopReason(signalStopReason(signal, first.stopReason)) ||
+      first.stopReason === undefined
+    ) {
+      return first
+    }
+    log.warn('Critical Thinking phase produced no visible output; retrying without reasoning.', {
+      runId: run.id,
+      maxTokens,
+      thoughtTokens,
+      thinkingChars: first.thinking?.length ?? 0,
+      stopReason: first.stopReason
+    })
+    const retried = await this.generateToolFreeTurn(
+      run,
+      prompt,
+      signal,
+      stream,
+      maxTokens,
+      0,
+      jsonSchema
+    )
+    // Both calls really ran, so both are charged to the run's token stats.
+    return { ...retried, stats: addStats(first.stats, retried.stats) }
+  }
+
+  private async generateToolFreeTurn(
     run: CriticalThinkingRun,
     prompt: string,
     signal: AbortSignal,
@@ -1662,19 +1815,29 @@ function createStepStates(plan: Plan): CriticalThinkingStepState[] {
   }))
 }
 
-const MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS = 24_000
+/**
+ * Retained draft text per synthesis attempt. `runs.json` is rewritten whole on
+ * every progress update, and the hierarchical path alone records ~19 attempts
+ * per run — at the previous 24,000 this let a single run carry most of a
+ * megabyte of stored drafts, re-serialized on each activity. 12,000 still
+ * shows a draft's structure, headings, and citation density, which is what
+ * these attempts are read for.
+ */
+const MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS = 12_000
 
 function reportCandidateDiagnostic(
   stage: CriticalThinkingSynthesisStage,
   candidate: ReportCandidate,
   stopReason?: GenerationStopReason,
-  stepId?: string
+  stepId?: string,
+  thinkingChars?: number
 ): CriticalThinkingSynthesisAttemptDiagnostic {
   return {
     stage,
     ...(stepId ? { stepId } : {}),
     contentChars: candidate.content.length,
     content: candidate.content.slice(0, MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS),
+    ...(thinkingChars !== undefined ? { thinkingChars } : {}),
     ...(stopReason ? { stopReason } : {}),
     safe: candidate.safe,
     usable: candidate.usable,
@@ -1701,13 +1864,15 @@ function hierarchicalSectionDiagnostic(
   stage: 'section' | 'section-repair' | 'section-fallback' | 'consistency' | 'overview',
   candidate: HierarchicalSectionCandidate,
   stopReason?: GenerationStopReason,
-  stepId?: string
+  stepId?: string,
+  thinkingChars?: number
 ): CriticalThinkingSynthesisAttemptDiagnostic {
   return {
     stage,
     ...(stepId ? { stepId } : {}),
     contentChars: candidate.content.length,
     content: candidate.content.slice(0, MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS),
+    ...(thinkingChars !== undefined ? { thinkingChars } : {}),
     ...(stopReason ? { stopReason } : {}),
     safe: candidate.safe,
     usable: candidate.usable,
@@ -1721,7 +1886,8 @@ function rawSynthesisDiagnostic(
   stage: CriticalThinkingSynthesisStage,
   content: string,
   stopReason?: GenerationStopReason,
-  stepId?: string
+  stepId?: string,
+  thinkingChars?: number
 ): CriticalThinkingSynthesisAttemptDiagnostic {
   const trimmed = content.trim()
   return {
@@ -1729,6 +1895,7 @@ function rawSynthesisDiagnostic(
     ...(stepId ? { stepId } : {}),
     contentChars: trimmed.length,
     content: trimmed.slice(0, MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS),
+    ...(thinkingChars !== undefined ? { thinkingChars } : {}),
     ...(stopReason ? { stopReason } : {}),
     safe: false,
     usable: false,

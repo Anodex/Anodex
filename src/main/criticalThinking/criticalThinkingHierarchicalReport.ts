@@ -3,7 +3,7 @@ import type {
   CriticalThinkingStepState
 } from '@shared/criticalThinking.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
-import { validateResearchReport } from './criticalThinkingEvidence'
+import { normalizeCitationMarkers, validateResearchReport } from './criticalThinkingEvidence'
 
 const CITATION_PATTERN = /\[\[S\d+(?::P\d+)?\]\]/
 
@@ -26,7 +26,7 @@ export function evaluateHierarchicalSection(
   artifacts: ToolArtifact[],
   sources: CriticalThinkingSource[]
 ): HierarchicalSectionCandidate {
-  const trimmed = content.trim()
+  const trimmed = normalizeCitationMarkers(content.trim())
   const validation = validateResearchReport(trimmed, artifacts, sources)
   const citedBlockCount = substantiveBlocks(trimmed).filter((block) =>
     CITATION_PATTERN.test(block)
@@ -138,6 +138,34 @@ export function assembleHierarchicalReport(input: {
   ].join('\n')
 }
 
+/**
+ * How many citation markers the deterministic conclusion carries. It exists to
+ * satisfy citation coverage for its own sentence, not to re-list the
+ * bibliography: the previous version appended every marker in the report,
+ * which on a real run meant a closing "paragraph" of 21 stacked links under a
+ * sentence that said nothing.
+ */
+const MAX_CONCLUSION_MARKERS = 3
+
+function buildDeterministicConclusion(
+  steps: CriticalThinkingStepState[],
+  sections: Map<string, string>,
+  markers: string[]
+): string {
+  const complete = steps.every((step) => sections.has(step.id) && step.status === 'completed')
+  // Deliberately free of numerals and of step titles (which carry years and
+  // figures of their own). A digit anywhere in the report body makes
+  // `reportHasQuantitativeProse` true, which spends an extra model call
+  // hunting for a chart to draw, and an uncited digit is separately reported
+  // as a numeric claim with no evidence. The limits section directly above
+  // already names what went unresolved, so repeating it here buys nothing.
+  const scope = complete
+    ? 'Every planned line of inquiry returned citable evidence, and each section above states its conclusion against the passages it cites.'
+    : 'Some planned lines of inquiry returned no citable evidence — the limits section above names them. Each section states its conclusion only against the passages it cites.'
+  const cited = markers.slice(0, MAX_CONCLUSION_MARKERS).join(' ')
+  return `${scope} ${cited}`.trim()
+}
+
 function buildDeterministicOverview(
   steps: CriticalThinkingStepState[],
   sections: Map<string, string>
@@ -163,7 +191,7 @@ function buildDeterministicOverview(
   ]
   return {
     executiveSummary: summaries.join('\n'),
-    conclusion: `Taken together, the retained evidence supports the topic-by-topic findings above while the limits section preserves unresolved questions. ${markers.join(' ')}`
+    conclusion: buildDeterministicConclusion(steps, sections, markers)
   }
 }
 
@@ -192,8 +220,17 @@ function buildLimitsBlock(steps: CriticalThinkingStepState[]): string {
     if (step.status !== 'completed') return [`${title}: research remained ${step.status}.`]
     return []
   })
+  // A markdown list, not a fenced block. These are prose limits a reader
+  // needs to weigh, and a code fence rendered them as grey monospace — the
+  // least readable presentation available for the one section that qualifies
+  // everything above it. Citation coverage exempts this section by heading
+  // (see `validateCitationCoverage`), so leaving the fence off no longer
+  // costs the report a wall of "material text has no citation" issues.
   return lines.length > 0
-    ? ['```text', ...lines.slice(0, 12), '```'].join('\n')
+    ? lines
+        .slice(0, 12)
+        .map((line) => `- ${line}`)
+        .join('\n')
     : 'No material gaps recorded.'
 }
 

@@ -32,6 +32,61 @@ interface IssueCollector {
 const MIN_INITIAL_PASSAGE_TEXT_CHARS = 32
 const MAX_EXTRA_PASSAGE_LINE_CHARS = 360
 
+/**
+ * Rewrite the compound citation forms a model reaches for into the single
+ * `[[S1]]` / `[[S1:P2]]` markers every validator and renderer in this module
+ * recognizes: ranges (`[[S9:P1-S9:P2]]`, `[[S9:P1-P3]]`) and lists
+ * (`[[S1, S2]]`, `[[S1:P1; S1:P2]]`).
+ *
+ * Observed live: a report cited `[[S9:P1-S9:P2]]`. Because that shape matches
+ * none of the marker patterns, it was simultaneously invisible three ways —
+ * it rendered as literal `[[S9:P1-S9:P2]]` in the finished report, its source
+ * id was never checked against fetched evidence (a citation-safety hole, the
+ * one class of issue that must never pass), and the paragraph around it
+ * counted as UNCITED, pushing a properly-sourced report toward the
+ * deterministic fallback.
+ *
+ * A range is expanded to its endpoints rather than every passage between
+ * them: the endpoints are what the model actually named, and inventing the
+ * interior would be asserting citations it never wrote. Anything that still
+ * does not parse is left untouched so it stays visible as a defect instead of
+ * being silently deleted.
+ */
+export function normalizeCitationMarkers(report: string): string {
+  return report.replace(/\[\[([^\]\n]{1,120})\]\]/g, (marker, body: string) => {
+    const parts = body
+      .split(/\s*[,;]\s*|\s*[-–—]\s*/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+    if (parts.length < 2) return marker
+    const expanded: string[] = []
+    let currentSource = ''
+    for (const part of parts) {
+      const full = /^(S\d+):(P\d+)$/i.exec(part)
+      if (full) {
+        currentSource = full[1].toUpperCase()
+        expanded.push(`[[${currentSource}:${full[2].toUpperCase()}]]`)
+        continue
+      }
+      const sourceOnly = /^(S\d+)$/i.exec(part)
+      if (sourceOnly) {
+        currentSource = sourceOnly[1].toUpperCase()
+        expanded.push(`[[${currentSource}]]`)
+        continue
+      }
+      // A bare passage ("P3" in "[[S9:P1-P3]]") belongs to the source named
+      // most recently, which is how the model wrote it.
+      const passageOnly = /^(P\d+)$/i.exec(part)
+      if (passageOnly && currentSource) {
+        expanded.push(`[[${currentSource}:${passageOnly[1].toUpperCase()}]]`)
+        continue
+      }
+      return marker
+    }
+    return [...new Set(expanded)].join(' ')
+  })
+}
+
 /** Build a bounded, exact evidence packet; only fetched pages can support citations. */
 export function buildEvidencePacket(
   artifacts: ToolArtifact[],
@@ -235,10 +290,11 @@ export function validateResearchReport(
     }
   }
 
-  validateCitationCoverage(proseReport, collector)
+  const exempt = uncitableBlocks(proseReport)
+  validateCitationCoverage(proseReport, collector, exempt)
   validateSourceQualityCoverage(proseReport, sourceById, collector)
   validateCharts(report, passagesByUrl, sourceById, collector)
-  validateNumericClaims(proseReport, passagesByUrl, sourceById, collector)
+  validateNumericClaims(proseReport, passagesByUrl, sourceById, collector, exempt)
   if (citationIds.length === 0) {
     collector.coverage.push('The report contains no evidence citation markers.')
   }
@@ -251,7 +307,8 @@ function validateNumericClaims(
   report: string,
   passagesByUrl: Map<string, EvidencePassage[]>,
   sourceById: Map<string, CriticalThinkingSource>,
-  collector: IssueCollector
+  collector: IssueCollector,
+  exempt: Set<string>
 ): void {
   for (const paragraph of report.split(/\n{2,}/)) {
     const citations = [...paragraph.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)]
@@ -262,6 +319,10 @@ function validateNumericClaims(
     const claimText = withoutStructuralNumbering(paragraph.replace(/\[\[S\d+(?::P\d+)?\]\]/g, ''))
     const numbers = extractNumbers(claimText)
     if (citations.length === 0) {
+      // Coverage only, and never for a section whose subject is what the
+      // evidence does NOT cover — a limits line naming a step called
+      // "…allocations for 2024-2026" is not making a numeric claim.
+      if (exempt.has(paragraph.trim())) continue
       for (const number of numbers) {
         if (number.length === 1 && !number.endsWith('%')) continue
         collector.coverage.push(`Numeric claim ${number} has no evidence citation.`)
@@ -369,7 +430,15 @@ export function renderResearchCitations(report: string, sources: CriticalThinkin
       .join('')
 
   const section = findSourcesSection(report)
-  if (!section) return renderBody(report)
+  if (!section) {
+    // No Sources heading of its own. The numbered citations still resolve as
+    // links, but without a list the reader has no way to see what [7] is
+    // short of hovering every one — observed on a real report that ran to 23
+    // references with no legend. Append the list the numbers refer to.
+    const body = renderBody(report)
+    const list = ordered.map((source, index) => `${index + 1}. ${markdownCitation(source)}`)
+    return list.length > 0 ? `${body}\n\n## Sources\n\n${list.join('\n')}\n` : body
+  }
 
   // Rendered before the list is built, so the list reflects the order the prose
   // actually introduced each source.
@@ -381,9 +450,62 @@ export function renderResearchCitations(report: string, sources: CriticalThinkin
   return `${head}\n\n${list || '_No verified sources were cited._'}\n${tail}`
 }
 
-function validateCitationCoverage(report: string, collector: IssueCollector): void {
+/**
+ * Headings whose whole purpose is to describe what the evidence does NOT
+ * establish. Requiring a citation for "no source reported service-contract
+ * terms for this dealer" is a category error — the statement is true
+ * *because* nothing was retrieved, so there is nothing to cite. Flagging them
+ * put every honest limits section into the issue list, which is one of the
+ * reasons well-sourced runs kept landing `partial`.
+ */
+const UNCITABLE_SECTION_HEADING =
+  /^\s{0,3}#{1,6}\s*(?:\d+[.)]?\s*)*(?:limits?\b|limitations?\b|open questions?\b|caveats?\b|what (?:we )?(?:could not|couldn.t)\b)/i
+
+/**
+ * The blocks that sit under an uncitable heading, keyed by their exact text so
+ * any validator can skip them without re-deriving section boundaries.
+ *
+ * Returned as a set of blocks rather than a stripped copy of the report on
+ * purpose: `validateNumericClaims` must keep running its *safety* check
+ * (a cited figure absent from the cited passage is fabrication, wherever it
+ * appears) while skipping only its coverage complaint about uncited figures.
+ * Step titles routinely carry years — "…funding allocations for 2024-2026" —
+ * and a limits section built from them would otherwise report a numeric claim
+ * for every one.
+ */
+function uncitableBlocks(report: string): Set<string> {
+  const blocks = new Set<string>()
+  let section: string[] = []
+  let exempt = false
+  const flush = (): void => {
+    if (exempt) {
+      for (const block of section.join('\n').split(/\n\s*\n/)) {
+        const trimmed = block.trim()
+        if (trimmed) blocks.add(trimmed)
+      }
+    }
+    section = []
+  }
+  for (const line of report.split('\n')) {
+    if (/^\s{0,3}#{1,6}\s/.test(line)) {
+      flush()
+      exempt = UNCITABLE_SECTION_HEADING.test(line)
+      continue
+    }
+    section.push(line)
+  }
+  flush()
+  return blocks
+}
+
+function validateCitationCoverage(
+  report: string,
+  collector: IssueCollector,
+  exempt: Set<string>
+): void {
   const withoutCode = report.replace(/```[\s\S]*?```/g, '')
   for (const block of withoutCode.split(/\n\s*\n/)) {
+    if (exempt.has(block.trim())) continue
     const prose = block
       .split('\n')
       .filter((line) => !/^\s{0,3}#{1,6}\s/.test(line) && !/^\s*[-*_]{3,}\s*$/.test(line))

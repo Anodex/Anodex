@@ -139,6 +139,91 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(usage).toEqual({ rounds: 2, searches: 2, fetches: 4 })
   })
 
+  it('falls back to a short, scoped query when the model cannot produce the JSON contract', async () => {
+    // The live failure, verbatim: the query phase produced nothing parseable,
+    // so the step searched on a 28-term mash of its title AND the question.
+    // The provider matched the dominant generic nouns and returned a Chinese
+    // excavator manufacturer, a UAE dealer, and Hitachi Construction Machinery
+    // Africa for a step explicitly scoped to Colorado.
+    const run = makeRun()
+    run.question =
+      'What can Arnold Machinery in Commerce City Colorado do to increase the service departments work flow. We are a Hitachi Dealer that sells Excavators and Wheel Loaders. We can also work on John Deere Machines. are there any customers we should contact?'
+    run.steps[0].title =
+      'Identify active and upcoming large-scale construction, mining, and infrastructure projects in Colorado (especially Commerce City/Denver metro) that utilize excavators and wheel loaders'
+    const searched: string[] = []
+    const harness = createHarness({
+      run,
+      runModel: (phase) =>
+        Promise.resolve(
+          generation(phase === 'query' ? 'I will search for relevant projects.' : 'not json')
+        ),
+      search: (query) => {
+        searched.push(query)
+        return Promise.resolve({ provider: 'test', results: [] })
+      }
+    })
+
+    await harness.runner.run(new AbortController().signal, emptyUsage(), 1)
+
+    expect(searched).toHaveLength(1)
+    const [fallbackQuery] = searched
+    // Short enough for a search engine to treat every term as meaningful.
+    expect(fallbackQuery.split(' ')).toHaveLength(12)
+    // The scope survives; the instruction verb that opens the step does not.
+    expect(fallbackQuery).toContain('colorado')
+    expect(fallbackQuery).toContain('commerce')
+    expect(fallbackQuery).not.toContain('identify')
+  })
+
+  it('issues a different fallback query each round instead of dying on no-progress', async () => {
+    // The fallback used to be a pure function of question + step title, so
+    // round 2 rebuilt the identical string, `novelQueries` rejected it as
+    // already used, and the step terminated after a single search. A step
+    // whose query phase keeps failing got exactly one attempt — observed live.
+    const run = makeRun()
+    run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 3 }
+    run.question = 'What can a Commerce City Colorado dealer do to grow service work?'
+    run.steps[0].title =
+      'Identify active construction and mining projects in Colorado that utilize excavators and wheel loaders'
+    const searched: string[] = []
+    const harness = createHarness({
+      run,
+      // Query JSON never parses; assessments record a gap so the next round
+      // has something specific to search for.
+      runModel: (phase) =>
+        Promise.resolve(
+          phase === 'query'
+            ? generation('I will look for relevant projects.')
+            : generation(
+                assessmentJson({
+                  finding: 'The retrieved pages are generic manufacturer marketing.',
+                  verdict: 'continue',
+                  evidenceBasis: 'insufficient',
+                  remainingGaps: ['Named general contractors bidding Denver infrastructure work'],
+                  nextQueries: []
+                })
+              )
+        ),
+      search: (query) => {
+        searched.push(query)
+        return Promise.resolve({
+          provider: 'test',
+          results: [
+            { title: 'A source', url: `https://s${searched.length}.example/a`, snippet: 'Evidence' }
+          ]
+        })
+      }
+    })
+
+    await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(searched.length).toBeGreaterThan(1)
+    expect(new Set(searched).size).toBe(searched.length)
+    // Round 2 leads with the gap the assessment recorded.
+    expect(searched[1]).toContain('contractors')
+    expect(harness.run.steps[0].terminationReason).not.toBe('no-progress')
+  })
+
   it('enforces the lifetime round cap across repeated wave-capped calls, not just within one call', async () => {
     const run = makeRun()
     run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 2 }

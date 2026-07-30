@@ -3,6 +3,7 @@ import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
 import type { ToolArtifact, WebFetchArtifact } from '@shared/toolArtifacts.types'
 import {
   buildEvidencePacket,
+  normalizeCitationMarkers,
   normalizeQuote,
   renderResearchCitations,
   validateResearchReport
@@ -387,9 +388,19 @@ describe('Critical Thinking evidence pipeline', () => {
   })
 
   it('renders only known validated markers, as numbered references', () => {
+    // A report with no Sources heading of its own gets the reference list its
+    // numbers refer to appended, so [1] is never a bare number with no legend.
     expect(renderResearchCitations('Supported [[S1:P1]].', sources)).toBe(
-      'Supported [1](https://example.com/study).'
+      [
+        'Supported [1](https://example.com/study).',
+        '',
+        '## Sources',
+        '',
+        '1. [Primary study](https://example.com/study)',
+        ''
+      ].join('\n')
     )
+    // An unusable source resolves to no number, so there is nothing to list.
     expect(
       renderResearchCitations('Unsafe [[S9]].', [
         { id: 'S9', title: 'Unsafe source', url: 'javascript:alert(1)', verified: true }
@@ -406,10 +417,13 @@ describe('Critical Thinking evidence pipeline', () => {
       'First [[S1]]. Second [[S2:P3]]. First again [[S1:P9]].',
       twoSources
     )
-    expect(rendered).toBe(
+    expect(rendered).toContain(
       'First [1](https://example.com/study). Second [2](https://example.com/second). ' +
         'First again [1](https://example.com/study).'
     )
+    // Each source is listed once, under the number the prose gave it.
+    expect(rendered).toContain('1. [Primary study](https://example.com/study)')
+    expect(rendered).toContain('2. [Second study](https://example.com/second)')
   })
 
   it('numbers by first appearance in the prose, not by source id', () => {
@@ -469,8 +483,13 @@ describe('Critical Thinking evidence pipeline', () => {
     const rendered = renderResearchCitations(`Finding [[S1:P1]].\n\n${chart}`, unsafeSources)
     const renderedChart = /```chart\s*([\s\S]*?)```/.exec(rendered)?.[1]
 
-    expect(rendered.match(/\]\(https?:/g)).toHaveLength(2)
+    // The inline citation, the chart's source caption, and the appended
+    // Sources entry — all three built from the same sanitized title, so a
+    // title carrying its own markdown link cannot smuggle one through any of
+    // them.
+    expect(rendered.match(/\]\(https?:/g)).toHaveLength(3)
     expect(rendered).not.toContain('](https://evil.example)')
+    expect(rendered).toContain('## Sources')
     expect(() => {
       JSON.parse(renderedChart ?? '')
     }).not.toThrow()
@@ -616,5 +635,62 @@ describe('Critical Thinking evidence pipeline', () => {
     expect(packet).toContain('[S1:P1]')
     expect(packet).toContain('[S2:P1]')
     expect(packet).toContain('[S3:P1]')
+  })
+})
+
+describe('compound citation markers', () => {
+  it('expands ranges and lists into the single markers every validator recognizes', () => {
+    // The live shape: a report cited [[S9:P1-S9:P2]]. It matched no marker
+    // pattern, so it rendered literally, was never checked against fetched
+    // evidence, and left its paragraph counting as uncited.
+    expect(normalizeCitationMarkers('Claim [[S9:P1-S9:P2]].')).toBe('Claim [[S9:P1]] [[S9:P2]].')
+    expect(normalizeCitationMarkers('Claim [[S9:P1-P3]].')).toBe('Claim [[S9:P1]] [[S9:P3]].')
+    expect(normalizeCitationMarkers('Claim [[S1, S2]].')).toBe('Claim [[S1]] [[S2]].')
+    expect(normalizeCitationMarkers('Claim [[S1:P1; S1:P2]].')).toBe('Claim [[S1:P1]] [[S1:P2]].')
+  })
+
+  it('leaves ordinary markers and unparseable ones untouched', () => {
+    expect(normalizeCitationMarkers('Plain [[S1]] and [[S1:P2]].')).toBe(
+      'Plain [[S1]] and [[S1:P2]].'
+    )
+    // Left visible as a defect rather than silently deleted.
+    expect(normalizeCitationMarkers('Odd [[see the appendix]].')).toBe('Odd [[see the appendix]].')
+  })
+
+  it('makes a range citation reachable by the fabrication check', () => {
+    // S9 does not exist in `sources`. Before normalization the range hid that
+    // entirely — the one class of issue that must never pass silently.
+    const report = normalizeCitationMarkers('The dashboard lists active permits [[S9:P1-S9:P2]].')
+    const validation = validateResearchReport(report, artifacts, sources)
+
+    expect(validation.safetyIssues.join(' ')).toContain('S9')
+  })
+})
+
+describe('sections about what the evidence does not cover', () => {
+  it('does not demand citations, or report numeric claims, for a limits section', () => {
+    const report = [
+      '## Findings',
+      '',
+      'The measured improvement was 18 percent [[S1:P1]].',
+      '',
+      '## Limits and Open Questions',
+      '',
+      '- Colorado DOT funding allocations for 2024-2026: research remained limited.',
+      '- No source reported service-contract terms for any regional dealer.'
+    ].join('\n')
+
+    const validation = validateResearchReport(report, artifacts, sources)
+    const text = validation.issues.join(' ')
+
+    expect(text).not.toContain('has no evidence citation')
+    expect(text).not.toContain('2024')
+    // A findings section is still held to the same standard.
+    const uncited = validateResearchReport(
+      '## Findings\n\nThe rollout covered 2024 through 2026 across every region.',
+      artifacts,
+      sources
+    )
+    expect(uncited.issues.join(' ')).toContain('has no evidence citation')
   })
 })

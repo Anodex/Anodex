@@ -1,6 +1,6 @@
 import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
-import { validateResearchReport } from './criticalThinkingEvidence'
+import { normalizeCitationMarkers, validateResearchReport } from './criticalThinkingEvidence'
 import { validateReportContract } from './criticalThinkingReportContract'
 
 /**
@@ -46,7 +46,9 @@ export function evaluateReportCandidate(
   sources: CriticalThinkingSource[],
   approvedStepCount: number
 ): ReportCandidate {
-  const trimmed = content.trim()
+  // Normalized before anything reads it, so the validators and the renderer
+  // see the same markers the stored report will carry.
+  const trimmed = normalizeCitationMarkers(content.trim())
   const citation = validateResearchReport(trimmed, artifacts, sources)
   const contract = validateReportContract(trimmed, approvedStepCount)
   const safe = citation.safetyIssues.length === 0

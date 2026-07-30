@@ -103,6 +103,48 @@ describe('Critical Thinking research policy', () => {
     expect(candidates[0]?.url).toContain('pmc.ncbi.nlm.nih.gov')
   })
 
+  it('ranks the term that scopes the query above the generic terms every result shares', () => {
+    // The live failure: a Colorado-scoped step filled its evidence with a
+    // Chinese excavator manufacturer, a UAE dealer, and Hitachi Construction
+    // Machinery *Africa*. Every result matched "construction", "mining",
+    // "excavators" and "wheel loaders"; counting each term equally let four
+    // generic matches outrank the single term that actually located the
+    // question.
+    const candidates = selectResearchCandidates(
+      [
+        {
+          query: 'colorado construction mining excavators wheel loaders projects',
+          results: [
+            {
+              title: 'Excavators: Versatile Machinery for Construction & Mining',
+              url: 'https://rippa.example/excavators',
+              snippet: 'Wheel loaders and excavators for construction and mining projects'
+            },
+            {
+              title: 'Wheel Loaders - Construction Machinery Africa',
+              url: 'https://machinery-africa.example/wheel-loaders',
+              snippet: 'Excavators and wheel loaders for construction and mining projects'
+            },
+            {
+              title: 'Excavators & Wheel Loaders for Construction Projects UAE',
+              url: 'https://gulf-machinery.example/construction',
+              snippet: 'Wheel loaders for mining and construction projects'
+            },
+            {
+              title: 'Colorado Mining Activity Dashboard',
+              url: 'https://drms.colorado.example/dashboard',
+              snippet: 'Active and proposed mining operations across Colorado'
+            }
+          ]
+        }
+      ],
+      new Set(),
+      1
+    )
+
+    expect(candidates[0]?.url).toContain('colorado')
+  })
+
   it('excludes login-walled social and media-only hosts, including subdomains, from research candidates', () => {
     // The live failures: search returned Facebook/Instagram login walls and a
     // YouTube page whose only extractable text was footer chrome
