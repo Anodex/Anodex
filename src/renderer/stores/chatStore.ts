@@ -29,7 +29,7 @@ import {
 import { reconcileMessageBlocks } from '../features/chat/reconcileMessageBlocks'
 import { quarantineStreamingToolPayload } from '../features/chat/streamingToolPayload'
 import { isChatReady } from '../lib/chatReadiness'
-import { buildMessageEditBranch } from '../features/chat/messageEdit'
+import { buildMessageEditBranch, buildRegenerateTarget } from '../features/chat/messageEdit'
 import { describeGenerationStop } from '../features/chat/generationStopMessages'
 import { withEmailThreadContext } from '../features/chat/emailThreadContext'
 import { conversationUserFiles } from '../features/chat/conversationUserFiles'
@@ -134,6 +134,13 @@ interface ChatState {
     text: string,
     options?: MessageEditOptions
   ) => Promise<MessageEditResult>
+  /**
+   * Ask for a different answer to the same question — replays the user turn
+   * that prompted `messageId` unchanged. The recovery that fits a reply which
+   * stalled or claimed work it never did, where the prompt was never the
+   * problem and editing it only obscures that.
+   */
+  regenerateMessage: (messageId: string, options?: MessageEditOptions) => Promise<MessageEditResult>
   /** Queue a message onto the active conversation while it's still generating. */
   queueMessage: (text: string, attachments?: ComposerAttachment[]) => void
   /** Cancel a queued message before it's auto-sent. */
@@ -775,6 +782,31 @@ export const useChatStore = create<ChatState>()(
       await persistConversation(updated)
       await get().sendMessage(trimmed, attachments, conversation.id)
       return { status: 'completed' }
+    },
+
+    regenerateMessage: async (messageId, options) => {
+      const conversation = get().conversations.find((item) => item.id === get().activeId)
+      const target = conversation ? buildRegenerateTarget(conversation.messages, messageId) : null
+      if (!conversation || !target) return { status: 'failed' }
+
+      if (conversation.messages.some((message) => message.streaming)) {
+        useUiStore.getState().notify({
+          kind: 'info',
+          title: 'Reply still in progress',
+          message: 'Stop the current reply before regenerating an earlier one.'
+        })
+        return { status: 'failed' }
+      }
+
+      const source = conversation.messages.find(
+        (message) => message.id === target.sourceUserMessageId
+      )
+      if (!source) return { status: 'failed' }
+
+      // Deliberately the same path as an edit whose text happened not to
+      // change: identical branch, identical checkpoint rollback, identical
+      // conflict reporting. Regenerating is that operation, not a new one.
+      return get().editMessage(source.id, source.content, options)
     },
 
     queueMessage: (text, attachments = []) => {

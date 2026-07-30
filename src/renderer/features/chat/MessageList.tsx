@@ -7,6 +7,7 @@ import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
 import { findLatestUserRequest, shouldPinCurrentRequest } from './messageTimeline'
+import { buildRegenerateTarget } from './messageEdit'
 import { visualComparisonsByMessage } from './visualComparisonPair'
 import styles from './MessageList.module.css'
 
@@ -261,6 +262,7 @@ export function MessageList({
                 <MessageBubble
                   message={message}
                   previousUserContent={findPreviousUserContent(messages, index)}
+                  regenerateTarget={buildRegenerateTarget(messages, message.id)}
                   conversationStreaming={conversationStreaming}
                   firstLight={message.id === firstAssistantId}
                   visualComparison={visualComparisons.get(message.id) ?? null}
