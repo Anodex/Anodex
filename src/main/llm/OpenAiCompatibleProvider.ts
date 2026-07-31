@@ -191,6 +191,8 @@ export async function runChatCompletionsLoop(
   const startedAt = Date.now()
   let content = ''
   let outputTokens = 0
+  // Summed across rounds — each tool round re-bills the whole conversation.
+  let inputTokens = 0
   let stopped = false
 
   const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
@@ -228,6 +230,7 @@ export async function runChatCompletionsLoop(
     }
 
     outputTokens += completion.usage?.completion_tokens ?? 0
+    inputTokens += completion.usage?.prompt_tokens ?? 0
 
     const message = completion.choices[0]?.message
     const toolCalls = (message?.tool_calls ?? []).filter(
@@ -272,7 +275,8 @@ export async function runChatCompletionsLoop(
   const stats: GenerationStats = {
     tokens: outputTokens,
     durationMs,
-    tokensPerSecond: outputTokens / (durationMs / 1000)
+    tokensPerSecond: outputTokens / (durationMs / 1000),
+    inputTokens
   }
 
   return {

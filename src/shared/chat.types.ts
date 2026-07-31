@@ -307,6 +307,18 @@ export interface GenerationStats {
   tokens: number
   durationMs: number
   tokensPerSecond: number
+  /**
+   * Real prompt tokens billed for this turn, summed across every provider
+   * round, as the provider itself reported them.
+   *
+   * Only cloud providers can populate this. It exists because cost is not
+   * derivable from `tokens` (output only) — on an agent run the input side is
+   * usually the larger half of the bill, since the whole history is re-sent
+   * and re-billed on every tool round. The local engine leaves it undefined:
+   * it reuses its KV cache turn over turn rather than re-billing a prompt, so
+   * there is no equivalent figure and no cost to attribute either way.
+   */
+  inputTokens?: number
 }
 
 /** The final payload once a generation completes (or is stopped). */

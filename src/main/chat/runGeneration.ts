@@ -482,7 +482,11 @@ export async function runGeneration(
   if (outcome.stats.tokens > 0 && modelDescriptor) {
     tokenActivityStore.recordGeneration({
       tokens: outcome.stats.tokens,
-      inputTokens: llamaService.countPromptTokens(request.prompt),
+      // A cloud provider reports what it actually billed, across every tool
+      // round; the local tokenizer only ever measured this turn's new prompt
+      // text, which understates a cloud turn badly. Fall back to it for the
+      // local engine, which has no billed figure of its own.
+      inputTokens: outcome.stats.inputTokens ?? llamaService.countPromptTokens(request.prompt),
       durationMs: outcome.stats.durationMs,
       toolNames: toolNamesThisTurn,
       conversationId: request.conversationId,
