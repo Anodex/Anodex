@@ -4,6 +4,7 @@ import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from './runGeneration'
 import { isRecoverableGenerationStop } from './recoverableStop'
 import { createReadCoverageTracker } from '../tools/readCoverage'
+import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import {
   describeUnverifiedPathClaims,
   findUnverifiedPathClaims
@@ -103,6 +104,9 @@ export async function runBoundedChatGeneration(
   let last: RunGenerationResult | undefined
   const memoryUsed: NonNullable<RunGenerationResult['memoryUsed']> = []
   const transcriptRecallUsed: NonNullable<RunGenerationResult['transcriptRecallUsed']> = []
+  // One registry for the whole reply, not one per cycle: the citation ids the
+  // model writes have to mean the same page from the first cycle to the last.
+  const webSources = new WebSourceRegistry()
 
   for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
     let madeProgressThisCycle = false
@@ -117,6 +121,7 @@ export async function runBoundedChatGeneration(
       {
         ...io,
         readCoverage,
+        webSources,
         onActivity: (call) => {
           if (call.status === 'success') madeProgressThisCycle = true
           toolCallsById.set(call.id, call)
@@ -202,6 +207,8 @@ export async function runBoundedChatGeneration(
     fabricationDetected: fabricationDetectedAnyCycle,
     memoryUsed: memoryUsed.length > 0 ? memoryUsed : undefined,
     transcriptRecallUsed: transcriptRecallUsed.length > 0 ? transcriptRecallUsed : undefined,
+    webSources: webSources.list(),
+    webSearchAttempted: webSources.attempted,
     context
   }
 }

@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import type { ResponseInputContent } from 'openai/resources/responses/responses'
+import type { ChatCompletionContentPart } from 'openai/resources/chat/completions'
 import type { ChatImageInput } from '@shared/chat.types'
 
 /** Build a Responses API user content list while keeping image bytes out of prompt text. */
@@ -14,6 +15,27 @@ export function openAiUserContent(
       type: 'input_image' as const,
       image_url: image.dataUrl,
       detail: 'auto' as const
+    }))
+  ]
+}
+
+/**
+ * Build a Chat Completions user content list — the vision shape every
+ * OpenAI-compatible third-party provider implements (`OpenAiCompatibleProvider.ts`,
+ * `AzureOpenAiProvider.ts`), distinct from `openAiUserContent`'s
+ * Responses-API-only shape above (OpenAI's own direct provider is the one
+ * exception that uses Responses instead of Chat Completions).
+ */
+export function chatCompletionsUserContent(
+  text: string,
+  images: readonly ChatImageInput[]
+): string | ChatCompletionContentPart[] {
+  if (images.length === 0) return text
+  return [
+    { type: 'text', text: text || 'Describe the attached content.' },
+    ...images.map((image): ChatCompletionContentPart => ({
+      type: 'image_url',
+      image_url: { url: image.dataUrl, detail: 'auto' }
     }))
   ]
 }

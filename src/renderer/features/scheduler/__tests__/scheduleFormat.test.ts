@@ -4,7 +4,8 @@ import {
   describeRunTiming,
   formatDuration,
   formatNextRun,
-  formatTimeOfDay
+  formatTimeOfDay,
+  nextRunProgress
 } from '../scheduleFormat'
 
 /** Fixed reference point so countdowns don't race the real clock. */
@@ -106,6 +107,36 @@ describe('formatNextRun', () => {
 
   it('switches to an absolute date past a week, where a countdown stops helping', () => {
     expect(formatNextRun(NOW + 9 * 86_400_000, NOW)).not.toContain('In ')
+  })
+})
+
+describe('nextRunProgress', () => {
+  const HOUR = 3_600_000
+
+  it('draws nothing when the task will never fire again', () => {
+    expect(nextRunProgress(NOW - HOUR, null, NOW)).toBeNull()
+  })
+
+  it('draws nothing when the wait has no known start', () => {
+    expect(nextRunProgress(null, NOW + HOUR, NOW)).toBeNull()
+  })
+
+  it('reports the fraction of the wait already spent', () => {
+    expect(nextRunProgress(NOW - HOUR, NOW + HOUR, NOW)).toBeCloseTo(0.5)
+    expect(nextRunProgress(NOW - 3 * HOUR, NOW + HOUR, NOW)).toBeCloseTo(0.75)
+  })
+
+  it('clamps rather than overrunning when a run is late', () => {
+    expect(nextRunProgress(NOW - 2 * HOUR, NOW - HOUR, NOW)).toBe(1)
+  })
+
+  it('clamps rather than going negative when the wait has not started', () => {
+    expect(nextRunProgress(NOW + HOUR, NOW + 2 * HOUR, NOW)).toBe(0)
+  })
+
+  it('draws nothing for a non-positive span, which has no fraction to show', () => {
+    expect(nextRunProgress(NOW, NOW, NOW)).toBeNull()
+    expect(nextRunProgress(NOW, NOW - HOUR, NOW)).toBeNull()
   })
 })
 

@@ -20,6 +20,33 @@ export interface Conversation {
   context?: ConversationContext | null
   /** Set when every turn in this chat came from an automated scheduled task or agent run, not the user. */
   origin?: 'scheduled' | 'agent'
+  /**
+   * The email conversation this chat was opened for, when it started from the
+   * Email page's Reply or Summarize action.
+   *
+   * Reopening the same thread returns to this chat instead of starting another
+   * one, so the discussion about a given email stays in a single place. Once
+   * the chat is archived or deleted it leaves the active list and a fresh chat
+   * is created on the next handoff.
+   */
+  emailThread?: EmailThreadLink
+}
+
+/**
+ * Which email conversation a chat is about, and enough of it for the model to
+ * act without searching the mailbox again.
+ *
+ * `subject` and `latestMessageId` are refreshed every time the thread is
+ * opened, because a thread grows: the reply the user asks for should answer
+ * the newest message, not whichever one was newest when the chat started.
+ * They're optional so chats linked by an older build still load.
+ */
+export interface EmailThreadLink {
+  accountId: string
+  threadId: string
+  subject?: string
+  /** Id of the newest message in the thread, which `reply_email` addresses. */
+  latestMessageId?: string
 }
 
 /** Persisted UI state for the conversation list. */

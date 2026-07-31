@@ -19,6 +19,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     messageId: 'test-message',
     projectId: null,
     workspaceRoot,
+    userFiles: [],
     permissionMode: 'ask',
     commandShell: undefined,
     webSearch: {
@@ -29,16 +30,11 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
       resultCount: 5,
       requireApproval: false
     },
+    imageGeneration: undefined,
     email: {
-      provider: 'none',
-      gmail: {
-        enabled: false,
-        address: '',
-        oauthClientId: '',
-        oauthClientSecret: '',
-        syncMode: 'metadata',
-        sendRequiresApproval: true
-      }
+      accounts: [],
+      primaryAccountId: null,
+      sendRequiresApproval: true
     },
     memory: { crossChatEnabled: true, personalEnabled: true, confirmBeforeSaving: false },
     enabledTools: null,

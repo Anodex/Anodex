@@ -34,6 +34,7 @@ import { codeOutlineTool } from './codeOutlineTools'
 import { searchCodeTool } from './codeSearchTools'
 import { fetchUrlTool } from './webTools'
 import { webSearchTool } from './webSearchTools'
+import { generateImageTool } from './imageGenerationTool'
 import { writePlanTool, updatePlanStepTool } from './planTools'
 import { updateProjectNotesTool } from './projectNotesTool'
 import { rememberFactTool } from './memoryTool'
@@ -46,15 +47,26 @@ import {
 } from './changeTools'
 import { finishGoalTool } from './agentTools'
 import { buildMcpToolFunction } from './mcpTools'
+import { scheduleTaskTool } from './schedulerTools'
 import {
+  batchEmailTool,
   draftEmailTool,
   findEmailAttachmentsTool,
+  forwardEmailTool,
+  listEmailAccountsTool,
+  listEmailMailboxesTool,
   listEmailThreadsTool,
+  manageEmailTool,
+  moveEmailTool,
+  readEmailAttachmentTool,
   readEmailTool,
+  replyEmailTool,
   saveEmailAttachmentTool,
+  saveEmailDraftTool,
   searchEmailTool,
   sendEmailTool,
-  summarizeEmailThreadTool
+  summarizeEmailThreadTool,
+  viewEmailAttachmentTool
 } from './emailTools'
 
 /**
@@ -133,17 +145,37 @@ const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
   write_plan: writePlanTool,
   update_plan_step: updatePlanStepTool,
   find_skill: findSkillTool,
-  load_skill: loadSkillTool
+  load_skill: loadSkillTool,
+  schedule_task: scheduleTaskTool
 }
 
 const EMAIL_FACTORIES: Record<string, ToolFactory> = {
+  list_email_accounts: listEmailAccountsTool,
   list_threads: listEmailThreadsTool,
   search_email: searchEmailTool,
   read_email: readEmailTool,
+  read_email_attachment: readEmailAttachmentTool,
   summarize_thread: summarizeEmailThreadTool,
   find_attachments: findEmailAttachmentsTool,
+  list_mailboxes: listEmailMailboxesTool,
   draft_email: draftEmailTool,
-  send_email: sendEmailTool
+  save_email_draft: saveEmailDraftTool,
+  send_email: sendEmailTool,
+  reply_email: replyEmailTool,
+  forward_email: forwardEmailTool,
+  manage_email: manageEmailTool,
+  move_email: moveEmailTool,
+  batch_email: batchEmailTool
+}
+
+/**
+ * Email tools that need a vision-capable provider but no workspace. Kept apart
+ * from `VISUAL_WORKSPACE_FACTORIES` because that group is registered inside the
+ * `ctx.workspaceRoot` branch — an email image has nothing to do with a project
+ * folder, and the Email page's assistant rail usually has neither.
+ */
+const EMAIL_VISUAL_FACTORIES: Record<string, ToolFactory> = {
+  view_email_attachment: viewEmailAttachmentTool
 }
 
 const EMAIL_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
@@ -194,13 +226,24 @@ export function buildTools(
     if (isEnabled(name)) tools[name] = factory(define, ctx)
   }
 
+  if (ctx.imageGeneration && isEnabled('generate_image')) {
+    tools.generate_image = generateImageTool(define, ctx)
+  }
+
   if (ctx.webSearch.provider !== 'none' && isEnabled('web_search')) {
     tools.web_search = webSearchTool(define, ctx)
   }
 
-  if (ctx.email.provider === 'gmail' && ctx.email.gmail.enabled) {
+  // Email tools appear once any account is linked, whatever its provider —
+  // the tools resolve the account themselves and never name Gmail specifically.
+  if (ctx.email.accounts.length > 0) {
     for (const [name, factory] of Object.entries(EMAIL_FACTORIES)) {
       if (isEnabled(name)) tools[name] = factory(define, ctx)
+    }
+    if (ctx.visualInputs) {
+      for (const [name, factory] of Object.entries(EMAIL_VISUAL_FACTORIES)) {
+        if (isEnabled(name)) tools[name] = factory(define, ctx)
+      }
     }
     if (ctx.workspaceRoot && ctx.projectId) {
       const workspaceCtx: WorkspaceToolContext = { ...ctx, workspaceRoot: ctx.workspaceRoot }

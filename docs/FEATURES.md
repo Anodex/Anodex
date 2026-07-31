@@ -14,7 +14,7 @@ do today and why each feature is useful.
 Anodex is an AI assistant that lives with your work instead of hovering outside it.
 It can chat, inspect code, edit files, run checks, search the web, remember project
 context, work through tasks unattended, schedule recurring jobs, research complex
-questions, manage Gmail, and connect to GitHub or MCP tools while keeping the core
+questions, manage email, and connect to GitHub or MCP tools while keeping the core
 experience local-first.
 
 ### One-line version
@@ -42,7 +42,7 @@ of day-to-day work:
 - It can operate on a project workspace, not just answer questions in isolation.
 - It supports local GGUF models, so core AI work can happen on the user's machine.
 - It has optional OpenAI and Anthropic providers for heavier or specialized jobs.
-- It has reviewable tools for files, commands, Git, web search, Gmail, GitHub, and
+- It has reviewable tools for files, commands, Git, web search, email, GitHub, and
   MCP servers.
 - It keeps long-running project context through memory, transcript recall, project
   notes, skills, checkpoints, and change proposals.
@@ -265,13 +265,18 @@ Write and mutation tools:
 
 Email tools:
 
-- List Gmail threads.
-- Search email.
+- List linked email accounts.
+- List threads.
+- Search email across every linked account.
 - Read email.
 - Summarize threads.
 - Find attachments.
+- List mailboxes, labels, and folders.
 - Draft email.
-- Send email with approval.
+- Send email with approval, optionally attaching workspace files.
+- Reply in-thread with approval.
+- Mark read or unread, star, and archive.
+- Move messages between mailboxes.
 - Save attachments into a project workspace.
 
 Extensibility tools:
@@ -494,31 +499,48 @@ Why it is good:
   toolset to search and source reading, forces a plan review step, and produces a
   report with sources instead of mixing research into a normal chat thread.
 
-## Gmail And Email Tools
+## Email
 
-Anodex includes Gmail integration through OAuth.
+Anodex works with Gmail, Outlook and Microsoft 365, and any mailbox reachable over
+IMAP and SMTP. Several accounts can be linked at once.
+
+Linking an account starts from the address alone. Anodex looks up the domain and
+then either opens a browser sign-in (Gmail, Outlook) or prefills the IMAP and SMTP
+server settings, using a built-in table for the large providers and Mozilla's
+autoconfig database for everything else. Providers that require an app-specific
+password say so and link straight to the page that generates one.
 
 Key capabilities:
 
-- Connect Gmail through a browser OAuth flow.
-- Show connected account status.
-- Enable or disable Gmail tools.
-- Choose header-only or full-message sync scope.
+- Link Gmail and Outlook through a browser OAuth sign-in with PKCE.
+- Link any other mailbox over IMAP and SMTP with an app password.
+- Link several accounts and pick which one is the default.
+- Choose header-only or full-message sync scope per account.
 - List recent inbox threads.
-- Search mail.
-- Read messages.
-- Summarize threads.
-- Find attachments.
+- Search mail — every linked account at once, unless one is named.
+- Read messages in a centered, newest-first thread spine with sender addresses visible,
+  summarize threads, and find attachments.
+- List mailboxes, labels, and folders.
 - Create drafts.
-- Send email only with confirmation.
+- Send email only with confirmation, optionally attaching workspace files.
+- Reply in-thread only with confirmation, with correct threading headers.
+- Mark read or unread, star, archive, and move between mailboxes.
 - Save email attachments into a project workspace.
-- Disconnect Gmail.
+- Unlink an account, which also erases its stored credentials.
+
+Where credentials live:
+
+- OAuth tokens and IMAP passwords are encrypted with the operating system's
+  credential store and held outside `settings.json`.
+- `settings.json` holds only non-secret account details: addresses, hostnames,
+  ports, and sync scope.
 
 Why it is good:
 
 - Email often contains important project context. Anodex can help search, summarize,
-  draft, and attach email information to work while keeping send actions behind
-  approval.
+  draft, reply to, and attach email information to work while keeping every
+  outbound message behind explicit approval. Deleting mail is not possible at all —
+  the tools cover archiving and moving, never permanent removal.
 
 ## Git And GitHub
 
@@ -640,8 +662,14 @@ Anodex includes diagnostic and maintenance surfaces in Settings.
 Diagnostics capabilities:
 
 - Show local runtime diagnostic entries.
+- Surface background-service failures (local engine, mailboxes, MCP, updater) with the
+  scope they came from, the full technical detail, and a suggested next step.
+- Capture failures raised before the window existed — startup errors, unhandled
+  rejections, and renderer/child-process crashes — and replay them once it opens.
+- Write every main-process log line to a rotating file on disk (`anodex.log`, 2 MB × 2)
+  and reveal it from Settings, so a packaged install can produce a real bug report.
 - Filter by severity.
-- Export diagnostic logs.
+- Export diagnostic logs, or copy a single entry as a self-contained report.
 - Clear diagnostic entries.
 - Configure verbose logging.
 - Set diagnostic history limits.
@@ -787,10 +815,11 @@ while Anodex is open.
 Plan, review, research, source, and export reports from a workflow that only has web
 search and page-reading tools.
 
-### Gmail support
+### Email support
 
-Search, read, summarize, draft, and send Gmail messages with explicit confirmation
-for sending.
+Link Gmail, Outlook, or any IMAP mailbox from the address alone, then search, read,
+summarize, draft, reply, and organize mail — with explicit confirmation on anything
+that sends.
 
 ### Git and GitHub
 
@@ -821,7 +850,7 @@ storage, tool logs, diagnostics, and checkpoint restore flows.
 
 Anodex is local-first. Project files, conversations, models, memory, checkpoints,
 and settings live on the user's machine by default. Cloud model providers, web
-search, Gmail, GitHub, and MCP servers are optional integrations that only become
+search, email, GitHub, and MCP servers are optional integrations that only become
 available when the user connects or configures them.
 
 The important promise is control: choose the model, choose the tools, choose the

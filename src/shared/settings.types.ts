@@ -1,10 +1,21 @@
 /** Persisted application settings. */
 
+import type { EmailAccount } from './email.types'
+
 export interface GenerationSettings {
   temperature: number
   topP: number
   /** Maximum tokens to generate per reply. */
   maxTokens: number
+  /**
+   * Wall-clock cap on a single turn (covers all of its tool calls), in
+   * minutes (1-120), for interactive chat and agent-run turns. `null`
+   * disables the cap — a turn then runs until it finishes itself or hits its
+   * tool-call / context-compaction limits instead. Scheduled tasks and
+   * critical-thinking research keep their own fixed time budgets regardless
+   * of this setting.
+   */
+  turnTimeLimitMinutes: number | null
 }
 
 export interface ModelSettings {
@@ -49,11 +60,14 @@ export interface AssistantStyleSettings {
   globalStyle: string
 }
 
+/**
+ * Deliberately holds no email address: the one shown on the profile is the
+ * primary linked account's, read from `email.accounts`. A second, hand-typed
+ * copy would drift the moment an account is unlinked or the default changes.
+ */
 export interface ProfileSettings {
   /** Display name shown in the UI header and settings. */
   displayName: string
-  /** Contact email for sync / identification. */
-  email: string
   /** Base64-encoded avatar image, or null if none is set. */
   avatarBase64: string | null
   /** Account tier shown for transparency. */
@@ -160,11 +174,69 @@ export interface OpenAiProviderSettings {
   dailyTokenCap: number | null
 }
 
+/**
+ * Shared shape for every "direct API key + model id" cloud provider that
+ * speaks an OpenAI-compatible chat completions API — see
+ * `OpenAiCompatibleProvider.ts`. Anthropic/OpenAI keep their own
+ * identically-shaped types above rather than switching to this one, since
+ * they predate it and nothing depends on them being structurally distinct;
+ * only the newer providers reuse this directly.
+ */
+export interface CloudProviderSettings {
+  /** User's API key for this provider. Stored locally in settings. */
+  apiKey: string
+  /** Model id used for chat generations, in this provider's own id format. */
+  model: string
+  /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
+  dailyTokenCap: number | null
+}
+
+/**
+ * Azure OpenAI has no fixed base URL or catalog of model ids — a customer
+ * provisions their own resource and names their own deployments, so
+ * `deploymentName` (a free-text field the user names themselves) stands in
+ * for `CloudProviderSettings.model`, and `resourceName`/`apiVersion` locate
+ * the actual endpoint. See `AzureOpenAiProvider.ts`.
+ */
+export interface AzureProviderSettings {
+  /** Azure OpenAI resource API key. */
+  apiKey: string
+  /** The Azure resource name, e.g. `my-resource` for `my-resource.openai.azure.com`. */
+  resourceName: string
+  /** The deployment name the user created in Azure AI Studio for their chosen model. */
+  deploymentName: string
+  /** Azure OpenAI REST API version, e.g. `2024-10-21`. */
+  apiVersion: string
+  /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
+  dailyTokenCap: number | null
+}
+
 export interface ProviderSettings {
   /** Which backend handles chat generation. `local` is the local Llama engine. */
-  active: 'local' | 'anthropic' | 'openai'
+  active:
+    | 'local'
+    | 'anthropic'
+    | 'openai'
+    | 'google'
+    | 'xai'
+    | 'deepseek'
+    | 'mistral'
+    | 'groq'
+    | 'openrouter'
+    | 'azure'
+    | 'kimi'
+    | 'qwen'
   anthropic: AnthropicProviderSettings
   openai: OpenAiProviderSettings
+  google: CloudProviderSettings
+  xai: CloudProviderSettings
+  deepseek: CloudProviderSettings
+  mistral: CloudProviderSettings
+  groq: CloudProviderSettings
+  openrouter: CloudProviderSettings
+  azure: AzureProviderSettings
+  kimi: CloudProviderSettings
+  qwen: CloudProviderSettings
 }
 
 export interface WebSearchSettings {
@@ -186,10 +258,19 @@ export interface DiagnosticEntry {
   id: string
   timestamp: number
   severity: 'error' | 'warning' | 'info'
-  category: 'model' | 'provider' | 'file' | 'permission' | 'runtime' | 'general'
+  category: 'model' | 'provider' | 'integration' | 'file' | 'permission' | 'runtime' | 'general'
   message: string
   detail?: string
   suggestedFix?: string
+  /**
+   * Which process raised it. `main` entries come from background services (the
+   * local engine, mailboxes, MCP, the updater) and carry full stacks; `renderer`
+   * entries are raised by the UI itself. Absent on entries stored before this
+   * distinction existed — treat as `renderer`.
+   */
+  source?: 'main' | 'renderer'
+  /** Logger scope for a `main` entry, e.g. `llama` or `email:imap`. */
+  scope?: string
 }
 
 export interface DiagnosticSettings {
@@ -199,6 +280,14 @@ export interface DiagnosticSettings {
   clearOnRestart: boolean
   /** Include verbose debug entries (not implemented yet). */
   verbose: boolean
+}
+
+/** Where the main-process log file lives, for the Diagnostics page. */
+export interface DiagnosticLogFile {
+  path: string
+  sizeBytes: number
+  /** False when file logging could not be started (the reason is on stderr). */
+  available: boolean
 }
 
 export interface MemorySettings {
@@ -252,24 +341,50 @@ export interface SchedulerSettings {
   keepAwake: boolean
 }
 
-export interface GmailSettings {
-  /** Whether Gmail is selected as the active email provider. */
-  enabled: boolean
-  /** The connected Gmail address, filled in automatically after authorization. */
-  address: string
-  /** Google OAuth desktop app client ID. */
-  oauthClientId: string
-  /** Google OAuth desktop app client secret, stored in local settings. */
-  oauthClientSecret: string
-  /** How much message content Anodex syncs. */
-  syncMode: 'metadata' | 'full'
-  /** Sending email is high-risk and is always confirmation-gated. */
-  sendRequiresApproval: true
+export type KeyboardShortcutId =
+  | 'newChat'
+  | 'newProject'
+  | 'goChat'
+  | 'goScheduler'
+  | 'goAgent'
+  | 'goCriticalThinking'
+  | 'goEmail'
+  | 'searchSidebar'
+  | 'openSettings'
+  | 'toggleSidebar'
+  | 'toggleWorkspaceDock'
+  | 'focusComposer'
+  | 'stopGeneration'
+  | 'showShortcutHelp'
+  | 'toggleDockPlan'
+  | 'toggleDockFiles'
+  | 'toggleDockTerminal'
+
+export type KeyboardShortcutMap = Record<KeyboardShortcutId, string>
+
+export interface KeyboardSettings {
+  /**
+   * User-editable app shortcuts. Empty string disables a shortcut. Values use
+   * a normalized display form such as "Ctrl+Shift+P".
+   */
+  shortcuts: KeyboardShortcutMap
 }
 
 export interface EmailSettings {
-  provider: 'none' | 'gmail'
-  gmail: GmailSettings
+  /**
+   * Linked accounts, in the order they were added. Only the non-secret
+   * descriptor lives here — tokens and IMAP/SMTP passwords are held by
+   * `EmailAuthStore` under `safeStorage` encryption, keyed by account id.
+   *
+   * Mutated through the dedicated `email:*-account` IPC channels rather than
+   * settings patches: `deepMerge` replaces arrays wholesale, so a patch-based
+   * edit would make two concurrent writers clobber each other's accounts.
+   */
+  accounts: EmailAccount[]
+  /** Account used when a request or tool call omits an explicit account id. */
+  primaryAccountId: string | null
+  /** Sending email is high-risk and is always confirmation-gated. */
+  sendRequiresApproval: true
 }
 
 export interface AppSettings {
@@ -296,6 +411,7 @@ export interface AppSettings {
   memory: MemorySettings
   transcriptRecall: TranscriptRecallSettings
   scheduler: SchedulerSettings
+  keyboard: KeyboardSettings
   email: EmailSettings
 }
 

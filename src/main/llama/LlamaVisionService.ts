@@ -1,5 +1,6 @@
 import OpenAI, { APIUserAbortError } from 'openai'
 import type {
+  ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageFunctionToolCall,
   ChatCompletionMessageParam,
   ChatCompletionTool
@@ -17,6 +18,7 @@ import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import { createLogger } from '../utils/logger'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
+import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
 import { isDroppedStreamError } from './droppedStreamError'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import type { GenerateOutcome, GenerateParams } from './LlamaService'
@@ -25,6 +27,7 @@ import {
   createVisualInputQueue,
   drainVisualInputs,
   isValidVisionImageInput,
+  LOCAL_VISION_MIME_TYPES,
   MAX_VISION_IMAGES,
   reopenChatImage,
   type VisualInputQueue
@@ -82,7 +85,7 @@ export class LlamaVisionService {
       timeout: 15 * 60_000,
       maxRetries: 0
     })
-    const visualInputs = createVisualInputQueue()
+    const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, LOCAL_VISION_MIME_TYPES)
     const allToolFunctions = params.tools
       ? this.buildToolFunctions(params, visualInputs)
       : undefined
@@ -253,6 +256,14 @@ export class LlamaVisionService {
     )
   }
 
+  /**
+   * One prompt in, one short answer out — the transport behind chat titles,
+   * toast summaries, inbox digests and compaction folds.
+   *
+   * Every caller caps the reply at a few dozen tokens, so the request must ask
+   * the model not to think; see `directAnswer.ts` for why that is not the
+   * default and what it costs when it doesn't happen.
+   */
   async completeText(
     prompt: string,
     options: { maxTokens: number; temperature: number; signal?: AbortSignal }
@@ -265,13 +276,19 @@ export class LlamaVisionService {
       timeout: 5 * 60_000,
       maxRetries: 0
     })
+    const body: ChatCompletionCreateParamsNonStreaming = {
+      model: connection.modelId,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: options.maxTokens,
+      temperature: options.temperature,
+      stream: false
+    }
     const response = await client.chat.completions.create(
-      {
-        model: connection.modelId,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: options.maxTokens,
-        temperature: options.temperature,
-        stream: false
+      // `chat_template_kwargs` is outside the OpenAI schema — a llama.cpp
+      // extension the SDK serializes through untouched. Widened here rather
+      // than on the literal above so the standard fields keep their checking.
+      { ...body, chat_template_kwargs: DIRECT_ANSWER_TEMPLATE_KWARGS } as typeof body & {
+        chat_template_kwargs: Readonly<Record<string, unknown>>
       },
       { signal: options.signal }
     )
@@ -290,6 +307,7 @@ export class LlamaVisionService {
       conversationId: params.conversationId,
       messageId: params.messageId,
       workspaceRoot: params.tools.workspaceRoot,
+      userFiles: params.tools.userFiles,
       projectId: params.tools.projectId,
       permissionMode: params.tools.permissionMode,
       commandShell: params.tools.commandShell,
@@ -301,10 +319,12 @@ export class LlamaVisionService {
       mcpTools: params.tools.mcpTools,
       evidenceFocus: params.tools.evidenceFocus,
       recordArtifact: params.tools.recordArtifact,
+      webSources: params.tools.webSources,
       beforeTool: params.tools.beforeTool,
       plan: { current: params.tools.plan },
       turnGate: { approved: false },
       loopGuard: createLoopGuardState(),
+      progress: { madeChange: false },
       modelResultBudget: { current: null },
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
       visualInputs,

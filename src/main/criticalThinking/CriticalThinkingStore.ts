@@ -245,7 +245,12 @@ function normalizeSynthesisDiagnostics(
                 ? { stepId: boundedStoreText(attempt.stepId, 200) }
                 : {}),
               contentChars: nonNegativeInteger(attempt.contentChars),
-              content: typeof attempt.content === 'string' ? attempt.content.slice(0, 24_000) : '',
+              // Mirrors `MAX_SYNTHESIS_DIAGNOSTIC_CONTENT_CHARS` in the
+              // service, and re-bounds drafts persisted by an older build.
+              content: typeof attempt.content === 'string' ? attempt.content.slice(0, 12_000) : '',
+              ...(typeof attempt.thinkingChars === 'number'
+                ? { thinkingChars: nonNegativeInteger(attempt.thinkingChars) }
+                : {}),
               ...(isTerminationReason(attempt.stopReason)
                 ? { stopReason: attempt.stopReason }
                 : {}),

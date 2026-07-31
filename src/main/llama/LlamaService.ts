@@ -29,7 +29,8 @@ import type {
   GenerationStopReason,
   GenerationOptions,
   GenerationStats,
-  HistoryCompactionEvent
+  HistoryCompactionEvent,
+  ChatUserFile
 } from '@shared/chat.types'
 import type { ConversationContext } from '@shared/context.types'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
@@ -42,6 +43,7 @@ import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { reservedNonHistoryTokens } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
+import { environmentDateFromPrompt } from '@shared/prompts'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import { createLoopGuardState } from '../tools/loopGuard'
@@ -57,6 +59,8 @@ import {
   seedContextFromSnapshot
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
+import { beginModelLoad, finishModelLoad } from './loadSentinel'
+import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
 import { buildDeterministicCheckpoint } from './deterministicCheckpoint'
 import {
@@ -77,7 +81,8 @@ import {
 } from './generationDiagnostics'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
-import { defaultToolThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
+import type { WebSourceRegistry } from '../tools/WebSourceRegistry'
+import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { LlamaVisionService } from './LlamaVisionService'
 import { createAsyncMutex } from './asyncMutex'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
@@ -229,6 +234,8 @@ export interface GenerateParams {
   tools?: {
     /** Workspace folder for file/command tools, or null for web-only tools. */
     workspaceRoot: string | null
+    /** Files the user attached to this chat, which tools may send on. */
+    userFiles: ChatUserFile[]
     /** Id of the active project, or null in a general (non-project) chat. */
     projectId: string | null
     permissionMode: PermissionMode
@@ -249,6 +256,8 @@ export interface GenerateParams {
     /** Optional focus and artifact sink used by evidence-led workflows. */
     evidenceFocus?: string
     recordArtifact?: (artifact: ToolArtifact) => void
+    /** Per-turn web source registry — see `ToolRuntimeContext.webSources`. */
+    webSources?: WebSourceRegistry
     beforeTool?: (name: string, args: unknown) => string | null
     onActivity: (call: ToolCall) => void
     confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
@@ -350,6 +359,12 @@ class LlamaService extends EventEmitter {
   private activeContextShiftHandler?: () => void
   private session?: LlamaChatSession
   private activeConversationId?: string
+  /**
+   * Calendar date baked into the live session's system prompt, or null when it
+   * has none (see `ensureSession`). Never `undefined`, so the reuse check below
+   * compares like with like for a prompt-less session.
+   */
+  private activeEnvironmentDate: string | null = null
   /** Refreshed before every generation; reused session strategies read it lazily. */
   private activeToolSchemaReserveTokens = 0
 
@@ -393,6 +408,20 @@ class LlamaService extends EventEmitter {
    * compaction never deadlocks against it.
    */
   private readonly modelLock = createAsyncMutex()
+
+  /**
+   * Whether a one-shot summarizer — inbox digest, chat title, toast summary —
+   * has an engine to run on right now.
+   *
+   * Those callers all return `null` rather than throwing, so without this the
+   * caller cannot tell "the model was still loading" from "the model answered
+   * with something unusable". They read the same from the outside and mean
+   * opposite things: the first fixes itself in a few seconds, the second is a
+   * fault worth telling the user about.
+   */
+  canSummarize(): boolean {
+    return this.status === 'ready' && (this.model !== undefined || this.visionService.active)
+  }
 
   getState(): EngineState {
     return {
@@ -443,6 +472,18 @@ class LlamaService extends EventEmitter {
       await this.unload()
       this.setState({ status: 'loading', model: info, error: undefined })
       log.info('Loading model', info.name)
+
+      // Everything below this line can take the whole process down without
+      // raising anything catchable — see `loadSentinel.ts`. The record is
+      // cleared in the `finally`, so only a real crash leaves one behind.
+      beginModelLoad({
+        modelPath: info.path,
+        modelName: info.name,
+        gpuLayers: options.gpuLayers ?? 'auto',
+        contextSize: requestedSize,
+        vision: Boolean(options.visionProjectorPath),
+        startedAt: new Date().toISOString()
+      })
 
       try {
         if (options.visionProjectorPath) {
@@ -512,6 +553,10 @@ class LlamaService extends EventEmitter {
         await this.disposeModel()
         this.setState({ status: 'error', model: info, error: message })
         throw new Error(message)
+      } finally {
+        // A caught failure is not a crash — the app is alive and has already
+        // told the user what went wrong, so it needs no recovery prompt.
+        finishModelLoad()
       }
     } finally {
       this.loadingModel = false
@@ -892,23 +937,40 @@ class LlamaService extends EventEmitter {
           topP: params.options?.topP,
           maxTokens: outputBudget.effectiveMaxTokens,
           // Sub-budget within maxTokens, not additional — see
-          // `GenerationOptions.thoughtTokens`'s doc comment. An explicit
-          // caller-supplied budget always wins; otherwise, tool-enabled turns
-          // fall back to a default guaranteed-visible-output reserve (see
-          // `defaultToolThoughtTokenBudget`) rather than leaving hidden
-          // reasoning free to consume the whole cap before one function call
-          // completes. Tool-less turns get no default — finishing its own
-          // thinking before answering is normal there. Never request more
-          // thought room than this turn's total hard cap actually has.
+          // `GenerationOptions.thoughtTokens`'s doc comment. A turn that
+          // structurally requires visible output — a function call, or a
+          // grammar-constrained reply the caller has to parse — gets the
+          // default guaranteed-visible reserve when it names no budget of its
+          // own, rather than leaving hidden reasoning free to consume the
+          // whole cap before the answer begins. Observed directly: Critical
+          // Thinking's grammar-constrained coverage assessments (1,024-token
+          // cap, no requested budget) spent ~700 tokens thinking and had
+          // their JSON cut off mid-string on 19 of 21 rounds, because
+          // node-llama-cpp's own default thought budget is a fraction of the
+          // whole CONTEXT (24,576 tokens at 32K) — far above any single
+          // bounded phase's cap, so effectively no bound at all. An ordinary
+          // free-text turn still gets no default: finishing its own thinking
+          // before answering is normal there.
+          //
+          // Whatever the source, the budget is clamped to
+          // `defaultThoughtTokenBudget` — see that function's doc comment for
+          // why the effective cap alone is not a safe clamp.
           budgets: (() => {
+            const thoughtCeiling = defaultThoughtTokenBudget(outputBudget.effectiveMaxTokens)
+            const requiresVisibleOutput = functions != null || grammar != null
             const requested =
-              params.options?.thoughtTokens ??
-              (functions != null
-                ? defaultToolThoughtTokenBudget(outputBudget.effectiveMaxTokens)
-                : undefined)
-            return requested != null
-              ? { thoughtTokens: Math.max(0, Math.min(requested, outputBudget.effectiveMaxTokens)) }
-              : undefined
+              params.options?.thoughtTokens ?? (requiresVisibleOutput ? thoughtCeiling : undefined)
+            if (requested == null) return undefined
+            const budget = Math.max(0, Math.min(requested, thoughtCeiling))
+            // Both hidden-output segment types get the same budget.
+            // node-llama-cpp budgets "thought" and "comment" separately, and
+            // an unset one defaults to a fraction of the whole CONTEXT — far
+            // above any single phase's cap. This code treats every segment
+            // chunk as hidden reasoning (see `onResponseChunk`) and counts it
+            // against the same hard ceiling, so budgeting only one of the two
+            // leaves the other free to consume the call, depending on which
+            // segment type the resolved chat wrapper happens to emit.
+            return { thoughtTokens: budget, commentTokens: budget }
           })(),
           // node-llama-cpp's standard repeatPenalty is a soft probability
           // nudge and doesn't prevent verbatim broken-record looping — DRY
@@ -1362,7 +1424,7 @@ class LlamaService extends EventEmitter {
    * throwing, since the caller always has a safe static fallback string.
    */
   async summarizeForToast(text: string, maxWords: number): Promise<string | null> {
-    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
+    if (!this.canSummarize()) return null
 
     const release = await this.acquireModelLock()
     try {
@@ -1393,7 +1455,7 @@ class LlamaService extends EventEmitter {
 
   /** Best-effort short title for a new conversation, based on the first completed turn. */
   async generateChatTitle(request: ChatTitleRequest): Promise<string | null> {
-    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
+    if (!this.canSummarize()) return null
 
     const release = await this.acquireModelLock()
     try {
@@ -1412,6 +1474,58 @@ class LlamaService extends EventEmitter {
       return cleanChatTitle(finalText)
     } catch (error) {
       log.warn('Chat title generation failed:', error)
+      return null
+    } finally {
+      release()
+    }
+  }
+
+  /**
+   * One plain sentence describing what an email thread wants, for the row it
+   * occupies in the inbox list — the digest that replaces a raw provider
+   * snippet (which is just the first few words of the newest message, quoted
+   * boilerplate and all).
+   *
+   * Shares `summarizeForToast`'s shape deliberately: same throwaway session on
+   * the dedicated summary sequence, same model lock, same best-effort `null`
+   * on any failure. `null` is a first-class outcome here, not just an error
+   * path — no model loaded is the normal state on a fresh install, and the
+   * list falls back to the provider snippet, which is exactly what it showed
+   * before this existed.
+   */
+  async digestEmailThread(rendered: string): Promise<string | null> {
+    if (!this.canSummarize()) return null
+
+    const release = await this.acquireModelLock()
+    try {
+      const truncated = rendered.length > 2000 ? `${rendered.slice(0, 2000)}…` : rendered
+      const prompt =
+        'Below is an email thread. In one sentence of at most 20 words, say what it asks of ' +
+        'the reader, or what it tells them if it asks nothing. Write plainly, in the third ' +
+        'person, naming who wants what. Do not greet, do not editorialize, and reply with ' +
+        'only the sentence — no quotes, no preamble, no bullet points.\n\n' +
+        `<thread>\n${truncated}\n</thread>`
+      const finalText = this.visionService.active
+        ? await this.visionService.completeText(prompt, { maxTokens: 96, temperature: 0.2 })
+        : await this.runSummaryPrompt(await this.ensureSummarySequence(4096), prompt, {
+            maxTokens: 96,
+            temperature: 0.2
+          })
+      const digest = cleanThreadDigest(finalText)
+      // Logged because the silent version of this was genuinely expensive to
+      // diagnose: a thinking model answered every digest with truncated
+      // scratchpad, the cleaner rightly refused all of it, and the only trace
+      // anywhere was an inbox banner saying to try again. The rejected text is
+      // the one thing that tells these apart, so it goes in the line.
+      if (!digest) {
+        log.warn(
+          'Email thread digest rejected as unusable:',
+          JSON.stringify(finalText.slice(0, 200))
+        )
+      }
+      return digest
+    } catch (error) {
+      log.warn('Email thread digest failed:', error)
       return null
     } finally {
       release()
@@ -1516,6 +1630,10 @@ class LlamaService extends EventEmitter {
     // that's the resolved wrapper. Verified directly: without this,
     // `session.prompt()` returned an empty string because the whole reply
     // went into the (unsurfaced) thinking segment.
+    //
+    // Only some wrappers carry that lever, and a model newer than the bundled
+    // wrappers resolves to a plain Jinja one that doesn't — hence the thought
+    // budget on the prompt below, which every wrapper honours.
     if (session.chatWrapper instanceof nlc.QwenChatWrapper) {
       session.dispose()
       session = new nlc.LlamaChatSession({
@@ -1529,6 +1647,10 @@ class LlamaService extends EventEmitter {
       const meta = await session.promptWithMeta(prompt, {
         maxTokens: options.maxTokens,
         temperature: options.temperature,
+        // Closes a thought segment the instant it opens, so the token
+        // allowance above buys an answer rather than a scratchpad the callers
+        // would only throw away — see `directAnswer.ts`.
+        budgets: DIRECT_ANSWER_BUDGETS,
         onResponseChunk: (chunk) => {
           if (chunk.type === 'segment') segmentText += chunk.text
           else responseText += chunk.text
@@ -1553,6 +1675,11 @@ class LlamaService extends EventEmitter {
    * changes, the session is rebuilt and the prior turns are replayed so context
    * is preserved. Staying on the same conversation reuses the session (and its
    * KV cache) across turns.
+   *
+   * The one exception is a date rollover: the session's system prompt is baked
+   * in at construction, so a conversation left open past midnight would keep
+   * telling the model it is yesterday. That's rebuilt too — once per day at
+   * most, and only for a conversation actually still in use.
    */
   private async ensureSession(
     conversationId: string,
@@ -1567,8 +1694,22 @@ class LlamaService extends EventEmitter {
     // strategy is reused, but the enabled/MCP tool surface can change between
     // turns; its lazy getter below reads this refreshed value.
     this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
-    if (!forceRebuild && this.session && this.activeConversationId === conversationId) {
+    const environmentDate = environmentDateFromPrompt(systemPrompt)
+    if (
+      !forceRebuild &&
+      this.session &&
+      this.activeConversationId === conversationId &&
+      environmentDate === this.activeEnvironmentDate
+    ) {
       return this.session
+    }
+    if (this.session && this.activeEnvironmentDate && environmentDate) {
+      if (environmentDate !== this.activeEnvironmentDate) {
+        log.info(
+          `Date rolled over from ${this.activeEnvironmentDate} to ${environmentDate} — ` +
+            `rebuilding the session so the model isn't told the wrong day.`
+        )
+      }
     }
     if (!this.context || !this.contextSequence) throw new Error('No model loaded.')
 
@@ -1633,6 +1774,7 @@ class LlamaService extends EventEmitter {
     if (items.length > 0) this.session.setChatHistory(items)
 
     this.activeConversationId = conversationId
+    this.activeEnvironmentDate = environmentDate
     return this.session
   }
 
@@ -1944,6 +2086,7 @@ class LlamaService extends EventEmitter {
       conversationId: params.conversationId,
       messageId: params.messageId,
       workspaceRoot: params.tools.workspaceRoot,
+      userFiles: params.tools.userFiles,
       projectId: params.tools.projectId,
       permissionMode: params.tools.permissionMode,
       commandShell: params.tools.commandShell,
@@ -1955,6 +2098,7 @@ class LlamaService extends EventEmitter {
       mcpTools: params.tools.mcpTools,
       evidenceFocus: params.tools.evidenceFocus,
       recordArtifact: params.tools.recordArtifact,
+      webSources: params.tools.webSources,
       beforeTool: params.tools.beforeTool,
       // A mutable box, not the plan value itself — shared by every tool call
       // in this generation so `update_plan_step` sees `write_plan`'s result
@@ -2116,6 +2260,7 @@ class LlamaService extends EventEmitter {
     }
     this.session = undefined
     this.activeConversationId = undefined
+    this.activeEnvironmentDate = null
   }
 
   /**
@@ -2229,6 +2374,83 @@ function cleanToastSummary(raw: string, maxWords: number): string | null {
   return `${trimmedWords}…`
 }
 
+/**
+ * Trims a digest down to the one sentence the row has space for.
+ *
+ * Small local models often answer a "one sentence" instruction with a
+ * sentence plus a helpful second one, or wrap the whole thing in quotes.
+ * Rather than reject that as malformed — which would leave the row with no
+ * digest at all — take the first sentence and let the rest go.
+ */
+/**
+ * One line of the model's actual answer, with a reasoning model's scratchpad
+ * dropped — both the tagged kind and the untagged narration that comes before
+ * it. Returns nothing when narration is all there was.
+ */
+function answerLines(raw: string): string[] {
+  return (
+    raw
+      .replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '')
+      // An unterminated block means the whole tail is reasoning.
+      .replace(/<(?:think|thinking|reasoning)>[\s\S]*$/i, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+  )
+}
+
+/**
+ * The digest as it should appear on an inbox row, or null when the model gave
+ * nothing usable.
+ *
+ * Null matters as much as the happy path here. This used to accept whatever
+ * came back as long as it was non-empty, so a model that narrated instead of
+ * answering — "Here's a thinking process: 1." — put that on the row. And since
+ * the narration is generic, it put the *same* sentence on every row in the
+ * inbox, which is a worse outcome than no digests at all: identical text on
+ * twenty rows reads as a broken page rather than as a feature that didn't run.
+ * Returning null instead leaves each row on its own snippet.
+ */
+export function cleanThreadDigest(raw: string): string | null {
+  // No fallback to a rejected line, unlike `cleanChatTitle`: a row that has
+  // narration on it is worse than a row that has its snippet on it, and the
+  // snippet is always there.
+  const line = answerLines(raw)
+    .filter(
+      (candidate) =>
+        !REASONING_MONOLOGUE_RE.test(candidate) || isConcreteUserQuestionDigest(candidate)
+    )
+    .find(
+      (candidate) =>
+        !REASONING_PREAMBLE_RE.test(candidate) || isConcreteUserQuestionDigest(candidate)
+    )
+  if (!line) return null
+
+  const cleaned = line
+    .replace(/^["'“”\s]+|["'“”\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return null
+
+  const firstSentence = firstSentenceOf(cleaned).trim()
+  const digest = firstSentence.length > 200 ? `${firstSentence.slice(0, 200)}…` : firstSentence
+
+  // Too short to be a sentence about anything — a stray "1." or "Sure".
+  if (digest.length < 12) return null
+  return digest
+}
+
+/**
+ * A Qwen email digest can accurately describe a question as "The user asks
+ * if ...". The shared reasoning guards also match that prefix, because it is
+ * common in model self-commentary. Keep this deliberately narrow exception:
+ * a concrete indirect question has subject matter after it, while a prompt
+ * echo such as "The user wants a one-sentence summary" remains rejected.
+ */
+function isConcreteUserQuestionDigest(candidate: string): boolean {
+  return /^the user asks (?:if|whether|about)\b/i.test(candidate.trim())
+}
+
 function renderTitleContext(request: ChatTitleRequest): string {
   const userPrompt = truncateForTitlePrompt(
     request.userPrompt || request.attachmentNames?.join(', ') || ''
@@ -2258,14 +2480,70 @@ function truncateForTitlePrompt(text: string): string {
  * than showing a title-less chat (see `generateConversationTitle` in
  * `chatStore.ts`, which no-ops on a `null` result).
  */
+/**
+ * Openers that a reasoning model uses to narrate, and that no plausible title
+ * starts with. Deliberately conservative: only phrases that would be strange as
+ * the first words of a title are listed, so a genuine title like "Plan Garden
+ * Layout" or "First Draft Review" is never discarded.
+ */
+const REASONING_PREAMBLE_RE =
+  /^(?:here(?:'s| is)\b|okay\b|ok[,\s]|alright\b|sure[,\s]|let(?:'s| me)\b|i(?:'ll| will| need to| should| can)\b|the user\b|we need\b|looking at\b|based on\b|to summari[sz]e\b|thinking process\b|thought process\b|step \d)/i
+
 const INSTRUCTION_ECHO_RE =
   /\b(?:3[\s-]to[\s-]6|3-6)\s*words?\b|\btitle\s*case\b|\bconcise\s*title\b|\bno\s*preamble\b|\bno\s*trailing\s*punctuation\b/i
 
+/**
+ * Unmistakable reasoning monologue.
+ *
+ * Separate from `REASONING_PREAMBLE_RE` because the two answer different
+ * questions. That one guesses from a line's *first words* and is allowed to be
+ * wrong — "Sure Thing Bakery Website" trips it and is a perfectly good title,
+ * which is why callers may fall back to a line it rejected. This one matches
+ * on content that cannot appear in any real title or digest, so a match is
+ * conclusive and the line is discarded outright.
+ *
+ * Every phrase here was observed on screen: a local Qwen3.6 titled a chat
+ * "Here's a thinking pr…" and put "Here's a thinking process: 1." on all
+ * twenty rows of an inbox, because the broad guard rejected the line and the
+ * fallback then handed it back anyway.
+ */
+const REASONING_MONOLOGUE_RE =
+  /\b(?:thinking|thought)\s+process\b|\blet me (?:think|start|begin|work)\b|\bthe user (?:wants|asked|asks|is asking|needs)\b|\bfirst,?\s+i\s+(?:need|should|will|must)\b|^\s*step\s*\d/i
+
+/** Trailing tokens that end in a period without ending a sentence. */
+const ABBREVIATION_RE =
+  /(?:^|\s)(?:[A-Za-z]|Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|No|Inc|Ltd|Co|approx|dept|fig)\.$/i
+
+/**
+ * The first sentence, rejoining splits that landed on an abbreviation.
+ *
+ * A plain split on "period then space" cuts "J. Okafor asks…" down to "J.",
+ * which is how a digest for a real thread became two characters.
+ */
+function firstSentenceOf(text: string): string {
+  const parts = text.split(/(?<=[.!?])\s+/)
+  let sentence = parts[0] ?? text
+  for (let index = 1; index < parts.length && ABBREVIATION_RE.test(sentence); index += 1) {
+    sentence = `${sentence} ${parts[index]}`
+  }
+  return sentence
+}
+
 export function cleanChatTitle(raw: string): string | null {
-  const firstLine = raw
-    .split('\n')
-    .map((line) => line.trim())
-    .find(Boolean)
+  // Reasoning models emit their scratchpad before the answer. Taking the first
+  // non-empty line therefore titled a real conversation "Here's a thinking
+  // process" — observed directly with a Qwen3 local model. Drop the reasoning
+  // block, then skip any remaining narration lines to reach the actual title.
+  //
+  // A line of outright monologue is dropped before the fallback can reach it.
+  // That fallback is how "Here's a thinking pr…" ended up in the sidebar
+  // despite the guard: a model that put its whole monologue on one line left
+  // nothing for `find` to return, so the monologue was handed back anyway. It
+  // still has to exist, though — the preamble guard is a first-words guess and
+  // rejects real titles like "Sure Thing Bakery Website", which the fallback
+  // is what rescues.
+  const candidates = answerLines(raw).filter((line) => !REASONING_MONOLOGUE_RE.test(line))
+  const firstLine = candidates.find((line) => !REASONING_PREAMBLE_RE.test(line)) ?? candidates[0]
   if (!firstLine) return null
 
   const cleaned = firstLine

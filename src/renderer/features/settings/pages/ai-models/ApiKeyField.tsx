@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { VerifyProviderKeyRequest } from '@shared/ipc'
 import { anodex } from '../../../../lib/anodex'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
@@ -36,12 +37,18 @@ export function ApiKeyField({
   value,
   model,
   placeholder,
+  resourceName,
+  apiVersion,
   onChange
 }: {
-  provider: 'anthropic' | 'openai'
+  provider: VerifyProviderKeyRequest['provider']
   value: string
   model: string
   placeholder: string
+  /** Azure-only: forwarded to the verify call alongside `model` (the deployment name). */
+  resourceName?: string
+  /** Azure-only: forwarded to the verify call. */
+  apiVersion?: string
   onChange: (value: string) => void
 }): JSX.Element {
   const [checking, setChecking] = useState(false)
@@ -52,7 +59,14 @@ export function ApiKeyField({
       if (!key.trim()) return
       setChecking(true)
       void anodex.provider
-        .verifyKey({ provider, apiKey: key, model })
+        .verifyKey({
+          provider,
+          apiKey: key,
+          model,
+          resourceName,
+          deploymentName: model,
+          apiVersion
+        })
         .then((response) => {
           setResult(
             response.ok
@@ -62,7 +76,7 @@ export function ApiKeyField({
         })
         .finally(() => setChecking(false))
     },
-    [provider, model]
+    [provider, model, resourceName, apiVersion]
   )
 
   useEffect(() => {

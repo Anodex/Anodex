@@ -6,6 +6,7 @@ import { providerUsageStore } from '../llm/ProviderUsageStore'
 import { registerChatHandlers } from './chat.handlers'
 import { registerModelHandlers } from './model.handlers'
 import { registerConversationHandlers } from './conversation.handlers'
+import { registerBackupHandlers } from './backup.handlers'
 import { registerProjectHandlers } from './project.handlers'
 import { registerSettingsHandlers } from './settings.handlers'
 import { registerProviderHandlers } from './provider.handlers'
@@ -17,6 +18,7 @@ import { registerToastHandlers } from './toast.handlers'
 import { registerAttachmentHandlers } from './attachments.handlers'
 import { registerUpdateHandlers } from './update.handlers'
 import { registerStatsHandlers } from './stats.handlers'
+import { registerDiagnosticsHandlers } from './diagnostics.handlers'
 import { registerMemoryHandlers } from './memory.handlers'
 import { registerSkillHandlers } from './skill.handlers'
 import { registerChangeHandlers } from './change.handlers'
@@ -43,6 +45,7 @@ export function registerIpcHandlers(): void {
   registerProviderHandlers()
   registerProjectHandlers()
   registerConversationHandlers()
+  registerBackupHandlers()
   registerSystemHandlers()
   registerToolHandlers()
   registerWindowHandlers()
@@ -51,6 +54,7 @@ export function registerIpcHandlers(): void {
   registerAttachmentHandlers()
   registerUpdateHandlers()
   registerStatsHandlers()
+  registerDiagnosticsHandlers()
   registerMemoryHandlers()
   registerSkillHandlers()
   registerChangeHandlers()

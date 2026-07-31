@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { completeSlashCommand, expandSlashCommand, getSlashCommandSuggestions } from '../slashCommands'
+import {
+  completeSlashCommand,
+  expandSlashCommand,
+  getSlashCommandSuggestions
+} from '../slashCommands'
 
 describe('expandSlashCommand', () => {
   it('expands /test into a reusable test prompt', () => {

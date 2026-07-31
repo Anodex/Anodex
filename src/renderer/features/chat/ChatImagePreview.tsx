@@ -7,11 +7,25 @@ import styles from './ChatImagePreview.module.css'
 
 type ImagePreview = Extract<ToolCallPreview, { kind: 'image' }>
 
+const RECOVERY_LABELS: Record<NonNullable<ImagePreview['source']>, string> = {
+  assistant: 'Show again',
+  email: 'View again',
+  inspection: 'Re-inspect',
+  generated: 'Generate again'
+}
+
+const IMAGE_KINDS: Record<NonNullable<ImagePreview['source']>, string> = {
+  assistant: 'Assistant image',
+  email: 'Email attachment',
+  inspection: 'Visual inspection',
+  generated: 'Generated image'
+}
+
 /** Exact inspected pixels, loaded live from memory or later from the durable asset store. */
 export function ChatImagePreview({ preview }: { preview: ImagePreview }): JSX.Element {
   const { dataUrl, unavailable, retry } = useVisualPreviewImage(preview)
   const sendMessage = useChatStore((state) => state.sendMessage)
-  const recoveryLabel = preview.source === 'assistant' ? 'Show again' : 'Re-inspect'
+  const recoveryLabel = RECOVERY_LABELS[preview.source ?? 'inspection']
 
   return (
     <figure className={styles.wrap}>
@@ -23,9 +37,7 @@ export function ChatImagePreview({ preview }: { preview: ImagePreview }): JSX.El
         {dataUrl ? (
           <ExpandableImage
             src={dataUrl}
-            alt={`${preview.source === 'assistant' ? 'Assistant image' : 'Visual inspection'} of ${
-              preview.path
-            }`}
+            alt={`${IMAGE_KINDS[preview.source ?? 'inspection']} of ${preview.path}`}
             title={preview.title}
             imageClassName={styles.image}
             triggerClassName={styles.imageButton}

@@ -1,0 +1,75 @@
+/*
+ * Regenerate is the same dialog shape as Edit — same header row, same file
+ * list, same action bar — so it composes that stylesheet rather than
+ * restating it. Only what genuinely differs is written here: a narrower card
+ * (there is no editor to size around), a warn-tinted header icon when the
+ * rollback hit conflicts, and the file list's own margins, since this dialog
+ * has no padded `.body` wrapper to sit inside.
+ */
+
+.modal {
+  composes: modal from './EditMessageDialog.module.css';
+  width: min(520px, calc(100vw - var(--space-8)));
+}
+
+.header {
+  composes: header from './EditMessageDialog.module.css';
+}
+
+.headerIcon {
+  composes: headerIcon from './EditMessageDialog.module.css';
+}
+
+/* Conflicts are the one state here that reports a problem rather than asking
+   a question, so the icon stops reading as an ordinary action. */
+.headerIconWarn {
+  composes: headerIcon;
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.heading {
+  composes: heading from './EditMessageDialog.module.css';
+}
+
+.heading p {
+  line-height: 1.5;
+}
+
+.closeButton {
+  composes: closeButton from './EditMessageDialog.module.css';
+}
+
+.fileList {
+  composes: fileList from './EditMessageDialog.module.css';
+  margin: var(--space-4) var(--space-5) 0;
+  overflow-y: auto;
+  max-height: 240px;
+}
+
+.actions {
+  composes: actions from './EditMessageDialog.module.css';
+}
+
+.cancelButton {
+  composes: cancelButton from './EditMessageDialog.module.css';
+}
+
+.keepButton {
+  composes: keepButton from './EditMessageDialog.module.css';
+}
+
+.submitButton {
+  composes: submitButton from './EditMessageDialog.module.css';
+}
+
+.overwriteButton {
+  composes: overwriteButton from './EditMessageDialog.module.css';
+}
+
+@media (max-width: 620px) {
+  .fileList {
+    margin-right: var(--space-3);
+    margin-left: var(--space-3);
+  }
+}

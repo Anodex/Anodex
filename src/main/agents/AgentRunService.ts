@@ -9,7 +9,7 @@ import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
-import { AGENT_TURN_BUDGET } from '../chat/GenerationBudget'
+import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
 import { GENERATION_IN_PROGRESS_ERROR } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
@@ -24,6 +24,7 @@ import {
 import { budgetExceededReason } from './agentBudgets'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
 import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
+import { headlessConfirm } from '../tools/headlessConfirm'
 
 const log = createLogger('agent-run-service')
 
@@ -502,14 +503,17 @@ class AgentRunService {
         signal,
         enabledTools,
         providerOverride,
-        // Same fail-closed-on-destructive stance as scheduled tasks — no one
-        // is present to click an approval modal on a run's behalf.
+        // Same headless approval policy as scheduled tasks — no one is present
+        // to click an approval modal on a run's behalf, so `headlessConfirm`
+        // fails closed on destructive and human-approval-only calls alike.
         permissionModeOverride: 'untethered',
-        executionBudget: AGENT_TURN_BUDGET,
+        executionBudget: {
+          ...AGENT_TURN_BUDGET,
+          ...turnTimeLimitOverride(settingsStore.get().generation.turnTimeLimitMinutes)
+        },
         readCoverage,
         onActivity: (call) => toolCallsById.set(call.id, call),
-        confirm: (confirmRequest) =>
-          Promise.resolve({ approved: confirmRequest.risk !== 'destructive' })
+        confirm: headlessConfirm
       }
     )
 

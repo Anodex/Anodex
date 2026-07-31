@@ -37,6 +37,16 @@
   --light-text-on-accent: #ffffff;
   /* The dark-mode pastel blue reads as near-invisible on a light surface. */
   --light-code-inline-text: #1a56db;
+
+  /* Chart series, re-stepped for a light surface — see the note in
+     ./midnight.css. These are their own values, not the dark set lightened:
+     the same four hues, re-computed so every check still passes against cream
+     (worst deutan ΔE 12.5, all pairs). Also validated against light-slate's
+     #f5f7fa surface, so both light renditions share one set. */
+  --light-series-1: #5b4ec6;
+  --light-series-2: #00a084;
+  --light-series-3: #a36900;
+  --light-series-4: #980052;
 }
 
 [data-theme-mode='light'] {
@@ -53,6 +63,10 @@
   --text-faint: var(--light-text-faint);
   --text-on-accent: var(--light-text-on-accent);
   --code-inline-text: var(--light-code-inline-text);
+  --series-1: var(--light-series-1);
+  --series-2: var(--light-series-2);
+  --series-3: var(--light-series-3);
+  --series-4: var(--light-series-4);
 }
 
 @media (prefers-color-scheme: light) {
@@ -70,5 +84,9 @@
     --text-faint: var(--light-text-faint);
     --text-on-accent: var(--light-text-on-accent);
     --code-inline-text: var(--light-code-inline-text);
+    --series-1: var(--light-series-1);
+    --series-2: var(--light-series-2);
+    --series-3: var(--light-series-3);
+    --series-4: var(--light-series-4);
   }
 }

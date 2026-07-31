@@ -18,6 +18,24 @@ describe('CriticalThinkingReport', () => {
     expect(html).toContain('href="https://example.com/data"')
   })
 
+  it('marks a numeric link as a citation so it reads as a reference, not prose', () => {
+    const html = renderToStaticMarkup(
+      <CriticalThinkingReport report="A supported claim [1](https://example.com/study)." />
+    )
+    const anchor = /<a [^>]*href="https:\/\/example\.com\/study"[^>]*>/.exec(html)?.[0] ?? ''
+    expect(anchor).toContain('class=')
+    expect(html).toContain('>1</a>')
+  })
+
+  it('leaves an ordinary titled link alone', () => {
+    const html = renderToStaticMarkup(
+      <CriticalThinkingReport report="See [the study](https://example.com/study)." />
+    )
+    const anchor = /<a [^>]*href="https:\/\/example\.com\/study"[^>]*>/.exec(html)?.[0] ?? ''
+    expect(anchor).not.toContain('class=')
+    expect(html).toContain('>the study</a>')
+  })
+
   it('falls back to a code block when chart data is invalid', () => {
     const html = renderToStaticMarkup(
       <CriticalThinkingReport report={'```chart\n{"type":"pie"}\n```'} />

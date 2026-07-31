@@ -1,5 +1,8 @@
 import { useRef, type ChangeEvent } from 'react'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import { useEmailStore } from '../../../../stores/emailStore'
+import { useUiStore } from '../../../../stores/uiStore'
+import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, TextControl, ToggleControl } from '../../controls'
 import { UsageActivitySection } from './UsageActivitySection'
@@ -21,6 +24,11 @@ const PLAN_OPTIONS = [
 export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX.Element {
   const { profile } = settings
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const openSettings = useUiStore((state) => state.openSettings)
+  // Email is not a profile field — it is whichever account is currently the
+  // default, so this page reads it and sends edits to where it actually lives.
+  const address = useEmailStore((state) => state.status?.address ?? '')
+  const accountCount = useEmailStore((state) => state.status?.accounts.length ?? 0)
 
   const handleAvatarChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0]
@@ -75,7 +83,8 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
           )}
           <h2 className={styles.heroName}>{profile.displayName || 'Anonymous'}</h2>
           <p className={styles.heroMeta}>
-            {profile.email || 'No email set'} · {planLabel(profile.planTier)}
+            {address ? `${address} · ` : ''}
+            {planLabel(profile.planTier)}
           </p>
         </div>
       </section>
@@ -99,13 +108,23 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
         />
         <SettingRow
           label="Email"
-          description="Used only for local identification; never uploaded."
+          description={
+            address
+              ? accountCount > 1
+                ? `Your default account, of ${accountCount} linked. Change it in Email settings.`
+                : 'The account Anodex reads and sends from.'
+              : 'Link a mailbox to turn on the email tools.'
+          }
           control={
-            <TextControl
-              value={profile.email}
-              placeholder="you@example.com"
-              onChange={(value) => void update({ profile: { email: value } })}
-            />
+            <button
+              type="button"
+              className={styles.emailLink}
+              onClick={() => openSettings('email')}
+              title="Open Email settings"
+            >
+              <span className={styles.emailAddress}>{address || 'Connect an email account'}</span>
+              <Icon name="chevron-right" size={14} />
+            </button>
           }
         />
         <SettingRow

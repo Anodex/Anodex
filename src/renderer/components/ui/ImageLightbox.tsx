@@ -18,8 +18,13 @@ export function ImageLightbox({ src, alt, title, onClose }: ImageLightboxProps):
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
   const [zoom, setZoom] = useState(1)
+  // Degrees clockwise, always normalized to 0/90/180/270. View-only: rotating
+  // never rewrites the bytes, so copy and save still hand over the original.
+  const [rotation, setRotation] = useState(0)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [panning, setPanning] = useState(false)
+  const rotate = (degrees: number): void =>
+    setRotation((current) => (current + degrees + 360) % 360)
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -45,6 +50,12 @@ export function ImageLightbox({ src, alt, title, onClose }: ImageLightboxProps):
       if (event.key === '0') {
         event.preventDefault()
         setZoom(1)
+        setRotation(0)
+        return
+      }
+      if (event.key === '[' || event.key === ']') {
+        event.preventDefault()
+        setRotation((current) => (current + (event.key === '[' ? -90 : 90) + 360) % 360)
         return
       }
       if (event.key !== 'Tab') return
@@ -157,6 +168,25 @@ export function ImageLightbox({ src, alt, title, onClose }: ImageLightboxProps):
             <button
               type="button"
               className={styles.control}
+              onClick={() => rotate(-90)}
+              aria-label="Rotate left"
+              title="Rotate left ([)"
+            >
+              <Icon name="rotate-ccw" size={16} />
+            </button>
+            <button
+              type="button"
+              className={styles.control}
+              onClick={() => rotate(90)}
+              aria-label="Rotate right"
+              title="Rotate right (])"
+            >
+              <Icon name="rotate-cw" size={16} />
+            </button>
+            <span className={styles.divider} aria-hidden="true" />
+            <button
+              type="button"
+              className={styles.control}
               onClick={() => void handleCopy()}
               aria-label="Copy image"
               title="Copy image"
@@ -199,7 +229,9 @@ export function ImageLightbox({ src, alt, title, onClose }: ImageLightboxProps):
             className={styles.image}
             src={src}
             alt={alt}
-            style={{ transform: `scale(${zoom})` }}
+            // Rotation is applied first so zoom keeps scaling along the axes
+            // the viewer is actually looking at.
+            style={{ transform: `rotate(${rotation}deg) scale(${zoom})` }}
           />
         </div>
         <span className={styles.status} role="status" aria-live="polite">

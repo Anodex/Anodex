@@ -148,6 +148,26 @@ describe('Critical Thinking staged research output parsing', () => {
     expect(invalid.finding).toBe('Unsupported decision')
   })
 
+  it('keeps prose as the finding but never a cut-off JSON object', () => {
+    // A model that answers in prose still has a usable finding in it.
+    const prose = parseResearchAssessment(
+      'The Denver dealer directory names no service-contract terms.',
+      3
+    )
+    expect(prose.valid).toBe(false)
+    expect(prose.finding).toBe('The Denver dealer directory names no service-contract terms.')
+
+    // The live shape: a real assessment cut off mid-string when hidden
+    // reasoning consumed the round's token budget. Storing it as the finding
+    // fed raw JSON into the synthesis prompt as navigation context.
+    const truncatedJson = parseResearchAssessment(
+      '{"finding":"Major Denver projects are listed","uncertainties":[],"verdict":"continue","remainingGaps":["Specific names of general contr',
+      3
+    )
+    expect(truncatedJson.valid).toBe(false)
+    expect(truncatedJson.finding).toBe('')
+  })
+
   it('accepts a sufficient assessment that omits the gap/query keys entirely', () => {
     // The exact local-model shape behind "A valid evidence coverage assessment
     // is still required": a correct "sufficient, no gaps" decision that simply

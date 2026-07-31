@@ -1725,6 +1725,26 @@
   user-select: none;
 }
 
+/* The local entry is Anodex's own app icon, which already ships its own dark
+   rounded-square badge — so it fills the chip edge to edge instead of sitting
+   inset on the light backdrop the third-party vendor marks share. Selectors
+   are doubled up (`.providerLogolocal.providerLogoOfficial`) purely to
+   out-specify the shared `.providerLogoOfficial` rules above regardless of
+   source order. */
+.providerLogolocal.providerLogoOfficial {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.providerLogolocal.providerLogoOfficial img,
+.providerListItem .providerLogolocal.providerLogoOfficial img {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+}
+
 .providerLogoxai img {
   max-width: 25px;
   max-height: 14px;
@@ -1739,6 +1759,50 @@
 .providerLogoopenrouter img {
   max-width: 24px;
   max-height: 20px;
+}
+
+/* Brand-accurate chip surfaces. Deliberately literal hex values rather than
+   theme.css tokens: a vendor's mark and the surface it was drawn to sit on are
+   external brand facts, not themeable app surfaces — the same exception
+   `modelColor.ts` already takes for per-model colours. Doubled selectors
+   (`.providerLogoX.providerLogoOfficial`) exist purely to out-specify the
+   shared `.providerLogoOfficial` rules above regardless of source order. */
+
+/* OpenAI publishes its mark as white-on-black; `currentColor` inside
+   openai.svg makes the glyph follow this chip's own `color`. */
+.providerLogoopenai.providerLogoOfficial {
+  color: #ffffff;
+  background: #000000;
+}
+
+/* Anthropic's own pairing is a near-black mark on their signature cream,
+   which is a touch warmer than the shared chip colour. */
+.providerLogoanthropic.providerLogoOfficial {
+  color: #181818;
+  background: #f0eee6;
+}
+
+/* Mistral's tile is the multicolour M on black — and its topmost bars
+   (#ffaf01 amber) wash out badly against a light chip. */
+.providerLogomistral.providerLogoOfficial {
+  background: #000000;
+}
+
+/* groq.svg is already a complete tile (full-bleed orange field + white bolt),
+   not a bare glyph, so it fills the chip rather than floating inset on one —
+   same treatment the Anodex app icon gets below. */
+.providerLogogroq.providerLogoOfficial {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.providerLogogroq.providerLogoOfficial img,
+.providerListItem .providerLogogroq.providerLogoOfficial img {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
 }
 
 .activeProviderIdentity {

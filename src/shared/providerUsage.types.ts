@@ -1,4 +1,15 @@
-export type CloudProviderId = 'anthropic' | 'openai'
+export type CloudProviderId =
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'xai'
+  | 'deepseek'
+  | 'mistral'
+  | 'groq'
+  | 'openrouter'
+  | 'azure'
+  | 'kimi'
+  | 'qwen'
 
 /**
  * A cloud provider's live rate-limit window, read from the provider's own

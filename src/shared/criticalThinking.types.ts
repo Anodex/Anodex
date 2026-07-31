@@ -1,6 +1,7 @@
 import type { GenerationStats, GenerationStopReason } from './chat.types'
 import type { Plan } from './plan.types'
 import type { ToolCallStatus } from './tools.types'
+import type { ProviderSettings } from './settings.types'
 import type { Result } from './result'
 
 export type CriticalThinkingStatus =
@@ -14,7 +15,14 @@ export type CriticalThinkingStatus =
   | 'stopped'
   | 'failed'
 
-export type CriticalThinkingProvider = 'local' | 'anthropic' | 'openai'
+/**
+ * Every provider a Critical Thinking run can pin at creation time — kept as
+ * its own named type (rather than inlining `ProviderSettings['active']`
+ * everywhere) since `CriticalThinkingRun.provider` is a per-run snapshot,
+ * not a live setting, but it intentionally matches that full set 1:1 so a
+ * run can pin any provider the rest of the app supports.
+ */
+export type CriticalThinkingProvider = ProviderSettings['active']
 
 export type CriticalThinkingTerminationReason = GenerationStopReason | 'evidence-limit'
 
@@ -115,6 +123,15 @@ export interface CriticalThinkingSynthesisAttemptDiagnostic {
   contentChars: number
   /** Bounded visible output retained locally so a failed report can be diagnosed after restart. */
   content: string
+  /**
+   * Hidden-reasoning characters this attempt produced, when the provider
+   * reports them. The pair (`contentChars`, `thinkingChars`) is what
+   * distinguishes "the model wrote a bad report" from "the model spent its
+   * whole output budget thinking and never started one" — the live failure
+   * that produced a zero-character report from 53 verified sources. Undefined
+   * for a model or provider that reports no separate reasoning.
+   */
+  thinkingChars?: number
   stopReason?: GenerationStopReason
   safe: boolean
   usable: boolean

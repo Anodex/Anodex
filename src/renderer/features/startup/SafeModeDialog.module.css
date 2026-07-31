@@ -1,0 +1,114 @@
+.modal {
+  composes: card from '../../components/ui/Overlay.module.css';
+  width: 100%;
+  max-width: 480px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius-md);
+}
+
+.title {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.subtitle {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0 var(--space-5);
+  padding: var(--space-3);
+  font-size: var(--text-xs);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.detail dt {
+  color: var(--text-faint);
+}
+
+.detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.note {
+  margin: var(--space-3) var(--space-5) 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.ghost,
+.secondary,
+.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-3);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+}
+
+.ghost {
+  color: var(--text-muted);
+}
+
+.ghost:hover {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.secondary {
+  color: var(--text);
+  background: var(--bg-surface-2);
+  border-color: var(--border);
+}
+
+.secondary:hover {
+  background: var(--bg-elevated);
+}
+
+.primary {
+  color: var(--text-on-accent);
+  background: var(--accent);
+}
+
+.primary:hover {
+  background: var(--accent-hover);
+}

@@ -1,7 +1,8 @@
 import type { GenerationStopReason } from '@shared/chat.types'
 
 export interface GenerationBudgetPolicy {
-  maxDurationMs: number
+  /** `null` means no wall-clock cap — the turn runs until it finishes itself or hits another limit. */
+  maxDurationMs: number | null
   maxTools: number
   maxProviderRounds: number
   maxContextShifts: number
@@ -35,20 +36,33 @@ export const SCHEDULED_TASK_BUDGET: GenerationBudgetPolicy = {
   maxContextShifts: 4
 }
 
+/**
+ * Turns the user's `generation.turnTimeLimitMinutes` setting (`null` =
+ * unlimited) into a policy override for the per-turn wall-clock cap.
+ */
+export function turnTimeLimitOverride(
+  turnTimeLimitMinutes: number | null
+): Pick<GenerationBudgetPolicy, 'maxDurationMs'> {
+  return { maxDurationMs: turnTimeLimitMinutes === null ? null : turnTimeLimitMinutes * 60_000 }
+}
+
 export function interactiveBudgetForContext(
-  contextSize: number | undefined
+  contextSize: number | undefined,
+  turnTimeLimitMinutes: number | null = 15
 ): GenerationBudgetPolicy {
-  if (!contextSize) return DEFAULT_INTERACTIVE_BUDGET
-  return {
-    ...DEFAULT_INTERACTIVE_BUDGET,
-    maxContextShifts: Math.max(4, Math.min(12, Math.ceil(contextSize / 4_096) * 4))
-  }
+  const base = !contextSize
+    ? DEFAULT_INTERACTIVE_BUDGET
+    : {
+        ...DEFAULT_INTERACTIVE_BUDGET,
+        maxContextShifts: Math.max(4, Math.min(12, Math.ceil(contextSize / 4_096) * 4))
+      }
+  return { ...base, ...turnTimeLimitOverride(turnTimeLimitMinutes) }
 }
 
 /** One-turn wall-clock/tool budget shared by every model provider. */
 export class GenerationBudget {
   private readonly controller = new AbortController()
-  private readonly timer: ReturnType<typeof setTimeout>
+  private readonly timer: ReturnType<typeof setTimeout> | undefined
   private readonly onOuterAbort: () => void
   private toolAttempts = 0
   private contextShifts = 0
@@ -61,7 +75,10 @@ export class GenerationBudget {
     this.onOuterAbort = () => this.stop('user')
     if (outerSignal?.aborted) this.stop('user')
     else outerSignal?.addEventListener('abort', this.onOuterAbort, { once: true })
-    this.timer = setTimeout(() => this.stop('time-limit'), policy.maxDurationMs)
+    this.timer =
+      policy.maxDurationMs === null
+        ? undefined
+        : setTimeout(() => this.stop('time-limit'), policy.maxDurationMs)
   }
 
   get signal(): AbortSignal {

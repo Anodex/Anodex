@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import { TOOL_CATALOG } from '@shared/tools.types'
+import type { EmailSettings } from '@shared/settings.types'
 import { buildTools } from '../registry'
+import { createVisualInputQueue } from '../../vision/imageInputs'
 import { createMockContext, createMockDefine } from './test-helpers'
+
+function linkedGmail(): EmailSettings {
+  return {
+    accounts: [
+      {
+        id: 'account-1',
+        provider: 'gmail',
+        address: 'user@gmail.com',
+        displayName: 'user@gmail.com',
+        authKind: 'oauth',
+        syncMode: 'metadata',
+        createdAt: 0
+      }
+    ],
+    primaryAccountId: 'account-1',
+    sendRequiresApproval: true
+  }
+}
 
 const PROJECT_WORKSPACE_TOOLS = [
   'write_file',
@@ -39,22 +59,35 @@ const READ_ONLY_WORKSPACE_TOOLS = [
 const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'fetch_url',
   'web_search',
+  'generate_image',
   'write_plan',
   'update_plan_step',
   'find_skill',
   'load_skill',
+  'schedule_task',
   'remember_fact',
+  'list_email_accounts',
   'list_threads',
   'search_email',
   'read_email',
+  'read_email_attachment',
   'draft_email',
+  'save_email_draft',
   'send_email',
+  'reply_email',
+  'forward_email',
   'summarize_thread',
-  'find_attachments'
+  'find_attachments',
+  'list_mailboxes',
+  'manage_email',
+  'move_email',
+  'batch_email'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
 const VISUAL_WORKSPACE_TOOLS = ['inspect_visual']
+/** Needs a vision-capable provider and a linked account, but no workspace. */
+const EMAIL_VISUAL_TOOLS = ['view_email_attachment']
 
 /** Read-only, but project-gated (see `PROJECT_READ_ONLY_FACTORIES` in registry.ts). */
 const PROJECT_READ_ONLY_TOOLS = ['search_code']
@@ -96,6 +129,14 @@ describe('buildTools', () => {
     for (const name of [...READ_ONLY_WORKSPACE_TOOLS, ...PROJECT_WORKSPACE_TOOLS]) {
       expect(tools).not.toHaveProperty(name)
     }
+  })
+
+  it('registers image generation only for a provider that explicitly supports it', () => {
+    const unsupported = createMockContext('/workspace')
+    expect(buildTools(createMockDefine(), unsupported)).not.toHaveProperty('generate_image')
+
+    const supported = { ...unsupported, imageGeneration: { provider: 'openai' as const } }
+    expect(buildTools(createMockDefine(), supported)).toHaveProperty('generate_image')
   })
 
   it('registers find_skill and load_skill even in a plain general chat with no workspace', () => {
@@ -218,31 +259,128 @@ describe('buildTools', () => {
       ...createMockContext('/workspace'),
       projectId: 'project-1',
       email: {
-        provider: 'gmail' as const,
-        gmail: {
-          enabled: true,
-          address: 'user@gmail.com',
-          oauthClientId: '',
-          oauthClientSecret: '',
-          syncMode: 'metadata' as const,
-          sendRequiresApproval: true as const
-        }
+        accounts: [
+          {
+            id: 'account-1',
+            provider: 'gmail' as const,
+            address: 'user@gmail.com',
+            displayName: 'user@gmail.com',
+            authKind: 'oauth' as const,
+            syncMode: 'metadata' as const,
+            createdAt: 0
+          }
+        ],
+        primaryAccountId: 'account-1',
+        sendRequiresApproval: true as const
       }
     }
     const tools = buildTools(createMockDefine(), ctx)
 
     for (const name of [
+      'list_email_accounts',
       'list_threads',
       'search_email',
       'read_email',
       'draft_email',
       'send_email',
+      'reply_email',
       'summarize_thread',
       'find_attachments',
+      'list_mailboxes',
+      'manage_email',
+      'move_email',
       'save_email_attachment'
     ]) {
       expect(tools).toHaveProperty(name)
     }
+  })
+
+  it('registers email tools for a non-Gmail account, not just Gmail', () => {
+    // The gate is "any account is linked", so an IMAP-only user gets the same
+    // tool surface — the tools resolve the provider themselves.
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      email: {
+        accounts: [
+          {
+            id: 'account-imap',
+            provider: 'imap' as const,
+            address: 'person@fastmail.com',
+            displayName: 'person@fastmail.com',
+            authKind: 'password' as const,
+            syncMode: 'metadata' as const,
+            createdAt: 0
+          }
+        ],
+        primaryAccountId: 'account-imap',
+        sendRequiresApproval: true as const
+      }
+    }
+
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('list_threads')
+    expect(tools).toHaveProperty('reply_email')
+  })
+
+  it('registers view_email_attachment with no workspace, given vision and an account', () => {
+    // The case this tool exists for: the Email page's assistant rail, where
+    // there is a linked mailbox and no project folder at all. Gating it like
+    // the other visual tools would have made it unavailable exactly there.
+    const ctx = {
+      ...createMockContext('/workspace'),
+      workspaceRoot: null,
+      projectId: null,
+      visualInputs: createVisualInputQueue(),
+      email: linkedGmail()
+    }
+
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('view_email_attachment')
+    expect(tools).not.toHaveProperty('inspect_visual')
+    expect(tools).not.toHaveProperty('save_email_attachment')
+  })
+
+  it('omits view_email_attachment when the model cannot see images', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      visualInputs: undefined,
+      email: linkedGmail()
+    }
+
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('find_attachments')
+    expect(tools).not.toHaveProperty('view_email_attachment')
+  })
+
+  it('omits view_email_attachment when no account is linked, vision or not', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      visualInputs: createVisualInputQueue(),
+      email: { accounts: [], primaryAccountId: null, sendRequiresApproval: true as const }
+    }
+
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).not.toHaveProperty('view_email_attachment')
+  })
+
+  it('registers no email tools when nothing is linked', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      projectId: 'project-1',
+      email: { accounts: [], primaryAccountId: null, sendRequiresApproval: true as const }
+    }
+
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).not.toHaveProperty('list_threads')
+    expect(tools).not.toHaveProperty('send_email')
   })
 
   it('keeps the Settings tool catalog in sync with registered tool names', () => {
@@ -252,6 +390,7 @@ describe('buildTools', () => {
       ...PROJECT_WORKSPACE_TOOLS,
       ...EMAIL_WORKSPACE_TOOLS,
       ...VISUAL_WORKSPACE_TOOLS,
+      ...EMAIL_VISUAL_TOOLS,
       ...PROJECT_READ_ONLY_TOOLS,
       ...GLOBAL_OR_CONDITIONAL_TOOLS
     ])

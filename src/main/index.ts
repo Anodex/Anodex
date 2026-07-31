@@ -18,6 +18,7 @@ import { schedulerStore } from './scheduler/SchedulerStore'
 import { schedulerService } from './scheduler/SchedulerService'
 import { setKeepAwake } from './scheduler/keepAwake'
 import { emailAuthStore } from './email/EmailAuthStore'
+import { emailAccountStore } from './email/EmailAccountStore'
 import { skillStore } from './skills/SkillStore'
 import { agentRunStore } from './agents/AgentRunStore'
 import { agentRunService } from './agents/AgentRunService'
@@ -28,8 +29,35 @@ import { mcpServerStore } from './mcp/McpServerStore'
 import { mcpAuthStore } from './mcp/McpAuthStore'
 import { mcpManager } from './mcp/McpManager'
 import { createLogger } from './utils/logger'
+import { diagnosticsReporter } from './diagnostics/DiagnosticsReporter'
+import { registerCrashHandlers } from './diagnostics/crashHandlers'
+import { finishModelLoad, getLoadRecovery, initLoadSentinel } from './llama/loadSentinel'
 
 const log = createLogger('main')
+
+/**
+ * Surface a previous run's crashed model load in Diagnostics too, not only in
+ * the recovery prompt. The prompt is answered once and gone; a bug report
+ * filed a week later still needs the crash in the log.
+ */
+function reportInterruptedLoad(): void {
+  const recovery = getLoadRecovery()
+  if (!recovery) return
+  const { interrupted } = recovery
+  diagnosticsReporter.report({
+    severity: 'error',
+    category: 'model',
+    message: recovery.headline,
+    detail:
+      `model: ${interrupted.modelPath}\n` +
+      `gpuLayers: ${interrupted.gpuLayers}\n` +
+      `contextSize: ${interrupted.contextSize ?? 'default'}\n` +
+      `vision: ${interrupted.vision}\n` +
+      `startedAt: ${interrupted.startedAt}`,
+    suggestedFix: recovery.explanation,
+    scope: 'model-load'
+  })
+}
 
 /** Give startup (model auto-load, window paint) a moment before an update
  *  check adds its own network activity — same reasoning as the model
@@ -46,6 +74,11 @@ if (process.platform === 'win32') app.setAppUserModelId('com.anodex.app')
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  // Before anything else: an unhandled failure during startup itself is exactly
+  // the kind that used to vanish. Entries are buffered in memory until a window
+  // exists to receive them, so nothing raised here is lost.
+  registerCrashHandlers()
+
   app.on('second-instance', () => {
     const [existing] = BrowserWindow.getAllWindows()
     if (!existing) return
@@ -56,6 +89,13 @@ if (!app.requestSingleInstanceLock()) {
   app
     .whenReady()
     .then(() => {
+      // First, so every subsystem below logs into the file and the Diagnostics
+      // page from its very first line.
+      diagnosticsReporter.init()
+      // Before any subsystem can load a model, so the record of a load that
+      // never finished is read while it still means "the last run crashed".
+      initLoadSentinel()
+      reportInterruptedLoad()
       settingsStore.init()
       projectStore.init()
       projectMemoryStore.init()
@@ -66,6 +106,11 @@ if (!app.requestSingleInstanceLock()) {
       tokenActivityStore.init()
       updateService.init()
       emailAuthStore.init()
+      // Settings have loaded by now, so any credential without a matching
+      // account is an orphan — from an unlink that raced a crash, or a
+      // settings file restored from elsewhere. Drop it rather than leaving a
+      // live token on disk for a mailbox the app no longer shows.
+      emailAccountStore.pruneCredentials()
       skillStore.init()
       agentRunStore.init()
       criticalThinkingStore.init()
@@ -107,6 +152,9 @@ if (!app.requestSingleInstanceLock()) {
     criticalThinkingService.stopAll()
     cancelAllDownloads()
     closeToast()
+    // Quitting during a load is a clean exit, not a crash — drop the sentinel
+    // so the next launch doesn't offer to recover from it.
+    finishModelLoad()
     llamaService.unload().catch((error) => {
       log.error('Error unloading model on quit:', error)
     })
@@ -115,5 +163,7 @@ if (!app.requestSingleInstanceLock()) {
     mcpManager.disconnectAll().catch((error) => {
       log.error('Error disconnecting MCP servers on quit:', error)
     })
+    // Last: flush whatever the shutdown above just logged to disk.
+    diagnosticsReporter.shutdown()
   })
 }

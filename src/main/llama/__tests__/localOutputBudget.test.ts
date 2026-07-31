@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { defaultToolThoughtTokenBudget, resolveLocalOutputBudget } from '../localOutputBudget'
+import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from '../localOutputBudget'
 
 describe('resolveLocalOutputBudget', () => {
   it('reserves a bounded fraction of measured headroom for a tool turn instead of a flat quarter of context', () => {
-    // The exact live failure recorded in LIVE_8K_FAILURE_RECOVERY_HANDOFF.md:
+    // The exact live failure recorded in CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md:
     // the old quarter-of-context rule clamped this to 2,048 tokens and the
     // model spent nearly all of it on hidden reasoning before one tool call
     // finished. The reserve-of-measured-headroom rule keeps a real safety
@@ -142,10 +142,10 @@ describe('resolveLocalOutputBudget', () => {
   })
 })
 
-describe('defaultToolThoughtTokenBudget', () => {
+describe('defaultThoughtTokenBudget', () => {
   it('reserves a minority for thought, guaranteeing a majority for visible output', () => {
     const effectiveMaxTokens = 2_832 // the exact reproduced live 8K tool-turn budget
-    const thoughtTokens = defaultToolThoughtTokenBudget(effectiveMaxTokens)
+    const thoughtTokens = defaultThoughtTokenBudget(effectiveMaxTokens)
 
     expect(thoughtTokens).toBeGreaterThan(0)
     expect(thoughtTokens).toBeLessThan(effectiveMaxTokens)
@@ -155,7 +155,7 @@ describe('defaultToolThoughtTokenBudget', () => {
 
   it('never exceeds the total it is drawn from, across a range of budgets', () => {
     for (const effectiveMaxTokens of [0, 1, 512, 2_832, 8_192, 100_000]) {
-      const thoughtTokens = defaultToolThoughtTokenBudget(effectiveMaxTokens)
+      const thoughtTokens = defaultThoughtTokenBudget(effectiveMaxTokens)
       expect(thoughtTokens).toBeGreaterThanOrEqual(0)
       expect(thoughtTokens).toBeLessThanOrEqual(effectiveMaxTokens)
     }

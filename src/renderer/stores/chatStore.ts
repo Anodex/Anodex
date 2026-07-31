@@ -6,7 +6,7 @@ import type {
   CheckpointSummary,
   RestoreCheckpointResult
 } from '@shared/checkpoint.types'
-import type { Conversation } from '@shared/conversation.types'
+import type { Conversation, EmailThreadLink } from '@shared/conversation.types'
 import { TOOL_CATALOG, type ToolActivityEvent, type ToolCall } from '@shared/tools.types'
 import { stripToolCallText } from '@shared/toolCallText'
 import {
@@ -29,8 +29,10 @@ import {
 import { reconcileMessageBlocks } from '../features/chat/reconcileMessageBlocks'
 import { quarantineStreamingToolPayload } from '../features/chat/streamingToolPayload'
 import { isChatReady } from '../lib/chatReadiness'
-import { buildMessageEditBranch } from '../features/chat/messageEdit'
+import { buildMessageEditBranch, buildRegenerateTarget } from '../features/chat/messageEdit'
 import { describeGenerationStop } from '../features/chat/generationStopMessages'
+import { withEmailThreadContext } from '../features/chat/emailThreadContext'
+import { conversationUserFiles } from '../features/chat/conversationUserFiles'
 
 export type { Conversation }
 
@@ -63,7 +65,36 @@ interface ChatState {
    * never falls back to "whatever project happens to be active" — a chat
    * created without an explicit project must not silently inherit one.
    */
-  newConversation: (projectId?: string | null) => string
+  newConversation: (projectId?: string | null, emailThread?: EmailThreadLink) => string
+  /**
+   * Selects the chat already tied to an email thread, or starts one and links
+   * it. Keeps all discussion of a given email in one chat instead of spawning
+   * a new one on every Reply or Summarize click.
+   */
+  openEmailThreadConversation: (
+    accountId: string,
+    threadId: string,
+    details?: Pick<EmailThreadLink, 'subject' | 'latestMessageId'>
+  ) => string
+  /**
+   * Drops a thread-linked chat that was opened but never used.
+   *
+   * The Email page links a chat the moment a thread is opened, so the rail's
+   * composer has somewhere to send. Without this, reading twenty emails would
+   * leave twenty empty "New chat" entries in the sidebar — the chat is only
+   * worth keeping once there is something in it.
+   */
+  discardUnusedEmailThreadConversation: (id: string) => void
+  /**
+   * Text to drop into the composer the next time it renders, then clear.
+   *
+   * Lets another view hand work off to chat with the instruction already
+   * written — the Email page's Reply button, for one — while still leaving the
+   * user free to edit or discard it before sending. Sending outright would take
+   * that choice away.
+   */
+  pendingComposerText: string | null
+  setPendingComposerText: (text: string | null) => void
   /**
    * Copies a conversation's history into a new, ordinary chat and selects it.
    * Used to carry a scheduled task's run log into a chat the user can actually
@@ -103,6 +134,13 @@ interface ChatState {
     text: string,
     options?: MessageEditOptions
   ) => Promise<MessageEditResult>
+  /**
+   * Ask for a different answer to the same question — replays the user turn
+   * that prompted `messageId` unchanged. The recovery that fits a reply which
+   * stalled or claimed work it never did, where the prompt was never the
+   * problem and editing it only obscures that.
+   */
+  regenerateMessage: (messageId: string, options?: MessageEditOptions) => Promise<MessageEditResult>
   /** Queue a message onto the active conversation while it's still generating. */
   queueMessage: (text: string, attachments?: ComposerAttachment[]) => void
   /** Cancel a queued message before it's auto-sent. */
@@ -239,7 +277,58 @@ export const useChatStore = create<ChatState>()(
       if (active) useUiStore.getState().markConversationRead(active.id, active.updatedAt)
     },
 
-    newConversation: (projectId = null) => {
+    pendingComposerText: null,
+
+    setPendingComposerText: (text) => set({ pendingComposerText: text }),
+
+    openEmailThreadConversation: (accountId, threadId, details) => {
+      // `conversations` holds only live chats — archiving or deleting removes
+      // an entry — so a hit here is by definition a chat the user can still
+      // return to, and a miss correctly starts fresh.
+      const existing = get().conversations.find(
+        (conversation) =>
+          conversation.emailThread?.threadId === threadId &&
+          conversation.emailThread.accountId === accountId
+      )
+
+      if (existing) {
+        set((state) => {
+          state.activeId = existing.id
+          // The thread has probably moved on since this chat was last opened,
+          // so refresh which message a reply should answer. Without this the
+          // model keeps replying to whatever was newest the first time.
+          const convo = state.conversations.find((c) => c.id === existing.id)
+          if (convo?.emailThread && details) {
+            Object.assign(convo.emailThread, details)
+          }
+        })
+        useUiStore.getState().markConversationRead(existing.id, existing.updatedAt)
+        void persistActiveState(existing.id)
+        return existing.id
+      }
+
+      return get().newConversation(null, { accountId, threadId, ...details })
+    },
+
+    discardUnusedEmailThreadConversation: (id) => {
+      const conversation = get().conversations.find((item) => item.id === id)
+      // Only ever discards a chat this feature created and nobody used: linked
+      // to a thread, no turns, and nothing typed. Anything else is the user's.
+      if (!conversation?.emailThread || conversation.messages.length > 0) return
+      // An instruction waiting in the composer is work in progress — the user
+      // clicked Reply and then navigated away, and the chat has to survive for
+      // them to come back to.
+      if (get().pendingComposerText) return
+
+      set((state) => {
+        state.conversations = state.conversations.filter((item) => item.id !== id)
+        if (state.activeId === id) state.activeId = null
+      })
+      if (get().activeId === null) void persistActiveState(null)
+      void anodex.conversations.deletePermanent(id)
+    },
+
+    newConversation: (projectId = null, emailThread) => {
       const id = createId('c')
       const now = Date.now()
       const conversation: Conversation = {
@@ -248,7 +337,8 @@ export const useChatStore = create<ChatState>()(
         title: DEFAULT_TITLE,
         messages: [],
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        ...(emailThread ? { emailThread } : {})
       }
       set((state) => {
         state.conversations.unshift(conversation)
@@ -453,7 +543,13 @@ export const useChatStore = create<ChatState>()(
         systemPrompt: settings?.assistantStyle.globalStyle,
         context: existing?.context ?? null,
         history,
-        prompt: buildPromptWithAttachments(trimmed, attachments),
+        prompt: withEmailThreadContext(
+          buildPromptWithAttachments(trimmed, attachments),
+          existing?.emailThread
+        ),
+        // Read from `existing` — the pre-send snapshot — plus this turn's own
+        // attachments, which are not in it yet.
+        userFiles: conversationUserFiles(existing?.messages ?? [], attachments),
         images: attachments
           .filter((attachment) => attachment.kind === 'image')
           .map((attachment) => ({
@@ -483,6 +579,12 @@ export const useChatStore = create<ChatState>()(
         const quarantinedTail = pendingToolPayloadByMessage.get(assistantId) ?? ''
         pendingToolPayloadByMessage.delete(assistantId)
         message.streaming = false
+        // The placeholder was stamped with the user message's time so the two
+        // sorted together while empty; restamp it now it exists, or a turn that
+        // took ten minutes of tool calls reads as having arrived instantly. The
+        // unattended paths (AgentRunService, SchedulerService) already stamp
+        // their assistant messages at completion — this matches them.
+        message.createdAt = Date.now()
         if (result.ok) {
           const content = sanitizeAssistantContent(result.value.content)
           message.content = content
@@ -517,6 +619,13 @@ export const useChatStore = create<ChatState>()(
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
           if (result.value.transcriptRecallUsed?.length) {
             message.transcriptRecallUsed = result.value.transcriptRecallUsed
+          }
+          if (result.value.webSources?.length) message.webSources = result.value.webSources
+          // Kept even when no sources came back — with an empty list that is
+          // precisely the signal the reader needs, so it must not be dropped
+          // as "falsy, therefore uninteresting".
+          if (result.value.webSearchAttempted) {
+            message.webSearchAttempted = true
           }
           if (result.value.checkpoint?.changedFiles.length) {
             message.checkpoint = result.value.checkpoint
@@ -673,6 +782,31 @@ export const useChatStore = create<ChatState>()(
       await persistConversation(updated)
       await get().sendMessage(trimmed, attachments, conversation.id)
       return { status: 'completed' }
+    },
+
+    regenerateMessage: async (messageId, options) => {
+      const conversation = get().conversations.find((item) => item.id === get().activeId)
+      const target = conversation ? buildRegenerateTarget(conversation.messages, messageId) : null
+      if (!conversation || !target) return { status: 'failed' }
+
+      if (conversation.messages.some((message) => message.streaming)) {
+        useUiStore.getState().notify({
+          kind: 'info',
+          title: 'Reply still in progress',
+          message: 'Stop the current reply before regenerating an earlier one.'
+        })
+        return { status: 'failed' }
+      }
+
+      const source = conversation.messages.find(
+        (message) => message.id === target.sourceUserMessageId
+      )
+      if (!source) return { status: 'failed' }
+
+      // Deliberately the same path as an edit whose text happened not to
+      // change: identical branch, identical checkpoint rollback, identical
+      // conflict reporting. Regenerating is that operation, not a new one.
+      return get().editMessage(source.id, source.content, options)
     },
 
     queueMessage: (text, attachments = []) => {

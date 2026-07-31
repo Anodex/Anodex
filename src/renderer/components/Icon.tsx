@@ -14,6 +14,8 @@ export type IconName =
   | 'trash'
   | 'folder'
   | 'refresh'
+  | 'rotate-ccw'
+  | 'rotate-cw'
   | 'check'
   | 'alert'
   | 'cpu'
@@ -26,6 +28,7 @@ export type IconName =
   | 'user'
   | 'palette'
   | 'sliders'
+  | 'keyboard'
   | 'activity'
   | 'monitor'
   | 'chevron-down'
@@ -56,6 +59,7 @@ export type IconName =
   | 'layers'
   | 'globe'
   | 'archive'
+  | 'star'
   | 'calendar'
   | 'mail'
   | 'bot'
@@ -66,6 +70,11 @@ export type IconName =
   | 'zap'
   | 'git-branch'
   | 'diff'
+  | 'compact'
+  | 'compare'
+  | 'summary'
+  | 'plan'
+  | 'memory'
   | 'insight'
 
 const GLYPHS: Record<IconName, ReactNode> = {
@@ -110,6 +119,18 @@ const GLYPHS: Record<IconName, ReactNode> = {
   refresh: (
     <>
       <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+    </>
+  ),
+  'rotate-ccw': (
+    <>
+      <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
+      <path d="M3 3v5h5" />
+    </>
+  ),
+  'rotate-cw': (
+    <>
+      <path d="M21 12a9 9 0 1 1-2.6-6.4L21 8" />
       <path d="M21 3v5h-5" />
     </>
   ),
@@ -195,9 +216,24 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <line x1="17" y1="16" x2="23" y2="16" />
     </>
   ),
+  /* Keyboard with the logo's 45° cut on the top-right corner, so it belongs to
+     the same family as `chat`/`folder`/`models`. The key row needs butt caps:
+     the SVG-wide round cap adds half a stroke width at each end of a dash,
+     which would swell "2.5 3" into a near-solid line at nav size. */
+  keyboard: (
+    <>
+      <path d="M2 7.5A2.5 2.5 0 0 1 4.5 5H16l6 5.5v6A2.5 2.5 0 0 1 19.5 19h-15A2.5 2.5 0 0 1 2 16.5v-9z" />
+      <path d="M6 10h8" strokeDasharray="2.5 3" strokeLinecap="butt" />
+      <path d="M8 14.5h8" />
+    </>
+  ),
+  /* A trace that ends in a filled head, borrowing the comet the app already uses
+     for live activity (Spinner, the status dots, the tool progress bar) rather
+     than Lucide's plain ECG. */
   activity: (
     <>
-      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+      <path d="M2 12h4l3 6 4-12 2.5 6H19" />
+      <circle cx="20.5" cy="12" r="1.8" fill="currentColor" stroke="none" />
     </>
   ),
   monitor: (
@@ -325,10 +361,12 @@ const GLYPHS: Record<IconName, ReactNode> = {
   flame: (
     <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
   ),
+  /* Hexagonal bezel — still unmistakably a clock, but in the logo's geometry so
+     Scheduler reads as part of the same family as `models`/`settings`/`bot`. */
   clock: (
     <>
-      <circle cx="12" cy="12" r="9" />
-      <polyline points="12 7 12 12 16 14" />
+      <path d="M12 2.8l7.9 4.6v9.2L12 21.2l-7.9-4.6V7.4z" />
+      <path d="M12 7.5V12l3.5 2" />
     </>
   ),
   layers: (
@@ -338,22 +376,26 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <polyline points="2 12 12 17 22 12" />
     </>
   ),
+  /* Three strokes, not five: the original's overlapping meridians turned into a
+     grey smear at the 12px the scheduler rows render at. */
   globe: (
     <>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M2 12h20" />
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-      <path d="M7.5 4.5a15 15 0 0 0 0 15" />
-      <path d="M16.5 4.5a15 15 0 0 1 0 15" />
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" />
     </>
   ),
+  /* The facet does the lid's work, so the separate lid rect goes away — one
+     stroke fewer is what lets this hold together at the 12px the chat rows use.
+     The lid line lands exactly where the cut meets the right edge. */
   archive: (
     <>
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
-      <path d="M10 12h4" />
+      <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h9L21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-11z" />
+      <path d="M3 9.5h18" />
+      <path d="M10 13.5h4" />
     </>
   ),
+  star: <path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" />,
   calendar: (
     <>
       <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -362,10 +404,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M3 10h18" />
     </>
   ),
+  /* Envelope cut on the top-right, with the flap's right arm turned to -45° so
+     it mirrors the cut instead of fighting it. Email is a whole workspace; it
+     had been carrying it on a plain Lucide rectangle. */
   mail: (
     <>
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="m3 7 9 6 9-6" />
+      <path d="M2 7a2 2 0 0 1 2-2h11.5L22 10.5v6.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z" />
+      <path d="m3 6.4 9 6.4 5.2-5.2" />
     </>
   ),
   /* Hexagonal head, antenna, two eyes — the Anodex take on a robot. */
@@ -383,10 +428,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M12 16v6" />
     </>
   ),
+  /* Framed to match its dock siblings — as two bare strokes it read lighter than
+     every tab beside it. The frame carries the facet. */
   terminal: (
     <>
-      <polyline points="4 17 10 11 4 5" />
-      <line x1="12" y1="19" x2="20" y2="19" />
+      <path d="M2 6.5A2.5 2.5 0 0 1 4.5 4H16l6 5.5v8A2.5 2.5 0 0 1 19.5 20h-15A2.5 2.5 0 0 1 2 17.5v-11z" />
+      <path d="m7 10.5 2.5 2.5L7 15.5" />
+      <path d="M12.5 15.5h4" />
     </>
   ),
   lightbulb: (
@@ -408,11 +456,71 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M18 9a9 9 0 0 1-9 9" />
     </>
   ),
+  /* Butt caps on the dashed rule for the same reason as `keyboard`: the
+     SVG-wide round cap extends each dash by half a stroke width, closing the
+     gaps into a solid line. */
   diff: (
     <>
       <path d="M12 4v6M9 7h6" />
       <path d="M9 17h6" />
-      <path d="M4 12h16" strokeDasharray="2 3" />
+      <path d="M4 12h16" strokeDasharray="2.5 3" strokeLinecap="butt" />
+    </>
+  ),
+  /* Two arrows closing on a rule — many turns folded down to a summary. Drawn
+     twice: converging chevrons read as a bowtie, and a dashed "seam" version
+     collapsed into a plain hamburger at the 12px the transcript marker uses.
+     This one costs five strokes but keeps a vertical silhouette nothing else
+     in the transcript has. */
+  compact: (
+    <>
+      <path d="M4 12h16" />
+      <path d="M12 3.5v5" />
+      <path d="m9 6 3 2.5 3-2.5" />
+      <path d="M12 20.5v-5" />
+      <path d="m9 18 3-2.5 3 2.5" />
+    </>
+  ),
+  /* The contrast trick from `palette`, squared off: one half filled, one empty.
+     Before-and-after without an extra stroke. */
+  compare: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path
+        d="M5.5 4H12v16H5.5A2.5 2.5 0 0 1 3 17.5v-11A2.5 2.5 0 0 1 5.5 4z"
+        fill="currentColor"
+        stroke="none"
+      />
+      <path d="M12 4v16" />
+    </>
+  ),
+  /* A page cut by the facet rather than folded like `file`, with a last line
+     that falls short — a body that has been condensed. */
+  summary: (
+    <>
+      <path d="M4 4a2 2 0 0 1 2-2h7.5L20 8.5V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" />
+      <path d="M8 11h8M8 14.5h8M8 18h4" />
+    </>
+  ),
+  /* A checklist, one item done and one open — which is what the Plan panel
+     actually shows. Frees `sparkle` from meaning both "the model is thinking"
+     and "here are the steps". */
+  plan: (
+    <>
+      <path d="m3 7.6 1.7 1.7L7.7 5.6" />
+      <path d="M11 8h10" />
+      <path d="M3.5 15.6h4" />
+      <path d="M11 16h10" />
+    </>
+  ),
+  /* An open ledger — honest to the implementation, since memory here is a
+     folder of written facts, one per file. Two earlier attempts started from
+     the system's geometry instead (a hex cell with a core, a bullet on a
+     facet-cut card) and read as shapes that happened to be labelled Memory.
+     Nothing else in the set is a book, so the silhouette survives 12px. */
+  memory: (
+    <>
+      <path d="M12 6.5C10.5 5 8.5 4.5 4 4.5v12c4.5 0 6.5.5 8 2 1.5-1.5 3.5-2 8-2v-12c-4.5 0-6.5.5-8 2z" />
+      <path d="M12 6.5v10" />
     </>
   ),
   /* Magnifier with the AI spark in the lens — critical thinking / deep research. */

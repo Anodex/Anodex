@@ -1,19 +1,40 @@
 .view {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  max-width: 900px;
   height: 100%;
-  margin: 0 auto;
-  padding: var(--space-6);
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-base);
 }
 
+/* Full-bleed header bar over a scrolling body, matching Critical Thinking and
+   Email — the view fills the pane instead of sitting in a centred column. */
 .header {
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Wraps below the title once the pane is too narrow to hold both, so the
+   actions stay inside the view instead of being clipped off the right edge. */
+.headerText {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-6);
+  overflow-y: auto;
 }
 
 .title {
@@ -25,14 +46,30 @@
 
 .headerActions {
   display: flex;
+  flex-shrink: 1;
   align-items: center;
   gap: var(--space-3);
+  min-width: 0;
+}
+
+/* The shared settings select is a fixed 260px — settings-form width, not
+   header width. In here it has to be the thing that gives, so the New task
+   button is never the one pushed out of the pane. */
+.headerActions select {
+  flex-shrink: 1;
+  width: auto;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.headerActions > :last-child {
+  flex-shrink: 0;
 }
 
 .subtitle {
-  margin: calc(var(--space-3) * -1) 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-muted);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
 }
 
 .infoBar {
@@ -82,6 +119,7 @@
 }
 
 .taskCard {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: var(--space-3);
@@ -93,6 +131,173 @@
 
 .taskCard:hover {
   border-color: var(--border-strong);
+}
+
+/* The wait to the next run, as a position rather than a sentence. This is a
+   *state*, not an animation: it advances at real-world rate, so on anything
+   longer than a few minutes it never visibly moves — it's there to be scanned
+   against the other cards, not watched. Drawn only when there's an honest
+   fraction to draw (see `nextRunProgress`), so a card that can't claim one
+   shows no track at all rather than an empty one. */
+.rail {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.railFill {
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  transition:
+    width 1s linear,
+    background var(--transition),
+    box-shadow var(--transition);
+}
+
+/* Inside the last minute the rail is the only thing that has to say "now",
+   so this is where it earns a full-strength accent. */
+.railImminent .railFill {
+  background: var(--accent);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   The wake moment.
+
+   A run the user is watching used to be a spinner swapping in and back out
+   again. It now gets a beginning and a middle: the logo's cyan → blue → violet
+   ramp crosses the card once at ignition, then a comet rides the left edge for
+   as long as the run lasts. The end — the arrival glow below — is `.arrived`,
+   which already existed and is already gated against replaying.
+
+   Both beats are bounded by a real run; neither loops once it's over. The rail
+   goes dark for the duration because the wait it measures is no longer running.
+   --------------------------------------------------------------------------- */
+.wake-ignite,
+.wake-running {
+  overflow: hidden;
+}
+
+.wake-ignite .rail,
+.wake-running .rail {
+  opacity: 0;
+}
+
+.wake-ignite::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 34%,
+    color-mix(in srgb, var(--accent-cyan) 10%, transparent) 44%,
+    color-mix(in srgb, var(--accent) 20%, transparent) 50%,
+    color-mix(in srgb, var(--accent-violet) 10%, transparent) 56%,
+    transparent 66%
+  );
+  animation: wakeIgnite 620ms var(--ease-out, ease-out) 1;
+}
+
+@keyframes wakeIgnite {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Sweeps back and forth (`alternate`) rather than looping one way — the
+   reversal is what reads as "working", the same way it does on a chat row.
+
+   Two layers, matching the real `runScan`: a soft halo spilling light onto the
+   card, and a narrow white-hot core on the edge itself. A single flat gradient
+   on a 2px sliver is legible in isolation and invisible in a list — the halo is
+   what makes the movement readable without making the card louder. */
+.wakeComet {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 18px;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+/* Same height and offset as the core, sharing one keyframe set, so the halo
+   stays centred on the core instead of trailing it. */
+.wakeCometHalo {
+  position: absolute;
+  top: -46%;
+  left: -8px;
+  width: 26px;
+  height: 46%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent) 50%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 38%,
+    transparent 72%
+  );
+  animation: wakeComet 2.1s var(--ease, ease-in-out) infinite alternate;
+}
+
+.wakeCometCore {
+  position: absolute;
+  top: -46%;
+  left: 0;
+  width: 2px;
+  height: 46%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--accent-cyan) 26%,
+    #eaf2ff 50%,
+    var(--accent-violet) 74%,
+    transparent
+  );
+  animation: wakeComet 2.1s var(--ease, ease-in-out) infinite alternate;
+}
+
+@keyframes wakeComet {
+  from {
+    top: -46%;
+  }
+  to {
+    top: 100%;
+  }
+}
+
+/* A paused task isn't going to do anything, and shouldn't carry the same weight
+   as one firing in six minutes — until now the only difference between them was
+   the word "Paused" replacing the countdown. No motion and no colour spent here,
+   just hierarchy: dimmed, dashed, and the name drops a weight. */
+.paused {
+  background: color-mix(in srgb, var(--bg-surface) 55%, var(--bg-base));
+  border-style: dashed;
+}
+
+.paused .taskName {
+  font-weight: 500;
+}
+
+.paused .taskName,
+.paused .taskPrompt,
+.paused .taskMeta {
+  opacity: 0.55;
+}
+
+.pausedLabel {
+  color: var(--text-faint);
+  font-style: italic;
 }
 
 .taskCard-success {
@@ -271,16 +476,12 @@
   color: var(--text-muted);
 }
 
+/* Auto-fill rather than a fixed two-up: now that the view runs the full width
+   of the pane, the examples reflow to fit whatever room there is. */
 .exampleGrid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space-3);
-}
-
-@media (max-width: 640px) {
-  .exampleGrid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .exampleCard {

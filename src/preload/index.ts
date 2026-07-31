@@ -16,6 +16,7 @@ import type {
   CriticalThinkingStreamChunk
 } from '@shared/criticalThinking.types'
 import type { McpServerState } from '@shared/mcp.types'
+import type { DiagnosticEntry } from '@shared/settings.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -41,7 +42,9 @@ const api: AnodexApi = {
     recommendSettingsForFile: (path) =>
       ipcRenderer.invoke(IpcChannel.Models.recommendSettings, path),
     discover: (query) => ipcRenderer.invoke(IpcChannel.Models.discover, query),
-    fetchTopModels: () => ipcRenderer.invoke(IpcChannel.Models.fetchTopModels)
+    fetchTopModels: () => ipcRenderer.invoke(IpcChannel.Models.fetchTopModels),
+    getLoadRecovery: () => ipcRenderer.invoke(IpcChannel.Models.getLoadRecovery),
+    dismissLoadRecovery: () => ipcRenderer.invoke(IpcChannel.Models.dismissLoadRecovery)
   },
   chat: {
     send: (request) => ipcRenderer.invoke(IpcChannel.Chat.send, request),
@@ -108,6 +111,12 @@ const api: AnodexApi = {
     setActive: (id) => ipcRenderer.invoke(IpcChannel.Projects.setActive, id),
     openFolder: (id) => ipcRenderer.invoke(IpcChannel.Projects.openFolder, id)
   },
+  backup: {
+    exportConversation: (conversation, format) =>
+      ipcRenderer.invoke(IpcChannel.Backup.exportConversation, conversation, format),
+    backupData: () => ipcRenderer.invoke(IpcChannel.Backup.backupData),
+    revealPath: (path) => ipcRenderer.invoke(IpcChannel.Backup.revealPath, path)
+  },
   conversations: {
     list: () => ipcRenderer.invoke(IpcChannel.Conversations.list),
     listArchived: () => ipcRenderer.invoke(IpcChannel.Conversations.listArchived),
@@ -167,6 +176,12 @@ const api: AnodexApi = {
     onStatusChanged: (listener) =>
       subscribe<UpdateStatus>(IpcChannel.Updates.statusChanged, listener)
   },
+  diagnostics: {
+    list: () => ipcRenderer.invoke(IpcChannel.Diagnostics.list),
+    onEntry: (listener) => subscribe<DiagnosticEntry>(IpcChannel.Diagnostics.entry, listener),
+    getLogFile: () => ipcRenderer.invoke(IpcChannel.Diagnostics.getLogFile),
+    revealLogFile: () => ipcRenderer.invoke(IpcChannel.Diagnostics.revealLogFile)
+  },
   stats: {
     getUsageProfile: () => ipcRenderer.invoke(IpcChannel.Stats.getUsageProfile),
     getUsageBreakdown: (range, granularity) =>
@@ -223,13 +238,29 @@ const api: AnodexApi = {
   },
   email: {
     getStatus: () => ipcRenderer.invoke(IpcChannel.Email.getStatus),
-    openGmailWeb: () => ipcRenderer.invoke(IpcChannel.Email.openGmailWeb),
-    connectGmail: () => ipcRenderer.invoke(IpcChannel.Email.connectGmail),
-    disconnectGmail: () => ipcRenderer.invoke(IpcChannel.Email.disconnectGmail),
-    getUnreadThreadCount: () => ipcRenderer.invoke(IpcChannel.Email.getUnreadThreadCount),
+    openWebmail: () => ipcRenderer.invoke(IpcChannel.Email.openWebmail),
+    discover: (address) => ipcRenderer.invoke(IpcChannel.Email.discover, address),
+    connectOAuth: (request) => ipcRenderer.invoke(IpcChannel.Email.connectOAuth, request),
+    connectPassword: (request) => ipcRenderer.invoke(IpcChannel.Email.connectPassword, request),
+    removeAccount: (accountId) => ipcRenderer.invoke(IpcChannel.Email.removeAccount, accountId),
+    setPrimaryAccount: (accountId) =>
+      ipcRenderer.invoke(IpcChannel.Email.setPrimaryAccount, accountId),
+    setSyncMode: (accountId, syncMode) =>
+      ipcRenderer.invoke(IpcChannel.Email.setSyncMode, accountId, syncMode),
+    listAccounts: () => ipcRenderer.invoke(IpcChannel.Email.listAccounts),
+    getUnreadThreadCount: (accountId) =>
+      ipcRenderer.invoke(IpcChannel.Email.getUnreadThreadCount, accountId),
     listThreads: (request = {}) => ipcRenderer.invoke(IpcChannel.Email.listThreads, request),
     search: (request) => ipcRenderer.invoke(IpcChannel.Email.search, request),
-    readMessage: (id) => ipcRenderer.invoke(IpcChannel.Email.readMessage, id),
+    readMessage: (id, accountId) => ipcRenderer.invoke(IpcChannel.Email.readMessage, id, accountId),
+    getThreadMessages: (threadId, accountId) =>
+      ipcRenderer.invoke(IpcChannel.Email.getThreadMessages, threadId, accountId),
+    digestThreads: (requests) => ipcRenderer.invoke(IpcChannel.Email.digestThreads, requests),
+    applyFlag: (request) => ipcRenderer.invoke(IpcChannel.Email.applyFlag, request),
+    move: (request) => ipcRenderer.invoke(IpcChannel.Email.move, request),
+    listMailboxes: (accountId) => ipcRenderer.invoke(IpcChannel.Email.listMailboxes, accountId),
+    saveAttachment: (request) => ipcRenderer.invoke(IpcChannel.Email.saveAttachment, request),
+    loadRemoteImages: (urls) => ipcRenderer.invoke(IpcChannel.Email.loadRemoteImages, urls),
     createDraft: (request) => ipcRenderer.invoke(IpcChannel.Email.createDraft, request),
     send: (request) => ipcRenderer.invoke(IpcChannel.Email.send, request)
   },

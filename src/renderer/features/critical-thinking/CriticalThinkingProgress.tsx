@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   CriticalThinkingActivity,
   CriticalThinkingRoundStatus,
   CriticalThinkingRun,
+  CriticalThinkingSource,
   CriticalThinkingStepState
 } from '@shared/criticalThinking.types'
 import type { Plan } from '@shared/plan.types'
@@ -48,6 +49,7 @@ export function CriticalThinkingProgress({ run }: CriticalThinkingProgressProps)
           <ActivityTimeline activities={run.activities} />
         </div>
       </div>
+      <EvidenceTrail sources={run.sources} />
       <div className={styles.researchHint} aria-live="polite">
         <Icon name={researching ? 'web' : 'pencil'} size={17} />
         <div className={styles.researchStatusText}>
@@ -102,6 +104,12 @@ function PlanProgress({ plan, steps, currentStep }: PlanProgressProps): JSX.Elem
                   : planStep.status
           return (
             <li key={planStep.id} className={styles[`step-${displayStatus}`]}>
+              {displayStatus === 'in_progress' && (
+                <span className={styles.stepComet} aria-hidden="true">
+                  <span className={styles.stepCometHalo} />
+                  <span className={styles.stepCometCore} />
+                </span>
+              )}
               <span className={styles.stepIcon}>
                 {displayStatus === 'completed' ? (
                   <Icon name="check" size={12} />
@@ -129,12 +137,97 @@ function PlanProgress({ plan, steps, currentStep }: PlanProgressProps): JSX.Elem
   )
 }
 
+/**
+ * The id of the item that has just appeared at the end of a growing list, or
+ * null.
+ *
+ * Only an arrival this component *watches* is flagged: on first mount the whole
+ * list is history, however recent, so opening a run mid-research must not write
+ * in its last row as though it just happened. Re-rendering for any other reason
+ * — scrolling, expanding earlier rows — leaves the flag where it is, because
+ * nothing new arrived.
+ */
+function useNewestId(items: { id: string }[]): string | null {
+  const [newestId, setNewestId] = useState<string | null>(null)
+  const seenRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const latest = items.at(-1)?.id ?? null
+    if (latest === null) return
+    if (seenRef.current !== null && seenRef.current !== latest) setNewestId(latest)
+    seenRef.current = latest
+  }, [items])
+
+  return newestId
+}
+
+/** How many of the most recent verified sources the live trail shows. */
+const TRAIL_VISIBLE = 5
+
+/**
+ * The evidence the run has actually banked so far.
+ *
+ * `run.sources` is merged as each page is fetched and verified, but the full
+ * `Sources` grid only renders once a report exists — so for the entire research
+ * phase the trail was accumulating in state and showing nowhere, and a run that
+ * was busy gathering looked like a run that was busy thinking. Verified only,
+ * matching what the final grid counts, so the number here can't disagree with
+ * the number there.
+ */
+function EvidenceTrail({ sources }: { sources: CriticalThinkingSource[] }): JSX.Element {
+  const verified = sources.filter((source) => source.verified)
+  const newestId = useNewestId(verified)
+  const visible = verified.slice(-TRAIL_VISIBLE)
+  const earlier = verified.length - visible.length
+
+  return (
+    <div className={styles.trailCard}>
+      <div className={styles.trailHead}>
+        <p className={styles.cardEyebrow}>Evidence trail</p>
+        <span className={styles.trailCount}>
+          {verified.length} verified{earlier > 0 ? ` · ${earlier} earlier` : ''}
+        </span>
+      </div>
+      {verified.length === 0 ? (
+        <p className={styles.activityEmpty}>No page has been read end to end yet.</p>
+      ) : (
+        <div className={styles.trailList}>
+          {visible.map((source) => (
+            <a
+              key={source.id}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+              className={`${styles.trailRow} ${source.id === newestId ? styles.activityArrived : ''}`}
+            >
+              <span className={styles.trailMark}>
+                <Icon name="check" size={11} />
+              </span>
+              <span className={styles.trailTitle}>{source.title}</span>
+              <span className={styles.trailHost}>{safeHost(source.url)}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function safeHost(value: string): string {
+  try {
+    return new URL(value).hostname.replace(/^www\./, '')
+  } catch {
+    return value.length > 40 ? `${value.slice(0, 39)}…` : value
+  }
+}
+
 export function ActivityTimeline({
   activities
 }: {
   activities: CriticalThinkingActivity[]
 }): JSX.Element {
   const [showAll, setShowAll] = useState(false)
+  const newestId = useNewestId(activities)
   if (activities.length === 0) {
     return <p className={styles.activityEmpty}>Waiting for the first research action…</p>
   }
@@ -152,7 +245,12 @@ export function ActivityTimeline({
         </button>
       )}
       {visible.map((activity) => (
-        <div key={activity.id} className={styles.activityRow}>
+        <div
+          key={activity.id}
+          className={`${styles.activityRow} ${
+            activity.id === newestId ? styles.activityArrived : ''
+          }`}
+        >
           <span className={styles.activityIcon}>
             {activity.status === 'running' ? (
               <Spinner size={11} />

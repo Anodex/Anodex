@@ -62,6 +62,11 @@ folder.
 - Built-in slash-command shortcuts in the composer: `/test`, `/review`,
   `/refactor`, and `/summarize` expand into reusable prompts for common
   workflows.
+- Keyboard shortcuts cover creation (new chat, new project), navigation
+  (`Ctrl+1`-`Ctrl+5` follow the sidebar's own order), layout (sidebar, workspace
+  dock and its panels), and chat (focus composer, `Esc` to stop a reply). Every
+  binding is editable in Settings -> Keyboard, with per-shortcut reset and clear
+  controls; `Ctrl+/` opens a cheat sheet of the currently active bindings.
 - Assistant turns that change project files keep a compact checkpoint. The
   message footer opens a review dialog with created/modified/deleted labels,
   before/after diffs, and selective restore. Files changed again after the AI
@@ -163,7 +168,7 @@ agent runs and scheduled tasks keep their own explicit per-run tool selections.
 
 On smaller local-model contexts, Anodex also budgets the active tool surface
 automatically. Task-relevant tools keep native function schemas; unrelated
-Gmail, MCP, and project tools remain available through a compact on-demand
+email, MCP, and project tools remain available through a compact on-demand
 discover/describe/call gateway instead of crowding the reply out before it can
 start. The chat context meter shows exact local tool-schema usage and how many
 additional tools are available on demand.
@@ -181,13 +186,19 @@ additional tools are available on demand.
   `edit_file`, `patch_file`, `delete_file`, `move_file`, `delete_directory`,
   `create_directory` (always low-risk, never confirms), `run_command`,
   `run_project_check` (structured test/typecheck/lint/build diagnostics), and
-  `save_email_attachment` (when Gmail is enabled, saves an attachment into the
-  project).
+  `save_email_attachment` (when an email account is linked, saves an attachment
+  into the project).
 - **Web (workspace-independent, available in general chat too):**
   `fetch_url` (read a public URL using focused passage extraction and retain a
   structured artifact), `web_search` (via a provider you choose in
   Settings — SearXNG self-hosted, Brave, Tavily, or Google Programmable
   Search; the tool doesn't exist at all when no provider is configured).
+- **Cloud image generation (workspace-independent):** `generate_image` appears
+  only with a connected OpenAI or Google AI chat provider. It creates one PNG
+  through that provider's first-party image API, renders it inline in the
+  conversation, and always shows the exact prompt for explicit approval before
+  the paid external request. Generated pixels use the same bounded local
+  conversation-asset storage and fullscreen viewer as inspected images.
 - **Plan:** `write_plan` / `update_plan_step` — a visible, structured task
   list the model can create and check off as it works.
 - **Project notes:** `update_project_notes` (writes to the project's
@@ -197,10 +208,26 @@ additional tools are available on demand.
   and fold completed work into the living project spec.
 - **Memory:** `remember_fact` saves approved global or project-scoped facts
   when memory is enabled.
-- **Email (when Gmail is enabled):** `list_threads`, `search_email`,
-  `read_email`, `summarize_thread`, `find_attachments`, `draft_email`, and
-  approval-gated `send_email`; `save_email_attachment` additionally requires
-  an open project.
+- **Scheduling:** `schedule_task` creates a Scheduler task from plain language
+  ("tomorrow at noon", "every weekday at 9am"), always confirmed before it is
+  saved. It uses the same parser as the Scheduler's own When field, so both
+  surfaces agree on what a phrase means.
+- **Email (when at least one account is linked):** `list_email_accounts`,
+  `list_threads`, `search_email`, `read_email`, `summarize_thread`,
+  `find_attachments`, `list_mailboxes`, `draft_email`, `manage_email`
+  (mark read/unread, star, archive), `move_email`, and the approval-gated
+  `send_email` / `reply_email`; `save_email_attachment` additionally requires
+  an open project. Every tool takes an optional `account`, defaulting to the
+  primary one, and `search_email` fans out across all accounts when none is
+  named.
+
+Sending mail needs a person, not just a permission mode. `send_email` and
+`reply_email` are marked `requiresHumanApproval`, so they confirm in every mode
+and the unattended surfaces — scheduled tasks, agent runs, critical-thinking
+research — refuse them outright instead of auto-approving on the user's behalf.
+Those surfaces can still read, search, and `draft_email`, so a scheduled task
+prepares a reply and reports back rather than sending unseen. The Scheduler and
+Agent editors show the send tools disabled for the same reason.
 
 ## GitHub and MCP integrations
 
@@ -392,7 +419,9 @@ input/output split per model underneath.
 - **AI & Models** — local and cloud model control: load/unload, providers, hardware
   panel, recommended-model strip, installed-models table with fit + reliability
   scores, in-catalog search/download, and response-generation defaults.
-- **Email** — Gmail connection, sync scope, and advanced OAuth setup.
+- **Email** — address-first account linking (Gmail/Outlook browser sign-in or
+  autoconfigured IMAP/SMTP), multiple accounts with a default, per-account sync
+  scope, and advanced OAuth-client overrides.
 - **GitHub** — official hosted MCP connection, read-only/toolset controls, and
   active-project repository linking.
 - **MCP Servers** — advanced local/remote MCP server configuration, connection

@@ -1,5 +1,10 @@
 import { create } from 'zustand'
-import type { EngineState, ModelDownloadProgress, ModelInfo } from '@shared/model.types'
+import type {
+  EngineState,
+  ModelDownloadProgress,
+  ModelInfo,
+  ModelLoadRecovery
+} from '@shared/model.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
 import { anodex } from '../lib/anodex'
 import { notifyError, useUiStore } from './uiStore'
@@ -14,10 +19,16 @@ interface ModelState {
   pendingPath: string | null
   /** In-progress/most-recent download per `RecommendedModel.id`. */
   downloads: Record<string, ModelDownloadProgress>
+  /**
+   * Set when the previous run died loading a model. While it is set, nothing
+   * auto-loads — the whole point is to break the crash loop and let the user
+   * choose.
+   */
+  loadRecovery: ModelLoadRecovery | null
   refresh: () => Promise<void>
   addModel: () => Promise<void>
   addVisionProjector: (model: ModelInfo) => Promise<void>
-  loadModel: (model: ModelInfo) => Promise<void>
+  loadModel: (model: ModelInfo, overrides?: ModelLoadOverrides) => Promise<void>
   unloadModel: () => Promise<void>
   deleteModel: (model: ModelInfo) => Promise<void>
   downloadModel: (model: RecommendedModel) => Promise<void>
@@ -26,6 +37,20 @@ interface ModelState {
   setEngineState: (state: EngineState) => void
   /** Called by the IPC bridge when a download reports progress. */
   setDownloadProgress: (progress: ModelDownloadProgress) => void
+  /** Ask the main process whether the previous run crashed mid-load. */
+  checkLoadRecovery: () => Promise<ModelLoadRecovery | null>
+  /** Load the crashed model under the recovery's safer settings, and keep them. */
+  retryLoadSafely: () => Promise<void>
+  /** Load the crashed model again unchanged, at the user's explicit request. */
+  retryLoadUnchanged: () => Promise<void>
+  /** Answer the recovery prompt without loading anything. */
+  dismissLoadRecovery: () => void
+}
+
+/** Per-load settings that override the saved defaults for one attempt. */
+interface ModelLoadOverrides {
+  contextSize?: number
+  gpuLayers?: number | 'auto'
 }
 
 /** Local model catalogue plus the live engine state. */
@@ -34,6 +59,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   engine: INITIAL_ENGINE,
   pendingPath: null,
   downloads: {},
+  loadRecovery: null,
 
   refresh: async () => {
     const result = await anodex.models.list()
@@ -87,14 +113,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
     })
   },
 
-  loadModel: async (model) => {
+  loadModel: async (model, overrides) => {
     const settings = useSettingsStore.getState().settings
     set({ pendingPath: model.path })
     const result = await anodex.models.load({
       path: model.path,
       visionProjectorPath: model.visionProjectorPath,
-      contextSize: settings?.model.contextSize,
-      gpuLayers: settings?.model.gpuLayers
+      contextSize: overrides?.contextSize ?? settings?.model.contextSize,
+      gpuLayers: overrides?.gpuLayers ?? settings?.model.gpuLayers
     })
     set({ pendingPath: null })
 
@@ -151,5 +177,60 @@ export const useModelStore = create<ModelState>((set, get) => ({
   setEngineState: (state) => set({ engine: state }),
 
   setDownloadProgress: (progress) =>
-    set((s) => ({ downloads: { ...s.downloads, [progress.modelId]: progress } }))
+    set((s) => ({ downloads: { ...s.downloads, [progress.modelId]: progress } })),
+
+  checkLoadRecovery: async () => {
+    const recovery = await anodex.models.getLoadRecovery()
+    set({ loadRecovery: recovery })
+    return recovery
+  },
+
+  retryLoadSafely: async () => {
+    const recovery = get().loadRecovery
+    if (!recovery) return
+    get().dismissLoadRecovery()
+
+    // Persist the safer settings before loading, not after. If this attempt
+    // crashes too, the next launch has to auto-restore under the reduced
+    // settings rather than the ones already known to crash. `contextSize` is
+    // only included when the recovery actually named one — the patch merge
+    // treats a present-but-undefined key as a real value and would blank the
+    // saved size.
+    await useSettingsStore.getState().update({
+      model: {
+        gpuLayers: recovery.retry.gpuLayers,
+        ...(recovery.retry.contextSize !== undefined
+          ? { contextSize: recovery.retry.contextSize }
+          : {})
+      }
+    })
+
+    const model = get().models.find((m) => m.path === recovery.interrupted.modelPath)
+    if (!model) {
+      notifyError('Model file is missing', recovery.interrupted.modelPath)
+      return
+    }
+    await get().loadModel(model, recovery.retry)
+  },
+
+  retryLoadUnchanged: async () => {
+    const recovery = get().loadRecovery
+    if (!recovery) return
+    get().dismissLoadRecovery()
+
+    const model = get().models.find((m) => m.path === recovery.interrupted.modelPath)
+    if (!model) {
+      notifyError('Model file is missing', recovery.interrupted.modelPath)
+      return
+    }
+    await get().loadModel(model, {
+      gpuLayers: recovery.interrupted.gpuLayers,
+      contextSize: recovery.interrupted.contextSize
+    })
+  },
+
+  dismissLoadRecovery: () => {
+    set({ loadRecovery: null })
+    void anodex.models.dismissLoadRecovery()
+  }
 }))

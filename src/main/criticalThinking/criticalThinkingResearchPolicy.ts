@@ -79,6 +79,74 @@ export interface ResearchCandidate extends SearchResult {
   rank: number
 }
 
+/**
+ * A query term is *distinctive* when few of that query's own results contain
+ * it. Those are the terms that locate the question — a place, an
+ * organization, a specific mechanism — while a term nearly every result
+ * shares carries no ranking information at all. Derived per batch from the
+ * results themselves, so it needs no maintained list of which words are
+ * generic, in any subject.
+ *
+ * Counting every term equally is what let a Colorado-scoped step fill up with
+ * a Chinese excavator manufacturer, a UAE dealer, and Hitachi Construction
+ * Machinery Africa: each matched "construction", "mining", "excavators",
+ * "wheel", "loaders" and "projects" — six points — while the one Colorado
+ * source matched two terms and lost.
+ */
+const DISTINCTIVE_TERM_RESULT_FRACTION = 0.4
+const DISTINCTIVE_TERM_SCORE = 18
+const GENERIC_TERM_SCORE = 4
+const MAX_SCORED_GENERIC_TERMS = 5
+/**
+ * Matching none of the distinctive terms is not merely a low score — it is
+ * positive evidence that a result answers some *other* question that happens
+ * to share this one's generic vocabulary. Ranking it below an on-scope result
+ * takes a penalty, not just fewer points, because generic matches are
+ * plentiful and distinctive ones are rare by construction. Applied only when
+ * the query has distinctive terms at all; when every result shares every
+ * term, nothing here separates them and ordering falls to source authority
+ * and provider rank, as before.
+ */
+const OFF_SCOPE_PENALTY = 25
+
+interface QueryTermWeights {
+  distinctive: string[]
+  generic: string[]
+}
+
+function weighQueryTerms(terms: string[], searchables: string[]): QueryTermWeights {
+  if (searchables.length === 0) return { distinctive: [], generic: terms }
+  const distinctive: string[] = []
+  const generic: string[] = []
+  for (const term of terms) {
+    const documentFrequency = searchables.reduce(
+      (total, text) => total + (text.includes(term) ? 1 : 0),
+      0
+    )
+    const bucket =
+      documentFrequency / searchables.length <= DISTINCTIVE_TERM_RESULT_FRACTION
+        ? distinctive
+        : generic
+    bucket.push(term)
+  }
+  return { distinctive, generic }
+}
+
+function relevanceScore(searchable: string, weights: QueryTermWeights): number {
+  const distinctiveHits = weights.distinctive.filter((term) => searchable.includes(term)).length
+  const genericHits = weights.generic.filter((term) => searchable.includes(term)).length
+  const offScope = weights.distinctive.length > 0 && distinctiveHits === 0 ? OFF_SCOPE_PENALTY : 0
+  return (
+    distinctiveHits * DISTINCTIVE_TERM_SCORE +
+    Math.min(genericHits, MAX_SCORED_GENERIC_TERMS) * GENERIC_TERM_SCORE -
+    offScope
+  )
+}
+
+function hostnameOf(value: string): string {
+  return safePublicUrl(value)?.hostname ?? ''
+}
+
 /** Select bounded, canonical, domain-diverse URLs from real provider results. */
 export function selectResearchCandidates(
   batches: ResearchSearchBatch[],
@@ -93,6 +161,11 @@ export function selectResearchCandidates(
   const candidateByUrl = new Map<string, ScoredCandidate>()
 
   for (const batch of batches) {
+    const queryTerms = [...new Set(batch.query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])]
+    const searchables = batch.results.map((result) =>
+      `${result.title} ${result.snippet} ${hostnameOf(result.url)}`.toLowerCase()
+    )
+    const termWeights = weighQueryTerms(queryTerms, searchables)
     batch.results.forEach((result, index) => {
       const parsed = safePublicUrl(result.url)
       if (!parsed) return
@@ -102,12 +175,6 @@ export function selectResearchCandidates(
       parsed.hash = ''
       const canonical = canonicalResearchUrl(parsed.toString())
       if (normalizedFetchedUrls.has(canonical)) return
-      const searchable = `${result.title} ${result.snippet} ${parsed.hostname}`.toLowerCase()
-      const queryTerms = new Set(batch.query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])
-      const termHits = [...queryTerms].reduce(
-        (total, term) => total + (searchable.includes(term) ? 1 : 0),
-        0
-      )
       const candidate: ScoredCandidate = {
         ...result,
         url: parsed.toString(),
@@ -115,7 +182,7 @@ export function selectResearchCandidates(
         rank: index + 1,
         host: normalizedHost(parsed.hostname),
         score:
-          Math.min(termHits, 8) * 10 +
+          relevanceScore(searchables[index], termWeights) +
           criticalThinkingSourceAuthorityScore(parsed, result.title, result.snippet) -
           index
       }

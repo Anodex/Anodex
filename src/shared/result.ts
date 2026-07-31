@@ -21,8 +21,41 @@ export function ok<T>(value: T): Result<T> {
   return { ok: true, value }
 }
 
+/**
+ * Optional observer for every failure returned across the IPC boundary.
+ *
+ * Handlers catch their own errors and return `err(...)`, so a wrapper around
+ * `ipcMain.handle` would never see the throw — this is the only choke point that
+ * sees all of them. The main process attaches the diagnostics reporter here at
+ * startup (see `src/main/diagnostics`), which is what keeps a failure like "the
+ * model wouldn't load" from reaching the user as a bare sentence with nothing
+ * behind it. Injected rather than imported because this module is shared with
+ * the renderer, which must not pull in main-process code.
+ */
+export type ResultErrorReporter = (error: AnodexError) => void
+
+let reporter: ResultErrorReporter | null = null
+let reporting = false
+
+/** Attach (or with `null`, detach) the failure observer. */
+export function setResultErrorReporter(next: ResultErrorReporter | null): void {
+  reporter = next
+}
+
 export function err(code: string, message: string, detail?: string): Result<never> {
-  return { ok: false, error: { code, message, detail } }
+  const error: AnodexError = { code, message, detail }
+  // `reporting` guards against a reporter that itself fails through `err`.
+  if (reporter && !reporting) {
+    reporting = true
+    try {
+      reporter(error)
+    } catch {
+      // Observing a failure must never turn into a second one.
+    } finally {
+      reporting = false
+    }
+  }
+  return { ok: false, error }
 }
 
 /** Narrow an unknown thrown value into a stable error message string. */

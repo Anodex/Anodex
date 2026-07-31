@@ -215,3 +215,52 @@ The original research report.`)
     )
   })
 })
+
+describe('HTML entities in source metadata', () => {
+  it('decodes titles and snippets once, where the source is built', () => {
+    // A live report cited "Rippa Excavators: Versatile Machinery for
+    // Construction &amp; Mining" — the encoded title travelled from the search
+    // result into the markdown link of every citation.
+    const [source] = sourcesFromArtifact({
+      id: 'artifact_1',
+      conversationId: 'critical_test',
+      messageId: 'message_1',
+      createdAt: 1,
+      kind: 'web-fetch',
+      requestedUrl: 'https://example.com/a',
+      finalUrl: 'https://example.com/a',
+      status: 200,
+      contentType: 'text/html',
+      title: 'Excavators &amp; Loaders &#8211; Caf&#233; &quot;Test&quot;',
+      contentHash: 'hash',
+      contentChars: 10,
+      truncated: false,
+      passages: [{ id: 'P1', text: 'Evidence text', score: 100 }],
+      warnings: []
+    })
+
+    expect(source.title).toBe('Excavators & Loaders – Café "Test"')
+  })
+
+  it('leaves text that merely looks like an entity alone', () => {
+    const [source] = sourcesFromArtifact({
+      id: 'artifact_2',
+      conversationId: 'critical_test',
+      messageId: 'message_1',
+      createdAt: 1,
+      kind: 'web-fetch',
+      requestedUrl: 'https://example.com/b',
+      finalUrl: 'https://example.com/b',
+      status: 200,
+      contentType: 'text/html',
+      title: 'Profit & loss; margins &notarealentity; up',
+      contentHash: 'hash',
+      contentChars: 10,
+      truncated: false,
+      passages: [{ id: 'P1', text: 'Evidence text', score: 100 }],
+      warnings: []
+    })
+
+    expect(source.title).toBe('Profit & loss; margins &notarealentity; up')
+  })
+})

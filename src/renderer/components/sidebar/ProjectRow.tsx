@@ -15,6 +15,8 @@ interface ProjectRowProps {
   running: boolean
   unread: boolean
   readConversationAt: Record<string, number>
+  /** Search excerpts by conversation id — see `ChatRow`'s own `excerpt` prop. */
+  matchExcerpts?: Map<string, string>
   onToggle: () => void
   onNewChat: (projectId: string) => void
   onSelectConversation: (conversationId: string) => void
@@ -36,6 +38,7 @@ export function ProjectRow({
   running,
   unread,
   readConversationAt,
+  matchExcerpts,
   onToggle,
   onNewChat,
   onSelectConversation,
@@ -120,6 +123,7 @@ export function ProjectRow({
                 projectPath={project.folderPath}
                 running={isConversationRunning(conversation)}
                 unread={isConversationUnread(conversation)}
+                excerpt={matchExcerpts?.get(conversation.id)}
                 onClick={() => void onSelectConversation(conversation.id)}
                 onRename={(title) => void onRenameConversation(conversation.id, title)}
                 onMarkUnread={() =>

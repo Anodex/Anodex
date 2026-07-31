@@ -1,0 +1,6 @@
+# Skill files look like they have YAML frontmatter, but `parseSkillFile`
+# (src/main/skills/skillFile.ts) is a hand-rolled flat `key: value` parser: it
+# throws on any frontmatter line without a colon. Prettier formats the block as
+# real YAML and reflows a long `keywords: [...]`/`tools: [...]` array onto a
+# continuation line, which silently turns a valid skill into an unloadable one.
+resources/skills/

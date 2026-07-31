@@ -1,0 +1,175 @@
+/**
+ * The assistant rail docked beside an open email thread. Hosts the real chat
+ * transcript and composer, so this file styles only the frame around them —
+ * anything that looks like chat is the chat feature's own CSS.
+ */
+.rail {
+  display: flex;
+  flex-direction: column;
+  /* The transcript inside is a flex child that scrolls; without this the rail
+     grows to fit the whole conversation and the composer walks off-screen. */
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+}
+
+.railHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.railTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.railTitle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/**
+ * The chat's id, revealed by hovering the title. Kept out of sight until then
+ * because it is for copying into something else, not for reading — but it has
+ * to be reachable from where the chat is being used, not only from a
+ * right-click menu on a row in another part of the app.
+ */
+.chatId {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 2px var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  /* Not `display: none` — the id keeps its space in the row, so revealing it
+     cannot shove the hide button sideways under the cursor. */
+  opacity: 0;
+  transition:
+    opacity var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.railHeader:hover .chatId,
+.chatId:focus-visible {
+  opacity: 1;
+}
+
+.chatId:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.chatIdValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railTitle svg {
+  color: var(--accent);
+}
+
+.railButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.railButton:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.railButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Shown until the thread's chat has its first turn — an empty transcript with
+   nothing to act on is a worse first impression than a few real openings. */
+.starters {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.startersLead {
+  margin: 0 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.starter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  text-align: left;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.starter svg {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.starter:hover:not(:disabled),
+.starter:hover:not(:disabled) svg {
+  color: var(--accent);
+}
+
+.starter:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.starter:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

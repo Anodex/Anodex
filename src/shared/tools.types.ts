@@ -59,10 +59,17 @@ export type ToolCallPreview =
   | {
       /** Image bytes used immediately by the live transcript; never persisted in conversation JSON. */
       kind: 'image'
-      /** Whether pixels were sent to the model or deliberately shown only to the user. */
-      source?: 'inspection' | 'assistant'
+      /**
+       * Where the pixels came from, which decides how they can be recovered
+       * once the durable asset is gone: `inspection` and `email` were both sent
+       * to the model but are re-fetched by different tools, and `assistant` was
+       * deliberately shown only to the user.
+       */
+      source?: 'inspection' | 'assistant' | 'email' | 'generated'
       title: string
       path: string
+      /** Original prompt, retained for a user-requested regeneration if this asset expires. */
+      prompt?: string
       dataUrl?: string
       mimeType: string
       /** Durable, sandboxed reference used to reopen the exact inspected pixels later. */
@@ -94,6 +101,25 @@ export interface ToolActivityEvent {
 }
 
 /** A request for the user to approve a write or command before it runs. */
+/**
+ * An outgoing email as the approval prompt should show it.
+ *
+ * Deliberately the resolved message, not the model's arguments: a reply's
+ * recipients and subject come from the message being answered, and a send from
+ * a saved draft ignores whatever the model passed alongside the draft id. The
+ * user has to approve what will actually leave the machine.
+ */
+export interface EmailDraftPreview {
+  to: string[]
+  cc?: string[]
+  bcc?: string[]
+  subject: string
+  body: string
+  attachmentNames?: string[]
+  /** Subject of the message being answered, when this is a reply. */
+  inReplyToSubject?: string
+}
+
 export interface ToolConfirmRequest {
   id: string
   conversationId: string
@@ -108,11 +134,25 @@ export interface ToolConfirmRequest {
   risk: ToolRisk
   /** Before/after content for a file write/edit, so the prompt can render a real diff instead of a raw text preview. */
   diff?: ToolCallDiff
+  /**
+   * The message an email tool is about to send, when this prompt is gating
+   * one. Present so the approval can be rendered as the draft it is —
+   * recipients, subject, and body as prose — rather than as a block of
+   * pre-formatted detail text the reader has to parse before deciding.
+   */
+  emailDraft?: EmailDraftPreview
   /** True when this prompt exists specifically because of the once-per-turn
    * "first action" gate (full/untethered mode, not a normal risk-based
    * confirm) — lets the UI explain that approving covers the rest of this
    * turn, not just this one action. */
   turnGate?: boolean
+  /**
+   * True when a real person must answer this prompt — see
+   * `ToolCatalogEntry.requiresHumanApproval`. Carried on the request so the
+   * headless confirm handlers the unattended surfaces install
+   * (`headlessConfirm`) can refuse it without knowing which tools those are.
+   */
+  requiresHumanApproval?: boolean
 }
 
 /** The user's answer to a `ToolConfirmRequest`. */
@@ -132,6 +172,16 @@ export interface ToolCatalogEntry {
   description: string
   /** True if this tool only registers when a project (workspace folder) is open. */
   requiresProject?: boolean
+  /**
+   * True if this tool may only ever run with a person present to approve the
+   * specific call. Unlike a risk tier, this is not something a permission mode
+   * can relax: `untethered` still confirms it, and the unattended surfaces
+   * (scheduled tasks, agent runs, critical-thinking research) refuse it rather
+   * than auto-approving, because their headless `confirm` is not a human
+   * saying yes. Set on the tools that reach outside the machine on the user's
+   * behalf and cannot be taken back — sending mail.
+   */
+  requiresHumanApproval?: boolean
 }
 
 export const TOOL_CATALOG: ToolCatalogEntry[] = [
@@ -178,6 +228,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'read',
     description: 'Display an existing workspace image directly in the assistant reply.',
     requiresProject: true
+  },
+  {
+    name: 'generate_image',
+    kind: 'web',
+    description:
+      'Generate one image with the active supported cloud provider. Always requires explicit approval because it sends the prompt to a paid external image API.'
   },
   {
     name: 'get_file_info',
@@ -320,6 +376,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Load a skill's full instructions by name."
   },
   {
+    name: 'schedule_task',
+    kind: 'write',
+    description:
+      'Create a Scheduler task that runs a prompt later, once or on a repeat. Always confirmed before saving.'
+  },
+  {
     name: 'update_project_notes',
     kind: 'write',
     description:
@@ -360,9 +422,14 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       'Save durable global or project memory. Approval depends on memory settings and permission mode.'
   },
   {
+    name: 'list_email_accounts',
+    kind: 'read',
+    description: 'List the linked email accounts and which one is the default.'
+  },
+  {
     name: 'list_threads',
     kind: 'read',
-    description: 'List recent email threads from the configured email provider.'
+    description: 'List recent email threads from a linked email account.'
   },
   {
     name: 'search_email',
@@ -380,9 +447,29 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: 'Create a local email draft without sending it.'
   },
   {
+    name: 'save_email_draft',
+    kind: 'write',
+    description:
+      "Save a draft into the account's Drafts folder for the user to finish. Sends nothing."
+  },
+  {
     name: 'send_email',
     kind: 'write',
-    description: 'Send an email, always requiring explicit approval.'
+    description: 'Send an email, always requiring explicit approval.',
+    requiresHumanApproval: true
+  },
+  {
+    name: 'forward_email',
+    kind: 'write',
+    description:
+      'Forward a message to someone else with its attachments, always requiring explicit approval.',
+    requiresHumanApproval: true
+  },
+  {
+    name: 'batch_email',
+    kind: 'write',
+    description:
+      'Apply one action (mark read, star, archive, move) to every thread matching a query. Cannot delete mail.'
   },
   {
     name: 'summarize_thread',
@@ -393,6 +480,40 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'find_attachments',
     kind: 'read',
     description: 'Find attachments in an email thread.'
+  },
+  {
+    name: 'view_email_attachment',
+    kind: 'read',
+    description:
+      'Look at the pixels of an image attached to an email. Only available when the active model can see images.'
+  },
+  {
+    name: 'read_email_attachment',
+    kind: 'read',
+    description: 'Read the text of a PDF, CSV, JSON, or text attachment on an email.'
+  },
+  {
+    name: 'list_mailboxes',
+    kind: 'read',
+    description: 'List the mailboxes, labels, or folders on an email account.'
+  },
+  {
+    name: 'reply_email',
+    kind: 'write',
+    description:
+      'Reply in-thread to an email message, always requiring explicit approval before sending.',
+    requiresHumanApproval: true
+  },
+  {
+    name: 'manage_email',
+    kind: 'write',
+    description:
+      'Mark email read or unread, star, archive, or move it back to the inbox. Cannot delete mail.'
+  },
+  {
+    name: 'move_email',
+    kind: 'write',
+    description: 'Move an email thread or message to another mailbox, label, or folder.'
   },
   {
     name: 'save_email_attachment',

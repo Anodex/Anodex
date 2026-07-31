@@ -3,6 +3,7 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { anodex } from '../../../lib/anodex'
 import { useSettingsStore } from '../../../stores/settingsStore'
+import { TERMINAL_SURFACE_ATTR } from '../../../hooks/useGlobalKeyboardShortcuts'
 import { WorkspaceDockPanel } from '../WorkspaceDockPanel'
 import styles from './TerminalPanel.module.css'
 import '@xterm/xterm/css/xterm.css'
@@ -143,7 +144,8 @@ export function TerminalPanel(): JSX.Element {
 
   return (
     <WorkspaceDockPanel title="Terminal">
-      <div ref={containerRef} className={styles.terminal} />
+      {/* Tagged so global shortcuts (Ctrl+L especially) defer to the shell. */}
+      <div ref={containerRef} className={styles.terminal} {...{ [TERMINAL_SURFACE_ATTR]: '' }} />
     </WorkspaceDockPanel>
   )
 }

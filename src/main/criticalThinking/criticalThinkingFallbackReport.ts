@@ -134,14 +134,28 @@ function buildStepSection(
   return `${heading}\n\n${buildStepBody(excerpts)}`
 }
 
+/**
+ * Excerpt bullets, introduced as what they are. Without the lead-in these
+ * sections read as if the report simply trailed off into disconnected
+ * sentences — on a real run four of six sections were bare bullet lists, and
+ * nothing told the reader they were looking at verbatim source text rather
+ * than written analysis.
+ *
+ * The label shares a block with the first bullet (no blank line between), so
+ * the block it belongs to carries that bullet's citation and citation
+ * coverage stays satisfied. A blank line here would make it an uncited prose
+ * block and cost the report an issue for the privilege of being readable.
+ */
 function buildStepBody(excerpts: StepExcerpt[]): string {
-  return excerpts
+  const bullets = excerpts
     .slice(0, MAX_EXCERPTS_PER_STEP)
     .map(
       (excerpt) =>
         `- ${truncateExcerpt(excerpt.text, MAX_EXCERPT_CHARS)} [[${excerpt.sourceId}:${excerpt.passageId}]]`
     )
     .join('\n')
+  if (!bullets) return bullets
+  return `Direct excerpts from the verified sources for this step:\n${bullets}`
 }
 
 /** Only verified, fetched passages ever back a fallback excerpt — never `step.finding` prose. */

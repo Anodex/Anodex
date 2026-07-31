@@ -32,6 +32,61 @@ interface IssueCollector {
 const MIN_INITIAL_PASSAGE_TEXT_CHARS = 32
 const MAX_EXTRA_PASSAGE_LINE_CHARS = 360
 
+/**
+ * Rewrite the compound citation forms a model reaches for into the single
+ * `[[S1]]` / `[[S1:P2]]` markers every validator and renderer in this module
+ * recognizes: ranges (`[[S9:P1-S9:P2]]`, `[[S9:P1-P3]]`) and lists
+ * (`[[S1, S2]]`, `[[S1:P1; S1:P2]]`).
+ *
+ * Observed live: a report cited `[[S9:P1-S9:P2]]`. Because that shape matches
+ * none of the marker patterns, it was simultaneously invisible three ways —
+ * it rendered as literal `[[S9:P1-S9:P2]]` in the finished report, its source
+ * id was never checked against fetched evidence (a citation-safety hole, the
+ * one class of issue that must never pass), and the paragraph around it
+ * counted as UNCITED, pushing a properly-sourced report toward the
+ * deterministic fallback.
+ *
+ * A range is expanded to its endpoints rather than every passage between
+ * them: the endpoints are what the model actually named, and inventing the
+ * interior would be asserting citations it never wrote. Anything that still
+ * does not parse is left untouched so it stays visible as a defect instead of
+ * being silently deleted.
+ */
+export function normalizeCitationMarkers(report: string): string {
+  return report.replace(/\[\[([^\]\n]{1,120})\]\]/g, (marker, body: string) => {
+    const parts = body
+      .split(/\s*[,;]\s*|\s*[-–—]\s*/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+    if (parts.length < 2) return marker
+    const expanded: string[] = []
+    let currentSource = ''
+    for (const part of parts) {
+      const full = /^(S\d+):(P\d+)$/i.exec(part)
+      if (full) {
+        currentSource = full[1].toUpperCase()
+        expanded.push(`[[${currentSource}:${full[2].toUpperCase()}]]`)
+        continue
+      }
+      const sourceOnly = /^(S\d+)$/i.exec(part)
+      if (sourceOnly) {
+        currentSource = sourceOnly[1].toUpperCase()
+        expanded.push(`[[${currentSource}]]`)
+        continue
+      }
+      // A bare passage ("P3" in "[[S9:P1-P3]]") belongs to the source named
+      // most recently, which is how the model wrote it.
+      const passageOnly = /^(P\d+)$/i.exec(part)
+      if (passageOnly && currentSource) {
+        expanded.push(`[[${currentSource}:${passageOnly[1].toUpperCase()}]]`)
+        continue
+      }
+      return marker
+    }
+    return [...new Set(expanded)].join(' ')
+  })
+}
+
 /** Build a bounded, exact evidence packet; only fetched pages can support citations. */
 export function buildEvidencePacket(
   artifacts: ToolArtifact[],
@@ -235,10 +290,11 @@ export function validateResearchReport(
     }
   }
 
-  validateCitationCoverage(proseReport, collector)
+  const exempt = uncitableBlocks(proseReport)
+  validateCitationCoverage(proseReport, collector, exempt)
   validateSourceQualityCoverage(proseReport, sourceById, collector)
   validateCharts(report, passagesByUrl, sourceById, collector)
-  validateNumericClaims(proseReport, passagesByUrl, sourceById, collector)
+  validateNumericClaims(proseReport, passagesByUrl, sourceById, collector, exempt)
   if (citationIds.length === 0) {
     collector.coverage.push('The report contains no evidence citation markers.')
   }
@@ -251,7 +307,8 @@ function validateNumericClaims(
   report: string,
   passagesByUrl: Map<string, EvidencePassage[]>,
   sourceById: Map<string, CriticalThinkingSource>,
-  collector: IssueCollector
+  collector: IssueCollector,
+  exempt: Set<string>
 ): void {
   for (const paragraph of report.split(/\n{2,}/)) {
     const citations = [...paragraph.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)]
@@ -262,6 +319,10 @@ function validateNumericClaims(
     const claimText = withoutStructuralNumbering(paragraph.replace(/\[\[S\d+(?::P\d+)?\]\]/g, ''))
     const numbers = extractNumbers(claimText)
     if (citations.length === 0) {
+      // Coverage only, and never for a section whose subject is what the
+      // evidence does NOT cover — a limits line naming a step called
+      // "…allocations for 2024-2026" is not making a numeric claim.
+      if (exempt.has(paragraph.trim())) continue
       for (const number of numbers) {
         if (number.length === 1 && !number.endsWith('%')) continue
         collector.coverage.push(`Numeric claim ${number} has no evidence citation.`)
@@ -306,25 +367,145 @@ function passagesForCitations(
   })
 }
 
-/** Convert validated internal IDs into deterministic clickable Markdown links. */
-export function renderResearchCitations(report: string, sources: CriticalThinkingSource[]): string {
-  const sourceById = new Map(trustedVerifiedSources(sources).map((source) => [source.id, source]))
-  return report
-    .split(/(```[\s\S]*?```)/g)
-    .map((block) => {
-      if (block.startsWith('```chart')) return renderChartCitation(block, sourceById)
-      if (block.startsWith('```')) return block
-      return block.replace(/\[\[(S\d+)(?::(P\d+))?\]\]/g, (marker, sourceId: string) => {
-        const source = sourceById.get(sourceId)
-        return source ? markdownCitation(source) : marker
-      })
-    })
-    .join('')
+/**
+ * Locates the report's own "Sources" section, so its body can be replaced with
+ * a generated reference list rather than left as a row of bare markers. Ends at
+ * the next heading of the same or higher level — the section is not always last
+ * (a "Conclusion" often follows it), so scanning to the end of the report would
+ * swallow real content.
+ */
+function findSourcesSection(report: string): { start: number; end: number } | null {
+  const heading = /^(#{1,6})[ \t]*sources[ \t]*$/im.exec(report)
+  if (!heading) return null
+  const level = heading[1].length
+  const start = heading.index + heading[0].length
+  const rest = report.slice(start)
+  const next = new RegExp(`^#{1,${level}}[ \\t]+\\S`, 'm').exec(rest)
+  return { start, end: next ? start + next.index : report.length }
 }
 
-function validateCitationCoverage(report: string, collector: IssueCollector): void {
+/**
+ * Convert validated internal IDs into clickable numbered references.
+ *
+ * Citations used to expand into the source's full page title — up to 160
+ * characters — inline, mid-sentence. Because a handful of sources get cited
+ * many times over, that made citation markup roughly 40% of a finished report
+ * and turned dense passages into unreadable walls; a citation cluster between
+ * two sentences could run longer than either sentence. Numbers carry the same
+ * link and the same traceability at three characters, with the titles listed
+ * once under "Sources".
+ *
+ * Numbering follows first appearance in the body, so a reader meeting [1] has
+ * not yet seen [2]. The report's own Sources section is excluded from that scan
+ * — it names every source and would otherwise fix the order before the prose
+ * ever gets a say — and its body is then replaced with the generated list.
+ */
+export function renderResearchCitations(report: string, sources: CriticalThinkingSource[]): string {
+  const sourceById = new Map(trustedVerifiedSources(sources).map((source) => [source.id, source]))
+  const numbers = new Map<string, number>()
+  const ordered: CriticalThinkingSource[] = []
+
+  const numberFor = (sourceId: string): number | null => {
+    const source = sourceById.get(sourceId)
+    if (!source) return null
+    const existing = numbers.get(sourceId)
+    if (existing !== undefined) return existing
+    const next = ordered.push(source)
+    numbers.set(sourceId, next)
+    return next
+  }
+
+  const renderBody = (text: string): string =>
+    text
+      .split(/(```[\s\S]*?```)/g)
+      .map((block) => {
+        if (block.startsWith('```chart')) return renderChartCitation(block, sourceById, numberFor)
+        if (block.startsWith('```')) return block
+        return block.replace(/\[\[(S\d+)(?::(P\d+))?\]\]/g, (marker, sourceId: string) => {
+          const source = sourceById.get(sourceId)
+          if (!source) return marker
+          return numberedCitation(numberFor(sourceId)!, source)
+        })
+      })
+      .join('')
+
+  const section = findSourcesSection(report)
+  if (!section) {
+    // No Sources heading of its own. The numbered citations still resolve as
+    // links, but without a list the reader has no way to see what [7] is
+    // short of hovering every one — observed on a real report that ran to 23
+    // references with no legend. Append the list the numbers refer to.
+    const body = renderBody(report)
+    const list = ordered.map((source, index) => `${index + 1}. ${markdownCitation(source)}`)
+    return list.length > 0 ? `${body}\n\n## Sources\n\n${list.join('\n')}\n` : body
+  }
+
+  // Rendered before the list is built, so the list reflects the order the prose
+  // actually introduced each source.
+  const head = renderBody(report.slice(0, section.start))
+  const tail = renderBody(report.slice(section.end))
+  const list = ordered
+    .map((source, index) => `${index + 1}. ${markdownCitation(source)}`)
+    .join('\n')
+  return `${head}\n\n${list || '_No verified sources were cited._'}\n${tail}`
+}
+
+/**
+ * Headings whose whole purpose is to describe what the evidence does NOT
+ * establish. Requiring a citation for "no source reported service-contract
+ * terms for this dealer" is a category error — the statement is true
+ * *because* nothing was retrieved, so there is nothing to cite. Flagging them
+ * put every honest limits section into the issue list, which is one of the
+ * reasons well-sourced runs kept landing `partial`.
+ */
+const UNCITABLE_SECTION_HEADING =
+  /^\s{0,3}#{1,6}\s*(?:\d+[.)]?\s*)*(?:limits?\b|limitations?\b|open questions?\b|caveats?\b|what (?:we )?(?:could not|couldn.t)\b)/i
+
+/**
+ * The blocks that sit under an uncitable heading, keyed by their exact text so
+ * any validator can skip them without re-deriving section boundaries.
+ *
+ * Returned as a set of blocks rather than a stripped copy of the report on
+ * purpose: `validateNumericClaims` must keep running its *safety* check
+ * (a cited figure absent from the cited passage is fabrication, wherever it
+ * appears) while skipping only its coverage complaint about uncited figures.
+ * Step titles routinely carry years — "…funding allocations for 2024-2026" —
+ * and a limits section built from them would otherwise report a numeric claim
+ * for every one.
+ */
+function uncitableBlocks(report: string): Set<string> {
+  const blocks = new Set<string>()
+  let section: string[] = []
+  let exempt = false
+  const flush = (): void => {
+    if (exempt) {
+      for (const block of section.join('\n').split(/\n\s*\n/)) {
+        const trimmed = block.trim()
+        if (trimmed) blocks.add(trimmed)
+      }
+    }
+    section = []
+  }
+  for (const line of report.split('\n')) {
+    if (/^\s{0,3}#{1,6}\s/.test(line)) {
+      flush()
+      exempt = UNCITABLE_SECTION_HEADING.test(line)
+      continue
+    }
+    section.push(line)
+  }
+  flush()
+  return blocks
+}
+
+function validateCitationCoverage(
+  report: string,
+  collector: IssueCollector,
+  exempt: Set<string>
+): void {
   const withoutCode = report.replace(/```[\s\S]*?```/g, '')
   for (const block of withoutCode.split(/\n\s*\n/)) {
+    if (exempt.has(block.trim())) continue
     const prose = block
       .split('\n')
       .filter((line) => !/^\s{0,3}#{1,6}\s/.test(line) && !/^\s*[-*_]{3,}\s*$/.test(line))
@@ -387,7 +568,8 @@ function wordCount(value: string): number {
 
 function renderChartCitation(
   block: string,
-  sourceById: Map<string, CriticalThinkingSource>
+  sourceById: Map<string, CriticalThinkingSource>,
+  numberFor: (sourceId: string) => number | null
 ): string {
   const match = /^```chart\s*([\s\S]*?)```$/.exec(block)
   if (!match) return block
@@ -397,11 +579,21 @@ function renderChartCitation(
     const sourceId = /\[\[(S\d+)(?::P\d+)?\]\]/.exec(chart.source)?.[1]
     const source = sourceId ? sourceById.get(sourceId) : undefined
     if (!source) return block
+    // A chart's source is a standalone caption, not something a reader has to
+    // step over mid-sentence, so it keeps the full title — but it still claims
+    // a number, so the same source reads as the same reference everywhere.
+    numberFor(sourceId!)
     chart.source = markdownCitation(source)
     return `\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\``
   } catch {
     return block
   }
+}
+
+/** A citation a reader can step over: the reference number, linking to the source. */
+function numberedCitation(index: number, source: CriticalThinkingSource): string {
+  const url = source.url.replace(/\\/g, '%5C').replace(/\(/g, '%28').replace(/\)/g, '%29')
+  return `[${index}](${url})`
 }
 
 function markdownCitation(source: CriticalThinkingSource): string {
@@ -557,7 +749,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function numberAppears(text: string, value: number | string): boolean {
   const expected = normalizeNumber(value)
-  return extractNumbers(text).some((candidate) => normalizeNumber(candidate) === expected)
+  const candidates = extractNumbers(text).map(normalizeNumber)
+  if (candidates.includes(expected)) return true
+
+  // A claim that carries no unit is satisfied by the same figure carrying one.
+  // Ranges are why this matters: "82-93%" is the ordinary way to write a
+  // percentage range, and it yields a *bare* first claim ("82") because the
+  // sign sits at the end. Evidence reading "82% to 93%" would then fail
+  // forever — `number:82` never equals `percent:82` — rejecting a correctly
+  // cited report over its punctuation.
+  //
+  // The asymmetry is deliberate and is the whole safety property: a bare claim
+  // may match a united figure, because the number really is in the evidence and
+  // the claim merely says less than the source. The reverse must still fail —
+  // a claim of "82%" against evidence saying only "82" is the model attaching a
+  // unit the source never gave, which is exactly the fabrication this guards.
+  if (!expected.startsWith('number:')) return false
+  const figure = expected.slice('number:'.length)
+  return candidates.some((candidate) => candidate.slice(candidate.indexOf(':') + 1) === figure)
 }
 
 function extractNumbers(value: string): string[] {

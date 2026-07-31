@@ -10,6 +10,7 @@ import { llamaService } from '../llama/LlamaService'
 import { showToastWindow } from '../toastWindow'
 import { runBoundedChatGeneration } from '../chat/boundedChatRunner'
 import { SCHEDULED_TASK_BUDGET } from '../chat/GenerationBudget'
+import { headlessConfirm } from '../tools/headlessConfirm'
 import { createLogger } from '../utils/logger'
 import { schedulerStore } from './SchedulerStore'
 
@@ -137,13 +138,13 @@ class SchedulerService {
           signal: controller.signal,
           enabledTools: new Set(task.enabledTools),
           // Restricted to only the tools the task owner opted in (above); of
-          // those, everything except a destructive-risk call auto-runs, since
-          // there's no one present to click an approval modal. Destructive
-          // calls still fail safe instead of hanging the run indefinitely.
+          // those, `headlessConfirm` decides what may run with no one present
+          // to click an approval modal. It refuses rather than hangs, so a
+          // blocked call fails the step instead of stranding the run.
           permissionModeOverride: 'untethered',
           executionBudget: SCHEDULED_TASK_BUDGET,
           onActivity: (call) => toolCallsById.set(call.id, call),
-          confirm: (request) => Promise.resolve({ approved: request.risk !== 'destructive' })
+          confirm: headlessConfirm
         }
       )
 
@@ -247,6 +248,15 @@ class SchedulerService {
       log.warn('Failed to summarize scheduled task result:', error)
       return null
     }
+  }
+
+  /**
+   * Push the current task list to every window. Public because the
+   * `schedule_task` tool writes through `schedulerStore` directly rather than
+   * over IPC, so nothing else would tell the Scheduler page a task appeared.
+   */
+  notifyTasksChanged(): void {
+    this.broadcastTasksChanged()
   }
 
   private broadcastTasksChanged(): void {

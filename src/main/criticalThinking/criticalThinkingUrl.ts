@@ -1,14 +1,10 @@
 /**
  * Normalize a research URL for identity comparisons without changing path or
  * query-string case. Hosts are case-insensitive; URL paths are not.
+ *
+ * The implementation moved to `@shared/canonicalUrl` when chat's per-turn web
+ * source registry needed the same normalization; this name is kept because
+ * research code reads better with it, and because "the same page" must mean
+ * exactly the same thing on both surfaces.
  */
-export function canonicalResearchUrl(value: string): string {
-  try {
-    const url = new URL(value)
-    url.hash = ''
-    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, '')
-    return url.toString()
-  } catch {
-    return value.replace(/#.*$/, '').replace(/\/$/, '')
-  }
-}
+export { canonicalUrl as canonicalResearchUrl } from '@shared/canonicalUrl'

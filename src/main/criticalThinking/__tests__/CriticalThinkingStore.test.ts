@@ -178,7 +178,11 @@ describe('normalizeCriticalThinkingRun', () => {
       safe: true,
       citedBlockCount: 2
     })
-    expect(normalized.synthesisDiagnostics?.attempts[0].content).toHaveLength(24_000)
+    // runs.json is rewritten whole on every progress update and one
+    // hierarchical run records ~19 attempts, so retained draft text is bounded
+    // well below what a model can emit — including for drafts a previous build
+    // persisted at the older, larger cap.
+    expect(normalized.synthesisDiagnostics?.attempts[0].content).toHaveLength(12_000)
   })
 })
 

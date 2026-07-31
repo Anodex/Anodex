@@ -20,11 +20,24 @@ Actively being built (uncommitted work in the working tree as of 2026-07-10).
 If you're picking up other work, avoid these files unless you're the one
 building the feature — check with the user first.
 
-- **Email integration** — `src/main/email/` (`EmailAuthStore.ts`,
-  `EmailService.ts`, OAuth-flow-shaped: a local HTTP server for the OAuth
-  callback), `src/renderer/features/email/EmailView.tsx`,
-  `src/shared/email.types.ts`. Not yet documented in `README.md` — do that once
-  it lands.
+- **Email integration** — landed and documented in `README.md` /
+  `docs/FEATURES.md`. `src/main/email/` holds the account layer
+  (`EmailAccountStore.ts`, `EmailAuthStore.ts`, `EmailService.ts`), the
+  address-first `autoconfig.ts`, PKCE `oauth.ts`, and `providers/` with one
+  adapter per backend (Gmail, Microsoft Graph, IMAP/SMTP) behind
+  `providers/types.ts`. Adding a provider means implementing that interface and
+  registering it in `EmailService`'s `ADAPTERS` map — nothing above it should
+  need to change. Renderer: `src/renderer/features/email/EmailView.tsx` and
+  `features/settings/pages/email/`.
+  Two follow-ups worth doing:
+  - Set `ANODEX_GOOGLE_CLIENT_ID` / `ANODEX_MICROSOFT_CLIENT_ID` at build time
+    to enable one-click OAuth. Google's Gmail scopes are _restricted_, so a
+    published client needs Google verification (incl. a CASA assessment) or
+    users see the "unverified app" screen and a 100-user cap. Until then the
+    Advanced panel's own-client path is the only OAuth route.
+  - IMAP threads are grouped by normalized subject rather than by
+    `References` chain (see `ImapSmtpAdapter`'s doc comment). Good enough for a
+    mailbox view; a real chain walk would be more accurate.
 - **Scheduled / recurring AI tasks** — `src/main/scheduler/`
   (`SchedulerService.ts` runs generations via the same `runGeneration`/
   `LlamaService` path as normal chat, `SchedulerStore.ts`, `recurrence.ts` for
@@ -286,7 +299,42 @@ IPC/main-process work needed if shortcuts are stored in existing `AppSettings`
 client-side in `chatStore.ts`/`ChatComposer.tsx` before `sendMessage` is
 called.
 
-### 5. AI-generated commit messages
+### 5. Shortcuts that need a feature built before they can be bound
+
+The editable keyboard-shortcut system is built and documented in `README.md`
+(`src/shared/keyboardShortcuts.ts` holds the key map and definitions,
+`src/renderer/hooks/useGlobalKeyboardShortcuts.ts` dispatches them,
+Settings → Keyboard edits them, `Ctrl+/` shows the cheat sheet). Three
+shortcuts were designed alongside it and deliberately left unbound, because
+each needs a real feature underneath rather than a key wired to nothing:
+
+- **Find in current view (`Ctrl+F`).** Conspicuously missing — the chat
+  transcript, the email list, and the file viewer all want it, and they want
+  different things (transcript search wants match-stepping across a long
+  virtualized list; the file viewer already has CodeMirror, which has its own
+  search extension). Probably three surfaces sharing one key rather than one
+  generic implementation. Bind it once at least one surface exists.
+- **Close file viewer tab (`Ctrl+W`).** `Ctrl+S` save already exists in the
+  file viewer, so the pair is expected. Needs a real close path in the dock's
+  file-viewer panel first — the risk is a plain `Ctrl+W` reading as "close the
+  window" to anyone whose muscle memory comes from a browser, so it must be
+  unambiguously scoped to the panel.
+- **Previous/next conversation.** `Ctrl+Alt+Up`/`Ctrl+Alt+Down` rather than
+  plain `Ctrl+Up`/`Down`, which collide with textarea navigation. Needs a
+  defined ordering to step through (the sidebar's current filtered/sorted
+  view, not raw `conversations` order) and a decision about whether it skips
+  archived, scheduled-origin, and agent-origin rows — `ChatRow.tsx` already
+  distinguishes those.
+
+**When adding any of these:** the key map is a closed union
+(`KeyboardShortcutId` in `src/shared/settings.types.ts`), so a new entry needs
+the id, a `DEFAULT_KEYBOARD_SHORTCUTS` binding, and a
+`KEYBOARD_SHORTCUT_DEFINITIONS` entry — a test asserts those three stay in
+sync, and another asserts `Ctrl+Shift+P` stays unclaimed for a future command
+palette. Bindings need a Ctrl/Alt/Meta modifier (or `Escape`/an F-key);
+`isBindableShortcut` enforces that on both sides of the IPC boundary.
+
+### 6. AI-generated commit messages
 
 A "generate a commit message from my staged changes" action — `git_status` and
 `git_diff` are already wired up as AI tools, so the underlying data already
@@ -336,6 +384,35 @@ not correctness or security — lowest priority item on this whole list.
 - E2E coverage beyond the current launch/smoke tests: settings save/load,
   model switch UI, project selection, file preview, approval prompt flow.
   Current E2E is Playwright, config in `playwright.config.ts`, tests in `e2e/`.
+
+### 9. Verify the packaged build after the `node_modules` trims
+
+**One-time check, but do it before the next release rather than after.**
+
+`c2713d1` excluded renderer-only packages (`highlight.js`, `@xterm/*`,
+`zustand`, `immer`, `use-sync-external-store`, `diff`) and unused `pdfjs-dist`
+subdirectories from the asar, taking it from 54.3 MB to 40.4 MB. The reasoning
+is that Vite bundles those libraries into `out/renderer`, so their package
+sources were shipping a second time for nothing.
+
+That was verified structurally — no `src/main` or `src/preload` file imports
+any of them, and the renderer bundle demonstrably inlines them — but **not by
+running the packaged app**, and this is the one class of mistake that cannot
+show up in development. `npm run dev` resolves from `node_modules`, so a missed
+import works perfectly right up until it fails at require-time for a user.
+
+To close it: launch `dist/win-unpacked`, open a chat containing a code block
+(exercises `highlight.js`), open the Workspace Dock's Terminal panel
+(exercises `@xterm/*`), and view a diff (exercises `diff`). A failure here is
+loud, not subtle.
+
+The same reasoning applies to `pdfjs-dist`: only
+`legacy/build/pdf.mjs` is kept, so `read_email_attachment` on a real PDF is
+worth one pass in the packaged build too.
+
+**If any of those libraries ever moves into the main process, revisit the
+exclusion list in `electron-builder.yml` first** — the failure mode is a
+packaged-only break, exactly as above.
 
 ## Recently resolved (kept briefly for context, not action items)
 

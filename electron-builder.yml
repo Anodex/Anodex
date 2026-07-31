@@ -22,6 +22,42 @@ directories:
 files:
   - out/**/*
   - package.json
+  # electron-builder copies production `node_modules` into the asar regardless
+  # of the patterns above. Most of that is genuinely needed — `externalizeDeps`
+  # keeps every main-process dependency out of the bundle so it resolves from
+  # node_modules at runtime. These two groups are not.
+  #
+  # 1. Renderer-only libraries. Vite bundles them into out/renderer, so their
+  #    package sources ship a second time for nothing. Verified: no file under
+  #    src/main or src/preload imports any of them. If that ever changes, the
+  #    app will fail at require-time in a packaged build but work in dev, so
+  #    re-check this list before moving one of them into the main process.
+  - '!node_modules/highlight.js/**/*'
+  - '!node_modules/@xterm/**/*'
+  - '!node_modules/zustand/**/*'
+  - '!node_modules/immer/**/*'
+  - '!node_modules/use-sync-external-store/**/*'
+  - '!node_modules/diff/**/*'
+  # 2. The parts of pdf.js that a text-only consumer never loads. Anodex uses
+  #    exactly one entry point, `pdfjs-dist/legacy/build/pdf.mjs` (see
+  #    email/attachmentText.ts), so the modern build, the viewer UI, the image
+  #    decoders, and the render-time font data are all dead weight. `cmaps` is
+  #    excluded because `cMapUrl` is not configured, so pdf.js cannot load them
+  #    anyway — wiring that up is what would improve CJK text extraction, not
+  #    shipping the files.
+  - '!node_modules/pdfjs-dist/build/**/*'
+  - '!node_modules/pdfjs-dist/web/**/*'
+  - '!node_modules/pdfjs-dist/image_decoders/**/*'
+  - '!node_modules/pdfjs-dist/cmaps/**/*'
+  - '!node_modules/pdfjs-dist/standard_fonts/**/*'
+  - '!node_modules/pdfjs-dist/types/**/*'
+  # Source maps for shipped dependencies: never read in production, and they
+  # are a large share of what several SDKs weigh. Note the narrow markdown
+  # pattern — a blanket `*.md` exclusion would also drop the `LICENSE.md`
+  # files some packages use, which are exactly what has to ship.
+  - '!node_modules/**/*.map'
+  - '!node_modules/**/{README,readme,CHANGELOG,changelog,CONTRIBUTING,SECURITY}.md'
+  - '!node_modules/**/{test,tests,__tests__,example,examples,docs}/**/*'
 # node-llama-cpp ships prebuilt binaries; keep them unpacked so they load at runtime.
 asarUnpack:
   - node_modules/node-llama-cpp/**/*
@@ -37,6 +73,11 @@ extraResources:
   # an associated multimodal projector.
   - from: resources/llama-server
     to: llama-server
+  # Sample personal skills, copied into `userData/skills` on first launch by
+  # SkillStore.init() so a new install has a working skill library to read,
+  # edit, or delete. Never read from here at runtime.
+  - from: resources/skills
+    to: skills
 # Generated from src/renderer/assets/app-icon.png via scripts/generate-icons.mjs —
 # re-run that script (not a manual edit) if the brand mark ever changes.
 win:
@@ -54,5 +95,14 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+  # Keeps electron-builder's stock installer intact while allowing the
+  # branded shell to receive real install-stage milestones.
+  include: build/installer.nsh
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  # A small, atmospheric extension of the in-app identity. NSIS uses 24-bit
+  # bitmaps here, generated from the source artwork by `generate:installer-art`.
+  installerSidebar: build/installer/installer-sidebar.bmp
+  uninstallerSidebar: build/installer/installer-sidebar.bmp
+  installerHeader: build/installer/installer-header.bmp
+  runAfterFinish: true

@@ -79,10 +79,12 @@ class OpenAiProvider implements LlmProvider {
           conversationId: params.conversationId,
           messageId: params.messageId,
           workspaceRoot: params.tools.workspaceRoot,
+          userFiles: params.tools.userFiles,
           projectId: params.tools.projectId,
           permissionMode: params.tools.permissionMode,
           commandShell: params.tools.commandShell,
           webSearch: params.tools.webSearch,
+          imageGeneration: { provider: 'openai' },
           email: params.tools.email,
           memory: params.tools.memory,
           enabledTools: params.tools.enabledTools ?? null,
@@ -90,6 +92,7 @@ class OpenAiProvider implements LlmProvider {
           mcpTools: params.tools.mcpTools,
           evidenceFocus: params.tools.evidenceFocus,
           recordArtifact: params.tools.recordArtifact,
+          webSources: params.tools.webSources,
           beforeTool: params.tools.beforeTool,
           // A mutable box, not the plan value itself — shared by every tool
           // call in this generation, matching LlamaService's own wiring.
@@ -136,6 +139,8 @@ class OpenAiProvider implements LlmProvider {
     const startedAt = Date.now()
     let content = ''
     let outputTokens = 0
+    // Summed across rounds — each tool round re-bills the whole conversation.
+    let inputTokens = 0
     let stopped = false
 
     const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
@@ -183,6 +188,7 @@ class OpenAiProvider implements LlmProvider {
       }
 
       outputTokens += response.usage?.output_tokens ?? 0
+      inputTokens += response.usage?.input_tokens ?? 0
 
       const functionCalls = response.output.filter(
         (item): item is ResponseFunctionToolCall => item.type === 'function_call'
@@ -220,7 +226,8 @@ class OpenAiProvider implements LlmProvider {
     const stats: GenerationStats = {
       tokens: outputTokens,
       durationMs,
-      tokensPerSecond: outputTokens / (durationMs / 1000)
+      tokensPerSecond: outputTokens / (durationMs / 1000),
+      inputTokens
     }
 
     return {

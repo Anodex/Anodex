@@ -1,8 +1,18 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent
+} from 'react'
 import { createPortal } from 'react-dom'
 import type { Conversation } from '../../stores/chatStore'
+import type { ConversationExportFormat } from '@shared/backup.types'
 import { formatRelativeTime } from '../../lib/time'
-import { notifyError } from '../../stores/uiStore'
+import { anodex } from '../../lib/anodex'
+import { notifyError, useUiStore } from '../../stores/uiStore'
 import { Icon } from '../Icon'
 import { StatusDot } from '../ui/StatusDot'
 import { TextPromptDialog } from '../ui/TextPromptDialog'
@@ -20,6 +30,12 @@ interface ChatRowProps {
   onOpenProjectFolder?: () => void
   running?: boolean
   unread?: boolean
+  /**
+   * Matching text from inside the conversation, shown under the title during
+   * a search. Present only when the row surfaced because of what was said in
+   * it — a title match needs no explanation, the reason is already visible.
+   */
+  excerpt?: string
 }
 
 /** A single chat row with title, relative last-used time, and an optional action. */
@@ -34,7 +50,8 @@ export function ChatRow({
   onMarkUnread,
   onOpenProjectFolder,
   running = false,
-  unread = false
+  unread = false,
+  excerpt
 }: ChatRowProps): JSX.Element {
   const rowRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<number | null>(null)
@@ -112,6 +129,7 @@ export function ChatRow({
         )}
         <span className={styles.titleWrap}>
           <span className={styles.title}>{conversation.title}</span>
+          {excerpt && <span className={styles.excerpt}>{excerpt}</span>}
           {running && (
             <span className={styles.runTrack} aria-hidden="true">
               <span className={styles.runHalo} />
@@ -146,6 +164,7 @@ export function ChatRow({
         createPortal(
           <ChatDetailCard
             rect={hoverRect}
+            conversationId={conversation.id}
             title={conversation.title}
             time={time}
             projectName={projectName}
@@ -201,6 +220,52 @@ interface ChatContextMenuProps {
   onClose: () => void
 }
 
+/** One row of the chat context menu. A `separator` carries nothing else. */
+type ChatMenuEntry =
+  | { kind: 'separator'; id: string }
+  | {
+      kind: 'item'
+      id: string
+      label: string
+      /**
+       * Single character typed on its own to fire the row while the menu is
+       * open, shown right-aligned. Menu-local, so it is not part of the
+       * configurable global bindings in Settings → Keyboard.
+       */
+      accelerator: string
+      disabled: boolean
+      run?: () => void | Promise<void>
+    }
+
+/**
+ * Write this chat to a file the user picks. Lives here rather than being
+ * threaded down from the sidebar because the row already holds the whole
+ * conversation — the only thing an export needs.
+ */
+async function exportChat(
+  conversation: Conversation,
+  format: ConversationExportFormat
+): Promise<void> {
+  const result = await anodex.backup.exportConversation(conversation, format)
+  if (!result.ok) {
+    notifyError('Could not export chat', result.error.detail ?? result.error.message)
+    return
+  }
+  // Null means the user closed the save dialog — not a failure, and not
+  // something to congratulate them about either.
+  if (!result.value) return
+  useUiStore.getState().notify({ kind: 'success', title: 'Chat exported', message: result.value })
+}
+
+async function copyText(label: string, value?: string): Promise<void> {
+  if (!value) return
+  try {
+    await navigator.clipboard.writeText(value)
+  } catch (error) {
+    notifyError(`Could not copy ${label}`, error instanceof Error ? error.message : undefined)
+  }
+}
+
 function ChatContextMenu({
   point,
   conversation,
@@ -211,85 +276,207 @@ function ChatContextMenu({
   onOpenProjectFolder,
   onClose
 }: ChatContextMenuProps): JSX.Element {
-  const menuWidth = 190
-  const menuHeight = 290
+  const menuRef = useRef<HTMLDivElement>(null)
+  const menuWidth = 216
+  const menuHeight = 300
   const left = Math.max(8, Math.min(point.x, window.innerWidth - menuWidth - 8))
   const top = Math.max(8, Math.min(point.y, window.innerHeight - menuHeight - 8))
 
-  const run =
-    (action?: () => void | Promise<void>) =>
-    (event: MouseEvent<HTMLButtonElement>): void => {
-      event.stopPropagation()
-      if (!action) return
-      onClose()
-      void action()
-    }
+  const entries = useMemo<ChatMenuEntry[]>(
+    () => [
+      { kind: 'item', id: 'pin', label: 'Pin chat', accelerator: 'P', disabled: true },
+      {
+        kind: 'item',
+        id: 'rename',
+        label: 'Rename chat',
+        accelerator: 'R',
+        disabled: !onRename,
+        run: onRename
+      },
+      {
+        kind: 'item',
+        id: 'archive',
+        label: 'Archive chat',
+        accelerator: 'A',
+        disabled: !onArchive,
+        run: onArchive
+      },
+      {
+        kind: 'item',
+        id: 'unread',
+        label: 'Mark as unread',
+        accelerator: 'U',
+        disabled: !onMarkUnread,
+        run: onMarkUnread
+      },
+      { kind: 'separator', id: 'sep-1' },
+      {
+        kind: 'item',
+        id: 'export-markdown',
+        label: 'Export as Markdown',
+        accelerator: 'M',
+        disabled: false,
+        run: () => exportChat(conversation, 'markdown')
+      },
+      {
+        kind: 'item',
+        id: 'export-json',
+        label: 'Export as JSON',
+        accelerator: 'J',
+        disabled: false,
+        run: () => exportChat(conversation, 'json')
+      },
+      { kind: 'separator', id: 'sep-export' },
+      {
+        kind: 'item',
+        id: 'explorer',
+        label: 'Open in Explorer',
+        accelerator: 'E',
+        disabled: !onOpenProjectFolder,
+        run: onOpenProjectFolder
+      },
+      {
+        kind: 'item',
+        id: 'copy-cwd',
+        label: 'Copy working directory',
+        accelerator: 'W',
+        disabled: !projectPath,
+        run: () => copyText('working directory', projectPath)
+      },
+      {
+        kind: 'item',
+        id: 'copy-id',
+        label: 'Copy chat ID',
+        accelerator: 'I',
+        disabled: false,
+        run: () => copyText('chat ID', conversation.id)
+      },
+      {
+        kind: 'item',
+        id: 'copy-link',
+        label: 'Copy deeplink',
+        accelerator: 'L',
+        disabled: false,
+        run: () => copyText('deeplink', `anodex://chat/${conversation.id}`)
+      },
+      { kind: 'separator', id: 'sep-2' },
+      {
+        kind: 'item',
+        id: 'new-window',
+        label: 'Open in new window',
+        accelerator: 'N',
+        disabled: true
+      }
+    ],
+    [conversation, onArchive, onMarkUnread, onOpenProjectFolder, onRename, projectPath]
+  )
 
-  const copyText = async (label: string, value?: string): Promise<void> => {
-    if (!value) return
-    try {
-      await navigator.clipboard.writeText(value)
-    } catch (error) {
-      notifyError(`Could not copy ${label}`, error instanceof Error ? error.message : undefined)
+  const activate = useCallback(
+    (entry: ChatMenuEntry): void => {
+      if (entry.kind !== 'item' || entry.disabled || !entry.run) return
+      onClose()
+      void entry.run()
+    },
+    [onClose]
+  )
+
+  // Focus the menu itself so arrow keys work straight away — a right-click
+  // leaves focus wherever it was, and nothing here is focused by default.
+  useEffect(() => {
+    menuRef.current?.focus()
+  }, [])
+
+  const moveFocus = (delta: number, from?: HTMLElement): void => {
+    const buttons = [
+      ...(menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+    ]
+    if (buttons.length === 0) return
+    const current = from ? buttons.indexOf(from as HTMLButtonElement) : -1
+    const next = current === -1 ? (delta > 0 ? 0 : buttons.length - 1) : current + delta
+    buttons[(next + buttons.length) % buttons.length]?.focus()
+  }
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const active = document.activeElement
+      moveFocus(
+        event.key === 'ArrowDown' ? 1 : -1,
+        active instanceof HTMLElement && menuRef.current?.contains(active) ? active : undefined
+      )
+      return
     }
+    // Bare letters only: with a modifier held the user means a global binding.
+    if (event.ctrlKey || event.altKey || event.metaKey || event.key.length !== 1) return
+    const typed = event.key.toUpperCase()
+    const match = entries.find(
+      (entry) => entry.kind === 'item' && !entry.disabled && entry.accelerator === typed
+    )
+    if (!match) return
+    event.preventDefault()
+    event.stopPropagation()
+    activate(match)
   }
 
   return (
     <div
+      ref={menuRef}
       className={styles.contextMenu}
       style={{ top, left }}
       role="menu"
+      tabIndex={-1}
       onMouseDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.stopPropagation()}
+      onKeyDown={handleKeyDown}
     >
-      <MenuItem label="Pin chat" disabled />
-      <MenuItem label="Rename chat" onClick={run(onRename)} disabled={!onRename} />
-      <MenuItem label="Archive chat" onClick={run(onArchive)} disabled={!onArchive} />
-      <MenuItem label="Mark as unread" onClick={run(onMarkUnread)} disabled={!onMarkUnread} />
-      <div className={styles.contextSeparator} />
-      <MenuItem
-        label="Open in Explorer"
-        onClick={run(onOpenProjectFolder)}
-        disabled={!onOpenProjectFolder}
-      />
-      <MenuItem
-        label="Copy working directory"
-        onClick={run(() => copyText('working directory', projectPath))}
-        disabled={!projectPath}
-      />
-      <MenuItem label="Copy chat ID" onClick={run(() => copyText('chat ID', conversation.id))} />
-      <MenuItem
-        label="Copy deeplink"
-        onClick={run(() => copyText('deeplink', `anodex://chat/${conversation.id}`))}
-      />
-      <div className={styles.contextSeparator} />
-      <MenuItem label="Open in new window" disabled />
+      {entries.map((entry) =>
+        entry.kind === 'separator' ? (
+          <div key={entry.id} className={styles.contextSeparator} role="separator" />
+        ) : (
+          <MenuItem
+            key={entry.id}
+            label={entry.label}
+            accelerator={entry.accelerator}
+            disabled={entry.disabled}
+            onClick={(event) => {
+              event.stopPropagation()
+              activate(entry)
+            }}
+          />
+        )
+      )}
     </div>
   )
 }
 
 interface MenuItemProps {
   label: string
+  accelerator: string
   disabled?: boolean
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void
 }
 
-function MenuItem({ label, disabled = false, onClick }: MenuItemProps): JSX.Element {
+function MenuItem({ label, accelerator, disabled = false, onClick }: MenuItemProps): JSX.Element {
   return (
     <button
       type="button"
       className={styles.contextItem}
       role="menuitem"
       disabled={disabled}
+      aria-keyshortcuts={accelerator}
       onClick={onClick}
     >
-      {label}
+      <span className={styles.contextLabel}>{label}</span>
+      <span className={styles.contextAccelerator} aria-hidden="true">
+        {accelerator}
+      </span>
     </button>
   )
 }
 
 interface ChatDetailCardProps {
   rect: DOMRect
+  conversationId: string
   title: string
   time: string
   projectName?: string
@@ -303,6 +490,7 @@ interface ChatDetailCardProps {
 
 function ChatDetailCard({
   rect,
+  conversationId,
   title,
   time,
   projectName,
@@ -315,6 +503,28 @@ function ChatDetailCard({
 }: ChatDetailCardProps): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(title)
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current)
+    }
+  }, [])
+
+  const copyId = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(conversationId)
+      setCopied(true)
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current)
+      // Confirmed in place rather than with a toast: the card is already under
+      // the cursor, and a notification for copying a string is more
+      // interruption than the act deserves.
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1400)
+    } catch (error) {
+      notifyError('Could not copy chat ID', error instanceof Error ? error.message : undefined)
+    }
+  }
   const top = Math.max(48, Math.min(rect.top - 10, window.innerHeight - 170))
   const left = Math.min(rect.right + 10, window.innerWidth - 340)
 
@@ -374,6 +584,15 @@ function ChatDetailCard({
         <StatusDot tone={running ? 'running' : 'success'} />
         <span>{running ? 'Assistant is responding' : 'Ready'}</span>
       </div>
+      <button
+        type="button"
+        className={`${styles.detailLine} ${styles.folderButton} ${styles.idButton}`}
+        onClick={() => void copyId()}
+        title="Copy this chat's ID"
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={13} />
+        <span className={styles.idValue}>{copied ? 'Copied to clipboard' : conversationId}</span>
+      </button>
     </div>
   )
 }

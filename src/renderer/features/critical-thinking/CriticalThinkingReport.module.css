@@ -5,6 +5,49 @@
   overflow-wrap: anywhere;
 }
 
+/* A measure on the text blocks only.
+   This was the one surface in the view with no width cap — the start card is
+   capped at 720px and the run heading at 760px, while the report, the thing a
+   reader actually sits with, ran the full width of the pane at well over 200
+   characters a line on a maximised window.
+   Tables and charts are deliberately excluded: the chart component draws at a
+   720px viewBox and squeezing it into a text measure would cost more than the
+   line length saves. */
+.report > p,
+.report > ul,
+.report > ol,
+.report > blockquote,
+.report > h1,
+.report > h2,
+.report > h3,
+.report > h4 {
+  max-width: 72ch;
+}
+
+/* Citations are numbered references (see `renderResearchCitations`), so they
+   should read as marks a reader steps over rather than as words in the
+   sentence. Small, raised, and tabular so a run of them stays even. */
+.citation {
+  display: inline-block;
+  min-width: 1.1em;
+  margin-left: 1px;
+  padding: 0 3px;
+  color: var(--accent);
+  font-size: 0.72em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  text-align: center;
+  text-decoration: none;
+  vertical-align: super;
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+
+.citation:hover {
+  color: var(--text-on-accent);
+  background: var(--accent);
+}
+
 .report h1,
 .report h2,
 .report h3,

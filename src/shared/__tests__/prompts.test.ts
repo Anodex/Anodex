@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   composeSystemPrompt,
+  environmentDateFromPrompt,
   NO_WORKSPACE_NOTE,
   READ_ONLY_WORKSPACE_NOTE,
   WORKSPACE_REFERENCE_NOTE
@@ -139,5 +140,112 @@ describe('composeSystemPrompt', () => {
   it('omits the assistant style section when empty', () => {
     const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
     expect(prompt).not.toContain('# Assistant style')
+  })
+})
+
+describe('the Environment section', () => {
+  // Observed: with no date in the prompt the model answered "It's 2024",
+  // dismissed correctly dated 2026 web results as "projected/fictional
+  // content", and then invented a system-prompt line ("my system prompt says
+  // 2024-07-10") to justify the answer.
+  const now = new Date('2026-07-29T23:15:00-06:00')
+
+  it('states the date in both a human phrasing and an unambiguous ISO form', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      now,
+      timeZone: 'America/Denver'
+    })
+
+    expect(prompt).toContain('# Environment')
+    expect(prompt).toContain("Today's date is Wednesday, July 29, 2026 (2026-07-29)")
+  })
+
+  it('renders the date in the host time zone, not UTC', () => {
+    // 23:15 in Denver is already the 30th in UTC — the user means their own day.
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      now,
+      timeZone: 'America/Denver'
+    })
+
+    expect(prompt).toContain('2026-07-29')
+    expect(prompt).not.toContain('2026-07-30')
+  })
+
+  it('marks the clock time as approximate but the date as authoritative', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      now,
+      timeZone: 'America/Denver'
+    })
+
+    expect(prompt).toContain('11:15 PM')
+    expect(prompt).toContain('treat it as approximate')
+    expect(prompt).toContain('never give the user a date that contradicts it')
+  })
+
+  it('tells the model not to date things from its training data', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true, now })
+    expect(prompt).toContain('Never work out the current date, year, or how recent something is')
+    expect(prompt).toContain('not fictional or mistaken')
+  })
+
+  it('sits above the user-supplied and reference sections', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      now,
+      assistantStyle: 'Be terse.',
+      workspaceContext: 'Name: anodex'
+    })
+
+    expect(prompt.indexOf('# Environment')).toBeLessThan(prompt.indexOf('# Assistant style'))
+    expect(prompt.indexOf('# Environment')).toBeLessThan(prompt.indexOf('# Workspace'))
+  })
+
+  it('is present whether or not a workspace or project is open', () => {
+    for (const parts of [
+      { hasWorkspaceTools: false, hasProject: false },
+      { hasWorkspaceTools: true, hasProject: false },
+      { hasWorkspaceTools: true, hasProject: true }
+    ]) {
+      expect(composeSystemPrompt({ ...parts, now })).toContain('# Environment')
+    }
+  })
+})
+
+describe('environmentDateFromPrompt', () => {
+  it('reads back the date a composed prompt was built with', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      now: new Date('2026-07-29T23:15:00-06:00'),
+      timeZone: 'America/Denver'
+    })
+
+    expect(environmentDateFromPrompt(prompt)).toBe('2026-07-29')
+  })
+
+  it('ignores dates in reference sections below the Environment line', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      now: new Date('2026-07-29T12:00:00-06:00'),
+      timeZone: 'America/Denver',
+      memoryContext: '- [note] Shipped the parser on 2024-01-02. (project)',
+      transcriptRecallContext: '## "Old chat" (2025-03-04)\n- user: fixed it'
+    })
+
+    expect(environmentDateFromPrompt(prompt)).toBe('2026-07-29')
+  })
+
+  it('returns null for a prompt with no Environment section', () => {
+    expect(environmentDateFromPrompt('You are a helpful assistant.')).toBeNull()
+    expect(environmentDateFromPrompt(undefined)).toBeNull()
+    expect(environmentDateFromPrompt(null)).toBeNull()
   })
 })

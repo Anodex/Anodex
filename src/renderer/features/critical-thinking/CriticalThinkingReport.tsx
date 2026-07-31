@@ -11,8 +11,18 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
       const key = `${keyBase}-${index}`
       const link = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/.exec(part)
       if (link) {
+        // A purely numeric label is a reference marker, not prose — see
+        // `renderResearchCitations`. Styled as a superscript chip so a reader's
+        // eye steps over it instead of reading it as part of the sentence.
+        const isCitation = /^\d+$/.test(link[1])
         return (
-          <a key={key} href={link[2]} target="_blank" rel="noreferrer">
+          <a
+            key={key}
+            href={link[2]}
+            target="_blank"
+            rel="noreferrer"
+            className={isCitation ? styles.citation : undefined}
+          >
             {link[1]}
           </a>
         )

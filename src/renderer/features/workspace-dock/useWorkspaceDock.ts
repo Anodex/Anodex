@@ -21,10 +21,9 @@ function loadEnabledPanels(): Record<DockPanelId, boolean> {
     const raw = localStorage.getItem(ENABLED_PANELS_KEY)
     if (!raw) return { ...DEFAULT_ENABLED }
     const parsed = JSON.parse(raw) as Partial<Record<DockPanelId, boolean>>
-    return DOCK_PANELS.reduce(
-      (acc, p) => ({ ...acc, [p.id]: Boolean(parsed[p.id]) }),
-      { ...DEFAULT_ENABLED }
-    )
+    return DOCK_PANELS.reduce((acc, p) => ({ ...acc, [p.id]: Boolean(parsed[p.id]) }), {
+      ...DEFAULT_ENABLED
+    })
   } catch {
     return { ...DEFAULT_ENABLED }
   }

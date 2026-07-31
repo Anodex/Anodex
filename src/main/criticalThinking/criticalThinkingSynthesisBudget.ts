@@ -3,8 +3,23 @@ import { cloudContextWindowTokens } from '@shared/contextBudget'
 
 const MAX_PROMPT_CHARS = 80_000
 const MAX_EVIDENCE_CHARS = 36_000
-const MAX_OUTPUT_TOKENS = 8_192
+/**
+ * A research report is a long-form artifact, and a reasoning-tuned model pays
+ * for it twice: once in hidden thinking, once in the report itself. Measured
+ * on a real 32K run, one synthesis produced 16,658 characters of thinking
+ * beside 6,341 characters of report before hitting its ceiling — thinking
+ * alone was most of the budget, so the report arrived truncated.
+ *
+ * The old ceiling was 8,192, and the caller passes the user's *chat reply*
+ * setting as the request, so a long report was sized like a chat message
+ * while ~6,000 tokens of context headroom went unused. These now let a run
+ * claim the room its context actually has.
+ */
+const MAX_OUTPUT_TOKENS = 16_384
 const MIN_OUTPUT_TOKENS = 768
+/** Share of the context a report may claim for output, and the hard ceiling on that share. */
+const OUTPUT_CONTEXT_SHARE = 0.4
+const MAX_OUTPUT_CONTEXT_SHARE = 0.45
 const APPROX_CHARS_PER_TOKEN = 3
 /**
  * A reasoning-tuned local model can spend nearly all of `maxOutputTokens` on
@@ -50,10 +65,16 @@ export function criticalThinkingSynthesisLimits(
     Number.isFinite(requestedOutputTokens) &&
     requestedOutputTokens > 0
       ? Math.floor(requestedOutputTokens)
-      : Math.floor(safeContextTokens * 0.25)
+      : 0
+  // The caller's request is a floor, not a ceiling: it carries the user's
+  // chat-reply preference, which has no bearing on how much room a cited
+  // report needs. A report claims its context share when that is larger, and
+  // the context share is what protects a small local window from being
+  // handed an output budget that leaves no room for the evidence.
   const maxOutputTokens = Math.min(
     MAX_OUTPUT_TOKENS,
-    Math.max(MIN_OUTPUT_TOKENS, Math.min(requested, Math.floor(safeContextTokens * 0.3)))
+    Math.floor(safeContextTokens * MAX_OUTPUT_CONTEXT_SHARE),
+    Math.max(MIN_OUTPUT_TOKENS, requested, Math.floor(safeContextTokens * OUTPUT_CONTEXT_SHARE))
   )
   const systemReserveTokens = Math.min(2_048, Math.max(768, Math.floor(safeContextTokens * 0.125)))
   const availableInputTokens = Math.max(

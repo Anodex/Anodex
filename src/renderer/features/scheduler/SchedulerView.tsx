@@ -4,6 +4,7 @@ import type { IconName } from '../../components/Icon'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
+import { useArrival } from '../../components/ui/useArrival'
 import { SidebarSearch } from '../../components/sidebar/SidebarSearch'
 import { ToggleControl, SelectControl } from '../settings/controls'
 import { useSchedulerStore } from '../../stores/schedulerStore'
@@ -11,9 +12,10 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useUiStore } from '../../stores/uiStore'
 import { formatRelativeTime } from '../../lib/time'
-import { describeRecurrence, formatNextRun } from './scheduleFormat'
+import { describeRecurrence, formatNextRun, nextRunProgress, IMMINENT_MS } from './scheduleFormat'
 import { SchedulerTaskEditor, type SchedulerTaskEditorSeed } from './SchedulerTaskEditor'
 import { SchedulerConversation } from './SchedulerConversation'
+import { TodayStrip } from './TodayStrip'
 import { useCountdown } from './useCountdown'
 import styles from './SchedulerView.module.css'
 
@@ -41,7 +43,7 @@ const EXAMPLES: Example[] = [
     }
   },
   {
-    icon: 'layers',
+    icon: 'summary',
     title: 'Weekly summary',
     description: "A short summary of this week's work in this project, every Friday afternoon.",
     seed: {
@@ -75,34 +77,50 @@ const EXAMPLES: Example[] = [
   }
 ]
 
-/** IDs of tasks whose "just arrived" card animation has already played this
- *  session — see the same mechanism (and reasoning) in AgentView.tsx. */
-const announcedTaskRuns = new Set<string>()
-const ARRIVAL_WINDOW_MS = 5 * 60 * 1000
-
 /**
- * True for one render pass when a task's most recent run just landed and
- * the user hasn't been shown it — including opening Scheduler for the first
- * time after an unattended run already finished. Keyed on `lastRunAt` (not
- * just the task id) so a *later* run on the same task can announce itself
- * again after the first one already has.
+ * True for one render pass when a task's most recent run just landed and the
+ * user hasn't been shown it. Keyed on `lastRunAt` as well as the task id so a
+ * *later* run on the same task can announce itself again after the first one
+ * already has — a task runs over and over, unlike an agent run.
  */
 function useJustArrived(task: ScheduledTask): boolean {
-  const isTerminal = task.lastRunAt !== null
-  const announceKey = `${task.id}:${task.lastRunAt}`
-  const [justArrived, setJustArrived] = useState(false)
-  const announcedRef = useRef(false)
+  return useArrival(task.lastRunAt === null ? null : `${task.id}:${task.lastRunAt}`, task.lastRunAt)
+}
+
+/** How long the ignition beam takes to cross the card. */
+const IGNITE_MS = 620
+
+type WakePhase = 'idle' | 'ignite' | 'running'
+
+/**
+ * Drives the first two beats of a run the user is actually watching: the
+ * ignition beam, then the comet that rides the card's edge while it works.
+ * The third beat — the arrival — belongs to `useJustArrived`, which already
+ * owns that glow and is already gated against replaying one; running both
+ * would animate the same card twice for a single landing.
+ *
+ * Only a transition this component *witnesses* ignites. A card that mounts
+ * while its task is already mid-run opens on `running`, because that much is
+ * true, but it never plays an ignition it didn't see.
+ */
+function useWakePhase(running: boolean): WakePhase {
+  const [phase, setPhase] = useState<WakePhase>(running ? 'running' : 'idle')
+  const wasRunning = useRef(running)
 
   useEffect(() => {
-    if (!isTerminal || task.lastRunAt === null) return
-    if (announcedRef.current || announcedTaskRuns.has(announceKey)) return
-    if (Date.now() - task.lastRunAt > ARRIVAL_WINDOW_MS) return
-    announcedTaskRuns.add(announceKey)
-    announcedRef.current = true
-    setJustArrived(true)
-  }, [announceKey, isTerminal, task.lastRunAt])
+    const started = running && !wasRunning.current
+    wasRunning.current = running
 
-  return justArrived
+    if (started) {
+      setPhase('ignite')
+      const timer = setTimeout(() => setPhase('running'), IGNITE_MS)
+      return () => clearTimeout(timer)
+    }
+    if (!running) setPhase('idle')
+    return undefined
+  }, [running])
+
+  return phase
 }
 
 function TaskCard({
@@ -123,11 +141,31 @@ function TaskCard({
   const justArrived = useJustArrived(task)
   const lastRunClass = task.lastRunAt ? styles[`taskCard-${task.lastRunStatus ?? 'success'}`] : ''
   // Re-renders this card on a timer so its next-run label counts down instead
-  // of freezing at whatever it read when the list was last drawn.
+  // of freezing at whatever it read when the list was last drawn. The rail
+  // below rides the same tick.
   useCountdown(task.enabled ? task.nextRunAt : null)
 
+  // The wait began at the previous run, or at creation for a task that has
+  // never run — see `nextRunProgress` for why this isn't derived from the
+  // recurrence period.
+  const progress = task.enabled
+    ? nextRunProgress(task.lastRunAt ?? task.createdAt, task.nextRunAt)
+    : null
+  const imminent = task.nextRunAt !== null && task.nextRunAt - Date.now() <= IMMINENT_MS
+  const wake = useWakePhase(runningId === task.id)
+
   return (
-    <div className={`${styles.taskCard} ${lastRunClass} ${justArrived ? styles.arrived : ''}`}>
+    <div
+      className={`${styles.taskCard} ${lastRunClass} ${justArrived ? styles.arrived : ''} ${
+        task.enabled ? '' : styles.paused
+      } ${wake === 'idle' ? '' : styles[`wake-${wake}`]}`}
+    >
+      {wake === 'running' && (
+        <span className={styles.wakeComet} aria-hidden="true">
+          <span className={styles.wakeCometHalo} />
+          <span className={styles.wakeCometCore} />
+        </span>
+      )}
       <button type="button" className={styles.taskMain} onClick={() => onOpenReport(task.id)}>
         <div className={styles.taskTitleRow}>
           <span className={styles.taskName}>{task.name}</span>
@@ -140,9 +178,11 @@ function TaskCard({
           <span>
             <Icon name="calendar" size={12} /> {describeRecurrence(task.recurrence)}
           </span>
-          <span className={styles.countdown}>
-            {task.enabled ? formatNextRun(task.nextRunAt) : 'Paused'}
-          </span>
+          {task.enabled ? (
+            <span className={styles.countdown}>{formatNextRun(task.nextRunAt)}</span>
+          ) : (
+            <span className={styles.pausedLabel}>Paused</span>
+          )}
           {task.lastRunAt && (
             <span
               className={`${styles.lastRun} ${styles[`status-${task.lastRunStatus ?? 'success'}`]}`}
@@ -198,6 +238,11 @@ function TaskCard({
           <Icon name="trash" size={14} />
         </button>
       </div>
+      {progress !== null && (
+        <div className={`${styles.rail} ${imminent ? styles.railImminent : ''}`} aria-hidden="true">
+          <div className={styles.railFill} style={{ width: `${(progress * 100).toFixed(2)}%` }} />
+        </div>
+      )}
     </div>
   )
 }
@@ -313,8 +358,14 @@ export function SchedulerView(): JSX.Element {
 
   return (
     <div className={styles.view}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>Scheduled tasks</h1>
+      <header className={styles.header}>
+        <div className={styles.headerText}>
+          <h1 className={styles.title}>Scheduled tasks</h1>
+          <p className={styles.subtitle}>
+            Run tasks on a schedule, using only the tools you allow. Type a prompt, pick when it
+            runs, and Anodex takes it from there.
+          </p>
+        </div>
         <div className={styles.headerActions}>
           <SelectControl
             value={sortMode}
@@ -332,67 +383,69 @@ export function SchedulerView(): JSX.Element {
             New task
           </Button>
         </div>
-      </div>
-      <p className={styles.subtitle}>
-        Run tasks on a schedule, using only the tools you allow. Type a prompt, pick when it runs,
-        and Anodex takes it from there.
-      </p>
+      </header>
 
-      <SidebarSearch value={query} onChange={setQuery} />
+      <div className={styles.body}>
+        <SidebarSearch value={query} onChange={setQuery} />
 
-      <div className={styles.infoBar}>
-        <span>
-          <Icon name="info" size={14} /> Scheduled tasks only run while Anodex is open.
-        </span>
-        <label className={styles.keepAwake}>
-          <Icon name="power" size={14} />
-          Keep awake
-          <ToggleControl checked={keepAwake} onChange={(value) => void setKeepAwake(value)} />
-        </label>
-      </div>
-
-      {filteredTasks.length === 0 ? (
-        <div className={styles.empty}>
-          <Icon name="clock" size={40} className={styles.emptyIcon} />
-          <p>{tasks.length === 0 ? 'No scheduled tasks yet.' : 'No tasks match your search.'}</p>
+        <div className={styles.infoBar}>
+          <span>
+            <Icon name="info" size={14} /> Scheduled tasks only run while Anodex is open.
+          </span>
+          <label className={styles.keepAwake}>
+            <Icon name="power" size={14} />
+            Keep awake
+            <ToggleControl checked={keepAwake} onChange={(value) => void setKeepAwake(value)} />
+          </label>
         </div>
-      ) : (
-        <div className={styles.taskList}>
-          {filteredTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              runningId={runningId}
-              projectName={projectName}
-              onOpenReport={setOpenTaskId}
-              onRunNow={(t) => void handleRunNow(t)}
-              onEdit={setEditingTask}
-            />
-          ))}
-        </div>
-      )}
 
-      <div className={styles.divider} />
+        {/* Built from every task, not the filtered view — a day with half its
+            runs hidden by a search box would be a different day. */}
+        <TodayStrip tasks={tasks} />
 
-      <div className={styles.examples}>
-        <h2 className={styles.examplesTitle}>Get started with an example</h2>
-        <div className={styles.exampleGrid}>
-          {EXAMPLES.map((example) => (
-            <button
-              key={example.title}
-              type="button"
-              className={styles.exampleCard}
-              onClick={() => setCreatingSeed(example.seed)}
-            >
-              <div className={styles.exampleIcon}>
-                <Icon name={example.icon} size={16} />
-              </div>
-              <div>
-                <p className={styles.exampleTitle}>{example.title}</p>
-                <p className={styles.exampleDescription}>{example.description}</p>
-              </div>
-            </button>
-          ))}
+        {filteredTasks.length === 0 ? (
+          <div className={styles.empty}>
+            <Icon name="clock" size={40} className={styles.emptyIcon} />
+            <p>{tasks.length === 0 ? 'No scheduled tasks yet.' : 'No tasks match your search.'}</p>
+          </div>
+        ) : (
+          <div className={styles.taskList}>
+            {filteredTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                runningId={runningId}
+                projectName={projectName}
+                onOpenReport={setOpenTaskId}
+                onRunNow={(t) => void handleRunNow(t)}
+                onEdit={setEditingTask}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className={styles.divider} />
+
+        <div className={styles.examples}>
+          <h2 className={styles.examplesTitle}>Get started with an example</h2>
+          <div className={styles.exampleGrid}>
+            {EXAMPLES.map((example) => (
+              <button
+                key={example.title}
+                type="button"
+                className={styles.exampleCard}
+                onClick={() => setCreatingSeed(example.seed)}
+              >
+                <div className={styles.exampleIcon}>
+                  <Icon name={example.icon} size={16} />
+                </div>
+                <div>
+                  <p className={styles.exampleTitle}>{example.title}</p>
+                  <p className={styles.exampleDescription}>{example.description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

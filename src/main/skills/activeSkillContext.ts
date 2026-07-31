@@ -1,7 +1,13 @@
 import type { Skill } from '@shared/skill.types'
 
 const MAX_ACTIVE_SKILLS = 5
-const MAX_SKILL_BODY_CHARS = 1800
+
+/**
+ * Longest skill body injected verbatim when pinned; anything past this is
+ * elided. Exported so skills shipped with the app can be checked against the
+ * real limit rather than a copy of the number.
+ */
+export const MAX_SKILL_BODY_CHARS = 1800
 
 /**
  * Format user-pinned skills for automatic injection into the system prompt.

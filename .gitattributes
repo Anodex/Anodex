@@ -1,0 +1,31 @@
+# Line endings are pinned, not left to each machine's git config.
+#
+# Without this, `core.autocrlf=true` (the Windows default, and what this
+# project is actually developed on) checks every text file out with CRLF while
+# the repository itself stores LF. Prettier is configured for `endOfLine: "lf"`,
+# so it rejects the working copy it was just handed — `npm run format:check`
+# goes red on Windows for files that are perfectly formatted, and green on the
+# Linux CI runner for the same commit. That split is worse than either result:
+# it trains you to ignore the check locally.
+#
+# `eol=lf` makes the checkout match what is stored, on every platform.
+* text=auto eol=lf
+
+# Binary assets — never touch these, whatever the extension heuristics guess.
+*.png binary
+*.bmp binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.pdf binary
+*.gguf binary
+*.exe binary
+*.dll binary
+*.node binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.zip binary

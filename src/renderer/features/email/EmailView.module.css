@@ -1,23 +1,40 @@
+/**
+ * Full-bleed, like Critical Thinking's view: the page owns the whole panel
+ * rather than floating a capped column in the middle of it. The mail workspace
+ * is a set of panes to work in, and panes want the room.
+ *
+ * Nothing here is padded — each band below pads itself, so the header rule and
+ * the pane borders reach the edges instead of stopping short of them.
+ */
 .view {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  max-width: 900px;
   height: 100%;
-  margin: 0 auto;
-  padding: var(--space-6);
-  overflow-y: auto;
+  /* The columns inside scroll independently, so the page itself must not —
+     otherwise the rail's composer scrolls away with the mail. */
+  min-height: 0;
+  overflow: hidden;
 }
 
-.header {
+/**
+ * The page's entire chrome, on one line: what you are looking at, whose
+ * mailbox it is, and the search that filters it.
+ *
+ * This replaces a title block, an account tab strip, a mailbox tab strip and a
+ * search row — four stacked bands that between them pushed the first message
+ * a quarter of the way down the window.
+ */
+.cmdBar {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
 }
 
-.headerActions {
+.cmdTitle {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: var(--space-2);
 }
@@ -25,21 +42,329 @@
 .title {
   margin: 0;
   color: var(--text);
-  font-size: var(--text-2xl);
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
-.subtitle {
-  margin: var(--space-1) 0 0;
-  color: var(--text-muted);
-  font-size: var(--text-base);
+/* The count is a number, not a sentence: "363 unread" cost a whole line of
+   subtitle to say what three digits say here. */
+.unreadPill {
+  padding: 1px 7px;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
 }
 
-.providerPanel,
-.mailboxPanel {
+.digestStatus {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+/* A pass that produced nothing is a fault, not a status — amber, because the
+   page still works and the mail is still all there. */
+.digestStatusBlocked {
+  color: var(--warn);
+}
+
+.grow {
+  flex: 1;
+}
+
+.accountChip {
+  display: flex;
+  flex-shrink: 1;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 320px;
+  min-width: 0;
+  padding: 3px var(--space-2);
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.accountIdentity {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.accountName {
+  flex-shrink: 0;
+  max-width: 120px;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountAddress {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountChipButton {
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.accountChipButton:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.accountChevron {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.accountMenu {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  padding: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.accountMenuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  color: var(--text-muted);
+  font-family: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.accountMenuItem:hover {
+  background: var(--bg-surface-2);
+}
+
+.accountMenuCheck {
+  color: var(--accent);
+}
+
+.accountMenuText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.accountMenuText strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.accountMenuText small {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+/**
+ * One row that scrolls sideways rather than wrapping to a second one. Eight
+ * long IMAP folder names used to wrap on a narrow pane, which moved the mail
+ * down the screen every time the window was resized.
+ */
+.mailboxBar {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  padding: 0 var(--space-4) var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mailboxBar::-webkit-scrollbar {
+  display: none;
+}
+
+.mbox {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.mbox:hover {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.mbox[aria-pressed='true'] {
+  color: var(--text);
+  font-weight: 500;
+  background: var(--bg-elevated);
+}
+
+.mboxCount {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.mbox[aria-pressed='true'] .mboxCount {
+  color: var(--accent);
+}
+
+.mboxClose {
+  color: var(--text-faint);
+}
+
+.providerPanel {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+}
+
+/**
+ * The panel is the whole mail workspace, and it shows one thing at a time: the
+ * inbox list, or an opened thread beside the conversation about it. Opening a
+ * thread replaces the list rather than squeezing in next to it — Back in the
+ * reader's header is the way out.
+ *
+ * Which columns exist is decided in `EmailView.tsx`, because the rail must
+ * unmount rather than hide on a narrow window, so each layout class only has
+ * to name track sizes for the columns actually rendered.
+ */
+.mailboxPanel {
+  position: relative;
+  display: grid;
+  flex: 1;
+  /* Without this the grid takes its height from its content and the columns
+     never get a scrollbar of their own — the whole page scrolls instead. */
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  /* Deliberately not transitioned: the rail's width is dragged, and easing
+     every frame of a drag makes the edge lag behind the cursor. */
+}
+
+.layoutList,
+.layoutReader {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The rail's track is set inline from the dragged width (see `railWidth.ts`
+   for the bounds that keep it off the mail). This declaration is only the
+   fallback for the frame before that lands. */
+.layoutReaderRail {
+  grid-template-columns: minmax(0, 1fr) 380px;
+}
+
+/**
+ * The grab bar on the rail's inner edge. Positioned out of the grid flow and
+ * offset from the right by the rail's own width, so it tracks that edge
+ * without occupying a column between the panes.
+ *
+ * Wider than the 1px border it straddles, because a hairline is a miserable
+ * drag target — the visible line stays thin and the reachable area does not.
+ */
+.railResizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 9px;
+  /* Centres the strip on the rail's border rather than butting against it. */
+  margin-right: -5px;
+  cursor: col-resize;
+  /* Nothing here should start a text selection or a native image drag while
+     the pointer is being dragged across the mail. */
+  touch-action: none;
+  user-select: none;
+}
+
+.railResizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.railResizer:hover::after,
+.railResizer:focus-visible::after,
+.railResizerActive::after {
+  opacity: 1;
+}
+
+.railResizer:focus-visible {
+  outline: none;
+}
+
+/* While dragging, the cursor is often out over the mail or the transcript —
+   both of which would otherwise show their own cursor and fight the drag. */
+.railResizerActive {
+  cursor: col-resize;
+}
+
+.mailboxPanel:has(.railResizerActive) * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.listColumn,
+.readerColumn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.listColumn {
+  overflow-y: auto;
+}
+
+/* The reader keeps its own header out of the scroll (see `.readerHeader`), so
+   the column itself must not scroll — only the body inside it. */
+.readerColumn {
+  overflow: hidden;
 }
 
 .providerHeader {
@@ -67,8 +392,7 @@
   min-width: 0;
 }
 
-.providerTitleBlock h2,
-.mailboxHeader h2 {
+.providerTitleBlock h2 {
   margin: 0;
   color: var(--text);
   font-size: var(--text-lg);
@@ -143,19 +467,6 @@
   font-size: var(--text-sm);
 }
 
-.mailboxHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
-
-.mailboxHeader span {
-  color: var(--text-faint);
-  font-size: var(--text-xs);
-}
-
 .emptyInbox {
   display: flex;
   flex-direction: column;
@@ -166,6 +477,17 @@
   text-align: center;
 }
 
+/* An empty pane centres its message in the space it has, rather than pinning
+   it to the top of a mostly blank column. */
+.mailboxPanel > .emptyInbox,
+.mailboxPanel > .emptyState,
+.listColumn > .emptyInbox,
+.listColumn > .emptyState,
+.reader > .emptyInbox {
+  flex: 1;
+  justify-content: center;
+}
+
 .emptyInbox p {
   max-width: 360px;
   margin: 0;
@@ -173,16 +495,142 @@
   font-size: var(--text-sm);
 }
 
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.emptyBody {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.emptyMark {
+  color: var(--accent);
+}
+
+.emptyMarkWarn {
+  color: var(--warn);
+}
+
+.emptyMarkGood {
+  color: var(--success);
+}
+
+/* The two loose points drift, barely. This is the one screen a reader sits on
+   with nothing to do — and unlike an inbox they might be staring at for a
+   while, there is nothing here for the movement to interfere with. */
+.emptyDrift1 {
+  animation: emptyDrift 9s var(--ease) infinite;
+}
+
+.emptyDrift2 {
+  animation: emptyDrift 11s var(--ease) infinite reverse;
+}
+
+@keyframes emptyDrift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emptyDrift1,
+  .emptyDrift2 {
+    animation: none;
+  }
+}
+
 .threadList {
   display: flex;
   flex-direction: column;
 }
 
-.threadItem {
+/* Sits on the command bar rather than owning a band of its own, and takes the
+   extra room only while it is being used. */
+.searchInline {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
+  flex: 0 1 240px;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 120px;
+  padding: 3px var(--space-3);
+  color: var(--text-faint);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  transition:
+    flex-basis var(--transition) var(--ease-out),
+    border-color var(--transition-fast);
+}
+
+.searchInline:hover {
+  border-color: var(--border-strong);
+}
+
+.searchInline:focus-within {
+  flex-basis: 340px;
+  border-color: var(--accent);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  background: none;
+  border: none;
+  outline: none;
+}
+
+.searchClear {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.searchClear:hover {
+  color: var(--text);
+}
+
+.searchInput::placeholder {
+  color: var(--text-faint);
+}
+
+.threadItem {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 0;
   border-top: 1px solid var(--border);
 }
 
@@ -190,69 +638,976 @@
   border-top: none;
 }
 
-.threadTitleRow {
+.threadItem:hover {
+  background: var(--bg-surface-2);
+}
+
+/**
+ * Unread is a left edge rather than a dot ahead of the subject. It reads as
+ * one continuous column down the list that the eye can run along, it survives
+ * at any row height, and it gives the subject back the space the dot took.
+ */
+.threadUnread::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+/* The whole row is the open affordance; the action buttons sit outside it so
+   they don't become nested interactive elements. */
+.threadOpen {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.threadBody {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/**
+ * A monogram in a colour derived from the sender's identity (see
+ * `threadRow.ts`). The colours are a fixed set of five taken from the logo
+ * ramp plus the two status hues, so the list reads as one system rather than
+ * as a rainbow of arbitrary per-user colours.
+ */
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--avatar-fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: var(--avatar-bg);
+  border-radius: var(--radius-md);
+  transition: transform var(--transition) var(--ease-out);
+}
+
+.threadItem:hover .avatar {
+  transform: scale(1.06);
+}
+
+/**
+ * The logo's cyan → blue → violet ramp, sampled at five points. Every one is
+ * mixed from the three brand accents, so nothing here can collide with what
+ * `--success`, `--warn` or `--danger` mean everywhere else in the app — an
+ * avatar says "same sender", and it must not also look like a verdict.
+ */
+.toneCyan {
+  --avatar-fg: var(--accent-cyan);
+  --avatar-bg: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
+}
+
+.toneAzure {
+  --avatar-fg: color-mix(in srgb, var(--accent-cyan) 50%, var(--accent));
+  --avatar-bg: color-mix(in srgb, var(--accent-cyan) 6%, var(--accent-soft));
+}
+
+.toneBlue {
+  --avatar-fg: var(--accent);
+  --avatar-bg: var(--accent-soft);
+}
+
+.toneIndigo {
+  --avatar-fg: color-mix(in srgb, var(--accent) 45%, var(--accent-violet));
+  --avatar-bg: color-mix(in srgb, var(--accent) 6%, var(--accent-violet-soft));
+}
+
+.toneViolet {
+  --avatar-fg: var(--accent-violet);
+  --avatar-bg: var(--accent-violet-soft);
+}
+
+.sender {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadUnread .sender,
+.threadUnread .subject {
+  color: var(--text);
+}
+
+.threadUnread .subject {
+  font-weight: 600;
+}
+
+.threadMarks {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-faint);
+  font-size: var(--text-2xs);
+}
+
+/**
+ * The date and the row's actions occupy one cell, one at a time. Showing the
+ * actions in a cell of their own would widen the row on hover and shuffle
+ * every subject on the page sideways.
+ */
+.threadRight {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 96px;
+  padding-top: var(--space-3);
+}
+
+.when {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.threadItem:hover .when,
+.threadItem:focus-within .when {
+  display: none;
+}
+
+.threadActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transform: translateX(4px);
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition) var(--ease-out);
+  pointer-events: none;
+}
+
+.threadItem:hover .threadActions,
+.threadItem:focus-within .threadActions {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.iconAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.iconAction:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.iconActionActive {
+  color: var(--accent);
+}
+
+.iconActiveGlyph {
+  fill: currentColor;
+}
+
+.iconAction:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The scrolling body of the reader. Its header is a sibling, not a child, so
+   that Back and the thread's actions stay put while the mail scrolls. */
+.reader {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-5) var(--space-4);
+  overflow-y: auto;
+}
+
+.readerHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.readerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.readerSubject {
+  margin: 0 0 var(--space-2);
+  color: var(--text);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* The pane remains full width, but email prose does not. Long lines are hard
+   to scan, especially beside the assistant rail, so the conversation follows
+   the 78-character measure established by the visual exploration. */
+.readerMeasure {
+  width: 100%;
+  max-width: 78ch;
+  margin: 0 auto;
+}
+
+.readerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+/* Overlapped, so four correspondents cost about the width of two. */
+.readerFaces {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.readerFace {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: -5px;
+  color: var(--avatar-fg);
+  font-size: 9px;
+  font-weight: 600;
+  background: var(--avatar-bg);
+  border: 1px solid var(--bg-surface);
+  border-radius: var(--radius-sm);
+}
+
+.readerNames {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Dimmer than the text either side, so the separators recede rather than
+   punctuating the line. */
+.readerDot {
+  color: var(--border-strong);
+}
+
+/**
+ * The spine: one line down the conversation with the senders' own faces on it,
+ * rather than a stack of bordered cards.
+ *
+ * The line is `--border-strong` and not `--border` — the latter is #1f1f1f on
+ * a #111111 surface, a contrast ratio of about 1.2:1, so the original spine
+ * was drawn in a colour nobody could see and the nodes simply floated.
+ */
+.messageList {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding-left: 40px;
+}
+
+.messageList::before {
+  content: '';
+  position: absolute;
+  /* Stops level with the first and last faces rather than running past them. */
+  top: 14px;
+  bottom: 14px;
+  left: 13px;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+/* Still a flex column with a gap: the body, an HTML frame, the remote-image
+   notice and the attachment row all rely on it to space themselves, and the
+   avatar is absolutely positioned so it takes no part in the flow. */
+.message {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-6);
+}
+
+.message:last-child {
+  padding-bottom: 0;
+}
+
+/* The ring is the surface colour, which is what makes the line appear to pass
+   behind the face rather than collide with it. */
+.messageAvatar {
+  position: absolute;
+  top: 0;
+  left: -40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--avatar-fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: var(--avatar-bg);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 4px var(--bg-surface);
+}
+
+/* The message the thread was opened for. Its body reads at full contrast and
+   its face is ringed; everything behind it stays legible but recedes. */
+.messageLatest > .messageAvatar {
+  box-shadow:
+    0 0 0 4px var(--bg-surface),
+    0 0 0 5px var(--avatar-fg);
+}
+
+/**
+ * The account's own messages. Marked with a quiet inset rather than a
+ * different colour, so the thread visibly alternates between the two sides
+ * without turning the reader into a chat app — these are still letters, and
+ * they are still in date order down one spine.
+ */
+.messageSelf > .messageAvatar {
+  border-radius: var(--radius-pill);
+}
+
+.messageSelf .messageSender {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.messageMeta {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
+  /* Matches the face beside it, so a one-line message still clears its node. */
+  min-height: 28px;
 }
 
-.threadTitleRow strong {
+/* A button, because it opens the sender card — but it has to read as the
+   message's byline, not as a control sitting in the middle of the mail. */
+.messageSender {
   overflow: hidden;
+  padding: 0;
   color: var(--text);
   font-size: var(--text-sm);
+  font-family: inherit;
+  font-weight: 600;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  cursor: default;
+  transition: border-color var(--transition-fast);
 }
 
-.threadTitleRow span,
-.threadItem small {
-  color: var(--text-faint);
-  font-size: var(--text-xs);
+.messageSender:hover,
+.messageSender:focus-visible {
+  border-bottom-color: var(--border-strong);
 }
 
-.threadItem p {
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/**
+ * The sender card, replacing the `title` tooltip the browser used to draw.
+ *
+ * That tooltip could not be styled, could not be reached with the pointer, and
+ * disappeared the moment you moved towards it — so the address in it was
+ * visible and yet impossible to copy. This one is a real surface: it uses the
+ * same elevated background, border and shadow as every other popover in the
+ * app, and the pointer can travel into it.
+ */
+.senderCard {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 220px;
+  max-width: 380px;
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  /* The reason the card exists: the text in it is meant to be dragged over. */
+  user-select: text;
 }
 
-.toolGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-3);
-  padding-bottom: var(--space-6);
+.senderCardName {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
-.toolItem {
+.senderCardRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
 }
 
-.toolItem svg {
+.senderCardRecipients {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.senderCardLabel {
   flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.senderCardValue {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.senderCardCopy {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.senderCardCopy:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.messageTime {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.messageBody {
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.messageLatest .messageBody {
+  color: var(--text);
+}
+
+.htmlBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.htmlFrame {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+}
+
+.remoteNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.inlineLink {
+  padding: 0;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.attachmentRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.attachmentChip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-family: inherit;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.attachmentChip:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.attachmentChip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The sender-colour picker, opened by right-clicking a row. */
+.toneMenu {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 232px;
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.toneMenuHead {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.toneMenuHead strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toneMenuHead small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toneSwatches {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Swatches rather than the colours' names: picking a colour off a list of
+   words is a worse way to pick a colour than looking at it. */
+.toneSwatch {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  color: var(--avatar-fg);
+  background: var(--avatar-bg);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    transform var(--transition-fast) var(--ease-out),
+    border-color var(--transition-fast);
+}
+
+.toneSwatch:hover {
+  border-color: var(--avatar-fg);
+  transform: translateY(-1px);
+}
+
+.toneSwatchOn {
+  border-color: var(--avatar-fg);
+}
+
+.toneSwatchCustom {
+  position: relative;
+  overflow: hidden;
+  --avatar-fg: var(--accent);
+  --avatar-bg: var(--accent-soft);
+}
+
+.toneColorInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.toneCustomValue {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.toneAdjusted {
+  color: var(--warn);
+}
+
+.toneMenuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.toneMenuItem:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.toneMenuItem:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toneMenuNote {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+/**
+ * The bar a folded run of bulk mail collapses to. Deliberately quieter than a
+ * thread row — it is a thing to skip past, and the whole point is that the
+ * eye goes to the rows either side of it instead.
+ */
+.quietBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.quietBar:hover {
+  color: var(--text-muted);
+  background: var(--bg-surface-2);
+}
+
+.quietFaces {
+  display: flex;
+  flex-shrink: 0;
+}
+
+/* Overlapped, so four brands cost about the width of two. */
+.quietFace {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: -6px;
+  color: var(--avatar-fg);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  background: var(--avatar-bg);
+  border: 1px solid var(--bg-surface);
+  border-radius: var(--radius-sm);
+}
+
+.quietLabel {
+  flex-shrink: 0;
+  margin-left: var(--space-2);
+}
+
+.quietRule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.quietChevron {
+  flex-shrink: 0;
+  transition: transform var(--transition) var(--ease-out);
+}
+
+.quietChevronOpen {
+  transform: rotate(180deg);
+}
+
+.loadMoreRow {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.attachmentChip small {
   color: var(--text-faint);
 }
 
+.threadTitleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.subject {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The snippet and the digest are stacked in one cell, so a row says a
+   different thing after the pass without becoming a taller row. */
+.previewSlot {
+  position: relative;
+  display: block;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.snippet,
+.threadDigest {
+  display: block;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snippet {
+  color: var(--text-faint);
+  transition: opacity var(--motion-short) var(--ease);
+}
+
+/* Clears out of the way rather than dimming: the digest is stacked on top of
+   it, and two lines of text sharing one line of space is unreadable at any
+   opacity. It keeps its box, which is what holds the row's height still. The
+   words are not lost — the row's tooltip still carries them. */
+.hasDigest .snippet {
+  opacity: 0;
+}
+
+/* A digest is the model's reading of the thread, not the thread's own words —
+   the accent edge marks that difference without a label on every row. */
+.threadDigest {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  padding-left: var(--space-2);
+  color: var(--text-muted);
+  border-left: 2px solid var(--accent);
+}
+
+/**
+ * The Sweep.
+ *
+ * A digest pass is the one moment in this pane where the machine is visibly
+ * doing something no other mail client does, and it used to surface as the
+ * words "Reading your mail…" in grey. The beam rests on the boundary between
+ * the threads that have been read and the ones that have not, so its position
+ * is the progress; it advances as each batch lands, and goes when the pass is
+ * over. Bounded by a real operation — never an ambient loop.
+ */
+.sweepBeam {
+  position: relative;
+  z-index: 1;
+  display: block;
+  height: 0;
+  pointer-events: none;
+}
+
+.sweepBeam::before {
+  content: '';
+  position: absolute;
+  top: -60px;
+  right: 0;
+  left: 0;
+  height: 120px;
+  /* The logo's cyan → blue → violet ramp, which is reserved for the rare
+     "arrival" moments that earn a richer accent than the flat blue. */
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--accent-cyan) 6%, transparent) 30%,
+    color-mix(in srgb, var(--accent) 14%, transparent) 55%,
+    color-mix(in srgb, var(--accent-violet) 6%, transparent) 78%,
+    transparent
+  );
+  animation:
+    sweepArrive var(--motion-long) var(--ease-emphasized) both,
+    sweepBreathe 1800ms var(--ease) var(--motion-long) infinite;
+}
+
+/* Replayed each time the beam moves down to the next undigested thread, which
+   is what sells a jump between two rows as travel rather than a teleport. */
+@keyframes sweepArrive {
+  from {
+    opacity: 0;
+    transform: translateY(-28px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sweepBreathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Written in from the left, the way it was read — after a beat, so the
+   snippet underneath has finished clearing before the first word lands. */
+.revealing {
+  animation: digestWriteIn var(--motion-long) var(--ease-out) var(--motion-short) both;
+}
+
+@keyframes digestWriteIn {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+  }
+
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweepBeam::before,
+  .revealing {
+    animation: none;
+  }
+
+  .snippet {
+    transition: none;
+  }
+}
+
 @media (max-width: 760px) {
-  .header,
   .providerHeader {
     align-items: flex-start;
   }
 
-  .header {
-    flex-direction: column;
+  /* The bar stays one line at every width — the search gives up its room
+     first, and the account chip's address is already truncated. */
+  .digestStatus {
+    display: none;
+  }
+
+  .accountAddress {
+    display: none;
+  }
+
+  .reader {
+    padding: var(--space-4) var(--space-3);
+  }
+
+  .readerHeader {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .messageSender {
+    flex-basis: 100%;
   }
 
   .settingRow {
@@ -263,15 +1618,5 @@
   .settingRow > select,
   .fixedValue {
     justify-self: start;
-  }
-
-  .toolGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 480px) {
-  .toolGrid {
-    grid-template-columns: 1fr;
   }
 }

@@ -1,7 +1,10 @@
+import type { ProviderSettings } from '@shared/settings.types'
 import { llamaService } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import { anthropicProvider } from './AnthropicProvider'
 import { openAiProvider } from './OpenAiProvider'
+import { azureOpenAiProvider } from './AzureOpenAiProvider'
+import { openAiCompatibleProviders } from './cloudProviderConfigs'
 import type { LlmProvider } from './LlmProvider'
 
 const localProvider: LlmProvider = {
@@ -9,10 +12,12 @@ const localProvider: LlmProvider = {
   generate: (params) => llamaService.generate(params)
 }
 
-const providers: Record<string, LlmProvider> = {
+const providers: Record<ProviderSettings['active'], LlmProvider> = {
   local: localProvider,
   anthropic: anthropicProvider,
-  openai: openAiProvider
+  openai: openAiProvider,
+  azure: azureOpenAiProvider,
+  ...openAiCompatibleProviders
 }
 
 /**
@@ -23,7 +28,7 @@ const providers: Record<string, LlmProvider> = {
  * `local` for an unknown or unset value either way, so a corrupt/older
  * settings file (or a bad override) can't leave generation unusable.
  */
-export function getActiveProvider(overrideId?: 'local' | 'anthropic' | 'openai'): LlmProvider {
+export function getActiveProvider(overrideId?: ProviderSettings['active']): LlmProvider {
   const active = overrideId ?? settingsStore.get().provider.active
   return providers[active] ?? localProvider
 }

@@ -2,8 +2,14 @@ import { app, safeStorage } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
+import {
+  DEFAULT_KEYBOARD_SHORTCUTS,
+  isBindableShortcut,
+  normalizeShortcut
+} from '@shared/keyboardShortcuts'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('settings')
@@ -68,10 +74,14 @@ class SettingsStore {
       const raw = retired.settings as DeepPartial<AppSettings> & {
         ui?: { systemPrompt?: string }
         appearance?: { themeMode?: string; presetTheme?: string }
+        email?: LegacyEmailSettings
       }
       // Merge over defaults so missing/added fields are always populated.
       const merged = deepMerge(defaults, raw)
-      const migrated = migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw)
+      const migrated = migrateLegacyGmailAccount(
+        migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+        raw
+      )
       // Persist right away so the stray legacy fields (and, on the first pass,
       // their migrated values) only ever need handling once — left on disk,
       // they would silently re-trigger on every future load (see the
@@ -79,7 +89,14 @@ class SettingsStore {
       // fields.
       const legacyThemeFieldsPresent =
         raw.appearance?.themeMode !== undefined || raw.appearance?.presetTheme !== undefined
-      if (raw.ui?.systemPrompt !== undefined || legacyThemeFieldsPresent || retired.changed) {
+      const legacyEmailFieldsPresent =
+        raw.email?.provider !== undefined || raw.email?.gmail !== undefined
+      if (
+        raw.ui?.systemPrompt !== undefined ||
+        legacyThemeFieldsPresent ||
+        legacyEmailFieldsPresent ||
+        retired.changed
+      ) {
         try {
           this.persist(migrated)
         } catch (error) {
@@ -206,6 +223,91 @@ function resolveLegacyTheme(
     return legacyPreset
   }
   return 'midnight'
+}
+
+/**
+ * Account id given to a migrated single-Gmail setup. It deliberately matches
+ * the provider key that {@link EmailAuthStore} used before tokens were keyed by
+ * account, so the existing OAuth token keeps resolving with no token-store
+ * migration of its own.
+ */
+export const LEGACY_GMAIL_ACCOUNT_ID = 'gmail'
+
+/** The pre-multi-account `email` block, as it still exists on disk for upgraders. */
+export interface LegacyEmailSettings {
+  provider?: string
+  gmail?: {
+    enabled?: boolean
+    address?: string
+    oauthClientId?: string
+    oauthClientSecret?: string
+    syncMode?: string
+  }
+}
+
+/**
+ * One-time migration: `email.{provider,gmail}` (a single hardcoded Gmail
+ * account) was replaced by `email.accounts`, a list that also holds Microsoft
+ * and IMAP accounts. A configured legacy Gmail account becomes the first entry
+ * and the primary, keeping an already-authorized user connected across the
+ * upgrade.
+ *
+ * `oauthClientSecret` is intentionally dropped rather than carried over: it sat
+ * in `settings.json` as plaintext, and the OAuth flow now uses PKCE, which is
+ * what RFC 8252 prescribes for native apps and needs no secret. A user with a
+ * custom client that still requires one re-enters it, and it goes to
+ * `EmailAuthStore` instead of settings.
+ *
+ * Exported for unit testing; operates on plain data, no store/disk access.
+ */
+export function migrateLegacyGmailAccount(
+  settings: AppSettings,
+  raw: DeepPartial<AppSettings> & { email?: LegacyEmailSettings }
+): AppSettings {
+  const legacy = raw.email
+  if (!legacy || (legacy.provider === undefined && legacy.gmail === undefined)) return settings
+
+  // `deepMerge` copies the retired `provider`/`gmail` keys onto `settings.email`
+  // even though `EmailSettings` no longer declares them (see `deepMerge`'s doc
+  // comment) — strip them so this only runs once per legacy install, the same
+  // reasoning as the two migrations above.
+  const email = { ...(settings.email as unknown as Record<string, unknown>) }
+  delete email.provider
+  delete email.gmail
+  const cleaned = {
+    ...settings,
+    email: email as unknown as AppSettings['email']
+  }
+
+  // Never overwrite accounts that already exist — a second pass (or a settings
+  // file touched by a newer build) must not resurrect the legacy account.
+  if (cleaned.email.accounts.length > 0) return cleaned
+
+  const gmail = legacy.gmail
+  const address = typeof gmail?.address === 'string' ? gmail.address.trim() : ''
+  const oauthClientId = typeof gmail?.oauthClientId === 'string' ? gmail.oauthClientId.trim() : ''
+  const configured = gmail?.enabled === true || address !== '' || oauthClientId !== ''
+  if (!configured) return cleaned
+
+  const account: EmailAccount = {
+    id: LEGACY_GMAIL_ACCOUNT_ID,
+    provider: 'gmail',
+    address,
+    displayName: address || 'Gmail',
+    authKind: 'oauth',
+    syncMode: gmail?.syncMode === 'full' ? 'full' : 'metadata',
+    createdAt: Date.now()
+  }
+  if (oauthClientId) account.oauthClientId = oauthClientId
+
+  return {
+    ...cleaned,
+    email: {
+      ...cleaned.email,
+      accounts: [account],
+      primaryAccountId: account.id
+    }
+  }
 }
 
 /** Marks a value in `settings.json` as encrypted by `safeStorage`, vs. legacy plaintext. */
@@ -356,6 +458,15 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
       throw new Error('generation.maxTokens must be a non-negative finite number')
     }
   }
+  if (generation?.turnTimeLimitMinutes !== undefined && generation.turnTimeLimitMinutes !== null) {
+    if (
+      !isFiniteNumber(generation.turnTimeLimitMinutes) ||
+      generation.turnTimeLimitMinutes < 1 ||
+      generation.turnTimeLimitMinutes > 120
+    ) {
+      throw new Error('generation.turnTimeLimitMinutes must be null or a number between 1 and 120')
+    }
+  }
 
   const model = patch.model
   if (model?.contextSize !== undefined) {
@@ -425,6 +536,38 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
     }
   }
 
+  if (patch.keyboard?.shortcuts !== undefined) {
+    if (!isPlainObject(patch.keyboard.shortcuts)) {
+      throw new Error('keyboard.shortcuts must be an object')
+    }
+    for (const [id, value] of Object.entries(patch.keyboard.shortcuts)) {
+      if (!(id in DEFAULT_KEYBOARD_SHORTCUTS)) {
+        throw new Error(`keyboard.shortcuts contains an unknown shortcut: ${id}`)
+      }
+      if (typeof value !== 'string') {
+        throw new Error(`keyboard.shortcuts.${id} must be a string`)
+      }
+      if (value && normalizeShortcut(value) !== value) {
+        throw new Error(`keyboard.shortcuts.${id} must use normalized shortcut syntax`)
+      }
+      if (value && !isBindableShortcut(value)) {
+        throw new Error(
+          `keyboard.shortcuts.${id} needs a Ctrl, Alt, or Meta modifier (or Escape / an F-key)`
+        )
+      }
+    }
+    // Two actions on one binding would fire both. The settings UI blocks this,
+    // but the IPC channel is the real boundary.
+    const claimed = new Map<string, string>()
+    for (const [id, value] of Object.entries(patch.keyboard.shortcuts)) {
+      if (typeof value !== 'string' || !value) continue
+      const owner = claimed.get(value)
+      if (owner)
+        throw new Error(`keyboard.shortcuts: ${value} is assigned to both ${owner} and ${id}`)
+      claimed.set(value, id)
+    }
+  }
+
   if (patch.provider?.active !== undefined) {
     if (!['local', 'anthropic', 'openai'].includes(patch.provider.active)) {
       throw new Error('provider.active must be "local", "anthropic", or "openai"')
@@ -444,29 +587,10 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
     }
   }
 
-  if (patch.email?.provider !== undefined) {
-    if (!['none', 'gmail'].includes(patch.email.provider)) {
-      throw new Error('email.provider must be "none" or "gmail"')
-    }
-  }
-  if (patch.email?.gmail?.address !== undefined) {
-    if (typeof patch.email.gmail.address !== 'string') {
-      throw new Error('email.gmail.address must be a string')
-    }
-  }
-  if (patch.email?.gmail?.oauthClientId !== undefined) {
-    if (typeof patch.email.gmail.oauthClientId !== 'string') {
-      throw new Error('email.gmail.oauthClientId must be a string')
-    }
-  }
-  if (patch.email?.gmail?.oauthClientSecret !== undefined) {
-    if (typeof patch.email.gmail.oauthClientSecret !== 'string') {
-      throw new Error('email.gmail.oauthClientSecret must be a string')
-    }
-  }
-  if (patch.email?.gmail?.syncMode !== undefined) {
-    if (!['metadata', 'full'].includes(patch.email.gmail.syncMode)) {
-      throw new Error('email.gmail.syncMode must be "metadata" or "full"')
+  if (patch.email?.accounts !== undefined) validateEmailAccounts(patch.email.accounts)
+  if (patch.email?.primaryAccountId !== undefined && patch.email.primaryAccountId !== null) {
+    if (typeof patch.email.primaryAccountId !== 'string' || !patch.email.primaryAccountId.trim()) {
+      throw new Error('email.primaryAccountId must be a non-empty string or null')
     }
   }
 
@@ -482,10 +606,68 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
       )
     }
   }
-  if (patch.email?.gmail?.sendRequiresApproval !== undefined) {
-    if (patch.email.gmail.sendRequiresApproval !== true) {
-      throw new Error('email.gmail.sendRequiresApproval must be true')
+  if (patch.email?.sendRequiresApproval !== undefined) {
+    if (patch.email.sendRequiresApproval !== true) {
+      throw new Error('email.sendRequiresApproval must be true')
     }
+  }
+}
+
+/**
+ * Accounts normally arrive from `EmailAccountStore`, which builds them itself —
+ * but `settings:update` is reachable from the renderer with an arbitrary
+ * payload, so the shape is checked here rather than trusted. Rejecting a
+ * credential-looking key is deliberate: secrets belong in `EmailAuthStore`, and
+ * anything landing in an account record is written to disk as plaintext.
+ */
+function validateEmailAccounts(accounts: unknown): void {
+  if (!Array.isArray(accounts)) throw new Error('email.accounts must be an array')
+  const seen = new Set<string>()
+  for (const account of accounts) {
+    if (!isPlainObject(account)) throw new Error('email.accounts entries must be objects')
+    if (typeof account.id !== 'string' || !account.id.trim()) {
+      throw new Error('email.accounts[].id must be a non-empty string')
+    }
+    if (seen.has(account.id)) throw new Error(`email.accounts[].id is duplicated: ${account.id}`)
+    seen.add(account.id)
+    if (typeof account.provider !== 'string' || !EMAIL_PROVIDERS.includes(account.provider)) {
+      throw new Error(`email.accounts[].provider must be one of ${EMAIL_PROVIDERS.join(', ')}`)
+    }
+    if (typeof account.address !== 'string' || !account.address.trim()) {
+      throw new Error('email.accounts[].address must be a non-empty string')
+    }
+    if (account.authKind !== 'oauth' && account.authKind !== 'password') {
+      throw new Error('email.accounts[].authKind must be "oauth" or "password"')
+    }
+    if (account.syncMode !== 'metadata' && account.syncMode !== 'full') {
+      throw new Error('email.accounts[].syncMode must be "metadata" or "full"')
+    }
+    for (const key of ['password', 'oauthClientSecret', 'accessToken', 'refreshToken']) {
+      if (key in account) {
+        throw new Error(`email.accounts[] must not carry a credential field: ${key}`)
+      }
+    }
+    for (const key of ['imap', 'smtp'] as const) {
+      if (account[key] !== undefined) validateEmailEndpoint(account[key], key)
+    }
+  }
+}
+
+const EMAIL_PROVIDERS = ['gmail', 'microsoft', 'imap']
+
+function validateEmailEndpoint(endpoint: unknown, label: string): void {
+  if (!isPlainObject(endpoint)) throw new Error(`email.accounts[].${label} must be an object`)
+  if (typeof endpoint.host !== 'string' || !endpoint.host.trim()) {
+    throw new Error(`email.accounts[].${label}.host must be a non-empty string`)
+  }
+  if (!isFiniteNumber(endpoint.port) || endpoint.port < 1 || endpoint.port > 65535) {
+    throw new Error(`email.accounts[].${label}.port must be a port number`)
+  }
+  if (!['tls', 'starttls', 'plain'].includes(endpoint.security as string)) {
+    throw new Error(`email.accounts[].${label}.security must be "tls", "starttls", or "plain"`)
+  }
+  if (typeof endpoint.username !== 'string' || !endpoint.username.trim()) {
+    throw new Error(`email.accounts[].${label}.username must be a non-empty string`)
   }
 }
 

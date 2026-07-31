@@ -1,0 +1,118 @@
+/* Sits under the reply it belongs to, separated by a hairline rather than a
+   card: it is a footnote to the answer, not a second thing to read. */
+.sources {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.label {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2) 2px var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-decoration: none;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.source:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+
+.number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+  font-variant-numeric: tabular-nums;
+}
+
+.host {
+  white-space: nowrap;
+}
+
+/* A search hit whose page was never fetched — kept visibly weaker than a
+   fetched source so the two can never be mistaken for each other. */
+.lead {
+  background: transparent;
+}
+
+.lead .number {
+  color: var(--text-faint);
+  background: var(--bg-elevated);
+}
+
+.leadMark {
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* The honest-failure state. Warn, not danger: nothing broke, the answer just
+   isn't standing on anything retrieved. */
+.unsourced {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
+  border-radius: var(--radius-md);
+}
+
+.unsourcedIcon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--warn);
+}
+
+.unsourcedText {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.unsourcedText strong {
+  font-weight: 550;
+  color: var(--text);
+}

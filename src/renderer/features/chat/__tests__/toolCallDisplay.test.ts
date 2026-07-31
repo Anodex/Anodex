@@ -22,7 +22,9 @@ describe('getToolCallDisplay', () => {
   })
 
   it('normalizes colon-delimited command titles', () => {
-    expect(getToolCallDisplay(call({ kind: 'command', title: 'Run: npm test -- --run app.test.ts' }))).toMatchObject({
+    expect(
+      getToolCallDisplay(call({ kind: 'command', title: 'Run: npm test -- --run app.test.ts' }))
+    ).toMatchObject({
       action: 'Run',
       target: 'npm test -- --run app.test.ts'
     })

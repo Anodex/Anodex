@@ -1,13 +1,18 @@
 import type { ChatSessionModelFunction } from 'node-llama-cpp'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
+import type { ChatUserFile } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
 import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { LoopGuardState } from './loopGuard'
 import type { ToolArtifact, ToolArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ModelToolResultBudget } from './modelResultBudget'
 import type { ReadCoverageTracker } from './readCoverage'
+import type { WebSourceRegistry } from './WebSourceRegistry'
 import type { VisualInputQueue } from '../vision/imageInputs'
+
+/** Cloud image API the active generation provider has explicitly opted into. */
+export type ImageGenerationProvider = 'openai' | 'google'
 
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
 type NlcModule = typeof import('node-llama-cpp')
@@ -33,12 +38,25 @@ export interface ToolRuntimeContext {
   projectId: string | null
   /** Absolute path all workspace tools are confined to, or null if none. */
   workspaceRoot: string | null
+  /**
+   * Files the user attached to this chat. Tools that *send* a file may read
+   * these regardless of whether a workspace is open — the user putting a file
+   * into the conversation is what makes it fair game, not where it happens to
+   * live on disk.
+   *
+   * Deliberately not a way around the workspace sandbox for anything else:
+   * these are read-only, and every tool that writes still confines itself to
+   * `workspaceRoot`.
+   */
+  userFiles: ChatUserFile[]
   /** Master permission mode; decides which risk levels auto-run vs. need confirmation. */
   permissionMode: PermissionMode
   /** Shell executable used by run_command, if the user configured one. */
   commandShell?: string
   /** Web search configuration used by the web_search tool. */
   webSearch: WebSearchSettings
+  /** Present only for cloud providers with a first-party image generation integration. */
+  imageGeneration?: { provider: ImageGenerationProvider }
   /** Email provider configuration used by email tools. */
   email: EmailSettings
   /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
@@ -118,6 +136,14 @@ export interface ToolRuntimeContext {
   evidenceFocus?: string
   /** Persist a full structured result before the model-facing text is truncated. */
   recordArtifact?: (artifact: ToolArtifact) => void
+  /**
+   * Per-turn web source registry. Web tools register what they retrieved and
+   * put the returned id in their model-facing text, so the model can attribute
+   * a claim to a specific page and the finished message can show what it stood
+   * on. Absent for callers that don't attribute sources (Critical Thinking
+   * keeps its own richer source state).
+   */
+  webSources?: WebSourceRegistry
   /** Return a model-facing limit message to block this call, or null to run it. */
   beforeTool?: (name: string, args: unknown) => string | null
   /**

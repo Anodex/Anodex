@@ -3,6 +3,7 @@
 import type { ToolCall } from './tools.types'
 import type { Plan } from './plan.types'
 import type { MemoryEntry } from './memory.types'
+import type { WebSource } from './webSources.types'
 import type { TranscriptRecallResult } from './transcriptRecall.types'
 import type { ConversationContext, ConversationContextSnapshot } from './context.types'
 import type { CheckpointSummary } from './checkpoint.types'
@@ -85,6 +86,18 @@ export interface ChatImageInput {
 }
 
 /**
+ * A file the user attached to a chat, as tools see it: a name to refer to it
+ * by and a path to read it from. No content — a tool that needs the bytes
+ * reads them when it is actually going to use them.
+ */
+export interface ChatUserFile {
+  /** The filename as the user sees it, which is how the model will name it. */
+  name: string
+  /** Absolute path on disk. */
+  path: string
+}
+
+/**
  * One entry in a message's chronological render timeline — either a span of
  * streamed text or a tool call — in the exact order it happened during
  * generation. This is what the UI renders; `content`/`toolCalls` below
@@ -134,6 +147,19 @@ export interface ChatMessage {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /**
+   * Web pages this turn searched up or fetched, in the order the model first
+   * saw them. Their ids are what `[S1]` markers inside `content` refer to, so
+   * the prose and this list are only meaningful together.
+   */
+  webSources?: WebSource[]
+  /**
+   * True if any web tool ran this turn, whatever it returned. Paired with an
+   * empty `webSources` it marks the case worth surfacing loudly: the model went
+   * looking, came back with nothing, and answered anyway — so what it said came
+   * from training data, not from the web.
+   */
+  webSearchAttempted?: boolean
   /** Restorable snapshot for file changes made by this assistant turn. */
   checkpoint?: CheckpointSummary
   /**
@@ -204,6 +230,21 @@ export interface ChatRequest {
   prompt: string
   /** Current-turn image inputs for any multimodal provider. Text attachments are in `prompt`. */
   images?: ChatImageInput[]
+  /**
+   * Every file the user has attached to this conversation, by name and path.
+   *
+   * Distinct from `images` (which exists so a vision model can *look* at the
+   * picture) and from `prompt` (which carries text attachments inline for the
+   * model to *read*): this is what lets a tool send the file on somewhere,
+   * e.g. attaching it to an email. Carrying the whole conversation's
+   * attachments rather than just this turn's is deliberate — attaching a
+   * picture and asking about it, then saying "send that" a turn later, is the
+   * ordinary way this comes up.
+   *
+   * It is also the boundary on what the model may attach: files the user put
+   * into the chat themselves, and nothing else on disk.
+   */
+  userFiles?: ChatUserFile[]
   options?: GenerationOptions
   /** The conversation's current plan, if any, so plan tools can continue it across turns. */
   plan?: Plan | null
@@ -266,6 +307,18 @@ export interface GenerationStats {
   tokens: number
   durationMs: number
   tokensPerSecond: number
+  /**
+   * Real prompt tokens billed for this turn, summed across every provider
+   * round, as the provider itself reported them.
+   *
+   * Only cloud providers can populate this. It exists because cost is not
+   * derivable from `tokens` (output only) — on an agent run the input side is
+   * usually the larger half of the bill, since the whole history is re-sent
+   * and re-billed on every tool round. The local engine leaves it undefined:
+   * it reuses its KV cache turn over turn rather than re-billing a prompt, so
+   * there is no equivalent figure and no cost to attribute either way.
+   */
+  inputTokens?: number
 }
 
 /** The final payload once a generation completes (or is stopped). */
@@ -298,6 +351,10 @@ export interface ChatResult {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /** See `ChatMessage.webSources`'s doc comment. */
+  webSources?: WebSource[]
+  /** See `ChatMessage.webSearchAttempted`'s doc comment. */
+  webSearchAttempted?: boolean
   /** Restorable snapshot for file changes made by this assistant turn. */
   checkpoint?: CheckpointSummary
   /** See `ChatMessage.thinking`'s doc comment. */

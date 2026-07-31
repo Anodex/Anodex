@@ -142,14 +142,60 @@ function createSource(
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
     return {
       id: '',
-      title: title.trim() || url.hostname,
+      title: decodeHtmlEntities(title).trim() || url.hostname,
       url: url.toString(),
-      snippet: snippet?.trim() || undefined,
+      snippet: decodeHtmlEntities(snippet ?? '').trim() || undefined,
       verified
     }
   } catch {
     return null
   }
+}
+
+/**
+ * Page titles and search snippets arrive HTML-encoded, and both are shown to
+ * the user — in the sources list, and inside the markdown link every citation
+ * expands to. A live report cited "Rippa Excavators: Versatile Machinery for
+ * Construction &amp;amp; Mining". Decoded once here, at the only place a
+ * source is constructed, rather than at each display site.
+ *
+ * Named entities are limited to the handful that actually appear in titles;
+ * numeric escapes cover the rest. Markdown-significant characters that decode
+ * out of this are stripped downstream by `markdownCitation`, and the renderer
+ * escapes text, so decoding cannot inject markup.
+ */
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  ndash: '–',
+  mdash: '—',
+  hellip: '…',
+  rsquo: '’',
+  lsquo: '‘',
+  rdquo: '”',
+  ldquo: '“'
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, body: string) => {
+    if (body.startsWith('#')) {
+      const codePoint =
+        body[1]?.toLowerCase() === 'x'
+          ? Number.parseInt(body.slice(2), 16)
+          : Number.parseInt(body.slice(1), 10)
+      if (!Number.isFinite(codePoint) || codePoint <= 0 || codePoint > 0x10ffff) return entity
+      try {
+        return String.fromCodePoint(codePoint)
+      } catch {
+        return entity
+      }
+    }
+    return NAMED_HTML_ENTITIES[body.toLowerCase()] ?? entity
+  })
 }
 
 function stripTrailingPunctuation(value: string): string {

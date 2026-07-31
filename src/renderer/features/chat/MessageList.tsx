@@ -7,6 +7,7 @@ import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
 import { findLatestUserRequest, shouldPinCurrentRequest } from './messageTimeline'
+import { buildRegenerateTarget } from './messageEdit'
 import { visualComparisonsByMessage } from './visualComparisonPair'
 import styles from './MessageList.module.css'
 
@@ -47,9 +48,13 @@ export function MessageList({
   // actually witnessing that reply stream in live.
   const firstAssistantId = messages.find((m) => m.role === 'assistant')?.id ?? null
   const containerRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const innerRef = useRef<HTMLDivElement>(null)
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const stickToBottom = useRef(true)
+  /** Last observed transcript height, so a viewport change isn't mistaken for new content. */
+  const lastInnerHeight = useRef(0)
+  /** True while our own smooth jump is animating, so its frames aren't read as user intent. */
+  const animatingToBottom = useRef(false)
   // Read inside updateMarkers instead of closing over `messages` directly, so
   // the callback's identity stays stable across streaming re-renders — a
   // stable `updateMarkers` keeps the ResizeObserver effect below from
@@ -105,49 +110,131 @@ export function MessageList({
     )
   }, [])
 
+  /**
+   * Scroll to the exact bottom of our own container.
+   *
+   * Deliberately not `scrollIntoView` on a trailing marker: that stops at the
+   * marker, leaving `.inner`'s bottom padding below the fold, so every
+   * "follow the stream" scroll landed short of the real bottom and the next
+   * scroll event measured a gap that wasn't the user's doing. It can also
+   * scroll ancestor containers, which is never what we want here.
+   */
+  const scrollToBottomNow = useCallback((behavior: ScrollBehavior = 'auto'): void => {
+    const el = containerRef.current
+    if (!el) return
+    const animate =
+      behavior === 'smooth' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (animate) animatingToBottom.current = true
+    el.scrollTo({ top: el.scrollHeight, behavior: animate ? 'smooth' : 'auto' })
+  }, [])
+
+  /**
+   * Refresh the jump button from live geometry. Read on every scroll *and*
+   * every resize, because the transcript viewport shrinks whenever the
+   * composer grows a line — a geometry change that moves the bottom without
+   * ever firing a scroll event.
+   */
+  const measure = useCallback((): void => {
+    const el = containerRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_THRESHOLD
+    setShowJumpButton(!atBottom)
+    if (atBottom) setHasNewContent(false)
+  }, [])
+
   const handleScroll = (): void => {
     const el = containerRef.current
     if (!el) return
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_THRESHOLD
+
+    // Every frame of our own smooth jump arrives here as a scroll event. Read
+    // as user intent they'd un-stick the view and flash the jump button back
+    // on for the length of the animation, so only its arrival counts.
+    if (animatingToBottom.current) {
+      if (atBottom) animatingToBottom.current = false
+      updateMarkers()
+      return
+    }
+
+    // A scroll is the only thing that changes stick *intent* — resizes and
+    // streamed content must never silently opt the user back in or out.
     stickToBottom.current = atBottom
-    setShowJumpButton(!atBottom)
-    if (atBottom) setHasNewContent(false)
+    measure()
     updateMarkers()
   }
 
-  // Re-run as new messages arrive and as the last message grows during streaming.
-  const lastContent = messages[messages.length - 1]?.content ?? ''
-  useEffect(() => {
-    if (stickToBottom.current) {
-      bottomRef.current?.scrollIntoView({ block: 'end' })
-    } else if (messages.length > 0) {
-      // Scrolled away from the bottom while something changed — the jump
-      // button alone doesn't say *why* you'd want to use it, so flag that
-      // there's actually something new waiting once you do.
-      setHasNewContent(true)
-    }
-    window.requestAnimationFrame(updateMarkers)
-  }, [messages.length, lastContent, updateMarkers])
-
   useEffect(() => {
     const el = containerRef.current
-    if (!el) return
+    const inner = innerRef.current
+    if (!el || !inner) return
 
-    updateMarkers()
-    const resizeObserver = new ResizeObserver(updateMarkers)
-    resizeObserver.observe(el)
-    window.addEventListener('resize', updateMarkers)
-    return () => {
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', updateMarkers)
+    /** The transcript itself changed height: follow it, or flag what's waiting. */
+    const onContentResize = (): void => {
+      const grew = inner.offsetHeight > lastInnerHeight.current
+      lastInnerHeight.current = inner.offsetHeight
+      if (stickToBottom.current) {
+        scrollToBottomNow()
+      } else if (grew) {
+        // Scrolled away from the bottom while something new arrived — the jump
+        // button alone doesn't say *why* you'd want to use it.
+        setHasNewContent(true)
+      }
+      measure()
+      updateMarkers()
     }
-  }, [updateMarkers])
+
+    /** The viewport changed height (composer grew, window resized, dock opened). */
+    const onViewportResize = (): void => {
+      if (stickToBottom.current) scrollToBottomNow()
+      measure()
+      updateMarkers()
+    }
+
+    // Observing `.inner` is what makes following the stream reliable. Keying
+    // it to the last message's text missed every other way a turn grows —
+    // tool cards filling in, images finishing load, a recap expanding — and
+    // during a tool-heavy turn that drift is what silently broke autoscroll:
+    // the gap crept past STICK_THRESHOLD and the next scroll event latched
+    // stickToBottom to false for the rest of the turn.
+    const contentObserver = new ResizeObserver(onContentResize)
+    contentObserver.observe(inner)
+    const viewportObserver = new ResizeObserver(onViewportResize)
+    viewportObserver.observe(el)
+    window.addEventListener('resize', onViewportResize)
+
+    // Taking over mid-animation has to hand control straight back, otherwise
+    // an interrupted jump never reaches the bottom, the guard above never
+    // clears, and every later scroll is discarded as animation noise.
+    const abandonAnimation = (): void => {
+      animatingToBottom.current = false
+    }
+    el.addEventListener('wheel', abandonAnimation, { passive: true })
+    el.addEventListener('touchstart', abandonAnimation, { passive: true })
+    el.addEventListener('pointerdown', abandonAnimation)
+    el.addEventListener('keydown', abandonAnimation)
+
+    return () => {
+      contentObserver.disconnect()
+      viewportObserver.disconnect()
+      window.removeEventListener('resize', onViewportResize)
+      el.removeEventListener('wheel', abandonAnimation)
+      el.removeEventListener('touchstart', abandonAnimation)
+      el.removeEventListener('pointerdown', abandonAnimation)
+      el.removeEventListener('keydown', abandonAnimation)
+    }
+  }, [measure, scrollToBottomNow, updateMarkers])
+
+  // New messages also shift the rail's markers, which resizing alone may not
+  // change (a reply that replaces an equally tall placeholder).
+  useEffect(() => {
+    window.requestAnimationFrame(updateMarkers)
+  }, [messages.length, updateMarkers])
 
   const jumpToBottom = (): void => {
     stickToBottom.current = true
     setShowJumpButton(false)
     setHasNewContent(false)
-    bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    scrollToBottomNow('smooth')
   }
 
   const scrollToMessage = (messageId: string): void => {
@@ -160,7 +247,7 @@ export function MessageList({
   return (
     <div className={styles.scrollWrap}>
       <div className={styles.scroll} ref={containerRef} onScroll={handleScroll}>
-        <div className={styles.inner}>
+        <div className={styles.inner} ref={innerRef}>
           {messages.map((message, index) => (
             <div key={message.id}>
               {(index === 0 ||
@@ -175,6 +262,7 @@ export function MessageList({
                 <MessageBubble
                   message={message}
                   previousUserContent={findPreviousUserContent(messages, index)}
+                  regenerateTarget={buildRegenerateTarget(messages, message.id)}
                   conversationStreaming={conversationStreaming}
                   firstLight={message.id === firstAssistantId}
                   visualComparison={visualComparisons.get(message.id) ?? null}
@@ -185,7 +273,6 @@ export function MessageList({
               )}
             </div>
           ))}
-          <div ref={bottomRef} />
         </div>
       </div>
       {pinnedRequest && (

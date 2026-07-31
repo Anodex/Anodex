@@ -7,6 +7,7 @@ import {
   looksLikeBoilerplatePassage,
   setResolveHostForTests
 } from '../webTools'
+import { WebSourceRegistry } from '../WebSourceRegistry'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 describe('AI web tools', () => {
@@ -75,6 +76,56 @@ describe('AI web tools', () => {
         finalUrl: 'https://example.com/docs',
         status: 200
       })
+    })
+
+    it('registers a fetched page as verified and hands the model its id', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map(),
+        text: () =>
+          Promise.resolve(
+            '<html><head><title>Real title</title></head><body><p>' +
+              'A paragraph with enough substance to survive passage extraction and be kept.' +
+              '</p></body></html>'
+          )
+      })
+
+      const ctx = createMockContext('/tmp/workspace')
+      const registry = new WebSourceRegistry()
+      ctx.webSources = registry
+      const tool = fetchUrlTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { url: string }) => Promise<string>
+      }
+      const result = await tool.handler({ url: 'https://example.com/page' })
+
+      expect(result).toContain('Cite as [S1]')
+      const [source] = registry.list()
+      expect(source).toMatchObject({ id: 'S1', url: 'https://example.com/page', verified: true })
+    })
+
+    it('does not call a page verified when it yields no readable passages', async () => {
+      // A 200 that extracts to nothing is no better evidence than a search
+      // hit, and marking it verified would be the exact overclaim to avoid.
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map(),
+        text: () => Promise.resolve('<html><body></body></html>')
+      })
+
+      const ctx = createMockContext('/tmp/workspace')
+      const registry = new WebSourceRegistry()
+      ctx.webSources = registry
+      const tool = fetchUrlTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { url: string }) => Promise<string>
+      }
+      await tool.handler({ url: 'https://example.com/empty' })
+
+      expect(registry.attempted).toBe(true)
+      expect(registry.hasVerified()).toBe(false)
     })
 
     it('does not start a request when direct evidence fetching is already cancelled', async () => {

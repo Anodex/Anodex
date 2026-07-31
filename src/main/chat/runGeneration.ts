@@ -7,6 +7,8 @@ import type {
 } from '@shared/chat.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { MemoryEntry } from '@shared/memory.types'
+import type { WebSource } from '@shared/webSources.types'
+import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
 import type { ConversationContext } from '@shared/context.types'
@@ -23,6 +25,9 @@ import { llamaService, type GenerateOutcome, type GenerateParams } from '../llam
 import { boundHistoryForCloudProvider } from '../llama/contextAssembler'
 import { summarizeForCompactionOpenAi } from '../llm/OpenAiProvider'
 import { summarizeForCompactionAnthropic } from '../llm/AnthropicProvider'
+import { summarizeForCompactionAzure } from '../llm/AzureOpenAiProvider'
+import { summarizeForCompactionOpenAiCompatible } from '../llm/OpenAiCompatibleProvider'
+import { OPEN_AI_COMPATIBLE_CONFIGS, MODEL_CATALOGS_BY_PROVIDER } from '../llm/cloudProviderConfigs'
 import { providerUsageStore } from '../llm/ProviderUsageStore'
 import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
@@ -68,7 +73,7 @@ export interface RunGenerationIo {
    * provider. Never mutates the global setting; every other caller (omitting
    * this) behaves exactly as before.
    */
-  providerOverride?: { provider: 'local' | 'anthropic' | 'openai'; model?: string }
+  providerOverride?: { provider: ProviderSettings['active']; model?: string }
   signal?: AbortSignal
   /**
    * Whether project/personal memory and past-chat recall may be injected into
@@ -82,6 +87,14 @@ export interface RunGenerationIo {
   /** Evidence focus and durable artifact sink for research-oriented callers. */
   evidenceFocus?: string
   onArtifact?: (artifact: ToolArtifact) => void
+  /**
+   * Shared web source registry for a caller-owned multi-cycle turn. Source ids
+   * must be unique across the whole assistant message, so a runner that calls
+   * `runGeneration` more than once for one reply has to own the registry —
+   * otherwise each cycle restarts numbering at S1 and two different pages end
+   * up citing the same id. Omitted for a single-shot call, which gets its own.
+   */
+  webSources?: WebSourceRegistry
   /** Optional stricter per-turn policy; interactive defaults remain bounded too. */
   executionBudget?: GenerationBudgetPolicy
   /**
@@ -108,6 +121,14 @@ export interface RunGenerationResult {
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts retrieved and injected into context for this turn, if any. */
   transcriptRecallUsed?: TranscriptRecallResult[]
+  /** Web pages this turn searched up or fetched, in the order the model first saw them. */
+  webSources?: WebSource[]
+  /**
+   * True if any web tool ran this turn, regardless of what it returned. With an
+   * empty `webSources` this is the "looked and found nothing" case, which the
+   * source list alone cannot express.
+   */
+  webSearchAttempted?: boolean
   /**
    * A new compacted context snapshot produced this turn, if any — only ever
    * set on the cloud-provider path (`boundHistoryForCloudProvider`), since
@@ -152,6 +173,15 @@ function activeModelDescriptor(
     const model = override?.model?.trim() || provider.openai.model
     return { id: model, name: `OpenAI — ${model}` }
   }
+  if (activeId === 'azure') {
+    const deployment = provider.azure.deploymentName.trim()
+    return deployment ? { id: deployment, name: `Azure OpenAI — ${deployment}` } : null
+  }
+  if (activeId !== 'local') {
+    const config = OPEN_AI_COMPATIBLE_CONFIGS[activeId]
+    const model = override?.model?.trim() || provider[activeId].model
+    return { id: model, name: `${config.displayName} — ${model}` }
+  }
   const model = llamaService.getState().model
   return model ? { id: model.id, name: model.name } : null
 }
@@ -163,13 +193,40 @@ function activeModelDescriptor(
  * history silently summarized by that global model instead.
  */
 function cloudSummarizer(
-  providerId: 'openai' | 'anthropic',
+  providerId: Exclude<ProviderSettings['active'], 'local'>,
   modelOverride?: string
 ): (transcript: string, previousSummary?: string) => Promise<string | null> {
-  const summarize =
-    providerId === 'anthropic' ? summarizeForCompactionAnthropic : summarizeForCompactionOpenAi
-  return (transcript: string, previousSummary?: string) =>
-    summarize(transcript, previousSummary, modelOverride)
+  if (providerId === 'anthropic') {
+    return (transcript, previousSummary) =>
+      summarizeForCompactionAnthropic(transcript, previousSummary, modelOverride)
+  }
+  if (providerId === 'openai') {
+    return (transcript, previousSummary) =>
+      summarizeForCompactionOpenAi(transcript, previousSummary, modelOverride)
+  }
+  if (providerId === 'azure') {
+    return (transcript, previousSummary) => summarizeForCompactionAzure(transcript, previousSummary)
+  }
+  const config = OPEN_AI_COMPATIBLE_CONFIGS[providerId]
+  return (transcript, previousSummary) =>
+    summarizeForCompactionOpenAiCompatible(config, transcript, previousSummary, modelOverride)
+}
+
+/**
+ * Model ids to sum today's token usage across for the provider usage gauge.
+ * Anthropic/OpenAI use their own curated catalogs (kept as distinct named
+ * exports predating the generic adapter); Azure has no catalog at all, so
+ * its own resolved deployment name (`modelDescriptor.id`) is the only "model
+ * id" that makes sense to query.
+ */
+function cloudModelIdsForUsageQuery(
+  providerId: Exclude<ProviderSettings['active'], 'local'>,
+  modelDescriptor: { id: string }
+): string[] {
+  if (providerId === 'anthropic') return ANTHROPIC_MODELS.map((m) => m.id)
+  if (providerId === 'openai') return OPENAI_MODELS.map((m) => m.id)
+  if (providerId === 'azure') return [modelDescriptor.id]
+  return MODEL_CATALOGS_BY_PROVIDER[providerId].map((m) => m.id)
 }
 
 /**
@@ -186,10 +243,14 @@ export async function runGeneration(
   request: ChatRequest,
   io: RunGenerationIo
 ): Promise<RunGenerationResult> {
-  const executionPolicy =
-    io.executionBudget ?? interactiveBudgetForContext(llamaService.getState().contextSize)
-  let execution: GenerationBudget | null = null
   const settings = settingsStore.get()
+  const executionPolicy =
+    io.executionBudget ??
+    interactiveBudgetForContext(
+      llamaService.getState().contextSize,
+      settings.generation.turnTimeLimitMinutes
+    )
+  let execution: GenerationBudget | null = null
   const projects = projectStore.getState()
   // The renderer can briefly lag while switching chats, and general chats
   // intentionally clear the active project; deriving the root from
@@ -200,6 +261,10 @@ export async function runGeneration(
   const activeProject = projects.projects.find((p) => p.id === requestProjectId) ?? null
   const workspaceRoot = activeProject?.folderPath ?? null
   let hadToolActivity = false
+  // Collects what the web tools retrieved this turn so the finished message can
+  // show what it stood on — and, just as importantly, say so when the model
+  // went looking and came back with nothing.
+  const webSourceRegistry = io.webSources ?? new WebSourceRegistry()
   const toolNamesThisTurn: string[] = []
   // Real, verified outcomes this turn — for ProjectRecallEvent, as opposed to
   // the assistant's own prose claim about what it did. See recordEvent below.
@@ -211,6 +276,9 @@ export async function runGeneration(
   const tools = settings.tools.enabled
     ? {
         workspaceRoot,
+        // Present whether or not a workspace is: the user attaching a file is
+        // what makes it available to send, not having a project folder open.
+        userFiles: request.userFiles ?? [],
         permissionMode: io.permissionModeOverride ?? settings.general.permissionMode,
         commandShell: settings.general.defaultShell.trim() || undefined,
         projectId: activeProject?.id ?? null,
@@ -234,6 +302,7 @@ export async function runGeneration(
         mcpTools: mcpManager.listTools(),
         evidenceFocus: io.evidenceFocus,
         recordArtifact: io.onArtifact,
+        webSources: webSourceRegistry,
         beforeTool: () => execution?.beforeTool() ?? null,
         onActivity: (call: ToolCall) => {
           hadToolActivity = true
@@ -323,10 +392,7 @@ export async function runGeneration(
   let boundedSystemPrompt: string | undefined = systemPrompt
   let boundedHistory = request.history
   let contextUpdate: ConversationContext | undefined
-  if (
-    (effectiveProviderId === 'openai' || effectiveProviderId === 'anthropic') &&
-    modelDescriptor
-  ) {
+  if (effectiveProviderId !== 'local' && modelDescriptor) {
     const bounded = await boundHistoryForCloudProvider(
       systemPrompt,
       request.history,
@@ -416,7 +482,11 @@ export async function runGeneration(
   if (outcome.stats.tokens > 0 && modelDescriptor) {
     tokenActivityStore.recordGeneration({
       tokens: outcome.stats.tokens,
-      inputTokens: llamaService.countPromptTokens(request.prompt),
+      // A cloud provider reports what it actually billed, across every tool
+      // round; the local tokenizer only ever measured this turn's new prompt
+      // text, which understates a cloud turn badly. Fall back to it for the
+      // local engine, which has no billed figure of its own.
+      inputTokens: outcome.stats.inputTokens ?? llamaService.countPromptTokens(request.prompt),
       durationMs: outcome.stats.durationMs,
       toolNames: toolNamesThisTurn,
       conversationId: request.conversationId,
@@ -428,14 +498,12 @@ export async function runGeneration(
     // by whichever provider actually ran (an override, if this run has one,
     // not necessarily the global setting) — the daily-cap comparison lives
     // entirely on this local tally, not on anything the provider itself reports.
-    if (effectiveProviderId === 'anthropic' || effectiveProviderId === 'openai') {
-      const modelIds =
-        effectiveProviderId === 'anthropic'
-          ? ANTHROPIC_MODELS.map((m) => m.id)
-          : OPENAI_MODELS.map((m) => m.id)
+    if (effectiveProviderId !== 'local') {
       providerUsageStore.recordTodayTokens(
         effectiveProviderId,
-        tokenActivityStore.getTodayTokensForModelIds(modelIds)
+        tokenActivityStore.getTodayTokensForModelIds(
+          cloudModelIdsForUsageQuery(effectiveProviderId, modelDescriptor)
+        )
       )
     }
   }
@@ -448,6 +516,8 @@ export async function runGeneration(
     contextBudget: outcome.contextBudget,
     memoryUsed: memory?.entries,
     transcriptRecallUsed: transcriptRecall?.results,
+    webSources: webSourceRegistry.list(),
+    webSearchAttempted: webSourceRegistry.attempted,
     context: contextUpdate,
     checkpoint:
       activeProject && workspaceRoot

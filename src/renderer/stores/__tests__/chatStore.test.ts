@@ -3,7 +3,17 @@ import type { Conversation } from '@shared/conversation.types'
 
 // `lib/anodex` dereferences `window.anodex` at import time — there is no
 // window in the node test environment, so the preload bridge is stubbed out.
-vi.mock('../../lib/anodex', () => ({ anodex: {} }))
+vi.mock('../../lib/anodex', () => ({
+  anodex: {
+    // Only the persistence calls the tested actions make; everything else on
+    // the bridge stays absent so an unexpected call fails loudly.
+    conversations: {
+      save: vi.fn().mockResolvedValue(undefined),
+      setState: vi.fn().mockResolvedValue(undefined),
+      deletePermanent: vi.fn().mockResolvedValue(undefined)
+    }
+  }
+}))
 
 import { useChatStore } from '../chatStore'
 
@@ -83,5 +93,136 @@ describe('chatStore token streaming guards', () => {
     useChatStore.getState().appendToken('nope', 'a1', 'x')
     useChatStore.getState().appendToken('c1', 'nope', 'x')
     expect(assistantMessage().content).toBe('partial reply')
+  })
+})
+
+describe('openEmailThreadConversation', () => {
+  function emailChat(id: string, accountId: string, threadId: string): Conversation {
+    return {
+      id,
+      projectId: null,
+      title: 'Email chat',
+      createdAt: 1,
+      updatedAt: 1,
+      messages: [],
+      emailThread: { accountId, threadId }
+    }
+  }
+
+  beforeEach(() => {
+    useChatStore.setState({ conversations: [], activeId: null, loaded: true, pendingMessages: {} })
+  })
+
+  it('reuses the chat already linked to that thread instead of starting another', () => {
+    // Clicking Reply twice on one email used to spawn two chats, losing the
+    // earlier discussion each time.
+    useChatStore.setState({ conversations: [emailChat('c-email', 'acct-1', 'thread-1')] })
+
+    const id = useChatStore.getState().openEmailThreadConversation('acct-1', 'thread-1')
+
+    expect(id).toBe('c-email')
+    expect(useChatStore.getState().activeId).toBe('c-email')
+    expect(useChatStore.getState().conversations).toHaveLength(1)
+  })
+
+  it('starts a linked chat when the thread has none', () => {
+    const id = useChatStore.getState().openEmailThreadConversation('acct-1', 'thread-1')
+
+    const created = useChatStore.getState().conversations.find((c) => c.id === id)
+    expect(created?.emailThread).toEqual({ accountId: 'acct-1', threadId: 'thread-1' })
+    expect(useChatStore.getState().activeId).toBe(id)
+  })
+
+  it('refreshes which message a reply should answer when reopening the thread', () => {
+    // A thread grows. Reopening it after new mail arrives has to point the
+    // model at the new message, not the one that was newest when the chat
+    // started — otherwise the reply answers stale mail.
+    useChatStore.setState({ conversations: [emailChat('c-email', 'acct-1', 'thread-1')] })
+
+    useChatStore.getState().openEmailThreadConversation('acct-1', 'thread-1', {
+      subject: 'Q3 renewal',
+      latestMessageId: 'msg-9'
+    })
+
+    const chat = useChatStore.getState().conversations[0]
+    expect(chat.emailThread).toEqual({
+      accountId: 'acct-1',
+      threadId: 'thread-1',
+      subject: 'Q3 renewal',
+      latestMessageId: 'msg-9'
+    })
+  })
+
+  it('drops a thread chat that was opened but never used', () => {
+    // Reading mail must not litter the sidebar: the rail links a chat on every
+    // thread opened, and most of them are never asked a question.
+    useChatStore.setState({ conversations: [emailChat('c-email', 'acct-1', 'thread-1')] })
+
+    useChatStore.getState().discardUnusedEmailThreadConversation('c-email')
+
+    expect(useChatStore.getState().conversations).toHaveLength(0)
+  })
+
+  it('keeps a thread chat that has turns in it', () => {
+    const used = emailChat('c-email', 'acct-1', 'thread-1')
+    used.messages = [{ id: 'u1', role: 'user', content: 'Summarize this.', createdAt: 1 }]
+    useChatStore.setState({ conversations: [used] })
+
+    useChatStore.getState().discardUnusedEmailThreadConversation('c-email')
+
+    expect(useChatStore.getState().conversations).toHaveLength(1)
+  })
+
+  it('keeps an empty thread chat while an instruction is still in the composer', () => {
+    // Clicking Reply and then navigating away is work in progress, not an
+    // abandoned chat.
+    useChatStore.setState({
+      conversations: [emailChat('c-email', 'acct-1', 'thread-1')],
+      pendingComposerText: 'Draft a reply to this email.'
+    })
+
+    useChatStore.getState().discardUnusedEmailThreadConversation('c-email')
+
+    expect(useChatStore.getState().conversations).toHaveLength(1)
+  })
+
+  it('never discards an ordinary chat that has no email thread', () => {
+    useChatStore.setState({
+      conversations: [
+        {
+          id: 'c-plain',
+          projectId: null,
+          title: 'New chat',
+          createdAt: 1,
+          updatedAt: 1,
+          messages: []
+        }
+      ]
+    })
+
+    useChatStore.getState().discardUnusedEmailThreadConversation('c-plain')
+
+    expect(useChatStore.getState().conversations).toHaveLength(1)
+  })
+
+  it('does not reuse a chat from a different account with the same thread id', () => {
+    // IMAP thread ids are derived from the subject, so two accounts can easily
+    // produce the same one for unrelated mail.
+    useChatStore.setState({ conversations: [emailChat('c-email', 'acct-1', 'thread-1')] })
+
+    const id = useChatStore.getState().openEmailThreadConversation('acct-2', 'thread-1')
+
+    expect(id).not.toBe('c-email')
+    expect(useChatStore.getState().conversations).toHaveLength(2)
+  })
+
+  it('starts a fresh chat once the linked one is gone', () => {
+    // Archived and deleted chats are removed from `conversations`, so an empty
+    // list is exactly the "no longer alive" case.
+    useChatStore.setState({ conversations: [] })
+
+    const id = useChatStore.getState().openEmailThreadConversation('acct-1', 'thread-1')
+
+    expect(useChatStore.getState().conversations.find((c) => c.id === id)).toBeDefined()
   })
 })

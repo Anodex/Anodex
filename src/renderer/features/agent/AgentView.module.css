@@ -1,19 +1,44 @@
 .view {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  max-width: 900px;
   height: 100%;
-  margin: 0 auto;
-  padding: var(--space-6);
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-base);
 }
 
+/* Full-bleed header bar over a scrolling body, matching Critical Thinking and
+   Email — the view fills the pane instead of sitting in a centred column. */
 .header {
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Wraps below the title once the pane is too narrow to hold both, so the
+   New run button stays inside the view instead of being clipped. */
+.headerText {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.header > button {
+  flex-shrink: 0;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-6);
+  overflow-y: auto;
 }
 
 .title {
@@ -24,9 +49,9 @@
 }
 
 .subtitle {
-  margin: calc(var(--space-3) * -1) 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-muted);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
 }
 
 .empty {
@@ -73,27 +98,131 @@
   background: var(--accent-soft);
 }
 
-.pulseIcon {
-  animation: pulse 1.6s ease-in-out infinite;
+/* ---------------------------------------------------------------------------
+   While you were away.
+
+   The band states the fact and stays until dismissed — information doesn't
+   expire on a timer. The beam is the motion, and it runs exactly once per app
+   launch (see `useAwayArrivals`): it rests on each landing in turn so several
+   arrivals read as a sequence you can follow, rather than every card flashing
+   at once in whatever order the list happens to be in.
+   --------------------------------------------------------------------------- */
+.awayBand {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--accent-cyan) 7%, var(--bg-surface)),
+    var(--bg-surface) 60%
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: var(--radius-md);
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
+.awayIcon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+
+.awayText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.awayTitle {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.awayDetail {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.awayAction,
+.awayDismiss {
+  flex: none;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.awayAction {
+  color: var(--accent);
+}
+
+.awayAction:hover {
+  background: var(--accent-soft);
+}
+
+.awayDismiss {
+  color: var(--text-faint);
+}
+
+.awayDismiss:hover {
+  color: var(--text);
+  background: var(--bg-surface-2);
 }
 
 .runList {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
+/* The mail Sweep's beam, repurposed: it rests on the run it's announcing and
+   travels to the next, so its position is which landing is being shown. Same
+   cyan → blue → violet ramp the app reserves for genuine arrivals. */
+.sweepBeam {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 3;
+  height: 0;
+  pointer-events: none;
+  transition: top var(--motion-long, 420ms) var(--ease-emphasized, ease-out);
+}
+
+.sweepBeam::before {
+  content: '';
+  position: absolute;
+  top: -46px;
+  right: 0;
+  left: 0;
+  height: 92px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--accent-cyan) 7%, transparent) 30%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 55%,
+    color-mix(in srgb, var(--accent-violet) 7%, transparent) 78%,
+    transparent
+  );
+}
+
 .runCard {
+  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);
@@ -101,6 +230,70 @@
   border-left: 3px solid var(--border);
   border-radius: var(--radius-md);
   transition: border-color var(--transition-fast);
+}
+
+/* A run working unattended is the same fact about the world as a chat that's
+   generating, so it gets the same signal: the comet the sidebar already rides
+   along a busy chat row, here on the status border the card already has.
+   Replaces a 1.6s opacity blink on the status glyph — the one place this view
+   was written in someone else's handwriting.
+
+   Two layers, matching the real `runScan`: a soft halo spilling light onto the
+   card, and a narrow white-hot core on the border line. One flat gradient on a
+   3px sliver disappears against the border it sits on. Both share a height and
+   a keyframe set so the halo stays centred on the core. */
+.cometEdge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 18px;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.cometHalo {
+  position: absolute;
+  top: -46%;
+  left: -7px;
+  width: 26px;
+  height: 46%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent) 50%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 38%,
+    transparent 72%
+  );
+  animation: cometRun 2.1s var(--ease, ease-in-out) infinite alternate;
+}
+
+.cometCore {
+  position: absolute;
+  top: -46%;
+  left: 0;
+  width: 3px;
+  height: 46%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--accent-cyan) 26%,
+    #eaf2ff 50%,
+    var(--accent-violet) 74%,
+    transparent
+  );
+  animation: cometRun 2.1s var(--ease, ease-in-out) infinite alternate;
+}
+
+/* Reverses rather than looping one way — the reversal is what reads as
+   "working". Bounded by a real run: the element only exists while one is. */
+@keyframes cometRun {
+  from {
+    top: -46%;
+  }
+  to {
+    top: 100%;
+  }
 }
 
 .runRow {
@@ -119,8 +312,40 @@
   border-left-color: var(--accent);
 }
 
+/* A run paused in needs-review has produced a plan, stopped, and will sit there
+   indefinitely until a human answers. As a static border it carried the same
+   weight as a run that finished hours ago and needs nothing from anyone.
+
+   This reuses `ToolConfirmCard`'s pulsing accent edge verbatim, because it is
+   the same request: a run asking for plan approval should feel like a tool
+   asking for confirmation in chat. It's also the one place an indefinite loop
+   is honest — the waiting genuinely is indefinite, and it ends the moment you
+   answer.
+
+   The static border has to clear first. `--info` and `--accent` are the same
+   hex, so a pulse laid over an identical solid border is very nearly a no-op:
+   the border shows through at every opacity the pulse reaches. */
 .runCard-needs-review {
-  border-left-color: var(--info);
+  border-left-color: transparent;
+}
+
+.runCard-needs-review::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 3px;
+  background: var(--info);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  animation: waitingEdgePulse 1.8s ease-in-out infinite;
+}
+
+@keyframes waitingEdgePulse {
+  50% {
+    opacity: 0.3;
+    box-shadow: 0 0 16px color-mix(in srgb, var(--info) 55%, transparent);
+  }
 }
 
 .runCard-done {
@@ -254,6 +479,70 @@
   align-items: center;
   gap: var(--space-1);
   color: var(--warn);
+}
+
+/* Three budgets as hairlines rather than accounting inside the status pill.
+   `maxDurationMinutes` gets one too — it's enforced by the run loop but until
+   now appeared nowhere in the list, so a run could be stopped by a limit the
+   UI had never mentioned. */
+.meters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-top: var(--space-1);
+}
+
+.meter {
+  display: flex;
+  flex: 1 1 108px;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 108px;
+}
+
+.meterHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--text-2xs);
+}
+
+.meterHead b {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.meterTrack {
+  height: 2px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.meterFill {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--radius-pill);
+  transition: width var(--transition);
+}
+
+.meterWarn .meterFill {
+  background: var(--warn);
+}
+
+.meterWarn .meterHead b {
+  color: var(--warn);
+}
+
+/* An unlimited run has no ceiling to fill against, so it gets a broken rule
+   rather than a bar sitting at some arbitrary fraction. */
+.openEndedRule {
+  height: 2px;
+  background: repeating-linear-gradient(to right, var(--border-strong) 0 4px, transparent 4px 8px);
 }
 
 .runResult {

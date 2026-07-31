@@ -41,8 +41,20 @@ import {
 import { isPreferredCriticalThinkingSource } from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
-const QUERY_OUTPUT_TOKENS = 512
-const ASSESSMENT_OUTPUT_TOKENS = 1_024
+/**
+ * Per-phase hard output caps. A reasoning-tuned local model spends part of
+ * every one of these on hidden thinking before the grammar-constrained JSON
+ * begins (the engine reserves a guaranteed-visible majority — see
+ * `defaultThoughtTokenBudget` — but the thinking still comes out of the same
+ * cap), so each cap has to fit *thought plus answer*, not just the answer.
+ *
+ * Sized from a real 32K local run whose assessments were cut off mid-string:
+ * a complete assessment object (finding, rationale, gaps, follow-up queries)
+ * runs ~1,500-2,000 characters, roughly 500-600 tokens, which the previous
+ * 1,024 cap could not fit alongside any reasoning at all.
+ */
+const QUERY_OUTPUT_TOKENS = 1_536
+const ASSESSMENT_OUTPUT_TOKENS = 3_072
 const MAX_ACTIVITY_LABEL_CHARS = 100
 const MAX_ACTIVITY_DETAIL_CHARS = 180
 const MAX_PRIOR_QUERY_CHARS = 2_400
@@ -121,7 +133,8 @@ export class CriticalThinkingResearchRunner {
   ) {
     this.stepTimeoutMs = positiveDuration(
       options.stepTimeoutMs,
-      CRITICAL_THINKING_STEP_BUDGET.maxDurationMs
+      // Fixed background budget, never overridden to null — see GenerationBudget.ts.
+      CRITICAL_THINKING_STEP_BUDGET.maxDurationMs ?? 10 * 60_000
     )
   }
 
@@ -318,7 +331,7 @@ export class CriticalThinkingResearchRunner {
       .slice(0, MAX_PRIOR_FINDING_ITEMS)
     const priorQueries = usedQueries(step).slice(-MAX_PRIOR_QUERY_ITEMS)
     const gaps = (priorAssessment?.remainingGaps ?? []).slice(0, MAX_GAP_ITEMS)
-    const fallback = buildFallbackResearchQuery(run.question, step.title)
+    const fallback = buildFallbackResearchQuery(run.question, step.title, round.index, gaps)
     try {
       const prompt = buildBudgetedQueryPrompt(
         truncatePromptText(run.question, limits.maxQuestionChars),
@@ -1058,22 +1071,99 @@ const FALLBACK_QUERY_STOP_WORDS = new Set([
   'comparative',
   'related',
   'why',
-  'differ'
+  'differ',
+  // Imperative verbs that open a plan step's title. They describe what the
+  // investigation should do, never what the page being searched for contains,
+  // so they only dilute the terms that actually scope the query.
+  'identify',
+  'investigate',
+  'research',
+  'survey',
+  'map',
+  'analyze',
+  'analyse',
+  'assess',
+  'determine',
+  'evaluate',
+  'explore',
+  'gather',
+  'outline',
+  // Function words long enough to survive the 3-character term filter. They
+  // occupy slots in a bounded query without narrowing it at all.
+  'especially',
+  'their',
+  'there',
+  'could',
+  'would',
+  'should',
+  'other',
+  'also',
+  'than',
+  'when',
+  'where',
+  'which',
+  'while',
+  'what',
+  'have',
+  'been',
+  'they',
+  'them'
 ])
 
-/** A compact keyword query when a local model cannot satisfy the JSON query contract. */
-function buildFallbackResearchQuery(question: string, step: string): string {
+/**
+ * A search engine given 28 keywords matches the dominant generic nouns and
+ * ignores the rest. Observed directly: a step scoped to "…projects in Colorado
+ * (especially Commerce City/Denver metro) that utilize excavators and wheel
+ * loaders" fell back to a 28-term query and returned a Chinese excavator
+ * manufacturer, a UAE dealer, and Hitachi Construction Machinery *Africa* —
+ * every result matched "excavators", "wheel", "loaders", "construction" and
+ * none matched Colorado. A real query is short.
+ */
+const FALLBACK_QUERY_MAX_TERMS = 12
+
+/**
+ * A compact keyword query when a local model cannot satisfy the JSON query
+ * contract.
+ *
+ * Varies by round. This used to be a pure function of question + step title,
+ * so every later round rebuilt the identical string, `novelQueries` rejected
+ * it as already used, and the step died on `no-progress` after a single
+ * search. A step whose query phase keeps failing got exactly one attempt with
+ * one mediocre query — observed live, and the reason a Colorado-scoped step
+ * kept nothing but the four off-target pages its first search returned.
+ *
+ * Round 2+ leads with the gaps the previous round's assessment recorded (the
+ * specific thing still missing), and falls back to advancing a window over the
+ * step's own terms so the query is at least different from the one that
+ * already failed.
+ */
+function buildFallbackResearchQuery(
+  question: string,
+  step: string,
+  roundIndex = 0,
+  gaps: string[] = []
+): string {
+  // The step title is the research target and already carries the question's
+  // scope (the planner wrote it from the question), so it leads. Question
+  // terms only top up a title too terse to search on by itself.
+  const stepTerms = relevantQueryTerms(step)
+  const topUp = relevantQueryTerms(question)
+  // Bounded so the step's own scope always survives alongside the gap.
+  const gapTerms = roundIndex > 0 ? relevantQueryTerms(gaps.join(' ')).slice(0, 6) : []
+  // Rotated every round, including when a gap leads: a step can record the
+  // same gap twice, and two rounds that build the same string leave the second
+  // with no novel query at all.
+  const rotation = stepTerms.length > 0 ? (roundIndex * 3) % stepTerms.length : 0
+  const rotated = [...stepTerms.slice(rotation), ...stepTerms.slice(0, rotation)]
   const seen = new Set<string>()
-  const terms = `${step} ${question}`
-    .toLowerCase()
-    .match(/[\p{L}\p{N}][\p{L}\p{N}-]{1,}/gu)
-    ?.filter((term) => {
-      if (FALLBACK_QUERY_STOP_WORDS.has(term) || seen.has(term)) return false
+  const terms = [...gapTerms, ...rotated, ...topUp]
+    .filter((term) => {
+      if (seen.has(term)) return false
       seen.add(term)
       return true
     })
-    .slice(0, 28)
-  const query = terms?.join(' ').trim() ?? ''
+    .slice(0, FALLBACK_QUERY_MAX_TERMS)
+  const query = terms.join(' ').trim()
   return query ? truncate(query, 300) : truncate(step, 300)
 }
 

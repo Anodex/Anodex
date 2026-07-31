@@ -5,15 +5,18 @@ import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
 import { savePendingSkillEditorDraft } from '../../lib/skillEditorDraftHandoff'
 import { buildSkillDraft } from '../../lib/skillDraft'
-import { useChatStore } from '../../stores/chatStore'
+import { useChatStore, type MessageEditOptions } from '../../stores/chatStore'
 import { useUiStore } from '../../stores/uiStore'
 import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
+import { MessageSources } from './MessageSources'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { TurnRecap } from './TurnRecap'
 import { CheckpointDialog } from './CheckpointDialog'
 import { EditMessageDialog } from './EditMessageDialog'
+import { RegenerateDialog } from './RegenerateDialog'
+import type { RegenerateTarget } from './messageEdit'
 import { MessageAttachments } from './MessageAttachments'
 import { buildRenderSegments, groupSegmentsForTimeline, messageBlocks } from './taskPhase'
 import type { VisualComparisonPair } from './visualComparisonPair'
@@ -31,7 +34,8 @@ export function MessageBubble({
   previousUserContent,
   conversationStreaming,
   firstLight = false,
-  visualComparison
+  visualComparison,
+  regenerateTarget = null
 }: {
   message: ChatMessage
   previousUserContent?: string
@@ -52,6 +56,12 @@ export function MessageBubble({
   firstLight?: boolean
   /** Comparison derived from this message plus earlier visual previews. */
   visualComparison?: VisualComparisonPair | null
+  /**
+   * What regenerating this reply would replay and discard, or `null` when
+   * there is nothing to replay. Resolved by `MessageList` from the same
+   * helper the store uses, so the button and the action can't disagree.
+   */
+  regenerateTarget?: RegenerateTarget | null
 }): JSX.Element {
   const isUser = message.role === 'user'
   const openSettings = useUiStore((s) => s.openSettings)
@@ -61,6 +71,11 @@ export function MessageBubble({
   const [draftOpened, setDraftOpened] = useState(false)
   const [checkpointOpen, setCheckpointOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const regenerateMessage = useChatStore((s) => s.regenerateMessage)
+  /** Open only for the two questions regenerating can raise — see `RegenerateDialog`. */
+  const [regenerateAsking, setRegenerateAsking] = useState(false)
+  const [regenerateConflicts, setRegenerateConflicts] = useState<string[] | null>(null)
+  const [regenerateBusy, setRegenerateBusy] = useState(false)
   const showCopy = !message.streaming && message.content.length > 0
   const showSkillDraft =
     !isUser &&
@@ -72,6 +87,9 @@ export function MessageBubble({
     !message.streaming &&
     Boolean(message.checkpoint?.changedFiles.length) &&
     Boolean(activeConversationId)
+  // Deliberately not gated on having produced any content: a reply that
+  // stalled out empty is exactly the one worth asking again for.
+  const showRegenerate = !isUser && !message.streaming && Boolean(regenerateTarget)
 
   const handleCopy = async (): Promise<void> => {
     try {
@@ -81,6 +99,40 @@ export function MessageBubble({
     } catch {
       /* Clipboard unavailable — silently ignore. */
     }
+  }
+
+  const runRegenerate = async (options?: MessageEditOptions): Promise<void> => {
+    if (regenerateBusy) return
+    setRegenerateBusy(true)
+    try {
+      const result = await regenerateMessage(message.id, options)
+      // A conflict is the rollback asking a question, not a failure — keep the
+      // dialog up (opening it if the one-click path skipped it) so the user can
+      // answer. Anything else is done: on success this bubble is gone.
+      if (result.status === 'conflict') {
+        setRegenerateConflicts(result.conflicts)
+        setRegenerateAsking(true)
+      } else {
+        setRegenerateAsking(false)
+        setRegenerateConflicts(null)
+      }
+    } finally {
+      setRegenerateBusy(false)
+    }
+  }
+
+  const handleRegenerate = (): void => {
+    // Nothing to lose and nothing to ask — replace the reply on the click.
+    if ((regenerateTarget?.laterTurnCount ?? 0) === 0) {
+      void runRegenerate()
+      return
+    }
+    setRegenerateAsking(true)
+  }
+
+  const closeRegenerate = (): void => {
+    setRegenerateAsking(false)
+    setRegenerateConflicts(null)
   }
 
   const handleDraftSkill = (): void => {
@@ -175,7 +227,13 @@ export function MessageBubble({
           <div className={styles.segments}>
             {timeline.map((block, index) => {
               if (block.type === 'text') {
-                return <MessageContent key={`text-${index}`} content={block.text} />
+                return (
+                  <MessageContent
+                    key={`text-${index}`}
+                    content={block.text}
+                    sources={message.webSources}
+                  />
+                )
               }
               const blockCalls = block.segments.flatMap((segment) =>
                 segment.type === 'toolGroup' ? segment.calls : []
@@ -206,6 +264,14 @@ export function MessageBubble({
           </div>
         )}
         {message.streaming && lastSegment?.type === 'text' && <span className={styles.caret} />}
+
+        {!isUser && (
+          <MessageSources
+            sources={message.webSources}
+            attempted={Boolean(message.webSearchAttempted)}
+            streaming={Boolean(message.streaming)}
+          />
+        )}
 
         {message.error &&
           (message.errorKind === 'bounded' ? (
@@ -252,6 +318,23 @@ export function MessageBubble({
               {copied ? 'Copied' : 'Copy'}
             </button>
           )}
+          {showRegenerate && (
+            <button
+              type="button"
+              className={styles.copyButton}
+              onClick={handleRegenerate}
+              disabled={conversationStreaming || regenerateBusy}
+              aria-label="Regenerate reply"
+              title={
+                conversationStreaming
+                  ? 'Stop the current reply before regenerating'
+                  : 'Ask the same question again for a different answer'
+              }
+            >
+              <Icon name="rotate-ccw" size={12} />
+              Regenerate
+            </button>
+          )}
           {showSkillDraft && (
             <button
               type="button"
@@ -288,6 +371,15 @@ export function MessageBubble({
           conversationId={activeConversationId}
           messageId={message.id}
           onClose={() => setCheckpointOpen(false)}
+        />
+      )}
+      {regenerateAsking && (
+        <RegenerateDialog
+          laterTurnCount={regenerateTarget?.laterTurnCount ?? 0}
+          conflicts={regenerateConflicts}
+          busy={regenerateBusy}
+          onRun={(options) => void runRegenerate(options)}
+          onClose={closeRegenerate}
         />
       )}
       {editOpen && (

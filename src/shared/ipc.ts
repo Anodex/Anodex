@@ -12,6 +12,7 @@ import type {
   ModelDownloadProgress,
   ModelInfo,
   ModelLoadOptions,
+  ModelLoadRecovery,
   ModelSettingsRecommendation
 } from './model.types'
 import type { ModelReliabilityRecord } from './modelReliability.types'
@@ -27,7 +28,7 @@ import type {
   ChatTitleRequest,
   HistoryCompactionEvent
 } from './chat.types'
-import type { AppSettings, DeepPartial } from './settings.types'
+import type { AppSettings, DeepPartial, DiagnosticEntry, DiagnosticLogFile } from './settings.types'
 import type {
   CreateProjectRequest,
   Project,
@@ -35,6 +36,7 @@ import type {
   UpdateProjectRequest
 } from './project.types'
 import type { Conversation, ConversationState } from './conversation.types'
+import type { BackupResult, ConversationExportFormat } from './backup.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
 import type {
   ToolActivityEvent,
@@ -77,13 +79,23 @@ import type {
   SkillSummary
 } from './skill.types'
 import type {
+  EmailAccount,
+  EmailAutoconfig,
+  EmailConnectOAuthRequest,
+  EmailConnectPasswordRequest,
   EmailConnectionStatus,
   EmailDraft,
   EmailDraftRequest,
+  EmailFlagRequest,
   EmailListThreadsRequest,
+  EmailMailbox,
   EmailMessage,
+  EmailMoveRequest,
   EmailSearchRequest,
   EmailSendRequest,
+  EmailSyncMode,
+  EmailThreadDigestBatch,
+  EmailThreadDigestRequest,
   EmailThreadSummary
 } from './email.types'
 import type {
@@ -130,7 +142,11 @@ export const IpcChannel = {
     /** Live-search Hugging Face for downloadable GGUF models. */
     discover: 'models:discover',
     /** Auto-populate "Recommended for your PC" with current models from trusted publishers. */
-    fetchTopModels: 'models:fetch-top-models'
+    fetchTopModels: 'models:fetch-top-models',
+    /** A model load the previous run started and never finished — see `loadSentinel.ts`. */
+    getLoadRecovery: 'models:get-load-recovery',
+    /** Forget the pending crash recovery once the user has answered it. */
+    dismissLoadRecovery: 'models:dismiss-load-recovery'
   },
   Chat: {
     send: 'chat:send',
@@ -210,6 +226,14 @@ export const IpcChannel = {
     setActive: 'projects:set-active',
     openFolder: 'projects:open-folder'
   },
+  Backup: {
+    /** Save one conversation to a file the user picks. */
+    exportConversation: 'backup:export-conversation',
+    /** Copy every store in userData into a timestamped folder. */
+    backupData: 'backup:backup-data',
+    /** Reveal a written backup/export in the OS file manager. */
+    revealPath: 'backup:reveal-path'
+  },
   Conversations: {
     list: 'conversations:list',
     listArchived: 'conversations:list-archived',
@@ -272,6 +296,14 @@ export const IpcChannel = {
     /** main → renderer broadcast whenever the update state changes. */
     statusChanged: 'updates:status-changed'
   },
+  Diagnostics: {
+    /** Every main-process warning/error since launch — replayed when a window opens. */
+    list: 'diagnostics:list',
+    /** main → renderer broadcast of a newly recorded main-process warning/error. */
+    entry: 'diagnostics:entry',
+    getLogFile: 'diagnostics:get-log-file',
+    revealLogFile: 'diagnostics:reveal-log-file'
+  },
   Stats: {
     getUsageProfile: 'stats:get-usage-profile',
     getUsageBreakdown: 'stats:get-usage-breakdown'
@@ -327,13 +359,29 @@ export const IpcChannel = {
   },
   Email: {
     getStatus: 'email:get-status',
-    openGmailWeb: 'email:open-gmail-web',
-    connectGmail: 'email:connect-gmail',
-    disconnectGmail: 'email:disconnect-gmail',
+    /** Opens the primary account's provider in the system browser. */
+    openWebmail: 'email:open-webmail',
+    /** Looks up how to connect a typed address, before any credential is asked for. */
+    discover: 'email:discover',
+    connectOAuth: 'email:connect-oauth',
+    connectPassword: 'email:connect-password',
+    removeAccount: 'email:remove-account',
+    setPrimaryAccount: 'email:set-primary-account',
+    setSyncMode: 'email:set-sync-mode',
+    listAccounts: 'email:list-accounts',
     getUnreadThreadCount: 'email:get-unread-thread-count',
     listThreads: 'email:list-threads',
     search: 'email:search',
     readMessage: 'email:read-message',
+    getThreadMessages: 'email:get-thread-messages',
+    /** One-line "what does this want" digests for inbox rows. */
+    digestThreads: 'email:digest-threads',
+    applyFlag: 'email:apply-flag',
+    move: 'email:move',
+    listMailboxes: 'email:list-mailboxes',
+    saveAttachment: 'email:save-attachment',
+    /** Resolves an opened message's remote images to inline `data:` URIs. */
+    loadRemoteImages: 'email:load-remote-images',
     createDraft: 'email:create-draft',
     send: 'email:send'
   },
@@ -374,9 +422,27 @@ export const IpcChannel = {
 
 /** Request to test whether a cloud provider API key (and model) works. */
 export interface VerifyProviderKeyRequest {
-  provider: 'anthropic' | 'openai'
+  provider:
+    | 'anthropic'
+    | 'openai'
+    | 'google'
+    | 'xai'
+    | 'deepseek'
+    | 'mistral'
+    | 'groq'
+    | 'openrouter'
+    | 'azure'
+    | 'kimi'
+    | 'qwen'
   apiKey: string
+  /** Model id for every provider except `azure`, which has no fixed model catalog. */
   model: string
+  /** Azure-only: the resource name, e.g. `my-resource` for `my-resource.openai.azure.com`. */
+  resourceName?: string
+  /** Azure-only: the deployment name (Azure's equivalent of a model id). */
+  deploymentName?: string
+  /** Azure-only: the REST API version, e.g. `2024-10-21`. */
+  apiVersion?: string
 }
 
 export interface ContextMenuItem {
@@ -425,6 +491,14 @@ export interface AnodexApi {
     discover(query: string): Promise<Result<RecommendedModel[]>>
     /** Auto-populate "Recommended for your PC" with current models from trusted publishers. */
     fetchTopModels(): Promise<Result<RecommendedModel[]>>
+    /**
+     * Set when the previous run died partway through loading a model, with the
+     * safer settings to retry under. Auto-restore must check this before
+     * loading anything, or it repeats the crash.
+     */
+    getLoadRecovery(): Promise<ModelLoadRecovery | null>
+    /** Forget the pending recovery once the user has chosen what to do about it. */
+    dismissLoadRecovery(): Promise<void>
   }
   chat: {
     send(request: ChatRequest): Promise<Result<ChatResult>>
@@ -499,6 +573,24 @@ export interface AnodexApi {
     deletePermanent(id: string): Promise<void>
     setActive(id: string | null): Promise<ProjectsState>
     openFolder(id: string): Promise<void>
+  }
+  backup: {
+    /**
+     * Save one conversation to a file the user picks. Resolves to the written
+     * path, or `null` if they cancelled the save dialog.
+     */
+    exportConversation(
+      conversation: Conversation,
+      format: ConversationExportFormat
+    ): Promise<Result<string | null>>
+    /**
+     * Copy every store in the data directory into a timestamped folder the
+     * user picks. Resolves to `null` if they cancelled. Never deletes or
+     * moves anything, so it is safe to run at any time.
+     */
+    backupData(): Promise<Result<BackupResult | null>>
+    /** Show a written backup or export in the OS file manager. */
+    revealPath(path: string): Promise<void>
   }
   conversations: {
     list(): Promise<Conversation[]>
@@ -582,6 +674,20 @@ export interface AnodexApi {
     installAndRestart(): Promise<void>
     onStatusChanged(listener: (status: UpdateStatus) => void): () => void
   }
+  diagnostics: {
+    /**
+     * Main-process warnings and errors recorded since launch, newest first.
+     * Called on mount so a window sees failures that happened before it existed
+     * (startup errors) or while it was gone (a renderer crash + reload).
+     */
+    list(): Promise<DiagnosticEntry[]>
+    /** Fires as each new main-process warning/error is recorded. */
+    onEntry(listener: (entry: DiagnosticEntry) => void): () => void
+    /** Path and size of the rotating main-process log file. */
+    getLogFile(): Promise<DiagnosticLogFile>
+    /** Show the log file in the OS file manager. */
+    revealLogFile(): Promise<void>
+  }
   stats: {
     /** All-time token-generation activity, independent of individual conversations. */
     getUsageProfile(): Promise<Result<UsageProfile>>
@@ -645,13 +751,46 @@ export interface AnodexApi {
   }
   email: {
     getStatus(): Promise<Result<EmailConnectionStatus>>
-    openGmailWeb(): Promise<Result<void>>
-    connectGmail(): Promise<Result<EmailConnectionStatus>>
-    disconnectGmail(): Promise<Result<EmailConnectionStatus>>
-    getUnreadThreadCount(): Promise<Result<number>>
+    openWebmail(): Promise<Result<void>>
+    discover(address: string): Promise<Result<EmailAutoconfig>>
+    connectOAuth(request: EmailConnectOAuthRequest): Promise<Result<EmailConnectionStatus>>
+    connectPassword(request: EmailConnectPasswordRequest): Promise<Result<EmailConnectionStatus>>
+    removeAccount(accountId: string): Promise<Result<EmailConnectionStatus>>
+    setPrimaryAccount(accountId: string): Promise<Result<EmailConnectionStatus>>
+    setSyncMode(accountId: string, syncMode: EmailSyncMode): Promise<Result<EmailConnectionStatus>>
+    listAccounts(): Promise<Result<EmailAccount[]>>
+    getUnreadThreadCount(accountId?: string): Promise<Result<number>>
     listThreads(request?: EmailListThreadsRequest): Promise<Result<EmailThreadSummary[]>>
     search(request: EmailSearchRequest): Promise<Result<EmailThreadSummary[]>>
-    readMessage(id: string): Promise<Result<EmailMessage>>
+    readMessage(id: string, accountId?: string): Promise<Result<EmailMessage>>
+    getThreadMessages(threadId: string, accountId?: string): Promise<Result<EmailMessage[]>>
+    /**
+     * Digests for as many of the given threads as are cached or affordable
+     * right now, plus why the pass stopped. Threads missing from the result
+     * keep their provider snippet; calling again picks up where this left off,
+     * unless the outcome says there is no point.
+     */
+    digestThreads(requests: EmailThreadDigestRequest[]): Promise<Result<EmailThreadDigestBatch>>
+    applyFlag(request: EmailFlagRequest): Promise<Result<string>>
+    move(request: EmailMoveRequest): Promise<Result<string>>
+    listMailboxes(accountId?: string): Promise<Result<EmailMailbox[]>>
+    /** Prompts for a location and writes the attachment there. Null path means cancelled. */
+    saveAttachment(request: {
+      messageId: string
+      attachmentId: string
+      filename: string
+      accountId?: string
+    }): Promise<Result<{ path: string | null }>>
+    /**
+     * Fetches a message's blocked remote images and returns them keyed by the
+     * URL that asked for them, as `data:` URIs the reader's frame can show.
+     *
+     * Done here rather than in the renderer because a `srcdoc` iframe inherits
+     * the app's `img-src 'self' data:` policy and cannot widen it — see
+     * `main/email/remoteImages.ts`. A URL missing from the result stays
+     * blocked; it is never an error worth interrupting the reader over.
+     */
+    loadRemoteImages(urls: string[]): Promise<Result<Record<string, string>>>
     createDraft(request: EmailDraftRequest): Promise<Result<EmailDraft>>
     send(request: EmailSendRequest): Promise<Result<void>>
   }

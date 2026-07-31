@@ -83,8 +83,7 @@ export function ToolsSkillsSettings(): JSX.Element {
   const toolAvailabilityDetails = buildToolAvailabilityDetails({
     workspaceRoot: settings.workspace.root,
     webSearchProvider: settings.webSearch.provider,
-    emailProvider: settings.email.provider,
-    gmailEnabled: settings.email.gmail.enabled,
+    emailAccountCount: settings.email.accounts.length,
     memoryCrossChatEnabled: settings.memory.crossChatEnabled,
     memoryPersonalEnabled: settings.memory.personalEnabled
   })

@@ -75,6 +75,7 @@ class AnthropicProvider implements LlmProvider {
           conversationId: params.conversationId,
           messageId: params.messageId,
           workspaceRoot: params.tools.workspaceRoot,
+          userFiles: params.tools.userFiles,
           projectId: params.tools.projectId,
           permissionMode: params.tools.permissionMode,
           commandShell: params.tools.commandShell,
@@ -86,6 +87,7 @@ class AnthropicProvider implements LlmProvider {
           mcpTools: params.tools.mcpTools,
           evidenceFocus: params.tools.evidenceFocus,
           recordArtifact: params.tools.recordArtifact,
+          webSources: params.tools.webSources,
           beforeTool: params.tools.beforeTool,
           // A mutable box, not the plan value itself — shared by every tool
           // call in this generation, matching LlamaService's own wiring.
@@ -132,6 +134,10 @@ class AnthropicProvider implements LlmProvider {
     const startedAt = Date.now()
     let content = ''
     let outputTokens = 0
+    // Accumulated across rounds, not read from the last one: every tool round
+    // re-sends and re-bills the whole conversation, so only the sum reflects
+    // what this turn actually cost.
+    let inputTokens = 0
     let stopped = false
 
     const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
@@ -180,6 +186,7 @@ class AnthropicProvider implements LlmProvider {
       }
 
       outputTokens += response.usage.output_tokens
+      inputTokens += response.usage.input_tokens ?? 0
 
       if (response.stop_reason !== 'tool_use' || !toolFunctions) break
       // There is no remaining provider round in which the model could consume
@@ -224,7 +231,8 @@ class AnthropicProvider implements LlmProvider {
     const stats: GenerationStats = {
       tokens: outputTokens,
       durationMs,
-      tokensPerSecond: outputTokens / (durationMs / 1000)
+      tokensPerSecond: outputTokens / (durationMs / 1000),
+      inputTokens
     }
 
     return {

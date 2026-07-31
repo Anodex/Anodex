@@ -15,8 +15,8 @@ export interface ToolHealthInput {
 export interface ToolAvailabilityInput {
   workspaceRoot: string | null
   webSearchProvider: string
-  emailProvider: string
-  gmailEnabled: boolean
+  /** Number of linked email accounts, across every provider. */
+  emailAccountCount: number
   memoryCrossChatEnabled: boolean
   memoryPersonalEnabled: boolean
 }
@@ -69,10 +69,12 @@ export function buildToolAvailabilityDetails(input: ToolAvailabilityInput): Tool
     {
       label: 'Email tools',
       value:
-        input.emailProvider === 'gmail' && input.gmailEnabled
-          ? 'Gmail tools are ready.'
-          : 'Connect Gmail to enable email tools.',
-      tone: input.emailProvider === 'gmail' && input.gmailEnabled ? 'ready' : 'muted'
+        input.emailAccountCount > 0
+          ? `Email tools are ready across ${input.emailAccountCount} account${
+              input.emailAccountCount === 1 ? '' : 's'
+            }.`
+          : 'Link an email account to enable email tools.',
+      tone: input.emailAccountCount > 0 ? 'ready' : 'muted'
     },
     {
       label: 'Memory tool',

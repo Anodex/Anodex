@@ -9,6 +9,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { isChatReady } from '../../lib/chatReadiness'
+import { COMPOSER_INPUT_ATTR } from '../../hooks/useGlobalKeyboardShortcuts'
 import { Icon, type IconName } from '../../components/Icon'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { anodex } from '../../lib/anodex'
@@ -86,6 +87,8 @@ export function ChatComposer(): JSX.Element {
     s.activeId ? (s.pendingMessages[s.activeId] ?? EMPTY_QUEUE) : EMPTY_QUEUE
   )
   const stopGeneration = useChatStore((s) => s.stopGeneration)
+  const pendingComposerText = useChatStore((s) => s.pendingComposerText)
+  const setPendingComposerText = useChatStore((s) => s.setPendingComposerText)
   const compactConversation = useChatStore((s) => s.compactConversation)
   const engine = useModelStore((s) => s.engine)
   const settings = useSettingsStore((s) => s.settings)
@@ -164,6 +167,16 @@ export function ChatComposer(): JSX.Element {
   useEffect(() => {
     setDismissedSkillName(null)
   }, [text])
+
+  // Another view (the Email page's Reply button) queued an instruction for the
+  // composer. Adopt it once and clear the queue so it can't reappear on a later
+  // render or leak into the next conversation.
+  useEffect(() => {
+    if (pendingComposerText === null) return
+    setText(pendingComposerText)
+    setPendingComposerText(null)
+    textareaRef.current?.focus()
+  }, [pendingComposerText, setPendingComposerText])
 
   useEffect(() => {
     if (pendingQueue.length === 0) setQueueExpanded(false)
@@ -535,6 +548,7 @@ export function ChatComposer(): JSX.Element {
       <div className={`${styles.inputShell} ${!ready ? styles.disabled : ''}`}>
         <textarea
           ref={textareaRef}
+          {...{ [COMPOSER_INPUT_ATTR]: '' }}
           className={styles.textarea}
           value={text}
           rows={1}

@@ -2,15 +2,26 @@ import { useMemo, useState } from 'react'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
-import amazonBedrockLogo from '../../../../assets/providers/amazon-bedrock.svg'
+import { GOOGLE_MODELS } from '@shared/googleModels'
+import { XAI_MODELS } from '@shared/xaiModels'
+import { DEEPSEEK_MODELS } from '@shared/deepseekModels'
+import { MISTRAL_MODELS } from '@shared/mistralModels'
+import { GROQ_MODELS } from '@shared/groqModels'
+import { OPENROUTER_MODELS } from '@shared/openrouterModels'
+import { KIMI_MODELS } from '@shared/kimiModels'
+import { QWEN_MODELS } from '@shared/qwenModels'
+import type { CloudModelOption } from '@shared/cloudModelOption'
+import anodexIcon from '../../../../assets/app-icon.png'
 import anthropicLogo from '../../../../assets/providers/anthropic.svg'
 import azureOpenAiLogo from '../../../../assets/providers/azure-openai.svg'
 import deepSeekLogo from '../../../../assets/providers/deepseek.svg'
 import googleLogo from '../../../../assets/providers/google.svg'
 import groqLogo from '../../../../assets/providers/groq.svg'
+import kimiLogo from '../../../../assets/providers/kimi.svg'
 import mistralLogo from '../../../../assets/providers/mistral.svg'
 import openAiLogo from '../../../../assets/providers/openai.svg'
 import openRouterLogo from '../../../../assets/providers/openrouter.svg'
+import qwenLogo from '../../../../assets/providers/qwen.svg'
 import xAiLogo from '../../../../assets/providers/xai.svg'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
@@ -30,7 +41,42 @@ type ProviderId =
   | 'groq'
   | 'openrouter'
   | 'azure'
-  | 'bedrock'
+  | 'kimi'
+  | 'qwen'
+
+/**
+ * Every provider whose settings are the plain `{apiKey, model, dailyTokenCap}`
+ * shape and whose fields this panel renders through one shared block (see
+ * `SIMPLE_PROVIDER_MODELS` below) rather than a bespoke one — mirrors
+ * `OpenAiCompatibleProviderId` on the main-process side, but this is its own
+ * renderer-side type since the two sides can't share a module.
+ */
+type SimpleCloudProviderId =
+  'google' | 'xai' | 'deepseek' | 'mistral' | 'groq' | 'openrouter' | 'kimi' | 'qwen'
+
+/** Each simple cloud provider's curated model catalog, for its dropdown. */
+const SIMPLE_PROVIDER_MODELS: Record<SimpleCloudProviderId, CloudModelOption[]> = {
+  google: GOOGLE_MODELS,
+  xai: XAI_MODELS,
+  deepseek: DEEPSEEK_MODELS,
+  mistral: MISTRAL_MODELS,
+  groq: GROQ_MODELS,
+  openrouter: OPENROUTER_MODELS,
+  kimi: KIMI_MODELS,
+  qwen: QWEN_MODELS
+}
+
+function isSimpleCloudProvider(id: ProviderId): id is SimpleCloudProviderId {
+  return id in SIMPLE_PROVIDER_MODELS
+}
+
+const API_KEY_PLACEHOLDERS: Partial<Record<SimpleCloudProviderId, string>> = {
+  xai: 'xai-...',
+  deepseek: 'sk-...',
+  mistral: '...',
+  groq: 'gsk_...',
+  openrouter: 'sk-or-...'
+}
 
 type ProviderFilter = 'all' | 'direct' | 'cloud'
 
@@ -51,6 +97,11 @@ const PROVIDERS: ProviderDefinition[] = [
     id: 'local',
     name: 'Local model',
     shortName: 'A',
+    // Anodex's own app icon, not a model-vendor mark: this entry is the
+    // built-in engine, not a connection to someone else's API. Deliberately
+    // not a Llama logo — `node-llama-cpp` is only the runtime here, and the
+    // GGUFs users actually load through it span every model family.
+    logoSrc: anodexIcon,
     category: 'local',
     meta: 'Built in',
     description: 'Run private GGUF models directly on this computer.',
@@ -88,7 +139,7 @@ const PROVIDERS: ProviderDefinition[] = [
     meta: 'Gemini models',
     description: 'Direct access to Google Gemini models.',
     capabilities: ['Chat', 'Vision', 'Tools', 'Long context'],
-    available: false
+    available: true
   },
   {
     id: 'xai',
@@ -99,7 +150,7 @@ const PROVIDERS: ProviderDefinition[] = [
     meta: 'Grok models',
     description: 'Direct access to xAI Grok models.',
     capabilities: ['Chat', 'Vision', 'Tools'],
-    available: false
+    available: true
   },
   {
     id: 'deepseek',
@@ -110,7 +161,7 @@ const PROVIDERS: ProviderDefinition[] = [
     meta: 'Direct API',
     description: 'Direct access to DeepSeek reasoning and coding models.',
     capabilities: ['Chat', 'Reasoning', 'Tools'],
-    available: false
+    available: true
   },
   {
     id: 'mistral',
@@ -121,7 +172,7 @@ const PROVIDERS: ProviderDefinition[] = [
     meta: 'Direct API',
     description: 'Direct access to Mistral and Codestral models.',
     capabilities: ['Chat', 'Coding', 'Tools'],
-    available: false
+    available: true
   },
   {
     id: 'groq',
@@ -132,7 +183,7 @@ const PROVIDERS: ProviderDefinition[] = [
     meta: 'Fast inference',
     description: 'Hosted high-speed inference for supported open models.',
     capabilities: ['Chat', 'Tools', 'Fast inference'],
-    available: false
+    available: true
   },
   {
     id: 'openrouter',
@@ -143,7 +194,29 @@ const PROVIDERS: ProviderDefinition[] = [
     meta: 'Model gateway',
     description: 'Use one connection to access models from many providers.',
     capabilities: ['Chat', 'Model routing', 'Tools'],
-    available: false
+    available: true
+  },
+  {
+    id: 'kimi',
+    name: 'Kimi',
+    shortName: 'K',
+    logoSrc: kimiLogo,
+    category: 'direct',
+    meta: 'Moonshot AI',
+    description: 'Direct access to Moonshot AI Kimi models.',
+    capabilities: ['Chat', 'Long context', 'Tools'],
+    available: true
+  },
+  {
+    id: 'qwen',
+    name: 'Qwen',
+    shortName: 'Q',
+    logoSrc: qwenLogo,
+    category: 'direct',
+    meta: 'Alibaba Cloud',
+    description: 'Direct access to hosted Alibaba Cloud Qwen models.',
+    capabilities: ['Chat', 'Coding', 'Tools'],
+    available: true
   },
   {
     id: 'azure',
@@ -154,18 +227,7 @@ const PROVIDERS: ProviderDefinition[] = [
     meta: 'Enterprise cloud',
     description: 'Connect an Azure OpenAI resource and deployment.',
     capabilities: ['Chat', 'Vision', 'Tools', 'Enterprise'],
-    available: false
-  },
-  {
-    id: 'bedrock',
-    name: 'Amazon Bedrock',
-    shortName: 'AWS',
-    logoSrc: amazonBedrockLogo,
-    category: 'cloud',
-    meta: 'Enterprise cloud',
-    description: 'Use supported foundation models through an AWS account.',
-    capabilities: ['Chat', 'Model choice', 'Enterprise'],
-    available: false
+    available: true
   }
 ]
 
@@ -211,11 +273,27 @@ function providerConnected(id: ProviderId, settings: AppSettings): boolean {
   if (id === 'local') return true
   if (id === 'openai') return Boolean(settings.provider.openai.apiKey.trim())
   if (id === 'anthropic') return Boolean(settings.provider.anthropic.apiKey.trim())
+  if (id === 'azure') {
+    const azure = settings.provider.azure
+    return Boolean(azure.apiKey.trim() && azure.resourceName.trim() && azure.deploymentName.trim())
+  }
+  if (isSimpleCloudProvider(id)) return Boolean(settings.provider[id].apiKey.trim())
   return false
 }
 
 function activeProviderDefinition(settings: AppSettings): ProviderDefinition {
   return PROVIDERS.find((provider) => provider.id === settings.provider.active) ?? PROVIDERS[0]
+}
+
+/** The active provider's model/detail line shown on the "Active provider" card. */
+function activeProviderDetail(settings: AppSettings, activeModelName: string | null): string {
+  const active = settings.provider.active
+  if (active === 'local') return `${activeModelName ?? 'No model loaded'} · Private and offline`
+  if (active === 'openai') return settings.provider.openai.model
+  if (active === 'anthropic') return settings.provider.anthropic.model
+  if (active === 'azure') return settings.provider.azure.deploymentName || 'No deployment set'
+  if (isSimpleCloudProvider(active)) return settings.provider[active].model
+  return ''
 }
 
 function ProviderLogo({ provider }: { provider: ProviderDefinition }): JSX.Element {
@@ -267,12 +345,7 @@ export function ProviderConnectionsPanel({
     })
   }, [filter, search])
 
-  const activeDetail =
-    settings.provider.active === 'local'
-      ? `${activeModelName ?? 'No model loaded'} · Private and offline`
-      : settings.provider.active === 'openai'
-        ? settings.provider.openai.model
-        : settings.provider.anthropic.model
+  const activeDetail = activeProviderDetail(settings, activeModelName)
 
   return (
     <div className={styles.providerTabContent}>
@@ -417,13 +490,7 @@ export function ProviderConnectionsPanel({
                     settings.provider.active === selected.id ||
                     !providerConnected(selected.id, settings)
                   }
-                  onClick={() => {
-                    if (selected.id === 'local') void onUpdate({ provider: { active: 'local' } })
-                    if (selected.id === 'openai') void onUpdate({ provider: { active: 'openai' } })
-                    if (selected.id === 'anthropic') {
-                      void onUpdate({ provider: { active: 'anthropic' } })
-                    }
-                  }}
+                  onClick={() => void onUpdate({ provider: { active: selected.id } })}
                 >
                   {settings.provider.active === selected.id ? 'Active provider' : 'Use for chat'}
                 </Button>
@@ -542,6 +609,136 @@ export function ProviderConnectionsPanel({
                 <div className={styles.providerDataNote}>
                   <Icon name="info" size={14} />
                   Messages and selected context are sent to Anthropic only while it is active.
+                </div>
+              </div>
+            )}
+
+            {isSimpleCloudProvider(selected.id) && (
+              <div className={styles.providerFields}>
+                <SettingRow
+                  label="API key"
+                  description="Stored securely on this computer. Use Test connection to verify it."
+                  control={
+                    <ApiKeyField
+                      provider={selected.id}
+                      value={settings.provider[selected.id].apiKey}
+                      model={settings.provider[selected.id].model}
+                      placeholder={API_KEY_PLACEHOLDERS[selected.id] ?? 'API key'}
+                      onChange={(value) =>
+                        void onUpdate({ provider: { [selected.id]: { apiKey: value } } })
+                      }
+                    />
+                  }
+                />
+                <SettingRow
+                  label="Model"
+                  description={`${selected.name} model used for chat generations.`}
+                  control={
+                    <SelectControl
+                      value={settings.provider[selected.id].model}
+                      options={SIMPLE_PROVIDER_MODELS[selected.id].map((model) => ({
+                        label: model.label,
+                        value: model.id
+                      }))}
+                      onChange={(value) =>
+                        void onUpdate({ provider: { [selected.id]: { model: value } } })
+                      }
+                    />
+                  }
+                />
+                <SettingRow
+                  label="Daily token cap"
+                  description="Optional warning threshold. It never blocks a message."
+                  control={
+                    <DailyCapInput
+                      value={settings.provider[selected.id].dailyTokenCap}
+                      onCommit={(cap) =>
+                        void onUpdate({ provider: { [selected.id]: { dailyTokenCap: cap } } })
+                      }
+                    />
+                  }
+                />
+                <div className={styles.providerDataNote}>
+                  <Icon name="info" size={14} />
+                  Messages and selected context are sent to {selected.name} only while it is active.
+                </div>
+              </div>
+            )}
+
+            {selected.id === 'azure' && (
+              <div className={styles.providerFields}>
+                <SettingRow
+                  label="Resource name"
+                  description="The Azure resource name, e.g. `my-resource` for my-resource.openai.azure.com."
+                  control={
+                    <TextControl
+                      value={settings.provider.azure.resourceName}
+                      placeholder="my-resource"
+                      onChange={(value) =>
+                        void onUpdate({ provider: { azure: { resourceName: value } } })
+                      }
+                    />
+                  }
+                />
+                <SettingRow
+                  label="Deployment name"
+                  description="The deployment name you created in Azure AI Studio for your chosen model."
+                  control={
+                    <TextControl
+                      value={settings.provider.azure.deploymentName}
+                      placeholder="my-deployment"
+                      onChange={(value) =>
+                        void onUpdate({ provider: { azure: { deploymentName: value } } })
+                      }
+                    />
+                  }
+                />
+                <SettingRow
+                  label="API version"
+                  description="Azure OpenAI REST API version."
+                  control={
+                    <TextControl
+                      value={settings.provider.azure.apiVersion}
+                      placeholder="2024-10-21"
+                      onChange={(value) =>
+                        void onUpdate({ provider: { azure: { apiVersion: value } } })
+                      }
+                    />
+                  }
+                />
+                <SettingRow
+                  label="API key"
+                  description="Stored securely on this computer. Use Test connection to verify it."
+                  control={
+                    <ApiKeyField
+                      provider="azure"
+                      value={settings.provider.azure.apiKey}
+                      model={settings.provider.azure.deploymentName}
+                      resourceName={settings.provider.azure.resourceName}
+                      apiVersion={settings.provider.azure.apiVersion}
+                      placeholder="Azure API key"
+                      onChange={(value) =>
+                        void onUpdate({ provider: { azure: { apiKey: value } } })
+                      }
+                    />
+                  }
+                />
+                <SettingRow
+                  label="Daily token cap"
+                  description="Optional warning threshold. It never blocks a message."
+                  control={
+                    <DailyCapInput
+                      value={settings.provider.azure.dailyTokenCap}
+                      onCommit={(cap) =>
+                        void onUpdate({ provider: { azure: { dailyTokenCap: cap } } })
+                      }
+                    />
+                  }
+                />
+                <div className={styles.providerDataNote}>
+                  <Icon name="info" size={14} />
+                  Messages and selected context are sent to your Azure OpenAI resource only while it
+                  is active.
                 </div>
               </div>
             )}

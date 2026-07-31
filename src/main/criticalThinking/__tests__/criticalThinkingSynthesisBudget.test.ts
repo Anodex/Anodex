@@ -11,7 +11,11 @@ describe('Critical Thinking synthesis budgets', () => {
     const medium = criticalThinkingSynthesisLimits(8_192)
     const cloud = criticalThinkingSynthesisLimits(128_000)
 
-    expect(small.maxOutputTokens).toBe(1_024)
+    // Output room tracks the context, so a 4K window is never handed a budget
+    // that would leave no space for the evidence it has to reason over.
+    expect(small.maxOutputTokens).toBeLessThan(Math.floor(4_096 * 0.45))
+    expect(small.maxOutputTokens).toBeLessThan(medium.maxOutputTokens)
+    expect(medium.maxOutputTokens).toBeLessThan(cloud.maxOutputTokens)
     expect(small.maxEvidenceChars).toBeLessThan(medium.maxEvidenceChars)
     expect(medium.maxEvidenceChars).toBeLessThan(cloud.maxEvidenceChars)
     expect(cloud.maxEvidenceChars).toBe(36_000)
@@ -22,11 +26,20 @@ describe('Critical Thinking synthesis budgets', () => {
     expect(criticalThinkingContextTokens('openai', 'unknown-model', undefined)).toBe(128_000)
   })
 
-  it('honors a larger configured report budget when the active context can hold it', () => {
-    expect(criticalThinkingSynthesisLimits(32_768, 8_192).maxOutputTokens).toBe(8_192)
-    expect(criticalThinkingSynthesisLimits(8_192, 8_192).maxOutputTokens).toBe(
-      Math.floor(8_192 * 0.3)
-    )
+  it('treats the configured chat budget as a floor for a report, never a ceiling', () => {
+    // The caller passes the user's chat-reply setting. A cited report is a
+    // different kind of artifact — and on a reasoning model most of the budget
+    // goes to hidden thinking before a word is written — so a roomy context
+    // gives the report more than the chat setting asked for, not exactly it.
+    const roomy = criticalThinkingSynthesisLimits(32_768, 8_192)
+    expect(roomy.maxOutputTokens).toBeGreaterThan(8_192)
+    // …but the context still governs: a small window cannot be talked into a
+    // budget that would crowd out its own evidence.
+    const tight = criticalThinkingSynthesisLimits(8_192, 8_192)
+    expect(tight.maxOutputTokens).toBeLessThan(8_192)
+    expect(tight.maxOutputTokens).toBeLessThanOrEqual(Math.floor(8_192 * 0.45))
+    // A report never claims so much output that no evidence fits.
+    expect(roomy.maxEvidenceChars).toBeGreaterThan(20_000)
   })
 
   it('bounds item lists without breaking their outer structure', () => {
