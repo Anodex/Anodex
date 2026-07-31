@@ -4,3 +4,8 @@
 # real YAML and reflows a long `keywords: [...]`/`tools: [...]` array onto a
 # continuation line, which silently turns a valid skill into an unloadable one.
 resources/skills/
+
+# Archived UI exploration files; they are standalone prototypes, not production
+# source. No longer tracked in git either, but they stay on disk and Prettier
+# would otherwise still walk them.
+docs/ui-samples/

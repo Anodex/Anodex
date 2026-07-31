@@ -324,6 +324,7 @@ export class LlamaVisionService {
       plan: { current: params.tools.plan },
       turnGate: { approved: false },
       loopGuard: createLoopGuardState(),
+      // Fresh every generation call, matching the text and cloud model paths.
       progress: { madeChange: false },
       modelResultBudget: { current: null },
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
