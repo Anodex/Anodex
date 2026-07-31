@@ -34,6 +34,7 @@ import { codeOutlineTool } from './codeOutlineTools'
 import { searchCodeTool } from './codeSearchTools'
 import { fetchUrlTool } from './webTools'
 import { webSearchTool } from './webSearchTools'
+import { generateImageTool } from './imageGenerationTool'
 import { writePlanTool, updatePlanStepTool } from './planTools'
 import { updateProjectNotesTool } from './projectNotesTool'
 import { rememberFactTool } from './memoryTool'
@@ -223,6 +224,10 @@ export function buildTools(
 
   for (const [name, factory] of Object.entries(GLOBAL_FACTORIES)) {
     if (isEnabled(name)) tools[name] = factory(define, ctx)
+  }
+
+  if (ctx.imageGeneration && isEnabled('generate_image')) {
+    tools.generate_image = generateImageTool(define, ctx)
   }
 
   if (ctx.webSearch.provider !== 'none' && isEnabled('web_search')) {

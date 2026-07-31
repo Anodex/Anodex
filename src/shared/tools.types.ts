@@ -65,9 +65,11 @@ export type ToolCallPreview =
        * to the model but are re-fetched by different tools, and `assistant` was
        * deliberately shown only to the user.
        */
-      source?: 'inspection' | 'assistant' | 'email'
+      source?: 'inspection' | 'assistant' | 'email' | 'generated'
       title: string
       path: string
+      /** Original prompt, retained for a user-requested regeneration if this asset expires. */
+      prompt?: string
       dataUrl?: string
       mimeType: string
       /** Durable, sandboxed reference used to reopen the exact inspected pixels later. */
@@ -226,6 +228,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'read',
     description: 'Display an existing workspace image directly in the assistant reply.',
     requiresProject: true
+  },
+  {
+    name: 'generate_image',
+    kind: 'web',
+    description:
+      'Generate one image with the active supported cloud provider. Always requires explicit approval because it sends the prompt to a paid external image API.'
   },
   {
     name: 'get_file_info',

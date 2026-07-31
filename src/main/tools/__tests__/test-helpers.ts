@@ -30,6 +30,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
       resultCount: 5,
       requireApproval: false
     },
+    imageGeneration: undefined,
     email: {
       accounts: [],
       primaryAccountId: null,

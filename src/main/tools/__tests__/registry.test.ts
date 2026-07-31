@@ -59,6 +59,7 @@ const READ_ONLY_WORKSPACE_TOOLS = [
 const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'fetch_url',
   'web_search',
+  'generate_image',
   'write_plan',
   'update_plan_step',
   'find_skill',
@@ -128,6 +129,14 @@ describe('buildTools', () => {
     for (const name of [...READ_ONLY_WORKSPACE_TOOLS, ...PROJECT_WORKSPACE_TOOLS]) {
       expect(tools).not.toHaveProperty(name)
     }
+  })
+
+  it('registers image generation only for a provider that explicitly supports it', () => {
+    const unsupported = createMockContext('/workspace')
+    expect(buildTools(createMockDefine(), unsupported)).not.toHaveProperty('generate_image')
+
+    const supported = { ...unsupported, imageGeneration: { provider: 'openai' as const } }
+    expect(buildTools(createMockDefine(), supported)).toHaveProperty('generate_image')
   })
 
   it('registers find_skill and load_skill even in a plain general chat with no workspace', () => {

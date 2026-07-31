@@ -11,6 +11,9 @@ import type { ReadCoverageTracker } from './readCoverage'
 import type { WebSourceRegistry } from './WebSourceRegistry'
 import type { VisualInputQueue } from '../vision/imageInputs'
 
+/** Cloud image API the active generation provider has explicitly opted into. */
+export type ImageGenerationProvider = 'openai' | 'google'
+
 /** The `node-llama-cpp` module type (dynamically imported at runtime). */
 type NlcModule = typeof import('node-llama-cpp')
 export type DefineChatSessionFunction = NlcModule['defineChatSessionFunction']
@@ -52,6 +55,8 @@ export interface ToolRuntimeContext {
   commandShell?: string
   /** Web search configuration used by the web_search tool. */
   webSearch: WebSearchSettings
+  /** Present only for cloud providers with a first-party image generation integration. */
+  imageGeneration?: { provider: ImageGenerationProvider }
   /** Email provider configuration used by email tools. */
   email: EmailSettings
   /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */

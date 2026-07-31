@@ -113,7 +113,12 @@ export class OpenAiCompatibleProvider implements LlmProvider {
 
     const client = new OpenAI({ apiKey, baseURL: this.config.baseURL })
     const model = params.modelOverride?.trim() || settings.model.trim() || this.config.defaultModel
-    return runChatCompletionsLoop(client, model, params)
+    return runChatCompletionsLoop(
+      client,
+      model,
+      params,
+      this.config.id === 'google' ? { provider: 'google' } : undefined
+    )
   }
 }
 
@@ -128,7 +133,8 @@ export class OpenAiCompatibleProvider implements LlmProvider {
 export async function runChatCompletionsLoop(
   client: OpenAI,
   model: string,
-  params: GenerateParams
+  params: GenerateParams,
+  imageGeneration?: { provider: 'google' }
 ): Promise<GenerateOutcome> {
   const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, CLOUD_VISION_MIME_TYPES)
 
@@ -142,6 +148,7 @@ export async function runChatCompletionsLoop(
         permissionMode: params.tools.permissionMode,
         commandShell: params.tools.commandShell,
         webSearch: params.tools.webSearch,
+        imageGeneration,
         email: params.tools.email,
         memory: params.tools.memory,
         enabledTools: params.tools.enabledTools ?? null,

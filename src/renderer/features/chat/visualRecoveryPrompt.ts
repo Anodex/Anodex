@@ -10,6 +10,10 @@ export function visualRecoveryPrompt(preview: ImagePreview): string {
     // this chat is already about.
     case 'email':
       return `Find the email attachment "${preview.path}" again with find_attachments and look at it with view_email_attachment.`
+    case 'generated':
+      return preview.prompt
+        ? `Generate the image again with this prompt: ${preview.prompt}`
+        : 'Generate the image again using the same visual direction as the previous generated image.'
     default:
       return `Re-inspect "${preview.path}" using inspect_visual and show me the new screenshot.`
   }

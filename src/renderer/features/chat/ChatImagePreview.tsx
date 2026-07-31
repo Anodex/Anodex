@@ -10,13 +10,15 @@ type ImagePreview = Extract<ToolCallPreview, { kind: 'image' }>
 const RECOVERY_LABELS: Record<NonNullable<ImagePreview['source']>, string> = {
   assistant: 'Show again',
   email: 'View again',
-  inspection: 'Re-inspect'
+  inspection: 'Re-inspect',
+  generated: 'Generate again'
 }
 
 const IMAGE_KINDS: Record<NonNullable<ImagePreview['source']>, string> = {
   assistant: 'Assistant image',
   email: 'Email attachment',
-  inspection: 'Visual inspection'
+  inspection: 'Visual inspection',
+  generated: 'Generated image'
 }
 
 /** Exact inspected pixels, loaded live from memory or later from the durable asset store. */

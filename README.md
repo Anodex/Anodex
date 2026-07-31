@@ -193,6 +193,12 @@ additional tools are available on demand.
   structured artifact), `web_search` (via a provider you choose in
   Settings — SearXNG self-hosted, Brave, Tavily, or Google Programmable
   Search; the tool doesn't exist at all when no provider is configured).
+- **Cloud image generation (workspace-independent):** `generate_image` appears
+  only with a connected OpenAI or Google AI chat provider. It creates one PNG
+  through that provider's first-party image API, renders it inline in the
+  conversation, and always shows the exact prompt for explicit approval before
+  the paid external request. Generated pixels use the same bounded local
+  conversation-asset storage and fullscreen viewer as inspected images.
 - **Plan:** `write_plan` / `update_plan_step` — a visible, structured task
   list the model can create and check off as it works.
 - **Project notes:** `update_project_notes` (writes to the project's
