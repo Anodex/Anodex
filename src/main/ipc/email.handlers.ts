@@ -199,9 +199,11 @@ export function registerEmailHandlers(): void {
         return ok(await digestThreads(requests))
       } catch (error) {
         // Digests are an enhancement to a list that renders fine without them,
-        // so a failure here is worth a log and nothing louder.
+        // so a failure here is worth a log and nothing louder. It still comes
+        // back as a failed pass rather than an empty one — the list has no
+        // other way to tell this apart from an inbox with nothing left to do.
         log.warn('Failed to digest email threads:', error)
-        return ok([])
+        return ok({ digests: [], outcome: 'failed', abandonedThreadIds: [] })
       }
     }
   )

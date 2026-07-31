@@ -66,6 +66,7 @@ export function EmailView(): JSX.Element {
   const digests = useEmailStore((s) => s.digests)
   const digesting = useEmailStore((s) => s.digesting)
   const digestBlocked = useEmailStore((s) => s.digestBlocked)
+  const undigestable = useEmailStore((s) => s.undigestable)
   const loadDigests = useEmailStore((s) => s.loadDigests)
   const storedQuery = useEmailStore((s) => s.query)
   const mailbox = useEmailStore((s) => s.mailbox)
@@ -113,17 +114,38 @@ export function EmailView(): JSX.Element {
   // Where the digest pass has got to: the first thread that still has no
   // digest. Null once they all do, which is when `digesting` goes false too.
   const sweepThreadId = digesting
-    ? (threads.find((thread) => !digests[thread.id])?.id ?? null)
+    ? (threads.find(
+        (thread) => !digests[thread.id] && undigestable[thread.id] !== thread.latestMessageId
+      )?.id ?? null)
     : null
-  const undigested = threads.filter((thread) => !digests[thread.id]).length
+  // Threads still worth reading: the ones with no digest that the pass has not
+  // already tried and given up on. Counting those too would leave "Read my
+  // mail" lit over work nobody can do.
+  const undigested = threads.filter(
+    (thread) => !digests[thread.id] && undigestable[thread.id] !== thread.latestMessageId
+  ).length
 
-  // The two ways a pass comes back empty are worth telling apart: one is
-  // something the reader can fix in a click, the other is a fault they should
-  // know about rather than read as "this feature does nothing".
+  // The ways a pass comes back short are worth telling apart. A model that is
+  // still loading is not a fault and fixes itself; saying "could not create
+  // summaries" over an inbox whose summaries are merely a few seconds away is
+  // how this feature came to look broken while working.
   const blockedReason =
-    engineStatus === 'ready'
-      ? 'Could not create email summaries — try again'
-      : 'Load a model to have Anodex read your mail'
+    digestBlocked === 'engine-unavailable'
+      ? engineStatus === 'loading'
+        ? 'Anodex will read your mail once the model has loaded'
+        : 'Load a model to have Anodex read your mail'
+      : 'Could not create email summaries — try again'
+
+  // A pass that stopped for want of an engine is owed a retry the moment there
+  // is one, and only then: waiting for the reader to press a button would mean
+  // loading a model does nothing visible to the page that most wanted it.
+  const engineArrived = useRef(engineStatus === 'ready')
+  useEffect(() => {
+    const ready = engineStatus === 'ready'
+    const arrived = ready && !engineArrived.current
+    engineArrived.current = ready
+    if (arrived && digestBlocked === 'engine-unavailable') void loadDigests()
+  }, [engineStatus, digestBlocked, loadDigests])
 
   // The Sweep: a band of light resting on the boundary between the threads the
   // model has read and the ones it has not. Its position is the progress —
@@ -240,7 +262,11 @@ export function EmailView(): JSX.Element {
             light is nothing to a screen reader, and a pass that quietly
             produced no digests is nothing to anybody. */}
         <span
-          className={`${styles.digestStatus} ${digestBlocked ? styles.digestStatusBlocked : ''}`}
+          className={`${styles.digestStatus} ${
+            // Warning colour is for the fault only. A model that has not
+            // finished loading is a state, not a problem.
+            digestBlocked === 'failed' ? styles.digestStatusBlocked : ''
+          }`}
           aria-live="polite"
         >
           {digesting ? 'Reading your mail…' : digestBlocked ? blockedReason : ''}

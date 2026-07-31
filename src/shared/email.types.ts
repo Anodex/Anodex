@@ -228,6 +228,37 @@ export interface EmailThreadDigest {
   digest: string
 }
 
+/**
+ * Why a digest pass ended where it did.
+ *
+ * An empty batch used to be the whole answer, and it meant four different
+ * things — no model yet, a model that failed, threads nothing can be said
+ * about, and simply nothing left to do. The list showed the same alarming
+ * banner for all four, including for the two that are not faults at all.
+ */
+export type EmailDigestOutcome =
+  /** Everything asked for is either digested now or waiting for a later batch. */
+  | 'ok'
+  /** No model loaded, or one still loading — the pass is worth repeating later. */
+  | 'engine-unavailable'
+  /**
+   * The pass tried and could not produce a digest — a model that answered with
+   * nothing usable, or a mailbox that would not hand over the thread. The one
+   * outcome that is a real fault worth telling the reader about.
+   */
+  | 'failed'
+
+export interface EmailThreadDigestBatch {
+  digests: EmailThreadDigest[]
+  outcome: EmailDigestOutcome
+  /**
+   * Threads this pass gave up on for good — an empty thread, or one whose
+   * messages will not load. They are excluded from later passes, so the list
+   * must stop counting them as pending or it will ask forever.
+   */
+  abandonedThreadIds: string[]
+}
+
 export interface EmailMailbox {
   id: string
   name: string

@@ -23,6 +23,14 @@ describe('cleanThreadDigest', () => {
     expect(cleanThreadDigest('The user wants a one-sentence summary of this email.')).toBeNull()
   })
 
+  it('keeps a concrete indirect question despite its user-focused wording', () => {
+    // This is a genuine digest emitted by Qwen3.6. It used to be accidentally
+    // caught by the reasoning guard simply because it begins "The user asks".
+    expect(cleanThreadDigest('The user asks if they are banned from Reddit.')).toBe(
+      'The user asks if they are banned from Reddit.'
+    )
+  })
+
   it('drops a tagged reasoning block and keeps the answer after it', () => {
     expect(
       cleanThreadDigest(

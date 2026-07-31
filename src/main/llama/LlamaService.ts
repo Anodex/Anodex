@@ -409,6 +409,20 @@ class LlamaService extends EventEmitter {
    */
   private readonly modelLock = createAsyncMutex()
 
+  /**
+   * Whether a one-shot summarizer — inbox digest, chat title, toast summary —
+   * has an engine to run on right now.
+   *
+   * Those callers all return `null` rather than throwing, so without this the
+   * caller cannot tell "the model was still loading" from "the model answered
+   * with something unusable". They read the same from the outside and mean
+   * opposite things: the first fixes itself in a few seconds, the second is a
+   * fault worth telling the user about.
+   */
+  canSummarize(): boolean {
+    return this.status === 'ready' && (this.model !== undefined || this.visionService.active)
+  }
+
   getState(): EngineState {
     return {
       status: this.status,
@@ -1410,7 +1424,7 @@ class LlamaService extends EventEmitter {
    * throwing, since the caller always has a safe static fallback string.
    */
   async summarizeForToast(text: string, maxWords: number): Promise<string | null> {
-    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
+    if (!this.canSummarize()) return null
 
     const release = await this.acquireModelLock()
     try {
@@ -1441,7 +1455,7 @@ class LlamaService extends EventEmitter {
 
   /** Best-effort short title for a new conversation, based on the first completed turn. */
   async generateChatTitle(request: ChatTitleRequest): Promise<string | null> {
-    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
+    if (!this.canSummarize()) return null
 
     const release = await this.acquireModelLock()
     try {
@@ -1480,7 +1494,7 @@ class LlamaService extends EventEmitter {
    * before this existed.
    */
   async digestEmailThread(rendered: string): Promise<string | null> {
-    if (this.status !== 'ready' || (!this.model && !this.visionService.active)) return null
+    if (!this.canSummarize()) return null
 
     const release = await this.acquireModelLock()
     try {
@@ -2402,8 +2416,14 @@ export function cleanThreadDigest(raw: string): string | null {
   // narration on it is worse than a row that has its snippet on it, and the
   // snippet is always there.
   const line = answerLines(raw)
-    .filter((candidate) => !REASONING_MONOLOGUE_RE.test(candidate))
-    .find((candidate) => !REASONING_PREAMBLE_RE.test(candidate))
+    .filter(
+      (candidate) =>
+        !REASONING_MONOLOGUE_RE.test(candidate) || isConcreteUserQuestionDigest(candidate)
+    )
+    .find(
+      (candidate) =>
+        !REASONING_PREAMBLE_RE.test(candidate) || isConcreteUserQuestionDigest(candidate)
+    )
   if (!line) return null
 
   const cleaned = line
@@ -2418,6 +2438,17 @@ export function cleanThreadDigest(raw: string): string | null {
   // Too short to be a sentence about anything — a stray "1." or "Sure".
   if (digest.length < 12) return null
   return digest
+}
+
+/**
+ * A Qwen email digest can accurately describe a question as "The user asks
+ * if ...". The shared reasoning guards also match that prefix, because it is
+ * common in model self-commentary. Keep this deliberately narrow exception:
+ * a concrete indirect question has subject matter after it, while a prompt
+ * echo such as "The user wants a one-sentence summary" remains rejected.
+ */
+function isConcreteUserQuestionDigest(candidate: string): boolean {
+  return /^the user asks (?:if|whether|about)\b/i.test(candidate.trim())
 }
 
 function renderTitleContext(request: ChatTitleRequest): string {

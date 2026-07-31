@@ -93,7 +93,7 @@ import type {
   EmailSearchRequest,
   EmailSendRequest,
   EmailSyncMode,
-  EmailThreadDigest,
+  EmailThreadDigestBatch,
   EmailThreadDigestRequest,
   EmailThreadSummary
 } from './email.types'
@@ -739,10 +739,11 @@ export interface AnodexApi {
     getThreadMessages(threadId: string, accountId?: string): Promise<Result<EmailMessage[]>>
     /**
      * Digests for as many of the given threads as are cached or affordable
-     * right now. Threads missing from the result keep their provider snippet;
-     * calling again picks up where this left off.
+     * right now, plus why the pass stopped. Threads missing from the result
+     * keep their provider snippet; calling again picks up where this left off,
+     * unless the outcome says there is no point.
      */
-    digestThreads(requests: EmailThreadDigestRequest[]): Promise<Result<EmailThreadDigest[]>>
+    digestThreads(requests: EmailThreadDigestRequest[]): Promise<Result<EmailThreadDigestBatch>>
     applyFlag(request: EmailFlagRequest): Promise<Result<string>>
     move(request: EmailMoveRequest): Promise<Result<string>>
     listMailboxes(accountId?: string): Promise<Result<EmailMailbox[]>>

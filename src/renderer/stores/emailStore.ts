@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   EmailConnectionStatus,
+  EmailDigestOutcome,
   EmailFlagAction,
   EmailMailbox,
   EmailMessage,
@@ -44,14 +45,28 @@ interface EmailState {
   /** True while a digest batch is in flight, so the list can say it's working. */
   digesting: boolean
   /**
-   * True when a pass ended with threads still undigested — no model loaded to
-   * summarize with, or the model gave nothing usable back.
+   * Why the last pass stopped short, or null when it didn't.
    *
-   * Worth a flag rather than silence: digests are the one thing this page does
-   * that a webmail tab doesn't, and a reader who never sees one has no way to
-   * tell whether the feature is broken, absent, or simply hasn't run.
+   * Worth recording rather than silence: digests are the one thing this page
+   * does that a webmail tab doesn't, and a reader who never sees one has no
+   * way to tell whether the feature is broken, absent, or simply hasn't run.
+   *
+   * The distinction between the reasons matters as much as the flag. A model
+   * that is still loading resolves itself in seconds and must not be reported
+   * as a fault — doing so is what put a permanent "could not create email
+   * summaries" banner over an inbox whose summaries were fine.
    */
-  digestBlocked: boolean
+  digestBlocked: Exclude<EmailDigestOutcome, 'ok'> | null
+  /**
+   * Threads the main process has given up summarizing, by thread id, holding
+   * the newest message it gave up on. Kept so the list stops counting them as
+   * pending work — otherwise "Read my mail" stays lit over an inbox where every
+   * remaining thread has already been tried and refused.
+   *
+   * The message id is what keeps that from being permanent: a reply landing in
+   * the thread makes it worth another look, exactly as it retires a digest.
+   */
+  undigestable: Record<string, string>
 
   load: () => Promise<void>
   /** Refreshes only the unread count, for the sidebar badge. */
@@ -91,7 +106,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   busyThreadId: null,
   digests: {},
   digesting: false,
-  digestBlocked: false,
+  digestBlocked: null,
+  undigestable: {},
 
   load: async () => {
     const revision = ++loadRevision
@@ -280,24 +296,28 @@ export const useEmailStore = create<EmailState>((set, get) => ({
    * Fills in the missing digests, a batch at a time.
    *
    * The main process caps how many it will generate per call, so this repeats
-   * until the listed threads are covered or a pass returns nothing new. A pass
-   * that adds nothing means there is no model loaded to summarize with (or the
-   * remaining threads keep failing), and retrying would spin — so it stops and
-   * leaves those rows on their snippets until the next listing.
+   * until the listed threads are covered or a pass reports there is no point
+   * asking again — no engine yet, or a fault. Each batch also names the threads
+   * it has given up on, which are what stopped the old version: they never
+   * became digests, so they stayed pending, so every later pass came back empty
+   * and the page reported a working feature as broken.
    */
   loadDigests: async () => {
     // Supersede rather than skip: a second listing must be able to take over
     // from a batch still running for the previous one, or the new threads
     // would never get digests at all.
     const revision = ++digestRevision
-    set({ digesting: true, digestBlocked: false })
+    set({ digesting: true, digestBlocked: null })
     try {
       for (;;) {
         // Re-read the threads each pass: a refresh may have replaced the list
         // while the previous batch was in flight.
         const state = get()
         if (revision !== digestRevision) return
-        const pending = state.threads.filter((thread) => !state.digests[thread.id])
+        const pending = state.threads.filter(
+          (thread) =>
+            !state.digests[thread.id] && state.undigestable[thread.id] !== thread.latestMessageId
+        )
         if (pending.length === 0) return
 
         const result = await anodex.email.digestThreads(
@@ -308,22 +328,37 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           }))
         )
         if (revision !== digestRevision) return
-        // A pass that adds nothing means there is no model loaded to summarize
-        // with, or the remaining threads keep failing — retrying either would
-        // spin. Recorded rather than merely returned: this early exit used to
-        // be the whole of the feature's failure handling, and it left the page
-        // looking as though digests simply did not exist.
-        if (!result.ok || result.value.length === 0) {
-          set({ digestBlocked: true })
+        if (!result.ok) {
+          set({ digestBlocked: 'failed' })
           return
         }
 
+        const { digests, outcome, abandonedThreadIds } = result.value
         set((current) => ({
           digests: {
             ...current.digests,
-            ...Object.fromEntries(result.value.map((item) => [item.threadId, item.digest]))
+            ...Object.fromEntries(digests.map((item) => [item.threadId, item.digest]))
+          },
+          undigestable: {
+            ...current.undigestable,
+            ...Object.fromEntries(
+              abandonedThreadIds.flatMap((id) => {
+                const thread = pending.find((candidate) => candidate.id === id)
+                return thread ? [[id, thread.latestMessageId] as const] : []
+              })
+            )
           }
         }))
+
+        // Stopping conditions, in the order they matter. A pass that neither
+        // produced nor abandoned anything made no progress, so looping on it
+        // would spin — but it is only worth reporting when the pass says
+        // something actually went wrong.
+        if (outcome !== 'ok') {
+          set({ digestBlocked: outcome })
+          return
+        }
+        if (digests.length === 0 && abandonedThreadIds.length === 0) return
       }
     } finally {
       // Only the newest pass owns the flag; a superseded one bowing out must

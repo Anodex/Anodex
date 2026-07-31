@@ -3,6 +3,7 @@ import type { EmailMessage } from '@shared/email.types'
 
 const getThreadMessages = vi.fn<(threadId: string, accountId?: string) => Promise<EmailMessage[]>>()
 const digestEmailThread = vi.fn<(rendered: string) => Promise<string | null>>()
+const canSummarize = vi.fn<() => boolean>()
 
 vi.mock('../EmailService', () => ({
   emailService: {
@@ -13,7 +14,8 @@ vi.mock('../EmailService', () => ({
 
 vi.mock('../../llama/LlamaService', () => ({
   llamaService: {
-    digestEmailThread: (rendered: string): Promise<string | null> => digestEmailThread(rendered)
+    digestEmailThread: (rendered: string): Promise<string | null> => digestEmailThread(rendered),
+    canSummarize: (): boolean => canSummarize()
   }
 }))
 
@@ -55,8 +57,10 @@ describe('digestThreads', () => {
   beforeEach(() => {
     getThreadMessages.mockReset()
     digestEmailThread.mockReset()
+    canSummarize.mockReset()
     getThreadMessages.mockResolvedValue([message()])
     digestEmailThread.mockResolvedValue('Dana wants the seat count corrected to 48.')
+    canSummarize.mockReturnValue(true)
   })
 
   it('digests a thread and serves the repeat from cache', async () => {
@@ -64,9 +68,10 @@ describe('digestThreads', () => {
     const first = await digestThreads([cached])
     const second = await digestThreads([cached])
 
-    expect(first).toEqual([
+    expect(first.digests).toEqual([
       { threadId: 'cached', digest: 'Dana wants the seat count corrected to 48.' }
     ])
+    expect(first.outcome).toBe('ok')
     expect(second).toEqual(first)
     // The second call is the point: neither the mailbox nor the model is
     // touched again for a thread that has not changed.
@@ -90,12 +95,12 @@ describe('digestThreads', () => {
 
     finishDigest?.('Dana wants the seat count corrected to 48.')
 
-    await expect(first).resolves.toEqual([
-      { threadId: 'overlapping', digest: 'Dana wants the seat count corrected to 48.' }
-    ])
-    await expect(second).resolves.toEqual([
-      { threadId: 'overlapping', digest: 'Dana wants the seat count corrected to 48.' }
-    ])
+    await expect(first).resolves.toMatchObject({
+      digests: [{ threadId: 'overlapping', digest: 'Dana wants the seat count corrected to 48.' }]
+    })
+    await expect(second).resolves.toMatchObject({
+      digests: [{ threadId: 'overlapping', digest: 'Dana wants the seat count corrected to 48.' }]
+    })
     expect(getThreadMessages).toHaveBeenCalledTimes(1)
     expect(digestEmailThread).toHaveBeenCalledTimes(1)
   })
@@ -117,21 +122,44 @@ describe('digestThreads', () => {
 
     // A first look at a full inbox must not mean one mailbox fetch and one
     // model call per row before anything can render.
-    expect(first).toHaveLength(5)
-    expect(second).toHaveLength(9)
+    expect(first.digests).toHaveLength(5)
+    expect(second.digests).toHaveLength(9)
   })
 
   it('omits threads the model could not summarize instead of caching an empty digest', async () => {
-    // What a machine with no model loaded sees — the row keeps its snippet.
     digestEmailThread.mockResolvedValue(null)
 
-    const noModel = request({ threadId: 'no-model', latestMessageId: 'm1' })
-    const withoutModel = await digestThreads([noModel])
+    const refused = request({ threadId: 'refused', latestMessageId: 'm1' })
+    const withoutDigest = await digestThreads([refused])
     digestEmailThread.mockResolvedValue('Dana wants the seat count corrected to 48.')
-    const withModel = await digestThreads([noModel])
+    const withDigest = await digestThreads([refused])
 
-    expect(withoutModel).toEqual([])
-    expect(withModel).toHaveLength(1)
+    // A model that answers with nothing usable is the one real fault here, and
+    // it must not be cached — the next pass gets to try again.
+    expect(withoutDigest).toEqual({ digests: [], outcome: 'failed', abandonedThreadIds: [] })
+    expect(withDigest.digests).toHaveLength(1)
+    expect(withDigest.outcome).toBe('ok')
+  })
+
+  it('reports no engine as its own outcome, without spending a mailbox fetch', async () => {
+    canSummarize.mockReturnValue(false)
+
+    const loading = request({ threadId: 'still-loading', latestMessageId: 'm1' })
+    const duringLoad = await digestThreads([loading])
+
+    // The distinction the list depends on: a model that has not finished
+    // loading is not a failure, and telling the reader it is was how a working
+    // feature came to show a permanent error.
+    expect(duringLoad).toEqual({
+      digests: [],
+      outcome: 'engine-unavailable',
+      abandonedThreadIds: []
+    })
+    expect(getThreadMessages).not.toHaveBeenCalled()
+
+    canSummarize.mockReturnValue(true)
+    const afterLoad = await digestThreads([loading])
+    expect(afterLoad.digests).toHaveLength(1)
   })
 
   it('keeps going when one thread fails to load', async () => {
@@ -141,14 +169,57 @@ describe('digestThreads', () => {
         : Promise.resolve([message()])
     )
 
-    const results = await digestThreads([
+    const batch = await digestThreads([
       request({ threadId: 'broken', latestMessageId: 'x1' }),
       request({ threadId: 'intact', latestMessageId: 'x2' })
     ])
 
-    expect(results).toEqual([
+    expect(batch.digests).toEqual([
       { threadId: 'intact', digest: 'Dana wants the seat count corrected to 48.' }
     ])
+    expect(batch.outcome).toBe('failed')
+  })
+
+  it('gives up on a thread that keeps failing to load, and says so', async () => {
+    getThreadMessages.mockRejectedValue(new Error('404 no such thread'))
+
+    const gone = request({ threadId: 'gone', latestMessageId: 'g1' })
+    const first = await digestThreads([gone])
+    const second = await digestThreads([gone])
+    const third = await digestThreads([gone])
+
+    // Retried once, then abandoned by name. Without this the thread stayed
+    // pending forever, refilled the budget ahead of everything else on every
+    // pass, and made each pass come back empty.
+    expect(first.abandonedThreadIds).toEqual([])
+    expect(second.abandonedThreadIds).toEqual(['gone'])
+    expect(third).toEqual({ digests: [], outcome: 'ok', abandonedThreadIds: ['gone'] })
+    expect(getThreadMessages).toHaveBeenCalledTimes(2)
+  })
+
+  it('abandons a thread with nothing in it rather than asking again', async () => {
+    getThreadMessages.mockResolvedValue([])
+
+    const empty = request({ threadId: 'empty', latestMessageId: 'e1' })
+    const first = await digestThreads([empty])
+    const second = await digestThreads([empty])
+
+    expect(first).toEqual({ digests: [], outcome: 'ok', abandonedThreadIds: ['empty'] })
+    expect(second).toEqual(first)
+    expect(getThreadMessages).toHaveBeenCalledTimes(1)
+    expect(digestEmailThread).not.toHaveBeenCalled()
+  })
+
+  it('takes another look once a reply lands in an abandoned thread', async () => {
+    getThreadMessages.mockResolvedValue([])
+    await digestThreads([request({ threadId: 'revived', latestMessageId: 'r1' })])
+
+    getThreadMessages.mockResolvedValue([message()])
+    const afterReply = await digestThreads([
+      request({ threadId: 'revived', latestMessageId: 'r2' })
+    ])
+
+    expect(afterReply.digests).toHaveLength(1)
   })
 
   it('shows the model the newest messages, not the oldest', async () => {

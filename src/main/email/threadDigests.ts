@@ -1,4 +1,9 @@
-import type { EmailThreadDigest, EmailThreadDigestRequest } from '@shared/email.types'
+import type {
+  EmailDigestOutcome,
+  EmailThreadDigest,
+  EmailThreadDigestBatch,
+  EmailThreadDigestRequest
+} from '@shared/email.types'
 import { llamaService } from '../llama/LlamaService'
 import { createLogger } from '../utils/logger'
 import { emailService } from './EmailService'
@@ -31,7 +36,38 @@ const cache = new Map<string, string>()
  * awaits the same promise instead of interpreting "already in progress" as an
  * empty digest batch.
  */
-const inFlight = new Map<string, Promise<EmailThreadDigest | null>>()
+const inFlight = new Map<string, Promise<DigestAttempt>>()
+/**
+ * Threads there is nothing to summarize for — an empty thread, or one whose
+ * messages will not load — keyed like the cache, so a reply landing gives the
+ * thread a fresh chance automatically.
+ *
+ * Remembered rather than simply retried, because a handful of these used to
+ * stall the whole feature: they stayed pending forever, refilled the per-call
+ * budget ahead of everything else on every pass, and made each pass come back
+ * empty, which the list read as "summaries are broken".
+ */
+const abandoned = new Set<string>()
+/** Mailbox loads that threw, by cache key. See `MAX_LOAD_ATTEMPTS`. */
+const failures = new Map<string, number>()
+
+/**
+ * How many times a thread whose messages will not load is worth retrying
+ * before it joins `abandoned`. Two: enough for a timeout on a slow mailbox,
+ * few enough that a thread the account can no longer read stops costing a
+ * fetch on every pass.
+ */
+const MAX_LOAD_ATTEMPTS = 2
+
+/**
+ * What one generation attempt produced, and — when it produced nothing — why.
+ * The reason is the point: the ways to come back empty each want something
+ * different from the reader, and only one of them is a fault.
+ */
+interface DigestAttempt {
+  digest: EmailThreadDigest | null
+  reason: 'ok' | 'engine-unavailable' | 'nothing-to-read' | 'failed'
+}
 
 /**
  * A digest is only valid for the thread as it stood. Keying on the newest
@@ -40,6 +76,15 @@ const inFlight = new Map<string, Promise<EmailThreadDigest | null>>()
  */
 function cacheKey(request: EmailThreadDigestRequest): string {
   return [request.accountId, request.threadId, request.latestMessageId].join('\u0000')
+}
+
+function abandon(key: string): void {
+  abandoned.add(key)
+  while (abandoned.size > MAX_CACHED) {
+    const oldest = abandoned.values().next()
+    if (oldest.done) break
+    abandoned.delete(oldest.value)
+  }
 }
 
 function remember(key: string, digest: string): void {
@@ -57,28 +102,47 @@ function remember(key: string, digest: string): void {
  * One-line digests for the inbox list: what each thread actually wants, in
  * place of the provider's raw snippet.
  *
- * Returns only the threads it has an answer for. A thread that is not in the
- * result is not an error — it may be over this call's budget, already being
- * generated for another caller, or from a mailbox with no model loaded to
- * summarize it. Every one of those cases leaves the row showing its snippet,
- * which is what it showed before digests existed.
+ * Returns the threads it has an answer for, plus why it stopped. A thread that
+ * is not in the result is not necessarily an error — it may be over this
+ * call's budget, already being generated for another caller, or from a mailbox
+ * with no model loaded to summarize it. Every one of those cases leaves the
+ * row showing its snippet, which is what it showed before digests existed;
+ * `outcome` is what tells the list which of them happened.
  */
 export async function digestThreads(
   requests: EmailThreadDigestRequest[]
-): Promise<EmailThreadDigest[]> {
-  const results: EmailThreadDigest[] = []
+): Promise<EmailThreadDigestBatch> {
+  const digests: EmailThreadDigest[] = []
+  const abandonedThreadIds: string[] = []
   const misses: EmailThreadDigestRequest[] = []
   let generated = 0
+  let engineUnavailable = false
+  let failed = false
 
   for (const request of requests) {
     const key = cacheKey(request)
     const cached = cache.get(key)
     if (cached !== undefined) {
       remember(key, cached)
-      results.push({ threadId: request.threadId, digest: cached })
+      digests.push({ threadId: request.threadId, digest: cached })
+      continue
+    }
+    // Already given up on: skipping it here is what keeps a handful of
+    // unreadable threads from consuming the budget on every later pass.
+    if (abandoned.has(key)) {
+      abandonedThreadIds.push(request.threadId)
       continue
     }
     misses.push(request)
+  }
+
+  // Asked once for the whole batch rather than per thread. With no engine
+  // there is nothing to attempt, and attempting anyway would spend a mailbox
+  // fetch per thread to arrive at the same answer — while looking, from the
+  // outside, exactly like a model that failed.
+  if (misses.length > 0 && !llamaService.canSummarize()) {
+    log.info(`No engine ready to digest ${misses.length} thread(s) yet.`)
+    return { digests, outcome: 'engine-unavailable', abandonedThreadIds }
   }
 
   // Generated one at a time on purpose. The local engine serializes every
@@ -95,11 +159,26 @@ export async function digestThreads(
       inFlight.set(key, task)
     }
 
-    const digest = await task
-    if (digest) results.push(digest)
+    const attempt = await task
+    if (attempt.digest) digests.push(attempt.digest)
+    if (attempt.reason === 'engine-unavailable') engineUnavailable = true
+    if (attempt.reason === 'failed') failed = true
+    if (attempt.reason === 'nothing-to-read') abandonedThreadIds.push(request.threadId)
   }
 
-  return results
+  return { digests, outcome: outcomeOf({ engineUnavailable, failed }), abandonedThreadIds }
+}
+
+/**
+ * The pass's own verdict, when its attempts disagreed.
+ *
+ * An engine that went away mid-pass outranks a failure: it explains any
+ * failure alongside it, and unlike a failure it is expected to resolve on its
+ * own, so it must not be reported as something the reader has to act on.
+ */
+function outcomeOf(seen: { engineUnavailable: boolean; failed: boolean }): EmailDigestOutcome {
+  if (seen.engineUnavailable) return 'engine-unavailable'
+  return seen.failed ? 'failed' : 'ok'
 }
 
 /**
@@ -111,22 +190,45 @@ export async function digestThreads(
 async function generateDigest(
   request: EmailThreadDigestRequest,
   key: string
-): Promise<EmailThreadDigest | null> {
+): Promise<DigestAttempt> {
   try {
     const rendered = await renderThreadForDigest(request)
-    if (!rendered) return null
+    if (!rendered) {
+      // Nothing to summarize, and nothing about this thread will change that
+      // until a new message arrives — which is a new cache key. Retrying it
+      // every pass would spend the budget on a question already answered.
+      log.info(`Nothing to digest in thread ${request.threadId}; not asking again.`)
+      abandon(key)
+      return { digest: null, reason: 'nothing-to-read' }
+    }
     const digest = await llamaService.digestEmailThread(rendered)
     if (!digest) {
-      // No model loaded, or the model gave nothing usable. Both mean "no
-      // digest for now" rather than "never" — leaving the key uncached lets
-      // a later pass try again once a model is ready.
-      return null
+      // Leaving the key uncached lets a later pass try again — but which kind
+      // of "later" depends on why: an engine that is still loading needs only
+      // seconds, whereas a model answering with nothing usable is a fault the
+      // reader should hear about.
+      const reason = llamaService.canSummarize() ? 'failed' : 'engine-unavailable'
+      if (reason === 'failed') {
+        log.warn(`The model returned no usable digest for thread ${request.threadId}.`)
+      }
+      return { digest: null, reason }
     }
     remember(key, digest)
-    return { threadId: request.threadId, digest }
+    failures.delete(key)
+    return { digest: { threadId: request.threadId, digest }, reason: 'ok' }
   } catch (error) {
     log.warn(`Could not digest thread ${request.threadId}:`, error)
-    return null
+    // A mailbox fetch fails for two very different reasons — a timeout worth
+    // retrying, and a thread this account can genuinely no longer read — and
+    // nothing in the error reliably tells them apart. So: try again once, then
+    // give the budget slot to a thread that can use it.
+    const attempts = (failures.get(key) ?? 0) + 1
+    failures.set(key, attempts)
+    if (attempts < MAX_LOAD_ATTEMPTS) return { digest: null, reason: 'failed' }
+    log.info(`Giving up on thread ${request.threadId} after ${attempts} failed loads.`)
+    failures.delete(key)
+    abandon(key)
+    return { digest: null, reason: 'nothing-to-read' }
   } finally {
     inFlight.delete(key)
   }
