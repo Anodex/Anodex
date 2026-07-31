@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from 'react'
-import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import type { AppSettings, SettingsPatch } from '@shared/settings.types'
 import { useEmailStore } from '../../../../stores/emailStore'
 import { useUiStore } from '../../../../stores/uiStore'
 import { Icon } from '../../../../components/Icon'
@@ -12,7 +12,7 @@ import styles from './ProfileSettings.module.css'
 
 interface ProfileSettingsProps {
   settings: AppSettings
-  update: (patch: DeepPartial<AppSettings>) => Promise<void>
+  update: (patch: SettingsPatch) => Promise<void>
 }
 
 const PLAN_OPTIONS = [

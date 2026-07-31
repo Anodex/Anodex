@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import type { AppSettings, SettingsPatch } from '@shared/settings.types'
+import { isRemovableSetting } from '@shared/settings.types'
 import { anodex } from '../lib/anodex'
 import { configureDiagnostics } from './diagnosticsStore'
 
@@ -7,7 +8,7 @@ interface SettingsState {
   settings: AppSettings | null
   loaded: boolean
   load: () => Promise<void>
-  update: (patch: DeepPartial<AppSettings>) => Promise<void>
+  update: (patch: SettingsPatch) => Promise<void>
 }
 
 let updateRevision = 0
@@ -16,11 +17,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function mergePatch(base: unknown, patch: unknown): unknown {
+/**
+ * Mirrors the main process's merge for the optimistic local update, including
+ * its `null`-means-remove sentinel — otherwise the mirror would briefly show a
+ * removed setting as still present until the IPC response replaced it.
+ */
+function mergePatch(base: unknown, patch: unknown, path = ''): unknown {
   if (!isPlainObject(base) || !isPlainObject(patch)) return patch
   const merged: Record<string, unknown> = { ...base }
   for (const [key, value] of Object.entries(patch)) {
-    if (value !== undefined) merged[key] = mergePatch(base[key], value)
+    if (value === undefined) continue
+    if (value === null && isRemovableSetting(path, key)) {
+      delete merged[key]
+      continue
+    }
+    merged[key] = mergePatch(base[key], value, `${path}${key}.`)
   }
   return merged
 }

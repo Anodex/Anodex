@@ -1,9 +1,9 @@
 import { app, safeStorage } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import type { AppSettings, DeepPartial, SettingsPatch } from '@shared/settings.types'
 import type { EmailAccount } from '@shared/email.types'
-import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
+import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import {
   DEFAULT_KEYBOARD_SHORTCUTS,
@@ -42,11 +42,18 @@ class SettingsStore {
     return this.cache
   }
 
-  /** Deep-merge a partial patch, persist, and return the new settings. */
-  update(patch: DeepPartial<AppSettings>): AppSettings {
+  /**
+   * Deep-merge a partial patch, persist, and return the new settings. A `null`
+   * at one of the `REMOVABLE_SETTING_PATHS` deletes that key instead of storing
+   * a value — the only way to shrink a setting, since the merge itself can only
+   * add and overwrite.
+   */
+  update(patch: SettingsPatch): AppSettings {
     validatePatch(patch)
     const previous = this.get()
-    const next = deepMerge(previous, patch)
+    // The removal sentinel is what makes `SettingsPatch` wider than
+    // `DeepPartial`; `deepMerge` handles it explicitly, hence the cast.
+    const next = deepMerge(previous, patch as DeepPartial<AppSettings>)
     this.cache = next
     try {
       this.persist(next)
@@ -425,18 +432,31 @@ function withDecryptedSecrets(settings: AppSettings): AppSettings {
   }
 }
 
-/** Recursively merge `patch` into `base`, returning a new object. */
-function deepMerge<T>(base: T, patch: DeepPartial<T>): T {
+/**
+ * Recursively merge `patch` into `base`, returning a new object.
+ *
+ * `path` is the dot-terminated position of `base` within {@link AppSettings}
+ * (`''` at the root) and exists only to recognise the removal sentinel: at a
+ * {@link isRemovableSetting} position an explicit `null` deletes the key rather
+ * than being stored. Everywhere else the merge is add-or-overwrite only, so a
+ * key present in `base` always survives.
+ */
+function deepMerge<T>(base: T, patch: DeepPartial<T>, path = ''): T {
   const output = { ...base }
   for (const key in patch) {
     const patchValue = patch[key]
     if (patchValue === undefined) continue
+    if (patchValue === null && isRemovableSetting(path, key)) {
+      delete (output as Record<string, unknown>)[key]
+      continue
+    }
     const baseValue = (base as Record<string, unknown>)[key]
     if (isPlainObject(baseValue) && isPlainObject(patchValue)) {
-      output[key] = deepMerge(baseValue, patchValue as DeepPartial<typeof baseValue>) as T[Extract<
-        keyof T,
-        string
-      >]
+      output[key] = deepMerge(
+        baseValue,
+        patchValue as DeepPartial<typeof baseValue>,
+        `${path}${key}.`
+      ) as T[Extract<keyof T, string>]
     } else {
       output[key] = patchValue as T[Extract<keyof T, string>]
     }
@@ -487,7 +507,7 @@ function assertKnownKeys(
  * `node-llama-cpp` and fail there with a much less useful error. Exported for
  * unit testing.
  */
-export function validatePatch(patch: DeepPartial<AppSettings>): void {
+export function validatePatch(patch: SettingsPatch): void {
   assertKnownKeys(patch, createDefaultSettings('') as unknown as Record<string, unknown>)
 
   const generation = patch.generation
@@ -544,10 +564,19 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
       Array.isArray(patch.visionProjectorPaths) ||
       Object.entries(patch.visionProjectorPaths).some(
         ([modelPath, projectorPath]) =>
-          !modelPath.trim() || typeof projectorPath !== 'string' || !projectorPath.trim()
+          // `null` is the removal sentinel (see `REMOVABLE_SETTING_PATHS`), so
+          // it is the one non-string value this record accepts.
+          !modelPath.trim() ||
+          (projectorPath !== null && (typeof projectorPath !== 'string' || !projectorPath.trim()))
       )
     ) {
       throw new Error('visionProjectorPaths must map model paths to non-empty projector paths')
+    }
+  }
+
+  if (patch.lastModelPath !== undefined && patch.lastModelPath !== null) {
+    if (typeof patch.lastModelPath !== 'string' || !patch.lastModelPath.trim()) {
+      throw new Error('lastModelPath must be a non-empty string or null')
     }
   }
 

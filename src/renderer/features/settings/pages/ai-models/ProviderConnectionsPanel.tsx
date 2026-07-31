@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import type { AppSettings, SettingsPatch } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import { GOOGLE_MODELS } from '@shared/googleModels'
@@ -384,7 +384,7 @@ export function ProviderConnectionsPanel({
 }: {
   settings: AppSettings
   activeModelName: string | null
-  onUpdate: (patch: DeepPartial<AppSettings>) => Promise<void>
+  onUpdate: (patch: SettingsPatch) => Promise<void>
   onOpenModels: () => void
 }): JSX.Element {
   const [selectedId, setSelectedId] = useState<ProviderId>(settings.provider.active)

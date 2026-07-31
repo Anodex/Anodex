@@ -311,6 +311,18 @@ describe('validatePatch', () => {
     )
   })
 
+  it('accepts null as the vision projector removal sentinel', () => {
+    expect(() =>
+      validatePatch({ visionProjectorPaths: { 'C:\\models\\qwen.gguf': null } })
+    ).not.toThrow()
+  })
+
+  it('accepts a lastModelPath string or the null removal sentinel, but not empty', () => {
+    expect(() => validatePatch({ lastModelPath: 'C:\\models\\qwen.gguf' })).not.toThrow()
+    expect(() => validatePatch({ lastModelPath: null })).not.toThrow()
+    expect(() => validatePatch({ lastModelPath: '  ' })).toThrow(/lastModelPath/)
+  })
+
   it('accepts supported sound themes and rejects unknown ones', () => {
     expect(() => validatePatch({ appearance: { soundTheme: 'sciFi' } })).not.toThrow()
     expect(() => validatePatch({ appearance: { soundTheme: 'orchestra' } } as never)).toThrow(
@@ -424,6 +436,90 @@ describe('SettingsStore.update validation', () => {
     second.settingsStore.init()
     expect(second.settingsStore.get().appearance.soundTheme).toBe('sciFi')
     expect(second.settingsStore.get().appearance.soundVolume).toBe(35)
+  })
+})
+
+describe('SettingsStore.update key removal', () => {
+  const modelPath = 'C:\\models\\qwen.gguf'
+  const otherPath = 'C:\\models\\llava.gguf'
+
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
+    encryptionAvailable = true
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  it('removes a vision projector entry when patched with null', async () => {
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({
+      visionProjectorPaths: { [modelPath]: 'C:\\models\\mmproj.gguf' }
+    })
+
+    const next = settingsStore.update({ visionProjectorPaths: { [modelPath]: null } })
+
+    expect(modelPath in next.visionProjectorPaths).toBe(false)
+    expect(modelPath in readPersistedSettings().visionProjectorPaths).toBe(false)
+  })
+
+  it('leaves the other entries of an open record untouched', async () => {
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({
+      visionProjectorPaths: {
+        [modelPath]: 'C:\\models\\mmproj.gguf',
+        [otherPath]: 'C:\\models\\llava-mmproj.gguf'
+      }
+    })
+
+    const next = settingsStore.update({ visionProjectorPaths: { [modelPath]: null } })
+
+    expect(next.visionProjectorPaths).toEqual({ [otherPath]: 'C:\\models\\llava-mmproj.gguf' })
+  })
+
+  it('does not resurrect a removed entry on the next load', async () => {
+    const first = await import('../SettingsStore')
+    first.settingsStore.init()
+    first.settingsStore.update({ visionProjectorPaths: { [modelPath]: 'C:\\models\\mmproj.gguf' } })
+    first.settingsStore.update({ visionProjectorPaths: { [modelPath]: null } })
+
+    vi.resetModules()
+    const second = await import('../SettingsStore')
+    second.settingsStore.init()
+    expect(second.settingsStore.get().visionProjectorPaths).toEqual({})
+  })
+
+  it('clears lastModelPath when patched with null', async () => {
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({ lastModelPath: modelPath })
+
+    expect(settingsStore.update({ lastModelPath: null }).lastModelPath).toBeUndefined()
+  })
+
+  it('ignores an undefined value rather than treating it as a removal', async () => {
+    // `undefined` cannot survive JSON over IPC, so it is not the sentinel — a
+    // caller reaching for it is the bug this behaviour is meant to expose.
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({ lastModelPath: modelPath })
+
+    expect(settingsStore.update({ lastModelPath: undefined }).lastModelPath).toBe(modelPath)
+  })
+
+  it('stores a real null for settings that are not removable', async () => {
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({ workspace: { root: 'C:\\projects\\anodex' } })
+
+    const next = settingsStore.update({ workspace: { root: null } })
+
+    expect('root' in next.workspace).toBe(true)
+    expect(next.workspace.root).toBeNull()
   })
 })
 

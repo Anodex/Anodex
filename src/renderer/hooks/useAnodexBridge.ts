@@ -342,7 +342,9 @@ async function restoreLastModel(): Promise<void> {
   const models = useModelStore.getState().models
   const model = models.find((m) => m.path === lastPath)
   if (!model) {
-    await useSettingsStore.getState().update({ lastModelPath: undefined })
+    // `null`, not `undefined` — patches are deep-merged and `undefined` keys are
+    // skipped, so the stale path would survive and be retried every launch.
+    await useSettingsStore.getState().update({ lastModelPath: null })
     return
   }
 

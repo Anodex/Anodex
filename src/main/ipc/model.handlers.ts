@@ -129,12 +129,13 @@ export function registerModelHandlers(): void {
         settings.lastModelPath === path ||
         settings.visionProjectorPaths[path]
       ) {
-        const visionProjectorPaths = { ...settings.visionProjectorPaths }
-        delete visionProjectorPaths[path]
+        // `null` is the removal sentinel: patches are deep-merged, so passing a
+        // copy with the key deleted (or `lastModelPath: undefined`) would leave
+        // the stale entries in place forever.
         settingsStore.update({
           addedModelPaths: settings.addedModelPaths.filter((p) => p !== path),
-          lastModelPath: settings.lastModelPath === path ? undefined : settings.lastModelPath,
-          visionProjectorPaths
+          lastModelPath: settings.lastModelPath === path ? null : settings.lastModelPath,
+          visionProjectorPaths: { [path]: null }
         })
       }
       return ok(null)

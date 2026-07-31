@@ -28,7 +28,12 @@ import type {
   ChatTitleRequest,
   HistoryCompactionEvent
 } from './chat.types'
-import type { AppSettings, DeepPartial, DiagnosticEntry, DiagnosticLogFile } from './settings.types'
+import type {
+  AppSettings,
+  DiagnosticEntry,
+  DiagnosticLogFile,
+  SettingsPatch
+} from './settings.types'
 import type {
   CreateProjectRequest,
   Project,
@@ -522,7 +527,7 @@ export interface AnodexApi {
   }
   settings: {
     get(): Promise<AppSettings>
-    update(patch: DeepPartial<AppSettings>): Promise<AppSettings>
+    update(patch: SettingsPatch): Promise<AppSettings>
     openModelsDir(): Promise<void>
   }
   tools: {

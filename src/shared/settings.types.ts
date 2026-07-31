@@ -469,3 +469,46 @@ export interface AppSettings {
 export type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]
 }
+
+/**
+ * Settings that accept an explicit `null` in a patch to mean "remove this key".
+ *
+ * Patches are deep-merged, which can only add or overwrite keys — never shrink
+ * a record or clear an optional field. Without a sentinel, a caller that copies
+ * a record, deletes an entry and patches the result silently gets the entry
+ * restored from the base object.
+ *
+ * Deliberately an allowlist: other settings store a meaningful `null`
+ * (`workspace.root`, `profile.avatarBase64`) that must survive the merge. A
+ * trailing `.*` marks an open record whose entries are all individually
+ * removable.
+ */
+export const REMOVABLE_SETTING_PATHS: ReadonlySet<string> = new Set([
+  'lastModelPath',
+  'visionProjectorPaths.*'
+])
+
+/**
+ * True when `null` at `parentPath` + `key` means "delete this key". `parentPath`
+ * is dot-terminated (`''` at the top level); keys are matched whole rather than
+ * by splitting the joined path, because open-record keys are absolute file paths
+ * that contain dots of their own.
+ */
+export function isRemovableSetting(parentPath: string, key: string): boolean {
+  if (REMOVABLE_SETTING_PATHS.has(`${parentPath}${key}`)) return true
+  return parentPath !== '' && REMOVABLE_SETTING_PATHS.has(`${parentPath}*`)
+}
+
+/**
+ * The shape accepted by `settingsStore.update`: a {@link DeepPartial} except
+ * that {@link REMOVABLE_SETTING_PATHS} also accept `null` to delete a key.
+ */
+export type SettingsPatch = Omit<
+  DeepPartial<AppSettings>,
+  'lastModelPath' | 'visionProjectorPaths'
+> & {
+  /** `null` clears the stored path, e.g. when that model file is deleted. */
+  lastModelPath?: string | null
+  /** A `null` value removes that model's projector association entirely. */
+  visionProjectorPaths?: Record<string, string | null>
+}

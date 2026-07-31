@@ -1,6 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import type { AppSettings, DeepPartial } from '@shared/settings.types'
+import type { SettingsPatch } from '@shared/settings.types'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
 
@@ -10,7 +10,7 @@ const log = createLogger('ipc:settings')
 export function registerSettingsHandlers(): void {
   ipcMain.handle(IpcChannel.Settings.get, () => settingsStore.get())
 
-  ipcMain.handle(IpcChannel.Settings.update, (_event, patch: DeepPartial<AppSettings>) => {
+  ipcMain.handle(IpcChannel.Settings.update, (_event, patch: SettingsPatch) => {
     try {
       return settingsStore.update(patch)
     } catch (error) {
