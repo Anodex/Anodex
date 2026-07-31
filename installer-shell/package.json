@@ -1,0 +1,10 @@
+{
+  "name": "anodex-installer-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The branded Anodex installer experience.",
+  "main": "main.cjs",
+  "devDependencies": {
+    "electron": "40.10.6"
+  }
+}

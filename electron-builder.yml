@@ -95,5 +95,14 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+  # Keeps electron-builder's stock installer intact while allowing the
+  # branded shell to receive real install-stage milestones.
+  include: build/installer.nsh
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  # A small, atmospheric extension of the in-app identity. NSIS uses 24-bit
+  # bitmaps here, generated from the source artwork by `generate:installer-art`.
+  installerSidebar: build/installer/installer-sidebar.bmp
+  uninstallerSidebar: build/installer/installer-sidebar.bmp
+  installerHeader: build/installer/installer-header.bmp
+  runAfterFinish: true

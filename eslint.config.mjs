@@ -79,5 +79,33 @@ export default tseslint.config(
         ...globals.browser
       }
     }
+  },
+  /**
+   * `installer-shell/` is a second, self-contained Electron app with its own
+   * package.json — the branded window that wraps the real NSIS installer. It
+   * is plain CommonJS/JS with no TypeScript, and belongs to neither tsconfig
+   * project, so the type-checked rules cannot be applied to it at all: the
+   * parser errors out looking for a project that will never list these files.
+   */
+  {
+    files: ['installer-shell/**/*.{js,cjs}'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      parserOptions: { project: null, projectService: false },
+      globals: globals.node
+    },
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      // Electron's main and preload entry points are genuinely CommonJS here;
+      // this app has no bundler to turn ESM into anything runnable.
+      '@typescript-eslint/no-require-imports': 'off'
+    }
+  },
+  {
+    files: ['installer-shell/renderer.js'],
+    languageOptions: {
+      globals: globals.browser
+    }
   }
 )

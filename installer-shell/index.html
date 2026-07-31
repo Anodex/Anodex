@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' file: data:; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:; script-src 'self'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anodex Installer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell" id="shell" data-screen="welcome">
+      <img class="soul-art" id="soul-art" alt="" />
+      <div class="ambient ambient-one"></div>
+      <div class="ambient ambient-two"></div>
+      <div class="grain"></div>
+
+      <header class="titlebar">
+        <div class="brand drag-region">
+          <span class="brand-icon-wrap"><img id="brand-icon" alt="" /></span>
+          <span>Anodex</span>
+          <span class="build-chip">PRIVATE TEST</span>
+        </div>
+        <div class="window-actions">
+          <button class="window-action" id="minimize" aria-label="Minimize">—</button>
+          <button class="window-action close" id="close" aria-label="Close">×</button>
+        </div>
+      </header>
+
+      <main class="stage">
+        <section class="screen welcome-screen" data-screen-panel="welcome">
+          <div class="hero-copy">
+            <p class="eyebrow"><span></span> LOCAL-FIRST INTELLIGENCE</p>
+            <h1>Your next thought is closer than it looks.</h1>
+            <p class="lede">
+              Meet Anodex — a private space to think, build, and explore with AI that lives on your
+              computer.
+            </p>
+            <div class="hero-actions">
+              <button class="primary-button" id="begin">
+                <span>Begin setup</span><span class="button-arrow">→</span>
+              </button>
+              <p class="quiet-note">
+                Private test build <span aria-hidden="true">·</span> <span id="version"></span>
+              </p>
+            </div>
+          </div>
+          <div class="hero-orbit" aria-hidden="true">
+            <div class="orbit-outer"></div>
+            <div class="orbit-inner"></div>
+            <div class="orbit-core"><img id="orbit-icon" alt="" /></div>
+            <div class="orbit-spark spark-one"></div>
+            <div class="orbit-spark spark-two"></div>
+            <div class="orbit-spark spark-three"></div>
+          </div>
+        </section>
+
+        <section class="screen location-screen" data-screen-panel="location" hidden>
+          <div class="content-card">
+            <button class="back-button" id="back-to-welcome">← Back</button>
+            <p class="eyebrow"><span></span> YOUR SPACE</p>
+            <h2>Choose where Anodex lives.</h2>
+            <p class="lede small">
+              This is a fresh install for just you. Your conversations, files, and models stay on
+              your computer.
+            </p>
+            <label class="field-label" for="destination">INSTALL LOCATION</label>
+            <div class="location-field">
+              <input id="destination" type="text" spellcheck="false" />
+              <button class="browse-button" id="browse">Browse</button>
+            </div>
+            <div class="location-meta">
+              <span class="lock-mark">✦</span> You can change this later by reinstalling.
+            </div>
+            <div class="card-actions">
+              <button class="primary-button" id="continue">
+                <span>Continue</span><span class="button-arrow">→</span>
+              </button>
+            </div>
+          </div>
+          <div class="side-constellation" aria-hidden="true">
+            <div class="constellation-line"></div>
+            <div class="constellation-node node-a"></div>
+            <div class="constellation-node node-b"></div>
+            <div class="constellation-node node-c"></div>
+          </div>
+        </section>
+
+        <section class="screen install-screen" data-screen-panel="install" hidden>
+          <div class="install-card">
+            <div class="install-orbit" aria-hidden="true">
+              <div class="install-ring"></div>
+              <div class="install-ring ring-two"></div>
+              <div class="install-center"><img id="install-icon" alt="" /></div>
+            </div>
+            <p class="eyebrow centered"><span></span> SETTING UP YOUR SPACE <span></span></p>
+            <h2>Bringing Anodex to life.</h2>
+            <p class="lede small centered" id="install-message">
+              Preparing your private, local intelligence space.
+            </p>
+            <div class="stage-progress" aria-label="Live Anodex installation stages" role="list">
+              <div
+                class="stage-progress-item is-active"
+                data-install-stage="preparing"
+                role="listitem"
+              >
+                <span class="stage-progress-marker">
+                  <span class="stage-progress-number">1</span
+                  ><span class="stage-progress-check">✓</span>
+                </span>
+                <span class="stage-progress-copy"
+                  ><strong>Prepare</strong><small>Start setup</small></span
+                >
+              </div>
+              <div class="stage-progress-item" data-install-stage="installing" role="listitem">
+                <span class="stage-progress-marker">
+                  <span class="stage-progress-number">2</span
+                  ><span class="stage-progress-check">✓</span>
+                </span>
+                <span class="stage-progress-copy"
+                  ><strong>Set up</strong><small>Prepare install</small></span
+                >
+              </div>
+              <div class="stage-progress-item" data-install-stage="finishing" role="listitem">
+                <span class="stage-progress-marker">
+                  <span class="stage-progress-number">3</span
+                  ><span class="stage-progress-check">✓</span>
+                </span>
+                <span class="stage-progress-copy"
+                  ><strong>Finish</strong><small>Place Anodex</small></span
+                >
+              </div>
+              <div
+                class="stage-progress-item"
+                data-install-stage="payload-complete"
+                role="listitem"
+              >
+                <span class="stage-progress-marker">
+                  <span class="stage-progress-number">4</span
+                  ><span class="stage-progress-check">✓</span>
+                </span>
+                <span class="stage-progress-copy"
+                  ><strong>Verify</strong><small>Check ready</small></span
+                >
+              </div>
+              <div class="stage-progress-item" data-install-stage="ready" role="listitem">
+                <span class="stage-progress-marker">
+                  <span class="stage-progress-number">5</span
+                  ><span class="stage-progress-check">✓</span>
+                </span>
+                <span class="stage-progress-copy"
+                  ><strong>Ready</strong><small>All set</small></span
+                >
+              </div>
+            </div>
+            <p class="stage-note"><span>✦</span> Live setup milestones — never an estimate.</p>
+            <p class="install-detail" id="install-detail">
+              Each light moves only when setup reaches that real milestone.
+            </p>
+            <p class="busy-note" id="busy-note" hidden>
+              Installation is still running safely in the background.
+            </p>
+          </div>
+        </section>
+
+        <section class="screen ready-screen" data-screen-panel="ready" hidden>
+          <div class="ready-card">
+            <div class="arrival-mark" aria-hidden="true">
+              <div class="arrival-ring"></div>
+              <div class="arrival-core">✓</div>
+            </div>
+            <p class="eyebrow centered"><span></span> YOU'RE READY <span></span></p>
+            <h2>Your space is ready.</h2>
+            <p class="lede small centered">
+              Anodex is installed locally and ready whenever you are.
+            </p>
+            <label class="launch-option"
+              ><input type="checkbox" id="launch-on-finish" checked />
+              <span>Open Anodex now</span></label
+            >
+            <button class="primary-button wide" id="finish">
+              <span>Open Anodex</span><span class="button-arrow">→</span>
+            </button>
+            <button class="text-button" id="finish-later">I'll open it later</button>
+          </div>
+        </section>
+
+        <section class="screen error-screen" data-screen-panel="error" hidden>
+          <div class="error-card">
+            <div class="error-mark">!</div>
+            <p class="eyebrow centered"><span></span> SETUP NEEDS ONE MORE TRY <span></span></p>
+            <h2>We hit a small snag.</h2>
+            <p class="lede small centered" id="error-message"></p>
+            <button class="primary-button wide" id="retry">
+              <span>Try again</span><span class="button-arrow">→</span>
+            </button>
+            <button class="text-button" id="error-back">Choose a different folder</button>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer"><span>ANODEX</span><i></i><span>LOCAL • PRIVATE • YOURS</span></footer>
+    </div>
+    <script src="renderer.js"></script>
+  </body>
+</html>

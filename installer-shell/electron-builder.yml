@@ -1,0 +1,29 @@
+appId: com.anodex.installer
+productName: Anodex Installer
+artifactName: Anodex Installer ${version}.${ext}
+directories:
+  output: ../dist
+  buildResources: ../build
+files:
+  - '**/*'
+  - '!electron-builder.yml'
+  - '!node_modules/**/*'
+asar: true
+electronVersion: 40.10.6
+win:
+  target: portable
+  icon: ../build/icon.ico
+portable:
+  # This appears only while Windows briefly unpacks the self-contained shell.
+  splashImage: ../build/installer/installer-sidebar.bmp
+  unpackDirName: false
+extraResources:
+  # The shell opens this normal electron-builder NSIS package silently after
+  # the user presses Install. Keeping it as the payload preserves Anodex's
+  # standard install, update, and uninstall behavior.
+  - from: ../dist/Anodex Setup 0.1.0.exe
+    to: payload/Anodex Setup 0.1.0.exe
+  - from: ../build/installer/installer-soul.png
+    to: art/installer-soul.png
+  - from: ../build/icon.png
+    to: art/anodex-icon.png
