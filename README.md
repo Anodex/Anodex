@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <a href="#run-from-source">Run from source</a>
+  <a href="#availability">Availability</a>
   &nbsp;&middot;&nbsp;
   <a href="docs/FEATURES.md">Explore features</a>
   &nbsp;&middot;&nbsp;
@@ -79,10 +79,15 @@ becoming a black box.
 For the full product tour—including models, vision, tools, email, GitHub, MCP, and
 workspace controls—see the [feature overview](docs/FEATURES.md).
 
-## Run from source
+## Availability
 
-Anodex is currently run from source. You will need Git, a supported Node.js LTS
-release, and access to this private repository.
+Anodex is being prepared for public release. When installers are available, they
+will be published on the [Releases page](https://github.com/Anodex/Anodex/releases).
+
+### Build from source
+
+Until then, authorized contributors can run Anodex from source. You will need Git,
+a supported Node.js LTS release, and access to this private repository.
 
 ```bash
 git clone https://github.com/Anodex/Anodex.git
