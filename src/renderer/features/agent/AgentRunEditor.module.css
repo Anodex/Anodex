@@ -122,23 +122,6 @@
   cursor: not-allowed;
 }
 
-.turnsInput {
-  width: 80px;
-  padding: var(--space-2) var(--space-3);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  background: var(--bg-input);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  outline: none;
-  transition: border-color var(--transition-fast);
-}
-
-.turnsInput:focus {
-  border-color: var(--border-focus);
-}
-
 .toolsHeader {
   display: flex;
   align-items: center;

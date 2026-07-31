@@ -18,7 +18,7 @@ import { anodex } from '../../lib/anodex'
 import { Overlay } from '../../components/ui/Overlay'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/Icon'
-import { SelectControl, ToggleControl } from '../settings/controls'
+import { RangeControl, SelectControl, ToggleControl } from '../settings/controls'
 import styles from './AgentRunEditor.module.css'
 
 type RunProvider = 'local' | 'anthropic' | 'openai'
@@ -36,6 +36,25 @@ const KIND_LABELS: Record<ToolKind, string> = {
 const KIND_RISK_NOTE: Partial<Record<ToolKind, string>> = {
   write: 'Runs automatically without asking, every turn.',
   command: 'Runs automatically without asking, every turn.'
+}
+
+/** Slider granularity for the two budgets whose ranges are too wide to step by 1. */
+const TOKEN_STEP = 5_000
+const DURATION_STEP = 5
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function formatTokens(value: number): string {
+  return `${(value / 1000).toLocaleString()}k`
+}
+
+function formatDuration(value: number): string {
+  if (value < 60) return `${value} min`
+  const hours = Math.floor(value / 60)
+  const minutes = value % 60
+  return minutes === 0 ? `${hours} hr` : `${hours} hr ${minutes}`
 }
 
 /** Prefilled values when retrying/duplicating an existing run. */
@@ -97,10 +116,21 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     }
     return ''
   })
-  const [maxTurns, setMaxTurns] = useState(seed?.maxTurns ?? DEFAULT_MAX_TURNS)
-  const [maxTokens, setMaxTokens] = useState(seed?.maxTokens ?? DEFAULT_MAX_TOKENS)
+  // Sliders can't represent a value below their own step, so a seed from an
+  // older run typed into the number inputs (say 500 tokens) is pulled up to
+  // the nearest position the track can actually show.
+  const [maxTurns, setMaxTurns] = useState(
+    clamp(seed?.maxTurns ?? DEFAULT_MAX_TURNS, 1, MAX_MAX_TURNS)
+  )
+  const [maxTokens, setMaxTokens] = useState(
+    clamp(seed?.maxTokens ?? DEFAULT_MAX_TOKENS, TOKEN_STEP, MAX_MAX_TOKENS)
+  )
   const [maxDurationMinutes, setMaxDurationMinutes] = useState(
-    seed?.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES
+    clamp(
+      seed?.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES,
+      DURATION_STEP,
+      MAX_MAX_DURATION_MINUTES
+    )
   )
   const [limitsEnabled, setLimitsEnabled] = useState(seed?.limitsEnabled ?? true)
   const [requirePlan, setRequirePlan] = useState(seed?.requirePlan ?? true)
@@ -313,53 +343,53 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
 
         {limitsEnabled && (
           <>
-            <label className={styles.field}>
+            <div className={styles.field}>
               <span className={styles.label}>Turn budget</span>
-              <input
-                type="number"
+              <RangeControl
+                value={maxTurns}
                 min={1}
                 max={MAX_MAX_TURNS}
-                className={styles.turnsInput}
-                value={maxTurns}
-                onChange={(event) => setMaxTurns(Number(event.target.value) || 1)}
+                step={1}
+                onChange={setMaxTurns}
+                format={(value) => `${value} turns`}
               />
               <p className={styles.hint}>
                 Stops on its own after this many turns if it hasn&apos;t finished (max{' '}
                 {MAX_MAX_TURNS}).
               </p>
-            </label>
+            </div>
 
-            <label className={styles.field}>
+            <div className={styles.field}>
               <span className={styles.label}>Token budget</span>
-              <input
-                type="number"
-                min={1}
-                max={MAX_MAX_TOKENS}
-                className={styles.turnsInput}
+              <RangeControl
                 value={maxTokens}
-                onChange={(event) => setMaxTokens(Number(event.target.value) || 1)}
+                min={TOKEN_STEP}
+                max={MAX_MAX_TOKENS}
+                step={TOKEN_STEP}
+                onChange={setMaxTokens}
+                format={formatTokens}
               />
               <p className={styles.hint}>
                 Stops on its own once this many tokens have been used across every turn (max{' '}
                 {MAX_MAX_TOKENS.toLocaleString()}).
               </p>
-            </label>
+            </div>
 
-            <label className={styles.field}>
-              <span className={styles.label}>Time budget (minutes)</span>
-              <input
-                type="number"
-                min={1}
-                max={MAX_MAX_DURATION_MINUTES}
-                className={styles.turnsInput}
+            <div className={styles.field}>
+              <span className={styles.label}>Time budget</span>
+              <RangeControl
                 value={maxDurationMinutes}
-                onChange={(event) => setMaxDurationMinutes(Number(event.target.value) || 1)}
+                min={DURATION_STEP}
+                max={MAX_MAX_DURATION_MINUTES}
+                step={DURATION_STEP}
+                onChange={setMaxDurationMinutes}
+                format={formatDuration}
               />
               <p className={styles.hint}>
                 Stops on its own after this much wall-clock time (max {MAX_MAX_DURATION_MINUTES}{' '}
                 minutes).
               </p>
-            </label>
+            </div>
           </>
         )}
 
