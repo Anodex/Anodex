@@ -6,10 +6,17 @@ on:
   pull_request:
     branches: [main]
 
+# Windows runners, deliberately. Windows is the only platform Anodex is tested
+# and released on (see ROADMAP.md), and part of the suite asserts real Windows
+# path semantics — `workspace.test.ts` and `helpers.test.ts` check that a path
+# like `C:\Windows\system32\notepad.exe` is rejected as outside the workspace.
+# On Linux that string is not an absolute path at all, so those cases were not
+# merely failing, they were unable to test the thing they exist to test.
+# Move back to ubuntu-latest only alongside real cross-platform support.
 jobs:
   quality:
     name: Lint, format, typecheck & unit tests
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +44,7 @@ jobs:
 
   build:
     name: Build application
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     needs: quality
     steps:
       - name: Checkout
