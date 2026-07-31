@@ -20,11 +20,8 @@ import { SidebarProfile } from './sidebar/SidebarProfile'
 import { ModelStatusMenu } from './sidebar/ModelStatusMenu'
 import { NavigationCount } from './sidebar/NavigationCount'
 import { ConfirmDialog } from './ui/ConfirmDialog'
+import { findBodyMatches, matchesQuery } from './sidebar/conversationSearch'
 import styles from './Sidebar.module.css'
-
-function matchesQuery(text: string, query: string): boolean {
-  return text.toLowerCase().includes(query.toLowerCase())
-}
 
 interface FilteredProject {
   project: Project
@@ -79,10 +76,23 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
 
   const searching = searchQuery.trim().length > 0
 
-  const { filteredProjects, generalChats, searchEmpty } = useMemo(() => {
+  const { filteredProjects, generalChats, searchEmpty, matchExcerpts } = useMemo(() => {
     const query = searchQuery.trim()
     const projectChats = new Map<string, Conversation[]>()
     const general: Conversation[] = []
+    // Scored once for the whole query rather than per conversation — a row
+    // surfaces on a title match or on something said inside it.
+    //
+    // This reads message content through a subscription that deliberately
+    // ignores it (`conversationsRelevantlyEqual`, which exists so a streaming
+    // reply doesn't re-render the sidebar on every token). The consequence is
+    // narrow and wanted: text in a reply that is still streaming isn't
+    // searchable until that turn settles. Do not "fix" that by widening the
+    // equality check — it would restore exactly the per-token re-render storm
+    // that function was written to stop.
+    const bodyMatches = findBodyMatches(conversations, query)
+    const matched = (conversation: Conversation): boolean =>
+      matchesQuery(conversation.title, query) || bodyMatches.ids.has(conversation.id)
 
     for (const conversation of conversations) {
       // A scheduled task's or agent run's conversation is a machine's log, not
@@ -92,11 +102,11 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
       if (conversation.origin === 'scheduled' || conversation.origin === 'agent') continue
 
       if (!conversation.projectId) {
-        if (!query || matchesQuery(conversation.title, query)) general.push(conversation)
+        if (!query || matched(conversation)) general.push(conversation)
         continue
       }
       const list = projectChats.get(conversation.projectId) ?? []
-      if (!query || matchesQuery(conversation.title, query)) list.push(conversation)
+      if (!query || matched(conversation)) list.push(conversation)
       projectChats.set(conversation.projectId, list)
     }
 
@@ -130,7 +140,8 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
     return {
       filteredProjects: filtered,
       generalChats: general,
-      searchEmpty: query.length > 0 && filtered.length === 0 && general.length === 0
+      searchEmpty: query.length > 0 && filtered.length === 0 && general.length === 0,
+      matchExcerpts: bodyMatches.excerpts
     }
   }, [chatSortMode, conversations, projects, searchQuery])
 
@@ -335,6 +346,7 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
                     running={projectConversations.some(isConversationRunning)}
                     unread={projectConversations.some(isConversationUnread)}
                     readConversationAt={readConversationAt}
+                    matchExcerpts={matchExcerpts}
                     onToggle={() => toggleProject(project.id)}
                     onNewChat={handleNewChat}
                     onSelectConversation={handleSelectConversation}
@@ -397,6 +409,7 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
                     active={conversation.id === activeConversationId}
                     running={isConversationRunning(conversation)}
                     unread={isConversationUnread(conversation)}
+                    excerpt={matchExcerpts.get(conversation.id)}
                     onClick={() => void handleSelectConversation(conversation.id)}
                     onRename={(title) => void renameConversation(conversation.id, title)}
                     onMarkUnread={() =>

@@ -30,6 +30,12 @@ interface ChatRowProps {
   onOpenProjectFolder?: () => void
   running?: boolean
   unread?: boolean
+  /**
+   * Matching text from inside the conversation, shown under the title during
+   * a search. Present only when the row surfaced because of what was said in
+   * it — a title match needs no explanation, the reason is already visible.
+   */
+  excerpt?: string
 }
 
 /** A single chat row with title, relative last-used time, and an optional action. */
@@ -44,7 +50,8 @@ export function ChatRow({
   onMarkUnread,
   onOpenProjectFolder,
   running = false,
-  unread = false
+  unread = false,
+  excerpt
 }: ChatRowProps): JSX.Element {
   const rowRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<number | null>(null)
@@ -122,6 +129,7 @@ export function ChatRow({
         )}
         <span className={styles.titleWrap}>
           <span className={styles.title}>{conversation.title}</span>
+          {excerpt && <span className={styles.excerpt}>{excerpt}</span>}
           {running && (
             <span className={styles.runTrack} aria-hidden="true">
               <span className={styles.runHalo} />

@@ -428,3 +428,15 @@
     left: 100%;
   }
 }
+
+/* Search excerpt — the line of transcript that caused this row to surface.
+   Single line by design: the sidebar is a list of chats, not a results page,
+   and a wrapping snippet would push the rows around it out of scanning range. */
+.excerpt {
+  overflow: hidden;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
