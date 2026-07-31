@@ -9,8 +9,10 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { Conversation } from '../../stores/chatStore'
+import type { ConversationExportFormat } from '@shared/backup.types'
 import { formatRelativeTime } from '../../lib/time'
-import { notifyError } from '../../stores/uiStore'
+import { anodex } from '../../lib/anodex'
+import { notifyError, useUiStore } from '../../stores/uiStore'
 import { Icon } from '../Icon'
 import { StatusDot } from '../ui/StatusDot'
 import { TextPromptDialog } from '../ui/TextPromptDialog'
@@ -227,6 +229,26 @@ type ChatMenuEntry =
       run?: () => void | Promise<void>
     }
 
+/**
+ * Write this chat to a file the user picks. Lives here rather than being
+ * threaded down from the sidebar because the row already holds the whole
+ * conversation — the only thing an export needs.
+ */
+async function exportChat(
+  conversation: Conversation,
+  format: ConversationExportFormat
+): Promise<void> {
+  const result = await anodex.backup.exportConversation(conversation, format)
+  if (!result.ok) {
+    notifyError('Could not export chat', result.error.detail ?? result.error.message)
+    return
+  }
+  // Null means the user closed the save dialog — not a failure, and not
+  // something to congratulate them about either.
+  if (!result.value) return
+  useUiStore.getState().notify({ kind: 'success', title: 'Chat exported', message: result.value })
+}
+
 async function copyText(label: string, value?: string): Promise<void> {
   if (!value) return
   try {
@@ -282,6 +304,23 @@ function ChatContextMenu({
       { kind: 'separator', id: 'sep-1' },
       {
         kind: 'item',
+        id: 'export-markdown',
+        label: 'Export as Markdown',
+        accelerator: 'M',
+        disabled: false,
+        run: () => exportChat(conversation, 'markdown')
+      },
+      {
+        kind: 'item',
+        id: 'export-json',
+        label: 'Export as JSON',
+        accelerator: 'J',
+        disabled: false,
+        run: () => exportChat(conversation, 'json')
+      },
+      { kind: 'separator', id: 'sep-export' },
+      {
+        kind: 'item',
         id: 'explorer',
         label: 'Open in Explorer',
         accelerator: 'E',
@@ -321,7 +360,7 @@ function ChatContextMenu({
         disabled: true
       }
     ],
-    [conversation.id, onArchive, onMarkUnread, onOpenProjectFolder, onRename, projectPath]
+    [conversation, onArchive, onMarkUnread, onOpenProjectFolder, onRename, projectPath]
   )
 
   const activate = useCallback(

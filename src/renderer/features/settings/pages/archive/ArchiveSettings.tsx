@@ -8,6 +8,7 @@ import { useChatStore } from '../../../../stores/chatStore'
 import { useProjectStore } from '../../../../stores/projectStore'
 import { anodex } from '../../../../lib/anodex'
 import { SelectControl } from '../../controls'
+import { BackupSection } from './BackupSection'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './ArchiveSettings.module.css'
 
@@ -178,6 +179,8 @@ export function ArchiveSettings(): JSX.Element {
           value={latestArchivedAt ? formatShortDate(latestArchivedAt) : '—'}
         />
       </div>
+
+      <BackupSection />
 
       <section className={`${pageStyles.section} ${styles.section}`}>
         <div className={styles.sectionHead}>

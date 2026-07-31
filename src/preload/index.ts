@@ -111,6 +111,12 @@ const api: AnodexApi = {
     setActive: (id) => ipcRenderer.invoke(IpcChannel.Projects.setActive, id),
     openFolder: (id) => ipcRenderer.invoke(IpcChannel.Projects.openFolder, id)
   },
+  backup: {
+    exportConversation: (conversation, format) =>
+      ipcRenderer.invoke(IpcChannel.Backup.exportConversation, conversation, format),
+    backupData: () => ipcRenderer.invoke(IpcChannel.Backup.backupData),
+    revealPath: (path) => ipcRenderer.invoke(IpcChannel.Backup.revealPath, path)
+  },
   conversations: {
     list: () => ipcRenderer.invoke(IpcChannel.Conversations.list),
     listArchived: () => ipcRenderer.invoke(IpcChannel.Conversations.listArchived),

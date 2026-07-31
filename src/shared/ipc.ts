@@ -36,6 +36,7 @@ import type {
   UpdateProjectRequest
 } from './project.types'
 import type { Conversation, ConversationState } from './conversation.types'
+import type { BackupResult, ConversationExportFormat } from './backup.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
 import type {
   ToolActivityEvent,
@@ -224,6 +225,14 @@ export const IpcChannel = {
     deletePermanent: 'projects:delete-permanent',
     setActive: 'projects:set-active',
     openFolder: 'projects:open-folder'
+  },
+  Backup: {
+    /** Save one conversation to a file the user picks. */
+    exportConversation: 'backup:export-conversation',
+    /** Copy every store in userData into a timestamped folder. */
+    backupData: 'backup:backup-data',
+    /** Reveal a written backup/export in the OS file manager. */
+    revealPath: 'backup:reveal-path'
   },
   Conversations: {
     list: 'conversations:list',
@@ -564,6 +573,24 @@ export interface AnodexApi {
     deletePermanent(id: string): Promise<void>
     setActive(id: string | null): Promise<ProjectsState>
     openFolder(id: string): Promise<void>
+  }
+  backup: {
+    /**
+     * Save one conversation to a file the user picks. Resolves to the written
+     * path, or `null` if they cancelled the save dialog.
+     */
+    exportConversation(
+      conversation: Conversation,
+      format: ConversationExportFormat
+    ): Promise<Result<string | null>>
+    /**
+     * Copy every store in the data directory into a timestamped folder the
+     * user picks. Resolves to `null` if they cancelled. Never deletes or
+     * moves anything, so it is safe to run at any time.
+     */
+    backupData(): Promise<Result<BackupResult | null>>
+    /** Show a written backup or export in the OS file manager. */
+    revealPath(path: string): Promise<void>
   }
   conversations: {
     list(): Promise<Conversation[]>

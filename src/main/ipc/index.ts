@@ -6,6 +6,7 @@ import { providerUsageStore } from '../llm/ProviderUsageStore'
 import { registerChatHandlers } from './chat.handlers'
 import { registerModelHandlers } from './model.handlers'
 import { registerConversationHandlers } from './conversation.handlers'
+import { registerBackupHandlers } from './backup.handlers'
 import { registerProjectHandlers } from './project.handlers'
 import { registerSettingsHandlers } from './settings.handlers'
 import { registerProviderHandlers } from './provider.handlers'
@@ -44,6 +45,7 @@ export function registerIpcHandlers(): void {
   registerProviderHandlers()
   registerProjectHandlers()
   registerConversationHandlers()
+  registerBackupHandlers()
   registerSystemHandlers()
   registerToolHandlers()
   registerWindowHandlers()
