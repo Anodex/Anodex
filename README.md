@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-1c2333?style=flat-square" alt="Windows, macOS, and Linux" />
+  <img src="https://img.shields.io/badge/platform-Windows%20tested-1c2333?style=flat-square" alt="Windows is the currently tested platform" />
   <img src="https://img.shields.io/badge/AI-local--first-6d4aff?style=flat-square" alt="Local-first AI" />
   <img src="https://img.shields.io/badge/built_with-Electron%20%2B%20TypeScript-1c2333?style=flat-square" alt="Built with Electron and TypeScript" />
 </p>
@@ -83,6 +83,9 @@ workspace controls—see the [feature overview](docs/FEATURES.md).
 
 Anodex is being prepared for public release. When installers are available, they
 will be published on the [Releases page](https://github.com/Anodex/Anodex/releases).
+
+**Platform status:** Windows is the currently tested platform. macOS and Linux are
+not yet tested, so they are not advertised as supported release targets.
 
 ### Build from source
 
