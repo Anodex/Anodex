@@ -6,9 +6,8 @@ import styles from './ThoughtsSection.module.css'
  * thinking`), shown separately from its visible reply. Deliberately minimal
  * — no card, no chrome, just a rule and a single truncated preview line,
  * like a note in the margin (picked over four other treatments compared side
- * by side — see docs/ui-samples/chat/thoughts-styles.html). It's meant to
- * never compete with the real answer for attention; the full text only shows
- * once the user deliberately expands it.
+ * by side). It's meant to never compete with the real answer for attention;
+ * the full text only shows once the user deliberately expands it.
  *
  * Renders as plain text (not markdown) — this is a raw reasoning scratchpad,
  * not a polished answer, and treating it as markdown risks misrendering

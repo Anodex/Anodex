@@ -21,7 +21,7 @@ export interface LocalOutputBudget {
  * Bounded between a floor (still a meaningful reserve on a small available
  * window) and a ceiling (don't reserve away most of a large one). This
  * fraction/floor/ceiling are a starting experiment — the live 8K exit gate
- * in `docs/LIVE_8K_FAILURE_RECOVERY_HANDOFF.md` is what should tune them
+ * in `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md` is what should tune them
  * further, not intuition alone.
  */
 const FUNCTION_SAFETY_RESERVE_FRACTION = 0.15
