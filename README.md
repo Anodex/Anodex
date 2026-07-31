@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <a href="#get-started">Get started</a>
+  <a href="#run-from-source">Run from source</a>
   &nbsp;&middot;&nbsp;
   <a href="docs/FEATURES.md">Explore features</a>
   &nbsp;&middot;&nbsp;
@@ -79,16 +79,33 @@ becoming a black box.
 For the full product tour—including models, vision, tools, email, GitHub, MCP, and
 workspace controls—see the [feature overview](docs/FEATURES.md).
 
-## Get started
+## Run from source
+
+Anodex is currently run from source. You will need Git, a supported Node.js LTS
+release, and access to this private repository.
 
 ```bash
+git clone https://github.com/Anodex/Anodex.git
+cd Anodex
 npm install
 npm run dev
 ```
 
-This installs dependencies, including the local model runtime, and launches Anodex
-with hot reload. Use **AI & Models** in the app to download a recommended model or
-add an existing `.gguf` model.
+This installs the JavaScript and native dependencies, then launches Anodex with hot
+reload. Use **AI & Models** in the app to download a recommended model or add an
+existing `.gguf` model.
+
+### Optional: local vision support
+
+If you plan to use a vision-capable local model, prepare the matching llama.cpp
+server runtime for your platform first:
+
+```bash
+npm run prepare:vision
+```
+
+This downloads a pinned, checksum-verified runtime into the local checkout. It is
+not required for text-only local models.
 
 ```bash
 npm run build      # production build
