@@ -18,20 +18,27 @@ short record so it does not reappear as a future task.
   Linux are being brought up to the same bar and are now real targets, not
   someday ones. CI runs unit tests and builds on all three, so regressions on
   the two unreleased platforms surface immediately instead of at packaging time.
-  Still outstanding before either can ship:
-  - `npm run dist` is Windows-only — `scripts/build-branded-installer.mjs` calls
-    electron-builder with `--win nsis`, and the branded installer shell only
-    targets `win`. macOS (`.dmg`) and Linux (AppImage) need their own paths;
-    neither wants an NSIS-style wrapper, so this is new work rather than a flag.
-  - Anodex cannot be cross-compiled. `prepare:vision` downloads the _host_
-    platform's llama.cpp runtime, so releases need a per-platform build matrix.
-  - Signing, which is calendar time rather than work time and should be started
-    well before it is needed. macOS requires an Apple Developer Program
-    membership plus notarization — without it Gatekeeper effectively blocks the
-    app. Windows OV certificates have required a hardware token or cloud HSM
-    since June 2023, so a plain `.pfx` in CI is no longer an option. Linux
-    AppImages need no signing at all, which makes Linux the cheapest second
-    platform by a wide margin.
+  `npm run dist` packages per host platform, and the Package workflow builds
+  each target on its own runner — Anodex cannot be cross-compiled, because
+  `prepare:vision` fetches the _host_ platform's llama.cpp runtime. A Linux
+  AppImage is verified building end to end (623 MB, with `latest-linux.yml`
+  for auto-update).
+
+  Still outstanding before macOS or Linux can ship:
+  - **Linux: run the AppImage.** It builds; nobody has launched it. Worth one
+    pass over the same things the Windows packaged build needs checked — a
+    code block, the Terminal panel, a diff, a PDF attachment — plus whether a
+    local model actually loads through the bundled runtime.
+  - **macOS: signing, and it is the gate.** The `.dmg` builds, but current
+    macOS makes an unsigned, un-notarized app genuinely hard for an ordinary
+    user to open, so this is not a distributable artifact yet. Needs an Apple
+    Developer Program membership plus notarization. Start the paperwork early;
+    it is calendar time rather than work time.
+  - **Windows signing** is the same class of problem: OV certificates have
+    required a hardware token or cloud HSM since June 2023, so a plain `.pfx`
+    in CI is no longer an option.
+  - Linux AppImages need no signing at all, which is why Linux remains the
+    cheapest platform to actually ship.
 
 ## Next product work
 
