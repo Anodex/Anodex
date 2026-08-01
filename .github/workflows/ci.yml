@@ -6,23 +6,26 @@ on:
   pull_request:
     branches: [main]
 
-# Windows runners, deliberately. Windows is the only platform Anodex is tested
-# and released on (see ROADMAP.md), and part of the suite asserts real Windows
-# path semantics — `workspace.test.ts` and `helpers.test.ts` check that a path
-# like `C:\Windows\system32\notepad.exe` is rejected as outside the workspace.
-# On Linux that string is not an absolute path at all, so those cases were not
-# merely failing, they were unable to test the thing they exist to test.
-# Move back to ubuntu-latest only alongside real cross-platform support.
+# Windows is what Anodex ships today; macOS and Linux are being brought up to
+# the same bar. Both run here so that "it works on Linux" is a fact this
+# workflow establishes rather than a hope. Note that Anodex cannot be
+# cross-compiled: `prepare:vision` downloads the *host* platform's llama.cpp
+# runtime, so every target has to build on its own runner regardless.
+#
+# Cost shape is deliberate. Lint, formatting, and typechecking cannot vary by
+# OS, so they run once on Linux (1x billing) instead of three times. Only the
+# jobs whose results genuinely differ by platform pay for a matrix, and macOS
+# bills at 10x, so nothing goes there without a reason.
 jobs:
   quality:
-    name: Lint, format, typecheck & unit tests
-    runs-on: windows-latest
+    name: Lint, format & typecheck
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -39,19 +42,46 @@ jobs:
       - name: Prettier check
         run: npm run format:check
 
+  test:
+    name: Unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report every platform's result. On a matrix whose whole purpose is
+      # finding out what is broken where, stopping at the first failure hides
+      # exactly the information the run exists to produce.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Unit tests
         run: npm run test
 
   build:
-    name: Build application
-    runs-on: windows-latest
-    needs: quality
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [quality, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm

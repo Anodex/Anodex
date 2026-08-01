@@ -14,9 +14,24 @@ short record so it does not reappear as a future task.
 - **Public launch path** — complete first-run guidance, release notes, support
   information, and the visual product materials that make a new install feel
   intentional from the first minute.
-- **Platform validation** — Windows is the currently tested platform. macOS and
-  Linux remain untested and are not release targets until they receive dedicated
-  validation.
+- **Platform validation** — Windows is the currently released platform. macOS and
+  Linux are being brought up to the same bar and are now real targets, not
+  someday ones. CI runs unit tests and builds on all three, so regressions on
+  the two unreleased platforms surface immediately instead of at packaging time.
+  Still outstanding before either can ship:
+  - `npm run dist` is Windows-only — `scripts/build-branded-installer.mjs` calls
+    electron-builder with `--win nsis`, and the branded installer shell only
+    targets `win`. macOS (`.dmg`) and Linux (AppImage) need their own paths;
+    neither wants an NSIS-style wrapper, so this is new work rather than a flag.
+  - Anodex cannot be cross-compiled. `prepare:vision` downloads the _host_
+    platform's llama.cpp runtime, so releases need a per-platform build matrix.
+  - Signing, which is calendar time rather than work time and should be started
+    well before it is needed. macOS requires an Apple Developer Program
+    membership plus notarization — without it Gatekeeper effectively blocks the
+    app. Windows OV certificates have required a hardware token or cloud HSM
+    since June 2023, so a plain `.pfx` in CI is no longer an option. Linux
+    AppImages need no signing at all, which makes Linux the cheapest second
+    platform by a wide margin.
 
 ## Next product work
 

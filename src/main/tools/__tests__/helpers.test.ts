@@ -1,7 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { join, resolve } from 'node:path'
 import type { FileTouchAction } from '@shared/projectMemory.types'
 import { composeDenialMessage, runGuardedTool, runReadTool } from '../helpers'
 import { createMockContext, captureConfirmations } from './test-helpers'
+
+/**
+ * An absolute workspace root on whatever OS is running the suite.
+ *
+ * This was the literal `C:\workspace`, which is only absolute on Windows —
+ * elsewhere the tools resolved it against the cwd and the expected paths below
+ * stopped matching what the code produced.
+ */
+const WORKSPACE_ROOT = resolve('/anodex-test/workspace')
 
 const recordTouchMock = vi.fn<(projectId: string, path: string, action: FileTouchAction) => void>()
 
@@ -15,7 +25,7 @@ vi.mock('../../projects/ProjectMemoryStore', () => ({
 }))
 
 describe('recordTouch (exercised via runReadTool)', () => {
-  const root = 'C:\\workspace'
+  const root = WORKSPACE_ROOT
 
   beforeEach(() => recordTouchMock.mockReset())
 
@@ -78,7 +88,7 @@ describe('recordTouch (exercised via runReadTool)', () => {
 })
 
 describe('runGuardedTool — first-action turn gate (full mode only)', () => {
-  const root = 'C:\\workspace'
+  const root = WORKSPACE_ROOT
 
   function guardedSpec(risk: 'trivial' | 'safe' | 'sensitive' | 'destructive') {
     return {
@@ -189,7 +199,7 @@ describe('runGuardedTool — first-action turn gate (full mode only)', () => {
 })
 
 describe('runGuardedTool — untethered mode has almost no prompts', () => {
-  const root = 'C:\\workspace'
+  const root = WORKSPACE_ROOT
 
   function guardedSpec(risk: 'trivial' | 'safe' | 'sensitive' | 'destructive') {
     return {
@@ -225,7 +235,7 @@ describe('runGuardedTool — untethered mode has almost no prompts', () => {
 })
 
 describe('ctx.progress (finish_goal fabrication guard)', () => {
-  const root = 'C:\\workspace'
+  const root = WORKSPACE_ROOT
 
   it('runReadTool does not mark progress for a read-kind call', async () => {
     const ctx = createMockContext(root)
@@ -338,7 +348,7 @@ describe('composeDenialMessage', () => {
 })
 
 describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
-  const root = 'C:\\workspace'
+  const root = WORKSPACE_ROOT
 
   function readSpec(title: string) {
     return {
@@ -482,8 +492,10 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
 })
 
 describe('runGuardedTool — read-coverage invalidation on mutation', () => {
-  const root = 'C:\\workspace'
-  const resolved = (relative: string): string => `${root}\\${relative}`
+  const root = WORKSPACE_ROOT
+  // `join`, not a backslash literal — this has to match what the tools
+  // themselves produce via node:path on the running platform.
+  const resolved = (relative: string): string => join(root, relative)
 
   function writeSpec(path: string) {
     return {
@@ -584,7 +596,7 @@ describe('runGuardedTool — read-coverage invalidation on mutation', () => {
 })
 
 describe('model-result runtime budget clamping', () => {
-  const root = 'C:\\workspace'
+  const root = WORKSPACE_ROOT
 
   it('falls back to the tool-requested cap unchanged when no runtime budget is known', async () => {
     const ctx = createMockContext(root)

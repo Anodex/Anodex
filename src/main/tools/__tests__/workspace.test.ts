@@ -1,27 +1,36 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { resolveInWorkspace, toWorkspaceRelative } from '../workspace'
 
 describe('workspace path safety', () => {
-  const root = 'C:\\Users\\Owner\\workspace'
+  /**
+   * Built through `resolve` rather than written as a literal, so the
+   * absolute-path cases below test what they mean to on every OS.
+   *
+   * A hardcoded `C:\Users\Owner\workspace` is only an absolute path on
+   * Windows. On Linux and macOS `isAbsolute` says false, so the string is
+   * treated as an ordinary relative name and joined *into* the workspace —
+   * meaning the traversal guard was being asserted against a path that never
+   * escaped in the first place. Those assertions did not merely fail off
+   * Windows, they could not test the thing they exist to test.
+   */
+  const root = resolve('/anodex-test/workspace')
+  const insideFile = join(root, 'src', 'index.ts')
+  const outsideFile = resolve('/anodex-test-elsewhere/secrets.txt')
 
   describe('resolveInWorkspace', () => {
     it('resolves a relative path inside the workspace', () => {
-      expect(resolveInWorkspace(root, 'src/index.ts')).toBe(
-        'C:\\Users\\Owner\\workspace\\src\\index.ts'
-      )
+      expect(resolveInWorkspace(root, 'src/index.ts')).toBe(insideFile)
     })
 
     it('resolves an absolute path inside the workspace', () => {
-      expect(resolveInWorkspace(root, 'C:\\Users\\Owner\\workspace\\src\\index.ts')).toBe(
-        'C:\\Users\\Owner\\workspace\\src\\index.ts'
-      )
+      expect(resolveInWorkspace(root, insideFile)).toBe(insideFile)
     })
 
     it('resolves the workspace root for "."', () => {
-      expect(resolveInWorkspace(root, '.')).toBe('C:\\Users\\Owner\\workspace')
+      expect(resolveInWorkspace(root, '.')).toBe(root)
     })
 
     it('blocks paths that escape the workspace via ..', () => {
@@ -29,9 +38,28 @@ describe('workspace path safety', () => {
     })
 
     it('blocks absolute paths outside the workspace', () => {
-      expect(() => resolveInWorkspace(root, 'C:\\Windows\\system32\\notepad.exe')).toThrow(
-        /outside the workspace/
-      )
+      expect(() => resolveInWorkspace(root, outsideFile)).toThrow(/outside the workspace/)
+    })
+
+    // Kept as a real Windows case rather than folded into the portable ones
+    // above: drive letters, backslash separators, and `C:\Windows` are the
+    // shapes an escape attempt actually takes on the platform Anodex ships
+    // on, and a POSIX-shaped fixture never exercises that parsing.
+    describe.runIf(process.platform === 'win32')('Windows path semantics', () => {
+      it('blocks a drive-absolute path outside the workspace', () => {
+        expect(() =>
+          resolveInWorkspace('C:\\Users\\Owner\\workspace', 'C:\\Windows\\system32\\notepad.exe')
+        ).toThrow(/outside the workspace/)
+      })
+
+      it('resolves a backslash path inside the workspace', () => {
+        expect(
+          resolveInWorkspace(
+            'C:\\Users\\Owner\\workspace',
+            'C:\\Users\\Owner\\workspace\\src\\index.ts'
+          )
+        ).toBe('C:\\Users\\Owner\\workspace\\src\\index.ts')
+      })
     })
 
     it('blocks paths that escape through a symlink or junction', () => {
@@ -92,13 +120,21 @@ describe('workspace path safety', () => {
 
   describe('toWorkspaceRelative', () => {
     it('returns a forward-slashed relative path', () => {
-      expect(toWorkspaceRelative(root, 'C:\\Users\\Owner\\workspace\\src\\index.ts')).toBe(
-        'src/index.ts'
-      )
+      expect(toWorkspaceRelative(root, insideFile)).toBe('src/index.ts')
     })
 
     it('returns "." for the workspace root', () => {
-      expect(toWorkspaceRelative(root, 'C:\\Users\\Owner\\workspace')).toBe('.')
+      expect(toWorkspaceRelative(root, root)).toBe('.')
+    })
+
+    // The forward-slashing is only observable where the separator differs.
+    it.runIf(process.platform === 'win32')('converts Windows separators to forward slashes', () => {
+      expect(
+        toWorkspaceRelative(
+          'C:\\Users\\Owner\\workspace',
+          'C:\\Users\\Owner\\workspace\\src\\index.ts'
+        )
+      ).toBe('src/index.ts')
     })
   })
 })
