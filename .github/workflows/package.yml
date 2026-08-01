@@ -23,29 +23,41 @@ on:
     tags: ['v*']
 
 jobs:
+  # The matrix is computed rather than declared because a job-level `if:`
+  # cannot see the `matrix` context — it is evaluated before the matrix
+  # expands. Filtering here means an unwanted platform never starts a runner
+  # at all, which matters when macOS bills at 10x and most packaging changes
+  # only affect one platform.
+  targets:
+    name: Choose targets
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        shell: bash
+        # A tag build always packages all three; only a manual run may narrow.
+        env:
+          REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || 'all' }}
+        run: |
+          linux='{"name":"linux","os":"ubuntu-latest","artifact":"dist/*.AppImage"}'
+          windows='{"name":"windows","os":"windows-latest","artifact":"dist/*.exe"}'
+          macos='{"name":"macos","os":"macos-latest","artifact":"dist/*.dmg"}'
+          case "$REQUESTED" in
+            linux)   include="[$linux]" ;;
+            windows) include="[$windows]" ;;
+            macos)   include="[$macos]" ;;
+            *)       include="[$linux,$windows,$macos]" ;;
+          esac
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+
   package:
     name: Package (${{ matrix.name }})
-    # A tag build always does all three; a manual run can target one, since
-    # macOS runners bill at 10x and most packaging changes only affect one
-    # platform anyway.
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      inputs.platform == 'all' ||
-      inputs.platform == matrix.name
+    needs: targets
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            os: ubuntu-latest
-            artifact: dist/*.AppImage
-          - name: windows
-            os: windows-latest
-            artifact: dist/*.exe
-          - name: macos
-            os: macos-latest
-            artifact: dist/*.dmg
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
