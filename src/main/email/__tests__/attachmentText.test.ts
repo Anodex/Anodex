@@ -70,23 +70,37 @@ describe('isReadableAttachmentType', () => {
 })
 
 describe('extractAttachmentText', () => {
-  it('reads the text layer out of a real PDF', async () => {
-    const result = await extractAttachmentText(
-      onePagePdf('Invoice total 42 dollars'),
-      'application/pdf',
-      'invoice.pdf'
-    )
+  // The PDF cases pay for lazily loading the PDF parser on whichever of them
+  // runs first. That is milliseconds on a warm dev machine but has overrun the
+  // default 5s budget on a cold CI runner, so both get room rather than the
+  // suite depending on which one happens to go first.
+  const pdfLoadTimeout = 30_000
 
-    expect(result.text).toContain('Invoice total 42 dollars')
-    expect(result.truncated).toBe(false)
-  })
+  it(
+    'reads the text layer out of a real PDF',
+    async () => {
+      const result = await extractAttachmentText(
+        onePagePdf('Invoice total 42 dollars'),
+        'application/pdf',
+        'invoice.pdf'
+      )
 
-  it('says a scan needs OCR instead of returning nothing', async () => {
-    // No content stream text at all — the shape a scanned page takes.
-    await expect(
-      extractAttachmentText(onePagePdf(''), 'application/pdf', 'scan.pdf')
-    ).rejects.toThrow(/OCR/)
-  })
+      expect(result.text).toContain('Invoice total 42 dollars')
+      expect(result.truncated).toBe(false)
+    },
+    pdfLoadTimeout
+  )
+
+  it(
+    'says a scan needs OCR instead of returning nothing',
+    async () => {
+      // No content stream text at all — the shape a scanned page takes.
+      await expect(
+        extractAttachmentText(onePagePdf(''), 'application/pdf', 'scan.pdf')
+      ).rejects.toThrow(/OCR/)
+    },
+    pdfLoadTimeout
+  )
 
   it('decodes plain text and drops a byte-order mark', async () => {
     const result = await extractAttachmentText(

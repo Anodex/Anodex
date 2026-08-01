@@ -104,15 +104,15 @@ safe, honest, resumable behavior and the best attainable result. Full completion
 required in acceptance tests only when that model/capability combination has been
 shown capable of the workflow.
 
-## Claude handoff prompt
+## Handoff prompt
 
 Use this prompt with the implementation agent:
 
 > Read `AGENTS.md`, `README.md`, `ROADMAP.md`,
 > `docs/RUNTIME_RELIABILITY_RECOVERY_HANDOFF.md`, and
 > `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md` completely before editing. Verify this
-> handoff against the current dirty working tree and preserve all existing user,
-> Codex, and Claude changes. Implement the phases in order with regression tests
+> handoff against the current dirty working tree and preserve all existing
+> uncommitted changes. Implement the phases in order with regression tests
 > first. The two 8K failures are reproducible canaries, not the product architecture:
 > build one capability-driven runtime that derives budgets, tool routing, batch
 > width, evidence size, required visible output, and continuation behavior from the
@@ -134,7 +134,7 @@ At the time of this handoff, `HEAD` is:
 7ff76e0 Build evidence-first critical thinking research
 ```
 
-Claude's follow-up implementation is still uncommitted and spans Critical Thinking,
+The follow-up implementation is still uncommitted and spans Critical Thinking,
 local generation, tool-result budgeting, file tools, and renderer stop messaging.
 There is also an untracked earlier handoff document.
 
