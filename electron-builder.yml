@@ -87,10 +87,27 @@ mac:
   target: dmg
   category: public.app-category.developer-tools
   icon: build/icon.icns
+# A single self-contained executable the user marks executable and runs. No
+# install step, so there is nothing for the branded installer shell to wrap —
+# and no signing or notarization required, which makes Linux by a wide margin
+# the cheapest platform for Anodex to ship on.
 linux:
   target: AppImage
   category: Development
   icon: build/icon.png
+  synopsis: A local-first AI assistant for coding help and general chat
+  description: >-
+    Anodex runs open-weight models on your own machine through llama.cpp.
+    Conversations, projects, model weights, and settings stay in local files;
+    cloud providers are opt-in per chat.
+  # Shown in the desktop environment's launcher/menu once the AppImage is
+  # integrated. StartupWMClass must match the app's window class or GNOME
+  # treats a running Anodex as a second, unrelated icon in the dock.
+  desktop:
+    entry:
+      Name: Anodex
+      StartupWMClass: Anodex
+      Keywords: AI;LLM;assistant;chat;developer;
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

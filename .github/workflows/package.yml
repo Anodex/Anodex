@@ -1,0 +1,77 @@
+name: Package
+
+# Produces the actual distributable for each platform.
+#
+# Separate from CI on purpose. CI runs on every push and proves the code
+# compiles and passes tests; this downloads a ~90 MB llama.cpp runtime per
+# platform and produces installers in the hundreds of megabytes, which is not
+# something to do on every commit.
+#
+# Every target builds on its own runner because Anodex cannot be
+# cross-compiled: `prepare:vision` fetches the *host* platform's llama.cpp
+# runtime, so a Linux AppImage built on Windows would ship a Windows runtime
+# and fail the moment a vision model loaded.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform to package
+        type: choice
+        default: all
+        options: [all, linux, windows, macos]
+  push:
+    tags: ['v*']
+
+jobs:
+  package:
+    name: Package (${{ matrix.name }})
+    # A tag build always does all three; a manual run can target one, since
+    # macOS runners bill at 10x and most packaging changes only affect one
+    # platform anyway.
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      inputs.platform == 'all' ||
+      inputs.platform == matrix.name
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            artifact: dist/*.AppImage
+          - name: windows
+            os: windows-latest
+            artifact: dist/*.exe
+          - name: macos
+            os: macos-latest
+            artifact: dist/*.dmg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package
+        run: npm run dist
+
+      - name: List what was produced
+        shell: bash
+        run: ls -lh dist/
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: anodex-${{ matrix.name }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          # These run to hundreds of megabytes each; the default 90 days of
+          # retention on every manual packaging run is not worth the storage.
+          retention-days: 14
