@@ -73,6 +73,14 @@ export function describeGenerationStop(
           'This reply reached its 15-minute turn budget. The text and completed tool work above were preserved.',
         errorKind: 'bounded'
       }
+    case 'tool-call-truncated':
+      // Nothing was written — the call never became runnable — so this is a
+      // real failure rather than a bounded stop, and the advice matters more
+      // than the diagnosis.
+      return {
+        error:
+          'The model kept getting cut off part-way through a tool call, so it never ran and nothing was changed. This usually means one call was carrying too much at once — ask for the work in smaller pieces, or raise the model’s context size.'
+      }
     case 'loop-guard':
     case 'no-progress':
       // Repetition without progress is a real malfunction worth flagging

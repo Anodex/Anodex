@@ -21,6 +21,13 @@ export type GenerationStopReason =
   | 'tool-limit'
   | 'token-limit'
   | 'no-progress'
+  /**
+   * The model was repeatedly cut off part-way through emitting a tool call, so
+   * its arguments never parsed and the call could never be run. Distinct from
+   * `no-progress`: the model was not repeating itself, it was overrunning a
+   * single call — usually one carrying a large file body.
+   */
+  | 'tool-call-truncated'
   | 'yielded'
 
 /** Exact local-model input accounting captured with the active wrapper and tokenizer. */
