@@ -29,6 +29,10 @@ import {
   truncatedArgumentsPreview
 } from './truncatedToolCallError'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
+import {
+  computeModelToolResultBudget,
+  type ModelToolResultBudget
+} from '../tools/modelResultBudget'
 import type { GenerateOutcome, GenerateParams } from './LlamaService'
 import type { ModelInfo, ModelLoadOptions } from '@shared/model.types'
 import { basename } from 'node:path'
@@ -91,6 +95,42 @@ const MIN_PLAUSIBLE_GENERATION_MS = 1_500
  * Same value and same reasoning as the text path's `MAX_FALLBACK_ROUNDS`.
  */
 const MAX_FALLBACK_ROUNDS = 8
+/**
+ * Per-message cost of the chat template's own framing — the role header, the
+ * separators, and the end-of-turn token that llama-server renders around every
+ * message but `/tokenize` never sees, because it is handed raw text.
+ *
+ * Small per message and irrelevant on a short exchange; on a tool-heavy turn
+ * that has accumulated dozens of call/result pairs it is hundreds of tokens of
+ * pure under-count, all of it in the direction that overflows the context.
+ */
+const MESSAGE_FRAMING_TOKENS = 4
+/**
+ * Assumed prompt cost of one image after the projector.
+ *
+ * `/tokenize` accepts text only, so there is no way to measure this exactly and
+ * no single right answer: it varies by projector and, on dynamic-resolution
+ * models, by the image itself. Deliberately set on the high side. Over-charging
+ * costs some output headroom on an image turn; under-charging lets the real
+ * prompt run past the context end mid-tool-call, which is the failure this
+ * whole accounting path exists to prevent.
+ */
+const IMAGE_TOKEN_ESTIMATE = 768
+/**
+ * Output room below which a round is not worth sending.
+ *
+ * Matches `MIN_FUNCTION_OUTPUT_TOKENS` in `localOutputBudget.ts`: that module
+ * refuses to clamp a tool-enabled turn below this because anything less cannot
+ * hold a usable call, and the same threshold decides here whether there is
+ * still a turn to run at all.
+ */
+const MIN_VIABLE_OUTPUT_TOKENS = 512
+/**
+ * Most recent tool results left untouched when reclaiming in-turn room. The
+ * model is actively reasoning from these; the older ones it has already acted
+ * on, which is what makes them the right thing to shed first.
+ */
+const PROTECTED_RECENT_TOOL_RESULTS = 2
 /** Tools the bypass nudge names by name; it only fires when one is registered. */
 const EDIT_TOOL_NAMES = ['write_file', 'edit_file', 'patch_file']
 
@@ -115,15 +155,17 @@ interface PendingToolCall {
  * worse than none here. Note two deliberate differences from the text path's
  * `measureContextBudget`:
  *
- * - `systemTokens` covers the system message *and* replayed history. This
- *   transport re-sends the entire conversation every round (there is no
- *   KV-cache session to inherit it), so history is genuinely fixed input for
- *   the turn rather than something a context-shift strategy can evict.
- * - Image tokens are not included: `/tokenize` only accepts text, and a
- *   projector's embedding cost isn't expressible there. This under-counts a
- *   turn carrying images, which errs toward a *larger* output allowance —
- *   the safe direction, since an over-tight clamp is what truncates a reply
- *   mid-tool-call.
+ * - `systemTokens` covers the system message *and* replayed history — including
+ *   the arguments of every tool call made so far this turn. This transport
+ *   re-sends the entire conversation every round (there is no KV-cache session
+ *   to inherit it), so all of that is genuinely fixed input for the turn rather
+ *   than something a context-shift strategy can evict.
+ * - What `/tokenize` structurally cannot measure — the chat template's
+ *   per-message framing and the projector's per-image embedding cost — is
+ *   *added* as an estimate rather than omitted. Omitting it under-counts, and
+ *   an under-count is not the safe direction: it inflates the output ceiling
+ *   until the real prompt runs past the end of the context mid-tool-call, which
+ *   llama-server surfaces as an unrecoverable 500 from its own argument parse.
  */
 interface MeasuredInput {
   systemTokens: number
@@ -190,8 +232,15 @@ export class LlamaVisionService {
     let hadSuccessfulWrite = false
     let hadAnyToolAttempt = false
     let fabricationDetectedThisTurn = false
+    // Recomputed from this round's real measurement below, exactly as the text
+    // path does (`LlamaService.generateInternal`). Left at `null` — as this
+    // transport used to leave it permanently — every tool result falls back to
+    // a static character cap that knows nothing about how much of a 16K context
+    // is already spent, so one `read_file` late in a turn can claim room the
+    // reply needed.
+    const modelResultBudgetBox: { current: ModelToolResultBudget | null } = { current: null }
     const allToolFunctions = params.tools
-      ? this.buildToolFunctions(params, visualInputs, (call) => {
+      ? this.buildToolFunctions(params, visualInputs, modelResultBudgetBox, (call) => {
           hadAnyToolAttempt = true
           if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
           // Denied calls are excluded — a user decision, not a model signal.
@@ -223,6 +272,12 @@ export class LlamaVisionService {
     let toolCallsTruncated = false
     /** Set when the runtime failed a tool-call parse without having generated. */
     let staleParseFailure = false
+    /**
+     * Set when the turn ran out of room for a usable reply before sending one:
+     * `'fixed'` if the turn's own fixed input never fit, `'in-turn'` if this
+     * turn's accumulated tool traffic consumed the window.
+     */
+    let contextExhausted: 'fixed' | 'in-turn' | null = null
 
     const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
     const requestedMaxTokens = params.options?.maxTokens
@@ -242,6 +297,46 @@ export class LlamaVisionService {
       // ceiling is used unchanged — the pre-measurement behavior — because
       // clamping against a guess truncates replies for no benefit.
       measured = await this.measureInput(messages, tools, params.prompt)
+      const inputLimitTokens = Math.max(0, this.contextSize - RESERVED_TOKENS)
+      // Nothing else bounds growth *within* a turn. History is compacted once,
+      // upstream, before the first round; from there every call and every
+      // result is appended and never removed, so a long tool-using turn walks
+      // steadily toward the context end. Reclaim room from the results the
+      // model has already acted on before the prompt gets there, rather than
+      // letting llama-server truncate the prompt out from under a tool call.
+      if (measured && inputLimitTokens - measured.fixedTokens < MIN_VIABLE_OUTPUT_TOKENS) {
+        const reclaimed = reclaimToolResultRoom(messages)
+        if (reclaimed > 0) {
+          log.info('Reclaimed in-turn room from earlier tool results', {
+            round,
+            results: reclaimed,
+            fixedTokensBefore: measured.fixedTokens
+          })
+          measured = await this.measureInput(messages, tools, params.prompt)
+        }
+      }
+      // Sending a request the prompt has already outgrown cannot produce a
+      // usable reply: llama-server truncates the prompt to fit, cuts the model
+      // off part-way through whatever it was emitting, and 500s on its own
+      // parse of the half-written call. Ending here instead keeps the text and
+      // completed tool work from the rounds that did fit.
+      if (measured && inputLimitTokens - measured.fixedTokens < MIN_VIABLE_OUTPUT_TOKENS) {
+        // Two different faults, and conflating them sends the user after the
+        // wrong thing. On the first round nothing has accumulated yet, so the
+        // *fixed* input — system prompt, project rules, tool schemas — is what
+        // does not fit, and no amount of continuing helps; that is exactly what
+        // `fixed-context-limit` reports, and it is deliberately not a
+        // recoverable stop. Later rounds ran out because this turn's own tool
+        // traffic filled the window, which a fresh cycle over compacted history
+        // genuinely can carry on from.
+        contextExhausted = round === 0 ? 'fixed' : 'in-turn'
+        log.warn('Stopping the turn: no room left for a usable reply', {
+          round,
+          fixedTokens: measured.fixedTokens,
+          inputLimitTokens
+        })
+        break
+      }
       // The reply ceiling is the single most common cause of a tool call that
       // never finished emitting, and it is assembled from three places (the
       // user's setting, this turn's measured room, and a hard default). Log
@@ -253,9 +348,17 @@ export class LlamaVisionService {
         contextSize: this.contextSize
       })
       if (measured) {
+        // Tool results run through the same measured accounting the reply does,
+        // so a result landing late in a turn can't claim the room the reply
+        // needs. Recomputed every round because `fixedTokens` only grows.
+        modelResultBudgetBox.current = computeModelToolResultBudget({
+          contextSizeTokens: this.contextSize,
+          inputLimitTokens,
+          fixedTokens: measured.fixedTokens
+        })
         const budget = resolveLocalOutputBudget({
           contextSize: this.contextSize,
-          inputLimitTokens: Math.max(0, this.contextSize - RESERVED_TOKENS),
+          inputLimitTokens,
           fixedTokens: measured.fixedTokens,
           requestedMaxTokens,
           hasFunctions: toolFunctions != null
@@ -279,6 +382,12 @@ export class LlamaVisionService {
       let roundThinking = ''
       let finishReason: string | null = null
       const roundStartedAt = Date.now()
+      // llama-server prints its own per-request accounting (`launch_slot_`,
+      // `print_timing`, `release`) as it works. Captured here so a failure can
+      // be checked against whether the process did anything at all — see the
+      // stale-parse branch below, where that is the difference between a
+      // runtime fault and a genuine truncation.
+      const runtimeOutputBefore = this.runtime.recentOutput()
       const pendingCalls = new Map<number, PendingToolCall>()
       try {
         const stream = await client.chat.completions.create(
@@ -343,20 +452,29 @@ export class LlamaVisionService {
           const roundMs = Date.now() - roundStartedAt
           const preview = truncatedArgumentsPreview(error)
           const argumentsChars = truncatedArgumentsLength(error)
-          // A truncated call takes real decoding time to produce. A failure
-          // that returns faster than any model could have generated those
-          // arguments means the runtime replayed a stale parse instead of
-          // running the model at all — retrying that is free of any chance of
-          // succeeding, and would only spend the budget and end on a message
-          // blaming the request's size.
-          if (roundMs < MIN_PLAUSIBLE_GENERATION_MS) {
+          // A failure that comes back faster than the model could have decoded
+          // anything *may* mean the runtime replayed a stale parse instead of
+          // running at all — retrying that has no chance of succeeding, and
+          // would only spend the budget and end on a message blaming the
+          // request's size.
+          //
+          // Timing alone does not establish it, though. A call cut off almost
+          // immediately — because the prompt left only a handful of tokens —
+          // fails just as fast while being entirely genuine, and treating that
+          // as a runtime fault turns a recoverable round into a dead turn with
+          // misleading advice. So the timing only opens the question, and
+          // llama-server's own output settles it: a process that really ran the
+          // model prints new per-request accounting, and one replaying a cached
+          // error prints nothing.
+          const runtimeOutputAfter = this.runtime.recentOutput()
+          if (roundMs < MIN_PLAUSIBLE_GENERATION_MS && runtimeOutputAfter === runtimeOutputBefore) {
             staleParseFailure = true
             log.error('llama-server returned a tool-call parse failure without generating', {
               roundMs,
               round,
               argumentsChars,
               preview,
-              runtimeOutput: this.runtime.recentOutput()
+              runtimeOutput: runtimeOutputAfter
             })
             break
           }
@@ -516,9 +634,14 @@ export class LlamaVisionService {
       }
     }
 
-    // Not a bounded stop: the model is not the problem and there is nothing
-    // for the user to phrase differently, so this must not be reported as one.
-    if (staleParseFailure) {
+    // Only a throw when the turn has nothing to lose. Throwing discards the
+    // whole `GenerateOutcome`, so on a turn that had already streamed a reply
+    // and written files across a dozen rounds it destroyed all of it — the user
+    // saw a bare red error, while the tool work sat on disk unrecorded and
+    // unattributed to any message. A late runtime fault is a reason to end the
+    // turn, never a reason to throw away what it accomplished; `runtime-stalled`
+    // reports it just as plainly with the content kept.
+    if (staleParseFailure && !content && !hadAnyToolAttempt) {
       throw new Error(
         'The local runtime stopped running the model and returned the same tool-call parse ' +
           'failure from an earlier reply. Reload the model to clear it, then try again.'
@@ -544,16 +667,30 @@ export class LlamaVisionService {
         effectiveMaxTokens
       }),
       fabricationDetected: fabricationDetectedThisTurn || undefined,
-      stopped: stopped || roundsExhausted || tokenLimit || toolCallsTruncated,
-      stopReason: toolCallsTruncated
-        ? 'tool-call-truncated'
-        : roundsExhausted
-          ? 'rounds-exhausted'
-          : stopped
-            ? 'user'
-            : tokenLimit
-              ? 'token-limit'
-              : undefined
+      stopped:
+        stopped ||
+        roundsExhausted ||
+        tokenLimit ||
+        toolCallsTruncated ||
+        contextExhausted !== null ||
+        staleParseFailure,
+      // Ordered most-specific first: a runtime fault and an exhausted context
+      // are both diagnoses the later, coarser reasons would hide.
+      stopReason: staleParseFailure
+        ? 'runtime-stalled'
+        : contextExhausted === 'fixed'
+          ? 'fixed-context-limit'
+          : contextExhausted === 'in-turn'
+            ? 'context-limit'
+            : toolCallsTruncated
+              ? 'tool-call-truncated'
+              : roundsExhausted
+                ? 'rounds-exhausted'
+                : stopped
+                  ? 'user'
+                  : tokenLimit
+                    ? 'token-limit'
+                    : undefined
     }
   }
 
@@ -571,7 +708,7 @@ export class LlamaVisionService {
     tools: ChatCompletionTool[] | undefined,
     prompt: string
   ): Promise<MeasuredInput | null> {
-    const conversationText = messages.map(messageText).filter(Boolean).join('\n')
+    const conversationText = messages.map(messageCostText).filter(Boolean).join('\n')
     const [conversationTokens, promptTokens, toolSchemaTokens] = await Promise.all([
       this.runtime.countTokens(conversationText),
       this.runtime.countTokens(prompt),
@@ -580,9 +717,16 @@ export class LlamaVisionService {
     if (conversationTokens === null || promptTokens === null || toolSchemaTokens === null) {
       return null
     }
+    // Everything `/tokenize` structurally cannot see: the chat template's own
+    // per-message framing, and the projector's embedding cost for each image.
+    // Both are real prompt tokens on the server, so leaving them out inflates
+    // the output ceiling by exactly the amount most likely to overflow.
+    const untokenizable =
+      messages.length * MESSAGE_FRAMING_TOKENS +
+      messages.reduce((total, message) => total + imagePartCount(message), 0) * IMAGE_TOKEN_ESTIMATE
     // `messages` already ends with the current prompt, so subtract it back out
     // to keep `promptTokens` an incremental figure and `fixedTokens` a total.
-    const systemTokens = Math.max(0, conversationTokens - promptTokens)
+    const systemTokens = Math.max(0, conversationTokens + untokenizable - promptTokens)
     return {
       systemTokens,
       promptTokens,
@@ -677,6 +821,7 @@ export class LlamaVisionService {
   private buildToolFunctions(
     params: GenerateParams,
     visualInputs: VisualInputQueue,
+    modelResultBudget: { current: ModelToolResultBudget | null },
     onActivity: (call: ToolCall) => void
   ): Record<string, ToolFunction> | undefined {
     if (!params.tools) return undefined
@@ -703,7 +848,7 @@ export class LlamaVisionService {
       loopGuard: createLoopGuardState(),
       // Fresh every generation call, matching the text and cloud model paths.
       progress: { madeChange: false },
-      modelResultBudget: { current: null },
+      modelResultBudget,
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
       visualInputs,
       signal: params.signal,
@@ -788,6 +933,58 @@ function truncatedToolCallGuidance(preview: string | undefined): string {
     ' keeping every single call short. Otherwise, answer without the tool call.'
   ].join('')
 }
+
+/**
+ * Free room inside an in-progress turn by replacing the *contents* of older
+ * tool results with a short note, in place.
+ *
+ * Replaced rather than removed, deliberately. An assistant `tool_calls` message
+ * whose matching `role: 'tool'` reply is missing is a malformed exchange: chat
+ * templates render it inconsistently and some refuse it outright. Rewriting the
+ * content keeps every call paired with a reply while shedding the bulk, which
+ * on a tool-heavy turn is almost entirely file text the model has already read.
+ *
+ * The note names the tool and says the result is recoverable, so a model that
+ * still needs the content can ask for it again instead of inventing it —
+ * silently emptying a result is exactly the kind of gap the fabrication
+ * detectors in `toolCallFallback.ts` exist to catch.
+ *
+ * @returns how many results were shortened.
+ */
+function reclaimToolResultRoom(messages: ChatCompletionMessageParam[]): number {
+  const toolNameById = new Map<string, string>()
+  for (const message of messages) {
+    for (const call of toolCallsOf(message)) {
+      if (call.id && call.function?.name) toolNameById.set(call.id, call.function.name)
+    }
+  }
+
+  const reclaimable: number[] = []
+  messages.forEach((message, index) => {
+    if (message.role !== 'tool') return
+    const content = (message as { content?: unknown }).content
+    if (typeof content !== 'string' || content.startsWith(RECLAIMED_RESULT_MARKER)) return
+    reclaimable.push(index)
+  })
+
+  let reclaimed = 0
+  for (const index of reclaimable.slice(
+    0,
+    Math.max(0, reclaimable.length - PROTECTED_RECENT_TOOL_RESULTS)
+  )) {
+    const message = messages[index] as { content: string; tool_call_id?: string }
+    const name = (message.tool_call_id && toolNameById.get(message.tool_call_id)) || 'a tool'
+    messages[index] = {
+      ...(messages[index] as object),
+      content: `${RECLAIMED_RESULT_MARKER} The full result of ${name} was dropped to make room in this turn. Run it again if you still need it — do not guess at what it said.`
+    } as ChatCompletionMessageParam
+    reclaimed += 1
+  }
+  return reclaimed
+}
+
+/** Prefix identifying an already-shortened result, so it is never re-counted. */
+const RECLAIMED_RESULT_MARKER = '[Result trimmed to fit the context.]'
 
 function toOpenAiTools(toolFunctions: Record<string, ToolFunction>): ChatCompletionTool[] {
   return Object.entries(toolFunctions).map(([name, fn]) => {
@@ -931,18 +1128,60 @@ function estimatedInput(params: GenerateParams, toolCount: number): MeasuredInpu
 }
 
 /**
- * Text carried by one rendered message, for tokenization. Image parts are
- * skipped — see `MeasuredInput` for why that under-count is the safe direction.
+ * Everything about one rendered message that costs text tokens: its content
+ * *and* the tool calls it carries.
+ *
+ * The tool calls are the part that matters. This transport replays the whole
+ * message array every round, and an assistant tool-call message stores its
+ * payload in `tool_calls[].function.arguments`, not in `content` — which is
+ * `null` whenever the model called a tool without narrating. Measuring only
+ * `content` therefore scored the single largest thing in the conversation as
+ * zero: a `write_file` call carries an entire file body, and it is re-sent on
+ * every subsequent round.
+ *
+ * Live failure this fixes: a turn measured at 11,849 fixed tokens was sized for
+ * 3,420 more of output, while llama-server reported the real prompt reaching
+ * 16,383 of a 16,384 context (`truncated = 1`). The ~4,450-token gap was
+ * exactly the tool-call arguments this function used to skip. The model was cut
+ * off mid-JSON, llama-server's own `--jinja` parse of the arguments threw, and
+ * the whole request 500'd.
+ *
+ * Image parts are counted separately (see `IMAGE_TOKEN_ESTIMATE`), because
+ * `/tokenize` takes text only.
  */
-function messageText(message: ChatCompletionMessageParam): string {
+function messageCostText(message: ChatCompletionMessageParam): string {
+  const parts: string[] = []
   const content = (message as { content?: unknown }).content
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  return content
-    .map((part) =>
-      typeof part === 'object' && part && 'text' in part
-        ? String((part as { text: unknown }).text)
-        : ''
-    )
-    .join('')
+  if (typeof content === 'string') {
+    parts.push(content)
+  } else if (Array.isArray(content)) {
+    for (const part of content) {
+      if (typeof part === 'object' && part && 'text' in part) {
+        parts.push(String((part as { text: unknown }).text))
+      }
+    }
+  }
+  for (const call of toolCallsOf(message)) {
+    parts.push(call.function?.name ?? '', call.function?.arguments ?? '')
+  }
+  return parts.join('')
+}
+
+interface RenderedToolCall {
+  id?: string
+  function?: { name?: string; arguments?: string }
+}
+
+function toolCallsOf(message: ChatCompletionMessageParam): RenderedToolCall[] {
+  const calls = (message as { tool_calls?: unknown }).tool_calls
+  return Array.isArray(calls) ? (calls as RenderedToolCall[]) : []
+}
+
+/** How many image parts one rendered message carries. */
+function imagePartCount(message: ChatCompletionMessageParam): number {
+  const content = (message as { content?: unknown }).content
+  if (!Array.isArray(content)) return 0
+  return content.filter(
+    (part) => typeof part === 'object' && part && (part as { type?: unknown }).type === 'image_url'
+  ).length
 }

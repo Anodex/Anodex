@@ -743,6 +743,8 @@ function stopReasonLabel(reason: CriticalThinkingTerminationReason): string {
       'Searches found no open, readable source with this data — the specifics may be paywalled or unpublished.',
     'tool-call-truncated':
       'The model kept getting cut off part-way through a search or page read, so it never ran.',
+    'runtime-stalled':
+      'The local runtime stopped running the model here — reload the model, then Resume.',
     yielded: 'Saved progress here to continue later.'
   }
   return labels[reason]

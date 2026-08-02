@@ -28,6 +28,14 @@ export type GenerationStopReason =
    * single call — usually one carrying a large file body.
    */
   | 'tool-call-truncated'
+  /**
+   * The local runtime stopped running the model and answered from a failure it
+   * had already returned, without decoding anything. Distinct from
+   * `tool-call-truncated`, which is the model genuinely overrunning a call:
+   * here nothing generated at all, so nothing about the request explains it and
+   * no rephrasing helps. Reloading the model clears it.
+   */
+  | 'runtime-stalled'
   | 'yielded'
 
 /** Exact local-model input accounting captured with the active wrapper and tokenizer. */

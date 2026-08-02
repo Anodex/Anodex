@@ -81,6 +81,20 @@ export function describeGenerationStop(
         error:
           'The model kept getting cut off part-way through a tool call, so it never ran and nothing was changed. This usually means one call was carrying too much at once — ask for the work in smaller pieces, or raise the model’s context size.'
       }
+    case 'runtime-stalled':
+      // The local runtime is at fault, not the request — so unlike
+      // `tool-call-truncated` there is no advice about smaller calls to give.
+      // Whatever the turn produced before the stall is real and is kept.
+      return hasContent
+        ? {
+            error:
+              'This reply stopped early — the local runtime stopped running the model and repeated an earlier failure. The text and completed tool work above were preserved. Reload the model to clear it.',
+            errorKind: 'bounded'
+          }
+        : {
+            error:
+              'The local runtime stopped running the model and returned an earlier failure instead. Reload the model to clear it, then try again.'
+          }
     case 'loop-guard':
     case 'no-progress':
       // Repetition without progress is a real malfunction worth flagging

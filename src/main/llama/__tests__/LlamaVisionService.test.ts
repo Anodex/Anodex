@@ -39,7 +39,13 @@ const mocks = vi.hoisted(() => ({
    * how long the request "took" — the service distinguishes a real generation
    * from a runtime replaying a stale failure by exactly that.
    */
-  rounds: [] as Array<{ chunks?: StreamChunk[]; error?: Error; elapsedMs?: number }>,
+  rounds: [] as Array<{
+    chunks?: StreamChunk[]
+    error?: Error
+    elapsedMs?: number
+    /** New llama-server output this request produces, i.e. the runtime really ran. */
+    emitsRuntimeOutput?: string
+  }>,
   /** Mocked `Date.now()`, advanced only by scripted round durations. */
   now: 0,
   requests: [] as Array<Record<string, unknown>>,
@@ -51,7 +57,17 @@ const mocks = vi.hoisted(() => ({
    */
   countTokens: null as ((text: string) => number | null) | null,
   reliability: [] as unknown[][],
-  toolContext: null as { emit: (call: unknown) => void } | null
+  toolContext: null as {
+    emit: (call: unknown) => void
+    modelResultBudget: { current: unknown }
+  } | null,
+  /**
+   * Stands in for the tail of llama-server's own stdout. The service compares
+   * it across a request to tell a runtime that really ran the model (new
+   * per-request accounting printed) from one replaying a cached failure
+   * (byte-identical output), so a test can script either.
+   */
+  runtimeOutput: 'slot released | stop type = limit'
 }))
 
 class FakeApiError extends Error {}
@@ -68,6 +84,7 @@ vi.mock('openai', () => {
           // Default to a duration only a real generation could take, so a test
           // has to opt in to the implausibly-fast case.
           mocks.now += round.elapsedMs ?? 60_000
+          if (round.emitsRuntimeOutput) mocks.runtimeOutput = round.emitsRuntimeOutput
           if (round.error) throw round.error
           const chunks = round.chunks ?? []
           return Promise.resolve({
@@ -107,7 +124,7 @@ vi.mock('../LlamaServerRuntime', () => ({
       )
     }
     recentOutput(): string {
-      return 'slot released | stop type = limit'
+      return mocks.runtimeOutput
     }
   }
 }))
@@ -115,7 +132,7 @@ vi.mock('../LlamaServerRuntime', () => ({
 vi.mock('../../tools/registry', () => ({
   // Captures the runtime context so a test's handler can emit tool activity
   // the way `runGuardedTool` does for every real tool.
-  buildTools: (_define: unknown, ctx: { emit: (call: unknown) => void }) => {
+  buildTools: (_define: unknown, ctx: NonNullable<(typeof mocks)['toolContext']>) => {
     mocks.toolContext = ctx
     return mocks.toolFunctions
   }
@@ -163,9 +180,9 @@ const TEST_MODEL: ModelInfo = {
   source: 'local'
 }
 
-async function service(): Promise<InstanceType<typeof LlamaVisionService>> {
+async function service(contextSize?: number): Promise<InstanceType<typeof LlamaVisionService>> {
   const instance = new LlamaVisionService(undefined, () => TEST_MODEL)
-  await instance.load({ path: 'model.gguf', visionProjectorPath: 'mmproj.gguf' })
+  await instance.load({ path: 'model.gguf', visionProjectorPath: 'mmproj.gguf', contextSize })
   return instance
 }
 
@@ -176,6 +193,7 @@ beforeEach(() => {
   mocks.countTokens = null
   mocks.reliability.length = 0
   mocks.now = 0
+  mocks.runtimeOutput = 'slot released | stop type = limit'
   vi.spyOn(Date, 'now').mockImplementation(() => mocks.now)
 })
 
@@ -554,12 +572,15 @@ describe('LlamaVisionService.generate', () => {
         handler: () => Promise.resolve('ok')
       }
     }
-    // 30k of a 32,768 context already spent: far less than 8,192 is left.
+    // 30k of a 32,768 context already spent: far less than 8,192 is left. The
+    // context has to be loaded at that size for the fixture to mean anything —
+    // against the 8,192 default those 30k tokens do not fit at all, and the
+    // turn is now stopped before a doomed request rather than clamped.
     mocks.countTokens = (text) => (text.includes('Build a website.') ? 30_000 : 10)
     mocks.rounds.push({ chunks: [textChunk('ok', 'stop')] })
 
     const outcome = await (
-      await service()
+      await service(32_768)
     ).generate(params({ tools: withTools, options: { maxTokens: 8192 } }))
 
     const sent = mocks.requests[0].max_tokens as number
@@ -608,5 +629,214 @@ describe('LlamaVisionService.generate', () => {
     const first = mocks.requests[0].max_tokens as number
     const second = mocks.requests[1].max_tokens as number
     expect(second).toBeLessThan(first)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Context accounting. Every case here traces to one live failure: a turn
+  // measured at 11,849 fixed tokens was given 3,420 more of output while
+  // llama-server reported the real prompt reaching 16,383 of a 16,384 context.
+  // The gap was the arguments of the tool calls already made that turn, which
+  // the measurement scored as zero.
+  // ---------------------------------------------------------------------------
+
+  it('counts the arguments of tool calls already made this turn', async () => {
+    mocks.toolFunctions = {
+      write_file: {
+        description: 'Write.',
+        params: { type: 'object' },
+        // Tiny, so the drop measured below can only come from the call itself.
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    // A `write_file` carrying a file body — the payload lives in the call's
+    // arguments, and the assistant message that replays it has no `content` at
+    // all. Measuring `content` alone scored this whole thing as zero and went
+    // on to promise the model output room the context did not have.
+    const fileBody = JSON.stringify({ path: 'index.html', content: 'x'.repeat(8_000) })
+    mocks.rounds.push({ chunks: [toolCallChunk('write_file', fileBody)] })
+    mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+    // No requested ceiling, so `max_tokens` is purely what the measurement says
+    // is left — which is the number this test is about.
+    await (await service(32_768)).generate(params({ tools: withTools }))
+
+    const first = mocks.requests[0].max_tokens as number
+    const second = mocks.requests[1].max_tokens as number
+    // ~8,000 characters of arguments is ~2,000 tokens under this tokenizer.
+    // Before the fix the drop was only the 2-character result.
+    expect(first - second).toBeGreaterThan(1_500)
+  })
+
+  it('charges for images the tokenizer cannot see', async () => {
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    mocks.rounds.push({ chunks: [textChunk('A red circle.', 'stop')] })
+    mocks.rounds.push({ chunks: [textChunk('A red circle.', 'stop')] })
+
+    const image = {
+      dataUrl: 'data:image/png;base64,aGk=',
+      mimeType: 'image/png',
+      name: 'shot.png',
+      path: 'C:\\ws\\shot.png',
+      sizeBytes: 2
+    }
+    const withoutImage = await (await service(32_768)).generate(params())
+    const withImage = await (await service(32_768)).generate(params({ images: [image] }))
+
+    // `/tokenize` takes text only, so a projector's embedding cost is invisible
+    // to it. Left at zero it inflates the output ceiling by exactly the amount
+    // most likely to run the real prompt past the end of the context.
+    expect(withImage.contextBudget?.fixedTokens).toBeGreaterThan(
+      (withoutImage.contextBudget?.fixedTokens ?? 0) + 500
+    )
+  })
+
+  it('bounds tool results against the room the turn actually has left', async () => {
+    mocks.toolFunctions = {
+      read_file: {
+        description: 'Read.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+    await (await service(16_384)).generate(params({ tools: withTools }))
+
+    // Left unset — as this transport used to leave it permanently — every tool
+    // result falls back to a static character cap that knows nothing about how
+    // much of the context is already spent.
+    const budget = mocks.toolContext?.modelResultBudget.current as {
+      contextSizeTokens: number
+      maxTokensPerResult: number
+    } | null
+    expect(budget).not.toBeNull()
+    expect(budget?.contextSizeTokens).toBe(16_384)
+    expect(budget?.maxTokensPerResult).toBeGreaterThan(0)
+  })
+
+  it('ends the turn instead of sending a request the prompt has outgrown', async () => {
+    mocks.toolFunctions = {
+      read_file: {
+        description: 'Read.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('y'.repeat(60_000))
+      }
+    }
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}')] })
+    mocks.rounds.push({ chunks: [textChunk('unreachable', 'stop')] })
+
+    const outcome = await (await service(8_192)).generate(params({ tools: withTools }))
+
+    // Sending it anyway is what produced the live failure: llama-server
+    // truncates the prompt to fit, cuts the model off part-way through
+    // whatever it was emitting, then 500s on its own parse of the fragment.
+    expect(mocks.requests).toHaveLength(1)
+    expect(outcome.stopped).toBe(true)
+    // This turn's own tool traffic filled the window, which a fresh cycle over
+    // compacted history can carry on from — so a recoverable stop.
+    expect(outcome.stopReason).toBe('context-limit')
+  })
+
+  it('separates fixed input that never fit from a window this turn filled', async () => {
+    // Nothing has accumulated on round 0, so the system prompt, project rules
+    // and tool schemas are what do not fit. Continuing cannot help, and
+    // reporting it as the recoverable `context-limit` would send the user after
+    // the wrong thing — and let a caller retry a turn that can never start.
+    mocks.countTokens = () => 9_000
+    mocks.rounds.push({ chunks: [textChunk('unreachable', 'stop')] })
+
+    const outcome = await (await service(8_192)).generate(params({ tools: withTools }))
+
+    expect(mocks.requests).toHaveLength(0)
+    expect(outcome.stopReason).toBe('fixed-context-limit')
+  })
+
+  it('reclaims room from earlier results without orphaning a tool call', async () => {
+    let call = 0
+    mocks.toolFunctions = {
+      read_file: {
+        description: 'Read.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve(`${'z'.repeat(20_000)}#${(call += 1)}`)
+      }
+    }
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    for (let i = 0; i < 4; i++) {
+      mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', `call_${i}`)] })
+    }
+    mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+    const outcome = await (await service(16_384)).generate(params({ tools: withTools }))
+
+    expect(outcome.content).toBe('Done.')
+    const sent = mocks.requests.at(-1)?.messages as Array<{
+      role: string
+      content: unknown
+      tool_call_id?: string
+      tool_calls?: Array<{ id: string }>
+    }>
+    // The bulk is shed from results the model has already acted on...
+    expect(
+      sent.filter((m) => typeof m.content === 'string' && m.content.startsWith('[Result trimmed'))
+        .length
+    ).toBeGreaterThan(0)
+    // ...but every call still has its reply. An assistant `tool_calls` message
+    // whose `role: 'tool'` answer went missing is a malformed exchange that
+    // chat templates render inconsistently or refuse outright.
+    const answered = new Set(sent.filter((m) => m.role === 'tool').map((m) => m.tool_call_id))
+    for (const message of sent) {
+      for (const made of message.tool_calls ?? []) expect(answered.has(made.id)).toBe(true)
+    }
+  })
+
+  it('treats a fast truncation as real when the runtime actually ran', async () => {
+    mocks.toolFunctions = {
+      write_file: {
+        description: 'Write.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    // A call cut off almost immediately — because the prompt left only a
+    // handful of tokens — comes back just as fast as a replayed failure.
+    // Timing alone cannot tell them apart, and calling this one a runtime fault
+    // turns a recoverable round into a dead turn with misleading advice.
+    // llama-server printing new per-request accounting is what settles it.
+    mocks.rounds.push({
+      error: truncatedToolCall(),
+      elapsedMs: 40,
+      emitsRuntimeOutput: 'slot launch_slot_: id 0 | task 7 | processing task'
+    })
+    mocks.rounds.push({ chunks: [textChunk('Wrote it in pieces instead.', 'stop')] })
+
+    const outcome = await (await service()).generate(params({ tools: withTools }))
+
+    expect(outcome.content).toBe('Wrote it in pieces instead.')
+    expect(mocks.requests).toHaveLength(2)
+  })
+
+  it('keeps the work of earlier rounds when the runtime stalls late in a turn', async () => {
+    mocks.toolFunctions = {
+      write_file: {
+        description: 'Write.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    mocks.rounds.push({ chunks: [textChunk('Step 1 done. '), toolCallChunk('write_file', '{}')] })
+    mocks.rounds.push({ error: truncatedToolCall(), elapsedMs: 58_000 })
+    mocks.rounds.push({ error: truncatedToolCall(), elapsedMs: 16 })
+
+    const outcome = await (await service()).generate(params({ tools: withTools }))
+
+    // Throwing here discarded the whole outcome: the user saw a bare red error
+    // while the files this turn had already written sat on disk, recorded
+    // against no message at all.
+    expect(outcome.content).toBe('Step 1 done. ')
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('runtime-stalled')
   })
 })
