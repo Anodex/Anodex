@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { ImapFlow, type FetchMessageObject, type MailboxLockObject } from 'imapflow'
 import { simpleParser, type ParsedMail } from 'mailparser'
-import { createTransport } from 'nodemailer'
+import { createTransport, type SendMailOptions } from 'nodemailer'
 import type {
   EmailAccount,
   EmailAttachmentSummary,
@@ -167,13 +168,31 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
    * inbox. Both are searched and the results merged.
    */
   async getThreadMessages(account: EmailAccount, threadId: string): Promise<EmailMessage[]> {
+    return this.threadMessagesIn(account, threadId, [
+      'INBOX',
+      ...(await this.findSentMailbox(account))
+    ])
+  }
+
+  /**
+   * The conversation as it exists in a given set of folders.
+   *
+   * Reading a thread means INBOX plus Sent, but acting on one sometimes means
+   * looking somewhere else entirely — un-archiving has to find the messages
+   * where archiving left them, and they are in neither.
+   */
+  private async threadMessagesIn(
+    account: EmailAccount,
+    threadId: string,
+    mailboxes: string[]
+  ): Promise<EmailMessage[]> {
     const key = decodeThreadId(threadId)
     // A subject-less message is a conversation of one — there is no subject to
-    // match the rest of it on. See `encodeThreadId`.
+    // match the rest of it on. See `encodeThreadId`. Its id carries its own
+    // mailbox, so `mailboxes` does not apply: the id names one exact message.
     if (key.kind === 'message') return [await this.readMessage(account, key.messageId)]
 
     const subject = key.subject
-    const mailboxes = ['INBOX', ...(await this.findSentMailbox(account))]
 
     const collected: EmailMessage[] = []
     for (const mailbox of mailboxes) {
@@ -301,30 +320,94 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       auth: { user: smtp.username, pass: password }
     })
 
+    const mail: SendMailOptions = {
+      // Structured rather than pre-formatted: a display name containing a
+      // comma ("Doe, John") or a quote parses as two addresses once it has
+      // been flattened into a header, so let nodemailer do the quoting.
+      from: account.displayName
+        ? { name: account.displayName, address: account.address }
+        : account.address,
+      to: message.to,
+      cc: message.cc.length ? message.cc : undefined,
+      bcc: message.bcc.length ? message.bcc : undefined,
+      subject: message.subject,
+      text: message.body,
+      inReplyTo: message.inReplyTo,
+      references: message.references?.length ? message.references : undefined,
+      // Fixed here rather than left to nodemailer's per-compose default, so the
+      // copy filed in Sent below carries the same Message-ID as the message
+      // that was actually delivered. Threading and the duplicate check both key
+      // on it.
+      messageId: `<${randomUUID()}@${account.address.split('@')[1] || 'anodex.local'}>`,
+      attachments: message.attachments.map((attachment) => ({
+        filename: attachment.filename,
+        contentType: attachment.mimeType,
+        content: Buffer.from(attachment.contentBase64, 'base64')
+      }))
+    }
+
     try {
-      await transport.sendMail({
-        // Structured rather than pre-formatted: a display name containing a
-        // comma ("Doe, John") or a quote parses as two addresses once it has
-        // been flattened into a header, so let nodemailer do the quoting.
-        from: account.displayName
-          ? { name: account.displayName, address: account.address }
-          : account.address,
-        to: message.to,
-        cc: message.cc.length ? message.cc : undefined,
-        bcc: message.bcc.length ? message.bcc : undefined,
-        subject: message.subject,
-        text: message.body,
-        inReplyTo: message.inReplyTo,
-        references: message.references?.length ? message.references : undefined,
-        attachments: message.attachments.map((attachment) => ({
-          filename: attachment.filename,
-          contentType: attachment.mimeType,
-          content: Buffer.from(attachment.contentBase64, 'base64')
-        }))
-      })
+      await transport.sendMail(mail)
     } finally {
       transport.close()
     }
+
+    await this.fileSentCopy(account, mail)
+  }
+
+  /**
+   * Files a copy of a just-sent message in the server's Sent folder.
+   *
+   * Gmail's SMTP does this server-side; iCloud, Fastmail, Proton Bridge and
+   * most self-hosted servers do not — the client is expected to APPEND it. Left
+   * undone, a reply sent from Anodex is simply missing from the user's Sent
+   * folder, and therefore from the thread view, which reads Sent precisely so
+   * both halves of an exchange are visible.
+   *
+   * Best-effort on purpose. The message has already been delivered by the time
+   * this runs, so nothing here can be allowed to surface as a failed send —
+   * every failure is logged and swallowed.
+   */
+  private async fileSentCopy(account: EmailAccount, mail: SendMailOptions): Promise<void> {
+    try {
+      const [mailbox] = await this.findSentMailbox(account)
+      if (!mailbox) return
+
+      // Servers that file their own copy (Gmail) would otherwise end up with
+      // two. Checking by Message-ID also makes a retried send idempotent.
+      // Inherently racy against a server still filing its copy, so a duplicate
+      // remains possible; the thread view dedupes on the same header.
+      const messageId = typeof mail.messageId === 'string' ? mail.messageId : undefined
+      if (messageId && (await this.existsInMailbox(account, mailbox, messageId))) return
+
+      // Composed through nodemailer rather than `buildMimeMessage`, which emits
+      // no From, Date or Message-ID — Gmail's API adds those server-side, so
+      // its output would file as a headerless message here.
+      const composed = await createTransport({
+        streamTransport: true,
+        buffer: true
+      }).sendMail(mail)
+      const raw = (composed as { message?: unknown }).message
+      if (!Buffer.isBuffer(raw)) return
+
+      await this.withClient(account, async (client) => {
+        await client.append(mailbox, raw, ['\\Seen'])
+      })
+    } catch (error) {
+      log.warn(`Could not file a Sent copy for ${account.address}:`, error)
+    }
+  }
+
+  /** Whether a message with this `Message-ID` is already filed in `mailbox`. */
+  private async existsInMailbox(
+    account: EmailAccount,
+    mailbox: string,
+    messageId: string
+  ): Promise<boolean> {
+    return this.withMailbox(account, mailbox, async (client) => {
+      const uids = await client.search({ header: { 'message-id': messageId } }, { uid: true })
+      return Boolean(uids && uids.length > 0)
+    })
   }
 
   /**
@@ -360,9 +443,17 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
   }
 
   async applyFlag(account: EmailAccount, target: FlagTarget): Promise<string> {
-    if (target.action === 'archive' || target.action === 'unarchive') {
-      const destination =
-        target.action === 'archive' ? await this.findArchiveMailbox(account) : 'INBOX'
+    if (target.action === 'unarchive') {
+      // Resolved against the archive, not the default INBOX + Sent. An archived
+      // thread is by definition in neither, so the default lookup found nothing
+      // and this failed with "That conversation has no messages" — unarchive
+      // could never undo an archive.
+      const archive = await this.findArchiveMailbox(account)
+      const targets = await this.resolveTargets(account, target, [archive])
+      return this.moveResolved(account, targets, 'INBOX')
+    }
+    if (target.action === 'archive') {
+      const destination = await this.findArchiveMailbox(account)
       const targets = await this.resolveTargets(account, target)
       // Archiving is about the copy sitting in the inbox. A thread also
       // resolves to the account's own replies in Sent (see
@@ -451,10 +542,16 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     })
   }
 
-  /** Maps a flag/move target onto the `{ mailbox -> uids }` pairs it touches. */
+  /**
+   * Maps a flag/move target onto the `{ mailbox -> uids }` pairs it touches.
+   *
+   * `mailboxes` overrides where a thread is looked for; omit it for the normal
+   * INBOX + Sent reading view.
+   */
   private async resolveTargets(
     account: EmailAccount,
-    target: { threadId?: string; messageId?: string }
+    target: { threadId?: string; messageId?: string },
+    mailboxes?: string[]
   ): Promise<Map<string, number[]>> {
     const result = new Map<string, number[]>()
 
@@ -465,7 +562,11 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     }
     if (!target.threadId?.trim()) throw new Error('A thread id or message id is required.')
 
-    for (const message of await this.getThreadMessages(account, target.threadId.trim())) {
+    const threadId = target.threadId.trim()
+    const messages = mailboxes
+      ? await this.threadMessagesIn(account, threadId, mailboxes)
+      : await this.getThreadMessages(account, threadId)
+    for (const message of messages) {
       const { mailbox, uid } = parseMessageId(message.id)
       const existing = result.get(mailbox)
       if (existing) existing.push(uid)

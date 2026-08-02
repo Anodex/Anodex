@@ -28,7 +28,7 @@ non-change, and the suite still passes.
 | 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0 → 5 added  | ✅ done |
 | 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0 → 4 added  | ✅ done |
 | 6   | `src/main/email/EmailService.ts`                 | 713   | 1 → 2 added  | ✅ done |
-| 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0 → 12 added | ✅ done |
+| 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0 → 18 added | ✅ done |
 | 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1            | ☐       |
 | 9   | `src/shared/ipc.ts`                              | 862   | 3            | ☐       |
 | 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0            | ☐       |
@@ -52,8 +52,8 @@ from.
 | No timeout on API-key verify clients (all providers)        | 4        | ☐               |
 | Empty turns can leave consecutive same-role messages        | 4        | ☐ narrowed in 5 |
 | `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ☐               |
-| No Sent copy is filed after an SMTP send                    | 7        | ☐               |
-| `unarchive` cannot resolve an already-archived thread       | 7        | ☐               |
+| No Sent copy is filed after an SMTP send                    | 7        | ✅ fixed        |
+| `unarchive` cannot resolve an already-archived thread       | 7        | ✅ fixed        |
 
 ---
 
@@ -742,23 +742,14 @@ Now passed structurally so nodemailer does the quoting.
 
 ### Deliberate non-changes
 
-- **Nothing files a Sent copy after an SMTP send.** Gmail's SMTP does this
-  server-side; iCloud, Fastmail and most self-hosted servers do not — the client
-  is expected to APPEND the message to Sent itself. So a reply sent from Anodex
-  can be missing from the user's Sent folder, and therefore from the thread view
-  that reads it. Real, and a genuine gap rather than a defect in existing logic:
-  it needs a new IMAP write on the send path with its own failure handling (the
-  mail is already delivered by then, so a failed append must not read as a
-  failed send). Sized as a feature, listed under open cross-cutting items.
-- **`unarchive` cannot find an archived thread.** `getThreadMessages` searches
-  INBOX and Sent only, so once a thread is in the archive, resolving it for
-  `unarchive` yields nothing and throws "That conversation has no messages."
-  Fixing it means searching the archive folder on every thread read, which
-  changes the cost of the common path — a design decision, not a repair.
-  Listed under open cross-cutting items.
 - **`parseMessageId` decodes an invalid base64url mailbox to garbage rather than
   throwing**, since `Buffer.from` never rejects. The uid half is validated, and
   a garbage mailbox name fails at SELECT with a clear server error.
+- **A message-keyed (`msg.`) thread cannot be un-archived.** Its id encodes a
+  mailbox and a uid, and an IMAP move changes both, so the id is stale the
+  moment the message is archived. This is a property of uid-based ids rather
+  than of this code — every `messageId`-targeted operation shares it — and the
+  failure is a clear "was not found in INBOX" rather than a wrong action.
 
 ### Tests added
 
@@ -767,3 +758,42 @@ thread-identity helpers, exported for the purpose. Nine were confirmed to fail
 against the pre-fix file; the three that pass either way cover behaviour that
 was already correct (single-prefix stripping, subjects that merely begin with
 those letters, whitespace collapsing).
+
+### 7.5–7.6 The two items originally deferred, now fixed
+
+Both were written up above as feature-sized rather than repairs. Taking them on
+directly rather than leaving them queued:
+
+**7.5 A sent message is now filed in Sent.** After a successful SMTP send the
+message is APPENDed to the server's Sent folder with `\Seen`. Three details
+carry the weight:
+
+- The copy is composed through nodemailer, not `buildMimeMessage`. That builder
+  exists for Gmail's API, which adds `From`, `Date` and `Message-ID`
+  server-side, so its output would file here as a headerless message.
+- The `Message-ID` is now generated up front and pinned into the mail options,
+  so the filed copy carries the same one that was delivered. Threading and the
+  duplicate check below both key on that header.
+- Filing is best-effort and cannot fail a send. The mail is already delivered by
+  the time this runs, so every failure is logged and swallowed — reporting a
+  filing problem as a failed send would invite the user to send twice.
+
+Servers that file their own copy (Gmail over IMAP, which is a large share of the
+accounts reaching this adapter) would otherwise end up with two, so the Sent
+folder is searched for the `Message-ID` first. That check is inherently racy
+against a server still filing its own copy, so a duplicate remains possible; the
+thread view already dedupes on the same header.
+
+**7.6 `unarchive` resolves against the archive.** A thread is normally looked up
+in INBOX + Sent, which is exactly where an archived thread is not — so
+`unarchive` resolved to nothing and threw "That conversation has no messages",
+meaning it could never undo an archive. Thread lookup now takes an explicit set
+of mailboxes (`threadMessagesIn`), the reading path passes INBOX + Sent as
+before, and `unarchive` passes the archive folder. The common read path is
+unchanged, which was the concern that had it deferred.
+
+Six more tests in `ImapSmtpAdapter.mailbox.test.ts`, against a fake IMAP server
+that models SEARCH HEADER as the substring test it really is. Three fail against
+the pre-fix file. Of the three that pass either way, one is the archive/Sent
+guard from 7.3, and two — the duplicate check and the filing-failure path — pass
+vacuously before the fix, because no append existed to be skipped or to fail.
