@@ -242,6 +242,16 @@ export class LlamaVisionService {
       // ceiling is used unchanged — the pre-measurement behavior — because
       // clamping against a guess truncates replies for no benefit.
       measured = await this.measureInput(messages, tools, params.prompt)
+      // The reply ceiling is the single most common cause of a tool call that
+      // never finished emitting, and it is assembled from three places (the
+      // user's setting, this turn's measured room, and a hard default). Log
+      // all of them so a truncation can be attributed without guesswork.
+      log.debug('Vision round budget', {
+        round,
+        requestedMaxTokens,
+        fixedTokens: measured?.fixedTokens ?? null,
+        contextSize: this.contextSize
+      })
       if (measured) {
         const budget = resolveLocalOutputBudget({
           contextSize: this.contextSize,
@@ -251,6 +261,7 @@ export class LlamaVisionService {
           hasFunctions: toolFunctions != null
         })
         effectiveMaxTokens = budget.effectiveMaxTokens
+        log.debug('Vision round output ceiling', { round, effectiveMaxTokens })
         if (
           budget.requestedMaxTokens !== undefined &&
           budget.requestedMaxTokens > budget.effectiveMaxTokens
