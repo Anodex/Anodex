@@ -180,7 +180,26 @@ function categoryScore(name: string, text: string): number {
   ])
   const skillTask = hasAny(text, ['skill', 'workflow instructions', 'playbook'])
   const memoryTask = hasAny(text, ['remember', 'my name', 'preference', 'later conversation'])
+  /**
+   * A request that explicitly asks to be worked through in stages wants the
+   * plan tools on the native surface even when it never says "code"/"file" —
+   * "build a simple website ... lets build it in steps" is a `changeTask` but
+   * not a `codeTask`, which used to leave `update_plan_step` scoring 0 while
+   * the similarly-named `update_change_task` scored 3_500 off WRITE_TOOLS.
+   */
+  const planTask = hasAny(text, [
+    'plan',
+    'step by step',
+    'in steps',
+    'step-by-step',
+    'one step at a time',
+    'stages',
+    'phases',
+    'checklist',
+    'track progress'
+  ])
 
+  if (planTask && PLAN_TOOLS.has(name)) return 3_600
   if (codeTask && READ_TOOLS.has(name)) return 3_000
   if (changeTask && WRITE_TOOLS.has(name)) return 3_500
   if (checkTask && CHECK_TOOLS.has(name)) return 3_700

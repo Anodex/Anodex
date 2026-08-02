@@ -278,7 +278,10 @@ export const IpcChannel = {
     openPath: 'workspace:open-path',
     deletePath: 'workspace:delete-path',
     readFileContent: 'workspace:read-file-content',
-    writeFileContent: 'workspace:write-file-content'
+    writeFileContent: 'workspace:write-file-content',
+    prepareHtmlPreview: 'workspace:prepare-html-preview',
+    openHtmlPreviewWindow: 'workspace:open-html-preview-window',
+    refreshHtmlPreviewWindow: 'workspace:refresh-html-preview-window'
   },
   Attachments: {
     readFile: 'attachments:read-file',
@@ -643,6 +646,17 @@ export interface AnodexApi {
     readFileContent(relativePath: string): Promise<Result<WorkspaceFileContent>>
     /** Save new contents to a workspace file from the in-app editor (direct user action, not AI-gated). */
     writeFileContent(relativePath: string, content: string): Promise<Result<void>>
+    /**
+     * Make an HTML document self-contained for previewing: local stylesheets,
+     * scripts, and images referenced relative to `relativePath` are inlined,
+     * external URLs left alone. `html` is the live editor buffer rather than
+     * the file on disk, so an unsaved edit previews as it will look saved.
+     */
+    prepareHtmlPreview(relativePath: string, html: string): Promise<Result<string>>
+    /** Open (or refresh and focus) a standalone window previewing this page. */
+    openHtmlPreviewWindow(relativePath: string, title: string, html: string): Promise<Result<void>>
+    /** Push new content into this file's pop-out window, if one is open. */
+    refreshHtmlPreviewWindow(relativePath: string, html: string): Promise<Result<boolean>>
   }
   attachments: {
     /** Read a file dropped/dragged into the composer, by absolute path. Not workspace-sandboxed —

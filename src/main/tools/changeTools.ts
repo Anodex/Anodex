@@ -1,6 +1,29 @@
-import type { WorkspaceToolFactory } from './types'
+import type { WorkspaceToolContext, WorkspaceToolFactory } from './types'
 import { runGuardedTool, runReadTool } from './helpers'
 import { changeStore } from '../changes/ChangeStore'
+
+/**
+ * Changes and plans are two different things that both hold an ordered task
+ * list, and models — local ones especially — routinely confuse them: after
+ * `write_plan({ title: 'Solar System Website', ... })` they'll try to tick a
+ * step off with `update_change_task({ slug: 'solar-system-website', ... })`,
+ * hit "No change named ...", and then quietly give up on updating the plan at
+ * all, leaving the user's Plan panel stuck at 0/6.
+ *
+ * So when a change tool is handed a slug that doesn't exist while a plan IS
+ * active, say so and name the tool that actually does what they meant. The
+ * check runs before the store so the redirect wins over the generic error.
+ */
+function assertNotAPlanStepMixup(ctx: WorkspaceToolContext, slug: string): void {
+  const plan = ctx.plan.current
+  if (!plan) return
+  if (changeStore.get(ctx.workspaceRoot, slug)) return
+  throw new Error(
+    `No change named "${slug}" exists. This conversation has an active PLAN titled "${plan.title}" ` +
+      '— plans are not changes and have no slug. To tick off a plan step use ' +
+      'update_plan_step({ stepNumber, status }) instead. Use list_changes to see real changes.'
+  )
+}
 
 /**
  * propose_change — create a new persisted change proposal (why + a task
@@ -53,8 +76,10 @@ export const proposeChangeTool: WorkspaceToolFactory = (define, ctx) =>
 export const updateChangeTaskTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Mark a task of an existing change as done or not done. Refer to the task by its 1-based ' +
-      'position (as returned by propose_change or list_changes).',
+      'Mark a task of an existing persisted change as done or not done. Refer to the change by the slug ' +
+      'returned by propose_change or list_changes, and the task by its 1-based position. This is only for ' +
+      'changes created with propose_change — it is NOT the tool for the write_plan task plan shown in the ' +
+      'Workspace Dock; use update_plan_step for that.',
     params: {
       type: 'object',
       properties: {
@@ -76,6 +101,7 @@ export const updateChangeTaskTool: WorkspaceToolFactory = (define, ctx) =>
         risk: 'safe',
         confirmDetail: `Mark task ${args.taskNumber} of "${args.slug}" as ${args.done ? 'done' : 'not done'}.`,
         run() {
+          assertNotAPlanStepMixup(ctx, args.slug)
           const change = changeStore.updateTask(
             ctx.workspaceRoot,
             args.slug,
@@ -116,6 +142,7 @@ export const archiveChangeTool: WorkspaceToolFactory = (define, ctx) =>
         risk: 'safe',
         confirmDetail: `Archive "${args.slug}" and add it to this project's living spec.`,
         run() {
+          assertNotAPlanStepMixup(ctx, args.slug)
           changeStore.archive(ctx.workspaceRoot, args.slug)
           return Promise.resolve({
             modelResult: `Archived "${args.slug}" and added it to .anodex/SPEC.md.`,

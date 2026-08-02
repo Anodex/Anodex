@@ -156,7 +156,13 @@ const api: AnodexApi = {
     readFileContent: (relativePath) =>
       ipcRenderer.invoke(IpcChannel.Workspace.readFileContent, relativePath),
     writeFileContent: (relativePath, content) =>
-      ipcRenderer.invoke(IpcChannel.Workspace.writeFileContent, relativePath, content)
+      ipcRenderer.invoke(IpcChannel.Workspace.writeFileContent, relativePath, content),
+    prepareHtmlPreview: (relativePath, html) =>
+      ipcRenderer.invoke(IpcChannel.Workspace.prepareHtmlPreview, relativePath, html),
+    openHtmlPreviewWindow: (relativePath, title, html) =>
+      ipcRenderer.invoke(IpcChannel.Workspace.openHtmlPreviewWindow, relativePath, title, html),
+    refreshHtmlPreviewWindow: (relativePath, html) =>
+      ipcRenderer.invoke(IpcChannel.Workspace.refreshHtmlPreviewWindow, relativePath, html)
   },
   attachments: {
     readFile: (absolutePath) => ipcRenderer.invoke(IpcChannel.Attachments.readFile, absolutePath),

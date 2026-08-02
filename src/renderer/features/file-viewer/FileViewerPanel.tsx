@@ -103,6 +103,20 @@ export function FileViewerPanel(): JSX.Element | null {
     }
   }
 
+  // Keep an open pop-out preview current as the content changes — whether from
+  // the user's own editing or an AI write that triggered the reload above.
+  // `refreshHtmlPreviewWindow` is a no-op when no window is open for this
+  // file, so this never resurrects one the user deliberately closed. Debounced
+  // so a burst of keystrokes in Code mode doesn't reload the window per
+  // character.
+  useEffect(() => {
+    if (!path || !isHtmlFile(path)) return
+    const timer = setTimeout(() => {
+      void anodex.workspace.refreshHtmlPreviewWindow(path, value)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [path, value])
+
   useEffect(() => {
     if (!node) return
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -140,6 +154,12 @@ export function FileViewerPanel(): JSX.Element | null {
     else close()
   }
 
+  async function handleOpenPreviewWindow(): Promise<void> {
+    if (!path) return
+    const res = await anodex.workspace.openHtmlPreviewWindow(path, fileName, value)
+    if (!res.ok) notifyError('Could not open a preview window', res.error.message)
+  }
+
   return (
     <div className={styles.wrap}>
       <div className={styles.header}>
@@ -168,6 +188,14 @@ export function FileViewerPanel(): JSX.Element | null {
               Code
             </button>
           </div>
+        )}
+        {result?.kind === 'text' && isHtmlFile(node.name) && (
+          <IconButton
+            label="Open preview in its own window"
+            icon={<Icon name="external-link" size={14} />}
+            size="sm"
+            onClick={() => void handleOpenPreviewWindow()}
+          />
         )}
         {result?.kind === 'text' && (
           <IconButton
@@ -216,7 +244,7 @@ export function FileViewerPanel(): JSX.Element | null {
           </div>
         ) : result.kind === 'text' ? (
           isHtmlFile(node.name) && mode === 'preview' ? (
-            <HtmlPreview content={value} fileName={node.name} />
+            <HtmlPreview content={value} path={node.path} fileName={node.name} />
           ) : (
             <CodeEditor
               value={value}

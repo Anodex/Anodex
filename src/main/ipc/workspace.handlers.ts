@@ -7,6 +7,12 @@ import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
 import { listWorkspaceFiles } from '../workspace/listWorkspaceFiles'
 import { resolveInWorkspace } from '../tools/workspace'
+import { prepareHtmlPreviewSource } from '../tools/previewTools'
+import {
+  hasHtmlPreviewWindow,
+  openHtmlPreviewWindow,
+  refreshHtmlPreviewWindow
+} from '../htmlPreviewWindow'
 import { isImagePath, isLikelyBinary } from './attachments.handlers'
 
 /** Files larger than this aren't loaded into the in-app viewer/editor — generous for real
@@ -138,6 +144,67 @@ export function registerWorkspaceHandlers(): void {
         return err(
           'workspace.write-content-failed',
           'Could not save that file.',
+          toErrorMessage(error)
+        )
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannel.Workspace.prepareHtmlPreview,
+    async (_event, relativePath: string, html: string) => {
+      const root = settingsStore.get().workspace.root
+      if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
+      try {
+        return ok(await prepareHtmlPreviewSource(root, relativePath, html))
+      } catch (error) {
+        return err(
+          'workspace.prepare-preview-failed',
+          'Could not build a preview for that page.',
+          toErrorMessage(error)
+        )
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannel.Workspace.openHtmlPreviewWindow,
+    async (_event, relativePath: string, title: string, html: string) => {
+      const root = settingsStore.get().workspace.root
+      if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
+      try {
+        const content = await prepareHtmlPreviewSource(root, relativePath, html)
+        openHtmlPreviewWindow(relativePath, title, content)
+        return ok(undefined)
+      } catch (error) {
+        return err(
+          'workspace.preview-window-failed',
+          'Could not open a preview window for that page.',
+          toErrorMessage(error)
+        )
+      }
+    }
+  )
+
+  // Separate from `openHtmlPreviewWindow` so the file viewer can keep an
+  // already-open pop-out in sync as the buffer (or the AI) changes the file,
+  // without that ever popping a window back up after the user closed it.
+  ipcMain.handle(
+    IpcChannel.Workspace.refreshHtmlPreviewWindow,
+    async (_event, relativePath: string, html: string) => {
+      if (!hasHtmlPreviewWindow(relativePath)) return ok(false)
+      const root = settingsStore.get().workspace.root
+      if (!root) return ok(false)
+      try {
+        refreshHtmlPreviewWindow(
+          relativePath,
+          await prepareHtmlPreviewSource(root, relativePath, html)
+        )
+        return ok(true)
+      } catch (error) {
+        return err(
+          'workspace.preview-window-failed',
+          'Could not refresh that preview window.',
           toErrorMessage(error)
         )
       }

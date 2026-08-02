@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { createMainWindow } from './window'
 import { closeToast } from './toastWindow'
+import { closeHtmlPreviewWindows } from './htmlPreviewWindow'
 import { registerIpcHandlers } from './ipc'
 import { abortAllChatGenerations } from './ipc/chat.handlers'
 import { settingsStore } from './settings/SettingsStore'
@@ -157,6 +158,7 @@ if (!app.requestSingleInstanceLock()) {
     criticalThinkingService.stopAll()
     cancelAllDownloads()
     closeToast()
+    closeHtmlPreviewWindows()
     // Quitting during a load is a clean exit, not a crash — drop the sentinel
     // so the next launch doesn't offer to recover from it.
     finishModelLoad()

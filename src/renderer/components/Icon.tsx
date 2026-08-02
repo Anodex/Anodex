@@ -76,6 +76,7 @@ export type IconName =
   | 'plan'
   | 'memory'
   | 'insight'
+  | 'external-link'
 
 const GLYPHS: Record<IconName, ReactNode> = {
   /* Speech bubble with the system's signature 45° facet on the top-right corner. */
@@ -533,6 +534,17 @@ const GLYPHS: Record<IconName, ReactNode> = {
         fill="currentColor"
         stroke="none"
       />
+    </>
+  ),
+  /* Open in a separate window: a pane with the corner opened out into an arrow
+     leaving it. The 45° break at the top-right is the same facet cut the
+     `chat` bubble and the card glyphs use, so "detach this" reads as part of
+     the set rather than a borrowed browser icon. */
+  'external-link': (
+    <>
+      <path d="M14 4h6v6" />
+      <path d="M20 4l-8.5 8.5" />
+      <path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
     </>
   )
 }

@@ -92,6 +92,59 @@ describe('change tools', () => {
       const result = await update.handler({ slug: 'does-not-exist', taskNumber: 1, done: true })
       expect(result).toContain('No change named')
     })
+
+    /**
+     * The real-world failure this guards: after `write_plan({ title: 'Solar
+     * System Website', ... })` the model tried to tick a step off with
+     * `update_change_task({ slug: 'solar-system-website' })`, got a bare "No
+     * change named ..." back, and then stopped updating the plan entirely —
+     * leaving the user's Plan panel stuck at 0/6 for the whole build.
+     */
+    it('redirects to update_plan_step when the slug is really a plan title', async () => {
+      const ctx = context()
+      ctx.plan.current = {
+        title: 'Solar System Website',
+        steps: [{ id: 'a', title: 'Create HTML structure', status: 'pending' }],
+        updatedAt: Date.now()
+      }
+      const update = updateChangeTaskTool(createMockDefine(), ctx) as unknown as {
+        handler: UpdateTaskHandler
+      }
+
+      const result = await update.handler({
+        slug: 'solar-system-website',
+        taskNumber: 1,
+        done: true
+      })
+
+      expect(result).toContain('update_plan_step')
+      expect(result).toContain('Solar System Website')
+    })
+
+    it('still updates a real change even while a plan is active', async () => {
+      const ctx = context()
+      ctx.plan.current = {
+        title: 'Some plan',
+        steps: [{ id: 'a', title: 'A step', status: 'pending' }],
+        updatedAt: Date.now()
+      }
+      const propose = proposeChangeTool(createMockDefine(), ctx) as unknown as {
+        handler: ProposeHandler
+      }
+      const update = updateChangeTaskTool(createMockDefine(), ctx) as unknown as {
+        handler: UpdateTaskHandler
+      }
+
+      const created = await propose.handler({
+        title: 'Real change',
+        why: 'Because.',
+        tasks: ['Do it']
+      })
+      const slug = /Created change "([^"]+)"/.exec(created)?.[1]
+
+      const result = await update.handler({ slug: slug!, taskNumber: 1, done: true })
+      expect(result).toContain('marked done')
+    })
   })
 
   describe('archive_change', () => {

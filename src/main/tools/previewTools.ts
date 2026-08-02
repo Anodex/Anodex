@@ -75,6 +75,23 @@ export async function prepareHtmlPreview(
   }
 
   const html = await readFile(file, 'utf-8')
+  const content = await prepareHtmlPreviewSource(workspaceRoot, htmlPath, html, options)
+  return { file, content }
+}
+
+/**
+ * Same inlining as `prepareHtmlPreview`, but against HTML supplied by the
+ * caller rather than read from disk — used by the file viewer, whose preview
+ * has to reflect the *unsaved* editor buffer, not what's currently on disk.
+ * `htmlPath` is still required: every relative `href`/`src` in the document is
+ * resolved against that file's directory.
+ */
+export async function prepareHtmlPreviewSource(
+  workspaceRoot: string,
+  htmlPath: string,
+  html: string,
+  options: { maxContentChars?: number; maxImageBytes?: number } = {}
+): Promise<string> {
   const content = await inlineLocalAssets(
     workspaceRoot,
     htmlPath,
@@ -84,7 +101,7 @@ export async function prepareHtmlPreview(
   if (content.length > (options.maxContentChars ?? MAX_PREVIEW_CONTENT_CHARS)) {
     throw new Error('Preview is too large after inlining local assets.')
   }
-  return { file, content }
+  return content
 }
 
 async function inlineLocalAssets(
@@ -148,10 +165,19 @@ async function readLocalTextAsset(
   const assetPath = posix.normalize(posix.join(htmlDir, cleanUrl))
   if (assetPath.startsWith('../')) return null
 
-  const file = resolveInWorkspace(workspaceRoot, assetPath)
-  const info = await stat(file)
-  if (!info.isFile() || info.size > MAX_PREVIEW_SOURCE_BYTES) return null
-  return readFile(file, 'utf-8')
+  try {
+    const file = resolveInWorkspace(workspaceRoot, assetPath)
+    const info = await stat(file)
+    if (!info.isFile() || info.size > MAX_PREVIEW_SOURCE_BYTES) return null
+    return await readFile(file, 'utf-8')
+  } catch {
+    // A referenced asset that doesn't exist (or can't be read) leaves its tag
+    // untouched instead of failing the whole preview — the page still renders,
+    // just without that one stylesheet/script. Matters most for the live file
+    // viewer, where the user may well be editing a page whose sibling file
+    // hasn't been written yet.
+    return null
+  }
 }
 
 async function readLocalImageAsset(
@@ -177,11 +203,17 @@ async function readLocalImageAsset(
   const assetPath = posix.normalize(posix.join(htmlDir, cleanUrl))
   if (assetPath.startsWith('../')) return null
 
-  const file = resolveInWorkspace(workspaceRoot, assetPath)
-  const info = await stat(file)
-  if (!info.isFile() || info.size > maxImageBytes) return null
-  const data = await readFile(file)
-  return `data:${mimeType};base64,${data.toString('base64')}`
+  try {
+    const file = resolveInWorkspace(workspaceRoot, assetPath)
+    const info = await stat(file)
+    if (!info.isFile() || info.size > maxImageBytes) return null
+    const data = await readFile(file)
+    return `data:${mimeType};base64,${data.toString('base64')}`
+  } catch {
+    // Same as `readLocalTextAsset`: a missing image leaves its <img> alone
+    // rather than taking the whole preview down with it.
+    return null
+  }
 }
 
 async function replaceAsync(

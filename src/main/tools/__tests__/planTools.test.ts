@@ -34,6 +34,25 @@ describe('AI plan tools', () => {
       expect(ctx.plan.current?.steps[0].title).toBe('Read the file')
     })
 
+    it('echoes the numbered steps and the update_plan_step contract back to the model', async () => {
+      const ctx = context()
+      const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+
+      const result = await tool.handler({
+        title: 'Fix the bug',
+        steps: ['Read the file', 'Edit it']
+      })
+
+      expect(result).toContain('1. Read the file')
+      expect(result).toContain('2. Edit it')
+      expect(result).toContain('update_plan_step')
+      // Models were reaching for `update_change_task` with a slug derived from
+      // the plan title; the result states outright that no slug exists.
+      expect(result).toContain('no slug')
+    })
+
     it('caps the number of steps', async () => {
       const ctx = context()
       const tool = writePlanTool(createMockDefine(), ctx) as unknown as {
@@ -150,6 +169,40 @@ describe('AI plan tools', () => {
       const result = await update.handler({ stepNumber: 5, status: 'completed' })
 
       expect(result).toContain('No step 5')
+      // The real positions come back with the error so the model can retry
+      // correctly instead of just learning that 5 was wrong.
+      expect(result).toContain('1. Only step')
+    })
+
+    it('reports remaining progress so the model knows what is still open', async () => {
+      const ctx = context()
+      const write = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+      const update = updatePlanStepTool(createMockDefine(), ctx) as unknown as {
+        handler: UpdateStepHandler
+      }
+
+      await write.handler({ title: 'Plan', steps: ['First', 'Second', 'Third'] })
+      const result = await update.handler({ stepNumber: 1, status: 'completed' })
+
+      expect(result).toContain('1/3 steps complete')
+      expect(result).toContain('Next unstarted step is 2 ("Second")')
+    })
+
+    it('says so once every step is complete', async () => {
+      const ctx = context()
+      const write = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+      const update = updatePlanStepTool(createMockDefine(), ctx) as unknown as {
+        handler: UpdateStepHandler
+      }
+
+      await write.handler({ title: 'Plan', steps: ['Only step'] })
+      const result = await update.handler({ stepNumber: 1, status: 'completed' })
+
+      expect(result).toContain('All steps are now complete')
     })
   })
 })

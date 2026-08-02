@@ -221,4 +221,25 @@ describe('bounded tool surface', () => {
     expect(ranked.indexOf('write_file')).toBeGreaterThan(1)
     expect(ranked.indexOf('run_command')).toBeGreaterThan(1)
   })
+
+  /**
+   * "Build a website ... lets build it in steps" reads as a change task but not
+   * a code task (no "code"/"file"/"project" in it), which used to leave
+   * `update_plan_step` scoring 0 while the confusingly similar
+   * `update_change_task` scored 3_500 off the write-tool bucket.
+   */
+  it('ranks the plan tools for a request that asks to be done in steps', () => {
+    const ranked = rankToolNames(
+      {
+        write_plan: tool('Create or replace the visible task plan.'),
+        update_plan_step: tool('Mark a step of the current plan in progress or completed.'),
+        update_change_task: tool('Mark a task of an existing persisted change done or not done.'),
+        write_file: tool('Write a new file.')
+      },
+      'Create a simple, responsive website about the solar system. Lets build it in steps.'
+    )
+
+    expect(ranked.indexOf('update_plan_step')).toBeLessThan(ranked.indexOf('update_change_task'))
+    expect(ranked.indexOf('write_plan')).toBeLessThan(ranked.indexOf('update_change_task'))
+  })
 })
