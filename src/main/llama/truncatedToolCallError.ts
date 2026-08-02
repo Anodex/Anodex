@@ -53,9 +53,24 @@ export function isTruncatedToolCallError(error: unknown): boolean {
  * corrupt artifact, and the surrounding code depends on that invariant.
  */
 export function truncatedArgumentsPreview(error: unknown, maxChars = 200): string | undefined {
-  if (!(error instanceof Error)) return undefined
-  const match = /last read: '(.*)$/is.exec(error.message)
-  const payload = match?.[1]?.trim()
+  const payload = truncatedArgumentsPayload(error)
   if (!payload) return undefined
   return payload.length > maxChars ? `${payload.slice(0, maxChars)}…` : payload
+}
+
+/**
+ * How far the model got before being cut off, in characters of emitted
+ * arguments. Logged alongside the preview because the preview is capped and
+ * two different runs producing the same boilerplate prefix look identical in
+ * it — the length is what distinguishes "stopped at the same point every time"
+ * (a fixed limit somewhere) from "stopped wherever it ran out" (a budget).
+ */
+export function truncatedArgumentsLength(error: unknown): number | undefined {
+  return truncatedArgumentsPayload(error)?.length
+}
+
+function truncatedArgumentsPayload(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined
+  const match = /last read: '(.*)$/is.exec(error.message)
+  return match?.[1]?.trim() || undefined
 }

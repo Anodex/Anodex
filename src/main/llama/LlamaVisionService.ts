@@ -23,7 +23,11 @@ import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { resolveLocalOutputBudget } from './localOutputBudget'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
 import { isDroppedStreamError } from './droppedStreamError'
-import { isTruncatedToolCallError, truncatedArgumentsPreview } from './truncatedToolCallError'
+import {
+  isTruncatedToolCallError,
+  truncatedArgumentsLength,
+  truncatedArgumentsPreview
+} from './truncatedToolCallError'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
 import type { GenerateOutcome, GenerateParams } from './LlamaService'
 import type { ModelInfo, ModelLoadOptions } from '@shared/model.types'
@@ -68,6 +72,20 @@ const RESERVED_TOKENS = 512
  * attempts will not fix it.
  */
 const MAX_TOOL_CALL_RECOVERIES = 2
+/**
+ * Floor on how long a round that produced a truncated tool call must have
+ * taken to be a real generation.
+ *
+ * A cut-off call carries thousands of characters of arguments; even a fast GPU
+ * needs seconds to decode that, and the local models this transport serves
+ * take far longer. Observed live: after one genuine 58-second truncation, the
+ * next two requests returned the same parse failure in 23 ms and 16 ms —
+ * far too fast to have decoded anything, so the runtime was answering without
+ * running the model. Retrying that cannot succeed, and spending the recovery
+ * budget on it ends the turn on advice about request size that the timing
+ * already disproves.
+ */
+const MIN_PLAUSIBLE_GENERATION_MS = 1_500
 /**
  * Cap on rounds recovered by parsing a tool call the model wrote as prose.
  * Same value and same reasoning as the text path's `MAX_FALLBACK_ROUNDS`.
@@ -203,6 +221,8 @@ export class LlamaVisionService {
     let roundsExhausted = false
     /** Set when the recovery budget for cut-off tool calls ran out. */
     let toolCallsTruncated = false
+    /** Set when the runtime failed a tool-call parse without having generated. */
+    let staleParseFailure = false
 
     const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
     const requestedMaxTokens = params.options?.maxTokens
@@ -247,6 +267,7 @@ export class LlamaVisionService {
       let roundContent = ''
       let roundThinking = ''
       let finishReason: string | null = null
+      const roundStartedAt = Date.now()
       const pendingCalls = new Map<number, PendingToolCall>()
       try {
         const stream = await client.chat.completions.create(
@@ -308,18 +329,41 @@ export class LlamaVisionService {
         // recoverable: tell the model what happened and let it try again in a
         // shape that fits.
         if (isTruncatedToolCallError(error) && toolFunctions) {
+          const roundMs = Date.now() - roundStartedAt
+          const preview = truncatedArgumentsPreview(error)
+          const argumentsChars = truncatedArgumentsLength(error)
+          // A truncated call takes real decoding time to produce. A failure
+          // that returns faster than any model could have generated those
+          // arguments means the runtime replayed a stale parse instead of
+          // running the model at all — retrying that is free of any chance of
+          // succeeding, and would only spend the budget and end on a message
+          // blaming the request's size.
+          if (roundMs < MIN_PLAUSIBLE_GENERATION_MS) {
+            staleParseFailure = true
+            log.error('llama-server returned a tool-call parse failure without generating', {
+              roundMs,
+              round,
+              argumentsChars,
+              preview,
+              runtimeOutput: this.runtime.recentOutput()
+            })
+            break
+          }
           if (toolCallRecoveries >= MAX_TOOL_CALL_RECOVERIES) {
             toolCallsTruncated = true
             log.warn('Giving up after repeated truncated tool calls', {
-              recoveries: toolCallRecoveries
+              recoveries: toolCallRecoveries,
+              roundMs
             })
             break
           }
           toolCallRecoveries += 1
-          const preview = truncatedArgumentsPreview(error)
           log.warn('Recovering from a truncated tool call', {
             attempt: toolCallRecoveries,
-            preview
+            roundMs,
+            argumentsChars,
+            preview,
+            runtimeOutput: this.runtime.recentOutput()
           })
           messages.push({ role: 'user', content: truncatedToolCallGuidance(preview) })
           continue
@@ -459,6 +503,15 @@ export class LlamaVisionService {
           )
         })
       }
+    }
+
+    // Not a bounded stop: the model is not the problem and there is nothing
+    // for the user to phrase differently, so this must not be reported as one.
+    if (staleParseFailure) {
+      throw new Error(
+        'The local runtime stopped running the model and returned the same tool-call parse ' +
+          'failure from an earlier reply. Reload the model to clear it, then try again.'
+      )
     }
 
     const durationMs = Math.max(1, Date.now() - startedAt)

@@ -33,8 +33,15 @@ interface StreamChunk {
 }
 
 const mocks = vi.hoisted(() => ({
-  /** One entry per round: either chunks to stream, or an error to throw. */
-  rounds: [] as Array<{ chunks?: StreamChunk[]; error?: Error }>,
+  /**
+   * One entry per round: either chunks to stream, or an error to throw.
+   * `elapsedMs` advances the mocked clock for that round, so a test can say
+   * how long the request "took" — the service distinguishes a real generation
+   * from a runtime replaying a stale failure by exactly that.
+   */
+  rounds: [] as Array<{ chunks?: StreamChunk[]; error?: Error; elapsedMs?: number }>,
+  /** Mocked `Date.now()`, advanced only by scripted round durations. */
+  now: 0,
   requests: [] as Array<Record<string, unknown>>,
   toolFunctions: {},
   /**
@@ -58,6 +65,9 @@ vi.mock('openai', () => {
           mocks.requests.push(body)
           const round = mocks.rounds.shift()
           if (!round) throw new Error('No scripted round left for this request.')
+          // Default to a duration only a real generation could take, so a test
+          // has to opt in to the implausibly-fast case.
+          mocks.now += round.elapsedMs ?? 60_000
           if (round.error) throw round.error
           const chunks = round.chunks ?? []
           return Promise.resolve({
@@ -165,6 +175,8 @@ beforeEach(() => {
   mocks.toolFunctions = {}
   mocks.countTokens = null
   mocks.reliability.length = 0
+  mocks.now = 0
+  vi.spyOn(Date, 'now').mockImplementation(() => mocks.now)
 })
 
 describe('LlamaVisionService.generate', () => {
@@ -346,6 +358,33 @@ describe('LlamaVisionService.generate', () => {
     // Closing the dangling string would have written a half-finished file and
     // reported success. A visible failure is the correct outcome instead.
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('stops immediately when the failure came back too fast to have generated', async () => {
+    mocks.toolFunctions = {
+      write_file: {
+        description: 'Write.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    // Reproduces what a live run showed: one real 58-second truncation, then
+    // byte-identical failures returning in 23 ms and 16 ms. Those retries
+    // never ran the model, so spending the budget on them only ends the turn
+    // on a message wrongly blaming the size of the request.
+    mocks.rounds.push({ error: truncatedToolCall(), elapsedMs: 58_000 })
+    mocks.rounds.push({ error: truncatedToolCall(), elapsedMs: 23 })
+    mocks.rounds.push({ error: truncatedToolCall(), elapsedMs: 16 })
+
+    const failure = await (
+      await service()
+    )
+      .generate(params({ tools: withTools }))
+      .catch((e: Error) => e)
+
+    expect((failure as Error).message).toMatch(/Reload the model/)
+    // One genuine attempt plus one retry that proved the runtime was stuck.
+    expect(mocks.requests).toHaveLength(2)
   })
 
   it('gives up with an actionable stop reason rather than retrying forever', async () => {
