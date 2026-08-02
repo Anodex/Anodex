@@ -26,8 +26,15 @@ export interface ModelSettings {
   /**
    * True once context/GPU/token defaults have been seeded from detected
    * hardware. Prevents overwriting the user's manual choices on later launches.
+   *
+   * Deliberately required, and seeded `false` by `createDefaultSettings`, for
+   * two reasons: `validatePatch` builds its allow-list of legal patch keys from
+   * the defaults, so a field missing there is rejected on the way back in over
+   * IPC; and the startup sequence tests it with `=== false` to tell a
+   * never-configured install apart from settings that simply haven't loaded
+   * yet, which only works if a real `false` is present.
    */
-  autoConfigured?: boolean
+  autoConfigured: boolean
 }
 
 /**

@@ -38,7 +38,8 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     model: {
       contextSize: 8192,
-      gpuLayers: 'auto'
+      gpuLayers: 'auto',
+      autoConfigured: false
     },
     ui: {},
     assistantStyle: {

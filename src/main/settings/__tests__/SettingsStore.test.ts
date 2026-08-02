@@ -325,6 +325,20 @@ describe('validatePatch', () => {
     )
   })
 
+  it('accepts the model.autoConfigured flag the hardware auto-config writes', () => {
+    // `assertKnownKeys` derives its allow-list from `createDefaultSettings`, so
+    // an optional field left out of the defaults is rejected here even though
+    // `ModelSettings` declares it. That is how this flag silently stopped
+    // persisting: every launch logged "Unknown settings key" and threw away the
+    // whole patch, context size and token budget included.
+    expect(() =>
+      validatePatch({
+        model: { contextSize: 16384, gpuLayers: 'auto', autoConfigured: true },
+        generation: { maxTokens: 4096 }
+      })
+    ).not.toThrow()
+  })
+
   it('accepts a built-in tool opt-out list and rejects malformed entries', () => {
     expect(() => validatePatch({ tools: { disabledTools: ['run_command'] } })).not.toThrow()
     expect(() => validatePatch({ tools: { disabledTools: [''] } })).toThrow(/tools.disabledTools/)
@@ -373,6 +387,32 @@ describe('SettingsStore.update validation', () => {
     settingsStore.init()
     expect(() => settingsStore.update({ model: { gpuLayers: 12 } })).not.toThrow()
     expect(() => settingsStore.update({ model: { gpuLayers: 'auto' } })).not.toThrow()
+  })
+
+  it('starts a fresh install with model.autoConfigured explicitly false', async () => {
+    // Not merely absent: the startup sequence checks `=== false` to tell a
+    // never-configured install apart from settings that have not loaded yet.
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    expect(settingsStore.get().model.autoConfigured).toBe(false)
+  })
+
+  it('persists the hardware auto-config patch across sessions', async () => {
+    const first = await import('../SettingsStore')
+    first.settingsStore.init()
+    first.settingsStore.update({
+      model: { contextSize: 16384, gpuLayers: 'auto', autoConfigured: true },
+      generation: { maxTokens: 4096 }
+    })
+
+    vi.resetModules()
+    const second = await import('../SettingsStore')
+    second.settingsStore.init()
+    // The flag has to survive a restart, or auto-config re-runs on every launch
+    // and overwrites whatever the user set by hand in between.
+    expect(second.settingsStore.get().model.autoConfigured).toBe(true)
+    expect(second.settingsStore.get().model.contextSize).toBe(16384)
+    expect(second.settingsStore.get().generation.maxTokens).toBe(4096)
   })
 
   it('persists the selected sound theme and volume across sessions', async () => {
