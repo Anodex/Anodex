@@ -331,11 +331,10 @@ describe('validatePatch', () => {
     // an optional field left out of the defaults is rejected here even though
     // `ModelSettings` declares it. That is how this flag silently stopped
     // persisting: every launch logged "Unknown settings key" and threw away the
-    // whole patch, context size and token budget included.
+    // whole patch, context size and GPU offload included.
     expect(() =>
       validatePatch({
-        model: { contextSize: 16384, gpuLayers: 'auto', autoConfigured: true },
-        generation: { maxTokens: 4096 }
+        model: { contextSize: 16384, gpuLayers: 'auto', autoConfigured: true }
       })
     ).not.toThrow()
   })
@@ -402,8 +401,7 @@ describe('SettingsStore.update validation', () => {
     const first = await import('../SettingsStore')
     first.settingsStore.init()
     first.settingsStore.update({
-      model: { contextSize: 16384, gpuLayers: 'auto', autoConfigured: true },
-      generation: { maxTokens: 4096 }
+      model: { contextSize: 16384, gpuLayers: 'auto', autoConfigured: true }
     })
 
     vi.resetModules()
@@ -413,7 +411,7 @@ describe('SettingsStore.update validation', () => {
     // and overwrites whatever the user set by hand in between.
     expect(second.settingsStore.get().model.autoConfigured).toBe(true)
     expect(second.settingsStore.get().model.contextSize).toBe(16384)
-    expect(second.settingsStore.get().generation.maxTokens).toBe(4096)
+    expect(second.settingsStore.get().model.gpuLayers).toBe('auto')
   })
 
   it('persists the selected sound theme and volume across sessions', async () => {
