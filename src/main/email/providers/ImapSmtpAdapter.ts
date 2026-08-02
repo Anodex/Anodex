@@ -167,7 +167,12 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
    * inbox. Both are searched and the results merged.
    */
   async getThreadMessages(account: EmailAccount, threadId: string): Promise<EmailMessage[]> {
-    const subject = decodeThreadId(threadId)
+    const key = decodeThreadId(threadId)
+    // A subject-less message is a conversation of one — there is no subject to
+    // match the rest of it on. See `encodeThreadId`.
+    if (key.kind === 'message') return [await this.readMessage(account, key.messageId)]
+
+    const subject = key.subject
     const mailboxes = ['INBOX', ...(await this.findSentMailbox(account))]
 
     const collected: EmailMessage[] = []
@@ -298,7 +303,12 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
 
     try {
       await transport.sendMail({
-        from: account.displayName ? `${account.displayName} <${account.address}>` : account.address,
+        // Structured rather than pre-formatted: a display name containing a
+        // comma ("Doe, John") or a quote parses as two addresses once it has
+        // been flattened into a header, so let nodemailer do the quoting.
+        from: account.displayName
+          ? { name: account.displayName, address: account.address }
+          : account.address,
         to: message.to,
         cc: message.cc.length ? message.cc : undefined,
         bcc: message.bcc.length ? message.bcc : undefined,
@@ -353,7 +363,13 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     if (target.action === 'archive' || target.action === 'unarchive') {
       const destination =
         target.action === 'archive' ? await this.findArchiveMailbox(account) : 'INBOX'
-      return this.move(account, { ...target, mailbox: destination })
+      const targets = await this.resolveTargets(account, target)
+      // Archiving is about the copy sitting in the inbox. A thread also
+      // resolves to the account's own replies in Sent (see
+      // `getThreadMessages`), and relocating those would quietly empty the
+      // user's Sent folder as a side effect of tidying an inbox.
+      for (const sent of await this.findSentMailbox(account)) targets.delete(sent)
+      return this.moveResolved(account, targets, destination)
     }
 
     const targets = await this.resolveTargets(account, target)
@@ -371,7 +387,15 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
 
   async move(account: EmailAccount, target: MoveTarget): Promise<string> {
     const destination = await this.resolveMailboxPath(account, target.mailbox)
-    const targets = await this.resolveTargets(account, target)
+    return this.moveResolved(account, await this.resolveTargets(account, target), destination)
+  }
+
+  /** Relocates already-resolved `{ mailbox -> uids }` pairs to one destination. */
+  private async moveResolved(
+    account: EmailAccount,
+    targets: Map<string, number[]>,
+    destination: string
+  ): Promise<string> {
     let moved = 0
     for (const [mailbox, uids] of targets) {
       if (mailbox === destination) continue
@@ -716,21 +740,57 @@ function parseMessageId(messageId: string): { mailbox: string; uid: number } {
   }
 }
 
-function encodeThreadId(subject: string): string {
-  return `subj.${Buffer.from(normalizeSubject(subject), 'utf-8').toString('base64url')}`
+/**
+ * A conversation is normally a subject match, since IMAP has no thread of its
+ * own. A message with no subject cannot be one: IMAP SEARCH HEADER is a
+ * substring test, and the empty string is a substring of every subject, so an
+ * empty-subject thread resolves to the entire mailbox. Archiving one would
+ * relocate every message on the server. Such a message therefore gets a thread
+ * of its own, keyed by its message id.
+ *
+ * Exported, with `decodeThreadId`/`normalizeSubject`, for unit testing.
+ */
+export function encodeThreadId(subject: string, mailbox: string, uid: number): string {
+  const normalized = normalizeSubject(subject)
+  return normalized
+    ? `subj.${Buffer.from(normalized, 'utf-8').toString('base64url')}`
+    : `msg.${encodeMessageId(mailbox, uid)}`
 }
 
-function decodeThreadId(threadId: string): string {
+export type ThreadKey =
+  { kind: 'subject'; subject: string } | { kind: 'message'; messageId: string }
+
+export function decodeThreadId(threadId: string): ThreadKey {
+  if (threadId.startsWith('msg.')) {
+    const messageId = threadId.slice('msg.'.length)
+    // Throws on anything malformed, which is the validation this branch needs.
+    parseMessageId(messageId)
+    return { kind: 'message', messageId }
+  }
   if (!threadId.startsWith('subj.')) {
     throw new Error(`"${threadId}" is not a valid IMAP thread id.`)
   }
-  return Buffer.from(threadId.slice('subj.'.length), 'base64url').toString('utf-8')
+  const subject = Buffer.from(threadId.slice('subj.'.length), 'base64url').toString('utf-8')
+  // Rejected rather than searched. Ids of this shape were minted before
+  // subject-less messages got their own threads, and may still be persisted on
+  // a chat linked to an email thread — searching one would sweep the mailbox.
+  if (!subject.trim()) {
+    throw new Error(`"${threadId}" is not a valid IMAP thread id.`)
+  }
+  return { kind: 'subject', subject }
 }
 
-/** Strips reply/forward prefixes so a back-and-forth groups as one thread. */
-function normalizeSubject(subject: string): string {
+/**
+ * Strips reply/forward prefixes so a back-and-forth groups as one thread.
+ *
+ * The prefix group repeats: clients stack them ("Re: Re:", "Fwd: Re:"), and
+ * stripping only the outermost left the rest in the subject, which encodes to a
+ * different thread id — so a long exchange fragmented into separate threads as
+ * the prefixes accumulated.
+ */
+export function normalizeSubject(subject: string): string {
   return subject
-    .replace(/^\s*(re|fwd?|aw|sv)\s*:\s*/gi, '')
+    .replace(/^\s*(?:(?:re|fwd?|aw|sv)\s*:\s*)+/i, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -744,7 +804,7 @@ function fromEnvelope(
   const subject = envelope?.subject ?? ''
   return {
     id: encodeMessageId(mailbox, raw.uid),
-    threadId: encodeThreadId(subject),
+    threadId: encodeThreadId(subject, mailbox, raw.uid),
     provider: 'imap',
     accountId: account.id,
     subject: subject.trim() || '(no subject)',
@@ -785,7 +845,7 @@ async function fromSource(
 
   return {
     id: encodeMessageId(mailbox, raw.uid),
-    threadId: encodeThreadId(subject),
+    threadId: encodeThreadId(subject, mailbox, raw.uid),
     provider: 'imap',
     accountId: account.id,
     subject: subject.trim() || '(no subject)',

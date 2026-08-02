@@ -28,7 +28,7 @@ non-change, and the suite still passes.
 | 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0 → 5 added  | ✅ done |
 | 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0 → 4 added  | ✅ done |
 | 6   | `src/main/email/EmailService.ts`                 | 713   | 1 → 2 added  | ✅ done |
-| 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0            | ☐       |
+| 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0 → 12 added | ✅ done |
 | 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1            | ☐       |
 | 9   | `src/shared/ipc.ts`                              | 862   | 3            | ☐       |
 | 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0            | ☐       |
@@ -52,6 +52,8 @@ from.
 | No timeout on API-key verify clients (all providers)        | 4        | ☐               |
 | Empty turns can leave consecutive same-role messages        | 4        | ☐ narrowed in 5 |
 | `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ☐               |
+| No Sent copy is filed after an SMTP send                    | 7        | ☐               |
+| `unarchive` cannot resolve an already-archived thread       | 7        | ☐               |
 
 ---
 
@@ -686,3 +688,82 @@ oversized one is clamped rather than refused.
 
 Four fail against the pre-fix file. The other three describe behaviour that was
 already correct and pass either way.
+
+---
+
+## 7. `src/main/email/providers/ImapSmtpAdapter.ts` — done
+
+919 lines, no tests, and the only adapter that touches a real password: generic
+IMAP + SMTP for every provider without a first-class API (iCloud, Fastmail,
+Proton Bridge, corporate Exchange, self-hosted). IMAP has no thread primitive,
+so a "conversation" is a derived subject match — and three of the four bugs come
+straight out of that derivation being used to decide what to move.
+
+### Bugs fixed
+
+**7.1 A message with no subject produced a thread that matched the whole
+mailbox.** `encodeThreadId` base64-encoded the normalised subject, so an empty
+subject encoded to the empty string. `getThreadMessages` decodes that back and
+runs `client.search({ header: { subject: '' } })` — and IMAP SEARCH HEADER is a
+_substring_ test, which every subject satisfies. So a subject-less message's
+thread resolved to every message in INBOX and Sent, capped only by
+`THREAD_WINDOW` (60).
+
+That is not just a display problem. `resolveTargets` builds the set of messages
+`applyFlag` and `move` act on out of exactly this call, so archiving one
+subject-less notification would relocate up to 60 unrelated messages, and
+`mark_read` would clear the inbox's unread state. Subject-less mail is ordinary
+— automated notifications and bare replies both produce it.
+
+A subject-less message now gets a thread of its own keyed by its message id
+(`msg.<id>` alongside the existing `subj.<encoded>`), and `getThreadMessages`
+resolves that to the single message. `decodeThreadId` also _rejects_ a legacy
+empty `subj.` id rather than searching on it — those ids were mintable before
+this fix and can still be persisted on a chat linked to an email thread.
+
+**7.2 Stacked reply prefixes split one exchange into several threads.**
+`normalizeSubject` stripped one prefix (`/^\s*(re|fwd?|aw|sv)\s*:\s*/gi` — the
+`g` flag did nothing, since `^` without `m` only matches at position 0). Clients
+accumulate prefixes, so "Re: Re: Quarterly report" kept a "Re: " and encoded to
+a different thread id than "Quarterly report". A long exchange fragmented as it
+grew, exactly when the thread view matters most. The prefix group now repeats.
+
+**7.3 Archiving a conversation emptied the user's Sent folder into the
+archive.** `getThreadMessages` deliberately searches Sent as well as INBOX, so
+the reader sees both halves of an exchange. `applyFlag`'s archive branch then
+handed that whole set to `move`, which relocated the account's own replies out
+of Sent along with the inbox copy. Archiving is about the copy in the inbox;
+the Sent mailbox is now excluded from the move.
+
+**7.4 A display name containing a comma sent as two recipients.** `send()`
+pre-formatted the From header as `${displayName} <${address}>`. A name like
+"Doe, John" flattens into something an RFC 5322 parser reads as two addresses.
+Now passed structurally so nodemailer does the quoting.
+
+### Deliberate non-changes
+
+- **Nothing files a Sent copy after an SMTP send.** Gmail's SMTP does this
+  server-side; iCloud, Fastmail and most self-hosted servers do not — the client
+  is expected to APPEND the message to Sent itself. So a reply sent from Anodex
+  can be missing from the user's Sent folder, and therefore from the thread view
+  that reads it. Real, and a genuine gap rather than a defect in existing logic:
+  it needs a new IMAP write on the send path with its own failure handling (the
+  mail is already delivered by then, so a failed append must not read as a
+  failed send). Sized as a feature, listed under open cross-cutting items.
+- **`unarchive` cannot find an archived thread.** `getThreadMessages` searches
+  INBOX and Sent only, so once a thread is in the archive, resolving it for
+  `unarchive` yields nothing and throws "That conversation has no messages."
+  Fixing it means searching the archive folder on every thread read, which
+  changes the cost of the common path — a design decision, not a repair.
+  Listed under open cross-cutting items.
+- **`parseMessageId` decodes an invalid base64url mailbox to garbage rather than
+  throwing**, since `Buffer.from` never rejects. The uid half is validated, and
+  a garbage mailbox name fails at SELECT with a clear server error.
+
+### Tests added
+
+`src/main/email/providers/__tests__/ImapSmtpAdapter.test.ts` — 12 tests over the
+thread-identity helpers, exported for the purpose. Nine were confirmed to fail
+against the pre-fix file; the three that pass either way cover behaviour that
+was already correct (single-prefix stripping, subjects that merely begin with
+those letters, whitespace collapsing).
