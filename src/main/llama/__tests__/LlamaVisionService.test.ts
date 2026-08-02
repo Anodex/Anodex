@@ -691,6 +691,22 @@ describe('LlamaVisionService.generate', () => {
     )
   })
 
+  it('reports the measured prompt size as this turn’s input tokens', async () => {
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+    const outcome = await (await service(32_768)).generate(params())
+
+    // Without this, `runGeneration` fell back to `countPromptTokens`, which
+    // measures only the user's new prompt on the grounds that the local engine
+    // reuses its KV cache rather than re-billing the context. True of the
+    // node-llama-cpp path; false of this one, which re-sends everything each
+    // round — so a vision turn's input was recorded as `prompt.length / 4`,
+    // missing the system prompt, history and tool schemas entirely.
+    expect(outcome.stats.inputTokens).toBe(outcome.contextBudget?.fixedTokens)
+    expect(outcome.stats.inputTokens).toBeGreaterThan(params().prompt.length / 4)
+  })
+
   it('bounds tool results against the room the turn actually has left', async () => {
     mocks.toolFunctions = {
       read_file: {

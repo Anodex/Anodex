@@ -675,7 +675,18 @@ export class LlamaVisionService {
     const stats: GenerationStats = {
       tokens: outputTokens,
       durationMs,
-      tokensPerSecond: outputTokens / (durationMs / 1000)
+      tokensPerSecond: outputTokens / (durationMs / 1000),
+      // Reported here, unlike the node-llama-cpp path, because this transport
+      // genuinely has the figure. `LlamaService.countPromptTokens` — what
+      // `runGeneration` falls back to when this is absent — measures only the
+      // user's new prompt text, on the stated grounds that the local engine
+      // reuses its KV cache turn over turn rather than re-billing the whole
+      // context. True of that engine; not of this one, which re-sends the
+      // entire conversation on every round and has just measured it with the
+      // model's own tokenizer. Left absent, a vision turn's input was recorded
+      // as `prompt.length / 4` — off by the whole system prompt, history and
+      // tool schemas.
+      inputTokens: measured?.fixedTokens
     }
     return {
       content,

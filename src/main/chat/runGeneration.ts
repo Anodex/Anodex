@@ -222,17 +222,29 @@ function cloudSummarizer(
  * Model ids to sum today's token usage across for the provider usage gauge.
  * Anthropic/OpenAI use their own curated catalogs (kept as distinct named
  * exports predating the generic adapter); Azure has no catalog at all, so
- * its own resolved deployment name (`modelDescriptor.id`) is the only "model
- * id" that makes sense to query.
+ * its own resolved deployment name is the only "model id" that makes sense.
+ *
+ * The model that actually ran is always included, whatever the catalog says.
+ * Usage is recorded against `modelDescriptor.id` a few lines later, so an id
+ * the catalog doesn't list is spend the gauge can never see — and the two are
+ * not guaranteed to agree over time: catalogs ship with the app while the
+ * configured model is persisted settings, so a model retired from a catalog in
+ * a later release would silently stop counting for anyone still pointed at it.
+ * Azure already worked this way; the rest now do too.
  */
 function cloudModelIdsForUsageQuery(
   providerId: Exclude<ProviderSettings['active'], 'local'>,
   modelDescriptor: { id: string }
 ): string[] {
-  if (providerId === 'anthropic') return ANTHROPIC_MODELS.map((m) => m.id)
-  if (providerId === 'openai') return OPENAI_MODELS.map((m) => m.id)
-  if (providerId === 'azure') return [modelDescriptor.id]
-  return MODEL_CATALOGS_BY_PROVIDER[providerId].map((m) => m.id)
+  const catalog =
+    providerId === 'anthropic'
+      ? ANTHROPIC_MODELS.map((m) => m.id)
+      : providerId === 'openai'
+        ? OPENAI_MODELS.map((m) => m.id)
+        : providerId === 'azure'
+          ? []
+          : MODEL_CATALOGS_BY_PROVIDER[providerId].map((m) => m.id)
+  return catalog.includes(modelDescriptor.id) ? catalog : [...catalog, modelDescriptor.id]
 }
 
 /**
@@ -536,7 +548,19 @@ export async function runGeneration(
   // changedFiles/successfulTools/failedTools/verification come from real
   // tool outcomes, not the assistant's own claim; the reply text is kept
   // only as a supplemental, explicitly non-authoritative summary.
-  if (hadToolActivity && !outcome.stopped && activeProject) {
+  //
+  // Deliberately not gated on `!outcome.stopped`, as it once was. Everything
+  // recorded here is a *completed* tool outcome — a file that was written, a
+  // command that ran — and how the turn ended afterwards does not unwrite any
+  // of it. The old gate dropped precisely the long, productive turns that a
+  // bounded stop is designed to preserve (`rounds-exhausted`, `tool-limit`,
+  // `time-limit`, `context-limit`, and now `provider-error`, all of which
+  // report "the completed tool work above was preserved"), and this ledger
+  // feeds `buildWorkspaceContext` — so the next turn's system prompt was left
+  // with no record that those files had been touched at all. `recordEvent`
+  // already drops an event carrying no real outcome, so nothing is gained by
+  // filtering here as well.
+  if (hadToolActivity && activeProject) {
     projectMemoryStore.recordEvent(activeProject.id, {
       conversationId: request.conversationId,
       messageId: request.messageId,
@@ -549,13 +573,18 @@ export async function runGeneration(
   }
 
   // Recorded regardless of `stopped` — real tokens were generated either way.
-  if (outcome.stats.tokens > 0 && modelDescriptor) {
+  // Either half being non-zero is enough: a turn that sent a large prompt and
+  // came back with no output still cost real input tokens, and gating the whole
+  // block on output alone kept that spend out of the daily-cap tally.
+  if ((outcome.stats.tokens > 0 || (outcome.stats.inputTokens ?? 0) > 0) && modelDescriptor) {
     tokenActivityStore.recordGeneration({
       tokens: outcome.stats.tokens,
-      // A cloud provider reports what it actually billed, across every tool
-      // round; the local tokenizer only ever measured this turn's new prompt
-      // text, which understates a cloud turn badly. Fall back to it for the
-      // local engine, which has no billed figure of its own.
+      // Every transport that re-sends the whole conversation each request
+      // reports what that cost: the cloud providers from their own billed
+      // usage, the llama-server vision transport from its `/tokenize`
+      // measurement. Only the node-llama-cpp engine has no such figure — it
+      // reuses its KV cache instead of re-billing — so it alone falls back to
+      // the new-prompt proxy `countPromptTokens` is documented to be.
       inputTokens: outcome.stats.inputTokens ?? llamaService.countPromptTokens(request.prompt),
       durationMs: outcome.stats.durationMs,
       toolNames: toolNamesThisTurn,

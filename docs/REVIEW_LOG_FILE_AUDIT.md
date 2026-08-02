@@ -24,7 +24,7 @@ non-change, and the suite still passes.
 | --- | ------------------------------------------------ | ----- | ------------ | ------- |
 | 1   | `src/main/conversations/ConversationStore.ts`    | 322   | 0 → 11 added | ✅ done |
 | 2   | `src/main/llama/LlamaService.ts`                 | 2760  | 10 → 16      | ✅ done |
-| 3   | `src/main/chat/runGeneration.ts`                 | 614   | 5            | ☐       |
+| 3   | `src/main/chat/runGeneration.ts`                 | 614   | 5 → 6 added  | ✅ done |
 | 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0            | ☐       |
 | 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0            | ☐       |
 | 6   | `src/main/email/EmailService.ts`                 | 713   | 1            | ☐       |
@@ -333,3 +333,100 @@ Chased down rather than left:
 Three tests added in `src/main/agents/__tests__/agentRunRecovery.test.ts`; two
 were confirmed to fail against the pre-change service. The third — a run with no
 plan to protect still failing terminally — passes either way.
+
+---
+
+## 3. `src/main/chat/runGeneration.ts` — done
+
+One assistant turn, end to end: system prompt composition, tool-context
+assembly, history bounding, the provider call, then the bookkeeping afterwards.
+Every turn in the app goes through it, cloud and local. Five suites import it,
+but all five drive it through `BoundedChatRunner`/`AgentRunService`/Critical
+Thinking and assert on their own concerns — the only thing tested directly was
+the pure `resolveHistoryBounding` helper. The body had no direct coverage at
+all, and all four bugs were in the body.
+
+### Bugs fixed
+
+**3.1 A turn that changed real files left no trace in project memory unless it
+ran to completion.** The recording was gated on `hadToolActivity &&
+!outcome.stopped && activeProject`. Everything it records is a _completed_ tool
+outcome — a file written, a command run, a verification parsed — and how the turn
+ended afterwards unwrites none of it. The gate dropped precisely the long,
+productive turns a bounded stop is designed to preserve: `rounds-exhausted`,
+`tool-limit`, `time-limit`, `context-limit` and `provider-error` all report "the
+completed tool work above was preserved", and then this ledger discarded it.
+
+It matters because `projectMemoryStore` feeds `buildWorkspaceContext`, which is
+injected into the _next_ turn's system prompt. So after a long turn that hit its
+round budget half-way through a refactor, the next turn had no record that any of
+those files had been touched. `recordEvent` already returns early on an event
+carrying no real outcome, so the gate bought nothing that wasn't already covered.
+Dropped `!outcome.stopped`.
+
+**3.2 The llama-server vision transport's input tokens were recorded as
+`prompt.length / 4`.** `runGeneration` falls back to
+`llamaService.countPromptTokens` when a transport reports no input figure, and
+that method measures only the user's new prompt text — documented, and correct,
+on the grounds that "the local engine reuses the KV cache turn-over-turn rather
+than rebilling the full context like a cloud API". True of the node-llama-cpp
+engine; false of the llama-server transport, which re-sends the entire
+conversation on every round and had already measured it exactly with the model's
+own `/tokenize`. It simply never reported it. Fixed at the source —
+`LlamaVisionService` now returns `inputTokens: measured.fixedTokens` — so the
+existing `??` chain resolves correctly with no branch in the caller, and the text
+path keeps the proxy that is right for it.
+
+**3.3 Usage recorded against a model the gauge never asked about.**
+`recordGeneration` keys on `modelDescriptor.id` — the model that actually ran —
+while `getTodayTokensForModelIds` queried the shipped _catalog_. Any id the
+catalog omits is spend the daily-cap gauge can never see. Not reachable through
+today's settings UI (the model picker is a `SelectControl` bound to the same
+catalog) but nothing enforces it: catalogs ship with the app while the configured
+model is persisted settings, so a model retired in a later release silently stops
+counting for anyone still pointed at it. Azure already queried its own resolved
+id; the rest now do too.
+
+**3.4 A turn billed for input but reporting no output recorded neither.** The
+whole recording block was gated on `outcome.stats.tokens > 0`, which is output
+only. A cloud turn that sent a large prompt and came back empty cost real input
+tokens and contributed none of them to the daily-cap tally. Now gated on either
+half being non-zero.
+
+### Documentation fixed
+
+- The comment above the `inputTokens` fallback said the local engine "has no
+  billed figure of its own", which stopped being true of the vision transport
+  once it gained real measurement. Rewritten around the actual dividing line —
+  whether a transport re-sends the conversation each request — which is the same
+  line `resolveHistoryBounding` already documents thirty lines above.
+- `cloudModelIdsForUsageQuery`'s comment explained the Azure special case but not
+  the invariant underneath it (the id recorded and the ids queried must agree).
+
+### Deliberate non-changes
+
+- **`activeModelDescriptor` ignores `providerOverride.model` for Azure**, while
+  every sibling branch honours it. Correct rather than an oversight:
+  `AzureOpenAiProvider` also ignores `modelOverride` and always calls the
+  configured deployment, so honouring it here would attribute usage to a model
+  that did not run.
+- **`execution.stopReason` is read after `execution.dispose()`.** Safe: `dispose`
+  only clears the timer and removes the outer-signal listener; the reason is a
+  plain field it never touches.
+
+### Tests added
+
+`src/main/chat/__tests__/runGeneration.test.ts` — 7 tests, the first direct
+coverage of the function body. The harness stubs each collaborator to the least
+that lets a turn complete and scripts the provider per test, including firing
+tool activity _during_ the turn the way a real provider reports it.
+
+Three were confirmed to fail against the pre-fix file, one per behavioural bug
+(3.1, 3.3, 3.4). The other four pass either way and are regression guards: no
+tool activity records nothing, a general chat with no project records nothing, a
+transport-reported input figure is preferred over the proxy, and the proxy is
+still used when there is none.
+
+3.2 is covered in `LlamaVisionService.test.ts` instead, where the transport that
+had to change already has a harness — also confirmed failing against the pre-fix
+service.
