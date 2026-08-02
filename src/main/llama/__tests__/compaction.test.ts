@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ChatHistoryTurn } from '@shared/chat.types'
+import { ROLLING_SUMMARY_TOKEN_CEILING } from '../rollingSummary'
 import {
+  CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET,
+  MAX_COMPACTION_SUMMARY_TOKENS,
+  summaryChunkBudgetForContext,
   buildCompactionSummaryPrompt,
   buildCompactionSystemPrompt,
   buildCompactionUpdatePrompt,
@@ -300,5 +304,42 @@ describe('buildCompactionUpdatePrompt', () => {
     // Replacement-style contract: the reply must be the complete UPDATED
     // summary, not an addendum to concatenate.
     expect(prompt).toContain('UPDATED summary')
+  })
+})
+
+describe('summaryChunkBudgetForContext', () => {
+  // The summary call has to fit its own output, the prompt framing, a
+  // worst-case previous rolling summary, AND the chunk. Anything that fits
+  // means the fold can actually run; anything that doesn't means the call
+  // meant to relieve an overflow causes one.
+  function fitsInContext(contextSize: number): boolean {
+    const chunk = summaryChunkBudgetForContext(contextSize, ROLLING_SUMMARY_TOKEN_CEILING)
+    return chunk + MAX_COMPACTION_SUMMARY_TOKENS + ROLLING_SUMMARY_TOKEN_CEILING < contextSize
+  }
+
+  it('caps at the cloud budget once the context is large enough', () => {
+    expect(summaryChunkBudgetForContext(32_768, ROLLING_SUMMARY_TOKEN_CEILING)).toBe(
+      CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET
+    )
+  })
+
+  it('shrinks the chunk on a small context instead of overflowing it', () => {
+    const small = summaryChunkBudgetForContext(4_096, ROLLING_SUMMARY_TOKEN_CEILING)
+
+    expect(small).toBeLessThan(CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET)
+    expect(fitsInContext(4_096)).toBe(true)
+  })
+
+  it('leaves room for the summary call itself at every realistic context size', () => {
+    for (const contextSize of [4_096, 8_192, 16_384, 32_768, 131_072]) {
+      expect(fitsInContext(contextSize)).toBe(true)
+    }
+  })
+
+  it('never returns a chunk too small to carry anything', () => {
+    // A degenerate context can't produce a zero/negative budget that would
+    // make the fold spin without consuming turns.
+    expect(summaryChunkBudgetForContext(512, ROLLING_SUMMARY_TOKEN_CEILING)).toBeGreaterThan(0)
+    expect(summaryChunkBudgetForContext(0, ROLLING_SUMMARY_TOKEN_CEILING)).toBeGreaterThan(0)
   })
 })

@@ -5,8 +5,6 @@ import type { EmailAccount } from './email.types'
 export interface GenerationSettings {
   temperature: number
   topP: number
-  /** Maximum tokens to generate per reply. */
-  maxTokens: number
   /**
    * Wall-clock cap on a single turn (covers all of its tool calls), in
    * minutes (1-120), for interactive chat and agent-run turns. `null`
@@ -170,6 +168,13 @@ export interface AnthropicProviderSettings {
   model: string
   /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
   dailyTokenCap: number | null
+  /**
+   * Hard ceiling on tokens generated per reply for this provider; `null`
+   * leaves it to the provider (the local engine sizes each turn against the
+   * room its context actually has; a cloud provider uses its own default).
+   * See `LocalProviderSettings.maxResponseTokens` for why local defaults off.
+   */
+  maxResponseTokens: number | null
 }
 
 export interface OpenAiProviderSettings {
@@ -179,6 +184,13 @@ export interface OpenAiProviderSettings {
   model: string
   /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
   dailyTokenCap: number | null
+  /**
+   * Hard ceiling on tokens generated per reply for this provider; `null`
+   * leaves it to the provider (the local engine sizes each turn against the
+   * room its context actually has; a cloud provider uses its own default).
+   * See `LocalProviderSettings.maxResponseTokens` for why local defaults off.
+   */
+  maxResponseTokens: number | null
 }
 
 /**
@@ -196,6 +208,13 @@ export interface CloudProviderSettings {
   model: string
   /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
   dailyTokenCap: number | null
+  /**
+   * Hard ceiling on tokens generated per reply for this provider; `null`
+   * leaves it to the provider (the local engine sizes each turn against the
+   * room its context actually has; a cloud provider uses its own default).
+   * See `LocalProviderSettings.maxResponseTokens` for why local defaults off.
+   */
+  maxResponseTokens: number | null
 }
 
 /**
@@ -216,6 +235,29 @@ export interface AzureProviderSettings {
   apiVersion: string
   /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
   dailyTokenCap: number | null
+  /**
+   * Hard ceiling on tokens generated per reply for this provider; `null`
+   * leaves it to the provider (the local engine sizes each turn against the
+   * room its context actually has; a cloud provider uses its own default).
+   * See `LocalProviderSettings.maxResponseTokens` for why local defaults off.
+   */
+  maxResponseTokens: number | null
+}
+
+/**
+ * The local engine's own provider settings. It has no API key, model id, or
+ * daily cap — nothing here is billed — so `maxResponseTokens` is the only
+ * field, and it defaults to `null` (off).
+ *
+ * Off is the right default locally because a user-set ceiling can only ever
+ * *lower* what `resolveLocalOutputBudget` already measured this turn has room
+ * for, and there is no cost to bound in exchange. A ceiling set too low does
+ * not degrade gracefully: a tool call cut short mid-arguments cannot be parsed
+ * and loses the whole turn. It stays configurable for anyone who wants to cap
+ * reply length deliberately.
+ */
+export interface LocalProviderSettings {
+  maxResponseTokens: number | null
 }
 
 export interface ProviderSettings {
@@ -233,6 +275,7 @@ export interface ProviderSettings {
     | 'azure'
     | 'kimi'
     | 'qwen'
+  local: LocalProviderSettings
   anthropic: AnthropicProviderSettings
   openai: OpenAiProviderSettings
   google: CloudProviderSettings

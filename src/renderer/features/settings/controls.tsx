@@ -7,6 +7,12 @@ interface RangeControlProps {
   max: number
   step: number
   onChange: (value: number) => void
+  /**
+   * Fired once when the user lets go of the slider, unlike `onChange` which
+   * fires for every intermediate value during a drag. For side effects too
+   * expensive to run per tick — reloading a model, for instance.
+   */
+  onCommit?: (value: number) => void
   format?: (value: number) => string
 }
 
@@ -17,9 +23,12 @@ export function RangeControl({
   max,
   step,
   onChange,
+  onCommit,
   format
 }: RangeControlProps): JSX.Element {
   const percent = ((value - min) / (max - min)) * 100
+  const commit = (event: { currentTarget: { value: string } }): void =>
+    onCommit?.(Number(event.currentTarget.value))
   return (
     <div className={styles.range}>
       <input
@@ -31,6 +40,10 @@ export function RangeControl({
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
+        // Pointer release covers dragging; key release covers arrow-key
+        // adjustment, which never fires a pointer event at all.
+        onPointerUp={commit}
+        onKeyUp={commit}
       />
       <span className={styles.value}>{format ? format(value) : value}</span>
     </div>

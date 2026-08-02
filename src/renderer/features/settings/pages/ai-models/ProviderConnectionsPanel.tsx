@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AppSettings, DeepPartial } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
@@ -26,7 +26,7 @@ import xAiLogo from '../../../../assets/providers/xai.svg'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
-import { SelectControl, TextControl } from '../../controls'
+import { SelectControl, TextControl, ToggleControl } from '../../controls'
 import { ApiKeyField } from './ApiKeyField'
 import styles from './AiModelsSettings.module.css'
 
@@ -269,6 +269,69 @@ function DailyCapInput({
   )
 }
 
+/**
+ * Value restored when the reply ceiling is switched back on, if the provider
+ * has never had one. Low enough to be an obviously deliberate cap rather than
+ * a number that quietly truncates long replies.
+ */
+const DEFAULT_MAX_RESPONSE_TOKENS = 4096
+
+/**
+ * Per-provider reply ceiling, shown beside that provider's daily token cap.
+ *
+ * Off by default for the local engine, where the value can only lower a limit
+ * the engine already measures per turn and a too-low setting loses whole turns
+ * to tool calls cut off mid-arguments. Cloud providers fall back to their own
+ * API default when it is off, since those APIs require a ceiling per request.
+ */
+function MaxResponseTokensRow({
+  value,
+  isLocal,
+  onCommit
+}: {
+  value: number | null
+  isLocal: boolean
+  onCommit: (tokens: number | null) => void
+}): JSX.Element {
+  const [text, setText] = useState(value?.toString() ?? '')
+  useEffect(() => {
+    setText(value?.toString() ?? '')
+  }, [value])
+
+  return (
+    <SettingRow
+      label="Max response tokens"
+      description={
+        isLocal
+          ? 'Off by default. Each reply already gets whatever room the context has left, so a manual cap can only shorten it — and one set too low can cut a tool call short and lose the turn.'
+          : "Upper bound on tokens generated per reply, and so on what one reply can cost. Off uses this provider's own default."
+      }
+      control={
+        <div className={styles.maxResponseTokensControl}>
+          <ToggleControl
+            checked={value !== null}
+            ariaLabel="Limit response tokens"
+            onChange={(checked) =>
+              onCommit(checked ? (value ?? DEFAULT_MAX_RESPONSE_TOKENS) : null)
+            }
+          />
+          {value !== null && (
+            <TextControl
+              value={text}
+              placeholder={String(DEFAULT_MAX_RESPONSE_TOKENS)}
+              onChange={(next) => {
+                setText(next)
+                const parsed = Number(next.trim())
+                if (Number.isFinite(parsed) && parsed > 0) onCommit(Math.round(parsed))
+              }}
+            />
+          )}
+        </div>
+      }
+    />
+  )
+}
+
 function providerConnected(id: ProviderId, settings: AppSettings): boolean {
   if (id === 'local') return true
   if (id === 'openai') return Boolean(settings.provider.openai.apiKey.trim())
@@ -505,14 +568,27 @@ export function ProviderConnectionsPanel({
             </div>
 
             {selected.id === 'local' && (
-              <div className={styles.providerLocalPanel}>
-                <span>Current local model</span>
-                <strong>{activeModelName ?? 'No model loaded'}</strong>
-                <p>Local models keep prompts, project context, and replies on this computer.</p>
-                <Button variant="secondary" size="sm" onClick={onOpenModels}>
-                  Manage local models
-                </Button>
-              </div>
+              <>
+                <div className={styles.providerLocalPanel}>
+                  <span>Current local model</span>
+                  <strong>{activeModelName ?? 'No model loaded'}</strong>
+                  <p>Local models keep prompts, project context, and replies on this computer.</p>
+                  <Button variant="secondary" size="sm" onClick={onOpenModels}>
+                    Manage local models
+                  </Button>
+                </div>
+                <div className={styles.providerFields}>
+                  {/* No API key, model id, or daily cap here — nothing local is
+                      billed, so the reply ceiling is the only setting. */}
+                  <MaxResponseTokensRow
+                    isLocal
+                    value={settings.provider.local.maxResponseTokens}
+                    onCommit={(tokens) =>
+                      void onUpdate({ provider: { local: { maxResponseTokens: tokens } } })
+                    }
+                  />
+                </div>
+              </>
             )}
 
             {selected.id === 'openai' && (
@@ -555,6 +631,13 @@ export function ProviderConnectionsPanel({
                         void onUpdate({ provider: { openai: { dailyTokenCap: cap } } })
                       }
                     />
+                  }
+                />
+                <MaxResponseTokensRow
+                  isLocal={false}
+                  value={settings.provider.openai.maxResponseTokens}
+                  onCommit={(tokens) =>
+                    void onUpdate({ provider: { openai: { maxResponseTokens: tokens } } })
                   }
                 />
                 <div className={styles.providerDataNote}>
@@ -604,6 +687,13 @@ export function ProviderConnectionsPanel({
                         void onUpdate({ provider: { anthropic: { dailyTokenCap: cap } } })
                       }
                     />
+                  }
+                />
+                <MaxResponseTokensRow
+                  isLocal={false}
+                  value={settings.provider.anthropic.maxResponseTokens}
+                  onCommit={(tokens) =>
+                    void onUpdate({ provider: { anthropic: { maxResponseTokens: tokens } } })
                   }
                 />
                 <div className={styles.providerDataNote}>
@@ -656,6 +746,13 @@ export function ProviderConnectionsPanel({
                         void onUpdate({ provider: { [selected.id]: { dailyTokenCap: cap } } })
                       }
                     />
+                  }
+                />
+                <MaxResponseTokensRow
+                  isLocal={false}
+                  value={settings.provider[selected.id].maxResponseTokens}
+                  onCommit={(tokens) =>
+                    void onUpdate({ provider: { [selected.id]: { maxResponseTokens: tokens } } })
                   }
                 />
                 <div className={styles.providerDataNote}>
@@ -733,6 +830,13 @@ export function ProviderConnectionsPanel({
                         void onUpdate({ provider: { azure: { dailyTokenCap: cap } } })
                       }
                     />
+                  }
+                />
+                <MaxResponseTokensRow
+                  isLocal={false}
+                  value={settings.provider.azure.maxResponseTokens}
+                  onCommit={(tokens) =>
+                    void onUpdate({ provider: { azure: { maxResponseTokens: tokens } } })
                   }
                 />
                 <div className={styles.providerDataNote}>

@@ -182,8 +182,7 @@ export function AiModelsSettings(): JSX.Element {
         contextSize: recommendation.contextSize,
         gpuLayers: recommendation.gpuLayers,
         autoConfigured: true
-      },
-      generation: { maxTokens: recommendation.maxTokens }
+      }
     }).then(reloadActiveModelIfSafe)
   }
 
@@ -211,8 +210,7 @@ export function AiModelsSettings(): JSX.Element {
         contextSize: fileRecommendation.contextSize,
         gpuLayers: fileRecommendation.gpuLayers,
         autoConfigured: true
-      },
-      generation: { maxTokens: fileRecommendation.maxTokens }
+      }
     }).then(reloadActiveModelIfSafe)
     setFileRecommendation(null)
   }
@@ -268,11 +266,6 @@ export function AiModelsSettings(): JSX.Element {
     !!engine.contextSize &&
     engine.contextSize < settings.model.contextSize
   const contextMemoryWarning = !!hardware && ctxSizeWarning(hardware, settings.model.contextSize)
-  const effectiveContextSize =
-    engine.status === 'ready' && engine.contextSize
-      ? engine.contextSize
-      : settings.model.contextSize
-
   const gpuMode =
     settings.model.gpuLayers === 'auto' ? 'auto' : settings.model.gpuLayers === 0 ? 'cpu' : 'custom'
   const gpuLayersMax = engine.gpuLayersTotal ?? FALLBACK_MAX_GPU_LAYERS
@@ -436,7 +429,11 @@ export function AiModelsSettings(): JSX.Element {
                   <SelectControl
                     value={String(settings.model.contextSize)}
                     options={CONTEXT_OPTIONS}
-                    onChange={(value) => void update({ model: { contextSize: Number(value) } })}
+                    onChange={(value) =>
+                      void update({ model: { contextSize: Number(value) } }).then(
+                        reloadActiveModelIfSafe
+                      )
+                    }
                   />
                 }
               />
@@ -473,9 +470,9 @@ export function AiModelsSettings(): JSX.Element {
                     value={gpuMode}
                     options={GPU_OPTIONS}
                     onChange={(value) => {
-                      if (value === 'auto') void update({ model: { gpuLayers: 'auto' } })
-                      else if (value === 'cpu') void update({ model: { gpuLayers: 0 } })
-                      else void update({ model: { gpuLayers: customGpuLayersStart } })
+                      const gpuLayers =
+                        value === 'auto' ? 'auto' : value === 'cpu' ? 0 : customGpuLayersStart
+                      void update({ model: { gpuLayers } }).then(reloadActiveModelIfSafe)
                     }}
                   />
                 }
@@ -493,6 +490,10 @@ export function AiModelsSettings(): JSX.Element {
                       max={gpuLayersMax}
                       step={1}
                       onChange={(value) => void update({ model: { gpuLayers: value } })}
+                      // Only once the slider is released: a reload per
+                      // intermediate value would restart the model on every
+                      // pixel of the drag.
+                      onCommit={reloadActiveModelIfSafe}
                     />
                   }
                 />
@@ -548,19 +549,6 @@ export function AiModelsSettings(): JSX.Element {
                     step={0.05}
                     format={(value) => value.toFixed(2)}
                     onChange={(value) => void update({ generation: { topP: value } })}
-                  />
-                }
-              />
-              <SettingRow
-                label="Max response tokens"
-                description="Requested upper bound for each reply. Local generations are automatically capped to the measured room left after instructions and tools; cloud providers use this value directly."
-                control={
-                  <RangeControl
-                    value={Math.min(settings.generation.maxTokens, effectiveContextSize)}
-                    min={128}
-                    max={effectiveContextSize}
-                    step={128}
-                    onChange={(value) => void update({ generation: { maxTokens: value } })}
                   />
                 }
               />

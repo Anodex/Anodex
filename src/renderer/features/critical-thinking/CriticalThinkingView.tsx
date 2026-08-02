@@ -741,6 +741,8 @@ function stopReasonLabel(reason: CriticalThinkingTerminationReason): string {
     'evidence-limit': "Reached this run's overall verified-source limit.",
     'no-progress':
       'Searches found no open, readable source with this data — the specifics may be paywalled or unpublished.',
+    'tool-call-truncated':
+      'The model kept getting cut off part-way through a search or page read, so it never ran.',
     yielded: 'Saved progress here to continue later.'
   }
   return labels[reason]

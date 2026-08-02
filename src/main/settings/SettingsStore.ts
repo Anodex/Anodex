@@ -78,8 +78,11 @@ class SettingsStore {
       }
       // Merge over defaults so missing/added fields are always populated.
       const merged = deepMerge(defaults, raw)
-      const migrated = migrateLegacyGmailAccount(
-        migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+      const migrated = migrateLegacyMaxTokens(
+        migrateLegacyGmailAccount(
+          migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+          raw
+        ),
         raw
       )
       // Persist right away so the stray legacy fields (and, on the first pass,
@@ -95,6 +98,7 @@ class SettingsStore {
         raw.ui?.systemPrompt !== undefined ||
         legacyThemeFieldsPresent ||
         legacyEmailFieldsPresent ||
+        (raw.generation as { maxTokens?: number } | undefined)?.maxTokens !== undefined ||
         retired.changed
       ) {
         try {
@@ -190,6 +194,50 @@ export function migrateLegacyAssistantStyle(
  * are stripped so they don't linger in `settings.json` forever. Exported for
  * unit testing; operates on plain data, no store/disk access of its own.
  */
+/**
+ * Moves the retired global `generation.maxTokens` onto each cloud provider's
+ * own `maxResponseTokens`.
+ *
+ * The old setting was one number applied to every backend at once. It earned
+ * its place for cloud providers, where output tokens are billed and a ceiling
+ * is a real cost lever, so each of them inherits whatever value was configured
+ * — silently changing a cost-affecting setting during an upgrade would be
+ * worse than carrying it forward.
+ *
+ * The local engine deliberately does **not** inherit it (see
+ * `LocalProviderSettings.maxResponseTokens`). Locally the value could only
+ * lower a ceiling the engine already measures correctly, and a value too low
+ * loses whole turns to tool calls cut off mid-arguments — which is exactly
+ * what it was doing before this move.
+ */
+export function migrateLegacyMaxTokens(
+  settings: AppSettings,
+  raw: DeepPartial<AppSettings> & { generation?: { maxTokens?: number } }
+): AppSettings {
+  const legacy = raw.generation?.maxTokens
+  // `deepMerge` carries the retired key forward onto `settings.generation`
+  // even though `GenerationSettings` no longer declares it — strip it either
+  // way, so this only ever needs handling once per install.
+  const generation = { ...(settings.generation as unknown as Record<string, unknown>) }
+  delete generation.maxTokens
+  const cleaned = {
+    ...settings,
+    generation: generation as unknown as AppSettings['generation']
+  }
+  if (!isFiniteNumber(legacy) || legacy <= 0) return cleaned
+
+  const provider = { ...cleaned.provider }
+  for (const key of Object.keys(provider) as Array<keyof typeof provider>) {
+    if (key === 'active' || key === 'local') continue
+    const existing = provider[key] as { maxResponseTokens?: number | null }
+    // Only seed providers that haven't been given their own value already.
+    if (existing.maxResponseTokens == null) {
+      provider[key] = { ...existing, maxResponseTokens: legacy } as never
+    }
+  }
+  return { ...cleaned, provider }
+}
+
 export function migrateLegacyThemeMode(
   settings: AppSettings,
   raw: DeepPartial<AppSettings> & { appearance?: { themeMode?: string; presetTheme?: string } }
@@ -453,9 +501,12 @@ export function validatePatch(patch: DeepPartial<AppSettings>): void {
       throw new Error('generation.topP must be a finite number between 0 and 1')
     }
   }
-  if (generation?.maxTokens !== undefined) {
-    if (!isFiniteNumber(generation.maxTokens) || generation.maxTokens < 0) {
-      throw new Error('generation.maxTokens must be a non-negative finite number')
+  for (const [name, entry] of Object.entries(patch.provider ?? {})) {
+    if (name === 'active' || typeof entry !== 'object' || entry === null) continue
+    const cap = (entry as { maxResponseTokens?: unknown }).maxResponseTokens
+    if (cap === undefined || cap === null) continue
+    if (!isFiniteNumber(cap) || cap < 1) {
+      throw new Error(`provider.${name}.maxResponseTokens must be null or a positive number`)
     }
   }
   if (generation?.turnTimeLimitMinutes !== undefined && generation.turnTimeLimitMinutes !== null) {

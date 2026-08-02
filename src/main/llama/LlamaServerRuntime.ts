@@ -12,13 +12,22 @@ const log = createLogger('llama:vision-runtime')
 const STARTUP_TIMEOUT_MS = 5 * 60_000
 const HEALTH_POLL_MS = 300
 const MAX_DIAGNOSTIC_CHARS = 16_000
+/** Tokenizing is a local, CPU-only call; anything slower than this is a fault, not load. */
+const TOKENIZE_TIMEOUT_MS = 10_000
 
 interface RuntimeMarker {
   binaryRelativePath?: string
 }
 
 export interface LlamaServerConnection {
+  /** OpenAI-compatible root (`<origin>/v1`) for chat completions. */
   baseUrl: string
+  /**
+   * Server root, without the `/v1` suffix. llama.cpp's own non-OpenAI
+   * endpoints (`/tokenize`, `/health`) live here, and `countTokens` needs one
+   * to measure a prompt with the model's real tokenizer instead of guessing.
+   */
+  origin: string
   apiKey: string
   modelId: string
 }
@@ -40,6 +49,8 @@ export class LlamaServerRuntime {
    * bare `terminated` that `undici` throws when the connection drops.
    */
   private lastExit?: { code: number | null; signal: NodeJS.Signals | null; diagnostic: string }
+  /** See `reportTokenizeUnavailable` — keeps a persistent fault from spamming the log. */
+  private warnedTokenizeUnavailable = false
 
   constructor(private readonly onUnexpectedExit?: (message: string) => void) {}
 
@@ -127,7 +138,7 @@ export class LlamaServerRuntime {
     try {
       await this.waitUntilReady(origin, apiKey, child)
       const modelId = await this.readModelId(baseUrl, apiKey)
-      this.connection = { baseUrl, apiKey, modelId }
+      this.connection = { baseUrl, origin, apiKey, modelId }
       log.info('Local vision runtime ready on loopback.')
       return this.connection
     } catch (error) {
@@ -191,6 +202,69 @@ export class LlamaServerRuntime {
       'This most often means it ran out of memory — reload the model, lower its context size, ' +
       `or choose a smaller vision model, then try again.${tail}`
     )
+  }
+
+  /**
+   * Tail of the running process's own stdout/stderr.
+   *
+   * Startup failures and unexpected exits already fold this in, but a
+   * mid-generation failure used to discard it entirely — leaving no record of
+   * llama-server's own account of why a request went wrong (its per-request
+   * stop reason and decoded-token count print here). Exposed for logging only:
+   * this output can contain fragments of the rendered prompt, so it must not
+   * be surfaced in the UI.
+   */
+  recentOutput(lines = 12): string | undefined {
+    const text = this.diagnosticOutput.trim()
+    return text ? tailLines(text, lines) : undefined
+  }
+
+  /**
+   * Number of tokens `text` occupies under the loaded model's real tokenizer,
+   * or `null` when the server can't answer — not running, an older build
+   * without `/tokenize`, or any transport failure.
+   *
+   * Returning `null` instead of a character-based estimate is deliberate. The
+   * caller sizes a generation's output ceiling from this, and a
+   * wrong-but-plausible number there truncates replies mid-sentence (or, worse,
+   * mid-tool-call) with nothing to show for it. "No measurement" has to mean
+   * "don't clamp", never "clamp against a guess".
+   */
+  async countTokens(text: string): Promise<number | null> {
+    const connection = this.connection
+    if (!connection) return null
+    try {
+      const response = await fetch(`${connection.origin}/tokenize`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${connection.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ content: text }),
+        signal: AbortSignal.timeout(TOKENIZE_TIMEOUT_MS)
+      })
+      if (!response.ok) return this.reportTokenizeUnavailable(`HTTP ${response.status}`)
+      const body = (await response.json()) as { tokens?: unknown }
+      if (!Array.isArray(body.tokens)) return this.reportTokenizeUnavailable('unexpected response')
+      return body.tokens.length
+    } catch (error) {
+      return this.reportTokenizeUnavailable(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
+   * Warn once per process, not per call: a runtime that can't tokenize will
+   * fail on every turn, and the useful signal is that it happened at all.
+   */
+  private reportTokenizeUnavailable(reason: string): null {
+    if (!this.warnedTokenizeUnavailable) {
+      this.warnedTokenizeUnavailable = true
+      log.warn(
+        `Could not measure tokens with the local runtime (${reason}). ` +
+          'Output budgets will not be clamped for this session.'
+      )
+    }
+    return null
   }
 
   private async waitUntilReady(

@@ -2,6 +2,7 @@ import { useId, useMemo } from 'react'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import { estimateProjectedContextUsage } from '@shared/contextProjection'
+import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -21,6 +22,18 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const anthropicModel = useSettingsStore((s) => s.settings?.provider.anthropic.model)
   const openaiModel = useSettingsStore((s) => s.settings?.provider.openai.model)
   const systemPrompt = useSettingsStore((s) => s.settings?.assistantStyle.globalStyle)
+  const providers = useSettingsStore((s) => s.settings?.provider)
+
+  /**
+   * The reply ceiling the active provider is configured with, if any. Off is
+   * the common case — and the default on local models — so everything this
+   * drives is conditional rather than showing a "no limit" state that would
+   * add noise to every turn.
+   */
+  const responseCap = useMemo(
+    () => (providers ? providerMaxResponseTokens(providers, providers.active) : undefined),
+    [providers]
+  )
 
   // `engine.contextSize` only reflects the local llama engine — cloud
   // providers never touch it, so switching to Anthropic/OpenAI left the
@@ -82,6 +95,9 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
       `${info.omittedTurns} older turn${info.omittedTurns === 1 ? '' : 's'} would compact`
     )
   }
+  if (responseCap !== undefined) {
+    summary.push(`replies capped at ${responseCap.toLocaleString()} tokens`)
+  }
 
   // Stacked breakdown of the same projection the tooltip describes: system
   // prompt, tool definitions, recent history, and the response reservation, as slices of the
@@ -110,10 +126,24 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
             style={{ width: `${(segment.tokens / info.contextSize) * 100}%` }}
           />
         ))}
+        {/* Anchored to the right edge rather than stacked with the segments
+            above: the segments describe input already spent, while this is
+            room fenced off ahead of it for the reply. Only rendered when the
+            user has actually set a ceiling — the usual case has none, and the
+            reply may then use whatever the window has left. */}
+        {responseCap !== undefined && (
+          <div
+            className={styles.cap}
+            style={{ width: `${Math.min(100, (responseCap / info.contextSize) * 100)}%` }}
+          />
+        )}
       </div>
       <span className={styles.label}>
         ~{formatTokenCount(info.usedTokens)}
         <span className={styles.labelMuted}> / {formatTokenCount(info.contextSize)}</span>
+        {responseCap !== undefined && (
+          <span className={styles.labelMuted}> · max {formatTokenCount(responseCap)}</span>
+        )}
       </span>
 
       <div id={detailsId} className={styles.popover} role="tooltip">
@@ -154,6 +184,15 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
           </span>
           <strong>{info.reservedTokens.toLocaleString()}</strong>
         </div>
+        {responseCap !== undefined && (
+          <div className={styles.popoverRow}>
+            <span>
+              <i className={`${styles.swatch} ${styles.swatchCap}`} />
+              Reply cap
+            </span>
+            <strong>{responseCap.toLocaleString()}</strong>
+          </div>
+        )}
         <div className={styles.popoverRow}>
           <span>Unused window</span>
           <strong>{unusedTokens.toLocaleString()}</strong>

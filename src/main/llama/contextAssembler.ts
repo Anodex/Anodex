@@ -240,22 +240,35 @@ export interface CloudBoundedContext {
 }
 
 /**
- * Bound history for a provider with no exact tokenizer of its own (OpenAI/
- * Anthropic — Anodex estimates their tokens from character count instead).
+ * Bound history for a **stateless** provider — one that re-sends the whole
+ * conversation on every request and so has no session of its own to compact
+ * inside. That covers the cloud providers (OpenAI/Anthropic/Azure, whose
+ * tokens Anodex estimates from character count) and, despite the "cloud"
+ * heritage of this code, Anodex's own llama-server transport in
+ * `LlamaVisionService`, which is stateless in exactly the same way.
+ *
  * Always applies the same persisted-snapshot seeding the local engine uses.
  * With no `summarizeOlderTurns` supplied, turns that don't fit are dropped,
- * never summarized (used before a cloud summarizer existed, and still the
- * fallback if a caller doesn't have one). With one supplied, delegates to the
- * same `assembleModelContext` pipeline the local engine uses, so cloud
+ * never summarized (used before a summarizer existed, and still the fallback
+ * if a caller doesn't have one). With one supplied, delegates to the same
+ * `assembleModelContext` pipeline the local engine uses, so these
  * conversations get the identical summarize-and-fold-back behavior — just
- * with a cloud model doing the summarizing instead of the local engine.
+ * with a different model doing the summarizing.
+ *
+ * `summaryChunkTokenBudget` sizes each transcript chunk handed to the
+ * summarizer, and must match the context that summarizer actually runs in:
+ * a cloud model gets `CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET`, while a local one
+ * gets a budget derived from its real context (see
+ * `summaryChunkBudgetForContext`) — feeding cloud-sized chunks to a small
+ * local context would overflow the very call meant to relieve the overflow.
  */
-export async function boundHistoryForCloudProvider(
+export async function boundHistoryForStatelessProvider(
   systemPrompt: string | undefined,
   history: ChatHistoryTurn[],
   context: ConversationContext | null | undefined,
   contextWindowTokens: number,
-  summarizeOlderTurns?: RollingSummarizer
+  summarizeOlderTurns?: RollingSummarizer,
+  summaryChunkTokenBudget: number = CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET
 ): Promise<CloudBoundedContext> {
   const seeded = seedContextFromSnapshot(systemPrompt, history, context)
 
@@ -280,10 +293,7 @@ export async function boundHistoryForCloudProvider(
     contextSize: contextWindowTokens,
     countTokens: estimateTokensApprox,
     summarizeOlderTurns,
-    // A cloud summarizer isn't confined to the local engine's 4,096-token
-    // summary context — fold in larger chunks so one big overflow costs a
-    // handful of API calls, not dozens (see the constant's doc comment).
-    summaryChunkTokenBudget: CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET
+    summaryChunkTokenBudget
   })
 
   return {
@@ -309,7 +319,7 @@ function estimateTokensApprox(text: string): number {
 
 /**
  * Combine the prior context epoch summary with a newly compacted chunk.
- * Shared by the local engine and `boundHistoryForCloudProvider` — both fold
+ * Shared by the local engine and `boundHistoryForStatelessProvider` — both fold
  * a persisted snapshot's summary together with whatever gets freshly
  * compacted in the same turn.
  */

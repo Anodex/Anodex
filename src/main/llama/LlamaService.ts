@@ -84,6 +84,11 @@ import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/re
 import type { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { LlamaVisionService } from './LlamaVisionService'
+import {
+  INTENT_NUDGE_PROMPT,
+  STALLED_INTENT_NUDGE_PROMPT,
+  TOOL_BYPASS_NUDGE_PROMPT
+} from './intentNudges'
 import { createAsyncMutex } from './asyncMutex'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
@@ -129,55 +134,6 @@ const log = createLogger('llama')
  * *correct* write_file informed by the real error it had just seen.
  */
 const MAX_FALLBACK_ROUNDS = 8
-
-/**
- * Sent once, at most, when a reply describes an outcome — a file change, an
- * approval, a denial, a passing test — that didn't actually happen this turn
- * (see `looksLikeUnactedIntent`/`looksLikeFabricatedOutcome` in
- * `toolCallFallback.ts`). Covers both a false first-person completion claim
- * (verified directly: qwen2.5-coder-7b described new file content in a code
- * block without ever calling a tool) and a fabricated third-person outcome
- * (verified directly: the same model later invented "The user denied adding
- * the function" in a turn with zero tool calls). Deliberately names no
- * specific tool — unlike the original version of this prompt, which said
- * "call write_file or edit_file", wrongly steering toward file-edit tools
- * even in a turn about a completely different tool (observed directly:
- * `propose_change`/`update_change_task`/`archive_change` narrated the same
- * way, where naming write_file/edit_file would have been actively wrong
- * guidance). One retry only; if it narrates again, that's treated as the
- * model's real answer rather than looped on indefinitely.
- */
-const INTENT_NUDGE_PROMPT =
-  'You described an outcome — a change, an approval, or a denial — that did not ' +
-  'actually happen this turn; no tool was called. If you intend to make the change, ' +
-  "call the appropriate tool now to do it for real. If you can't or the task " +
-  "is blocked, say so plainly instead of describing something that didn't happen."
-
-const TOOL_BYPASS_NUDGE_PROMPT =
-  'You provided code or file-edit instructions in chat instead of applying the change. ' +
-  'In this project chat, do not hand the user code to copy. Read the relevant file if ' +
-  'needed, then call write_file, edit_file, or patch_file to make the change for real. ' +
-  'If the user asked to see an interactive HTML result, call preview_html. If the user asked ' +
-  'for a visual before/after comparison and inspect_visual is available, call inspect_visual ' +
-  'on a path, edit that same file in place, then call inspect_visual on the same path again — ' +
-  'never rename, copy, or duplicate the file to keep a separate "before", or the comparison breaks. ' +
-  "If you cannot make the change, say exactly what's blocking you."
-
-/**
- * Sent once, at most, when a reply just restates the request in collaborative
- * future-tense voice ("Sure, let's add...") without calling any tool at all
- * this turn (see `looksLikeStalledIntent` in `toolCallFallback.ts`). Distinct
- * from `INTENT_NUDGE_PROMPT`: that covers a false *past-tense* completion
- * claim; this covers the model never even attempting anything. Deliberately
- * generic — unlike the other nudges, it doesn't name specific tools, since
- * this pattern isn't limited to edit tools (observed with git_status too,
- * not just write_file/edit_file) and can fire in chats where the available
- * tool for the job isn't a file-edit tool at all.
- */
-const STALLED_INTENT_NUDGE_PROMPT =
-  'You described what you were about to do but did not actually call any tool this turn — ' +
-  'nothing happened yet. Stop describing the plan and call the appropriate tool now to do the ' +
-  "work for real. If you can't or the task is blocked, say so plainly instead of restating the plan."
 
 /** The dynamically-imported `node-llama-cpp` module (ESM-only). */
 type LlamaModule = typeof import('node-llama-cpp')
@@ -347,9 +303,12 @@ export interface GenerateOutcome {
  * snapshots; the IPC layer forwards these to the renderer.
  */
 class LlamaService extends EventEmitter {
-  private readonly visionService = new LlamaVisionService((message) => {
-    this.setState({ status: 'error', error: message })
-  })
+  private readonly visionService = new LlamaVisionService(
+    (message) => {
+      this.setState({ status: 'error', error: message })
+    },
+    () => this.currentModel
+  )
   private modulePromise: Promise<LlamaModule> | null = null
   private loadedModule?: LlamaModule
   private llama?: Llama
@@ -1412,6 +1371,25 @@ class LlamaService extends EventEmitter {
       this.generating = false
       this.emitState()
     }
+  }
+
+  /**
+   * The narrow, tool-free summarizer used to fold older turns into a rolling
+   * summary, exposed for callers that must bound history *before* generation.
+   *
+   * The node-llama-cpp path never needs this — it compacts inside its own
+   * session, which owns the KV cache. The llama-server (vision) path has no
+   * session at all: it re-sends the whole conversation every request, exactly
+   * like a cloud provider, so without this its history was simply
+   * character-truncated and older turns were lost silently. Delegates to the
+   * same private summarizer both compaction paths already use, which routes
+   * through whichever transport is live.
+   */
+  summarizeForCompactionLocal(
+    transcript: string,
+    previousSummary?: string
+  ): Promise<string | null> {
+    return this.summarizeHistoryForCompaction(transcript, previousSummary)
   }
 
   /**
