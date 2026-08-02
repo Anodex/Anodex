@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { IpcChannel } from '@shared/ipc'
 import { broadcastToWindows } from '../broadcast'
 import type {
@@ -549,7 +550,9 @@ class CriticalThinkingService {
     const verifiedSources = run.sources.filter((source) => source.verified)
     const limits = criticalThinkingSynthesisLimits(
       criticalThinkingContextTokens(run.provider, run.model, llamaService.getState().contextSize),
-      run.provider === 'local' ? settingsStore.get().generation?.maxTokens : undefined
+      run.provider === 'local'
+        ? providerMaxResponseTokens(settingsStore.get().provider, 'local')
+        : undefined
     )
     const question = truncatePromptText(run.question, limits.maxQuestionChars)
     const plan = boundPlanForPrompt(run.plan!, limits.maxPlanChars)

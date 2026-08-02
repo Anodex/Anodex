@@ -9,6 +9,7 @@ import {
   LEGACY_GMAIL_ACCOUNT_ID,
   migrateLegacyAssistantStyle,
   migrateLegacyGmailAccount,
+  migrateLegacyMaxTokens,
   migrateLegacyThemeMode,
   stripRetiredGeneralSettings,
   validatePatch
@@ -447,5 +448,48 @@ describe('SettingsStore API key encryption', () => {
 
     const onDisk = readPersistedSettings()
     expect(onDisk.provider.anthropic.apiKey).toBe('no-keychain-key')
+  })
+})
+
+describe('migrateLegacyMaxTokens', () => {
+  it('moves the retired global ceiling onto every cloud provider', () => {
+    const migrated = migrateLegacyMaxTokens(baseSettings(), { generation: { maxTokens: 8192 } })
+
+    expect(migrated.provider.anthropic.maxResponseTokens).toBe(8192)
+    expect(migrated.provider.openai.maxResponseTokens).toBe(8192)
+    expect(migrated.provider.azure.maxResponseTokens).toBe(8192)
+    expect(migrated.provider.qwen.maxResponseTokens).toBe(8192)
+  })
+
+  it('leaves the local engine off, whatever the old global was', () => {
+    // The whole point of the move: locally this number could only lower a
+    // ceiling the engine already measures, and a low one loses entire turns
+    // to tool calls cut off mid-arguments.
+    const migrated = migrateLegacyMaxTokens(baseSettings(), { generation: { maxTokens: 2048 } })
+
+    expect(migrated.provider.local.maxResponseTokens).toBeNull()
+  })
+
+  it('strips the retired key so it cannot be reapplied on a later load', () => {
+    const migrated = migrateLegacyMaxTokens(baseSettings(), { generation: { maxTokens: 8192 } })
+
+    expect('maxTokens' in migrated.generation).toBe(false)
+  })
+
+  it('never overwrites a ceiling the user already set for a provider', () => {
+    const settings = baseSettings()
+    settings.provider.openai.maxResponseTokens = 512
+
+    const migrated = migrateLegacyMaxTokens(settings, { generation: { maxTokens: 8192 } })
+
+    expect(migrated.provider.openai.maxResponseTokens).toBe(512)
+    expect(migrated.provider.anthropic.maxResponseTokens).toBe(8192)
+  })
+
+  it('does nothing for a settings file that never had the old key', () => {
+    const migrated = migrateLegacyMaxTokens(baseSettings(), {})
+
+    expect(migrated.provider.anthropic.maxResponseTokens).toBeNull()
+    expect(migrated.provider.local.maxResponseTokens).toBeNull()
   })
 })

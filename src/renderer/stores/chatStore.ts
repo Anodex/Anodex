@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { activeMaxResponseTokens } from '@shared/maxResponseTokens'
 import { immer } from 'zustand/middleware/immer'
 import type { ChatAttachment, HistoryCompactionEvent } from '@shared/chat.types'
 import type {
@@ -564,7 +565,10 @@ export const useChatStore = create<ChatState>()(
           ? {
               temperature: settings.generation.temperature,
               topP: settings.generation.topP,
-              maxTokens: settings.generation.maxTokens
+              // Only the provider actually handling this turn gets a say.
+              // `undefined` means "no ceiling from the user", which each
+              // provider resolves its own way — see `activeMaxResponseTokens`.
+              maxTokens: activeMaxResponseTokens(settings)
             }
           : undefined
       })

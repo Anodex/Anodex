@@ -21,7 +21,6 @@ describe('recommendModel', () => {
     expect(rec.tier).toBe('3b')
     expect(rec.modelId).toBe('qwen2.5-coder-3b-q4')
     expect(rec.contextSize).toBe(4096)
-    expect(rec.maxTokens).toBe(1024)
   })
 
   it('recommends a 7B coding model on 16 GB RAM', () => {
@@ -29,7 +28,6 @@ describe('recommendModel', () => {
     expect(rec.tier).toBe('7b')
     expect(rec.modelId).toBe('qwen2.5-coder-7b-q4')
     expect(rec.contextSize).toBe(8192)
-    expect(rec.maxTokens).toBe(2048)
   })
 
   it('grows the context on higher-memory 7B machines', () => {

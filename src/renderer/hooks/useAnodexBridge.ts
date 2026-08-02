@@ -360,8 +360,7 @@ async function autoConfigureFromHardware(): Promise<void> {
       unified: hw.unifiedMemory
     })
     await useSettingsStore.getState().update({
-      model: { contextSize: rec.contextSize, gpuLayers: rec.gpuLayers, autoConfigured: true },
-      generation: { maxTokens: rec.maxTokens }
+      model: { contextSize: rec.contextSize, gpuLayers: rec.gpuLayers, autoConfigured: true }
     })
   } catch {
     // Non-fatal — keep the static defaults if detection fails.

@@ -33,7 +33,6 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     generation: {
       temperature: 0.3,
       topP: 0.9,
-      maxTokens: 2048,
       turnTimeLimitMinutes: 15
     },
     model: {
@@ -89,62 +88,75 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     provider: {
       active: 'local',
+      // Off by default: see LocalProviderSettings.maxResponseTokens.
+      local: { maxResponseTokens: null },
       anthropic: {
         apiKey: '',
         model: DEFAULT_ANTHROPIC_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       openai: {
         apiKey: '',
         model: DEFAULT_OPENAI_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       google: {
         apiKey: '',
         model: DEFAULT_GOOGLE_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       xai: {
         apiKey: '',
         model: DEFAULT_XAI_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       deepseek: {
         apiKey: '',
         model: DEFAULT_DEEPSEEK_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       mistral: {
         apiKey: '',
         model: DEFAULT_MISTRAL_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       groq: {
         apiKey: '',
         model: DEFAULT_GROQ_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       openrouter: {
         apiKey: '',
         model: DEFAULT_OPENROUTER_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       azure: {
         apiKey: '',
         resourceName: '',
         deploymentName: '',
         apiVersion: '2024-10-21',
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       kimi: {
         apiKey: '',
         model: DEFAULT_KIMI_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       },
       qwen: {
         apiKey: '',
         model: DEFAULT_QWEN_MODEL,
-        dailyTokenCap: null
+        dailyTokenCap: null,
+        maxResponseTokens: null
       }
     },
     webSearch: {

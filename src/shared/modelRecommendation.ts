@@ -24,7 +24,6 @@ export interface ModelRecommendation {
   modelName: string
   contextSize: number
   gpuLayers: 'auto'
-  maxTokens: number
   /** Human-readable explanation shown in the UI. */
   rationale: string
 }
@@ -97,7 +96,6 @@ export function recommendModel(hardware: HardwareProfile): ModelRecommendation {
 
   const model = pickBestModel(ramGb, vramGb, hasDedicatedGpu)
   const contextSize = contextSizeFor(model, ramGb, hasDedicatedGpu ? vramGb : 0)
-  const maxTokens = Math.max(512, Math.round(contextSize * 0.25))
 
   return {
     tier: model.tier,
@@ -105,7 +103,6 @@ export function recommendModel(hardware: HardwareProfile): ModelRecommendation {
     modelName: model.name,
     contextSize,
     gpuLayers: 'auto',
-    maxTokens,
     rationale: buildRationale(ramGb, vramGb, hasDedicatedGpu, model, contextSize)
   }
 }
