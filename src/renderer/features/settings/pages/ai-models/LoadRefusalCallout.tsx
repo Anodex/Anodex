@@ -21,6 +21,28 @@ import styles from './AiModelsSettings.module.css'
  * panel, a refusal caused from Advanced left its own explanation on a tab the
  * user wasn't looking at.
  */
+/**
+ * The reassurance line: what is still running, given that the refused load
+ * changed nothing.
+ *
+ * Three cases, because naming the model unconditionally reads badly in the most
+ * common one. Raising the context size on the model that is *already* loaded
+ * reloads it, so a refusal there has the refused model and the live model being
+ * the same file — "Didn't load X … X is still loaded" is accurate but parses as
+ * a contradiction. That case says what actually differs instead: the size it is
+ * still running at.
+ */
+function describeWhatSurvived(engine: EngineState): string {
+  const loaded = engine.status === 'ready' ? engine.model : undefined
+  if (!loaded) return 'Nothing changed — no model is loaded.'
+  if (loaded.id === engine.refusedLoad?.model.id) {
+    return engine.contextSize
+      ? `Nothing changed — still running at ${engine.contextSize.toLocaleString()} tokens.`
+      : 'Nothing changed — it is still loaded and ready to chat.'
+  }
+  return `Nothing changed — ${loaded.name} is still loaded and ready to chat.`
+}
+
 export function LoadRefusalCallout({
   engine,
   onRetry,
@@ -32,7 +54,6 @@ export function LoadRefusalCallout({
 }): JSX.Element | null {
   const refused = engine.refusedLoad
   if (!refused) return null
-  const stillLoaded = engine.status === 'ready' && engine.model
 
   return (
     <div className={styles.refusalCallout}>
@@ -42,11 +63,7 @@ export function LoadRefusalCallout({
       <div className={styles.recText}>
         <strong>Didn&rsquo;t load {refused.model.name}</strong>
         <span>{refused.reason}</span>
-        <span className={styles.refusalFootnote}>
-          {stillLoaded
-            ? `Nothing changed — ${engine.model?.name} is still loaded and ready to chat.`
-            : 'Nothing changed — no model is loaded.'}
-        </span>
+        <span className={styles.refusalFootnote}>{describeWhatSurvived(engine)}</span>
       </div>
       <div className={styles.engineActions}>
         <Button variant="secondary" size="sm" onClick={onRetry}>
