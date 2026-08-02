@@ -14,6 +14,7 @@ import { tokenActivityStore } from './stats/TokenActivityStore'
 import { updateService } from './updates/UpdateService'
 import { llamaService } from './llama/LlamaService'
 import { cancelAllDownloads } from './llama/modelDownloader'
+import { pruneMissingModelPaths } from './llama/modelScanner'
 import { schedulerStore } from './scheduler/SchedulerStore'
 import { schedulerService } from './scheduler/SchedulerService'
 import { setKeepAwake } from './scheduler/keepAwake'
@@ -97,6 +98,10 @@ if (!app.requestSingleInstanceLock()) {
       initLoadSentinel()
       reportInterruptedLoad()
       settingsStore.init()
+      // Settings are loaded, and nothing has scanned yet — clear out model
+      // files the user added that have since been deleted, so they stop
+      // warning on every scan (see `pruneMissingModelPaths`).
+      pruneMissingModelPaths()
       projectStore.init()
       projectMemoryStore.init()
       codeIndexStore.init()

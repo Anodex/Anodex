@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, statSync, existsSync } from 'node:fs'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, extname, join, parse } from 'node:path'
 import type { ModelInfo } from '@shared/model.types'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
@@ -34,6 +34,31 @@ export function scanModels(): ModelInfo[] {
   }
 
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Drop `addedModelPaths` entries whose file is gone for good. A stale entry is
+ * otherwise permanent: `describeModel` returns `null` for it, so it never
+ * appears in the models list, and the only removal path (`models:delete`) is
+ * reached from that list — meanwhile every scan warns about it again.
+ *
+ * An entry is only dropped when its own drive root is reachable, which is what
+ * separates a deleted file from a temporarily unavailable one: an unplugged
+ * `E:\` or an offline `\\server\share` fails the root check and keeps all of
+ * its models. A relative path (which the file picker never produces) parses to
+ * an empty root and is likewise kept, so an unexpected shape is never data loss.
+ *
+ * Called once at startup rather than from {@link scanModels}, which stays a
+ * pure read that any subsystem can call at any time without writing settings.
+ */
+export function pruneMissingModelPaths(): void {
+  const { addedModelPaths } = settingsStore.get()
+  const live = addedModelPaths.filter((path) => existsSync(path) || !existsSync(parse(path).root))
+  if (live.length === addedModelPaths.length) return
+
+  const dropped = addedModelPaths.filter((path) => !live.includes(path))
+  log.info('Dropping model paths that no longer exist:', dropped.join(', '))
+  settingsStore.update({ addedModelPaths: live })
 }
 
 function listGgufFiles(dir: string): string[] {
