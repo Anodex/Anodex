@@ -26,7 +26,7 @@ non-change, and the suite still passes.
 | 2   | `src/main/llama/LlamaService.ts`                 | 2760  | 10 → 16      | ✅ done |
 | 3   | `src/main/chat/runGeneration.ts`                 | 614   | 5 → 6 added  | ✅ done |
 | 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0 → 5 added  | ✅ done |
-| 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0            | ☐       |
+| 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0 → 4 added  | ✅ done |
 | 6   | `src/main/email/EmailService.ts`                 | 713   | 1            | ☐       |
 | 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0            | ☐       |
 | 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1            | ☐       |
@@ -38,6 +38,20 @@ non-change, and the suite still passes.
 Why this order: 1 and 6–7 can destroy or leak user data; 2–5 are the generation
 path where a bug burns tokens or truncates a reply; 8–10 are the app's spine;
 11–12 are contained UI.
+
+## Open cross-cutting items
+
+Real findings that span several files, so fixing them inside one file's row
+would create a fresh inconsistency rather than remove one. Listed here so they
+survive the pass that found them; each is also written up under the file it came
+from.
+
+| Item                                                        | Found in | Status          |
+| ----------------------------------------------------------- | -------- | --------------- |
+| Round text concatenated with no separator (4 transports)    | 4        | ☐               |
+| No timeout on API-key verify clients (all providers)        | 4        | ☐               |
+| Empty turns can leave consecutive same-role messages        | 4        | ☐ narrowed in 5 |
+| `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ☐               |
 
 ---
 
@@ -514,3 +528,80 @@ rule itself, including the two shapes drawn from real tools.
 Four of these fail against the pre-fix schema — two in each new file plus the
 pre-existing vision assertion, which is what confirms all four transports now
 share one behaviour.
+
+---
+
+## 5. `src/main/llm/AnthropicProvider.ts` — done
+
+481 lines, no tests. Its schema defect was fixed under file 4 (it was one of the
+three copies), so this pass covered the rest of the file.
+
+### Bugs fixed
+
+**5.1 A compacted conversation could open with an orphaned assistant reply.**
+`splitHistoryByTokenBudget` keeps as many recent turns as fit, walking backwards,
+and cuts at whatever index that lands on — nothing aligns the cut to a
+user/assistant pair. Since turns alternate, roughly half of all cuts land
+immediately after a user turn, leaving its assistant reply as the first
+surviving turn. `historyToMessages` then replayed it verbatim, so the
+conversation opened with an answer to a question the model could no longer see.
+
+`historyToMessages` now drops the leading run of assistant turns. Only the
+leading run: an assistant turn anywhere after the first user turn is ordinary
+conversation. What was cut is already represented in the rolling summary, so
+nothing is lost that the model doesn't still have.
+
+Worth being precise about the blast radius, because I could not verify it
+end-to-end from here: whether Anthropic's API rejects a leading assistant
+message outright is not stated in the SDK's own types or docs, and there is no
+live key in this environment to try it against. The fix is correct under either
+answer — an orphaned reply is wrong to replay whether or not the API tolerates
+it — which is why it was made rather than filed. It only fires when history
+exceeds the model's window (200K for Claude), so it is rare and severe rather
+than common.
+
+**5.2 Two doc comments outlived the code they described.** `toInputSchema` and
+OpenAI's `toParametersSchema` were reduced to one-line passthroughs when the
+shared renderer landed under file 4, but both kept their original blocks
+explaining why they force every property to be required — the opposite of what
+they now do. My own oversight in that commit. `toInputSchema` was a passthrough
+adding nothing but a type annotation the shared return type already satisfies,
+so it is gone entirely; OpenAI's kept the half of its comment that is still true
+(why it declines `strict: true`).
+
+### Findings recorded elsewhere
+
+- **Anthropic merges consecutive same-role turns.** Its SDK documents this
+  explicitly: "Consecutive `user` or `assistant` turns in your request will be
+  combined into a single turn." That resolves the open cross-cutting item from
+  file 4 for this provider — the empty-turn skip cannot break anything here. The
+  item stays open for the OpenAI-compatible vendors, where Mistral and Google's
+  compat layer are the actual concern.
+- **The real root of 5.1 is in `splitHistoryByTokenBudget`**, which every
+  stateless transport shares. Fixing it there — aligning the cut to a user
+  boundary — would remove the whole class rather than its Anthropic symptom.
+  Added to the open items table; not done here because it changes history
+  selection for every provider including the local vision path, which deserves
+  its own change and its own tests.
+
+### Deliberate non-changes
+
+- **`if (toolResults.length === 0) break` runs after the assistant message is
+  pushed**, which would leave a `tool_use` block with no matching
+  `tool_result`. Unreachable — the branch is only entered when
+  `stop_reason === 'tool_use'`, which guarantees at least one such block — and
+  harmless if it ever were, since the loop breaks and `messages` is discarded
+  rather than sent.
+- **`captureRateLimitHeaders` reads `stream.response` on `connect`.** The SDK
+  types it `Response | null | undefined`, so the guard is real and the
+  best-effort contract in its comment holds.
+
+### Tests added
+
+`src/main/llm/__tests__/anthropicMessages.test.ts` — 4 tests, the first coverage
+this provider has had, all on what it puts on the wire: a leading assistant turn
+is dropped, a whole leading run is dropped, assistant turns after the first user
+turn survive untouched, and a history consisting only of orphans still sends the
+current prompt. Three fail against the pre-fix file; the fourth (assistant turns
+mid-conversation surviving) is the regression guard that stops the fix
+overreaching.

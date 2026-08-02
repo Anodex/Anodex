@@ -354,20 +354,12 @@ function toOpenAiTools(toolFunctions: Record<string, ToolFunction>): FunctionToo
 }
 
 /**
- * Convert a tool's GBNF-JSON param schema (see `ToolFunction`) to a plain
- * JSON Schema object for OpenAI's `parameters` field. The two are
- * structurally the same shape, with one deliberate adaptation at the top
- * level: node-llama-cpp's grammar-based function calling always requires
- * every declared top-level property regardless of the schema's own
- * `required` field (a documented GBNF limitation — see `AnthropicProvider.ts`
- * for the full explanation), so every Anodex tool is written assuming that
- * behavior. Forcing `required` to match here keeps GPT filling in the same
- * top-level fields the local engine would have forced it to.
- *
  * Not using `strict: true` mode deliberately — some tools (e.g. `patch_file`)
  * have nested object schemas with genuinely optional fields, and strict mode
  * would require recursively forcing every nested object to list all its own
- * properties as required too, which would misrepresent real optionality.
+ * properties as required too, which would misrepresent real optionality. The
+ * top level is rendered by the shared `toolParameterSchema`, which honours each
+ * tool's declared `required` list for exactly the same reason.
  */
 function toParametersSchema(params: ToolFunction['params']): Record<string, unknown> {
   return toolParameterSchema(params)

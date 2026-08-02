@@ -358,6 +358,15 @@ function historyToMessages(
   const projected = projectHistoryForModel(history)
   for (let index = 0; index < projected.length; index++) {
     const turn = projected[index]
+    // Skip leading assistant turns. `splitHistoryByTokenBudget` keeps as many
+    // recent turns as fit and cuts at whatever index that lands on, with no
+    // regard for pairing — so a compacted conversation can begin with an
+    // assistant reply whose user turn was just dropped. Replaying it means
+    // opening with an answer to a question the model cannot see, and the
+    // rolling summary already covers what was cut. Only the leading run is
+    // dropped; an assistant turn anywhere after the first user turn is real
+    // conversation.
+    if (messages.length === 0 && turn.role === 'assistant') continue
     // Chat history turns are only ever user/assistant in practice — the
     // system prompt is threaded separately via `GenerateParams.systemPrompt`.
     if (turn.role !== 'user' && turn.role !== 'assistant') continue
@@ -377,21 +386,11 @@ function toAnthropicTools(toolFunctions: Record<string, ToolFunction>): Anthropi
   return Object.entries(toolFunctions).map(([name, fn]) => ({
     name,
     description: fn.description,
-    input_schema: toInputSchema(fn.params)
+    // Anthropic's `input_schema` is the same JSON Schema shape every other
+    // provider takes, so the shared renderer covers it — see
+    // `toolParameterSchema` for why the tool's own `required` list is honoured.
+    input_schema: toolParameterSchema(fn.params)
   }))
-}
-
-/**
- * Convert a tool's GBNF-JSON param schema (see `ToolFunction`) to Anthropic's
- * input schema. The two are structurally the same JSON Schema shape, with one
- * deliberate adaptation: node-llama-cpp's grammar-based function calling
- * always requires every declared property regardless of the schema's own
- * `required` field (a documented GBNF limitation), so every Anodex tool is
- * written assuming that behavior. Forcing `required` to match here keeps
- * Claude filling in the same fields the local engine would have forced it to.
- */
-function toInputSchema(params: ToolFunction['params']): Anthropic.Tool.InputSchema {
-  return toolParameterSchema(params)
 }
 
 /**
