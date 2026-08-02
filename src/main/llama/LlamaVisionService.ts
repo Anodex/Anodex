@@ -12,6 +12,7 @@ import type {
   GenerationStats
 } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
+import { APPROX_CHARS_PER_TOKEN } from '@shared/contextProjection'
 import { projectHistoryForModel, rememberToolCallForModel } from './contextAssembler'
 import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
@@ -787,8 +788,25 @@ function userContent(
   ]
 }
 
+/**
+ * Last-resort guard on replayed history — **not** this transport's real
+ * bounding, which now happens upstream in `runGeneration` via
+ * `boundHistoryForStatelessProvider`, where overflow is summarized into a
+ * rolling snapshot instead of discarded.
+ *
+ * Kept because this method can be reached with history that never went through
+ * that path, and because upstream's estimate can't see image token cost. The
+ * fraction is deliberately *looser* than upstream's own budget: if this cut
+ * first, it would silently drop the very turns summarization just decided to
+ * keep — reintroducing the silent history loss as a truncation one layer down.
+ */
+const HISTORY_BACKSTOP_CONTEXT_FRACTION = 0.85
+
 function boundHistory(history: ChatHistoryTurn[], contextSize: number): ChatHistoryTurn[] {
-  const maxCharacters = Math.max(4000, Math.floor(contextSize * 4 * 0.55))
+  const maxCharacters = Math.max(
+    4000,
+    Math.floor(contextSize * APPROX_CHARS_PER_TOKEN * HISTORY_BACKSTOP_CONTEXT_FRACTION)
+  )
   const retained: ChatHistoryTurn[] = []
   let characters = 0
   for (let index = history.length - 1; index >= 0; index--) {

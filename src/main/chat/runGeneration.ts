@@ -22,7 +22,9 @@ import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService, type GenerateOutcome, type GenerateParams } from '../llama/LlamaService'
-import { boundHistoryForCloudProvider } from '../llama/contextAssembler'
+import { boundHistoryForStatelessProvider } from '../llama/contextAssembler'
+import { CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET, summaryChunkBudgetForContext } from '../llama/compaction'
+import { ROLLING_SUMMARY_TOKEN_CEILING } from '../llama/rollingSummary'
 import { summarizeForCompactionOpenAi } from '../llm/OpenAiProvider'
 import { summarizeForCompactionAnthropic } from '../llm/AnthropicProvider'
 import { summarizeForCompactionAzure } from '../llm/AzureOpenAiProvider'
@@ -130,10 +132,12 @@ export interface RunGenerationResult {
    */
   webSearchAttempted?: boolean
   /**
-   * A new compacted context snapshot produced this turn, if any — only ever
-   * set on the cloud-provider path (`boundHistoryForCloudProvider`), since
-   * the local engine keeps its own in-memory session/KV-cache continuity
-   * across turns within a run. `chat.handlers.ts`'s interactive caller
+   * A new compacted context snapshot produced this turn, if any — set on the
+   * stateless-provider path (`boundHistoryForStatelessProvider`), which covers
+   * every cloud provider plus the local llama-server transport. The
+   * node-llama-cpp engine is the exception: it keeps its own in-memory
+   * session/KV-cache continuity across turns within a run and compacts
+   * internally. `chat.handlers.ts`'s interactive caller
    * already gets the same information via `chatEvents`' `historyCompacted`
    * event (forwarded to the renderer, which persists it through
    * `chatStore.applyHistoryCompaction`); a headless caller (`AgentRunService`,
@@ -227,6 +231,53 @@ function cloudModelIdsForUsageQuery(
   if (providerId === 'openai') return OPENAI_MODELS.map((m) => m.id)
   if (providerId === 'azure') return [modelDescriptor.id]
   return MODEL_CATALOGS_BY_PROVIDER[providerId].map((m) => m.id)
+}
+
+/**
+ * How this turn's history must be bounded before it is sent, or `null` when
+ * the provider bounds its own.
+ *
+ * The dividing line is statefulness, not local-vs-cloud: only the
+ * node-llama-cpp path keeps a session (and KV cache) that compacts internally.
+ * Every other transport re-sends the whole conversation each request and needs
+ * its history folded here — including Anodex's own llama-server transport,
+ * which serves any local model carrying a multimodal projector. That case was
+ * missed for as long as the check read `provider.active !== 'local'`, so those
+ * conversations silently lost their oldest turns to character truncation
+ * instead of summarizing them.
+ */
+export function resolveHistoryBounding(
+  effectiveProviderId: ProviderSettings['active'],
+  modelDescriptor: { id: string } | null,
+  io: RunGenerationIo
+): {
+  contextWindowTokens: number
+  summarize: (transcript: string, previousSummary?: string) => Promise<string | null>
+  summaryChunkTokenBudget: number
+} | null {
+  if (effectiveProviderId !== 'local') {
+    if (!modelDescriptor) return null
+    return {
+      contextWindowTokens: cloudContextWindowTokens(effectiveProviderId, modelDescriptor.id),
+      summarize: cloudSummarizer(effectiveProviderId, io.providerOverride?.model),
+      summaryChunkTokenBudget: CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET
+    }
+  }
+
+  const local = llamaService.getState()
+  if (!local.vision || !local.contextSize) return null
+  return {
+    contextWindowTokens: local.contextSize,
+    summarize: (transcript, previousSummary) =>
+      llamaService.summarizeForCompactionLocal(transcript, previousSummary),
+    // Sized against the model's real context: this summarizer runs on the same
+    // llama-server, so cloud-sized chunks could overflow the call meant to
+    // relieve the overflow.
+    summaryChunkTokenBudget: summaryChunkBudgetForContext(
+      local.contextSize,
+      ROLLING_SUMMARY_TOKEN_CEILING
+    )
+  }
 }
 
 /**
@@ -392,13 +443,15 @@ export async function runGeneration(
   let boundedSystemPrompt: string | undefined = systemPrompt
   let boundedHistory = request.history
   let contextUpdate: ConversationContext | undefined
-  if (effectiveProviderId !== 'local' && modelDescriptor) {
-    const bounded = await boundHistoryForCloudProvider(
+  const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io)
+  if (bounding) {
+    const bounded = await boundHistoryForStatelessProvider(
       systemPrompt,
       request.history,
       request.context,
-      cloudContextWindowTokens(effectiveProviderId, modelDescriptor.id),
-      cloudSummarizer(effectiveProviderId, io.providerOverride?.model)
+      bounding.contextWindowTokens,
+      bounding.summarize,
+      bounding.summaryChunkTokenBudget
     )
     boundedSystemPrompt = bounded.systemPrompt
     boundedHistory = bounded.history

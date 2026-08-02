@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatHistoryTurn } from '@shared/chat.types'
 import {
   assembleModelContext,
-  boundHistoryForCloudProvider,
+  boundHistoryForStatelessProvider,
   MAX_MODEL_TOOL_RESULT_CHARS,
   projectHistoryForModel,
   rememberToolCallForModel,
@@ -245,14 +245,14 @@ describe('seedContextFromSnapshot', () => {
   })
 })
 
-describe('boundHistoryForCloudProvider', () => {
+describe('boundHistoryForStatelessProvider', () => {
   it('keeps history verbatim and reports no omissions when it fits the budget', async () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'hello' }
     ]
 
-    const bounded = await boundHistoryForCloudProvider('be helpful', history, null, 10_000)
+    const bounded = await boundHistoryForStatelessProvider('be helpful', history, null, 10_000)
 
     expect(bounded.systemPrompt).toBe('be helpful')
     expect(bounded.history).toEqual(history)
@@ -266,7 +266,7 @@ describe('boundHistoryForCloudProvider', () => {
       { id: 'm2', role: 'assistant', content: 'latest' }
     ]
 
-    const bounded = await boundHistoryForCloudProvider(undefined, history, null, 1_000)
+    const bounded = await boundHistoryForStatelessProvider(undefined, history, null, 1_000)
 
     expect(bounded.omittedTurns).toBe(1)
     expect(bounded.history).toEqual([history[1]])
@@ -280,7 +280,7 @@ describe('boundHistoryForCloudProvider', () => {
       { id: 'm3', role: 'user', content: 'latest request' }
     ]
 
-    const bounded = await boundHistoryForCloudProvider(
+    const bounded = await boundHistoryForStatelessProvider(
       'system',
       history,
       {
@@ -303,7 +303,7 @@ describe('boundHistoryForCloudProvider', () => {
 
   it('summarizes overflow via the supplied summarizer instead of dropping it', async () => {
     // Character counts here are calibrated for the real ~4-chars-per-token
-    // estimate `boundHistoryForCloudProvider` actually uses (unlike
+    // estimate `boundHistoryForStatelessProvider` actually uses (unlike
     // `assembleModelContext`'s own tests above, which inject a 1-char-per-
     // token `countTokens` and can use much smaller strings).
     const history: ChatHistoryTurn[] = [
@@ -313,8 +313,12 @@ describe('boundHistoryForCloudProvider', () => {
       { id: 'm4', role: 'assistant', content: 'recent answer' }
     ]
 
-    const bounded = await boundHistoryForCloudProvider('system', history, null, 700, (transcript) =>
-      Promise.resolve(`Summary: ${transcript.slice(0, 60)}`)
+    const bounded = await boundHistoryForStatelessProvider(
+      'system',
+      history,
+      null,
+      700,
+      (transcript) => Promise.resolve(`Summary: ${transcript.slice(0, 60)}`)
     )
 
     expect(bounded.summarized).toBe(true)
@@ -331,7 +335,7 @@ describe('boundHistoryForCloudProvider', () => {
       { id: 'm3', role: 'user', content: 'latest' }
     ]
 
-    const bounded = await boundHistoryForCloudProvider(undefined, history, null, 700, () =>
+    const bounded = await boundHistoryForStatelessProvider(undefined, history, null, 700, () =>
       Promise.resolve(null)
     )
 

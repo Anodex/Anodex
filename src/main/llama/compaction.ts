@@ -82,6 +82,49 @@ export const SUMMARY_CHUNK_TOKEN_BUDGET = 1600
 export const CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET = 8000
 
 /**
+ * Room the compaction prompt's own framing occupies, on top of the transcript
+ * chunk and any previous summary — see `buildCompactionSummaryPrompt` /
+ * `buildCompactionUpdatePrompt`. Approximate by design; it exists so the
+ * budget arithmetic below names every term instead of hiding one in "slack".
+ */
+const SUMMARY_PROMPT_FRAMING_TOKENS = 200
+
+/**
+ * Chunk budget for a summarizer running against a context of `contextSize`,
+ * rather than the local engine's fixed 4,096-token summary sequence.
+ *
+ * Needed by the llama-server (vision) transport, whose summary calls go
+ * through `LlamaVisionService.completeText` against the model's *whole*
+ * context — so neither existing constant fits: `SUMMARY_CHUNK_TOKEN_BUDGET`
+ * would turn one overflow into dozens of slow local generations, and
+ * `CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET` would overflow a small context outright.
+ *
+ * Same arithmetic as `MAX_COMPACTION_SUMMARY_TOKENS`'s doc comment, with each
+ * term named: the summary call must fit its own output, the prompt framing, a
+ * worst-case previous rolling summary, and the chunk. The remainder is taken
+ * at 90% so a tokenizer disagreeing slightly with these estimates can't push
+ * the request over. Capped at the cloud budget (larger chunks stop helping)
+ * and floored at a chunk small enough to still make progress.
+ */
+export function summaryChunkBudgetForContext(
+  contextSize: number,
+  rollingSummaryCeiling: number
+): number {
+  const reserved =
+    MAX_COMPACTION_SUMMARY_TOKENS + SUMMARY_PROMPT_FRAMING_TOKENS + rollingSummaryCeiling
+  const available = Math.floor(Math.max(0, contextSize - reserved) * 0.9)
+  return Math.min(CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET, Math.max(MIN_SUMMARY_CHUNK_TOKENS, available))
+}
+
+/**
+ * Floor for `summaryChunkBudgetForContext`. Below roughly this much, a chunk
+ * carries too little of the conversation for a summary of it to be worth the
+ * generation — the caller drops the older turns instead, which
+ * `assembleModelContext` already does when summarization returns nothing.
+ */
+const MIN_SUMMARY_CHUNK_TOKENS = 400
+
+/**
  * Below this length, a "summary" is treated as a failed/degenerate response
  * (e.g. a weak model latching onto a short reply embedded in the transcript,
  * like a literal "OK") rather than a real summary — the caller falls back to

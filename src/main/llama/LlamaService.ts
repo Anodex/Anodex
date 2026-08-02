@@ -1374,6 +1374,25 @@ class LlamaService extends EventEmitter {
   }
 
   /**
+   * The narrow, tool-free summarizer used to fold older turns into a rolling
+   * summary, exposed for callers that must bound history *before* generation.
+   *
+   * The node-llama-cpp path never needs this — it compacts inside its own
+   * session, which owns the KV cache. The llama-server (vision) path has no
+   * session at all: it re-sends the whole conversation every request, exactly
+   * like a cloud provider, so without this its history was simply
+   * character-truncated and older turns were lost silently. Delegates to the
+   * same private summarizer both compaction paths already use, which routes
+   * through whichever transport is live.
+   */
+  summarizeForCompactionLocal(
+    transcript: string,
+    previousSummary?: string
+  ): Promise<string | null> {
+    return this.summarizeHistoryForCompaction(transcript, previousSummary)
+  }
+
+  /**
    * A very short (~`maxWords`-word) summary of `text`, for a desktop toast's
    * title. Runs on `summaryContext`/`summarySequence` — never the active
    * conversation's own context — via a throwaway `LlamaChatSession` (for

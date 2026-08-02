@@ -335,7 +335,7 @@ function toParametersSchema(params: ToolFunction['params']): Record<string, unkn
 
 /**
  * Narrow, tool-free summary call used only for cloud context compaction (see
- * `boundHistoryForCloudProvider` in `contextAssembler.ts`) — isolated from
+ * `boundHistoryForStatelessProvider` in `contextAssembler.ts`) — isolated from
  * normal generation: no tools, no streaming, no activity/stats recording.
  * Best-effort, matching the local engine's equivalent: `null` on any failure
  * or a degenerate (too-short) result, so the caller falls back to just

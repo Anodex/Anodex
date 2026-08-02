@@ -6,7 +6,7 @@ export interface AnthropicModelOption {
   description: string
   /**
    * Conservative context-window estimate used to bound history sent to this
-   * model (see `contextAssembler.ts`'s `boundHistoryForCloudProvider`) —
+   * model (see `contextAssembler.ts`'s `boundHistoryForStatelessProvider`) —
    * deliberately not the marketing-max figure, since Anodex has no exact
    * tokenizer for cloud models and estimates tokens from character count.
    */
