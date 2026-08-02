@@ -9,13 +9,19 @@ const mockSettings = vi.hoisted(() => ({
   visionProjectorPaths: {}
 }))
 
+const mockUpdate = vi.hoisted(() => vi.fn())
+
 vi.mock('../../settings/SettingsStore', () => ({
   settingsStore: {
-    get: () => mockSettings
+    get: () => mockSettings,
+    update: (patch: { addedModelPaths?: string[] }) => {
+      mockUpdate(patch)
+      if (patch.addedModelPaths) mockSettings.addedModelPaths = patch.addedModelPaths
+    }
   }
 }))
 
-import { describeModel, scanModels } from '../modelScanner'
+import { describeModel, pruneMissingModelPaths, scanModels } from '../modelScanner'
 
 describe('modelScanner vision projectors', () => {
   let dir: string
@@ -124,4 +130,88 @@ describe('modelScanner vision projectors', () => {
 
     expect(describeModel(modelPath)?.visionProjectorPath).toBe(q8Path)
   })
+})
+
+describe('pruneMissingModelPaths', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'anodex-model-prune-'))
+    mockSettings.modelsDirectory = dir
+    mockSettings.addedModelPaths = []
+    mockSettings.visionProjectorPaths = {}
+    mockUpdate.mockClear()
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('drops an added model whose file has been deleted', async () => {
+    const present = join(dir, 'kept-Q4_K_M.gguf')
+    const deleted = join(dir, 'gone-Q4_K_M.gguf')
+    await writeFile(present, 'gguf')
+    mockSettings.addedModelPaths = [present, deleted]
+
+    pruneMissingModelPaths()
+
+    expect(mockUpdate).toHaveBeenCalledWith({ addedModelPaths: [present] })
+  })
+
+  it('writes nothing when every added model is still there', async () => {
+    const present = join(dir, 'kept-Q4_K_M.gguf')
+    await writeFile(present, 'gguf')
+    mockSettings.addedModelPaths = [present]
+
+    pruneMissingModelPaths()
+
+    // A no-op save on every launch would rewrite settings.json for nothing.
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('keeps a relative path rather than treating its empty root as unreachable', () => {
+    // The file picker always yields absolute paths, so this only guards against
+    // an unexpected shape silently costing the user an entry.
+    mockSettings.addedModelPaths = ['models/relative-Q4_K_M.gguf']
+
+    pruneMissingModelPaths()
+
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it.skipIf(process.platform !== 'win32')(
+    'keeps a model on an unmounted drive, whose root is unreachable',
+    async () => {
+      const present = join(dir, 'kept-Q4_K_M.gguf')
+      await writeFile(present, 'gguf')
+      // An unplugged external disk: the file is missing exactly like a deleted
+      // one, but its whole root is gone too, so the entry has to survive.
+      const unmounted = 'Q:\\models\\external-Q4_K_M.gguf'
+      mockSettings.addedModelPaths = [present, unmounted]
+
+      pruneMissingModelPaths()
+
+      expect(mockUpdate).not.toHaveBeenCalled()
+    }
+  )
+
+  // A UNC root is a different shape from a drive letter — `path.parse` reports
+  // `\\host\share\` rather than `X:\` — so it is worth covering separately.
+  // The generous timeout is because probing the root is a real host lookup:
+  // the assertion holds either way (an unresolvable host is "not there"), only
+  // how long the lookup takes varies between machines.
+  it.skipIf(process.platform !== 'win32')(
+    'keeps a model on an offline network share',
+    async () => {
+      const present = join(dir, 'kept-Q4_K_M.gguf')
+      await writeFile(present, 'gguf')
+      const offlineShare = '\\\\anodex-no-such-host\\models\\shared-Q4_K_M.gguf'
+      mockSettings.addedModelPaths = [present, offlineShare]
+
+      pruneMissingModelPaths()
+
+      expect(mockUpdate).not.toHaveBeenCalled()
+    },
+    30_000
+  )
 })
