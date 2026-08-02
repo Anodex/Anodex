@@ -17,11 +17,17 @@ import png2icons from 'png2icons'
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..')
 const sourcePath = join(rootDir, 'src/renderer/assets/app-icon.png')
+const glyphSourcePath = join(rootDir, 'src/renderer/assets/title-logo.png')
 const buildDir = join(rootDir, 'build')
+// Shipped via electron-builder's `extraResources`, unlike build/ — the main
+// process needs the bare glyph at runtime for framed secondary windows (see
+// `brandGlyphIcon` in src/main/window.ts), which build/ can't provide.
+const brandDir = join(rootDir, 'resources/brand')
 
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 const MASTER_SIZE = 1024
 const LINUX_ICON_SIZE = 512
+const GLYPH_ICON_SIZE = 256
 
 async function main() {
   await mkdir(buildDir, { recursive: true })
@@ -49,6 +55,21 @@ async function main() {
   const linuxPng = await sharp(master).resize(LINUX_ICON_SIZE, LINUX_ICON_SIZE).png().toBuffer()
   await writeFile(join(buildDir, 'icon.png'), linuxPng)
   console.log('wrote build/icon.png')
+
+  // The bare glyph, for windows Anodex opens with native OS chrome (the HTML
+  // preview pop-out). Those sit next to the main window's own title bar, which
+  // draws this same mark — the backdropped tile above would read as a
+  // different logo there, even though it's the right choice for the taskbar.
+  await mkdir(brandDir, { recursive: true })
+  const glyph = await sharp(glyphSourcePath)
+    .resize(GLYPH_ICON_SIZE, GLYPH_ICON_SIZE, {
+      fit: 'contain',
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    })
+    .png()
+    .toBuffer()
+  await writeFile(join(brandDir, 'title-logo.png'), glyph)
+  console.log('wrote resources/brand/title-logo.png')
 }
 
 main().catch((error) => {

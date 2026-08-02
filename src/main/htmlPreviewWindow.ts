@@ -1,5 +1,5 @@
 import { BrowserWindow, screen, shell } from 'electron'
-import { appWindowIcon, getMainWindow } from './window'
+import { brandGlyphIcon, getMainWindow } from './window'
 import { createLogger } from './utils/logger'
 
 const log = createLogger('html-preview-window')
@@ -49,10 +49,11 @@ export function openHtmlPreviewWindow(key: string, title: string, content: strin
     show: false,
     title,
     autoHideMenuBar: true,
-    // Anodex's own mark, so a pop-out reads as part of the app rather than as
-    // a stray Electron window. The previewed page never gets to change it —
-    // `page-title-updated` is suppressed below for the same reason.
-    icon: appWindowIcon(),
+    // The same bare glyph the main window's own title bar draws, so a pop-out
+    // reads as part of Anodex sitting beside it. The previewed page never gets
+    // to change it — `page-title-updated` is suppressed below for the same
+    // reason.
+    icon: brandGlyphIcon(),
     backgroundColor: '#ffffff',
     webPreferences: {
       contextIsolation: true,

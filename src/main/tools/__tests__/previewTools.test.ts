@@ -114,6 +114,40 @@ describe('prepareHtmlPreviewSource', () => {
     expect(result).not.toContain('root:')
   })
 
+  describe('scrollbar chrome', () => {
+    it('injects Anodex scrollbar styling into the previewed page', async () => {
+      const result = await prepareHtmlPreviewSource(
+        workspaceRoot,
+        'index.html',
+        '<html><head><title>x</title></head><body>hi</body></html>'
+      )
+
+      expect(result).toContain('data-anodex-preview-chrome="scrollbars"')
+      expect(result).toContain('scrollbar-width: thin')
+    })
+
+    it("injects into the head, before the page's own styles", async () => {
+      const result = await prepareHtmlPreviewSource(
+        workspaceRoot,
+        'index.html',
+        '<html><head><style>::-webkit-scrollbar { width: 40px; }</style></head><body></body></html>'
+      )
+
+      // Equal-specificity rules, so source order decides — ours must come
+      // first, letting a page that styles its own scrollbars keep them.
+      expect(result.indexOf('data-anodex-preview-chrome')).toBeLessThan(
+        result.indexOf('width: 40px')
+      )
+    })
+
+    it('still injects into a document with no head tag', async () => {
+      const result = await prepareHtmlPreviewSource(workspaceRoot, 'index.html', '<h1>Bare</h1>')
+
+      expect(result).toContain('data-anodex-preview-chrome="scrollbars"')
+      expect(result).toContain('<h1>Bare</h1>')
+    })
+  })
+
   it('rejects a preview that is too large once assets are inlined', async () => {
     write('big.css', 'a'.repeat(2000))
 

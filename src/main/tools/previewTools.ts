@@ -92,16 +92,66 @@ export async function prepareHtmlPreviewSource(
   html: string,
   options: { maxContentChars?: number; maxImageBytes?: number } = {}
 ): Promise<string> {
-  const content = await inlineLocalAssets(
+  const inlined = await inlineLocalAssets(
     workspaceRoot,
     htmlPath,
     html,
     options.maxImageBytes ?? MAX_PREVIEW_IMAGE_BYTES
   )
+  const content = withPreviewScrollbars(inlined)
   if (content.length > (options.maxContentChars ?? MAX_PREVIEW_CONTENT_CHARS)) {
     throw new Error('Preview is too large after inlining local assets.')
   }
   return content
+}
+
+/**
+ * Anodex's own scrollbar geometry, for previewed pages.
+ *
+ * A preview frame (and the pop-out window) otherwise gets the platform's
+ * default chunky scrollbar, which sits right next to Anodex's own thin ones
+ * and reads as a seam in the app. This is the same shape as `global.css` —
+ * 8px, rounded, transparent track, 2px inset via `background-clip` — but with
+ * a translucent grey thumb rather than the `--border-strong` theme token,
+ * because this scrollbar sits against the *previewed page's* background, not
+ * Anodex's chrome, and the page may be light or dark.
+ *
+ * Injected at the very top of the document so it loses to any scrollbar rule
+ * the page sets for itself: these are equal-specificity selectors, so source
+ * order decides, and a page that styles its own scrollbars keeps them.
+ */
+const PREVIEW_SCROLLBAR_CSS = `<style data-anodex-preview-chrome="scrollbars">
+* { scrollbar-width: thin; scrollbar-color: rgba(136, 136, 136, 0.45) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(136, 136, 136, 0.45);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(136, 136, 136, 0.7);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+</style>`
+
+function withPreviewScrollbars(html: string): string {
+  const headMatch = /<head\b[^>]*>/i.exec(html)
+  if (headMatch) {
+    const at = headMatch.index + headMatch[0].length
+    return `${html.slice(0, at)}\n${PREVIEW_SCROLLBAR_CSS}${html.slice(at)}`
+  }
+  // No <head> to hang it off — a bare fragment, or a document that opens
+  // straight into <body>. Prepending still applies, and the browser hoists a
+  // leading <style> into the head it synthesizes.
+  const htmlMatch = /<html\b[^>]*>/i.exec(html)
+  if (htmlMatch) {
+    const at = htmlMatch.index + htmlMatch[0].length
+    return `${html.slice(0, at)}\n${PREVIEW_SCROLLBAR_CSS}${html.slice(at)}`
+  }
+  return `${PREVIEW_SCROLLBAR_CSS}\n${html}`
 }
 
 async function inlineLocalAssets(

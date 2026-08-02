@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
 import { IpcChannel } from '@shared/ipc'
 import { installContextMenu } from './contextMenu'
@@ -37,6 +37,23 @@ export function getMainWindow(): BrowserWindow | null {
  */
 export function appWindowIcon(): string | undefined {
   return process.env['ELECTRON_RENDERER_URL'] ? join(__dirname, '../../build/icon.png') : undefined
+}
+
+/**
+ * The bare Anodex glyph, for windows the app opens with native OS chrome —
+ * currently just the HTML preview pop-out.
+ *
+ * Deliberately not `appWindowIcon()`. That one is the backdropped app tile,
+ * which is the right mark for the taskbar and Start menu (see the note in
+ * scripts/generate-icons.mjs) but reads as a *different* logo in a title bar
+ * sitting next to the main window, whose own title bar draws this bare glyph.
+ * Unlike build/, `resources/` is shipped, so this resolves in a packaged app
+ * too — same `process.resourcesPath` pattern as SkillStore and friends.
+ */
+export function brandGlyphIcon(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'brand', 'title-logo.png')
+    : join(__dirname, '../../resources/brand/title-logo.png')
 }
 
 /**
