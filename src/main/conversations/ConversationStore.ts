@@ -46,6 +46,7 @@ class ConversationStore {
     this.ensureDir(this.baseDir)
     this.ensureDir(join(this.baseDir, GENERAL_DIR))
     this.cache = null
+    this.stateCache = null
     log.info('Initialised at', this.baseDir)
   }
 
@@ -81,9 +82,7 @@ class ConversationStore {
     this.ensureDir(dir)
     const filePath = join(dir, `${normalized.id}.json`)
 
-    // If the conversation moved between projects, remove the stale file.
     const existing = this.ensureCache().get(normalized.id)
-    if (existing && existing.filePath !== filePath) this.removeFile(existing.filePath)
 
     try {
       writeFileSync(filePath, JSON.stringify(normalized, null, 2), 'utf-8')
@@ -92,6 +91,11 @@ class ConversationStore {
       log.error('Failed to save conversation:', filePath, error)
       throw error
     }
+
+    // Only once the new file is safely on disk: if the conversation moved between
+    // projects, drop the file it used to live in. Doing this before the write
+    // would turn a failed write into data loss rather than a duplicate.
+    if (existing && existing.filePath !== filePath) this.removeFile(existing.filePath)
   }
 
   /** Archive a single conversation so it can be restored later. */
@@ -103,11 +107,12 @@ class ConversationStore {
     assertSafeId(id, 'conversation id')
     const entry = this.ensureCache().get(id)
     if (!entry) return
+    const now = Date.now()
     this.save({
       ...entry.conversation,
       archived: true,
-      archivedAt: Date.now(),
-      updatedAt: Date.now()
+      archivedAt: now,
+      updatedAt: now
     })
     const state = this.getState()
     if (state.activeConversationId === id) this.setState({ activeConversationId: null })
@@ -144,21 +149,37 @@ class ConversationStore {
 
   /** Archive every active conversation (all projects and general chats) and clear active state. */
   deleteAll(): void {
+    const now = Date.now()
+    // Safe to `save()` (which writes back into this Map) while iterating it:
+    // every write targets an id that already exists, and an in-place update of
+    // an existing key is not revisited by a live iterator.
     for (const entry of this.ensureCache().values()) {
       if (entry.conversation.archived) continue
       this.save({
         ...entry.conversation,
         archived: true,
-        archivedAt: Date.now(),
-        updatedAt: Date.now()
+        archivedAt: now,
+        updatedAt: now
       })
       abortGeneration(entry.conversation.id)
     }
     this.setState({ activeConversationId: null })
   }
 
+  /**
+   * Permanently delete archived conversations. Ids that name a conversation
+   * which is *not* archived are skipped: this arrives straight from the renderer
+   * over IPC, and the caller's intent is "empty the archive" — never "destroy a
+   * live chat that happened to be in the list".
+   */
   deleteArchived(ids: string[]): void {
     for (const id of ids) {
+      assertSafeId(id, 'conversation id')
+      const entry = this.ensureCache().get(id)
+      if (entry && !entry.conversation.archived) {
+        log.warn('Refusing to permanently delete a conversation that is not archived:', id)
+        continue
+      }
       this.deletePermanent(id)
     }
   }
@@ -170,13 +191,14 @@ class ConversationStore {
 
   archiveByProject(projectId: string): void {
     assertSafeId(projectId, 'project id')
+    const now = Date.now()
     for (const entry of this.ensureCache().values()) {
       if (entry.conversation.projectId !== projectId || entry.conversation.archived) continue
       this.save({
         ...entry.conversation,
         archived: true,
-        archivedAt: Date.now(),
-        updatedAt: Date.now()
+        archivedAt: now,
+        updatedAt: now
       })
       abortGeneration(entry.conversation.id)
     }
@@ -215,10 +237,12 @@ class ConversationStore {
         log.warn('Failed to delete project conversations:', dir, error)
       }
     }
+    const state = this.getState()
     for (const id of conversationIds) {
       conversationAssetStore.removeConversation(id)
       cache.delete(id)
       abortGeneration(id)
+      if (state.activeConversationId === id) this.setState({ activeConversationId: null })
     }
   }
 
@@ -226,27 +250,35 @@ class ConversationStore {
   getState(): ConversationState {
     if (this.stateCache) return this.stateCache
     const filePath = join(this.baseDir, STATE_FILE)
-    if (!existsSync(filePath)) return { activeConversationId: null }
+    // The default is cached like any other result: on first run there is no
+    // state file, and without this every caller re-hits the disk to find that out.
+    if (!existsSync(filePath)) {
+      this.stateCache = { activeConversationId: null }
+      return this.stateCache
+    }
     try {
       const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as ConversationState
       this.stateCache = { activeConversationId: raw.activeConversationId ?? null }
       return this.stateCache
     } catch (error) {
       log.warn('Failed to read conversation state, using defaults:', error)
-      return { activeConversationId: null }
+      this.stateCache = { activeConversationId: null }
+      return this.stateCache
     }
   }
 
   /** Persist the active-conversation state. */
   setState(state: ConversationState): void {
     const filePath = join(this.baseDir, STATE_FILE)
-    this.stateCache = state
     try {
       writeFileSync(filePath, JSON.stringify(state, null, 2), 'utf-8')
     } catch (error) {
       log.error('Failed to save conversation state:', filePath, error)
       throw error
     }
+    // Cached only after the write lands, so a failure cannot leave this process
+    // believing something the next launch will not agree with.
+    this.stateCache = state
   }
 
   /** Build (once) and return the in-memory conversation cache. */
@@ -276,7 +308,12 @@ class ConversationStore {
 
   private readFile(filePath: string): Conversation | null {
     try {
-      const conversation = JSON.parse(readFileSync(filePath, 'utf-8')) as Conversation
+      const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf-8'))
+      if (!isConversationShaped(parsed)) {
+        log.warn('Ignoring conversation file with unexpected shape:', filePath)
+        return null
+      }
+      const conversation = parsed as Conversation
       const withDefaults = {
         ...conversation,
         archived: conversation.archived ?? false
@@ -291,14 +328,18 @@ class ConversationStore {
       }
       conversationAssetStore.pruneConversation(normalized.conversation)
       return normalized.conversation
-    } catch {
+    } catch (error) {
+      // Never swallow this silently — to the user, a conversation that fails to
+      // load has simply disappeared, and the log is the only way to tell that
+      // apart from "it was deleted".
+      log.warn('Failed to read conversation file:', filePath, error)
       return null
     }
   }
 
   private removeFile(filePath: string): void {
     try {
-      rmSync(filePath)
+      rmSync(filePath, { force: true })
     } catch (error) {
       log.warn('Failed to delete conversation file:', filePath, error)
     }
@@ -317,6 +358,19 @@ class ConversationStore {
 /** Guard against path traversal via ids that become file/directory names. */
 function assertSafeId(id: string, label: string): void {
   if (!SAFE_ID.test(id)) throw new Error(`Unsafe ${label}: "${id}"`)
+}
+
+/**
+ * The minimum a parsed file must satisfy to be treated as a conversation. Guards
+ * the cache key (an id-less record would be stored under `undefined`) and the
+ * sanitizer, which maps over `messages` and would throw on anything else.
+ */
+function isConversationShaped(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Partial<Conversation>
+  return (
+    typeof candidate.id === 'string' && candidate.id !== '' && Array.isArray(candidate.messages)
+  )
 }
 
 export const conversationStore = new ConversationStore()
