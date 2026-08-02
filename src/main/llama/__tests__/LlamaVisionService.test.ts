@@ -779,10 +779,14 @@ describe('LlamaVisionService.generate', () => {
       tool_calls?: Array<{ id: string }>
     }>
     // The bulk is shed from results the model has already acted on...
-    expect(
-      sent.filter((m) => typeof m.content === 'string' && m.content.startsWith('[Result trimmed'))
-        .length
-    ).toBeGreaterThan(0)
+    const trimmed = sent.filter(
+      (m) => typeof m.content === 'string' && m.content.includes('[Result trimmed')
+    )
+    expect(trimmed.length).toBeGreaterThan(0)
+    // ...in the smallest increment that buys room. The first tier keeps the
+    // head of each result — the path, the match count, the opening lines are
+    // the load-bearing part — rather than going straight to a bare stub.
+    expect(String(trimmed[0].content).startsWith('z'.repeat(400))).toBe(true)
     // ...but every call still has its reply. An assistant `tool_calls` message
     // whose `role: 'tool'` answer went missing is a malformed exchange that
     // chat templates render inconsistently or refuse outright.
@@ -790,6 +794,36 @@ describe('LlamaVisionService.generate', () => {
     for (const message of sent) {
       for (const made of message.tool_calls ?? []) expect(answered.has(made.id)).toBe(true)
     }
+  })
+
+  it('escalates only as far as it must to make the prompt fit', async () => {
+    mocks.toolFunctions = {
+      read_file: {
+        description: 'Read.',
+        params: { type: 'object' },
+        // ~10k tokens each: two of them together overrun a 16k context, so no
+        // tier that protects the newest *two* can fit this turn. The last tier —
+        // which drops to protecting only the newest — is the one thing standing
+        // between this and a `context-limit` stop.
+        handler: () => Promise.resolve('z'.repeat(40_000))
+      }
+    }
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    for (let i = 0; i < 3; i++) {
+      mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', `call_${i}`)] })
+    }
+    mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+    const outcome = await (await service(16_384)).generate(params({ tools: withTools }))
+
+    expect(outcome.content).toBe('Done.')
+    expect(outcome.stopReason).toBeUndefined()
+    const sent = mocks.requests.at(-1)?.messages as Array<{ role: string; content: unknown }>
+    const results = sent.filter((m) => m.role === 'tool').map((m) => String(m.content))
+    // Everything but the newest result gave up its body; the newest is intact,
+    // because that is the one the model is still working from.
+    expect(results.at(-1)?.length).toBe(40_000)
+    expect(results.slice(0, -1).every((r) => r.startsWith('[Result trimmed'))).toBe(true)
   })
 
   it('treats a fast truncation as real when the runtime actually ran', async () => {

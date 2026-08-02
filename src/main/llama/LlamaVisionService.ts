@@ -304,15 +304,26 @@ export class LlamaVisionService {
       // steadily toward the context end. Reclaim room from the results the
       // model has already acted on before the prompt gets there, rather than
       // letting llama-server truncate the prompt out from under a tool call.
-      if (measured && inputLimitTokens - measured.fixedTokens < MIN_VIABLE_OUTPUT_TOKENS) {
-        const reclaimed = reclaimToolResultRoom(messages)
-        if (reclaimed > 0) {
+      //
+      // Graduated, and stopping at the first tier that fits: shedding a result
+      // the model may still need is a real cost, so it is paid in the smallest
+      // increment that buys room, matching how `contextAssembler`'s
+      // `truncateToolText` bounds remembered output rather than dropping it.
+      const fitsNow = (input: MeasuredInput | null): boolean =>
+        input === null || inputLimitTokens - input.fixedTokens >= MIN_VIABLE_OUTPUT_TOKENS
+      if (!fitsNow(measured)) {
+        const fixedTokensBefore = measured?.fixedTokens
+        for (const tier of RECLAIM_TIERS) {
+          if (reclaimToolResultRoom(messages, tier) === 0) continue
+          measured = await this.measureInput(messages, tools, params.prompt)
+          if (fitsNow(measured)) break
+        }
+        if (measured?.fixedTokens !== fixedTokensBefore) {
           log.info('Reclaimed in-turn room from earlier tool results', {
             round,
-            results: reclaimed,
-            fixedTokensBefore: measured.fixedTokens
+            fixedTokensBefore,
+            fixedTokensAfter: measured?.fixedTokens
           })
-          measured = await this.measureInput(messages, tools, params.prompt)
         }
       }
       // Sending a request the prompt has already outgrown cannot produce a
@@ -949,9 +960,18 @@ function truncatedToolCallGuidance(preview: string | undefined): string {
  * silently emptying a result is exactly the kind of gap the fabrication
  * detectors in `toolCallFallback.ts` exist to catch.
  *
- * @returns how many results were shortened.
+ * Head-truncating rather than summarizing, at every tier short of the last.
+ * The head of a tool result is its most load-bearing part — the path, the match
+ * count, the first lines of the file — and keeping it costs one string slice,
+ * where summarizing would cost a whole extra generation on a slow local model
+ * at the exact moment the user is already waiting. Real summarization does
+ * happen to this material, one level up: a turn that ends `'context-limit'` is
+ * a recoverable stop, so `boundedChatRunner` opens a fresh cycle whose history
+ * goes through `boundHistoryForStatelessProvider`'s rolling summary.
+ *
+ * @returns how many results this tier shortened.
  */
-function reclaimToolResultRoom(messages: ChatCompletionMessageParam[]): number {
+function reclaimToolResultRoom(messages: ChatCompletionMessageParam[], tier: ReclaimTier): number {
   const toolNameById = new Map<string, string>()
   for (const message of messages) {
     for (const call of toolCallsOf(message)) {
@@ -962,28 +982,54 @@ function reclaimToolResultRoom(messages: ChatCompletionMessageParam[]): number {
   const reclaimable: number[] = []
   messages.forEach((message, index) => {
     if (message.role !== 'tool') return
-    const content = (message as { content?: unknown }).content
-    if (typeof content !== 'string' || content.startsWith(RECLAIMED_RESULT_MARKER)) return
-    reclaimable.push(index)
+    if (typeof (message as { content?: unknown }).content === 'string') reclaimable.push(index)
   })
 
   let reclaimed = 0
-  for (const index of reclaimable.slice(
-    0,
-    Math.max(0, reclaimable.length - PROTECTED_RECENT_TOOL_RESULTS)
-  )) {
+  for (const index of reclaimable.slice(0, Math.max(0, reclaimable.length - tier.protectRecent))) {
     const message = messages[index] as { content: string; tool_call_id?: string }
     const name = (message.tool_call_id && toolNameById.get(message.tool_call_id)) || 'a tool'
+    // Every tier slices from the head of whatever is there now, so re-running a
+    // tighter tier over an already-trimmed result just shortens it further
+    // instead of stacking notices.
+    const shortened =
+      tier.keepChars > 0
+        ? `${message.content.slice(0, tier.keepChars).trimEnd()}\n${RECLAIMED_RESULT_MARKER} The rest of ${name} was trimmed to make room in this turn. Run it again if you need the whole thing — do not guess at the rest.`
+        : `${RECLAIMED_RESULT_MARKER} The full result of ${name} was dropped to make room in this turn. Run it again if you still need it — do not guess at what it said.`
+    // A "shortening" that grew the message buys nothing and would loop.
+    if (shortened.length >= message.content.length) continue
     messages[index] = {
       ...(messages[index] as object),
-      content: `${RECLAIMED_RESULT_MARKER} The full result of ${name} was dropped to make room in this turn. Run it again if you still need it — do not guess at what it said.`
+      content: shortened
     } as ChatCompletionMessageParam
     reclaimed += 1
   }
   return reclaimed
 }
 
-/** Prefix identifying an already-shortened result, so it is never re-counted. */
+interface ReclaimTier {
+  /** Characters kept from the head of each result; `0` drops the body entirely. */
+  keepChars: number
+  /** Most recent results left untouched at this tier. */
+  protectRecent: number
+}
+
+/**
+ * Escalating passes, tried in order until the prompt fits again.
+ *
+ * The last tier gives up protecting all but the single most recent result:
+ * losing context the model is still working from is bad, but it is strictly
+ * better than ending the turn, and `PROTECTED_RECENT_TOOL_RESULTS` alone can
+ * deadlock a turn whose two newest results are themselves the whole window.
+ */
+const RECLAIM_TIERS: readonly ReclaimTier[] = [
+  { keepChars: 2_000, protectRecent: PROTECTED_RECENT_TOOL_RESULTS },
+  { keepChars: 400, protectRecent: PROTECTED_RECENT_TOOL_RESULTS },
+  { keepChars: 0, protectRecent: PROTECTED_RECENT_TOOL_RESULTS },
+  { keepChars: 0, protectRecent: 1 }
+]
+
+/** Prefix identifying an already-shortened result. */
 const RECLAIMED_RESULT_MARKER = '[Result trimmed to fit the context.]'
 
 function toOpenAiTools(toolFunctions: Record<string, ToolFunction>): ChatCompletionTool[] {
