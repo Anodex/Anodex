@@ -171,10 +171,25 @@ function fakeSessionThrowingMidStream(crashMessage: string): LlamaServiceTestAcc
   }
 }
 
-async function runAgainstFakeSession(crashMessage: string) {
+/** Throw before a single chunk streams — the turn has nothing worth keeping. */
+function fakeSessionThrowingBeforeStream(crashMessage: string): LlamaServiceTestAccess['session'] {
+  return {
+    promptWithMeta: vi.fn(() => {
+      throw new Error(crashMessage)
+    }),
+    dispose: vi.fn(),
+    chatWrapper: fakeChatWrapper,
+    getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+  }
+}
+
+async function runAgainstFakeSession(
+  crashMessage: string,
+  session = fakeSessionThrowingMidStream(crashMessage)
+) {
   const access = asTestAccess()
   prepareFakeEngine(access)
-  access.session = fakeSessionThrowingMidStream(crashMessage)
+  access.session = session
 
   return llamaService.generate({
     conversationId: 'test-conversation',
@@ -307,9 +322,28 @@ describe('LlamaService.generate() context-shift recovery', () => {
   })
 
   it('does not treat an unrelated error as a context-shift crash', async () => {
-    await expect(runAgainstFakeSession('some unrelated native failure')).rejects.toThrow(
-      'some unrelated native failure'
-    )
+    const outcome = await runAgainstFakeSession('some unrelated native failure')
+
+    // Still not misread as a context limit — that is what this case has always
+    // guarded. It no longer throws, though: this fixture streams real text
+    // before failing, and discarding what the user already watched arrive (plus,
+    // in a multi-cycle reply, every earlier cycle) is a worse answer than
+    // reporting the failure with the work attached.
+    expect(outcome.stopReason).toBe('provider-error')
+    expect(outcome.stopDetail).toBe('some unrelated native failure')
+    expect(outcome.content).toContain('Partial findings before the crash.')
+  })
+
+  it('still throws an unrelated error when the turn produced nothing', async () => {
+    // Nothing streamed and no tool ran, so the error message is the entire
+    // value of the turn — swallowing it would leave a blank reply and no
+    // explanation anywhere.
+    await expect(
+      runAgainstFakeSession(
+        'some unrelated native failure',
+        fakeSessionThrowingBeforeStream('some unrelated native failure')
+      )
+    ).rejects.toThrow('some unrelated native failure')
   })
 
   it('keeps streamed model text instead of exposing strings reconstructed from compacted history', async () => {

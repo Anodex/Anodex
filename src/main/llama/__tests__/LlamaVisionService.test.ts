@@ -852,6 +852,37 @@ describe('LlamaVisionService.generate', () => {
     expect(mocks.requests).toHaveLength(2)
   })
 
+  it('keeps the work of earlier rounds when a later one fails outright', async () => {
+    mocks.toolFunctions = {
+      write_file: {
+        description: 'Write.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    mocks.rounds.push({
+      chunks: [textChunk('Wrote the stylesheet. '), toolCallChunk('write_file', '{}')]
+    })
+    // llama-server killed for memory part-way through a long turn. The rounds
+    // that already succeeded wrote real files; throwing discarded all of it.
+    mocks.rounds.push({ error: new Error('terminated') })
+
+    const outcome = await (await service()).generate(params({ tools: withTools }))
+
+    expect(outcome.content).toBe('Wrote the stylesheet. ')
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('provider-error')
+    expect(outcome.stopDetail).toBeTruthy()
+  })
+
+  it('still throws when the first round fails with nothing to keep', async () => {
+    mocks.rounds.push({ error: new Error('terminated') })
+
+    // Nothing was produced, so the described message is the entire value of
+    // the turn — swallowing it leaves a blank reply and no explanation.
+    await expect((await service()).generate(params())).rejects.toThrow()
+  })
+
   it('keeps the work of earlier rounds when the runtime stalls late in a turn', async () => {
     mocks.toolFunctions = {
       write_file: {

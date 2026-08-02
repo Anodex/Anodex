@@ -1091,15 +1091,18 @@ class LlamaService extends EventEmitter {
             // so it only ever lived in this loop-local `roundContent`/
             // `roundSegment` — never folded into the outer `visibleContent`,
             // which normally only happens once a round completes
-            // successfully. When re-throwing a genuine context-shift crash,
-            // fold it in first so the outer catch's `isContextShiftCrash`
-            // handler (below) returns what actually streamed instead of
-            // silently dropping it — otherwise a crash mid-round after
-            // substantial output (the common case: it takes real generated
-            // content to grow the KV cache enough to hit this) reports back
-            // as an empty reply.
-            if (isContextShiftFailure && !genController.signal.aborted) {
-              visibleContent = appendContent(visibleContent, roundContent)
+            // successfully. Fold it in before re-throwing so the outer catch
+            // returns what actually streamed instead of silently dropping it —
+            // otherwise a crash mid-round after substantial output (the common
+            // case: it takes real generated content to grow the KV cache
+            // enough to hit this) reports back as an empty reply.
+            //
+            // Not gated on the crash *being* a context shift, as it once was.
+            // The user watched this text arrive whatever ended the round, and
+            // the outer catch cannot decide whether a turn has work worth
+            // keeping if the work is invisible to it.
+            if (!genController.signal.aborted) {
+              visibleContent = appendContent(visibleContent, stripLeakedChannelTokens(roundContent))
               if (roundSegment.trim()) {
                 thinkingText = thinkingText
                   ? `${thinkingText}\n\n${roundSegment.trim()}`
@@ -1363,6 +1366,30 @@ class LlamaService extends EventEmitter {
           stats: buildStats(tokenCount, startedAt),
           stopped: true,
           stopReason: 'context-limit',
+          contextBudget,
+          fabricationDetected: fabricationDetectedThisTurn,
+          thinking: thinkingText || undefined,
+          generationDiagnostics: diagnostics.snapshot()
+        }
+      }
+      // Any other mid-turn failure gets the same treatment the context-shift
+      // crash above already earned, for the same reason: by the time one lands
+      // deep in a tool-using turn, `visibleContent` and the completed tool
+      // calls behind it are real work, and throwing discards every bit of it —
+      // in a multi-cycle reply, the earlier cycles too, since
+      // `boundedChatRunner` has no catch of its own. A turn that produced
+      // nothing still throws, because there the error message is all there is.
+      // The session is disposed either way: after an unexplained failure
+      // mid-generation its state is not something the next turn should inherit.
+      if (visibleContent.trim() || hadAnyToolAttempt) {
+        log.error('Local generation failed mid-turn; keeping the work already done:', error)
+        this.disposeSession()
+        return {
+          content: visibleContent,
+          stats: buildStats(tokenCount, startedAt),
+          stopped: true,
+          stopReason: 'provider-error',
+          stopDetail: error instanceof Error ? error.message : String(error),
           contextBudget,
           fabricationDetected: fabricationDetectedThisTurn,
           thinking: thinkingText || undefined,

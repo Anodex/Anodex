@@ -272,6 +272,8 @@ export class LlamaVisionService {
     let toolCallsTruncated = false
     /** Set when the runtime failed a tool-call parse without having generated. */
     let staleParseFailure = false
+    /** Set when a round failed outright after earlier ones had produced work. */
+    let providerError: string | null = null
     /**
      * Set when the turn ran out of room for a usable reply before sending one:
      * `'fixed'` if the turn's own fixed input never fit, `'in-turn'` if this
@@ -508,7 +510,16 @@ export class LlamaVisionService {
           messages.push({ role: 'user', content: truncatedToolCallGuidance(preview) })
           continue
         }
-        throw await this.describeGenerationError(error)
+        // Same rule the cloud providers follow, and for the same reason: a
+        // failure on a later round — llama-server killed for memory, a dropped
+        // stream — must not take the text and completed tool work of the rounds
+        // that succeeded with it. Round 0 has nothing to lose and the described
+        // message is the whole value of the turn, so that still throws.
+        const described = await this.describeGenerationError(error)
+        if (!content && !hadAnyToolAttempt) throw described
+        providerError = described.message
+        log.error('Local vision generation failed mid-turn; keeping the work already done:', error)
+        break
       }
 
       if (outputTokens === 0) {
@@ -684,24 +695,28 @@ export class LlamaVisionService {
         tokenLimit ||
         toolCallsTruncated ||
         contextExhausted !== null ||
-        staleParseFailure,
-      // Ordered most-specific first: a runtime fault and an exhausted context
-      // are both diagnoses the later, coarser reasons would hide.
-      stopReason: staleParseFailure
-        ? 'runtime-stalled'
-        : contextExhausted === 'fixed'
-          ? 'fixed-context-limit'
-          : contextExhausted === 'in-turn'
-            ? 'context-limit'
-            : toolCallsTruncated
-              ? 'tool-call-truncated'
-              : roundsExhausted
-                ? 'rounds-exhausted'
-                : stopped
-                  ? 'user'
-                  : tokenLimit
-                    ? 'token-limit'
-                    : undefined
+        staleParseFailure ||
+        providerError !== null,
+      // Ordered most-specific first: an outright failure, a runtime fault and
+      // an exhausted context are all diagnoses the coarser reasons would hide.
+      stopReason: providerError
+        ? 'provider-error'
+        : staleParseFailure
+          ? 'runtime-stalled'
+          : contextExhausted === 'fixed'
+            ? 'fixed-context-limit'
+            : contextExhausted === 'in-turn'
+              ? 'context-limit'
+              : toolCallsTruncated
+                ? 'tool-call-truncated'
+                : roundsExhausted
+                  ? 'rounds-exhausted'
+                  : stopped
+                    ? 'user'
+                    : tokenLimit
+                      ? 'token-limit'
+                      : undefined,
+      stopDetail: providerError ?? undefined
     }
   }
 
