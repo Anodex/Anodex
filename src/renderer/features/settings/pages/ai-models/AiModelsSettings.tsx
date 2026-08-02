@@ -436,7 +436,11 @@ export function AiModelsSettings(): JSX.Element {
                   <SelectControl
                     value={String(settings.model.contextSize)}
                     options={CONTEXT_OPTIONS}
-                    onChange={(value) => void update({ model: { contextSize: Number(value) } })}
+                    onChange={(value) =>
+                      void update({ model: { contextSize: Number(value) } }).then(
+                        reloadActiveModelIfSafe
+                      )
+                    }
                   />
                 }
               />
@@ -473,9 +477,9 @@ export function AiModelsSettings(): JSX.Element {
                     value={gpuMode}
                     options={GPU_OPTIONS}
                     onChange={(value) => {
-                      if (value === 'auto') void update({ model: { gpuLayers: 'auto' } })
-                      else if (value === 'cpu') void update({ model: { gpuLayers: 0 } })
-                      else void update({ model: { gpuLayers: customGpuLayersStart } })
+                      const gpuLayers =
+                        value === 'auto' ? 'auto' : value === 'cpu' ? 0 : customGpuLayersStart
+                      void update({ model: { gpuLayers } }).then(reloadActiveModelIfSafe)
                     }}
                   />
                 }
@@ -493,6 +497,10 @@ export function AiModelsSettings(): JSX.Element {
                       max={gpuLayersMax}
                       step={1}
                       onChange={(value) => void update({ model: { gpuLayers: value } })}
+                      // Only once the slider is released: a reload per
+                      // intermediate value would restart the model on every
+                      // pixel of the drag.
+                      onCommit={reloadActiveModelIfSafe}
                     />
                   }
                 />
