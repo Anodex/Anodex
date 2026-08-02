@@ -304,9 +304,32 @@ a `sizeBytes` of 2^60 refuses on any machine without faking `os.freemem()`, and 
 `getModule` whose GGUF read rejects drops `describeInsufficientMemory` into its
 documented file-size fallback, so no real `.gguf` is needed.
 
-### Follow-up left open
+### Dead-code fallout, resolved
 
-`GENERATION_IN_PROGRESS_ERROR`'s two consumers now hold unreachable recovery
-branches. Left in place: deleting them is a change to `AgentRunService` and
-`CriticalThinkingService`, outside this file's review, and the branches are
-harmless.
+Making the model lock cover the whole turn left `GENERATION_IN_PROGRESS_ERROR`
+unreachable, and its two consumers holding recovery paths that could never run.
+Chased down rather than left:
+
+- **`CriticalThinkingService.runIsolatedGeneration` was a polling loop** — catch
+  the busy error, sleep 500ms, retry, forever. The model lock already queues
+  contending callers in FIFO order, which is what the polling existed to
+  achieve, so it collapses to a direct call. `LOCAL_BUSY_RETRY_MS` and
+  `waitForRetry` went with it; nothing tested any of it.
+- **`AgentRunService`'s branch was hiding a live bug.** It reverted a
+  plan-reviewed run to `needs-review` instead of a terminal `'error'`, because
+  `approvePlan()` only accepts `needs-review` — a terminal error strands the
+  approved plan and the planning turns that paid for it. That reasoning holds
+  for _every_ failure, but the branch only covered the one error anyone had hit.
+  So a plan-reviewed run that died on a network error or a crashed model still
+  stranded its plan. Generalised to any cause, with `lastError` recorded so the
+  run card says why it bounced, and deliberate stops excluded. Deleting the
+  branch would have removed the only escape hatch and left the real bug behind.
+- **`LlamaService` kept the guard, dropped the export.** The check is now an
+  invariant — `generate()` is the only caller and holds the lock across the
+  call — so it throws a plainly internal message instead of a constant two
+  services pattern-matched on. That matching is what let a leaked flag disguise
+  itself as ordinary busyness and be retried against forever.
+
+Three tests added in `src/main/agents/__tests__/agentRunRecovery.test.ts`; two
+were confirmed to fail against the pre-change service. The third — a run with no
+plan to protect still failing terminally — passes either way.

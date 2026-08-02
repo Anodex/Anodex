@@ -10,7 +10,6 @@ import { conversationStore } from '../conversations/ConversationStore'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
 import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
-import { GENERATION_IN_PROGRESS_ERROR } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
 import { agentRunStore } from './AgentRunStore'
@@ -318,33 +317,30 @@ class AgentRunService {
       )
     } catch (error) {
       log.error('Agent run failed:', run.id, error)
-      // The shared local engine was busy with something else (e.g. the user
-      // mid-chat elsewhere) when this run's turn tried to generate — not a
-      // real failure of the run itself. For a plan-reviewed run specifically,
-      // landing this in a terminal 'error' would be unrecoverable:
-      // approvePlan() only accepts status === 'needs-review', so the already
-      // -reviewed plan and its planning tokens would be stranded with no way
-      // back (the generic "Retry with these settings" action creates a brand
-      // new run and re-spends the planning turn(s) from scratch). Revert to
-      // needs-review instead so the user can just approve again once the
-      // engine is free.
-      if (
-        error instanceof Error &&
-        error.message === GENERATION_IN_PROGRESS_ERROR &&
-        run.requirePlan &&
-        run.plan
-      ) {
-        agentRunStore.update(run.id, { status: 'needs-review' })
+      const message = error instanceof Error ? error.message : 'Run failed.'
+      // A reviewed plan must not die with the turn that failed to execute it.
+      // `approvePlan()` only accepts `status: 'needs-review'`, so a terminal
+      // 'error' strands the plan and the planning turns that paid for it — the
+      // generic "Retry with these settings" action starts a brand new run and
+      // re-spends them from scratch. Send the run back for approval instead,
+      // with the failure recorded so the card says why it bounced and the user
+      // can approve again once it's addressed.
+      //
+      // This used to be scoped to one specific error: the shared local engine
+      // being busy with a foreground chat. That case can no longer arise —
+      // `LlamaService.generate()` holds the model lock for the whole turn, so a
+      // contending caller waits rather than failing — but every other cause
+      // strands the plan in exactly the same way, which is what this now
+      // covers. Narrowing it to the one failure anyone had hit was the bug.
+      //
+      // A deliberate stop is excluded: the user ending their own run is not a
+      // failure to recover from, and should stay terminal.
+      if (run.requirePlan && run.plan && !controller.signal.aborted) {
+        agentRunStore.update(run.id, { status: 'needs-review', lastError: message })
         this.broadcastRunsChanged()
         return
       }
-      this.finish(
-        run.id,
-        conversation.id,
-        'error',
-        null,
-        error instanceof Error ? error.message : 'Run failed.'
-      )
+      this.finish(run.id, conversation.id, 'error', null, message)
     } finally {
       this.runningRunId = null
       this.activeController = null

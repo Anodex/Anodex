@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ModelInfo } from '@shared/model.types'
-import { llamaService, GENERATION_IN_PROGRESS_ERROR } from '../LlamaService'
+import { llamaService } from '../LlamaService'
 
 /**
  * Lifecycle invariants for the shared local engine — the ones that decide
@@ -110,9 +110,9 @@ describe('LlamaService generation flag', () => {
     }
     await expect(generateOnce()).rejects.toThrow('history read failed')
 
-    // A stuck flag reported itself as mere contention, which is worse than a
-    // plain failure: `AgentRunService` and `CriticalThinkingService` both treat
-    // GENERATION_IN_PROGRESS_ERROR as transient and retry against it forever.
+    // A stuck flag used to report itself as mere contention, which is worse
+    // than a plain failure: the two unattended callers both read that as
+    // transient and retried against a permanently wedged engine forever.
     access.session = {
       promptWithMeta: vi.fn(() =>
         Promise.resolve({ response: [], responseText: 'recovered', stopReason: 'eogToken' })
@@ -126,20 +126,28 @@ describe('LlamaService generation flag', () => {
     expect(outcome.content).toBe('recovered')
   })
 
-  it('does not report contention while the engine is idle', async () => {
+  it('serializes concurrent turns instead of refusing the second', async () => {
     const access = prepareFakeEngine()
+    const promptWithMeta = vi.fn(() =>
+      Promise.resolve({ response: [], responseText: 'answered', stopReason: 'eogToken' })
+    )
     access.session = {
-      promptWithMeta: vi.fn(() =>
-        Promise.resolve({ response: [], responseText: 'first', stopReason: 'eogToken' })
-      ),
+      promptWithMeta,
       dispose: vi.fn(),
       chatWrapper: fakeChatWrapper,
       getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
     }
 
-    await generateOnce()
-    await expect(generateOnce()).resolves.toBeDefined()
-    expect(GENERATION_IN_PROGRESS_ERROR).toBe('A response is already being generated.')
+    // Both start before either finishes. The model lock queues them; neither is
+    // rejected for contention, which is why the "already generating" error and
+    // the two services' retry paths for it are gone.
+    const outcomes = (await Promise.all([generateOnce(), generateOnce()])) as Array<{
+      content: string
+    }>
+
+    expect(outcomes.map((outcome) => outcome.content)).toEqual(['answered', 'answered'])
+    expect(promptWithMeta).toHaveBeenCalledTimes(2)
+    expect(llamaService.isGenerating()).toBe(false)
   })
 })
 

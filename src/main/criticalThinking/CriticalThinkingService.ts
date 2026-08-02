@@ -25,7 +25,7 @@ import {
   type RunGenerationResult
 } from '../chat/runGeneration'
 import { CRITICAL_THINKING_STEP_BUDGET } from '../chat/GenerationBudget'
-import { GENERATION_IN_PROGRESS_ERROR, llamaService } from '../llama/LlamaService'
+import { llamaService } from '../llama/LlamaService'
 import {
   isOpenAiCompatibleProviderId,
   OPEN_AI_COMPATIBLE_CONFIGS
@@ -116,7 +116,6 @@ const MAX_QUESTION_CHARS = 8_000
 const MAX_PLAN_STEPS = 12
 const MAX_PLAN_STEP_CHARS = 240
 const MAX_ACTIVITIES = 240
-const LOCAL_BUSY_RETRY_MS = 500
 /**
  * How the run's time budget is split. Synthesis is several bounded model
  * calls — a draft, a repair, one pass per section, a consistency review, an
@@ -1371,36 +1370,23 @@ class CriticalThinkingService {
 
   /**
    * Every orchestration phase gets an empty logical transcript and a fresh
-   * local native session. If another local turn owns the single model engine,
-   * wait without converting a transient busy condition into a failed run.
+   * local native session.
+   *
+   * This used to poll: a busy local engine threw a distinct "already
+   * generating" error, and this slept 500ms and retried until it got in.
+   * `LlamaService.generate()` now holds the model lock for the whole turn, so a
+   * contending caller simply waits its turn in FIFO order — the outcome the
+   * polling existed to produce, without the sleep, the error round-trip, or the
+   * chance of losing its place to whoever asked next.
    */
   private async runIsolatedGeneration(
     request: ChatRequest,
     io: RunGenerationIo
   ): Promise<RunGenerationResult> {
-    const provider = io.providerOverride?.provider ?? settingsStore.get().provider.active
-    let reportedBusy = false
-    while (true) {
-      if (io.signal?.aborted) {
-        return stoppedGeneration(signalStopReason(io.signal, 'user') ?? 'user')
-      }
-      try {
-        return await runGeneration(request, { ...io, sessionMode: 'isolated' })
-      } catch (error) {
-        const busy =
-          provider === 'local' &&
-          error instanceof Error &&
-          error.message === GENERATION_IN_PROGRESS_ERROR
-        if (!busy) throw error
-        if (!reportedBusy) {
-          reportedBusy = true
-          log.info('Local model is busy; Critical Thinking is waiting for the active turn.')
-        }
-        if (!(await waitForRetry(io.signal, LOCAL_BUSY_RETRY_MS))) {
-          return stoppedGeneration(signalStopReason(io.signal, 'user') ?? 'user')
-        }
-      }
+    if (io.signal?.aborted) {
+      return stoppedGeneration(signalStopReason(io.signal, 'user') ?? 'user')
     }
+    return runGeneration(request, { ...io, sessionMode: 'isolated' })
   }
 
   private async recordArtifact(
@@ -2019,22 +2005,6 @@ function stoppedGeneration(stopReason: GenerationStopReason): RunGenerationResul
     stopped: true,
     stopReason
   }
-}
-
-function waitForRetry(signal: AbortSignal | undefined, delayMs: number): Promise<boolean> {
-  if (signal?.aborted) return Promise.resolve(false)
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve(true)
-    }, delayMs)
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      resolve(false)
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 function appendMapValue(map: Map<string, string[]>, key: string, value: string): void {

@@ -140,22 +140,6 @@ const MAX_FALLBACK_ROUNDS = 8
 /** The dynamically-imported `node-llama-cpp` module (ESM-only). */
 type LlamaModule = typeof import('node-llama-cpp')
 
-/**
- * Thrown when the single shared local engine is already busy with an unrelated
- * generation. Exported so callers like `AgentRunService` and
- * `CriticalThinkingService` can recognize this specific, recoverable
- * contention case rather than treating it as a genuine run failure.
- *
- * Since `generate()` began holding {@link LlamaService.modelLock} for the whole
- * turn, contention makes a caller *wait* rather than fail, so in practice
- * nothing throws this any more: the flag it guards is only ever set and cleared
- * under that same lock. The check and the two recovery paths are kept as a
- * belt-and-braces guard — the cost is a branch, and the failure it would
- * otherwise mask (a wedged engine reporting itself as merely busy) is one this
- * file has already had once.
- */
-export const GENERATION_IN_PROGRESS_ERROR = 'A response is already being generated.'
-
 export interface GenerateParams {
   conversationId: string
   /** Assistant message id, used to route tool activity to the right turn. */
@@ -660,10 +644,8 @@ class LlamaService extends EventEmitter {
       // setup between binding the tool surface and entering that `try`
       // (`boundFunctionsForTurn`, `measureContextBudget`) is covered by nothing:
       // a throw there used to leave this flag stuck true for the rest of the
-      // process. Every later turn then failed with
-      // GENERATION_IN_PROGRESS_ERROR, which `AgentRunService` and
-      // `CriticalThinkingService` both read as transient contention and retry
-      // against forever, and the UI kept showing a generation in flight.
+      // process, failing every later turn and leaving the UI showing a
+      // generation that was not happening.
       if (this.generating) {
         this.generating = false
         this.emitState()
@@ -676,8 +658,18 @@ class LlamaService extends EventEmitter {
     if (this.status !== 'ready' || (!this.context && !this.visionService.active)) {
       throw new Error('No model is loaded. Load a model from the Models tab first.')
     }
+    // An invariant, not a contention case: `generate()` is the only caller and
+    // holds the model lock across this whole call, clearing the flag in its
+    // `finally`, so a second turn can never observe the first still running.
+    // Reaching this means either that lock was bypassed or the flag leaked —
+    // both bugs, and both far better surfaced here than by two turns decoding
+    // into the same native context. This used to throw an exported
+    // "already generating" constant that `AgentRunService` and
+    // `CriticalThinkingService` pattern-matched as *transient*, which meant a
+    // leaked flag disguised itself as ordinary busyness and was retried
+    // against forever.
     if (this.generating) {
-      throw new Error(GENERATION_IN_PROGRESS_ERROR)
+      throw new Error('Internal: a generation is already in progress on this engine.')
     }
 
     if (this.visionService.active) {

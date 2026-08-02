@@ -101,8 +101,7 @@ vi.mock('../../llama/LlamaService', () => ({
       contextSize: 8_192,
       model: { id: 'test-model', name: 'Test Model' }
     })
-  },
-  GENERATION_IN_PROGRESS_ERROR: 'GENERATION_IN_PROGRESS'
+  }
 }))
 
 vi.mock('../../tools/search', () => ({
