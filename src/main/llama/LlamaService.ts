@@ -90,6 +90,7 @@ import {
   TOOL_BYPASS_NUDGE_PROMPT
 } from './intentNudges'
 import { createAsyncMutex } from './asyncMutex'
+import { toStopDetail } from '@shared/stopDetail'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
@@ -1389,7 +1390,7 @@ class LlamaService extends EventEmitter {
           stats: buildStats(tokenCount, startedAt),
           stopped: true,
           stopReason: 'provider-error',
-          stopDetail: error instanceof Error ? error.message : String(error),
+          stopDetail: toStopDetail(error),
           contextBudget,
           fabricationDetected: fabricationDetectedThisTurn,
           thinking: thinkingText || undefined,

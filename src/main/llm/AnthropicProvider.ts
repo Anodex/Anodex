@@ -23,6 +23,7 @@ import {
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
+import { toStopDetail } from '@shared/stopDetail'
 import { providerUsageStore } from './ProviderUsageStore'
 import type { LlmProvider } from './LlmProvider'
 import { anthropicUserContent, cloudCompatibleImages } from './cloudVisionContent'
@@ -209,7 +210,7 @@ class AnthropicProvider implements LlmProvider {
         // reply loses every previous cycle too. Report it as a stop carrying
         // the provider's own message instead; it still renders as a real error.
         if (!content && !hadToolResult) throw error
-        providerError = error instanceof Error ? error.message : String(error)
+        providerError = toStopDetail(error) ?? 'The provider gave no reason.'
         log.error('Anthropic failed mid-turn; keeping the work already done:', error)
         break
       }

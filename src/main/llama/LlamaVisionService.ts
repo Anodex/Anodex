@@ -19,6 +19,7 @@ import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import { createLogger } from '../utils/logger'
+import { toStopDetail } from '@shared/stopDetail'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { resolveLocalOutputBudget } from './localOutputBudget'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
@@ -517,7 +518,7 @@ export class LlamaVisionService {
         // message is the whole value of the turn, so that still throws.
         const described = await this.describeGenerationError(error)
         if (!content && !hadAnyToolAttempt) throw described
-        providerError = described.message
+        providerError = toStopDetail(described) ?? 'The local runtime gave no reason.'
         log.error('Local vision generation failed mid-turn; keeping the work already done:', error)
         break
       }
