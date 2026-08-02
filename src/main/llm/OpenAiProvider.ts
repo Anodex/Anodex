@@ -20,6 +20,7 @@ import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import type { ModelToolResultBudget } from '../tools/modelResultBudget'
+import { toolParameterSchema } from '../tools/toolParameterSchema'
 import { cloudContextWindowTokens } from '@shared/contextBudget'
 import {
   advanceCloudSpentTokens,
@@ -369,13 +370,7 @@ function toOpenAiTools(toolFunctions: Record<string, ToolFunction>): FunctionToo
  * properties as required too, which would misrepresent real optionality.
  */
 function toParametersSchema(params: ToolFunction['params']): Record<string, unknown> {
-  const schema = (params ?? {}) as { properties?: Record<string, unknown> }
-  const properties = schema.properties ?? {}
-  return {
-    type: 'object',
-    properties,
-    required: Object.keys(properties)
-  }
+  return toolParameterSchema(params)
 }
 
 /**

@@ -21,6 +21,7 @@ import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import type { ModelToolResultBudget } from '../tools/modelResultBudget'
+import { toolParameterSchema } from '../tools/toolParameterSchema'
 import { cloudContextWindowTokens, type CloudProvider } from '@shared/contextBudget'
 import {
   advanceCloudSpentTokens,
@@ -413,28 +414,9 @@ function toChatCompletionTools(toolFunctions: Record<string, ToolFunction>): Cha
     function: {
       name,
       description: fn.description,
-      parameters: toParametersSchema(fn.params)
+      parameters: toolParameterSchema(fn.params)
     }
   }))
-}
-
-/**
- * Convert a tool's GBNF-JSON param schema (see `ToolFunction`) to a plain
- * JSON Schema object for the `parameters` field. node-llama-cpp's
- * grammar-based function calling always requires every declared property
- * regardless of the schema's own `required` field (see `AnthropicProvider.ts`
- * for the full explanation), so every Anodex tool is written assuming that
- * behavior — forcing `required` to match here keeps every provider filling
- * in the same fields the local engine would have forced it to.
- */
-function toParametersSchema(params: ToolFunction['params']): Record<string, unknown> {
-  const schema = (params ?? {}) as { properties?: Record<string, unknown> }
-  const properties = schema.properties ?? {}
-  return {
-    type: 'object',
-    properties,
-    required: Object.keys(properties)
-  }
 }
 
 /**

@@ -14,6 +14,7 @@ import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import type { ModelToolResultBudget } from '../tools/modelResultBudget'
+import { toolParameterSchema } from '../tools/toolParameterSchema'
 import { cloudContextWindowTokens } from '@shared/contextBudget'
 import {
   advanceCloudSpentTokens,
@@ -390,13 +391,7 @@ function toAnthropicTools(toolFunctions: Record<string, ToolFunction>): Anthropi
  * Claude filling in the same fields the local engine would have forced it to.
  */
 function toInputSchema(params: ToolFunction['params']): Anthropic.Tool.InputSchema {
-  const schema = (params ?? {}) as { properties?: Record<string, unknown> }
-  const properties = schema.properties ?? {}
-  return {
-    type: 'object',
-    properties,
-    required: Object.keys(properties)
-  }
+  return toolParameterSchema(params)
 }
 
 /**

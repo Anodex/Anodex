@@ -30,6 +30,7 @@ import {
   truncatedArgumentsPreview
 } from './truncatedToolCallError'
 import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
+import { toolParameterSchema } from '../tools/toolParameterSchema'
 import {
   computeModelToolResultBudget,
   type ModelToolResultBudget
@@ -1061,26 +1062,12 @@ const RECLAIMED_RESULT_MARKER = '[Result trimmed to fit the context.]'
 
 function toOpenAiTools(toolFunctions: Record<string, ToolFunction>): ChatCompletionTool[] {
   return Object.entries(toolFunctions).map(([name, fn]) => {
-    const schema = (fn.params ?? {}) as {
-      properties?: Record<string, unknown>
-      required?: readonly string[]
-    }
-    const properties = schema.properties ?? {}
-    // Each tool declares its own `required` list; honor it. Marking every
-    // property required (as this did) turns optional arguments into mandatory
-    // ones, which pushes a model into inventing values for parameters it
-    // should simply have omitted.
-    const required = schema.required ?? []
     return {
       type: 'function',
       function: {
         name,
         description: fn.description,
-        parameters: {
-          type: 'object',
-          properties,
-          required: required.filter((key) => key in properties)
-        }
+        parameters: toolParameterSchema(fn.params)
       }
     }
   })

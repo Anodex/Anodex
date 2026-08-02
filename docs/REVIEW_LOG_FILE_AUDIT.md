@@ -25,7 +25,7 @@ non-change, and the suite still passes.
 | 1   | `src/main/conversations/ConversationStore.ts`    | 322   | 0 → 11 added | ✅ done |
 | 2   | `src/main/llama/LlamaService.ts`                 | 2760  | 10 → 16      | ✅ done |
 | 3   | `src/main/chat/runGeneration.ts`                 | 614   | 5 → 6 added  | ✅ done |
-| 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0            | ☐       |
+| 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0 → 5 added  | ✅ done |
 | 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0            | ☐       |
 | 6   | `src/main/email/EmailService.ts`                 | 713   | 1            | ☐       |
 | 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0            | ☐       |
@@ -430,3 +430,87 @@ still used when there is none.
 3.2 is covered in `LlamaVisionService.test.ts` instead, where the transport that
 had to change already has a harness — also confirmed failing against the pre-fix
 service.
+
+---
+
+## 4. `src/main/llm/OpenAiCompatibleProvider.ts` — done
+
+The generic Chat-Completions adapter: eight vendors (Google, xAI, DeepSeek,
+Mistral, Groq, OpenRouter, Kimi, Qwen) plus Azure, which reuses its
+`runChatCompletionsLoop`. 544 lines with no tests at all.
+
+### Bugs fixed
+
+**4.1 Every tool parameter was sent to the model as mandatory.**
+`toParametersSchema` overwrote each tool's declared `required` list with
+`Object.keys(properties)`. The comment justified it: node-llama-cpp's GBNF
+grammar always requires every declared property regardless of the schema (a real
+limitation), "so every Anodex tool is written assuming that behavior".
+
+The tools falsify that premise. Every one declares a narrow `required` list that
+matches its handler's non-optional arguments exactly, and the optional ones are
+typed `?` with documented defaults behind `??`. `search_code` declares
+`required: ['query']` and resolves `args.limit ?? DEFAULT_TOP_K`. `git_status`
+declares no required list at all, because its only parameter is an _optional_
+subdirectory — forcing it made the model name a directory on every call. Three
+tools (`git_status`, `git_diff`, `git_commit_summary`, plus `code_outline`) are
+entirely optional; checked each one before relaxing, and no tool anywhere has a
+genuinely-required argument missing from its declared list.
+
+Forcing them mandatory does not get better arguments out of a model. It gets an
+invented value for a parameter that should have been omitted, and the documented
+default then never applies.
+
+**The same defect was in three providers, with the same comment.**
+`AnthropicProvider.toInputSchema` and `OpenAiProvider.toParametersSchema` were
+byte-for-byte the same mistake. `OpenAiProvider`'s comment even states the
+principle it was breaking — it declines `strict: true` because that "would
+misrepresent real optionality" for nested fields, while doing exactly that at
+the top level. `LlamaVisionService` had already been fixed independently, with a
+comment explaining why, and the fix had not been carried across.
+
+Rather than patch it three more times, the rule now lives once in
+`src/main/tools/toolParameterSchema.ts`, and all four transports call it. A
+policy about how Anodex describes its tools to a model belongs in one place;
+having it four times over is what let one mistake ship four times. The
+node-llama-cpp text path is deliberately not a caller — it hands `params` to
+node-llama-cpp untouched and never renders JSON Schema.
+
+### Deliberate non-changes
+
+- **Round text is concatenated with no separator.** `content += delta` across
+  tool rounds, so a model that narrates before a call and answers after it
+  produces `Let me search.Found 3 results.` The node-llama-cpp path solved this
+  with `appendContent` (joins with a blank line); all three cloud providers and
+  the vision transport still do not. Real, and worth one shared fix across four
+  transports rather than a fourth divergent one — recorded here so it is not
+  lost, to be done as its own change.
+- **No timeout on the verify client.** `verifyOpenAiCompatibleKey` builds a
+  client with the SDK default (10 minutes), so a black-holed endpoint leaves
+  "Test connection" spinning. Every provider's verify path does the same, so
+  fixing it in one is a new inconsistency; same treatment as above.
+- **`buildMessages` skips a turn with no text and no images**, which can leave
+  two consecutive `user` messages when an assistant turn ended empty (an errored
+  or stopped turn is still persisted into history, and `chatStore` maps every
+  message through without filtering). Most OpenAI-compatible endpoints accept
+  that; Mistral and Google's compat layer have historically required strict
+  alternation. Flagged rather than changed: reshaping messages for eight vendors
+  on an unreproduced hypothesis is riskier than the bug. Note that file 3's fix
+  makes an empty assistant turn slightly more likely, since more turns now end
+  `stopped`.
+
+### Tests added
+
+`src/main/llm/__tests__/chatCompletionsLoop.test.ts` — 6 tests, the first
+coverage this loop has had: the tool schema it puts on the wire, that it omits
+`tools` entirely for a tool-free turn, that an unknown tool name / a throwing
+handler / unparseable arguments each come back as a tool _result_ rather than
+ending the turn (and that unparseable arguments are never repaired and run), and
+that the final round refuses to execute tools it has no round left to consume.
+
+`src/main/tools/__tests__/toolParameterSchema.test.ts` — 4 tests on the extracted
+rule itself, including the two shapes drawn from real tools.
+
+Four of these fail against the pre-fix schema — two in each new file plus the
+pre-existing vision assertion, which is what confirms all four transports now
+share one behaviour.
