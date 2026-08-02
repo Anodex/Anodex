@@ -27,7 +27,7 @@ non-change, and the suite still passes.
 | 3   | `src/main/chat/runGeneration.ts`                 | 614   | 5 → 6 added  | ✅ done |
 | 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0 → 5 added  | ✅ done |
 | 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0 → 4 added  | ✅ done |
-| 6   | `src/main/email/EmailService.ts`                 | 713   | 1            | ☐       |
+| 6   | `src/main/email/EmailService.ts`                 | 713   | 1 → 2 added  | ✅ done |
 | 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0            | ☐       |
 | 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1            | ☐       |
 | 9   | `src/shared/ipc.ts`                              | 862   | 3            | ☐       |
@@ -605,3 +605,84 @@ turn survive untouched, and a history consisting only of orphans still sends the
 current prompt. Three fail against the pre-fix file; the fourth (assistant turns
 mid-conversation surviving) is the regression guard that stops the fix
 overreaching.
+
+---
+
+## 6. `src/main/email/EmailService.ts` — done
+
+The single entry point for everything email: account linking, reading,
+searching, drafting, sending, and batch mailbox actions across Gmail, Outlook and
+plain IMAP. The first file in this pass where a bug leaks data rather than
+burning tokens.
+
+### Bugs fixed
+
+**6.1 Abandoned drafts were kept for the life of the process.** `createDraft`
+holds a draft in an in-memory `Map` so `send_email` can be handed an id instead
+of restating the whole message. Nothing ever removed one except a successful
+`send` quoting that id — so every draft the user thought better of, or that a
+model produced and never sent, stayed until the app closed.
+
+That is not just a leak of memory but of content: a draft carries its
+recipients, subject, body, and its attachments as base64. Both the model
+(`create_email_draft`, `emailTools.ts:436`) and the Email page
+(`email.handlers.ts:276`) can create them freely, so the growth is unbounded in
+the ordinary case rather than a pathological one.
+
+Now pruned on write: drafts older than an hour are dropped, and a hard cap of 50
+evicts oldest-first as a backstop for a burst inside that window. Pruning on
+write rather than on a timer is deliberate — a background interval in the main
+process outlives every window and is not worth it for a bounded map. An expired
+id fails at `send` with "Email draft not found", which is the right outcome:
+better a legible refusal than sending an hour-old message the user has
+forgotten writing.
+
+**6.2 `searchAll` queried accounts it knew had no credentials.** It is the one
+path that reaches an adapter without going through `resolve`, which exists
+precisely to refuse early when `emailAuthStore.hasCredentials` is false. A
+linked-but-disconnected account was therefore called anyway, failed inside
+`Promise.allSettled`, and logged a warning on every cross-account search —
+generic noise standing in for the specific "reconnect this account in Settings"
+message `resolve` would have given. Now filtered before dispatch.
+
+**6.3 `previewBatch` passed `NaN` through to the provider.** It clamped its limit
+inline with `Math.min(Math.max(1, Math.floor(limit)), MAX_EMAIL_RESULTS)`, and
+every step of that is also `NaN`. The file already had `normalizeLimit`, which
+rejects a non-finite limit and is what every other read path uses; the second
+clamp is gone.
+
+### Deliberate non-changes
+
+- **`applyBatch` does not cap `threadIds`.** Its ids come from `previewBatch`,
+  which does cap, and the user approves the resolved list before it runs. A
+  caller passing thousands of ids directly would sit in a long sequential loop,
+  but nothing reaches it that way today.
+- **`getStatus().sendRequiresApproval` is hardcoded `true`.** Correct as
+  written — approval is enforced in `emailTools.ts`, and the field reports a
+  policy rather than reading one.
+
+### Verified, not bugs
+
+- **Credentials are cleared on every account-removal path.**
+  `EmailAccountStore.remove` calls `emailAuthStore.clear(accountId)`, so the
+  rollbacks in `connectOAuth` and `connectPassword` — both of which store a
+  token or password _before_ verifying — do not strand a live credential when
+  verification fails. There is a `pruneTo` for orphans besides.
+- **`prepareReply` hardcoding `bcc: []` drops nothing.** `EmailReplyRequest` has
+  no `bcc` field; the caller cannot supply one.
+- **`prepareForward` is deliberately unthreaded** and fetches the parent's
+  attachments before the size cap is checked, so an oversized forward fails with
+  a reason naming the limit rather than as an opaque provider rejection at send
+  time. Both are load-bearing and documented in place.
+
+### Tests added
+
+`src/main/email/__tests__/EmailService.drafts.test.ts` — 7 tests on draft
+retention and account/input handling: a draft survives the handoff it exists
+for, an aged-out draft is collected by the next write, a recent one is not,
+eviction is oldest-first and keeps the newest, a credential-less account is not
+queried, a non-finite batch limit is refused before any adapter call, and an
+oversized one is clamped rather than refused.
+
+Four fail against the pre-fix file. The other three describe behaviour that was
+already correct and pass either way.

@@ -53,6 +53,27 @@ const log = createLogger('email')
  */
 const MAX_EMAIL_RESULTS = 200
 
+/**
+ * How long an unsent draft is kept, and how many are kept at once.
+ *
+ * `createDraft` holds a draft in this process's memory so `send_email` can be
+ * handed an id instead of re-stating the whole message — a handoff that
+ * normally spans a turn or two. Nothing deleted one except a successful send
+ * quoting its id, so every draft the user thought better of stayed for the life
+ * of the process, and both the model (`create_email_draft`) and the Email page
+ * can make them freely. A draft carries its recipients, subject, body and its
+ * attachments as base64, so that is real memory and real message content held
+ * long after anyone stopped caring about it.
+ *
+ * An hour is far longer than the handoff needs and short enough that abandoned
+ * drafts do not accumulate; the count cap is the backstop for a burst inside
+ * that hour. Pruning happens on write rather than on a timer — a background
+ * interval in the main process would outlive every window and is not worth it
+ * for a bounded map.
+ */
+const DRAFT_TTL_MS = 60 * 60 * 1000
+const MAX_RETAINED_DRAFTS = 50
+
 const ADAPTERS: Record<EmailProvider, EmailProviderAdapter> = {
   gmail: new GmailAdapter(),
   microsoft: new MicrosoftAdapter(),
@@ -260,7 +281,14 @@ class EmailService {
    * two-mailbox user silently only ever sees results from one of them.
    */
   async searchAll(request: Omit<EmailSearchRequest, 'accountId'>): Promise<EmailThreadSummary[]> {
-    const accounts = emailAccountStore.list()
+    // Only accounts that can actually be queried. This is the one path that
+    // reaches an adapter without going through `resolve`, so without the filter
+    // a linked-but-disconnected account was called anyway, failed inside
+    // `allSettled`, and logged a warning on every search — noise standing in
+    // for the specific "reconnect this account" message `resolve` gives.
+    const accounts = emailAccountStore
+      .list()
+      .filter((account) => emailAuthStore.hasCredentials(account.id))
     if (accounts.length <= 1) return this.search(request)
 
     const limit = normalizeLimit(request.limit)
@@ -389,8 +417,30 @@ class EmailService {
       body: request.body.trim(),
       createdAt: Date.now()
     }
+    this.pruneDrafts()
     this.drafts.set(draft.id, draft)
     return draft
+  }
+
+  /**
+   * Drop drafts that have aged out, then the oldest of whatever is left until
+   * the count fits. `Map` preserves insertion order and `createDraft` is the
+   * only writer, so iteration order is oldest-first already.
+   *
+   * An expired id fails at `send` with "Email draft not found", which is the
+   * right outcome: better a legible refusal than sending an hour-old message
+   * the user has forgotten writing.
+   */
+  private pruneDrafts(): void {
+    const cutoff = Date.now() - DRAFT_TTL_MS
+    for (const [id, draft] of this.drafts) {
+      if (draft.createdAt < cutoff) this.drafts.delete(id)
+    }
+    while (this.drafts.size >= MAX_RETAINED_DRAFTS) {
+      const oldest = this.drafts.keys().next()
+      if (oldest.done) break
+      this.drafts.delete(oldest.value)
+    }
   }
 
   /**
@@ -590,7 +640,10 @@ class EmailService {
     const { account, adapter } = this.resolve(request.accountId)
     const query = request.query?.trim()
     const threads = await adapter.listThreads(account, {
-      limit: Math.min(Math.max(1, Math.floor(request.limit)), MAX_EMAIL_RESULTS),
+      // `normalizeLimit` rather than a second inline clamp: the one that was
+      // here passed `NaN` straight through to the adapter, since every step of
+      // `min(max(1, floor(NaN)), 200)` is also `NaN`.
+      limit: normalizeLimit(request.limit),
       ...(query ? { query } : {}),
       ...(request.mailbox?.trim() ? { mailbox: request.mailbox.trim() } : {})
     })
