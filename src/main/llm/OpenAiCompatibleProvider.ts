@@ -22,7 +22,11 @@ import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import type { ModelToolResultBudget } from '../tools/modelResultBudget'
 import { cloudContextWindowTokens, type CloudProvider } from '@shared/contextBudget'
-import { cloudToolResultBudget, estimateCloudInputTokens } from './cloudRoundBudget'
+import {
+  advanceCloudSpentTokens,
+  cloudToolResultBudget,
+  estimateCloudSpentTokens
+} from './cloudRoundBudget'
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
@@ -219,15 +223,14 @@ export async function runChatCompletionsLoop(
   /** Set when a round failed after earlier ones had already produced work. */
   let providerError: string | null = null
   // Round 0 has no reported usage to size against yet, so estimate; every round
-  // after this replaces it with the provider's own exact figure.
-  modelResultBudgetBox.current = cloudToolResultBudget(
-    contextWindowTokens,
-    estimateCloudInputTokens(
-      params.prompt,
-      JSON.stringify(messages),
-      tools ? JSON.stringify(tools) : undefined
-    )
-  )
+  // after this folds in the provider's own exact figure. No `systemPrompt` here:
+  // `buildMessages` puts it inside `messages` as a system-role entry, so passing
+  // it again would count it twice.
+  let spentInputTokens = estimateCloudSpentTokens(contextWindowTokens, {
+    rendered: messages,
+    tools
+  })
+  modelResultBudgetBox.current = cloudToolResultBudget(contextWindowTokens, spentInputTokens)
   for (let round = 0; round < maxToolRounds; round++) {
     if (params.signal?.aborted) {
       stopped = true
@@ -274,10 +277,8 @@ export async function runChatCompletionsLoop(
     // The provider's own count for the prompt it just processed — exact, and it
     // already covers the system prompt, tool schemas and every message so far,
     // which is precisely what the next result has to fit alongside.
-    modelResultBudgetBox.current = cloudToolResultBudget(
-      contextWindowTokens,
-      completion.usage?.prompt_tokens ?? 0
-    )
+    spentInputTokens = advanceCloudSpentTokens(spentInputTokens, completion.usage?.prompt_tokens)
+    modelResultBudgetBox.current = cloudToolResultBudget(contextWindowTokens, spentInputTokens)
 
     const message = completion.choices[0]?.message
     const toolCalls = (message?.tool_calls ?? []).filter(

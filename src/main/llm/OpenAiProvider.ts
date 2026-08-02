@@ -21,7 +21,11 @@ import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import type { ModelToolResultBudget } from '../tools/modelResultBudget'
 import { cloudContextWindowTokens } from '@shared/contextBudget'
-import { cloudToolResultBudget, estimateCloudInputTokens } from './cloudRoundBudget'
+import {
+  advanceCloudSpentTokens,
+  cloudToolResultBudget,
+  estimateCloudSpentTokens
+} from './cloudRoundBudget'
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
@@ -155,15 +159,12 @@ class OpenAiProvider implements LlmProvider {
     let providerError: string | null = null
     // Round 0 has no reported usage to size against yet, so estimate; every
     // round after this replaces it with OpenAI's own exact figure.
-    modelResultBudgetBox.current = cloudToolResultBudget(
-      contextWindowTokens,
-      estimateCloudInputTokens(
-        params.systemPrompt,
-        params.prompt,
-        JSON.stringify(input),
-        openAiTools ? JSON.stringify(openAiTools) : undefined
-      )
-    )
+    let spentInputTokens = estimateCloudSpentTokens(contextWindowTokens, {
+      systemPrompt: params.systemPrompt,
+      rendered: input,
+      tools: openAiTools
+    })
+    modelResultBudgetBox.current = cloudToolResultBudget(contextWindowTokens, spentInputTokens)
     for (let round = 0; round < maxToolRounds; round++) {
       if (params.signal?.aborted) {
         stopped = true
@@ -220,10 +221,8 @@ class OpenAiProvider implements LlmProvider {
       // OpenAI's own count for the prompt it just processed — exact, and it
       // already covers the instructions, tool schemas and every input item so
       // far, which is precisely what the next result has to fit alongside.
-      modelResultBudgetBox.current = cloudToolResultBudget(
-        contextWindowTokens,
-        response.usage?.input_tokens ?? 0
-      )
+      spentInputTokens = advanceCloudSpentTokens(spentInputTokens, response.usage?.input_tokens)
+      modelResultBudgetBox.current = cloudToolResultBudget(contextWindowTokens, spentInputTokens)
 
       const functionCalls = response.output.filter(
         (item): item is ResponseFunctionToolCall => item.type === 'function_call'

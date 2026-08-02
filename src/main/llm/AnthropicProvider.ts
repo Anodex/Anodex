@@ -15,7 +15,11 @@ import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import type { ModelToolResultBudget } from '../tools/modelResultBudget'
 import { cloudContextWindowTokens } from '@shared/contextBudget'
-import { cloudToolResultBudget, estimateCloudInputTokens } from './cloudRoundBudget'
+import {
+  advanceCloudSpentTokens,
+  cloudToolResultBudget,
+  estimateCloudSpentTokens
+} from './cloudRoundBudget'
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
@@ -152,15 +156,12 @@ class AnthropicProvider implements LlmProvider {
     let providerError: string | null = null
     // Round 0 has no reported usage to size against yet, so estimate; every
     // round after this replaces it with Anthropic's own exact figure.
-    modelResultBudgetBox.current = cloudToolResultBudget(
-      contextWindowTokens,
-      estimateCloudInputTokens(
-        params.systemPrompt,
-        params.prompt,
-        JSON.stringify(messages),
-        anthropicTools ? JSON.stringify(anthropicTools) : undefined
-      )
-    )
+    let spentInputTokens = estimateCloudSpentTokens(contextWindowTokens, {
+      systemPrompt: params.systemPrompt,
+      rendered: messages,
+      tools: anthropicTools
+    })
+    modelResultBudgetBox.current = cloudToolResultBudget(contextWindowTokens, spentInputTokens)
     for (let round = 0; round < maxToolRounds; round++) {
       if (params.signal?.aborted) {
         stopped = true
@@ -218,10 +219,8 @@ class AnthropicProvider implements LlmProvider {
       // Anthropic's own count for the prompt it just processed — exact, and it
       // already covers the system prompt, tool schemas and every message so
       // far, which is precisely what the next result has to fit alongside.
-      modelResultBudgetBox.current = cloudToolResultBudget(
-        contextWindowTokens,
-        response.usage.input_tokens ?? 0
-      )
+      spentInputTokens = advanceCloudSpentTokens(spentInputTokens, response.usage.input_tokens)
+      modelResultBudgetBox.current = cloudToolResultBudget(contextWindowTokens, spentInputTokens)
 
       if (response.stop_reason !== 'tool_use' || !toolFunctions) break
       // There is no remaining provider round in which the model could consume
