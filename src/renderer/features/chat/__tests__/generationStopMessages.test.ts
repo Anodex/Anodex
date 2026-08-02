@@ -74,4 +74,26 @@ describe('describeGenerationStop', () => {
 
     expect(note?.error).toContain('1,500')
   })
+
+  it('leads a provider failure with the provider’s own message', () => {
+    const note = describeGenerationStop('provider-error', BUDGET, true, '429 rate limit exceeded.')
+
+    // Never bounded: nothing budgeted this stop, so it stays a red error even
+    // though the work above it survived. And the detail has to come through —
+    // "rate limited" and "invalid request" call for opposite responses.
+    expect(note?.errorKind).toBeUndefined()
+    expect(note?.error).toContain('429 rate limit exceeded.')
+  })
+
+  it('still explains a provider failure that arrived without a message', () => {
+    const note = describeGenerationStop('provider-error', BUDGET, true)
+
+    expect(note?.errorKind).toBeUndefined()
+    expect(note?.error).toContain('provider failed')
+  })
+
+  it('keeps a stalled runtime calm only while it has work to show for it', () => {
+    expect(describeGenerationStop('runtime-stalled', BUDGET, true)?.errorKind).toBe('bounded')
+    expect(describeGenerationStop('runtime-stalled', BUDGET, false)?.errorKind).toBeUndefined()
+  })
 })

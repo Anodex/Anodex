@@ -110,9 +110,23 @@ export function runPreflightReason(
  */
 const CHECK_IN_EVERY_TURNS = 3
 
-function terminalStopMessage(stopReason: GenerationStopReason | undefined): string {
+function terminalStopMessage(
+  stopReason: GenerationStopReason | undefined,
+  stopDetail?: string
+): string {
   if (stopReason === 'fixed-context-limit') {
     return 'The run could not start because the model’s fixed instructions and compact tool gateway do not fit in its context window.'
+  }
+  // Nobody is watching an unattended run, so the two reasons that name a real
+  // fault must say so. Both used to land in the generic message below, which
+  // reported a provider outage in the same words as an ordinary early finish.
+  if (stopReason === 'provider-error') {
+    return stopDetail
+      ? `Run stopped: the model provider failed. ${stopDetail}`
+      : 'Run stopped: the model provider failed.'
+  }
+  if (stopReason === 'runtime-stalled') {
+    return 'Run stopped: the local runtime stopped running the model. Reload the model, then retry.'
   }
   return stopReason === 'user' ? 'Run was stopped by the user.' : 'Run stopped before completion.'
 }
@@ -243,6 +257,7 @@ class AgentRunService {
           summary,
           stopped,
           stopReason,
+          stopDetail,
           tokens,
           plan: nextPlan,
           fabricationDetected
@@ -262,7 +277,13 @@ class AgentRunService {
         this.broadcastRunsChanged()
 
         if (stopped && !isRecoverableGenerationStop(stopReason)) {
-          this.finish(run.id, conversation.id, 'stopped', null, terminalStopMessage(stopReason))
+          this.finish(
+            run.id,
+            conversation.id,
+            'stopped',
+            null,
+            terminalStopMessage(stopReason, stopDetail)
+          )
           return
         }
         // A recoverable turn-level stop (see `isRecoverableGenerationStop`'s doc
@@ -390,7 +411,13 @@ class AgentRunService {
       // response either way.
       if (first.stopped && !isRecoverableGenerationStop(first.stopReason)) {
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
-        this.finish(run.id, conversation.id, 'stopped', null, terminalStopMessage(first.stopReason))
+        this.finish(
+          run.id,
+          conversation.id,
+          'stopped',
+          null,
+          terminalStopMessage(first.stopReason, first.stopDetail)
+        )
         return
       }
 
@@ -414,7 +441,7 @@ class AgentRunService {
             conversation.id,
             'stopped',
             null,
-            terminalStopMessage(retry.stopReason)
+            terminalStopMessage(retry.stopReason, retry.stopDetail)
           )
           return
         }
@@ -475,6 +502,8 @@ class AgentRunService {
     summary: string | null
     stopped: boolean
     stopReason?: GenerationStopReason
+    /** See `GenerateOutcome.stopDetail`'s doc comment. */
+    stopDetail?: string
     tokens: number
     plan: Plan | null
     /** See `AgentRun.flaggedTurns`'s doc comment. */
@@ -561,6 +590,7 @@ class AgentRunService {
       summary: finishCall?.detail ?? null,
       stopped: result.stopped,
       stopReason: result.stopReason,
+      stopDetail: result.stopDetail,
       tokens: result.stats.tokens,
       plan: latestPlan,
       fabricationDetected: result.fabricationDetected ?? false

@@ -16,7 +16,9 @@ export interface GenerationStopNote {
 export function describeGenerationStop(
   stopReason: GenerationStopReason,
   contextBudget: ContextBudgetUsage | undefined,
-  hasContent: boolean
+  hasContent: boolean,
+  /** See `ChatResult.stopDetail` — the provider's own message, when there is one. */
+  stopDetail?: string
 ): GenerationStopNote | null {
   switch (stopReason) {
     case 'user':
@@ -95,6 +97,17 @@ export function describeGenerationStop(
             error:
               'The local runtime stopped running the model and returned an earlier failure instead. Reload the model to clear it, then try again.'
           }
+    case 'provider-error':
+      // Deliberately not `errorKind: 'bounded'`. Nothing budgeted this stop —
+      // the provider failed, and the turn is incomplete — so it stays a red
+      // error even though the work above it survived. The provider's own
+      // message leads, because "rate limited" and "invalid request" call for
+      // opposite responses and no fixed copy can stand in for either.
+      return {
+        error: stopDetail
+          ? `The model provider failed part-way through this reply: ${stopDetail} The text and completed tool work above were preserved.`
+          : 'The model provider failed part-way through this reply. The text and completed tool work above were preserved.'
+      }
     case 'loop-guard':
     case 'no-progress':
       // Repetition without progress is a real malfunction worth flagging

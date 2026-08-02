@@ -117,6 +117,8 @@ export interface RunGenerationResult {
   stopped: boolean
   /** Why `stopped` is true, when known — see `GenerateOutcome.stopReason`'s doc comment. */
   stopReason?: GenerationStopReason
+  /** See `GenerateOutcome.stopDetail`'s doc comment. */
+  stopDetail?: string
   /** Exact local fixed-context/tool accounting for this turn. */
   contextBudget?: ContextBudgetUsage
   /** Memory entries retrieved and injected into context for this turn, if any. */
@@ -508,8 +510,23 @@ export async function runGeneration(
     execution.dispose(io.signal)
   }
 
-  if (execution.stopReason && execution.stopReason !== 'user') {
-    outcome = { ...outcome, stopped: true, stopReason: execution.stopReason }
+  // A budget ceiling never overrides a provider failure. Both can be true of
+  // one turn — a 15-minute run that then hits a 429 trips the time limit and
+  // the error — but only one of them is why the reply is missing, and the
+  // budget's copy would tell the user to shorten a request whose real problem
+  // was rate limiting. Anything else still wins as before, and takes the
+  // detail with it so a stale message can't outlive the reason it belonged to.
+  if (
+    execution.stopReason &&
+    execution.stopReason !== 'user' &&
+    outcome.stopReason !== 'provider-error'
+  ) {
+    outcome = {
+      ...outcome,
+      stopped: true,
+      stopReason: execution.stopReason,
+      stopDetail: undefined
+    }
   }
 
   const content = sanitizeAssistantContent(outcome.content)
@@ -566,6 +583,7 @@ export async function runGeneration(
     stats: outcome.stats,
     stopped: outcome.stopped,
     stopReason: outcome.stopReason,
+    stopDetail: outcome.stopDetail,
     contextBudget: outcome.contextBudget,
     memoryUsed: memory?.entries,
     transcriptRecallUsed: transcriptRecall?.results,

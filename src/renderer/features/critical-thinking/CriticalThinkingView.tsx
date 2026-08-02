@@ -745,6 +745,7 @@ function stopReasonLabel(reason: CriticalThinkingTerminationReason): string {
       'The model kept getting cut off part-way through a search or page read, so it never ran.',
     'runtime-stalled':
       'The local runtime stopped running the model here — reload the model, then Resume.',
+    'provider-error': 'The model provider failed here — Resume to pick this area back up.',
     yielded: 'Saved progress here to continue later.'
   }
   return labels[reason]

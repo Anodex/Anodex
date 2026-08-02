@@ -34,7 +34,10 @@ class AzureOpenAiProvider implements LlmProvider {
     }
 
     const client = buildClient(settings)
-    return runChatCompletionsLoop(client, deploymentName, params)
+    // 'azure' maps to an empty catalog on purpose, so this resolves to the
+    // conservative default window — a customer names their own deployment and
+    // there is no id to look up. See `CLOUD_MODEL_CATALOGS`.
+    return runChatCompletionsLoop(client, deploymentName, params, 'azure')
   }
 }
 

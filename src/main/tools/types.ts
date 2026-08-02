@@ -109,9 +109,17 @@ export interface ToolRuntimeContext {
    * tool results — a mutable box (same pattern as `plan`/`turnGate` above)
    * because the real, measured value isn't known until after the engine has
    * already built this context object; it fills in once, before any tool
-   * call in the turn actually runs. `null` means no measured budget is
-   * available yet for the active provider — tools fall back to their own
-   * disk-oriented caps unchanged, exactly as before this budget existed.
+   * call in the turn actually runs. `null` means no budget is available yet —
+   * tools fall back to their own disk-oriented caps unchanged, exactly as
+   * before this budget existed.
+   *
+   * Every transport now fills this in, and re-fills it each round as the turn
+   * spends its window: the local engine and the llama-server vision path from
+   * real `/tokenize` measurements, the cloud providers from the model's catalog
+   * window and their own reported prompt usage (see `cloudRoundBudget.ts`).
+   * Cloud used to leave it `null` permanently on the reasoning that a 200K
+   * window could absorb any single result — true of one result, and not of the
+   * twenty a tool-using turn can take, each re-sent on every later round.
    */
   modelResultBudget: { current: ModelToolResultBudget | null }
   /**

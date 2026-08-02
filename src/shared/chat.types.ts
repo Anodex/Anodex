@@ -36,6 +36,14 @@ export type GenerationStopReason =
    * no rephrasing helps. Reloading the model clears it.
    */
   | 'runtime-stalled'
+  /**
+   * The provider failed part-way through a turn that had already produced
+   * something. A genuine failure, not a budget — but reported as a stop so the
+   * text and completed tool work from the rounds that succeeded survive it. The
+   * provider's own message travels alongside in `stopDetail`, because "rate
+   * limited" and "invalid request" call for opposite responses from the user.
+   */
+  | 'provider-error'
   | 'yielded'
 
 /** Exact local-model input accounting captured with the active wrapper and tokenizer. */
@@ -360,6 +368,8 @@ export interface ChatResult {
    * `'user'` when the provider exposes that distinction.
    */
   stopReason?: GenerationStopReason
+  /** See `GenerateOutcome.stopDetail`'s doc comment in `LlamaService.ts`. */
+  stopDetail?: string
   /** Exact fixed-context/tool accounting reported by the local engine for this turn. */
   contextBudget?: ContextBudgetUsage
   /** Memory entries that were retrieved and injected into context for this turn, if any. */

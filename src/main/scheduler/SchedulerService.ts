@@ -168,7 +168,7 @@ class SchedulerService {
       this.saveConversationTurn(conversation, [userMessage, assistantMessage])
 
       const summary = result.stopped
-        ? scheduledStopSummary(result.stopReason)
+        ? scheduledStopSummary(result.stopReason, result.stopDetail)
         : await this.summarize(result.content)
       schedulerStore.recordRun(task.id, {
         status: result.stopped ? 'stopped' : 'success',
@@ -268,7 +268,10 @@ function generateId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
 }
 
-function scheduledStopSummary(stopReason: GenerationStopReason | undefined): string {
+function scheduledStopSummary(
+  stopReason: GenerationStopReason | undefined,
+  stopDetail?: string
+): string {
   switch (stopReason) {
     case 'fixed-context-limit':
       return 'Could not start: fixed instructions and tools do not fit the model context.'
@@ -287,6 +290,15 @@ function scheduledStopSummary(stopReason: GenerationStopReason | undefined): str
     case 'loop-guard':
     case 'no-progress':
       return 'Stopped early after repeating work without progress.'
+    // Nobody is watching an unattended run, so the two reasons that name a
+    // real fault must say so here. Falling through to the generic default
+    // reported a provider outage and a clean finish in the same words.
+    case 'provider-error':
+      return stopDetail
+        ? `Stopped early: the model provider failed. ${stopDetail}`
+        : 'Stopped early: the model provider failed.'
+    case 'runtime-stalled':
+      return 'Stopped early: the local runtime stopped running the model. Reload the model.'
     case 'user':
       return 'The scheduled run was stopped by the user.'
     default:

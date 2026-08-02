@@ -573,6 +573,13 @@ export const useChatStore = create<ChatState>()(
           : undefined
       })
 
+      // A stop that `describeGenerationStop` classifies as a genuine failure
+      // rather than a bounded budget. Those arrive as `ok` with `stopped: true`,
+      // which used to fall between both notification branches below: the bubble
+      // turned red and nothing chimed, so a user who had stepped away from a
+      // long run got no signal at all. Captured here because the note is built
+      // inside the state update.
+      let failureNote: string | null = null
       set((state) => {
         const convo = state.conversations.find((c) => c.id === conversationId)
         const message = convo?.messages.find((m) => m.id === assistantId)
@@ -613,11 +620,13 @@ export const useChatStore = create<ChatState>()(
             const note = describeGenerationStop(
               result.value.stopReason,
               result.value.contextBudget,
-              Boolean(content.trim())
+              Boolean(content.trim()),
+              result.value.stopDetail
             )
             if (note) {
               message.error = note.error
               if (note.errorKind) message.errorKind = note.errorKind
+              else failureNote = note.error
             }
           }
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed
@@ -676,6 +685,11 @@ export const useChatStore = create<ChatState>()(
       if (!result.ok) {
         // Also triggers the error chime via `uiStore.notify()`.
         notifyError('Generation failed', result.error.message)
+      } else if (failureNote) {
+        // The turn came back with its work intact but ended on a real fault
+        // (the provider failed, the runtime stalled, a call was never
+        // runnable). Worth the same chime as a thrown failure — it is one.
+        notifyError('Generation failed', failureNote)
       } else if (!result.value.stopped) {
         // A user-initiated stop isn't a completion or an error — no chime/notification for it.
         playChime('success')

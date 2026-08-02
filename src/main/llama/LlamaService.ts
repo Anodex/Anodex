@@ -256,6 +256,14 @@ export interface GenerateOutcome {
    * former should end a whole multi-turn run.
    */
   stopReason?: GenerationStopReason
+  /**
+   * Free text belonging to `stopReason`, for the reasons whose fixed copy is
+   * not enough on its own. Currently only `'provider-error'`, which carries the
+   * provider's own message: a turn preserved after a rate limit and one
+   * preserved after a malformed request look identical without it, and call for
+   * opposite responses from the user.
+   */
+  stopDetail?: string
   /** Exact fixed prompt/tool-schema accounting from the active local wrapper. */
   contextBudget?: ContextBudgetUsage
   /**

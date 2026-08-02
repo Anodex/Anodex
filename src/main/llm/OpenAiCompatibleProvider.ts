@@ -20,6 +20,9 @@ import { buildTools } from '../tools/registry'
 import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
+import type { ModelToolResultBudget } from '../tools/modelResultBudget'
+import { cloudContextWindowTokens, type CloudProvider } from '@shared/contextBudget'
+import { cloudToolResultBudget, estimateCloudInputTokens } from './cloudRoundBudget'
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
@@ -117,6 +120,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       client,
       model,
       params,
+      this.config.id,
       this.config.id === 'google' ? { provider: 'google' } : undefined
     )
   }
@@ -134,9 +138,13 @@ export async function runChatCompletionsLoop(
   client: OpenAI,
   model: string,
   params: GenerateParams,
+  /** Which catalog to size this model's context window against. */
+  providerId: CloudProvider,
   imageGeneration?: { provider: 'google' }
 ): Promise<GenerateOutcome> {
   const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, CLOUD_VISION_MIME_TYPES)
+  const contextWindowTokens = cloudContextWindowTokens(providerId, model)
+  const modelResultBudgetBox: { current: ModelToolResultBudget | null } = { current: null }
 
   const toolFunctions = params.tools
     ? buildTools(defineToolFunction, {
@@ -170,9 +178,11 @@ export async function runChatCompletionsLoop(
         // Fresh every generation call, same reasoning as `turnGate` above —
         // see `ToolRuntimeContext.progress`'s doc comment.
         progress: { madeChange: false },
-        // Cloud contexts are not measured against a real tokenizer in this
-        // pass — see `ToolRuntimeContext.modelResultBudget`'s doc comment.
-        modelResultBudget: { current: null },
+        // Sized from the model's real window and this turn's own reported
+        // usage each round — see `cloudRoundBudget.ts`. Left permanently null
+        // (as this did) every tool falls back to its own disk-oriented cap,
+        // and 20 rounds of 60 KB reads overrun even a 200K window.
+        modelResultBudget: modelResultBudgetBox,
         // Reuse the caller-owned tracker when this call is part of a
         // bounded multi-cycle/multi-turn task; otherwise a fresh one.
         readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
@@ -201,9 +211,23 @@ export async function runChatCompletionsLoop(
   // Summed across rounds — each tool round re-bills the whole conversation.
   let inputTokens = 0
   let stopped = false
+  /** Whether any tool actually ran this turn — work a later failure must not discard. */
+  let hadToolResult = false
 
   const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
   let roundsExhausted = false
+  /** Set when a round failed after earlier ones had already produced work. */
+  let providerError: string | null = null
+  // Round 0 has no reported usage to size against yet, so estimate; every round
+  // after this replaces it with the provider's own exact figure.
+  modelResultBudgetBox.current = cloudToolResultBudget(
+    contextWindowTokens,
+    estimateCloudInputTokens(
+      params.prompt,
+      JSON.stringify(messages),
+      tools ? JSON.stringify(tools) : undefined
+    )
+  )
   for (let round = 0; round < maxToolRounds; round++) {
     if (params.signal?.aborted) {
       stopped = true
@@ -233,11 +257,27 @@ export async function runChatCompletionsLoop(
         stopped = true
         break
       }
-      throw error
+      // Throwing discards the whole outcome. On round 0 that costs nothing and
+      // the error message is the entire value, so it still throws. Once earlier
+      // rounds have produced text or run tools, it costs all of it — and
+      // `boundedChatRunner` has no catch of its own, so a multi-cycle reply
+      // loses every previous cycle too. Report it as a stop carrying the
+      // provider's own message instead; it still renders as a real error.
+      if (!content && !hadToolResult) throw error
+      providerError = error instanceof Error ? error.message : String(error)
+      log.error(`${model} failed mid-turn; keeping the work already done:`, error)
+      break
     }
 
     outputTokens += completion.usage?.completion_tokens ?? 0
     inputTokens += completion.usage?.prompt_tokens ?? 0
+    // The provider's own count for the prompt it just processed — exact, and it
+    // already covers the system prompt, tool schemas and every message so far,
+    // which is precisely what the next result has to fit alongside.
+    modelResultBudgetBox.current = cloudToolResultBudget(
+      contextWindowTokens,
+      completion.usage?.prompt_tokens ?? 0
+    )
 
     const message = completion.choices[0]?.message
     const toolCalls = (message?.tool_calls ?? []).filter(
@@ -265,6 +305,7 @@ export async function runChatCompletionsLoop(
     for (const call of toolCalls) {
       messages.push(await runTool(toolFunctions, call))
     }
+    hadToolResult = true
     const inspectionImages = drainVisualInputs(visualInputs)
     assertCloudVisionCompatible(inspectionImages)
     if (inspectionImages.length > 0) {
@@ -289,8 +330,17 @@ export async function runChatCompletionsLoop(
   return {
     content,
     stats,
-    stopped: stopped || roundsExhausted,
-    stopReason: roundsExhausted ? 'rounds-exhausted' : stopped ? 'user' : undefined
+    stopped: stopped || roundsExhausted || providerError !== null,
+    // A provider failure outranks a round budget: it is why the turn actually
+    // ended, and it is the only one of the two the user can act on.
+    stopReason: providerError
+      ? 'provider-error'
+      : roundsExhausted
+        ? 'rounds-exhausted'
+        : stopped
+          ? 'user'
+          : undefined,
+    stopDetail: providerError ?? undefined
   }
 }
 
