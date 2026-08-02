@@ -11,7 +11,14 @@ interface SegmentedToggleProps<T extends string> {
   onChange: (value: T) => void
 }
 
-/** Small button-group control — shared by the time-range filter and the chart granularity toggle. */
+/**
+ * Small button-group control — the app's one segmented-toggle look, used by
+ * the usage time-range filter, the chart granularity toggle, and the file
+ * viewer's Preview/Code switch. The selected segment is a soft accent pill
+ * (`--accent-soft`), never a solid `--accent` fill: a saturated block of
+ * accent at this size reads as a primary action button rather than a
+ * selection, and stands out against the surrounding chrome.
+ */
 export function SegmentedToggle<T extends string>({
   value,
   options,

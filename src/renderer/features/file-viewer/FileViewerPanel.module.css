@@ -41,36 +41,6 @@
   flex: 1;
 }
 
-.modeToggle {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.modeButton,
-.modeActive {
-  padding: 2px var(--space-2);
-  font-size: var(--text-xs);
-  border-radius: 3px;
-}
-
-.modeButton {
-  color: var(--text-muted);
-  background: transparent;
-}
-
-.modeButton:hover {
-  color: var(--text);
-}
-
-.modeActive {
-  color: var(--text-on-accent);
-  background: var(--accent);
-}
-
 .externalChangeBanner {
   display: flex;
   align-items: center;

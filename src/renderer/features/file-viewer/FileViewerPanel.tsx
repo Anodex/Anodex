@@ -4,6 +4,7 @@ import { anodex } from '../../lib/anodex'
 import { Icon } from '../../components/Icon'
 import { IconButton } from '../../components/ui/IconButton'
 import { Spinner } from '../../components/ui/Spinner'
+import { SegmentedToggle } from '../../components/ui/SegmentedToggle'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { formatBytes } from '../../lib/format'
 import { languageForFileName } from '../../lib/highlight'
@@ -18,6 +19,13 @@ import styles from './FileViewerPanel.module.css'
 function isHtmlFile(name: string): boolean {
   return /\.html?$/i.test(name)
 }
+
+type ViewerMode = 'preview' | 'code'
+
+const MODE_OPTIONS: { label: string; value: ViewerMode }[] = [
+  { label: 'Preview', value: 'preview' },
+  { label: 'Code', value: 'code' }
+]
 
 /**
  * Takes over the Workspace Dock body (in place of the Plan/Files/Activity/
@@ -36,7 +44,7 @@ export function FileViewerPanel(): JSX.Element | null {
   const [originalValue, setOriginalValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
-  const [mode, setMode] = useState<'preview' | 'code'>('preview')
+  const [mode, setMode] = useState<ViewerMode>('preview')
   // True when the AI wrote to this file while the buffer had unsaved edits —
   // shown as a non-blocking banner instead of silently clobbering those edits.
   const [externalChangePending, setExternalChangePending] = useState(false)
@@ -172,22 +180,7 @@ export function FileViewerPanel(): JSX.Element | null {
         {isDirty && <span className={styles.dirtyDot} title="Unsaved changes" />}
         <span className={styles.spacer} />
         {result?.kind === 'text' && isHtmlFile(node.name) && (
-          <div className={styles.modeToggle}>
-            <button
-              type="button"
-              className={mode === 'preview' ? styles.modeActive : styles.modeButton}
-              onClick={() => setMode('preview')}
-            >
-              Preview
-            </button>
-            <button
-              type="button"
-              className={mode === 'code' ? styles.modeActive : styles.modeButton}
-              onClick={() => setMode('code')}
-            >
-              Code
-            </button>
-          </div>
+          <SegmentedToggle value={mode} options={MODE_OPTIONS} onChange={setMode} />
         )}
         {result?.kind === 'text' && isHtmlFile(node.name) && (
           <IconButton

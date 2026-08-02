@@ -27,6 +27,19 @@ export function getMainWindow(): BrowserWindow | null {
 }
 
 /**
+ * The window icon to use, for any window the app opens.
+ *
+ * Only needed in an unpackaged dev run — without it, Windows/Linux show the
+ * generic Electron icon in the title bar and taskbar. A packaged build gets
+ * its icon from the .exe's own embedded resource instead (`win.icon` in
+ * electron-builder.yml), which secondary windows inherit; `build/` isn't in
+ * that config's `files:` list, so this path wouldn't resolve there anyway.
+ */
+export function appWindowIcon(): string | undefined {
+  return process.env['ELECTRON_RENDERER_URL'] ? join(__dirname, '../../build/icon.png') : undefined
+}
+
+/**
  * Create the main application window.
  *
  * Security posture: `contextIsolation` and `sandbox` on, `nodeIntegration`
@@ -52,12 +65,7 @@ export function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     frame: process.platform !== 'darwin' ? false : undefined,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    // Only needed in an unpackaged dev run — without it, Windows/Linux show
-    // the generic Electron icon in the taskbar. A packaged build gets its
-    // icon from the .exe's own embedded resource instead (`win.icon` in
-    // electron-builder.yml); `build/` isn't shipped in the packaged app's
-    // files, so this path wouldn't resolve there anyway.
-    icon: devServerUrl ? join(__dirname, '../../build/icon.png') : undefined,
+    icon: appWindowIcon(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
