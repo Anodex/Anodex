@@ -6,8 +6,13 @@ tests passing. Each file is checked for correctness bugs first, then for
 organisation and documentation.
 
 Ordered by risk, which is roughly `(damage if wrong) × (untested) × (centrality)` —
-not by size. Line counts and test status are from `git ls-files`, measured
-2026-08-02.
+not by size. Line counts are from `git ls-files`, measured 2026-08-02.
+
+The "Tests" column counts test files that actually import the module. The first
+version of this table was built by looking for `<Basename>.test.ts` and was wrong
+for four rows — `LlamaService.ts` alone has ten, including a substantial
+`generateContextShiftRecovery.test.ts`. Corrected in place while reviewing file 2.
+The order is unchanged: damage-if-wrong still dominates the ranking.
 
 **Working rule:** a file is only ticked off when it has been read end to end, every
 issue found is either fixed or explicitly recorded below as a deliberate
@@ -17,18 +22,18 @@ non-change, and the suite still passes.
 
 | #   | File                                             | Lines | Tests        | Status  |
 | --- | ------------------------------------------------ | ----- | ------------ | ------- |
-| 1   | `src/main/conversations/ConversationStore.ts`    | 322   | none → added | ✅ done |
-| 2   | `src/main/llama/LlamaService.ts`                 | 2760  | none         | ☐       |
-| 3   | `src/main/chat/runGeneration.ts`                 | 614   | none         | ☐       |
-| 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | none         | ☐       |
-| 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | none         | ☐       |
-| 6   | `src/main/email/EmailService.ts`                 | 713   | none         | ☐       |
-| 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | none         | ☐       |
-| 8   | `src/renderer/stores/chatStore.ts`               | 1244  | yes          | ☐       |
-| 9   | `src/shared/ipc.ts`                              | 862   | none         | ☐       |
-| 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | none         | ☐       |
-| 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | none         | ☐       |
-| 12  | `src/renderer/features/email/EmailView.tsx`      | 1251  | none         | ☐       |
+| 1   | `src/main/conversations/ConversationStore.ts`    | 322   | 0 → 11 added | ✅ done |
+| 2   | `src/main/llama/LlamaService.ts`                 | 2760  | 10 → 16      | ✅ done |
+| 3   | `src/main/chat/runGeneration.ts`                 | 614   | 5            | ☐       |
+| 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0            | ☐       |
+| 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0            | ☐       |
+| 6   | `src/main/email/EmailService.ts`                 | 713   | 1            | ☐       |
+| 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0            | ☐       |
+| 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1            | ☐       |
+| 9   | `src/shared/ipc.ts`                              | 862   | 3            | ☐       |
+| 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0            | ☐       |
+| 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | 0            | ☐       |
+| 12  | `src/renderer/features/email/EmailView.tsx`      | 1251  | 0            | ☐       |
 
 Why this order: 1 and 6–7 can destroy or leak user data; 2–5 are the generation
 path where a bug burns tokens or truncates a reply; 8–10 are the app's spine;
@@ -117,3 +122,118 @@ path-safety rejection, the project-move happy path, archive/restore round-trippi
 other projects surviving a project deletion, and `archivedAt === updatedAt` — that
 last one is a regression guard only, since the two `Date.now()` calls it replaced
 almost always landed in the same millisecond anyway.
+
+---
+
+## 2. `src/main/llama/LlamaService.ts` — done
+
+2,760 lines, the largest file in the repo: engine init, model load/unload, chat
+sessions, the whole streaming generation loop, compaction, and the summarizer
+helpers. Well covered by tests for _generation behaviour_ and almost not at all
+for _engine lifecycle_, which is where all three real bugs were.
+
+### Bugs fixed
+
+**2.1 A throw during turn setup wedged the engine until the app restarted.**
+`generateInternal` sets `this.generating = true` early, and its `finally` only
+covers the decode loop. Three separate `catch (error) { this.generating = false;
+… throw }` blocks had been added ahead of that — around `buildToolFunctions`,
+`ensureSession`, and the proactive compaction — but the region after them was
+covered by nothing: `boundFunctionsForTurn` and `measureContextBudget` both throw
+(`'No model context is loaded.'`, `'node-llama-cpp has not finished loading.'`, or
+anything the chat wrapper raises while rendering). A throw there left the flag set
+for the rest of the process.
+
+The consequence is worse than a stuck spinner. Every later turn then failed the
+`if (this.generating)` check with `GENERATION_IN_PROGRESS_ERROR` — and both
+`AgentRunService` (line 333) and `CriticalThinkingService` (line 1393) special-case
+that exact message as _transient contention_, so an agent run reverted itself to
+`needs-review` on every attempt rather than reporting a fault. Nothing clears the
+flag: `loadModel`/`unload` never touched it either.
+
+Replaced the three ad-hoc catches with one authoritative reset in `generate()`'s
+`finally`. It holds the model lock for the entire call, so by the time it returns —
+however it returns — nothing is generating.
+
+**2.2 `loadModel()` and `unload()` disposed the native model with no lock.**
+Both are public entry points that call `disposeModel()`, disposing the context,
+sequence and model. Neither took `modelLock`, and both are reachable straight from
+IPC while a reply is streaming — `Models.load` (`model.handlers.ts:100`),
+`Models.unload` (`:113`), and `Models.delete` (`:122`). Disposing a `LlamaContext`
+mid-decode is a native crash, not a catchable error, which is the exact hazard the
+lock's own doc comment describes; its list of "public entry points" simply omitted
+these two.
+
+Both now take the lock and delegate to private `loadModelInternal` /
+`unloadInternal` — the mutex is a plain FIFO with no reentrancy, so the internal
+split is what keeps `loadModel`'s own `unload` call from deadlocking. `loadingModel`
+is still set synchronously before the first await, so a genuine duplicate load
+still fails fast instead of queueing and loading twice.
+
+**2.3 `getLlamaBackend()` could start two native backends.**
+`this.llama ??= await nlc.getLlama()` evaluates the nullish check _before_ the
+await, so two callers arriving during initialisation both saw `undefined` and both
+initialised a backend. The method's own doc comment says a second independent
+backend is "a real, avoidable risk, not just a style preference" — the code did not
+achieve what it documented. Reachable: `EmbeddingService.ts:82` calls it to index a
+workspace in the background, which can overlap the startup model load.
+
+Now memoises the promise rather than the resolved handle — the shape `getModule()`
+was already using correctly ten lines below — and clears it on rejection so one
+failed probe doesn't poison every later call.
+
+**2.4 The post-fallback abort check missed the loop guard.** After running a
+fallback tool call the loop checked only `params.signal`, not `genController`,
+which is what the loop guard aborts through. A guard firing during that call bought
+one more full `promptWithMeta` round before anything noticed. Self-correcting (the
+round returns `stopReason: 'abort'`), so this was wasted work rather than wrong
+output.
+
+### Documentation fixed
+
+- Two doc comments were attached to the wrong symbols. A block describing
+  `cleanThreadDigest` ("Trims a digest down to the one sentence the row has space
+  for") sat directly above `answerLines`, which has its own comment immediately
+  after it; and `INSTRUCTION_ECHO_RE`'s block sat above `REASONING_PREAMBLE_RE`,
+  likewise. Both made an editor's hover show documentation for a different symbol.
+  The digest rationale was merged into `cleanThreadDigest`'s existing comment
+  rather than duplicated; the regex comment was moved to its regex.
+- `GENERATION_IN_PROGRESS_ERROR`'s doc claimed callers "can recognize this
+  contention case". Since `generate()` began holding the model lock for the whole
+  turn, contention makes a caller _wait_, so — once 2.1 is fixed — nothing throws
+  it at all. Documented as the belt-and-braces guard it now is. See the follow-up
+  below.
+
+### Deliberate non-changes
+
+- **`session.promptWithMeta(prompt, promptOptions as never)`.** Casting to `never`
+  disables type checking on the entire options object, so a misspelled option would
+  silently do nothing. Real smell, but the cast is load-bearing against
+  node-llama-cpp's overloads and unpicking it risks changing behaviour invisibly.
+- **`runFallbackToolCall` indexes `functions[call.name]` unchecked.** Safe:
+  `detectFallbackToolCall` is handed exactly `Object.keys(functions)`, and even if
+  it weren't, the resulting `TypeError` lands inside the existing `try` and becomes
+  an error string — which is what the "never throws" contract promises.
+- **`loadModel` refusing on low memory sets `status: 'error'` with the _new_
+  model's info while the _previous_ model is still loaded and working.** The engine
+  then reports a model that isn't loaded, and `generate()` refuses because status
+  isn't `'ready'`, so a safe refusal costs the user their working session. Real, but
+  fixing it means deciding what the Models tab should show for "refused, previous
+  model still fine", which is a UI question rather than a correctness one. Recorded
+  for whoever picks up the Models tab.
+
+### Tests added
+
+`src/main/llama/__tests__/engineLifecycle.test.ts` — 6 tests covering lifecycle
+rather than generation output. Four were confirmed to fail against the pre-fix file
+(one per behavioural bug, including one asserting the _wedge_ specifically: a
+second turn succeeds after a first turn's setup threw). The other two pass either
+way and are labelled as regression guards in the file — idle contention reporting,
+and retry-after-failed-backend-init, which only guards the new memoisation.
+
+### Follow-up left open
+
+`GENERATION_IN_PROGRESS_ERROR`'s two consumers now hold unreachable recovery
+branches. Left in place: deleting them is a change to `AgentRunService` and
+`CriticalThinkingService`, outside this file's review, and the branches are
+harmless.

@@ -140,10 +140,18 @@ const MAX_FALLBACK_ROUNDS = 8
 type LlamaModule = typeof import('node-llama-cpp')
 
 /**
- * Thrown by `generate()` when the single shared local engine is already busy
- * with an unrelated generation (e.g. an interactive chat) — exported so
- * callers like `AgentRunService` can recognize this specific, recoverable
+ * Thrown when the single shared local engine is already busy with an unrelated
+ * generation. Exported so callers like `AgentRunService` and
+ * `CriticalThinkingService` can recognize this specific, recoverable
  * contention case rather than treating it as a genuine run failure.
+ *
+ * Since `generate()` began holding {@link LlamaService.modelLock} for the whole
+ * turn, contention makes a caller *wait* rather than fail, so in practice
+ * nothing throws this any more: the flag it guards is only ever set and cleared
+ * under that same lock. The check and the two recovery paths are kept as a
+ * belt-and-braces guard — the cost is a branch, and the failure it would
+ * otherwise mask (a wedged engine reporting itself as merely busy) is one this
+ * file has already had once.
  */
 export const GENERATION_IN_PROGRESS_ERROR = 'A response is already being generated.'
 
@@ -321,6 +329,8 @@ class LlamaService extends EventEmitter {
   private modulePromise: Promise<LlamaModule> | null = null
   private loadedModule?: LlamaModule
   private llama?: Llama
+  /** In-flight (or settled) backend initialisation — see `getLlamaBackend`. */
+  private llamaPromise?: Promise<Llama>
   private model?: LlamaModel
   private context?: LlamaContext
   private contextSequence?: LlamaContextSequence
@@ -420,119 +430,154 @@ class LlamaService extends EventEmitter {
     return this.model.tokenize(prompt).length
   }
 
-  /** Load a model into the engine, replacing any currently loaded one. */
+  /**
+   * Load a model into the engine, replacing any currently loaded one.
+   *
+   * Holds the single-model lock for the whole load: this disposes the live
+   * context, sequence and model, and doing that while a decode is running on
+   * them is a native crash rather than a catchable error. Nothing stopped that
+   * before — both IPC entry points (`Models.load`, and `Models.delete` via
+   * `unload`) call straight through while a reply may still be streaming.
+   *
+   * `loadingModel` is still set synchronously, before the first await, so a
+   * genuine duplicate call fails fast instead of quietly queueing behind the
+   * first and loading the same model twice.
+   */
   async loadModel(options: ModelLoadOptions, info: ModelInfo): Promise<EngineState> {
     if (this.loadingModel) {
       throw new Error('Another model is already loading. Wait for it to finish first.')
     }
     this.loadingModel = true
-
+    const release = await this.acquireModelLock()
     try {
-      const requestedSize = options.contextSize ?? 16384
-      const nlc = await this.getModule()
-      const memoryIssue = await describeInsufficientMemory(info, requestedSize, nlc)
-      if (memoryIssue) {
-        log.warn('Refusing to load model:', memoryIssue)
-        this.setState({ status: 'error', model: info, error: memoryIssue })
-        throw new Error(memoryIssue)
-      }
-
-      await this.unload()
-      this.setState({ status: 'loading', model: info, error: undefined })
-      log.info('Loading model', info.name)
-
-      // Everything below this line can take the whole process down without
-      // raising anything catchable — see `loadSentinel.ts`. The record is
-      // cleared in the `finally`, so only a real crash leaves one behind.
-      beginModelLoad({
-        modelPath: info.path,
-        modelName: info.name,
-        gpuLayers: options.gpuLayers ?? 'auto',
-        contextSize: requestedSize,
-        vision: Boolean(options.visionProjectorPath),
-        startedAt: new Date().toISOString()
-      })
-
-      try {
-        if (options.visionProjectorPath) {
-          await this.visionService.load({ ...options, contextSize: requestedSize })
-          this.contextSize = requestedSize
-          this.gpuLayersUsed =
-            options.gpuLayers === 'auto' || options.gpuLayers === undefined
-              ? undefined
-              : options.gpuLayers
-          this.gpuLayersTotal = undefined
-          this.setState({ status: 'ready', error: undefined, contextSize: requestedSize })
-          log.info('Vision model ready:', info.name, `(ctx ${this.contextSize})`)
-          return this.getState()
-        }
-
-        this.llama ??= await nlc.getLlama()
-        this.model = await this.llama.loadModel({
-          modelPath: options.path,
-          gpuLayers: options.gpuLayers === 'auto' ? undefined : options.gpuLayers
-        })
-        this.gpuLayersUsed = this.model.gpuLayers
-        this.gpuLayersTotal = this.model.fileInsights.totalLayers
-        this.context = await this.model.createContext({
-          contextSize: requestedSize
-        })
-        this.contextSequence = this.context.getSequence()
-        this.contextSize = this.context.contextSize
-        if (this.contextSize < requestedSize) {
-          log.warn(
-            `Context silently shrunk from ${requestedSize} to ${this.contextSize}. ` +
-              'Retrying with ignoreMemorySafetyChecks to enforce the requested size.'
-          )
-          try {
-            try {
-              this.contextSequence?.dispose()
-              await this.context?.dispose()
-            } catch {
-              log.warn('Failed to dispose old context during resize')
-            }
-            this.context = await this.model.createContext({
-              contextSize: requestedSize,
-              ignoreMemorySafetyChecks: true,
-              flashAttention: false
-            })
-            this.contextSequence = this.context.getSequence()
-            this.contextSize = this.context.contextSize
-            log.info('Forced context to', this.contextSize)
-          } catch (oomError) {
-            log.warn(
-              `Could not force context size ${requestedSize}:`,
-              oomError instanceof Error ? oomError.message : String(oomError)
-            )
-            // Fall back to the original smaller context
-            this.context = await this.model.createContext({
-              contextSize: this.contextSize
-            })
-            this.contextSequence = this.context.getSequence()
-          }
-        }
-        this.setState({ status: 'ready', error: undefined })
-        log.info('Model ready:', info.name, `(ctx ${this.contextSize})`)
-        return this.getState()
-      } catch (error) {
-        const message = describeLoadError(error, info)
-        log.error('Failed to load model:', message)
-        await this.visionService.unload()
-        await this.disposeModel()
-        this.setState({ status: 'error', model: info, error: message })
-        throw new Error(message)
-      } finally {
-        // A caught failure is not a crash — the app is alive and has already
-        // told the user what went wrong, so it needs no recovery prompt.
-        finishModelLoad()
-      }
+      return await this.loadModelInternal(options, info)
     } finally {
       this.loadingModel = false
+      release()
     }
   }
 
-  /** Unload the current model and free all associated resources. */
+  /** The body of {@link loadModel}, run with the model lock already held. */
+  private async loadModelInternal(
+    options: ModelLoadOptions,
+    info: ModelInfo
+  ): Promise<EngineState> {
+    const requestedSize = options.contextSize ?? 16384
+    const nlc = await this.getModule()
+    const memoryIssue = await describeInsufficientMemory(info, requestedSize, nlc)
+    if (memoryIssue) {
+      log.warn('Refusing to load model:', memoryIssue)
+      this.setState({ status: 'error', model: info, error: memoryIssue })
+      throw new Error(memoryIssue)
+    }
+
+    await this.unloadInternal()
+    this.setState({ status: 'loading', model: info, error: undefined })
+    log.info('Loading model', info.name)
+
+    // Everything below this line can take the whole process down without
+    // raising anything catchable — see `loadSentinel.ts`. The record is
+    // cleared in the `finally`, so only a real crash leaves one behind.
+    beginModelLoad({
+      modelPath: info.path,
+      modelName: info.name,
+      gpuLayers: options.gpuLayers ?? 'auto',
+      contextSize: requestedSize,
+      vision: Boolean(options.visionProjectorPath),
+      startedAt: new Date().toISOString()
+    })
+
+    try {
+      if (options.visionProjectorPath) {
+        await this.visionService.load({ ...options, contextSize: requestedSize })
+        this.contextSize = requestedSize
+        this.gpuLayersUsed =
+          options.gpuLayers === 'auto' || options.gpuLayers === undefined
+            ? undefined
+            : options.gpuLayers
+        this.gpuLayersTotal = undefined
+        this.setState({ status: 'ready', error: undefined, contextSize: requestedSize })
+        log.info('Vision model ready:', info.name, `(ctx ${this.contextSize})`)
+        return this.getState()
+      }
+
+      const llama = await this.getLlamaBackend()
+      this.model = await llama.loadModel({
+        modelPath: options.path,
+        gpuLayers: options.gpuLayers === 'auto' ? undefined : options.gpuLayers
+      })
+      this.gpuLayersUsed = this.model.gpuLayers
+      this.gpuLayersTotal = this.model.fileInsights.totalLayers
+      this.context = await this.model.createContext({
+        contextSize: requestedSize
+      })
+      this.contextSequence = this.context.getSequence()
+      this.contextSize = this.context.contextSize
+      if (this.contextSize < requestedSize) {
+        log.warn(
+          `Context silently shrunk from ${requestedSize} to ${this.contextSize}. ` +
+            'Retrying with ignoreMemorySafetyChecks to enforce the requested size.'
+        )
+        try {
+          try {
+            this.contextSequence?.dispose()
+            await this.context?.dispose()
+          } catch {
+            log.warn('Failed to dispose old context during resize')
+          }
+          this.context = await this.model.createContext({
+            contextSize: requestedSize,
+            ignoreMemorySafetyChecks: true,
+            flashAttention: false
+          })
+          this.contextSequence = this.context.getSequence()
+          this.contextSize = this.context.contextSize
+          log.info('Forced context to', this.contextSize)
+        } catch (oomError) {
+          log.warn(
+            `Could not force context size ${requestedSize}:`,
+            oomError instanceof Error ? oomError.message : String(oomError)
+          )
+          // Fall back to the original smaller context
+          this.context = await this.model.createContext({
+            contextSize: this.contextSize
+          })
+          this.contextSequence = this.context.getSequence()
+        }
+      }
+      this.setState({ status: 'ready', error: undefined })
+      log.info('Model ready:', info.name, `(ctx ${this.contextSize})`)
+      return this.getState()
+    } catch (error) {
+      const message = describeLoadError(error, info)
+      log.error('Failed to load model:', message)
+      await this.visionService.unload()
+      await this.disposeModel()
+      this.setState({ status: 'error', model: info, error: message })
+      throw new Error(message)
+    } finally {
+      // A caught failure is not a crash — the app is alive and has already
+      // told the user what went wrong, so it needs no recovery prompt.
+      finishModelLoad()
+    }
+  }
+
+  /**
+   * Unload the current model and free all associated resources. Takes the
+   * model lock for the same reason {@link loadModel} does — this disposes the
+   * context a running decode may still be using.
+   */
   async unload(): Promise<EngineState> {
+    const release = await this.acquireModelLock()
+    try {
+      return await this.unloadInternal()
+    } finally {
+      release()
+    }
+  }
+
+  /** The body of {@link unload}, run with the model lock already held. */
+  private async unloadInternal(): Promise<EngineState> {
     await this.visionService.unload()
     await this.disposeModel()
     this.setState({ status: 'unloaded', model: undefined, error: undefined })
@@ -567,6 +612,20 @@ class LlamaService extends EventEmitter {
     try {
       return await this.generateInternal(params)
     } finally {
+      // The single authoritative reset. The lock is held for this entire call,
+      // so by the time it returns — however it returns — nothing is generating.
+      // `generateInternal` has its own `finally` for the decode loop, but the
+      // setup between binding the tool surface and entering that `try`
+      // (`boundFunctionsForTurn`, `measureContextBudget`) is covered by nothing:
+      // a throw there used to leave this flag stuck true for the rest of the
+      // process. Every later turn then failed with
+      // GENERATION_IN_PROGRESS_ERROR, which `AgentRunService` and
+      // `CriticalThinkingService` both read as transient contention and retry
+      // against forever, and the UI kept showing a generation in flight.
+      if (this.generating) {
+        this.generating = false
+        this.emitState()
+      }
       release()
     }
   }
@@ -632,36 +691,30 @@ class LlamaService extends EventEmitter {
     // necessary, not just nice-to-have. `buildToolFunctions` only needs
     // `getModule()` and the (still-empty) abort/signal boxes by reference;
     // it doesn't touch `session`/`contextSequence`, so this reordering is safe.
-    try {
-      functions = await this.buildToolFunctions(
-        params,
-        (call) => {
-          hadAnyToolAttempt = true
-          if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
-          if (call.status !== 'running') diagnostics.recordToolCallSettled()
-          // Denied calls are excluded — that's a user decision, not a signal
-          // about the model's own reliability.
-          if (currentModel && (call.status === 'success' || call.status === 'error')) {
-            modelReliabilityStore.recordToolCall(
-              currentModel.id,
-              currentModel.name,
-              call.name,
-              call.status,
-              basename(currentModel.path)
-            )
-          }
-          params.tools?.onActivity(call)
-        },
-        abortBox,
-        signalBox,
-        modelResultBudgetBox,
-        (name) => pendingToolCalls.claim(name)
-      )
-    } catch (error) {
-      this.generating = false
-      this.emitState()
-      throw error
-    }
+    functions = await this.buildToolFunctions(
+      params,
+      (call) => {
+        hadAnyToolAttempt = true
+        if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
+        if (call.status !== 'running') diagnostics.recordToolCallSettled()
+        // Denied calls are excluded — that's a user decision, not a signal
+        // about the model's own reliability.
+        if (currentModel && (call.status === 'success' || call.status === 'error')) {
+          modelReliabilityStore.recordToolCall(
+            currentModel.id,
+            currentModel.name,
+            call.name,
+            call.status,
+            basename(currentModel.path)
+          )
+        }
+        params.tools?.onActivity(call)
+      },
+      abortBox,
+      signalBox,
+      modelResultBudgetBox,
+      (name) => pendingToolCalls.claim(name)
+    )
     let toolSchemaReserveTokens = this.estimateToolSchemaTokens(functions)
     if (this.contextSize) {
       // The exact surface is routed after the wrapper exists. Avoid letting
@@ -673,22 +726,15 @@ class LlamaService extends EventEmitter {
       )
     }
 
-    let session: LlamaChatSession
-    try {
-      session = await this.ensureSession(
-        params.conversationId,
-        params.systemPrompt,
-        params.history,
-        params.context,
-        toolSchemaReserveTokens,
-        'onLoad',
-        params.sessionMode === 'isolated'
-      )
-    } catch (error) {
-      this.generating = false
-      this.emitState()
-      throw error
-    }
+    let session: LlamaChatSession = await this.ensureSession(
+      params.conversationId,
+      params.systemPrompt,
+      params.history,
+      params.context,
+      toolSchemaReserveTokens,
+      'onLoad',
+      params.sessionMode === 'isolated'
+    )
 
     // Proactive compaction: if this ongoing session's native KV cache is
     // already near the context limit, rebuild it (through the same
@@ -702,14 +748,8 @@ class LlamaService extends EventEmitter {
       : 0
     if (usageRatio > COMPACTION_TRIGGER_RATIO) {
       log.info(`Context usage at ${Math.round(usageRatio * 100)}% — compacting before this turn.`)
-      try {
-        session = await this.recompactSession(params, 'proactive', toolSchemaReserveTokens)
-        diagnostics.recordContextShift()
-      } catch (error) {
-        this.generating = false
-        this.emitState()
-        throw error
-      }
+      session = await this.recompactSession(params, 'proactive', toolSchemaReserveTokens)
+      diagnostics.recordContextShift()
     }
 
     // Tool schemas are fixed prompt overhead: history compaction cannot make
@@ -1307,7 +1347,11 @@ class LlamaService extends EventEmitter {
         const resultText = await runFallbackToolCall(activeFunctions, fallback)
         prompt = `Tool result for ${fallback.name}:\n${resultText}\n\nContinue the task using this result. If the task is complete, summarize what you did instead of calling another tool.`
 
-        if (params.signal?.aborted) {
+        // `genController`, not just the caller's signal: the loop guard aborts
+        // through the former, and a guard that fired while this fallback call
+        // was running would otherwise buy one more full `promptWithMeta` round
+        // before anything noticed.
+        if (params.signal?.aborted || genController.signal.aborted) {
           stopped = true
           break
         }
@@ -2164,8 +2208,26 @@ class LlamaService extends EventEmitter {
    * embedding model is a real, avoidable risk, not just a style preference.
    */
   async getLlamaBackend(): Promise<Llama> {
+    // Memoize the *promise*, not the resolved handle. `this.llama ??= await
+    // nlc.getLlama()` evaluated the nullish check before the await, so two
+    // callers arriving while the first was still initialising both saw
+    // `undefined` and both started a backend — precisely the duplicate the doc
+    // comment above says to avoid. It is reachable: `EmbeddingService` calls
+    // this to index a workspace in the background, which can overlap a model
+    // load at startup. `getModule()` below already has this shape.
+    this.llamaPromise ??= this.createLlamaBackend()
+    try {
+      return await this.llamaPromise
+    } catch (error) {
+      // A failed probe must not poison every later call with a rejected promise.
+      this.llamaPromise = undefined
+      throw error
+    }
+  }
+
+  private async createLlamaBackend(): Promise<Llama> {
     const nlc = await this.getModule()
-    this.llama ??= await nlc.getLlama()
+    this.llama = await nlc.getLlama()
     return this.llama
   }
 
@@ -2389,14 +2451,6 @@ function cleanToastSummary(raw: string, maxWords: number): string | null {
 }
 
 /**
- * Trims a digest down to the one sentence the row has space for.
- *
- * Small local models often answer a "one sentence" instruction with a
- * sentence plus a helpful second one, or wrap the whole thing in quotes.
- * Rather than reject that as malformed — which would leave the row with no
- * digest at all — take the first sentence and let the rest go.
- */
-/**
  * One line of the model's actual answer, with a reasoning model's scratchpad
  * dropped — both the tagged kind and the untagged narration that comes before
  * it. Returns nothing when narration is all there was.
@@ -2424,6 +2478,12 @@ function answerLines(raw: string): string[] {
  * inbox, which is a worse outcome than no digests at all: identical text on
  * twenty rows reads as a broken page rather than as a feature that didn't run.
  * Returning null instead leaves each row on its own snippet.
+ *
+ * What survives the guards is then trimmed to the one sentence the row has
+ * space for. Small local models often answer a "one sentence" instruction with
+ * a sentence plus a helpful second one, or wrap the whole thing in quotes;
+ * rather than reject that as malformed — which would leave the row with no
+ * digest at all — take the first sentence and let the rest go.
  */
 export function cleanThreadDigest(raw: string): string | null {
   // No fallback to a rejected line, unlike `cleanChatTitle`: a row that has
@@ -2486,15 +2546,6 @@ function truncateForTitlePrompt(text: string): string {
 }
 
 /**
- * Telltale fragments of the title-generation instruction itself (see the
- * prompt in `generateChatTitle`). Observed directly, reproduced twice: a
- * model echoing the instruction back ("Goal: Create a 3-6 word Title Case")
- * instead of following it. Rejecting these is safe — the caller falls back
- * to the already-reasonable derived title from the first message rather
- * than showing a title-less chat (see `generateConversationTitle` in
- * `chatStore.ts`, which no-ops on a `null` result).
- */
-/**
  * Openers that a reasoning model uses to narrate, and that no plausible title
  * starts with. Deliberately conservative: only phrases that would be strange as
  * the first words of a title are listed, so a genuine title like "Plan Garden
@@ -2503,6 +2554,15 @@ function truncateForTitlePrompt(text: string): string {
 const REASONING_PREAMBLE_RE =
   /^(?:here(?:'s| is)\b|okay\b|ok[,\s]|alright\b|sure[,\s]|let(?:'s| me)\b|i(?:'ll| will| need to| should| can)\b|the user\b|we need\b|looking at\b|based on\b|to summari[sz]e\b|thinking process\b|thought process\b|step \d)/i
 
+/**
+ * Telltale fragments of the title-generation instruction itself (see the
+ * prompt in `generateChatTitle`). Observed directly, reproduced twice: a
+ * model echoing the instruction back ("Goal: Create a 3-6 word Title Case")
+ * instead of following it. Rejecting these is safe — the caller falls back
+ * to the already-reasonable derived title from the first message rather
+ * than showing a title-less chat (see `generateConversationTitle` in
+ * `chatStore.ts`, which no-ops on a `null` result).
+ */
 const INSTRUCTION_ECHO_RE =
   /\b(?:3[\s-]to[\s-]6|3-6)\s*words?\b|\btitle\s*case\b|\bconcise\s*title\b|\bno\s*preamble\b|\bno\s*trailing\s*punctuation\b/i
 
