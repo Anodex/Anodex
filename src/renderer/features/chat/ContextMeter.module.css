@@ -251,3 +251,38 @@
     opacity: 0.55;
   }
 }
+
+/* Room fenced off by a user-set reply ceiling (see `providerMaxResponseTokens`).
+   Anchored to the track's right edge instead of stacking with `.seg`: the
+   segments describe input already spent, while this is space reserved ahead of
+   them for the reply.
+
+   Deliberately outside the `.low`/`.mid`/`.high` colour scheme. Those shift
+   from accent to warning as the window fills; a cap is a fixed constraint the
+   user chose, and would misread as a fullness signal if it changed colour too.
+
+   Rendered as a solid tint with a hard leading edge rather than the hatch the
+   proposal sampled — at this track's 6px height a 45-degree hatch turns to
+   mud, and it's the boundary that carries the meaning. */
+.cap {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--text-faint) 30%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--text-faint) 75%, transparent);
+  pointer-events: none;
+  transition: width 420ms var(--ease);
+}
+
+/* Matches `.low .swatch` and friends on specificity, and wins on source order,
+   so the legend dot keeps the cap's own colour at every fill level. */
+.meter .swatchCap {
+  background: color-mix(in srgb, var(--text-faint) 60%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cap {
+    transition: none;
+  }
+}
