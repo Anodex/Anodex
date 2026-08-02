@@ -189,6 +189,72 @@ one more full `promptWithMeta` round before anything noticed. Self-correcting (t
 round returns `stopReason: 'abort'`), so this was wasted work rather than wrong
 output.
 
+**2.5 A refused load reported the engine as broken and killed the working
+session.** _Deferred out of the original pass as a UI question (see the struck
+entry under Deliberate non-changes) and resolved afterwards._
+
+`loadModelInternal` refuses when `describeInsufficientMemory` finds too little
+free RAM, and did so with `setState({ status: 'error', model: info, error })` —
+before `await this.unloadInternal()`. So the engine advertised `status: 'error'`
+carrying the _refused_ model's `ModelInfo` while `this.model`, `this.context` and
+the live session all still belonged to the previous, perfectly healthy model.
+`generateInternal` gates on `this.status !== 'ready'`, so the user could no longer
+send a message: a refusal that deliberately changed nothing cost them their
+session, recoverable only by re-loading the old model by hand.
+
+**The decision.** Neither the status nor the error field is the right home for
+this. `status` describes the engine, and the engine is exactly what a refusal
+does not touch — the preflight exists precisely so nothing is disturbed. But
+demoting the refusal to a toast alone (the other option on the table) loses the
+only durable copy of a message the user has to act on: it names the model, the
+context size, the RAM required and the RAM free, and asks them to go close
+applications — which they cannot do while reading a toast that has already
+faded.
+
+So the refusal is now recorded _beside_ the status, not in it: a new
+`EngineState.refusedLoad` (`{ model, reason }`, see `RefusedModelLoad` in
+`shared/model.types.ts`). `status`, `model` and `error` are left untouched, so
+the previous model stays loaded, stays `'ready'`, and keeps generating. The throw
+still becomes a toast through `model.handlers.ts:96` exactly as before — nothing
+about the immediate feedback changed.
+
+**What the Models tab shows.** The engine panel's status pill and model name
+carry on telling the truth about what is loaded. Above the sub-tab strip, a
+warn-toned callout (`LoadRefusalCallout.tsx`) says what didn't load, why, and —
+the part the old behaviour actively lied about — that _nothing changed_ and which
+model is still running. It offers **Try again** (re-loads the refused model under
+whatever the settings say now, so freeing RAM or lowering the context size in
+Advanced makes the retry meaningful) and **Dismiss**. Warn rather than danger is
+deliberate: this is "that didn't happen", not "something broke".
+
+It sits at page level rather than inside `EnginePanel`, where it was first put.
+Live testing caught that immediately: the refusal was provoked from **Advanced**
+by raising the context size to 131,072, which reloads the active model through
+`reloadActiveModelIfSafe` — leaving the explanation rendered on the **Models**
+tab, which the user was not looking at. Both routes to a refusal have to reach
+the same notice, so it belongs to the page, not to either tab.
+
+**And the retry has to actually retry.** The same live test found a second,
+older bug next door: `reloadActiveModelIfSafe` bailed on
+`engine.status !== 'ready'`, so once a load hadn't taken, changing the context
+size did nothing at all. That is precisely backwards — the refusal message tells
+the user to lower the context size or switch to CPU-only, and then doing exactly
+that was ignored, leaving them to work out on their own that they also had to go
+and re-click Load. It now targets `engine.refusedLoad?.model ?? engine.model`
+(the pending refusal wins, being the more recent intent) and no longer requires
+a ready engine, so adjusting a setting after a refused or failed load _is_ the
+retry. It still stands down while a load is in flight or a reply is streaming.
+
+The fix above is what makes the common case work at all: because a refusal now
+leaves `status` at `'ready'`, lowering the context size reloads the still-live
+model instead of hitting a `status === 'error'` dead end.
+
+The record is cleared on the next load attempt, on unload
+(`Models.dismissLoadRefusal` → `llamaService.dismissRefusedLoad()`), and when the
+refused model file is deleted — a "couldn't load X" notice must not outlive X.
+`dismissRefusedLoad()` deliberately does not take the model lock: it touches no
+native resource, so dismissing a notice still works mid-reply.
+
 ### Documentation fixed
 
 - Two doc comments were attached to the wrong symbols. A block describing
@@ -214,22 +280,29 @@ output.
   `detectFallbackToolCall` is handed exactly `Object.keys(functions)`, and even if
   it weren't, the resulting `TypeError` lands inside the existing `try` and becomes
   an error string — which is what the "never throws" contract promises.
-- **`loadModel` refusing on low memory sets `status: 'error'` with the _new_
-  model's info while the _previous_ model is still loaded and working.** The engine
-  then reports a model that isn't loaded, and `generate()` refuses because status
-  isn't `'ready'`, so a safe refusal costs the user their working session. Real, but
-  fixing it means deciding what the Models tab should show for "refused, previous
-  model still fine", which is a UI question rather than a correctness one. Recorded
-  for whoever picks up the Models tab.
+- ~~**`loadModel` refusing on low memory sets `status: 'error'` with the _new_
+  model's info while the _previous_ model is still loaded and working.**~~
+  **Resolved — see 2.5 above.** Left deferred here because it needed a decision
+  about what the Models tab should show for "refused, previous model still fine",
+  which is a UI question rather than a correctness one. That decision has now been
+  made and implemented.
 
 ### Tests added
 
-`src/main/llama/__tests__/engineLifecycle.test.ts` — 6 tests covering lifecycle
+`src/main/llama/__tests__/engineLifecycle.test.ts` — 9 tests covering lifecycle
 rather than generation output. Four were confirmed to fail against the pre-fix file
 (one per behavioural bug, including one asserting the _wedge_ specifically: a
-second turn succeeds after a first turn's setup threw). The other two pass either
-way and are labelled as regression guards in the file — idle contention reporting,
-and retry-after-failed-backend-init, which only guards the new memoisation.
+second turn succeeds after a first turn's setup threw). Two pass either way and are
+labelled as regression guards in the file — idle contention reporting, and
+retry-after-failed-backend-init, which only guards the new memoisation.
+
+The last three came with 2.5 and all three fail against its pre-fix file: the
+previous model stays `'ready'` and still generates through a refusal, the refusal
+is recorded against the model that _didn't_ load, and it clears on dismissal and
+on unload. They drive the real `loadModel()` rather than pre-seeded private state —
+a `sizeBytes` of 2^60 refuses on any machine without faking `os.freemem()`, and a
+`getModule` whose GGUF read rejects drops `describeInsufficientMemory` into its
+documented file-size fallback, so no real `.gguf` is needed.
 
 ### Follow-up left open
 

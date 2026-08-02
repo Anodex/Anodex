@@ -45,6 +45,8 @@ interface ModelState {
   retryLoadUnchanged: () => Promise<void>
   /** Answer the recovery prompt without loading anything. */
   dismissLoadRecovery: () => void
+  /** Clear the "didn't load X" notice once the user has answered it. */
+  dismissLoadRefusal: () => void
 }
 
 /** Per-load settings that override the saved defaults for one attempt. */
@@ -232,5 +234,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
   dismissLoadRecovery: () => {
     set({ loadRecovery: null })
     void anodex.models.dismissLoadRecovery()
+  },
+
+  dismissLoadRefusal: () => {
+    // Cleared locally first so the notice disappears on the click rather than
+    // on the round-trip; main broadcasts the same cleared state right after.
+    const { engine } = get()
+    if (engine.refusedLoad) set({ engine: { ...engine, refusedLoad: undefined } })
+    void anodex.models.dismissLoadRefusal()
   }
 }))

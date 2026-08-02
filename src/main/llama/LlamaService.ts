@@ -17,7 +17,8 @@ import type {
   EngineState,
   ModelInfo,
   ModelLoadOptions,
-  ModelSettingsRecommendation
+  ModelSettingsRecommendation,
+  RefusedModelLoad
 } from '@shared/model.types'
 import type {
   ChatCompactRequest,
@@ -352,6 +353,12 @@ class LlamaService extends EventEmitter {
   private gpuLayersUsed?: number
   private gpuLayersTotal?: number
   private error?: string
+  /**
+   * Advisory record of the last load refused before the engine was touched —
+   * see {@link RefusedModelLoad}. Never affects {@link status}: the engine it
+   * describes is the one that *didn't* change.
+   */
+  private refusedLoad?: RefusedModelLoad
   private generating = false
   /**
    * Small, separate context/sequence dedicated to `summarizeForToast()`.
@@ -409,6 +416,7 @@ class LlamaService extends EventEmitter {
       gpuLayersUsed: this.gpuLayersUsed,
       gpuLayersTotal: this.gpuLayersTotal,
       error: this.error,
+      refusedLoad: this.refusedLoad,
       vision: this.visionService.active,
       generating: this.generating,
       contextTokensUsed: this.contextSequence?.nextTokenIndex,
@@ -467,12 +475,25 @@ class LlamaService extends EventEmitter {
     const memoryIssue = await describeInsufficientMemory(info, requestedSize, nlc)
     if (memoryIssue) {
       log.warn('Refusing to load model:', memoryIssue)
-      this.setState({ status: 'error', model: info, error: memoryIssue })
+      // Recorded WITHOUT touching status/model/error. This runs before
+      // `unloadInternal()` below, so a previously loaded model is still fully
+      // loaded, still holds its session, and can still generate. Reporting
+      // `status: 'error'` here — as this used to — swapped the live model's
+      // `ModelInfo` for the refused one and tripped `generateInternal`'s
+      // `status !== 'ready'` gate, so a refusal that changed nothing left the
+      // user unable to chat until they re-loaded the old model by hand.
+      //
+      // The throw still becomes a toast (`model.handlers.ts` turns it into an
+      // `err(...)`); `refusedLoad` is the persistent copy the Models tab shows,
+      // since a toast this long and this actionable shouldn't be the only
+      // place the explanation exists.
+      this.setState({ refusedLoad: { model: info, reason: memoryIssue } })
       throw new Error(memoryIssue)
     }
 
     await this.unloadInternal()
-    this.setState({ status: 'loading', model: info, error: undefined })
+    // A new attempt supersedes any refusal on record, whatever its outcome.
+    this.setState({ status: 'loading', model: info, error: undefined, refusedLoad: undefined })
     log.info('Loading model', info.name)
 
     // Everything below this line can take the whole process down without
@@ -580,8 +601,29 @@ class LlamaService extends EventEmitter {
   private async unloadInternal(): Promise<EngineState> {
     await this.visionService.unload()
     await this.disposeModel()
-    this.setState({ status: 'unloaded', model: undefined, error: undefined })
+    // A refusal on record says "the load you asked for didn't happen, and the
+    // engine is untouched" — once the engine is deliberately emptied there is
+    // no untouched engine left for it to describe.
+    this.setState({
+      status: 'unloaded',
+      model: undefined,
+      error: undefined,
+      refusedLoad: undefined
+    })
     return this.getState()
+  }
+
+  /**
+   * Forget the recorded {@link EngineState.refusedLoad} once the user has
+   * answered it in the Models tab.
+   *
+   * Deliberately does not take the model lock: it touches no native resource,
+   * only the advisory record, so dismissing a notice must still work while a
+   * reply is streaming.
+   */
+  dismissRefusedLoad(): void {
+    if (!this.refusedLoad) return
+    this.setState({ refusedLoad: undefined })
   }
 
   /**
@@ -2371,12 +2413,14 @@ class LlamaService extends EventEmitter {
   }
 
   private setState(
-    patch: Partial<Pick<EngineState, 'status' | 'model' | 'error' | 'contextSize'>>
+    patch: Partial<Pick<EngineState, 'status' | 'model' | 'error' | 'contextSize' | 'refusedLoad'>>
   ): void {
     if (patch.status !== undefined) this.status = patch.status
     if ('model' in patch) this.currentModel = patch.model
     if ('error' in patch) this.error = patch.error
     if (patch.contextSize !== undefined) this.contextSize = patch.contextSize
+    // `in`, not `!== undefined`: clearing the record is the common case.
+    if ('refusedLoad' in patch) this.refusedLoad = patch.refusedLoad
     this.emitState()
   }
 

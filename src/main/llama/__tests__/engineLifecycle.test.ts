@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ModelInfo } from '@shared/model.types'
 import { llamaService, GENERATION_IN_PROGRESS_ERROR } from '../LlamaService'
 
 /**
@@ -17,6 +18,8 @@ interface LlamaServiceTestAccess {
   context: unknown
   contextSize: number | undefined
   model: unknown
+  currentModel: ModelInfo | undefined
+  refusedLoad: unknown
   llama: unknown
   llamaPromise: Promise<unknown> | undefined
   session: unknown
@@ -65,6 +68,8 @@ afterEach(() => {
   access.context = undefined
   access.contextSize = undefined
   access.model = undefined
+  access.currentModel = undefined
+  access.refusedLoad = undefined
   access.llama = undefined
   access.llamaPromise = undefined
   access.session = undefined
@@ -178,6 +183,96 @@ describe('LlamaService model lock', () => {
 
     expect(dispose).toHaveBeenCalled()
     expect(llamaService.getState().status).toBe('unloaded')
+  })
+})
+
+/**
+ * `sizeBytes` no real machine can have free, so `describeInsufficientMemory`
+ * refuses deterministically without having to fake `os.freemem()`. Paired with
+ * a `getModule` whose GGUF read rejects, which drops the estimator into its
+ * documented file-size fallback rather than depending on a real `.gguf`.
+ */
+const OVERSIZED_MODEL: ModelInfo = {
+  id: 'oversized',
+  name: 'Oversized Model',
+  path: 'C:/models/oversized.gguf',
+  sizeBytes: 2 ** 60,
+  source: 'local'
+}
+
+const LOADED_MODEL: ModelInfo = {
+  id: 'loaded',
+  name: 'Loaded Model',
+  path: 'C:/models/loaded.gguf',
+  sizeBytes: 4 * 1024 ** 3,
+  source: 'local'
+}
+
+/** A ready engine with `LOADED_MODEL` live, plus a working chat session. */
+function prepareLoadedEngine(): LlamaServiceTestAccess {
+  const access = prepareFakeEngine()
+  access.currentModel = LOADED_MODEL
+  access.session = {
+    promptWithMeta: vi.fn(() =>
+      Promise.resolve({ response: [], responseText: 'still working', stopReason: 'eogToken' })
+    ),
+    dispose: vi.fn(),
+    chatWrapper: fakeChatWrapper,
+    getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+  }
+  vi.spyOn(access, 'getModule').mockResolvedValue({
+    readGgufFileInfo: () => Promise.reject(new Error('not a real gguf'))
+  })
+  return access
+}
+
+function loadOversized(): Promise<unknown> {
+  return llamaService.loadModel({ path: OVERSIZED_MODEL.path, contextSize: 8_192 }, OVERSIZED_MODEL)
+}
+
+describe('LlamaService refused load', () => {
+  it('leaves the previous model loaded and usable when a load is refused', async () => {
+    prepareLoadedEngine()
+
+    await expect(loadOversized()).rejects.toThrow(/only .* GB of RAM is free/)
+
+    // The refusal happens before anything is unloaded, so claiming the engine
+    // is in error — with the refused model's info, no less — was doubly wrong:
+    // it named a model that was never loaded, and `generateInternal` gates on
+    // `status === 'ready'`, so it cost the user a working session.
+    const state = llamaService.getState()
+    expect(state.status).toBe('ready')
+    expect(state.model).toBe(LOADED_MODEL)
+    expect(state.error).toBeUndefined()
+
+    const outcome = (await generateOnce()) as { content: string }
+    expect(outcome.content).toBe('still working')
+  })
+
+  it('records the refusal separately, naming the model that did not load', async () => {
+    prepareLoadedEngine()
+
+    await expect(loadOversized()).rejects.toThrow()
+
+    const refused = llamaService.getState().refusedLoad
+    expect(refused?.model).toBe(OVERSIZED_MODEL)
+    expect(refused?.reason).toContain(OVERSIZED_MODEL.name)
+  })
+
+  it('clears the refusal on dismissal and on unload', async () => {
+    prepareLoadedEngine()
+    await expect(loadOversized()).rejects.toThrow()
+    expect(llamaService.getState().refusedLoad).toBeDefined()
+
+    llamaService.dismissRefusedLoad()
+    expect(llamaService.getState().refusedLoad).toBeUndefined()
+
+    // And again via unload — a notice saying "your engine is untouched" must
+    // not outlive the engine it was describing.
+    await expect(loadOversized()).rejects.toThrow()
+    expect(llamaService.getState().refusedLoad).toBeDefined()
+    await llamaService.unload()
+    expect(llamaService.getState().refusedLoad).toBeUndefined()
   })
 })
 

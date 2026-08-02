@@ -121,6 +121,12 @@ export function registerModelHandlers(): void {
       if (llamaService.getState().model?.path === path) {
         await llamaService.unload()
       }
+      // A "couldn't load X" notice must not outlive X itself — unload above
+      // only fires for the *loaded* model, and a refused one is by definition
+      // not that.
+      if (llamaService.getState().refusedLoad?.model.path === path) {
+        llamaService.dismissRefusedLoad()
+      }
       await rm(path, { force: true })
 
       const settings = settingsStore.get()
@@ -220,4 +226,8 @@ export function registerModelHandlers(): void {
   ipcMain.handle(IpcChannel.Models.getLoadRecovery, () => getLoadRecovery())
 
   ipcMain.handle(IpcChannel.Models.dismissLoadRecovery, () => clearLoadRecovery())
+
+  // Same shape as its neighbour: touches only in-memory advisory state, and
+  // the engine broadcasts the cleared value, so there is nothing to wrap.
+  ipcMain.handle(IpcChannel.Models.dismissLoadRefusal, () => llamaService.dismissRefusedLoad())
 }

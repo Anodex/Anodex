@@ -583,6 +583,28 @@
   border-radius: var(--radius-md);
 }
 
+/* Same shape as .recommendationCallout, warn-toned. Warn rather than danger on
+   purpose: the load was refused before anything was touched, so this is "that
+   didn't happen", not "something broke" — the engine beside it is still fine. */
+.refusalCallout {
+  composes: recommendationCallout;
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+.refusalIcon {
+  composes: recIcon;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 26%, transparent);
+}
+
+.refusalFootnote {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
 .recText {
   min-width: 0;
   display: flex;

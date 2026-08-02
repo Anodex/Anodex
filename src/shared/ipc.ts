@@ -151,7 +151,13 @@ export const IpcChannel = {
     /** A model load the previous run started and never finished — see `loadSentinel.ts`. */
     getLoadRecovery: 'models:get-load-recovery',
     /** Forget the pending crash recovery once the user has answered it. */
-    dismissLoadRecovery: 'models:dismiss-load-recovery'
+    dismissLoadRecovery: 'models:dismiss-load-recovery',
+    /**
+     * Forget `EngineState.refusedLoad` — a load declined on a memory preflight,
+     * which is a different thing from the crash recovery above: nothing was
+     * loaded, nothing crashed, and the engine is untouched.
+     */
+    dismissLoadRefusal: 'models:dismiss-load-refusal'
   },
   Chat: {
     send: 'chat:send',
@@ -507,6 +513,11 @@ export interface AnodexApi {
     getLoadRecovery(): Promise<ModelLoadRecovery | null>
     /** Forget the pending recovery once the user has chosen what to do about it. */
     dismissLoadRecovery(): Promise<void>
+    /**
+     * Clear `EngineState.refusedLoad` once the user has seen the "didn't load"
+     * notice in the Models tab. Unrelated to the crash recovery above.
+     */
+    dismissLoadRefusal(): Promise<void>
   }
   chat: {
     send(request: ChatRequest): Promise<Result<ChatResult>>

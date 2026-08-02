@@ -40,6 +40,24 @@ export interface ModelLoadOptions {
   gpuLayers?: number | 'auto'
 }
 
+/**
+ * A load Anodex declined *before* touching the native engine — today only the
+ * free-RAM preflight in `LlamaService.loadModelInternal`.
+ *
+ * Deliberately separate from `EngineState.status`/`error`, because a refusal
+ * changes nothing: whatever was loaded before is still loaded and still able
+ * to generate. Reporting it as `status: 'error'` (as this used to) replaced the
+ * live model's `ModelInfo` with the refused one and tripped `generate()`'s
+ * `status === 'ready'` gate, so a refusal that touched nothing still cost the
+ * user their working session.
+ */
+export interface RefusedModelLoad {
+  /** The model that was *not* loaded — never the one in `EngineState.model`. */
+  model: ModelInfo
+  /** Actionable explanation, already phrased for the user. */
+  reason: string
+}
+
 /** Snapshot of the engine's current model state, broadcast to the renderer. */
 export interface EngineState {
   status: ModelStatus
@@ -47,6 +65,14 @@ export interface EngineState {
   model?: ModelInfo
   /** Present when `status === 'error'`. */
   error?: string
+  /**
+   * The most recent load refused before the engine was touched, if any — see
+   * {@link RefusedModelLoad}. Independent of `status`: this is routinely set
+   * while a *different* model is loaded and perfectly healthy, which is the
+   * whole reason it isn't folded into `error`. Cleared by the next load or
+   * unload, and by the user dismissing it.
+   */
+  refusedLoad?: RefusedModelLoad
   /** Effective context size once the model is ready. */
   contextSize?: number
   /** True when the active local backend accepts image inputs. */

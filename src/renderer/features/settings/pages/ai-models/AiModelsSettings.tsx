@@ -14,6 +14,7 @@ import { SettingRow } from '../../SettingRow'
 import { RangeControl, SelectControl } from '../../controls'
 import { Spinner } from '../../../../components/ui/Spinner'
 import { EnginePanel } from './EnginePanel'
+import { LoadRefusalCallout } from './LoadRefusalCallout'
 import { HardwarePanel } from './HardwarePanel'
 import { RecommendedModelStrip } from './RecommendedModelStrip'
 import { DiscoverModelsPanel } from './DiscoverModelsPanel'
@@ -116,6 +117,7 @@ export function AiModelsSettings(): JSX.Element {
   const engine = useModelStore((s) => s.engine)
   const unloadModel = useModelStore((s) => s.unloadModel)
   const loadModel = useModelStore((s) => s.loadModel)
+  const dismissLoadRefusal = useModelStore((s) => s.dismissLoadRefusal)
   const lastModelPath = settings?.lastModelPath
 
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
@@ -156,14 +158,35 @@ export function AiModelsSettings(): JSX.Element {
     )
   }, [hardware, models])
 
-  // Updating the setting alone doesn't retroactively change an already-
-  // running session — the engine only picks up a new context size / GPU
-  // layer count when the model is (re)loaded. Reload it here so "Apply"
-  // actually takes effect immediately instead of only affecting the *next*
-  // manual load. Skipped if nothing is loaded, or a reply is actively
-  // streaming (reloading would silently cut it off).
+  /**
+   * The model a runtime-settings change applies to: the loaded one, or — when
+   * the last attempt didn't take — the model that attempt was for.
+   *
+   * A pending refusal wins over the loaded model because it is the more recent
+   * intent. Refused loading Y while X is loaded, then lowering the context, is
+   * a request to retry Y, not to reload X at the new size.
+   */
+  const settingsReloadTarget = engine.refusedLoad?.model ?? engine.model
+
+  /**
+   * Updating a setting alone doesn't retroactively change a running session —
+   * the engine only picks up a new context size / GPU layer count when the
+   * model is (re)loaded. Reload here so saving actually takes effect now
+   * instead of only affecting the *next* manual load.
+   *
+   * Deliberately fires even when nothing is currently loaded. This used to bail
+   * on `status !== 'ready'`, which left the most important case dead: after a
+   * load was refused or failed, the message tells the user to lower the context
+   * size or switch to CPU-only — and then doing exactly that was ignored,
+   * leaving them to work out for themselves that they also had to go and
+   * re-click Load. Adjusting a setting after a failed load *is* the retry.
+   *
+   * Skipped only while a load is already in flight (a second one just throws
+   * `Another model is already loading`) or while a reply is streaming, which a
+   * reload would silently cut off.
+   */
   const reloadActiveModelIfSafe = useCallback((): void => {
-    if (engine.status !== 'ready' || !engine.model) return
+    if (!settingsReloadTarget || engine.status === 'loading') return
     if (engine.generating) {
       useUiStore.getState().notify({
         kind: 'info',
@@ -172,8 +195,27 @@ export function AiModelsSettings(): JSX.Element {
       })
       return
     }
-    void loadModel(engine.model)
-  }, [engine.status, engine.model, engine.generating, loadModel])
+    void loadModel(settingsReloadTarget)
+  }, [settingsReloadTarget, engine.status, engine.generating, loadModel])
+
+  // The refusal callout's explicit "Try again". Same target and same busy
+  // guards as a settings change, but the user clicked a button rather than
+  // changing a value, so a refusal to act now needs saying out loud.
+  const retryRefusedLoad = useCallback((): void => {
+    const refused = engine.refusedLoad
+    if (!refused) return
+    if (engine.status === 'loading' || engine.generating) {
+      useUiStore.getState().notify({
+        kind: 'info',
+        title: 'Engine is busy',
+        message: engine.generating
+          ? 'Wait for the current reply to finish, then try again.'
+          : 'A model is already loading.'
+      })
+      return
+    }
+    void loadModel(refused.model)
+  }, [engine.refusedLoad, engine.status, engine.generating, loadModel])
 
   const applyRecommendation = (): void => {
     if (!recommendation) return
@@ -302,6 +344,15 @@ export function AiModelsSettings(): JSX.Element {
           </Button>
         </div>
       </div>
+
+      {/* Above the sub-tabs on purpose: a refusal can be provoked from Models
+          (loading one) or from Advanced (changing the context size, which
+          reloads the active model), so it must not be tied to either. */}
+      <LoadRefusalCallout
+        engine={engine}
+        onRetry={retryRefusedLoad}
+        onDismiss={dismissLoadRefusal}
+      />
 
       <div className={styles.modelTabs} role="tablist" aria-label="AI and model settings sections">
         {AI_MODEL_TABS.map((tab) => (
