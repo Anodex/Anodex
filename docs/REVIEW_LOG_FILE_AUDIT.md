@@ -29,7 +29,7 @@ non-change, and the suite still passes.
 | 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0 → 4 added  | ✅ done |
 | 6   | `src/main/email/EmailService.ts`                 | 713   | 1 → 2 added  | ✅ done |
 | 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0 → 18 added | ✅ done |
-| 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1            | ☐       |
+| 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1 → 5 added  | ✅ done |
 | 9   | `src/shared/ipc.ts`                              | 862   | 3            | ☐       |
 | 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0            | ☐       |
 | 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | 0            | ☐       |
@@ -797,3 +797,88 @@ that models SEARCH HEADER as the substring test it really is. Three fail against
 the pre-fix file. Of the three that pass either way, one is the archive/Sent
 guard from 7.3, and two — the duplicate check and the filing-failure path — pass
 vacuously before the fix, because no append existed to be skipped or to fail.
+
+---
+
+## 8. `src/renderer/stores/chatStore.ts` — done
+
+1,244 lines, one test file: the renderer's mirror of every conversation, and the
+only place a turn in progress exists at all. That last point is what both bugs
+turn on — `sendMessage` persists a turn once, at completion, so between those two
+moments the user's message and the reply streaming into it live nowhere but this
+store.
+
+### Bugs fixed
+
+**8.1 Refreshing the conversation list mid-turn destroyed the turn.**
+`refreshConversations`, `restoreConversation` and `deleteConversationPermanent`
+each did `set({ conversations })` with what `anodex.conversations.list()`
+returned — replacing the array wholesale with what is on disk. On disk, an
+in-flight turn does not exist yet.
+
+The failure is silent from end to end. The streaming assistant message vanishes
+from state; `appendToken`'s own guard then drops every later token, because it
+correctly declines to write to a message it cannot find; and when `chat.send`
+finally resolves, the finalize step does `messages.find((m) => m.id ===
+assistantId)`, gets nothing, and returns early. `persistConversation` then writes
+the conversation back **without** the turn. The user's message and the whole
+reply are gone, with no error anywhere.
+
+This is not a corner case. `useAnodexBridge` calls `refreshConversations()` from
+both `onTasksChanged` and `onRunsChanged`, and `AgentRunService` broadcasts once
+per turn — so leaving an agent run going in the background while chatting was
+enough to erase the chat. `projectStore` refreshes on every project
+create/update/delete too.
+
+Loaded conversations are now laid over the current ones by `preserveInFlight`,
+which keeps any conversation holding a streaming message — including one absent
+from the loaded list, which stays until its turn finishes rather than being
+pulled out from under a live reply. Conversations created elsewhere still appear,
+which is the whole reason the refresh exists.
+
+**8.2 An IPC-level rejection left the bubble streaming forever.**
+`sendMessage` awaited `anodex.chat.send(...)` with no boundary. A handler error
+comes back as `{ ok: false }` and is handled, but a _rejection_ — the channel
+gone, the main process dead, a request field that failed to serialize — skipped
+everything after it: the finalize `set()` never ran, so the message kept
+`streaming: true` for the rest of the session, its quarantined tail was never
+released from `pendingToolPayloadByMessage`, the conversation was never
+persisted, and the conversation's queued messages never drained. The call is now
+wrapped, and a rejection becomes an ordinary `err(...)` result that flows into
+the existing error branch.
+
+### Cleanups
+
+- `appendToken` guarded `if (message?.streaming !== true) return` and then
+  `if (message && convo)`. The second condition can never be false — the message
+  was found by walking that conversation — so it only obscured the flow.
+
+### Deliberate non-changes
+
+- **`stopGeneration` stops `activeId`, not the conversation that is generating.**
+  Switching chats mid-reply and hitting Stop would target the wrong one. Not
+  currently reachable: the Stop control and its keyboard shortcut are both gated
+  on the active conversation streaming. Recorded because the store method itself
+  does not enforce what its callers happen to guarantee.
+- **`editMessage` returns `{ status: 'completed' }` even if the regeneration it
+  triggers fails.** The edit itself — branch, checkpoint rollback, persist — did
+  complete, and `sendMessage` surfaces its own failure, so the status is about
+  the right operation.
+- **`pendingToolPayloadByMessage` is a module-level map** cleared on finalize and
+  on tool activity. A turn that never finalizes used to leak an entry; 8.2 is
+  what made that possible, and fixing it closes the leak too.
+
+### Tests added
+
+Four in the existing `chatStore.test.ts`, covering the refresh path. Two fail
+against the pre-fix store — the preserved streaming turn, and the still-
+generating conversation missing from disk. The other two pass either way and
+guard the refresh's actual purpose: taking the loaded version when nothing is
+streaming, and still picking up a conversation an agent run created elsewhere.
+
+**8.2 has no automated test.** Reaching `sendMessage`'s send call from a unit
+test means standing up the settings and model stores for `ensureChatReady`, plus
+the notification and chime paths the result branches touch — more harness than
+the eight-line change warrants, and the existing file's mock is deliberately
+minimal so an unexpected bridge call fails loudly. Stated here rather than left
+to look covered.

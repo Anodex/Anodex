@@ -9,6 +9,7 @@ import type {
 } from '@shared/checkpoint.types'
 import type { Conversation, EmailThreadLink } from '@shared/conversation.types'
 import { TOOL_CATALOG, type ToolActivityEvent, type ToolCall } from '@shared/tools.types'
+import { err } from '@shared/result'
 import { stripToolCallText } from '@shared/toolCallText'
 import {
   messageToHistoryTurn,
@@ -190,6 +191,36 @@ interface ChatState {
 
 const DEFAULT_TITLE = 'New chat'
 const pendingToolPayloadByMessage = new Map<string, string>()
+
+/**
+ * Lays a freshly-loaded conversation list over the current one, keeping any
+ * conversation that has a turn still streaming.
+ *
+ * A turn in progress exists only in renderer state — `sendMessage` persists it
+ * once, at completion — so replacing the array wholesale with what is on disk
+ * discards both the user's message and the reply being streamed into it. And
+ * nothing reports it: `appendToken` silently drops tokens for a message it can
+ * no longer find, the finalize step returns early for the same reason, and the
+ * conversation is then persisted in its truncated form.
+ *
+ * This is not a rare refresh. `useAnodexBridge` calls it on every scheduler and
+ * agent-run broadcast, and an agent run broadcasts once per turn — so leaving a
+ * run going in the background while chatting was enough to erase the chat.
+ */
+function preserveInFlight(current: Conversation[], loaded: Conversation[]): Conversation[] {
+  const inFlight = new Map(
+    current.filter((c) => c.messages.some((m) => m.streaming)).map((c) => [c.id, c])
+  )
+  if (inFlight.size === 0) return loaded
+
+  const merged = loaded.map((c) => inFlight.get(c.id) ?? c)
+  // Still generating but absent from the loaded list — keep it until its turn
+  // finishes rather than pulling the conversation out from under a live reply.
+  for (const [id, conversation] of inFlight) {
+    if (!merged.some((c) => c.id === id)) merged.unshift(conversation)
+  }
+  return merged
+}
 
 /**
  * The reducer for one tool-activity event, extracted so `applyToolActivity`
@@ -427,7 +458,9 @@ export const useChatStore = create<ChatState>()(
       try {
         await anodex.conversations.restore(id)
         const conversations = await anodex.conversations.list()
-        set({ conversations })
+        set((state) => {
+          state.conversations = preserveInFlight(state.conversations, conversations)
+        })
       } catch (error) {
         notifyError(
           'Could not restore chat',
@@ -440,7 +473,9 @@ export const useChatStore = create<ChatState>()(
       try {
         await anodex.conversations.deletePermanent(id)
         const conversations = await anodex.conversations.list()
-        set({ conversations })
+        set((state) => {
+          state.conversations = preserveInFlight(state.conversations, conversations)
+        })
       } catch (error) {
         notifyError(
           'Could not permanently delete chat',
@@ -469,7 +504,9 @@ export const useChatStore = create<ChatState>()(
     refreshConversations: async () => {
       try {
         const conversations = await anodex.conversations.list()
-        set({ conversations })
+        set((state) => {
+          state.conversations = preserveInFlight(state.conversations, conversations)
+        })
       } catch (error) {
         notifyError(
           'Could not refresh chats',
@@ -537,7 +574,7 @@ export const useChatStore = create<ChatState>()(
       })
 
       const settings = useSettingsStore.getState().settings
-      const result = await anodex.chat.send({
+      const request = {
         conversationId,
         messageId: assistantId,
         projectId,
@@ -571,7 +608,22 @@ export const useChatStore = create<ChatState>()(
               maxTokens: activeMaxResponseTokens(settings)
             }
           : undefined
-      })
+      }
+
+      let result: Awaited<ReturnType<typeof anodex.chat.send>>
+      try {
+        result = await anodex.chat.send(request)
+      } catch (error) {
+        // An IPC-level rejection — the channel is gone, the main process died,
+        // a field failed to serialize — never becomes the handler's own error
+        // result. Left unhandled it skipped everything below: the bubble stayed
+        // `streaming: true` for the rest of the session, its quarantined tail
+        // leaked, and the conversation's queued messages never drained.
+        result = err(
+          'chat.send-failed',
+          error instanceof Error ? error.message : 'The chat request failed.'
+        )
+      }
 
       // A stop that `describeGenerationStop` classifies as a genuine failure
       // rather than a bounded budget. Those arrive as `ok` with `stopped: true`,
@@ -914,26 +966,26 @@ export const useChatStore = create<ChatState>()(
         // already replaced `message.content` with the complete reply.
         // Appending them again would duplicate the reply's tail; once a
         // message stops streaming, late token flushes for it are dropped.
+        // Implies `convo` too — the message was found by walking it.
         if (message?.streaming !== true) return
-        if (message && convo) {
-          const visibleToken = quarantineStreamingToolPayload(
-            message,
-            token,
-            pendingToolPayloadByMessage
-          )
-          if (!visibleToken) return
-          message.content += visibleToken
-          // Tokens and tool-activity events both arrive over IPC in the exact
-          // order they happened during generation, so appending each to a
-          // shared timeline (instead of the separate content/toolCalls
-          // fields) reconstructs the true interleaving — extend the current
-          // trailing text block, or start a new one if the last block was a
-          // tool call.
-          if (!message.blocks) message.blocks = []
-          const last = message.blocks[message.blocks.length - 1]
-          if (last && last.type === 'text') last.text += visibleToken
-          else message.blocks.push({ type: 'text', text: visibleToken })
-        }
+
+        const visibleToken = quarantineStreamingToolPayload(
+          message,
+          token,
+          pendingToolPayloadByMessage
+        )
+        if (!visibleToken) return
+        message.content += visibleToken
+        // Tokens and tool-activity events both arrive over IPC in the exact
+        // order they happened during generation, so appending each to a
+        // shared timeline (instead of the separate content/toolCalls
+        // fields) reconstructs the true interleaving — extend the current
+        // trailing text block, or start a new one if the last block was a
+        // tool call.
+        if (!message.blocks) message.blocks = []
+        const last = message.blocks[message.blocks.length - 1]
+        if (last && last.type === 'text') last.text += visibleToken
+        else message.blocks.push({ type: 'text', text: visibleToken })
       })
       // convo.updatedAt is intentionally left untouched here — it's already
       // bumped once at turn start (see `sendMessage`), which is all the

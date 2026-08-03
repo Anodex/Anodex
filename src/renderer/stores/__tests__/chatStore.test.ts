@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Conversation } from '@shared/conversation.types'
 
+const listConversations = vi.hoisted(() => vi.fn<() => Promise<Conversation[]>>())
+
 // `lib/anodex` dereferences `window.anodex` at import time — there is no
 // window in the node test environment, so the preload bridge is stubbed out.
 vi.mock('../../lib/anodex', () => ({
@@ -10,7 +12,8 @@ vi.mock('../../lib/anodex', () => ({
     conversations: {
       save: vi.fn().mockResolvedValue(undefined),
       setState: vi.fn().mockResolvedValue(undefined),
-      deletePermanent: vi.fn().mockResolvedValue(undefined)
+      deletePermanent: vi.fn().mockResolvedValue(undefined),
+      list: listConversations
     }
   }
 }))
@@ -224,5 +227,86 @@ describe('openEmailThreadConversation', () => {
     const id = useChatStore.getState().openEmailThreadConversation('acct-1', 'thread-1')
 
     expect(useChatStore.getState().conversations.find((c) => c.id === id)).toBeDefined()
+  })
+})
+
+/**
+ * A turn in progress exists only in renderer state — `sendMessage` persists it
+ * once, at completion. Anything that reloads the conversation list mid-turn
+ * therefore has to keep it, or the user's message and the reply streaming into
+ * it are both discarded with no error anywhere.
+ *
+ * `useAnodexBridge` refreshes on every scheduler and agent-run broadcast, and a
+ * run broadcasts once per turn, so this is the ordinary case rather than a
+ * corner one.
+ */
+describe('refreshing the conversation list mid-turn', () => {
+  /** The same conversation as it exists on disk: without the unfinished turn. */
+  function persistedVersion(): Conversation {
+    return {
+      id: 'c1',
+      projectId: null,
+      title: 'Test chat',
+      createdAt: 1,
+      updatedAt: 1,
+      messages: []
+    }
+  }
+
+  beforeEach(() => {
+    listConversations.mockReset()
+    useChatStore.setState({
+      conversations: [seedConversation(true)],
+      activeId: 'c1',
+      loaded: true,
+      pendingMessages: {}
+    })
+  })
+
+  it('keeps the streaming turn instead of the truncated version on disk', async () => {
+    listConversations.mockResolvedValue([persistedVersion()])
+
+    await useChatStore.getState().refreshConversations()
+
+    const [conversation] = useChatStore.getState().conversations
+    expect(conversation.messages.map((m) => m.id)).toEqual(['u1', 'a1'])
+    expect(conversation.messages[1].streaming).toBe(true)
+  })
+
+  it('keeps a still-generating conversation that is absent from disk', async () => {
+    listConversations.mockResolvedValue([])
+
+    await useChatStore.getState().refreshConversations()
+
+    expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual(['c1'])
+  })
+
+  it('takes the loaded version once nothing is streaming', async () => {
+    useChatStore.setState({ conversations: [seedConversation(false)] })
+    listConversations.mockResolvedValue([{ ...persistedVersion(), title: 'Renamed elsewhere' }])
+
+    await useChatStore.getState().refreshConversations()
+
+    const [conversation] = useChatStore.getState().conversations
+    expect(conversation.title).toBe('Renamed elsewhere')
+    expect(conversation.messages).toHaveLength(0)
+  })
+
+  it('still picks up conversations created elsewhere while a turn streams', async () => {
+    // The reason the refresh exists: an agent run writes its own conversation
+    // in the main process. Preserving the live turn must not cost us that.
+    listConversations.mockResolvedValue([
+      persistedVersion(),
+      { ...persistedVersion(), id: 'agent-run', title: 'Agent run' }
+    ])
+
+    await useChatStore.getState().refreshConversations()
+
+    expect(
+      useChatStore
+        .getState()
+        .conversations.map((c) => c.id)
+        .sort()
+    ).toEqual(['agent-run', 'c1'])
   })
 })
