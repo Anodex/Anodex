@@ -50,7 +50,7 @@ guess (the mistake that made round one's first table wrong).
 | #   | File                                                                          | Lines | Tests | Status  | Why it ranks here                                           |
 | --- | ----------------------------------------------------------------------------- | ----- | ----- | ------- | ----------------------------------------------------------- |
 | 1   | `src/main/tools/fileTools.ts`                                                 | 748   | 1 → 4 | ✅ done | The model's whole read view of the workspace                |
-| 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1     | ☐       | Runs arbitrary shell commands                               |
+| 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1 → 3 | ✅ done | Runs arbitrary shell commands                               |
 | 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2 → 6 | ✅ done | The write path proper                                       |
 | 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1 → 3 | ✅ done | Sends real mail on the user's behalf — irreversible         |
 | 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4     | ☐       | The undo for all of the above                               |
@@ -1476,3 +1476,86 @@ was `EmailService.send` one layer below, which this file's tests mock. So the
 discard itself is verified by reading, not by a test, and the updated test above
 is what actually pins the fix. Labelled that way in the file rather than left
 looking like proof.
+
+---
+
+## Round two, 1b. `src/main/tools/commandTools.ts` — done
+
+130 lines, and the only tool that runs arbitrary shell commands on the user's
+machine. Small enough to hold in one piece, which is the point of reading it
+next to `fileTools.ts` rather than after the large files.
+
+### Bugs fixed
+
+**1b.1 A command that hit the timeout was reported to the model as
+`Exit code null`.** Node kills a timed-out child with `SIGTERM`, and for
+anything killed by a signal `error.code` is `null`, not a number. The old
+classifier asked `typeof error.code !== 'undefined'` — and `typeof null` is
+`'object'` — so `null` was passed straight through into
+`` `Exit code ${code}` ``. Confirmed against Node rather than assumed:
+
+| Ending          | `error.code`                        | `killed` |
+| --------------- | ----------------------------------- | -------- |
+| timeout         | `null`                              | `true`   |
+| `maxBuffer` hit | `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` | —        |
+| exit 3          | `3`                                 | —        |
+
+The model was therefore told nothing about _why_ the command stopped, in the one
+case where the reason is the whole story. The most likely response to
+"Exit code null" is running the identical command again and spending the timeout
+a second time. The `maxBuffer` case was only marginally better: a cryptic
+constant, with no mention that the process had been killed or the output cut.
+
+`runShell` now classifies the three ways a run can be killed — the caller's own
+abort signal first (an abort and a timeout both surface as a killed process),
+then `maxBuffer`, then any other kill as the timeout — and the result leads with
+what happened and what to do differently: raise `timeoutMs`, or filter the
+output. `code` is only reported when the command actually exited on its own.
+
+**1b.2 A killed run was recorded as a failed verification.**
+`parseRunCommandVerification` feeds `ProjectRecallEvent.verification`, and it
+matched `exit null` as "not zero, therefore failed". "The tests failed" and "the
+tests never finished" are different claims and only one of them was supported by
+what happened — the first is also the one that would mislead a later turn
+reading the project ledger. Killed runs now carry a reason as their `detail`
+(`timed out`, `output limit`, `stopped`), which the parser declines rather than
+scoring.
+
+**1b.3 The approval card hid the timeout whenever the model did not name one.**
+`describeCommand` only appended `Timeout: N ms` when `timeoutMs` was defined, so
+the default 60 s — the case the person approving did not choose, and the one
+most likely to surprise them when a build is killed part-way — was the one never
+shown. Always shown now.
+
+### Verified, not bugs
+
+- **The process tree really is killed.** A timed-out `node` grandchild under the
+  shell wrapper was the obvious candidate for an orphan, and an orphan of
+  `npm test` would be a much worse bug than the reporting one. Checked directly
+  with `Win32_Process` after a forced timeout: zero survivors. The `EBUSY` that
+  surfaced while writing the test is Windows releasing the directory handle
+  after the process is already gone, not a live process holding it.
+- **`cwd` is never the app's own directory.** `runShell` takes
+  `ctx.workspaceRoot` typed as a plain `string`, which would be a serious
+  mis-scoping if a `null` could reach it — but `registry.ts:205` only registers
+  this tool inside `if (ctx.workspaceRoot)`, and `WorkspaceToolContext` narrows
+  the field to non-null.
+- **No command is ever auto-approved.** `classifyCommandRisk` returns
+  `'destructive'` for its pattern list and `'sensitive'` for everything else —
+  never `'safe'` — so every command goes through the approval gate regardless of
+  how harmless it looks.
+
+### Tests
+
+`src/main/tools/__tests__/commandTools.test.ts` — 3 added (15 total). Two fail
+against the pre-fix file: a real command run with a 1 s timeout now says it timed
+out instead of `Exit code null`, and the approval card shows the default timeout.
+The third — the parser declining a killed run — passes either way, because the
+old code never produced those `detail` strings for it to see; it is a contract
+guard for the new ones, and is labelled as such rather than counted as proof.
+
+One harness change came with them: the `afterEach` cleanup is now best-effort.
+These tests spawn real processes into the temp workspace, and on Windows a
+directory that has just hosted a killed child stays locked briefly after it
+exits. Failing a passing test over temp-directory housekeeping would be
+reporting the wrong thing.

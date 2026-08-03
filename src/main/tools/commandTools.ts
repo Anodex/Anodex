@@ -17,7 +17,18 @@ const MAX_OUTPUT_BYTES = 1024 * 1024
 interface ShellResult {
   stdout: string
   stderr: string
-  code: number | string
+  code: number | string | null
+  /**
+   * Why the process ended, when it was not the command exiting on its own.
+   *
+   * Node reports all three of these through the same `error` argument as an
+   * ordinary failure, and for a killed process `error.code` is `null` — so a
+   * command that hit the timeout used to be handed to the model as
+   * "Exit code null", with nothing to say it had been killed or why. The most
+   * likely thing a model does with that is run the identical command again and
+   * spend the timeout a second time.
+   */
+  terminated?: 'timeout' | 'output-limit' | 'stopped'
 }
 
 /** run_command — execute a shell command in the workspace (requires approval). */
@@ -46,7 +57,7 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
         risk: classifyCommandRisk(args.command),
         async run() {
           const timeoutMs = normalizeTimeout(args.timeoutMs)
-          const { stdout, stderr, code } = await runShell(
+          const { stdout, stderr, code, terminated } = await runShell(
             args.command,
             ctx.workspaceRoot,
             timeoutMs,
@@ -65,7 +76,10 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
           // actually changed where output got cut off, it only made the
           // outer truncation note report a meaningless intermediate length
           // instead of the command's real output size.
-          return { modelResult: `Exit code ${code}\n\n${combined}`, detail: `exit ${code}` }
+          return {
+            modelResult: `${describeOutcome(terminated, code, timeoutMs)}\n\n${combined}`,
+            detail: terminated ? TERMINATION_DETAIL[terminated] : `exit ${code}`
+          }
         }
       })
   })
@@ -81,6 +95,13 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
  * successfully *executed* run_command call: a non-zero exit code still
  * executed (that's a failed verification, worth recording), but a
  * denied/errored call never reached a real exit code at all.
+ *
+ * A run that was killed — timed out, drowned in its own output, or stopped —
+ * is in the same category and also returns `null`, because its `detail` is a
+ * reason rather than `exit <code>`. It matters: those runs used to arrive here
+ * as `exit null`, match as "not zero", and be recorded as a *failed*
+ * verification. "The tests failed" and "the tests never finished" are different
+ * claims, and only one of them was supported by what happened.
  */
 export function parseRunCommandVerification(
   call: Pick<ToolCall, 'name' | 'status' | 'title' | 'detail'>
@@ -90,6 +111,32 @@ export function parseRunCommandVerification(
   const exitMatch = call.detail?.match(/^exit (.+)$/)
   if (!command || !exitMatch) return null
   return { command, status: exitMatch[1] === '0' ? 'passed' : 'failed' }
+}
+
+/**
+ * What the model is told a command did, leading with the reason it stopped
+ * rather than a raw exit code that would be `null` for anything killed.
+ */
+function describeOutcome(
+  terminated: ShellResult['terminated'],
+  code: number | string | null,
+  timeoutMs: number
+): string {
+  if (terminated === 'timeout') {
+    return `Timed out after ${timeoutMs} ms and was killed. Re-running it unchanged will time out again — narrow the command, or pass a larger timeoutMs (up to ${MAX_COMMAND_TIMEOUT_MS}). Output up to that point:`
+  }
+  if (terminated === 'output-limit') {
+    return `Produced more than ${Math.floor(MAX_OUTPUT_BYTES / 1024)} KB of output and was killed. Re-run it with the output filtered or redirected to a file. Output up to that point:`
+  }
+  if (terminated === 'stopped') return 'Stopped before it finished. Output up to that point:'
+  return `Exit code ${code}`
+}
+
+/** `ToolCall.detail` for a run that never reached an exit code of its own. */
+const TERMINATION_DETAIL: Record<NonNullable<ShellResult['terminated']>, string> = {
+  timeout: 'timed out',
+  'output-limit': 'output limit',
+  stopped: 'stopped'
 }
 
 /** Run a command, always resolving with output + exit code (never rejecting). */
@@ -105,13 +152,25 @@ function runShell(
       command,
       { cwd, timeout: timeoutMs, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true, shell, signal },
       (error, stdout, stderr) => {
-        const code =
-          error && typeof (error as NodeJS.ErrnoException).code !== 'undefined'
-            ? ((error as NodeJS.ErrnoException).code as number | string)
-            : error
-              ? 1
-              : 0
-        resolve({ stdout, stderr, code })
+        if (!error) {
+          resolve({ stdout, stderr, code: 0 })
+          return
+        }
+        const errno = error as NodeJS.ErrnoException & { killed?: boolean }
+        // Ordered by specificity. An abort and a timeout both surface as a
+        // killed process, so the caller's own signal is checked first;
+        // `maxBuffer` overflow is the one kill that carries a real `code`.
+        const terminated: ShellResult['terminated'] = signal?.aborted
+          ? 'stopped'
+          : errno.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+            ? 'output-limit'
+            : errno.killed
+              ? 'timeout'
+              : undefined
+        // `code` is `null` for anything killed by a signal, so it is only
+        // meaningful when the command exited on its own.
+        const code = terminated ? null : (errno.code ?? 1)
+        resolve({ stdout, stderr, code, terminated })
       }
     )
   })
@@ -125,6 +184,10 @@ function normalizeTimeout(timeoutMs?: number): number {
 function describeCommand(command: string, shell?: string, timeoutMs?: number): string {
   const details = [command]
   if (shell) details.push(`Shell: ${shell}`)
-  if (timeoutMs !== undefined) details.push(`Timeout: ${normalizeTimeout(timeoutMs)} ms`)
+  // Always shown, not only when the model named one. The person approving this
+  // is agreeing to a command that will be killed part-way through if it runs
+  // long, and the default is the case where that is most likely to surprise
+  // them — it is the one they did not choose.
+  details.push(`Timeout: ${normalizeTimeout(timeoutMs)} ms`)
   return details.join('\n\n')
 }

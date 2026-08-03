@@ -14,7 +14,17 @@ describe('run_command', () => {
   })
 
   afterEach(async () => {
-    await rm(workspace, { recursive: true, force: true })
+    // Best-effort. These tests spawn real processes into `workspace`, and on
+    // Windows a directory that has just hosted a killed child can stay locked
+    // for a moment after it exits — verified as the OS releasing the handle,
+    // not a surviving process. Failing a passing test over temp-directory
+    // housekeeping would be reporting the wrong thing.
+    await rm(workspace, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100
+    }).catch(() => {})
   })
 
   it('runs a command and reports its exit code and output', async () => {
@@ -85,6 +95,50 @@ describe('run_command', () => {
 
     expect(result.length).toBeLessThan(4100)
     expect(result).toMatch(/truncated, \d+ bytes total/)
+  })
+
+  it('says a command timed out instead of reporting a null exit code', async () => {
+    const ctx = {
+      ...createMockContext(workspace),
+      confirm: () => Promise.resolve({ approved: true })
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string; timeoutMs?: number }) => Promise<string>
+    }
+
+    // Node kills a timed-out child with SIGTERM, and `error.code` is `null` for
+    // anything killed by a signal — so this used to reach the model as
+    // "Exit code null", with nothing to say it had been killed or why. The most
+    // likely response to that is running the identical command again.
+    const result = await tool.handler({
+      command: 'node -e "setTimeout(() => {}, 30000)"',
+      timeoutMs: 1_000
+    })
+
+    expect(result).toContain('Timed out after 1000 ms')
+    expect(result).not.toContain('Exit code null')
+    // And it says what to do differently, since repeating it cannot work.
+    expect(result).toContain('timeoutMs')
+  })
+
+  it('always shows the timeout on the approval card, including the default', async () => {
+    const requests: ToolConfirmRequest[] = []
+    const ctx = {
+      ...createMockContext(workspace),
+      confirm: (request: ToolConfirmRequest) => {
+        requests.push(request)
+        return Promise.resolve({ approved: false })
+      }
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string }) => Promise<string>
+    }
+
+    // The default is the case most likely to surprise whoever approves it —
+    // it is the one they did not choose — and it was the one not shown.
+    await tool.handler({ command: 'npm test' })
+
+    expect(requests[0]?.detail).toContain('Timeout: 60000 ms')
   })
 
   it('asks for confirmation before running, and honours a denial', async () => {
@@ -168,15 +222,31 @@ describe('parseRunCommandVerification', () => {
     ).toEqual({ command: 'npm run build', status: 'failed' })
   })
 
-  it('treats a non-numeric exit reason (e.g. a timeout signal) as failed', () => {
+  it('treats a non-numeric exit code from a command that did exit as failed', () => {
     expect(
       parseRunCommandVerification({
         name: 'run_command',
         status: 'success',
         title: 'Run: npm test',
-        detail: 'exit ETIMEDOUT'
+        detail: 'exit ENOENT'
       })
     ).toEqual({ command: 'npm test', status: 'failed' })
+  })
+
+  it('records nothing for a run that was killed rather than finishing', () => {
+    // "The tests failed" and "the tests never finished" are different claims,
+    // and only one of them is supported by a killed run. These used to arrive
+    // as `exit null`, match as not-zero, and be recorded as a real failure.
+    for (const detail of ['timed out', 'output limit', 'stopped']) {
+      expect(
+        parseRunCommandVerification({
+          name: 'run_command',
+          status: 'success',
+          title: 'Run: npm test',
+          detail
+        })
+      ).toBeNull()
+    }
   })
 
   it('returns null for a different tool', () => {
