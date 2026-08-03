@@ -208,6 +208,7 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
 
         if (REDIRECT_STATUSES.has(response.status)) {
           const location = response.headers.get('location')
+          await discardBody(response)
           if (!location) {
             throw new Error(`HTTP ${response.status} redirect with no Location header.`)
           }
@@ -215,10 +216,12 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
           continue
         }
         if (!response.ok) {
+          await discardBody(response)
           throw new Error(`HTTP ${response.status}: ${response.statusText}`)
         }
         const contentType = response.headers.get('content-type')?.split(';')[0].trim() || 'unknown'
         if (!isReadableContentType(contentType)) {
+          await discardBody(response)
           return {
             body: '',
             finalUrl: current.toString(),
@@ -249,6 +252,31 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
   } finally {
     clearTimeout(timeout)
     signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
+ * Release a response whose body this code is never going to read.
+ *
+ * `dispatcher.close()` in the caller's `finally` waits for the request to
+ * complete, and a response with an unread body never completes — measured
+ * directly against a 302 carrying a 2 MB body: `close()` did not return at all,
+ * while cancelling the body first closed it in 1 ms. The 30-second fetch
+ * timeout does eventually abort and unblock it, so the visible symptom was not
+ * a permanent hang but something worse to diagnose: half a minute of dead wait,
+ * then `The request timed out or was cancelled` for a page whose redirect was
+ * perfectly fine.
+ *
+ * Three paths reach `finally` without reading: a redirect hop, a non-2xx
+ * status, and an unsupported content type. The last is the one most likely to
+ * be hit in ordinary use — a model following a link to a PDF gets a large body
+ * it was never going to parse.
+ */
+async function discardBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch {
+    // Already errored or locked; the connection teardown below covers it.
   }
 }
 

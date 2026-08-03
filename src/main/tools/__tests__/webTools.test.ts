@@ -157,6 +157,78 @@ describe('AI web tools', () => {
       expect(fetchSpy).not.toHaveBeenCalled()
     })
 
+    /**
+     * `dispatcher.close()` in `fetchUrl`'s `finally` waits for the request to
+     * complete, and a response whose body was never read never completes.
+     * Measured against a 302 carrying a 2 MB body: `close()` did not return at
+     * all, while cancelling the body first closed it in 1 ms. The 30-second
+     * fetch timeout does eventually abort and unblock it, so the symptom was
+     * half a minute of dead wait followed by `The request timed out` for a page
+     * whose redirect was perfectly fine.
+     */
+    describe('releases responses it never reads', () => {
+      function bodyWithCancel(): { cancel: ReturnType<typeof vi.fn> } {
+        return { cancel: vi.fn().mockResolvedValue(undefined) }
+      }
+
+      it('discards a redirect body before following the hop', async () => {
+        const redirectBody = bodyWithCancel()
+        globalThis.fetch = vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 302,
+            headers: new Map([['location', 'https://example.com/final']]),
+            body: redirectBody
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Map(),
+            text: () => Promise.resolve('<html><body><p>Arrived.</p></body></html>')
+          })
+
+        const artifact = await fetchUrlEvidence('https://example.com/start', 'evidence')
+
+        expect(redirectBody.cancel).toHaveBeenCalledTimes(1)
+        expect(artifact.finalUrl).toBe('https://example.com/final')
+      })
+
+      it('discards an unsupported content type instead of leaving it open', async () => {
+        // The likeliest one in ordinary use: a model follows a link to a PDF and
+        // gets a large body nothing was ever going to parse.
+        const pdfBody = bodyWithCancel()
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/pdf']]),
+          body: pdfBody
+        })
+
+        const artifact = await fetchUrlEvidence('https://example.com/paper.pdf', 'evidence')
+
+        expect(pdfBody.cancel).toHaveBeenCalledTimes(1)
+        expect(artifact.warnings.join(' ')).toContain('Unsupported content type')
+      })
+
+      it('discards an error response body before reporting the status', async () => {
+        const errorBody = bodyWithCancel()
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          headers: new Map(),
+          body: errorBody
+        })
+
+        await expect(fetchUrlEvidence('https://example.com/gone', 'evidence')).rejects.toThrow(
+          'HTTP 404'
+        )
+        expect(errorBody.cancel).toHaveBeenCalledTimes(1)
+      })
+    })
+
     it('bounds fetched page titles before persisting evidence metadata', async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
