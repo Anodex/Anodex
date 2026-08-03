@@ -39,6 +39,39 @@ Why this order: 1 and 6–7 can destroy or leak user data; 2–5 are the generat
 path where a bug burns tokens or truncates a reply; 8–10 are the app's spine;
 11–12 are contained UI.
 
+## Round two — the next twelve, by the same rule
+
+Round one's twelve are done and its cross-cutting items are closed. Re-measured
+2026-08-02 across everything not yet reviewed, ranked the same way: damage if
+wrong, times untested, times centrality — not size. Test counts are files that
+mention the module, checked against the real test tree rather than a filename
+guess (the mistake that made round one's first table wrong).
+
+| #   | File                                                                          | Lines | Tests | Why it ranks here                                                      |
+| --- | ----------------------------------------------------------------------------- | ----- | ----- | ---------------------------------------------------------------------- |
+| 1   | `src/main/tools/fileTools.ts`                                                 | 748   | 1     | The model writes, edits and deletes the user's files through this      |
+| 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1     | Runs arbitrary shell commands; small enough to read alongside 1        |
+| 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2     | The other half of the write path                                       |
+| 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1     | Sends real mail on the user's behalf — irreversible and outward-facing |
+| 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4     | The undo for all of the above; wrong here means restore destroys       |
+| 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1     | Local vision transport, repeatedly patched, never read end to end      |
+| 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2     | Mid-generation context surgery; failures wedge a conversation          |
+| 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3     | Largest unreviewed file; long unattended runs                          |
+| 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | Drives the research loop the above orchestrates                        |
+| 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3     | Fetches untrusted content the model then acts on                       |
+| 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 2     | The unreviewed third mail adapter                                      |
+| 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0     | Every message starts here                                              |
+| 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0     | Handles API keys                                                       |
+
+Why 1–4 lead: round one's worst findings were all in code that persists, moves
+or sends the user's data — a failed write destroying a conversation, an
+empty-subject thread resolving to the whole mailbox, a background refresh erasing
+a live turn. The tool layer is the same class of code with the model's hand on
+it, and it is the least covered part of the app.
+
+`helpers.ts` (501 lines) is deliberately absent: 26 test files exercise it, by
+far the best-covered module in the tree.
+
 ## Open cross-cutting items
 
 Real findings that span several files, so fixing them inside one file's row
