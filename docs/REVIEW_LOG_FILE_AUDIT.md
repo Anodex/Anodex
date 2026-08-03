@@ -55,7 +55,7 @@ guess (the mistake that made round one's first table wrong).
 | 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1 → 3 | ✅ done | Sends real mail on the user's behalf — irreversible         |
 | 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4 → 8 | ✅ done | The undo for all of the above                               |
 | 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1 → 3 | ✅ done | Local vision transport, never read end to end               |
-| 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2     | ☐       | Mid-generation context surgery                              |
+| 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2 → 3 | ✅ done | Mid-generation context surgery                              |
 | 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3     | ☐       | Largest unreviewed file; long unattended runs               |
 | 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ☐       | Drives the research loop                                    |
 | 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3     | ☐       | Fetches untrusted content the model then acts on            |
@@ -1703,3 +1703,68 @@ the ability to stream chunks _and then_ fail, which is the real shape of
 llama-server being killed part-way through a reply and the only way to exercise
 what happens to text the user has already seen. Image selection is covered by
 partially mocking only the disk read, so the selection logic itself stays real.
+
+---
+
+## R2.6 `src/main/llama/contextShiftStrategy.ts` — done
+
+979 lines replacing node-llama-cpp's default context-shift strategy, which
+throws outright when a turn's own system prompt plus latest exchange cannot be
+shrunk further. Two levels: whole older exchanges folded into a rolling summary,
+and — for a single oversized turn — the function calls _inside_ one model item
+trimmed in five graduated passes.
+
+The correctness reasoning here is the most careful in the codebase. Fit
+decisions use full costs while summarizer chunking uses preview costs, and the
+doc explains that conflating them was a real bug. Metadata is validated
+field-by-field because node-llama-cpp hands back a _foreign_ shape after any
+shift where it fell back to its own strategy. `foldIntoRollingSummary` is
+documented as never returning empty precisely because callers advance durable
+coverage cursors after it. I went looking for a data-loss path through the
+coverage cursor and there isn't one — the read-side guard in `readMetadata`
+refuses a cursor without its summary, which makes a failed fold self-correcting
+on the next shift.
+
+### Bug fixed
+
+**R2.6.1 One shift re-tokenized the same strings tens of thousands of times.**
+`totalCost()` sits in the _loop condition_ of each of the five trim passes, so
+every pass is O(parts²) in tokenizer calls. `fitExchange` then re-runs the whole
+trim once per refinement pass, again per binary-search probe, and again after
+every evidence fold — and the strings being measured are overwhelmingly the same
+untouched ones each time.
+
+Measured rather than assumed, on the shape this module's own doc cites (one
+model item, 38 tool calls, 2 KB results — the failed Critical Thinking run):
+
+|        | tokenizer calls | characters tokenized |
+| ------ | --------------- | -------------------- |
+| before | 9,586           | 3,731,566            |
+| after  | 118             | 139,517              |
+
+All of it inside node-llama-cpp's generation loop, mid-turn, while the user
+waits — and this module exists _because_ of that exact shape, so the worst case
+is the expected case. Fixed by memoising `countTokens` for the duration of one
+shift: `tokenizer` is pure for the session, the cache dies with the call, and it
+is bounded so a pathological history degrades to today's behaviour rather than
+becoming a memory problem instead of a time one. No algorithm changed.
+
+### Deliberate non-changes
+
+- **`newestExchangeTrimDetails` sets both `trimmedUserMessage` and
+  `trimmedAssistantResponse` when the item counts differ.** They cannot differ —
+  the trim passes never add or remove items — so this is unreachable defensive
+  code that would mislabel if it ever fired. Left alone: making it reachable-
+  correct means guessing at a case that does not occur.
+- **The refinement loop and the binary search both re-derive the fitted history
+  from scratch** rather than narrowing incrementally. With counting memoised
+  this is cheap, and the from-scratch derivation is what makes each probe
+  independent — worth more than the saving.
+
+### Tests added
+
+One, confirmed to fail against the pre-fix file: 31,348 tokenizer calls against
+a bound of 1,000, on the same pathological shape. The bound is deliberately
+loose — it pins the order of magnitude, not a count, so ordinary changes to the
+trim passes stay free. It also asserts the result still fits, so the guard
+cannot be satisfied by simply measuring less.

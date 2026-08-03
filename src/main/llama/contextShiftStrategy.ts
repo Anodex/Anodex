@@ -465,6 +465,14 @@ export function trimNewestExchangeToFit(
 /** Notice appended when pass 5 has to shrink the user's own message text. */
 const USER_TEXT_TRUNCATION_NOTICE = ' [message truncated to fit context]'
 
+/**
+ * Ceiling on the per-shift token-count cache. Comfortably above the number of
+ * distinct strings any real history holds — the point is only that a
+ * pathological one degrades to today's repeated counting rather than growing
+ * the cache without bound.
+ */
+const TOKEN_CACHE_MAX_ENTRIES = 4_096
+
 /** Iterative proportional shrink to a token budget — same approach as `rollingSummary.ts`'s `truncateToTokenBudget`, kept local to avoid a cross-module dependency for one call site. */
 function truncateTextToTokens(
   text: string,
@@ -755,7 +763,32 @@ export function createBoundedContextShiftStrategy(deps: BoundedContextShiftDeps)
     lastShiftMetadata?: object | null
   }): Promise<{ chatHistory: ChatHistoryItem[]; metadata: BoundedContextShiftMetadata }> {
     const { chatHistory, maxTokensCount, tokenizer, chatWrapper, lastShiftMetadata } = options
-    const countTokens = (text: string): number => tokenizer(text).length
+    // Memoised for the duration of this one shift.
+    //
+    // The trim passes re-measure the whole exchange on every iteration —
+    // `totalCost()` sits in the loop *condition* — and `fitExchange` re-runs
+    // the whole trim dozens of times: once per refinement pass, again per
+    // binary-search probe, and again after every evidence fold. The strings
+    // being measured are overwhelmingly the same untouched ones each time.
+    //
+    // Measured on the shape this module was written for (one model item with
+    // 38 tool calls carrying 2 KB results, the shape of the failed Critical
+    // Thinking run in the doc comment above): 9,586 tokenizer calls covering
+    // 3.7 million characters, for a single shift, inside the generation loop
+    // while the user waits. Caching collapses that to one call per distinct
+    // string; nothing else about the algorithm changes.
+    //
+    // Safe because `tokenizer` is pure for the session, and the cache lives
+    // only as long as this call. Bounded so a pathological history cannot turn
+    // a shift into a memory problem instead of a time one.
+    const tokenCache = new Map<string, number>()
+    const countTokens = (text: string): number => {
+      const cached = tokenCache.get(text)
+      if (cached !== undefined) return cached
+      const count = tokenizer(text).length
+      if (tokenCache.size < TOKEN_CACHE_MAX_ENTRIES) tokenCache.set(text, count)
+      return count
+    }
     const toolSchemaReserveTokens =
       deps.getToolSchemaReserveTokens?.() ?? deps.toolSchemaReserveTokens ?? 0
     const targetBudget = targetBudgetTokens(maxTokensCount, toolSchemaReserveTokens)

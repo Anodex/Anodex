@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ChatHistoryItem, ChatModelFunctionCall } from 'node-llama-cpp'
+import type { ChatHistoryItem, ChatModelFunctionCall, ChatModelResponse } from 'node-llama-cpp'
 import {
   createBoundedContextShiftStrategy,
   findLastExchangeStartIndex,
@@ -664,5 +664,50 @@ describe('createBoundedContextShiftStrategy', () => {
     const total = result.chatHistory.reduce((sum, item) => sum + fullItemCost(item, countTokens), 0)
     expect(total).toBe(chatHistory.reduce((sum, item) => sum + fullItemCost(item, countTokens), 0))
     expect(total).toBeLessThanOrEqual(3_686)
+  })
+  it('does not re-tokenize the same strings thousands of times per shift', async () => {
+    // The shape this module exists for, from its own doc comment: one model
+    // item packed with dozens of tool calls carrying large results.
+    //
+    // `totalCost()` sits in the trim passes' loop *conditions*, and
+    // `fitExchange` re-runs the whole trim once per refinement pass, again per
+    // binary-search probe, and again after every evidence fold — so the same
+    // untouched strings were measured over and over. Unbounded, this shift
+    // made 9,586 tokenizer calls over 3.7 million characters, all inside the
+    // generation loop while the user waits.
+    //
+    // The bound is deliberately loose: this pins the order of magnitude, not
+    // an exact count, so ordinary changes to the trim passes stay free.
+    let calls = 0
+    const countingTokenizer = (text: string): unknown[] => {
+      calls += 1
+      return tokenizer(text)
+    }
+    const strategy = createBoundedContextShiftStrategy({
+      summarize: summarizeMock(),
+      stringifySystemText
+    })
+    const response: ChatModelResponse['response'] = Array.from({ length: 38 }, (_, i) => ({
+      type: 'functionCall',
+      name: 'fetch_url',
+      params: { url: `https://example.com/${i}` },
+      result: 'x'.repeat(2_000)
+    }))
+
+    const result = await strategy({
+      chatHistory: [
+        { type: 'system', text: 'sys' },
+        { type: 'user', text: 'go' },
+        { type: 'model', response }
+      ],
+      maxTokensCount: 2_000,
+      tokenizer: countingTokenizer,
+      lastShiftMetadata: null
+    })
+
+    expect(calls).toBeLessThan(1_000)
+    // Still actually fits, which is the point of the whole module.
+    const total = result.chatHistory.reduce((sum, item) => sum + fullItemCost(item, countTokens), 0)
+    expect(total).toBeLessThanOrEqual(2_000)
   })
 })
