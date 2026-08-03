@@ -429,3 +429,101 @@ describe('patch_file', () => {
     expect(updated).toContain('<<24>>') // beyond the 20-replacement cap, left untouched
   })
 })
+
+describe('replacement edits on non-UTF-8 files', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-encoding-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  /** Latin-1 bytes: no NUL, few control bytes, so `isLikelyBinary` sees text. */
+  const latin1 = () => Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x6f, 0x6b])
+
+  it('refuses an edit_file that would rewrite bytes it never touched', async () => {
+    const file = join(workspace, 'legacy.txt')
+    await writeFile(file, latin1())
+    const ctx = createMockContext(workspace)
+    const tool = editFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; oldText: string; newText: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: 'legacy.txt', oldText: 'ok', newText: 'done' })
+
+    // Decoding replaces the invalid 0xE9 with U+FFFD, and writing the string
+    // back would persist that — destroying a byte the edit never referred to.
+    // The checkpoint stores the same lossy text, so a restore could not undo it.
+    expect(result).toContain('not valid UTF-8')
+    expect(await readFile(file)).toEqual(latin1())
+  })
+
+  it('refuses a patch_file for the same reason', async () => {
+    const file = join(workspace, 'legacy.txt')
+    await writeFile(file, latin1())
+    const ctx = createMockContext(workspace)
+    const tool = patchFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: {
+        path: string
+        replacements: Array<{ oldText: string; newText: string }>
+      }) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      path: 'legacy.txt',
+      replacements: [{ oldText: 'ok', newText: 'done' }]
+    })
+
+    expect(result).toContain('not valid UTF-8')
+    expect(await readFile(file)).toEqual(latin1())
+  })
+
+  it('still edits an ordinary UTF-8 file containing non-ASCII text', async () => {
+    // The guard must reject invalid encoding, not non-ASCII content — a file
+    // full of accents or emoji is perfectly valid UTF-8 and must stay editable.
+    const file = join(workspace, 'unicode.txt')
+    await writeFile(file, 'café — ok', 'utf-8')
+    const ctx = createMockContext(workspace)
+    const tool = editFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; oldText: string; newText: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: 'unicode.txt', oldText: 'ok', newText: 'done' })
+
+    expect(result).toContain('Edited')
+    expect(await readFile(file, 'utf-8')).toBe('café — done')
+  })
+})
+
+describe('move_file over an existing target', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-move-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  it('says that the target will be overwritten before it is approved', async () => {
+    await writeFile(join(workspace, 'src.txt'), 'new')
+    await writeFile(join(workspace, 'dest.txt'), 'the only copy')
+    const confirmations = captureConfirmations()
+    const ctx = { ...createMockContext(workspace), confirm: confirmations.confirm }
+    const tool = moveFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { sourcePath: string; targetPath: string }) => Promise<string>
+    }
+
+    await tool.handler({ sourcePath: 'src.txt', targetPath: 'dest.txt' })
+
+    // `rename` replaces the target outright, and the card said only
+    // "Move A to B" — the destruction of B was the one thing it omitted.
+    const detail = confirmations.requests.map((request) => request.detail).join('\n')
+    expect(detail).toContain('OVERWRITES')
+    expect(detail).toContain('dest.txt')
+  })
+})

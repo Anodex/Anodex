@@ -125,7 +125,10 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
           }
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
-          const original = await readFile(file, 'utf-8')
+          const { text: original, buffer: originalBuffer } = await readEditableText(
+            file,
+            relativePath
+          )
           const occurrences = original.split(args.oldText).length - 1
           if (occurrences === 0) throw new Error('The text to replace was not found in the file.')
           if (occurrences > 1) {
@@ -135,16 +138,14 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
           return {
             confirmDetail: `In ${args.path}, replace:\n\n${describeOldText(args.oldText)}\n\n-> with:\n\n${preview(args.newText)}`,
             confirmDiff: diffOrUndefined(relativePath, original, updated),
-            data: { file, relativePath, original, updated }
+            data: { file, relativePath, original, originalBuffer, updated }
           }
         },
-        async ({ file, relativePath, original, updated }) => {
-          const current = await readFile(file, 'utf-8').catch(() => null)
-          if (current !== original) {
-            throw new Error(
-              'The file changed since this edit was proposed; read it again and retry.'
-            )
-          }
+        async ({ file, relativePath, original, originalBuffer, updated }) => {
+          // Byte-exact, like every other tool here. Comparing decoded strings
+          // also swallowed unrelated read failures via `.catch(() => null)` and
+          // reported them as "the file changed".
+          await assertFileStateUnchanged(file, originalBuffer, 'edit')
           await writeFile(file, updated, 'utf-8')
           return {
             modelResult: `Edited ${relativePath}.`,
@@ -212,7 +213,10 @@ export const patchFileTool: WorkspaceToolFactory = (define, ctx) =>
         async () => {
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
-          const original = await readFile(file, 'utf-8')
+          const { text: original, buffer: originalBuffer } = await readEditableText(
+            file,
+            relativePath
+          )
           const replacements = args.replacements.slice(0, MAX_PATCH_REPLACEMENTS)
           const droppedCount = args.replacements.length - replacements.length
           const truncationNote =
@@ -227,19 +231,24 @@ export const patchFileTool: WorkspaceToolFactory = (define, ctx) =>
               file,
               relativePath,
               original,
+              originalBuffer,
               updated: patched.text,
               count: patched.count,
               truncationNote
             }
           }
         },
-        async ({ file, relativePath, original, updated, count, truncationNote }) => {
-          const current = await readFile(file, 'utf-8').catch(() => null)
-          if (current !== original) {
-            throw new Error(
-              'The file changed since this patch was proposed; read it again and retry.'
-            )
-          }
+        async ({
+          file,
+          relativePath,
+          original,
+          originalBuffer,
+          updated,
+          count,
+          truncationNote
+        }) => {
+          // Byte-exact, matching every other tool here — see `edit_file`.
+          await assertFileStateUnchanged(file, originalBuffer, 'patch')
           await writeFile(file, updated, 'utf-8')
           return {
             modelResult: `Patched ${relativePath} with ${count} replacement(s).${truncationNote}`,
@@ -344,7 +353,13 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
             ? encodeCheckpointBuffer(targetBeforeBuffer)
             : null
           return {
-            confirmDetail: `Move ${args.sourcePath} to ${args.targetPath}`,
+            // `rename` replaces an existing target outright. The approval card
+            // said only "Move A to B", so the one consequence the user most
+            // needed to weigh — that B's current contents are about to be
+            // destroyed — was the one thing it did not mention.
+            confirmDetail: targetBeforeBuffer
+              ? `Move ${args.sourcePath} to ${args.targetPath}.\n\nThis OVERWRITES the existing file at ${args.targetPath} (${targetBeforeBuffer.length} bytes), replacing its contents.`
+              : `Move ${args.sourcePath} to ${args.targetPath}`,
             data: {
               source,
               target,
@@ -393,6 +408,37 @@ export const moveFileTool: WorkspaceToolFactory = (define, ctx) =>
         }
       )
   })
+
+/**
+ * Reads a file as text for a replacement-style edit, refusing when decoding it
+ * is not byte-for-byte reversible.
+ *
+ * `edit_file` and `patch_file` are the only tools that read a file as UTF-8,
+ * transform the string, and write that string back. Node replaces every invalid
+ * byte sequence with U+FFFD on decode, so on a file that is not valid UTF-8 —
+ * a latin-1 source file, anything with a stray byte — that round trip silently
+ * rewrites bytes the edit never touched.
+ *
+ * Worse, the checkpoint stores the same lossy string as the "before" state, so
+ * restoring the turn cannot recover the original either. `isLikelyBinary` does
+ * not catch this: it keys on NUL and control bytes, and a latin-1 file has
+ * neither. Comparing the re-encoded text against the bytes actually on disk
+ * does catch it, exactly.
+ */
+async function readEditableText(
+  file: string,
+  relativePath: string
+): Promise<{ text: string; buffer: Buffer }> {
+  const buffer = await readFile(file)
+  const text = buffer.toString('utf-8')
+  if (!Buffer.from(text, 'utf-8').equals(buffer)) {
+    throw new Error(
+      `${relativePath} is not valid UTF-8, so a text replacement would rewrite bytes it never touched. ` +
+        'Use write_file with the full intended contents if this file really should be replaced.'
+    )
+  }
+  return { text, buffer }
+}
 
 async function assertFileStateUnchanged(
   path: string,

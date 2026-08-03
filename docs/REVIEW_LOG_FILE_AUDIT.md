@@ -1348,3 +1348,63 @@ That is the difference between "nearly done" and "narrow your query". Now marked
 Three, all confirmed to fail against the pre-fix file: the partial-line coverage
 rule, the exhausted-budget message, and the empty-query rejection. The overflow
 phrasing is not covered — it is a wording change with no behavioural edge.
+
+---
+
+## R2.2 `src/main/tools/mutationTools.ts` — done
+
+509 lines: `write_file`, `edit_file`, `patch_file`, `delete_file`, `move_file`.
+The tools that change the user's files, each behind a prepare/confirm/commit
+gate.
+
+### Bugs fixed
+
+**R2.2.1 `edit_file` and `patch_file` silently corrupted files that were not
+valid UTF-8, unrecoverably.** They are the only tools here that read a file as
+text, transform the string, and write that string back. Node replaces every
+invalid byte sequence with U+FFFD on decode, so on a latin-1 source file — or
+anything carrying a stray byte — that round trip rewrote bytes the edit never
+referred to.
+
+The existing binary guard does not catch this. `isLikelyBinary` keys on NUL
+bytes and a control-byte ratio, and a latin-1 file has neither, so it is
+classified as text and decoded lossily. And because the checkpoint stores the
+same lossy string as its `before` state, restoring the turn could not recover
+the original either — the bytes were gone from both the file and its undo.
+
+Both tools now re-encode the decoded text and compare it against the bytes
+actually on disk, refusing the edit when the round trip is not exact. That test
+is precise rather than heuristic: it rejects invalid encoding without rejecting
+non-ASCII content, so a file full of accents or emoji stays editable.
+
+**R2.2.2 A move that destroyed an existing file did not say so.** `rename`
+replaces its target outright, and the approval card read only "Move A to B" —
+omitting the one consequence the user most needed to weigh, that B's current
+contents were about to be gone. It now states the overwrite and the size of what
+is being replaced.
+
+**R2.2.3 The staleness check for `edit_file`/`patch_file` was weaker than
+everywhere else.** The other three tools re-read the file as a `Buffer` and
+compare bytes; these two compared decoded strings, behind a blanket
+`.catch(() => null)` that turned any read failure — a permissions error, a path
+that became a directory — into the misleading "the file changed since this edit
+was proposed". All five now use the same byte-exact check.
+
+### Deliberate non-changes
+
+- **`write_file` overwriting an existing file is `risk: 'safe'`.** Unlike a
+  move, its confirmation carries a real diff of before and after, so the
+  overwrite is visible at the moment of approval. The exception is a binary
+  target, where the diff is suppressed — narrow enough to note rather than
+  reshape the risk model around.
+- **`diffOrUndefined` returns nothing above 50,000 characters**, so a large-file
+  edit is approved without a diff. Deliberate: a full before/after copy of a
+  huge file bloats the persisted conversation for a diff nobody can read in a
+  chat bubble. The confirmation still shows the old and new text.
+
+### Tests added
+
+Four. Three were confirmed to fail against the pre-fix file: the two encoding
+refusals, and the move disclosure. The fourth — a valid UTF-8 file containing
+accents and an em dash still being editable — passes either way, and exists to
+stop the encoding guard overreaching into ordinary non-ASCII text.
