@@ -59,7 +59,7 @@ guess (the mistake that made round one's first table wrong).
 | 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3 → 4 | ✅ done | Largest unreviewed file; long unattended runs               |
 | 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ✅ done | Drives the research loop                                    |
 | 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3 → 6 | ✅ done | Fetches untrusted content the model then acts on            |
-| 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 2     | ☐       | The unreviewed third mail adapter                           |
+| 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 0 → 5 | ✅ done | The unreviewed third mail adapter                           |
 | 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0     | ☐       | Every message starts here                                   |
 | 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0     | ☐       | Handles API keys                                            |
 | 13  | `src/main/tools/helpers.ts`                                                   | 501   | 26    | ☐       | Best-covered module in the tree; read at the user’s request |
@@ -2010,3 +2010,80 @@ pre-fix file: a redirect body, an unsupported content type, and an error
 response are each released before the dispatcher closes. The suite already stubs
 `globalThis.fetch`, so the mock response simply carries a `body.cancel` spy —
 the assertion is on the exact call the hang turned on.
+
+---
+
+## Round two, 10. `src/main/email/providers/MicrosoftAdapter.ts` — done
+
+528 lines over Microsoft Graph, and the last of the three mail adapters to be
+read. Graph has no thread endpoint, so conversations are assembled by filtering
+on `conversationId` — which is where both defects live.
+
+**Its test count was wrong, and in the worst direction.** The table credited it
+with two; both are `vi.mock('../providers/MicrosoftAdapter', …)` stubs inside
+`EmailService`'s suites, which name the class without exercising a line of it.
+It had no coverage at all. That is the same counting caveat this document
+already carries for round one — mentions are not tests — reappearing in a row
+that was measured against the real test tree. Corrected to `0 → 5`.
+
+### Bugs fixed
+
+**10.1 A folder-scoped search silently searched the entire mailbox.**
+`listThreads` resolved `options.mailbox` into a folder id — paying the
+round-trip, and throwing for an unknown name — and then used it only on the
+non-query path:
+
+```ts
+const path = options.query
+  ? `/messages?${params}` // folder discarded
+  : `/mailFolders/${folder}/messages?${params}`
+```
+
+`EmailService.previewBatch` is the caller that passes both, and it is the one
+where it matters: it exists so a user can see what a batch action matched before
+approving it, precisely because "a query that is one character off would
+otherwise sweep the wrong mail with the same single click". On Outlook, asking
+to archive everything matching a query _in one folder_ previewed matches from
+every folder, and `applyBatch` then acted on exactly those ids.
+
+Graph does support `$search` inside a folder, so the scope simply belongs on
+both paths. Guarded against over-correcting: with no mailbox named, a query
+still searches the whole mailbox and a plain listing still means the inbox.
+Narrowing ordinary search to the inbox would have been a regression dressed as
+a fix, and there is a test pinning each of those.
+
+**10.2 A bulk action on a long thread silently acted on the first 50 messages.**
+`targetMessageIds` expanded a thread target through `getThreadMessages`, which
+caps at `$top: 50` because it fetches bodies for the reading pane — a sensible
+limit for reading, and the wrong one for archiving. A mailing-list thread past
+50 messages was part-moved, and the result string reported the count it _had_
+moved as though that were the whole conversation.
+
+Thread targets now resolve through their own ids-only query at a 500 ceiling.
+Keeping the two separate is the point: the reader wants few messages with
+bodies, a bulk action wants every id and no bodies.
+
+### Verified, not bugs
+
+- **`unarchive` can find an archived thread here.** The sibling adapter had
+  exactly this defect (fixed in `3181e07`), so it was the first thing checked.
+  Graph's `/me/messages` spans folders, and `targetMessageIds` filters on
+  `conversationId` without a folder segment — so a thread sitting in Archive
+  resolves normally and the move back to the inbox works.
+- **Sent mail is filed.** `send` sets `saveToSentItems: true`, which is the
+  other defect the IMAP adapter had.
+- **`resolveFolderId` short-circuits the well-known names** before listing
+  folders, so the common cases cost no extra request, and an unknown name fails
+  with the available folders named rather than a bare rejection.
+- **`fetchInlineImages` swallows its own failure and returns `[]`**, so a
+  missing inline image degrades the rendered body instead of failing the read.
+
+### Tests
+
+`src/main/email/providers/__tests__/MicrosoftAdapter.test.ts` — 5 tests, the
+first this adapter has had, asserting the requests it puts on the wire (Graph
+mocked at `fetch`, as `webTools.test.ts` does). Two fail against the pre-fix
+file — the folder-scoped search and the 120-message thread action. The other
+three are the guards that stop the first fix overreaching: unscoped search stays
+global, a bare listing stays on the inbox, and a thread that resolves to nothing
+is still refused.

@@ -102,10 +102,20 @@ export class MicrosoftAdapter implements EmailProviderAdapter {
       params.set('$search', `"${options.query.replace(/"/g, '')}"`)
     }
 
-    const folder = options.mailbox ? await this.resolveFolderId(account, options.mailbox) : 'inbox'
-    const path = options.query
-      ? `/messages?${params.toString()}`
-      : `/mailFolders/${encodeURIComponent(folder)}/messages?${params.toString()}`
+    // A named mailbox scopes the request whether or not there is a query. Graph
+    // supports `$search` inside a folder, and the search path used to drop the
+    // scope entirely — so a batch preview asking for "matches in this folder"
+    // silently listed matches from the whole mailbox, and `applyBatch` then
+    // acted on exactly those ids. That is the mis-sweep `previewBatch` exists
+    // to prevent. With no mailbox named, a query still searches everywhere and
+    // a plain listing still means the inbox, both unchanged.
+    const path = options.mailbox
+      ? `/mailFolders/${encodeURIComponent(
+          await this.resolveFolderId(account, options.mailbox)
+        )}/messages?${params.toString()}`
+      : options.query
+        ? `/messages?${params.toString()}`
+        : `/mailFolders/inbox/messages?${params.toString()}`
 
     const response = await this.fetch<GraphList<GraphMessage>>(account, path)
     return groupIntoThreads(response.value ?? [], account, options.limit)
@@ -288,9 +298,33 @@ export class MicrosoftAdapter implements EmailProviderAdapter {
   ): Promise<string[]> {
     if (target.messageId?.trim()) return [target.messageId.trim()]
     if (!target.threadId?.trim()) throw new Error('A thread id or message id is required.')
-    const messages = await this.getThreadMessages(account, target.threadId.trim())
-    if (messages.length === 0) throw new Error('That conversation has no messages.')
-    return messages.map((message) => message.id)
+    const ids = await this.threadMessageIds(account, target.threadId.trim())
+    if (ids.length === 0) throw new Error('That conversation has no messages.')
+    return ids
+  }
+
+  /**
+   * Every message id in a conversation.
+   *
+   * Separate from `getThreadMessages` because the two want opposite things.
+   * That one feeds the reading pane and fetches bodies, so it is capped at 50
+   * to keep a thread read cheap — but flag and move targets were reading the
+   * same list, which silently capped a bulk action at the first 50 messages.
+   * Archiving a long mailing-list thread moved part of it and reported the
+   * count it had moved, leaving the rest in the inbox with nothing to say why.
+   * Selecting ids alone keeps the higher ceiling cheap.
+   */
+  private async threadMessageIds(account: EmailAccount, threadId: string): Promise<string[]> {
+    const params = new URLSearchParams({
+      $filter: `conversationId eq '${threadId.replace(/'/g, "''")}'`,
+      $select: 'id',
+      $top: '500'
+    })
+    const response = await this.fetch<GraphList<GraphMessage>>(
+      account,
+      `/messages?${params.toString()}`
+    )
+    return (response.value ?? []).map((message) => message.id)
   }
 
   private async resolveFolderId(account: EmailAccount, mailbox: string): Promise<string> {
