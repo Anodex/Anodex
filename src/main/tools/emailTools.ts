@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname } from 'node:path'
 import type {
   EmailDraft,
@@ -489,12 +489,12 @@ export const saveEmailDraftTool: ToolFactory = (define, ctx) =>
           risk: 'safe'
         },
         async () => {
-          const message = resolveEmailToSend(args)
+          const { message, accountId } = resolveEmailToSend(args)
           const attachments = await loadAttachments(ctx, args.attachmentPaths)
           const draft = {
             ...message,
             attachments: [...(message.attachments ?? []), ...attachments],
-            accountId: args.account
+            accountId
           }
           return {
             confirmDetail: describeEmailToSend(draft),
@@ -563,11 +563,12 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
         // while a different one gets sent. Attachments are read here for the
         // same reason — so the prompt names the files that will actually go.
         async () => {
-          const message = resolveEmailToSend(args)
+          const { message, accountId } = resolveEmailToSend(args)
           const attachments = await loadAttachments(ctx, args.attachmentPaths)
           const outgoing = {
             ...message,
-            attachments: [...(message.attachments ?? []), ...attachments]
+            attachments: [...(message.attachments ?? []), ...attachments],
+            accountId
           }
           return {
             confirmDetail: describeEmailToSend(outgoing),
@@ -576,11 +577,13 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
           }
         },
         async (message) => {
-          await emailService.send({
-            ...message,
-            draftId: args.draftId,
-            accountId: args.account
-          })
+          // Deliberately without `draftId`. `EmailService.send` reads that as
+          // "ignore everything else and send the stored draft", which threw
+          // away the attachments resolved above — so the card listed files that
+          // never went. Sending the approved message is the whole point of
+          // resolving it before the prompt. The now-unreferenced draft expires
+          // on its own TTL.
+          await emailService.send(message)
           return { modelResult: 'Email sent.', detail: message.subject }
         }
       )
@@ -1040,8 +1043,10 @@ async function loadAttachments(
   let total = 0
   for (const path of paths) {
     const resolved = resolveOutgoingAttachment(ctx, path)
-    const data = await readFile(resolved)
-    total += data.length
+    // Measured before it is read. Checking `data.length` afterwards meant a
+    // multi-gigabyte file was pulled into the main process in full and only
+    // then rejected — the check protected the provider, not this machine.
+    total += (await stat(resolved)).size
     if (total > MAX_ATTACHMENT_TOTAL_BYTES) {
       throw new Error(
         `Attachments total more than ${Math.floor(MAX_ATTACHMENT_TOTAL_BYTES / (1024 * 1024))}MB, which providers reject.`
@@ -1050,7 +1055,7 @@ async function loadAttachments(
     attachments.push({
       filename: basename(resolved),
       mimeType: guessMimeType(resolved),
-      contentBase64: data.toString('base64')
+      contentBase64: (await readFile(resolved)).toString('base64')
     })
   }
   return attachments
@@ -1122,11 +1127,23 @@ function guessMimeType(path: string): string {
   return MIME_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
 }
 
-function resolveEmailToSend(args: EmailDraftRequest & { draftId?: string }): EmailDraftRequest {
-  if (!args.draftId) return args
+/**
+ * The message a send or save is really about, and the account it belongs to.
+ *
+ * With `draftId`, the stored draft *is* the message — the to/subject/body the
+ * schema still requires alongside it are ignored. The account has to come back
+ * too: `EmailService.send` used to apply that precedence itself, from the draft
+ * it looked up, and callers that resolve the draft here must carry it or a
+ * draft written for a second mailbox goes out from the default one.
+ */
+function resolveEmailToSend(args: EmailDraftRequest & { draftId?: string; account?: string }): {
+  message: EmailDraftRequest
+  accountId: string | undefined
+} {
+  if (!args.draftId) return { message: args, accountId: args.account }
   const draft = emailService.getDraft(args.draftId)
   if (!draft) throw new Error(`Email draft not found: ${args.draftId}`)
-  return draft
+  return { message: draft, accountId: args.account ?? draft.accountId }
 }
 
 /**

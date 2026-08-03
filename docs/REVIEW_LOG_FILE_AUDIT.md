@@ -52,7 +52,7 @@ guess (the mistake that made round one's first table wrong).
 | 1   | `src/main/tools/fileTools.ts`                                                 | 748   | 1 → 4 | ✅ done | The model's whole read view of the workspace                |
 | 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1     | ☐       | Runs arbitrary shell commands                               |
 | 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2 → 6 | ✅ done | The write path proper                                       |
-| 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1     | ☐       | Sends real mail on the user's behalf — irreversible         |
+| 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1 → 3 | ✅ done | Sends real mail on the user's behalf — irreversible         |
 | 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4     | ☐       | The undo for all of the above                               |
 | 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1     | ☐       | Local vision transport, never read end to end               |
 | 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2     | ☐       | Mid-generation context surgery                              |
@@ -91,6 +91,7 @@ from.
 | `AnodexApi` mixes `Result<T>` and bare-`T` returns          | 9        | assessed — no fix |
 | No Sent copy is filed after an SMTP send                    | 7        | ✅ fixed          |
 | `unarchive` cannot resolve an already-archived thread       | 7        | ✅ fixed          |
+| `save_email_attachment` does not disclose an overwrite      | R2.3     | ☐                 |
 
 ---
 
@@ -1409,3 +1410,69 @@ Four. Three were confirmed to fail against the pre-fix file: the two encoding
 refusals, and the move disclosure. The fourth — a valid UTF-8 file containing
 accents and an em dash still being editable — passes either way, and exists to
 stop the encoding guard overreaching into ordinary non-ASCII text.
+
+---
+
+## R2.3 `src/main/tools/emailTools.ts` — done
+
+1,238 lines: every email capability the model has. Reading, searching,
+attachments, drafting, sending, replying, forwarding, flagging, batch cleanup.
+
+The security design here is the strongest in the codebase and worth saying so:
+send, reply and forward all resolve the real message _before_ the approval card
+is built, so the user approves the email rather than a description of it;
+outgoing attachments are confined to the workspace or files the user attached
+themselves; and every path that surfaces someone else's content — an image, a
+document — frames it explicitly as text a sender chose, never an instruction.
+Those are the right instincts and none of them needed changing.
+
+### Bugs fixed
+
+**R2.3.1 `send_email` approved one message and sent another.** The prepare step
+resolves `draftId` into the real draft and merges in attachments loaded from
+`attachmentPaths`, and the card shows that merged message — exactly as its own
+comment describes. The commit step then called `emailService.send({ ...message,
+draftId: args.draftId })`, and `EmailService.send` treats a present `draftId` as
+"ignore everything else, send the stored draft". So the attachments the card had
+just listed were dropped on the way out.
+
+The commit now sends the approved message and omits `draftId` entirely, which is
+what resolving before the prompt was for. The draft's own `accountId` is carried
+explicitly, because `send` applied that precedence itself from the draft it
+looked up and no longer sees it — without that, a draft written for a second
+mailbox would have gone out from the default one. `save_email_draft` had the
+same latent account bug and got the same fix.
+
+**R2.3.2 `loadAttachments` read a file before checking its size.** The cumulative
+`MAX_ATTACHMENT_TOTAL_BYTES` check ran against `data.length` _after_
+`readFile`, so a multi-gigabyte file was pulled into the main process in full and
+only then rejected — the ceiling protected the provider, not this machine. Sized
+with `stat` first now.
+
+### Deliberate non-changes
+
+- **`save_email_attachment` does not disclose that it will overwrite an existing
+  workspace file** — the same gap fixed for `move_file` in R2.2.2. It is a
+  smaller version of it: the write is checkpointed, so it is undoable, and
+  closing it means converting the tool from `runGuardedTool` to the
+  prepare/confirm form so the card can know whether the path exists. Worth
+  doing, listed under open cross-cutting items rather than bundled here.
+- **`manage_email` and `move_email` accept neither `threadId` nor `messageId`**
+  and render "Archive message undefined" on the card before the adapter rejects
+  the call. Cosmetic — it fails safely — but the card should not show
+  `undefined`.
+
+### Tests
+
+The existing draft test was updated: it asserted `send` receives
+`draftId: 'draft-1'`, which was the bug encoded as an expectation. It now asserts
+the resolved content and account travel instead, and that `draftId` does not —
+and it fails against the pre-fix file.
+
+One test added, and it is worth being precise about what it does not do: it
+checks that attachments ride along in the send call, and it **passes against the
+pre-fix code too**. The tool always put them in the request; what discarded them
+was `EmailService.send` one layer below, which this file's tests mock. So the
+discard itself is verified by reading, not by a test, and the updated test above
+is what actually pins the fix. Labelled that way in the file rather than left
+looking like proof.

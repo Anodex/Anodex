@@ -660,7 +660,64 @@ describe('email tools', () => {
     expect(requests[0].detail).toContain('Real body')
     expect(requests[0].detail).not.toContain('placeholder@example.com')
     expect(requests[0].detail).not.toContain('Placeholder subject')
-    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ draftId: 'draft-1' }))
+    // Sent as resolved content, not as a draft reference. Passing `draftId`
+    // on made `EmailService.send` re-read the stored draft and ignore
+    // everything alongside it — including attachments loaded from
+    // `attachmentPaths`, which the card above had just listed. The draft's own
+    // account has to travel with it, since `send` no longer looks it up.
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: ['real-recipient@example.com'],
+        subject: 'Real subject',
+        body: 'Real body',
+        accountId: 'account-1'
+      })
+    )
+    expect(sendMock.mock.calls[0][0]).not.toHaveProperty('draftId')
+  })
+
+  it('carries resolved attachments in the send call alongside a draftId', async () => {
+    getDraftMock.mockReturnValue({
+      id: 'draft-1',
+      provider: 'gmail',
+      accountId: 'account-1',
+      to: ['real-recipient@example.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Real subject',
+      body: 'Real body',
+      createdAt: 0
+    })
+    const { requests, confirm } = captureConfirmations()
+    const attachDir = await mkdtemp(join(tmpdir(), 'anodex-attach-'))
+    const attachPath = join(attachDir, 'anodex-attach.txt')
+    await writeFile(attachPath, 'hello')
+    const ctx = {
+      ...createMockContext('/workspace'),
+      confirm,
+      userFiles: [{ path: attachPath, name: 'anodex-attach.txt', sizeBytes: 5 }]
+    }
+    const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailSendRequest & { attachmentPaths?: string[] }) => Promise<string>
+    }
+
+    await tool.handler({
+      draftId: 'draft-1',
+      to: ['placeholder@example.com'],
+      subject: 'Placeholder subject',
+      body: 'Placeholder body',
+      attachmentPaths: ['anodex-attach.txt']
+    })
+
+    // A regression guard, not a demonstration: the tool always put attachments
+    // in the request. What discarded them was `EmailService.send` preferring
+    // the stored draft whenever `draftId` was present — one layer below this
+    // mock, so the test above (which asserts `draftId` is no longer sent) is
+    // what actually pins the fix.
+    expect(requests[0].detail).toContain('anodex-attach.txt')
+    const sent = sendMock.mock.calls[0][0] as { attachments?: Array<{ filename: string }> }
+    expect(sent.attachments?.map((a) => a.filename)).toEqual(['anodex-attach.txt'])
+    await rm(attachDir, { recursive: true, force: true })
   })
 
   it('fails cleanly with no confirm prompt when the referenced draft no longer exists', async () => {
