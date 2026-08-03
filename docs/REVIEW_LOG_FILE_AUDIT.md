@@ -33,7 +33,7 @@ non-change, and the suite still passes.
 | 9   | `src/shared/ipc.ts`                              | 862   | 3 → 10 added  | ✅ done |
 | 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0 (see below) | ✅ done |
 | 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | 0 → 6 added   | ✅ done |
-| 12  | `src/renderer/features/email/EmailView.tsx`      | 1251  | 0             | ☐       |
+| 12  | `src/renderer/features/email/EmailView.tsx`      | 1251  | 0 (see below) | ✅ done |
 
 Why this order: 1 and 6–7 can destroy or leak user data; 2–5 are the generation
 path where a bug burns tokens or truncates a reply; 8–10 are the app's spine;
@@ -1121,3 +1121,65 @@ Three fail against the pre-fix file: a no-op resize does no work, shrinking
 reuses the existing nebula, and a pure device-pixel-ratio change is handled
 without rebuilding it. The other three — one build on construction, a genuine
 growth rebuilds, and `destroy()` unregisters — pass either way.
+
+---
+
+## 12. `src/renderer/features/email/EmailView.tsx` — done
+
+1,251 lines: the mail page and everything on it — command bar, mailbox strip,
+thread list with its folded bulk runs and digest sweep, the reader, and the
+resizable assistant rail. Six components in one file, no tests.
+
+### Bugs fixed
+
+**12.1 Picking a mailbox left the old search text in the box.** The search input
+holds its own state, seeded once from the store (`useState(storedQuery)`), and
+nothing synced it afterwards. `selectMailbox` sets `query: ''` in the store, so
+choosing a folder cleared the search _behind_ the box while the box went on
+showing the query — over a listing that was no longer filtered by it. Worse, the
+× that clears a search is gated on the store's value, so it disappeared at the
+same moment: the stale text could not be dismissed, only selected and deleted,
+and pressing Enter re-ran a search the reader thought they had left. The input
+now follows the store. Typing is unaffected — only submitting moves the store,
+and syncing back what was just submitted is a no-op React bails out of.
+
+**12.2 Two async handlers swallowed an IPC rejection.** `handleOpenWebmail` and
+`AttachmentChip.handleSave` both check `result.ok`, which covers a handler
+returning a failure — but not a rejection at the IPC layer, which is a different
+path (see 9's write-up). Both are invoked as `void handler()`, so one escaped as
+an unhandled rejection with nothing said to the user. `handleSave` was the worse
+of the two: its `try`/`finally` re-enabled the button and reported nothing, so a
+failed save read as "I clicked Save and nothing happened". Both now report.
+
+**12.3 The account menu floated away from its trigger.** It is portalled to
+`document.body` and positioned from a `DOMRect` captured when it opened, which
+nothing updated. Resizing the window or scrolling an ancestor moved the button
+and left the menu behind, over unrelated chrome. It now closes on either —
+the honest response for a transient menu, rather than re-anchoring something
+that is about to be dismissed anyway.
+
+### Checked and found correct
+
+- **Quiet-run expansion survives a refresh.** `expandedRuns` is keyed by run id,
+  and ids are `quiet:${firstThread.id}` — deliberately derived from content, so
+  a refresh that did not change a run keeps it open. Worth stating because
+  index-derived ids here would silently reopen the wrong run.
+- **`friendlyMailboxName` handles both namespace conventions** — Gmail's
+  `[Gmail]/Sent Mail` and dotted `INBOX.Archive` — and `orderMailboxes` ranks on
+  the friendly name, so the ordering matches what is displayed.
+- **`ThreadRow`'s reveal animation is mount-gated** by `hadDigestOnMount`, so
+  returning from a thread does not replay every row's reveal at once.
+
+### Tests: none, and the reason is structural
+
+The repo has no DOM test environment: no `@testing-library/react`, no jsdom or
+happy-dom. Its one component test renders with `renderToStaticMarkup` from
+`react-dom/server`, which does not run effects at all — so 12.1 and 12.3, both
+of which _are_ effects, cannot be reached by the approach already in use here.
+Covering them means adding a DOM stack and a first-of-its-kind harness for this
+project, to test three lines of state sync and a pair of listeners. Recorded as
+a gap rather than papered over.
+
+Manual checks offered instead: type a search, run it, then click another
+mailbox (the box should clear); open the account menu and resize the window (it
+should close); save an attachment.

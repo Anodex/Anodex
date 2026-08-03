@@ -104,6 +104,16 @@ export function EmailView(): JSX.Element {
     void loadMailboxes()
   }, [loadEmail, loadMailboxes])
 
+  // The box follows the store, not just its own typing. Picking a mailbox
+  // clears the query in the store (`selectMailbox`), which used to leave the
+  // old text sitting in the box over a listing that was no longer filtered by
+  // it — and with the × gated on the store's value, no way to clear it. Typing
+  // is unaffected: only submitting moves the store, and syncing it back to what
+  // was just submitted is a no-op React bails out of.
+  useEffect(() => {
+    setQueryInput(storedQuery)
+  }, [storedQuery])
+
   const accounts = status?.accounts ?? []
   const active =
     accounts.find((account) => account.id === activeAccountId) ??
@@ -218,9 +228,19 @@ export function EmailView(): JSX.Element {
   }, [showRail])
 
   const handleOpenWebmail = async (): Promise<void> => {
-    const result = await anodex.email.openWebmail()
-    if (!result.ok) {
-      notifyError('Could not open webmail', result.error.detail ?? result.error.message)
+    // A handler failure comes back as `ok: false`, but a rejection at the IPC
+    // layer does not — and this is called as `void handleOpenWebmail()`, so
+    // one escaped as an unhandled rejection with nothing said to the user.
+    try {
+      const result = await anodex.email.openWebmail()
+      if (!result.ok) {
+        notifyError('Could not open webmail', result.error.detail ?? result.error.message)
+      }
+    } catch (error) {
+      notifyError(
+        'Could not open webmail',
+        error instanceof Error ? error.message : 'The request failed.'
+      )
     }
   }
 
@@ -499,11 +519,20 @@ function AccountSwitcher({ accounts, active, onSelect }: AccountSwitcherProps): 
     const handleKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') setOpen(false)
     }
+    // The menu is portalled to `document.body` and placed from a rect measured
+    // when it opened, so anything that moves the trigger afterwards leaves it
+    // floating somewhere the button no longer is. Closing is the honest
+    // response — it is a transient menu, not a panel worth re-anchoring.
+    const handleReflow = (): void => setOpen(false)
     document.addEventListener('mousedown', handlePointerDown)
     document.addEventListener('keydown', handleKey)
+    window.addEventListener('resize', handleReflow)
+    window.addEventListener('scroll', handleReflow, true)
     return () => {
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleKey)
+      window.removeEventListener('resize', handleReflow)
+      window.removeEventListener('scroll', handleReflow, true)
     }
   }, [open])
 
@@ -1202,6 +1231,13 @@ function AttachmentChip({ attachment, accountId }: AttachmentChipProps): JSX.Ele
       if (result.value.path) {
         notify({ kind: 'success', title: 'Attachment saved', message: result.value.path })
       }
+    } catch (error) {
+      // `try`/`finally` alone re-enabled the button and said nothing, so a
+      // rejection read as "I clicked Save and nothing happened".
+      notifyError(
+        'Could not save attachment',
+        error instanceof Error ? error.message : 'The request failed.'
+      )
     } finally {
       setSaving(false)
     }
