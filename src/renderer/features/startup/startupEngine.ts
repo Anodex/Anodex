@@ -112,6 +112,8 @@ export class StartupEngine {
   private completeMarked = false
   private width = 0
   private height = 0
+  /** Last applied device-pixel ratio, so `resize` can skip a no-op event. */
+  private ratio = 0
   private speed = DRIFT_SPEED
   private wander = 1
   private roll = 0 // camera roll while riding the tunnel
@@ -202,6 +204,10 @@ export class StartupEngine {
     window.removeEventListener('resize', this.handleResize)
     window.removeEventListener('pointermove', this.handlePointerMove)
     this.phase = 'off'
+    // Released explicitly rather than left to collection with the instance:
+    // this is the one field big enough to be worth not waiting for GC, and the
+    // overlay is unmounted at the exact moment the app wants the memory.
+    this.nebula = null
   }
 
   private setState(state: string): void {
@@ -280,10 +286,26 @@ export class StartupEngine {
     return star
   }
 
+  /**
+   * Rebuild the canvases and the field for a new viewport size.
+   *
+   * Guarded on the size actually changing, because this is expensive and
+   * `window.resize` is not: it reseeds ~1,260 stars and — before the reuse
+   * check in `buildNebula` — allocated an offscreen canvas of 1.5× the largest
+   * dimension, which is 32 MB at 1080p and 102 MB on an ultrawide. Nothing
+   * debounced it, so every event during a window drag paid that, and Electron
+   * emits several around show/restore that do not change the size at all.
+   * Those are now free.
+   */
   private resize(): void {
     const ratio = Math.min(window.devicePixelRatio || 1, 2)
-    this.width = window.innerWidth
-    this.height = window.innerHeight
+    const width = window.innerWidth
+    const height = window.innerHeight
+    if (width === this.width && height === this.height && ratio === this.ratio) return
+
+    this.width = width
+    this.height = height
+    this.ratio = ratio
     for (const canvas of [this.opts.starCanvas, this.opts.settleCanvas]) {
       canvas.width = Math.floor(this.width * ratio)
       canvas.height = Math.floor(this.height * ratio)
@@ -297,7 +319,12 @@ export class StartupEngine {
     this.dust = Array.from({ length: Math.min(540, Math.floor(area / 2100)) }, () =>
       this.makeStar(false)
     )
+    // All three hold absolute screen coordinates from the previous viewport, so
+    // they would otherwise be left drawing against geometry that no longer
+    // exists. `heroes` was already cleared here; the other two were not.
     this.heroes = []
+    this.comets = []
+    this.motes = []
     this.buildNebula()
   }
 
@@ -389,6 +416,11 @@ export class StartupEngine {
   private buildNebula(): void {
     const size = Math.ceil(Math.max(this.width, this.height) * 1.5)
     if (size <= 0) return
+    // Reuse one that is already big enough. It is a decorative backdrop drawn
+    // centred at two scales, so an oversized texture is indistinguishable from
+    // an exact one — and it is by far the most expensive thing built here.
+    // Shrinking a window therefore costs nothing at all.
+    if (this.nebula && this.nebula.width >= size) return
     const off = document.createElement('canvas')
     off.width = size
     off.height = size

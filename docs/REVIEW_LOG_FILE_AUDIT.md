@@ -32,7 +32,7 @@ non-change, and the suite still passes.
 | 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1 → 5 added   | ✅ done |
 | 9   | `src/shared/ipc.ts`                              | 862   | 3 → 10 added  | ✅ done |
 | 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0 (see below) | ✅ done |
-| 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | 0             | ☐       |
+| 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | 0 → 6 added   | ✅ done |
 | 12  | `src/renderer/features/email/EmailView.tsx`      | 1251  | 0             | ☐       |
 
 Why this order: 1 and 6–7 can destroy or leak user data; 2–5 are the generation
@@ -1044,3 +1044,80 @@ worse than the honest gap.
 
 Verified by reading, and offered to the user as manual checks instead (drag off
 the window and release; enable reduced motion; drag a long path; click rapidly).
+
+---
+
+## 11. `src/renderer/features/startup/startupEngine.ts` — done
+
+The canvas engine behind the startup overlay: a polar starfield that inhales
+toward the mark and tears into a hyperspace tunnel. Pure DOM/canvas, no React,
+792 lines, no tests. It runs before anything else is on screen, which is exactly
+when the app is competing for memory with model loading.
+
+### Bugs fixed
+
+**11.1 Every `window.resize` rebuilt the entire field, unconditionally.**
+`resize()` reseeds ~1,260 stars and calls `buildNebula()`, which allocates an
+offscreen canvas of 1.5× the largest viewport dimension and draws five radial
+gradients, a linear band, and 420 baked micro-stars into it. Measured:
+
+| Viewport  | Nebula canvas | Bytes  |
+| --------- | ------------- | ------ |
+| 1440×900  | 2160²         | 18 MB  |
+| 1920×1080 | 2880²         | 32 MB  |
+| 2560×1440 | 3840²         | 56 MB  |
+| 3440×1440 | 5160²         | 102 MB |
+
+Nothing debounced the handler and nothing checked whether the size had actually
+changed. Electron emits several resize events around window show/restore that do
+not change it at all, so an ordinary launch paid that cost two or three times
+over before the overlay had finished its first beat; dragging a window edge paid
+it per event, with the discarded canvases piling up until GC caught them.
+
+Two guards, which between them make the common cases free:
+
+- `resize()` returns immediately when width, height _and_ device-pixel ratio all
+  match what is already applied. That is the entire Electron show/restore case.
+- `buildNebula()` reuses an existing texture that is already big enough. It is a
+  decorative backdrop drawn centred at two scales, so an oversized one is
+  indistinguishable from an exact one — which means shrinking a window now costs
+  nothing, and growing one only pays when it passes the largest size yet seen.
+
+**11.2 `resize()` cleared `heroes` but not `comets` or `motes`.** All three hold
+absolute screen coordinates from the previous viewport; the two that were left
+carried on drawing against geometry that no longer existed. `heroes` was already
+being cleared here, so this was an inconsistency rather than a judgement call.
+
+**11.3 `destroy()` left the nebula canvas referenced.** The instance becomes
+collectable once its listeners are removed, so this was never a true leak — but
+it is the one field big enough to be worth not waiting for GC, and the overlay
+unmounts at precisely the moment the app wants that memory back for the model.
+Nulled explicitly.
+
+### Deliberate non-changes
+
+- **The `error` phase keeps the frame loop running indefinitely.** The field
+  coasts to a stop but continues to twinkle behind the recovery dialog, so this
+  is a live backdrop rather than a spinning loop drawing an unchanging image.
+  Bounded by user action, and stopping it would freeze the scene mid-crossfade.
+- **`calmFinish()` does not cancel the frame loop.** It runs for the 600 ms of
+  the crossfade and is then torn down by `destroy()` on unmount. Freezing the
+  field under a fading overlay would look worse than the frames cost.
+- **`handlePointerMove` can produce `NaN` if it fires while the viewport is
+  0×0.** Not reachable: a hidden window emits no pointer events, and a restore
+  fires `resize` before any pointer move. Left rather than adding a guard to a
+  hot path for a state that cannot occur.
+
+### Tests added
+
+`src/renderer/features/startup/__tests__/startupEngine.test.ts` — 6 tests. The
+suite runs in the `node` environment, so the narrow DOM surface the engine
+touches (canvas 2D context, `window` listeners, `document.createElement`,
+`requestAnimationFrame`) is stubbed in the file rather than pulling in a DOM
+implementation for one test. Offscreen canvas construction is counted directly,
+which is what makes the rebuild behaviour observable at all.
+
+Three fail against the pre-fix file: a no-op resize does no work, shrinking
+reuses the existing nebula, and a pure device-pixel-ratio change is handled
+without rebuilding it. The other three — one build on construction, a genuine
+growth rebuilds, and `destroy()` unregisters — pass either way.
