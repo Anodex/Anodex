@@ -459,6 +459,14 @@ export class LlamaVisionService {
           }
         }
       } catch (error) {
+        // Folded before anything below reads `content`. While streaming wrote
+        // straight into `content`, a round that produced text before failing
+        // was self-evidently worth keeping; once the fold moved to the round
+        // boundary, a round-0 failure left `content` empty and the guard below
+        // threw away text the user had already watched arrive. The three cloud
+        // transports fold in their own catch for exactly this reason.
+        content = appendRoundText(content, roundContent)
+        roundContent = ''
         if (params.signal?.aborted || error instanceof APIUserAbortError) {
           stopped = true
           break
@@ -938,8 +946,29 @@ export class LlamaVisionService {
     const currentImages = (params.images ?? [])
       .filter(isValidVisionImageInput)
       .slice(0, MAX_VISION_IMAGES)
+
+    // Chosen before rendering, walking the history backwards. The render pass
+    // below goes forwards, so spending the budget as it went handed every slot
+    // to the *oldest* pictures in the conversation and dropped the ones just
+    // being discussed — the opposite of what a follow-up question needs. The
+    // cloud transports get this right via `reopenRecentHistoryImages`; the name
+    // is the whole point.
+    const carriedImages = new Set<string>()
     let remainingImages = MAX_VISION_IMAGES - currentImages.length
-    for (const turn of boundedHistory) {
+    for (
+      let turnIndex = boundedHistory.length - 1;
+      turnIndex >= 0 && remainingImages > 0;
+      turnIndex--
+    ) {
+      const attachments = boundedHistory[turnIndex].attachments ?? []
+      for (let index = attachments.length - 1; index >= 0 && remainingImages > 0; index--) {
+        if (attachments[index].kind !== 'image') continue
+        carriedImages.add(`${turnIndex}:${index}`)
+        remainingImages -= 1
+      }
+    }
+
+    for (const [turnIndex, turn] of boundedHistory.entries()) {
       if (turn.role !== 'user' && turn.role !== 'assistant') continue
       const toolNotes = (turn.toolCalls ?? []).map(rememberToolCallForModel).join('\n\n')
       const text = toolNotes ? `${turn.content}\n\n${toolNotes}`.trim() : turn.content
@@ -949,12 +978,10 @@ export class LlamaVisionService {
       }
 
       const images: ChatImageInput[] = []
-      for (const attachment of turn.attachments ?? []) {
-        if (remainingImages <= 0 || attachment.kind !== 'image') continue
+      for (const [index, attachment] of (turn.attachments ?? []).entries()) {
+        if (!carriedImages.has(`${turnIndex}:${index}`)) continue
         const image = await reopenChatImage(attachment)
-        if (!image) continue
-        images.push(image)
-        remainingImages -= 1
+        if (image) images.push(image)
       }
       messages.push({ role: 'user', content: userContent(text, images) })
     }

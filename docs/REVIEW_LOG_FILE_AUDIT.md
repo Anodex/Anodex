@@ -54,7 +54,7 @@ guess (the mistake that made round one's first table wrong).
 | 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2 → 6 | ✅ done | The write path proper                                       |
 | 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1 → 3 | ✅ done | Sends real mail on the user's behalf — irreversible         |
 | 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4 → 8 | ✅ done | The undo for all of the above                               |
-| 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1     | ☐       | Local vision transport, never read end to end               |
+| 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1 → 3 | ✅ done | Local vision transport, never read end to end               |
 | 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2     | ☐       | Mid-generation context surgery                              |
 | 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3     | ☐       | Largest unreviewed file; long unattended runs               |
 | 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ☐       | Drives the research loop                                    |
@@ -1639,3 +1639,67 @@ The partial-failure test makes the write fail for real rather than by mocking �
 `node:fs` exports cannot be spied on under ESM — by recording `nested/second.ts`
 and putting a regular _file_ at `nested`, so the `mkdirSync` for its parent
 fails exactly the way a locked file or a full disk would.
+
+---
+
+## R2.5 `src/main/llama/LlamaVisionService.ts` — done
+
+1,257 lines: the llama-server transport, which every local model with a
+multimodal projector runs on — text-only chats included, since `LlamaService`
+routes the whole turn here the moment a projector is loaded.
+
+Its context accounting is the most careful in the codebase and deserves saying
+so: it measures with the model's own tokenizer, _adds_ estimates for the two
+things `/tokenize` structurally cannot see (chat-template framing, projector
+image cost) rather than omitting them, and reclaims in-turn room from old tool
+results in graduated tiers rather than dropping them. None of that needed
+changing.
+
+### Bugs fixed
+
+**R2.5.1 A first-round failure threw away text the user had already watched
+arrive — and I introduced it.** When the cross-cutting round-separator change
+moved this transport from `content += delta` to a per-round buffer folded at the
+round boundary, the guard below the stream became wrong:
+
+```
+if (!content && !hadAnyToolAttempt) throw described
+```
+
+While streaming wrote straight into `content`, a round that produced text before
+failing self-evidently had something to keep. Once the fold moved to the
+boundary, round 0's text lived only in `roundContent`, so `content` was still
+empty at the catch and the turn threw — discarding the reply mid-flight instead
+of reporting a stop with it intact. I added exactly this fold to the catch of
+all three cloud transports and did not carry it here.
+
+The existing "keeps the work of earlier rounds when a later one fails" test
+could not catch it: it fails a _later_ round, by which point the earlier rounds
+have already folded.
+
+**R2.5.2 History images were selected oldest-first.** `buildMessages` walks
+history forwards and spent the four-image budget as it went, so on a
+conversation with more than four pictures the model received the earliest ones
+and never saw the one just sent. A follow-up question about a screenshot was
+answered against screenshots from five turns earlier. The carried set is now
+chosen by walking backwards before rendering — which is what the cloud
+transports' `reopenRecentHistoryImages` does, and what its name says.
+
+### Deliberate non-changes
+
+- **`outputTokens` falls back to a character estimate only when the total is
+  still zero.** A server that reports usage on round 0 but not on round 1 leaves
+  round 1's output uncounted. Stats-only, and it needs a server that reports
+  inconsistently across rounds within one turn.
+- **The truncated-tool-call recovery pushes a `user` message after a `user`
+  message** when it fires on round 0. llama.cpp's templates tolerate it, and the
+  alternative — synthesising an assistant turn for a round whose only output was
+  an unparseable call — would put invented content in the transcript.
+
+### Tests added
+
+Two, both confirmed to fail against the pre-fix file. The mock harness gained
+the ability to stream chunks _and then_ fail, which is the real shape of
+llama-server being killed part-way through a reply and the only way to exercise
+what happens to text the user has already seen. Image selection is covered by
+partially mocking only the disk read, so the selection logic itself stays real.

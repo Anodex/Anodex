@@ -85,11 +85,17 @@ vi.mock('openai', () => {
           // has to opt in to the implausibly-fast case.
           mocks.now += round.elapsedMs ?? 60_000
           if (round.emitsRuntimeOutput) mocks.runtimeOutput = round.emitsRuntimeOutput
-          if (round.error) throw round.error
+          // An error with no chunks fails the request outright. With chunks, it
+          // fails *after* streaming them — which is the real shape of
+          // llama-server being killed part-way through a reply, and the only
+          // way to exercise what happens to text the user already saw.
+          if (round.error && !round.chunks?.length) throw round.error
           const chunks = round.chunks ?? []
+          const failAfter = round.error
           return Promise.resolve({
             [Symbol.asyncIterator]: function* () {
               for (const chunk of chunks) yield chunk
+              if (failAfter) throw failAfter
             }
           })
         }
@@ -127,6 +133,20 @@ vi.mock('../LlamaServerRuntime', () => ({
       return mocks.runtimeOutput
     }
   }
+}))
+
+// Only the disk read is replaced — image *selection* is what is under test, so
+// the rest of the module (budget, validation) stays real.
+vi.mock('../../vision/imageInputs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../vision/imageInputs')>()),
+  reopenChatImage: (attachment: { path: string }) =>
+    Promise.resolve({
+      path: attachment.path,
+      name: attachment.path,
+      mimeType: 'image/png',
+      dataUrl: `data:image/png;base64,${attachment.path}`,
+      sizeBytes: 1
+    })
 }))
 
 vi.mock('../../tools/registry', () => ({
@@ -866,6 +886,59 @@ describe('LlamaVisionService.generate', () => {
 
     expect(outcome.content).toBe('Wrote it in pieces instead.')
     expect(mocks.requests).toHaveLength(2)
+  })
+
+  it('carries the most recent history images, not the oldest', async () => {
+    // MAX_VISION_IMAGES is 4. Six pictures in history means two must be left
+    // behind, and the two that should go are the ones nobody is talking about
+    // any more. Rendering walks history forwards, so spending the budget as it
+    // went handed every slot to the oldest — so a follow-up question about the
+    // picture just sent was answered against five-turns-ago screenshots.
+    mocks.rounds.push({ chunks: [textChunk('Looking.', 'stop')] })
+    const history = Array.from({ length: 6 }, (_, i) => ({
+      role: 'user' as const,
+      content: `turn ${i}`,
+      attachments: [
+        { kind: 'image' as const, path: `img${i}.png`, name: `img${i}.png`, sizeBytes: 1 }
+      ]
+    }))
+
+    await (await service()).generate(params({ history }))
+
+    const sent = mocks.requests[0].messages as Array<{ content: unknown }>
+    const urls = sent.flatMap((message) =>
+      Array.isArray(message.content)
+        ? message.content
+            .filter((part): part is { image_url: { url: string } } => 'image_url' in part)
+            .map((part) => part.image_url.url)
+        : []
+    )
+
+    expect(urls).toEqual([
+      'data:image/png;base64,img2.png',
+      'data:image/png;base64,img3.png',
+      'data:image/png;base64,img4.png',
+      'data:image/png;base64,img5.png'
+    ])
+  })
+
+  it('keeps text the very first round streamed before it failed', async () => {
+    // The round-0 case, which the later-round test above cannot reach. While
+    // streaming wrote straight into the turn-wide buffer, a failure here still
+    // had content and was reported as a stop. Once the fold moved to the round
+    // boundary, round 0's text lived only in the round buffer, so the
+    // "nothing to lose" guard saw an empty reply and threw — discarding text
+    // the user had already watched arrive.
+    mocks.rounds.push({
+      chunks: [textChunk('Here is what I found so far. ')],
+      error: new Error('terminated')
+    })
+
+    const outcome = await (await service()).generate(params())
+
+    expect(outcome.content).toBe('Here is what I found so far.')
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('provider-error')
   })
 
   it('keeps the work of earlier rounds when a later one fails outright', async () => {
