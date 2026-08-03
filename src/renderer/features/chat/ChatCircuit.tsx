@@ -128,6 +128,24 @@ const MAX_PACKETS = 70
 const MAX_SPARKS = 260
 
 /**
+ * Points a single hand-routed trace may hold. It has no `targetSegs` bound —
+ * that is what makes it follow the cursor for as long as the user drags — so
+ * without this a long drag grows one polyline without limit, and every frame
+ * then re-strokes all of it twice while each packet on it walks the whole
+ * `cum` array to place itself. Roughly 17,000px of routed path: far beyond any
+ * deliberate gesture, and still cheap to draw.
+ */
+const PLAYER_TRACE_MAX_POINTS = 1200
+
+/**
+ * Hard ceiling on traces, as a multiple of the auto-router's own cap. Click and
+ * drag seeding deliberately ignores that cap — it is the user's board — but
+ * "ignore the cap" and "no limit at all" are different things, and rapid
+ * clicking reached the second one.
+ */
+const TRACE_HARD_CAP_MULTIPLE = 1.5
+
+/**
  * "Silicon Bloom" — the alternate empty-state background (Appearance > Chat
  * background). Where the deep field looks out at space, this looks into the
  * machine: a living motherboard where luminous circuit traces etch themselves
@@ -345,11 +363,20 @@ export function ChatCircuit(): JSX.Element {
       withChip: boolean,
       free = false
     ): void => {
+      // Seeded traces are exempt from the auto-router's cap, not from
+      // arithmetic. Traces already fading are excluded from the count: they are
+      // on their way out, and counting them would let `regrow` — which fades
+      // the whole board and reseeds 600ms later, long before any of it is
+      // actually gone — find no room and leave a dead board behind.
+      const live = traces.reduce((n, t) => (t.state === 'fading' ? n : n + 1), 0)
+      const room = Math.max(0, Math.round(traceCap() * TRACE_HARD_CAP_MULTIPLE) - live)
+      if (room === 0) return
+      const seeds = Math.min(count, room)
       const spread = (Math.random() * 8) | 0
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < seeds; i++) {
         traces.push(
           makeTrace(x, y, {
-            dir: (spread + i * Math.ceil(8 / count) + ((Math.random() * 2) | 0)) % 8,
+            dir: (spread + i * Math.ceil(8 / seeds) + ((Math.random() * 2) | 0)) % 8,
             chip: withChip && i === 0,
             hue: Math.random(),
             speed: 2 + Math.random() * 2,
@@ -418,6 +445,7 @@ export function ChatCircuit(): JSX.Element {
       // to keep a pathological event from looping forever — it must be large
       // enough that a fast flick (one event, hundreds of px) routes fully.
       for (let guard = 0; guard < 64; guard++) {
+        if (tr.pts.length >= PLAYER_TRACE_MAX_POINTS) break
         const last = tr.pts[tr.pts.length - 1]
         const dx = x - last.x
         const dy = y - last.y
@@ -446,6 +474,11 @@ export function ChatCircuit(): JSX.Element {
 
     const onPointerMove = (event: PointerEvent): void => {
       const p = toLocal(event)
+      // A button released outside the window never delivers `pointerup` here,
+      // which used to leave `probe.down` stuck on: the trace then went on
+      // routing itself to the cursor with nothing held down, and the only way
+      // out was to press and release again inside the window.
+      if (probe.down && event.buttons === 0) endProbe(event, false)
       if (probe.down) {
         probe.moved += Math.hypot(p.x - probe.x, p.y - probe.y)
         if (probe.moved > 8 && !playerTrace) {
@@ -477,7 +510,13 @@ export function ChatCircuit(): JSX.Element {
       probe.y = p.y
     }
 
-    const onPointerUp = (event: PointerEvent): void => {
+    /**
+     * Ends a drag. `allowTap` seeds a bloom for a press that never really
+     * moved — true for a genuine release, false when the gesture was taken
+     * away from us (cancelled, or released off-window and noticed later),
+     * where the pointer is no longer where the user decided anything.
+     */
+    const endProbe = (event: PointerEvent, allowTap: boolean): void => {
       if (!probe.down) return
       probe.down = false
       if (playerTrace) {
@@ -491,11 +530,14 @@ export function ChatCircuit(): JSX.Element {
         playerTrace = null
         return
       }
-      if (probe.moved <= 8 && !onInteractiveTarget(event)) {
+      if (allowTap && probe.moved <= 8 && !onInteractiveTarget(event)) {
         const p = toLocal(event)
         seedBloom(snap(p.x), snap(p.y), 4 + ((Math.random() * 3) | 0), true, true)
       }
     }
+
+    const onPointerUp = (event: PointerEvent): void => endProbe(event, true)
+    const onPointerCancel = (event: PointerEvent): void => endProbe(event, false)
 
     // ------------------------------------------------------- textures
     const buildHexTile = (): void => {
@@ -849,6 +891,13 @@ export function ChatCircuit(): JSX.Element {
           nextAutoAt = frame + 20
         }
       }
+      // Sparks and seed rings are motion artifacts — chips thrown by a moving
+      // etch head, the shockwave of a bloom. Fast-forwarding 900 frames without
+      // drawing leaves every one of them undecayed, so the still opened on a
+      // frozen crowd of ~260 dots that no single real frame would ever show.
+      // A still should be the board, not a snapshot of it being drawn.
+      sparks.length = 0
+      blooms.length = 0
     }
 
     const regrow = (): void => {
@@ -905,6 +954,7 @@ export function ChatCircuit(): JSX.Element {
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerCancel)
     systemDark.addEventListener('change', onSchemeChange)
     document.addEventListener('visibilitychange', onVisibilityChange)
 
@@ -917,6 +967,7 @@ export function ChatCircuit(): JSX.Element {
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerCancel)
       systemDark.removeEventListener('change', onSchemeChange)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }

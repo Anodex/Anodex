@@ -20,20 +20,20 @@ non-change, and the suite still passes.
 
 ## Progress
 
-| #   | File                                             | Lines | Tests        | Status  |
-| --- | ------------------------------------------------ | ----- | ------------ | ------- |
-| 1   | `src/main/conversations/ConversationStore.ts`    | 322   | 0 → 11 added | ✅ done |
-| 2   | `src/main/llama/LlamaService.ts`                 | 2760  | 10 → 16      | ✅ done |
-| 3   | `src/main/chat/runGeneration.ts`                 | 614   | 5 → 6 added  | ✅ done |
-| 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0 → 5 added  | ✅ done |
-| 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0 → 4 added  | ✅ done |
-| 6   | `src/main/email/EmailService.ts`                 | 713   | 1 → 2 added  | ✅ done |
-| 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0 → 18 added | ✅ done |
-| 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1 → 5 added  | ✅ done |
-| 9   | `src/shared/ipc.ts`                              | 862   | 3 → 10 added | ✅ done |
-| 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0            | ☐       |
-| 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | 0            | ☐       |
-| 12  | `src/renderer/features/email/EmailView.tsx`      | 1251  | 0            | ☐       |
+| #   | File                                             | Lines | Tests         | Status  |
+| --- | ------------------------------------------------ | ----- | ------------- | ------- |
+| 1   | `src/main/conversations/ConversationStore.ts`    | 322   | 0 → 11 added  | ✅ done |
+| 2   | `src/main/llama/LlamaService.ts`                 | 2760  | 10 → 16       | ✅ done |
+| 3   | `src/main/chat/runGeneration.ts`                 | 614   | 5 → 6 added   | ✅ done |
+| 4   | `src/main/llm/OpenAiCompatibleProvider.ts`       | 544   | 0 → 5 added   | ✅ done |
+| 5   | `src/main/llm/AnthropicProvider.ts`              | 481   | 0 → 4 added   | ✅ done |
+| 6   | `src/main/email/EmailService.ts`                 | 713   | 1 → 2 added   | ✅ done |
+| 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0 → 18 added  | ✅ done |
+| 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1 → 5 added   | ✅ done |
+| 9   | `src/shared/ipc.ts`                              | 862   | 3 → 10 added  | ✅ done |
+| 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0 (see below) | ✅ done |
+| 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | 0             | ☐       |
+| 12  | `src/renderer/features/email/EmailView.tsx`      | 1251  | 0             | ☐       |
 
 Why this order: 1 and 6–7 can destroy or leak user data; 2–5 are the generation
 path where a bug burns tokens or truncates a reply; 8–10 are the app's spine;
@@ -968,3 +968,79 @@ re-derive it.
   handler-body scan can see.) Entirely theoretical, and closing it means a typed
   `handle()` wrapper across every handler file. Not worth it against a bug class
   that has never occurred here.
+
+---
+
+## 10. `src/renderer/features/chat/ChatCircuit.tsx` — done
+
+956 lines of canvas animation: the "Silicon Bloom" chat background. Almost all
+of it is one `useEffect` closure driving a `requestAnimationFrame` loop, so the
+defects available here are not logic errors but stuck input state, artifacts,
+and unbounded growth. Four of each kind, all found by reading rather than by
+running.
+
+### Bugs fixed
+
+**10.1 A release outside the window left the drag running forever.** `probe.down`
+was cleared only by `pointerup` on `window`, and a button released outside the
+window never delivers one. The flag stayed set, so when the cursor came back the
+player trace went on routing itself to it with nothing held down — and the only
+way out was to press and release again inside the window. Now `pointercancel` is
+handled too, and `pointermove` ends the drag when it sees `event.buttons === 0`.
+
+Ending it takes a new `allowTap` argument: a real release seeds a bloom for a
+press that never moved, a rescued one does not, because by then the pointer is
+no longer where the user decided anything.
+
+**10.2 The reduced-motion still opened on a frozen crowd of sparks.**
+`growInstantly` fast-forwards 900 frames without drawing, and `stepGrowth`
+spawns a spark on ~30% of them. Nothing decays those, because decay happens in
+`drawSparks` — so the still was drawn with all ~260 (`MAX_SPARKS`) alive at once,
+plus every seed ring. A single real frame never shows more than a handful. Both
+pools are now cleared before the still is drawn: it should be the board, not a
+snapshot of the board being drawn.
+
+**10.3 A hand-routed trace grew without limit.** The player trace is created with
+`targetSegs: Number.MAX_SAFE_INTEGER` — that is what lets it follow the cursor
+for as long as the drag lasts — so a long drag grew one polyline unboundedly.
+Every frame then re-stroked all of it twice (glow pass and core pass), and each
+packet riding it walked the whole `cum` array linearly to place itself. Capped at
+1,200 points, roughly 17,000px of routed path: past any deliberate gesture, and
+still cheap to draw.
+
+**10.4 Click-seeding had no ceiling at all.** `autoSpawn` respects `traceCap()`,
+but `seedBloom` — click and drag seeding — pushed unconditionally, by design:
+it is the user's board. "Ignores the cap" and "has no limit" are different
+things, though, and rapid clicking reached the second. Now bounded at 1.5× the
+auto-router's cap.
+
+Traces already fading are excluded from that count. Getting this wrong is easy
+and worth recording: `regrow()` fades the whole board and reseeds 600ms later,
+long before any of it is actually gone, so counting fading traces would have let
+a busy board find no room on regrow and leave nothing behind. The first version
+of this fix had exactly that defect.
+
+### Deliberate non-changes
+
+- **`motionDisabled` is read at render time and the effect keys only on the
+  in-app setting**, so flipping the OS reduced-motion preference mid-session
+  updates neither the Pause button nor the running scene until something else
+  re-renders. Real, but it is a background animation reacting late to a rare
+  OS-level toggle, and wiring a media-query listener for it is more moving parts
+  than the symptom is worth.
+- **`pointAt` scans `cum` linearly per packet per frame.** A binary search would
+  be strictly better, but 10.3 bounds the worst case, and at ordinary trace
+  lengths the scan is a handful of comparisons.
+
+### Tests: none, deliberately
+
+Every fix lives inside a `useEffect` closure that needs a real 2D context —
+`ChatCircuit` returns early when `getContext('2d')` is null, which is exactly
+what jsdom gives. Covering any of this means stubbing a full fake canvas context,
+`ResizeObserver` and `matchMedia`, then asserting on calls into that stub: a
+large, brittle harness measuring whether the mock was driven, not whether the
+board looks right. The value is not there, and pretending otherwise would be
+worse than the honest gap.
+
+Verified by reading, and offered to the user as manual checks instead (drag off
+the window and release; enable reduced motion; drag a long path; click rapidly).
