@@ -935,15 +935,36 @@ feature silently stops working with no error at either end.
 
 ### Deliberate non-changes
 
+Both were re-examined afterwards, on the question of whether either is worth
+acting on. Neither is, and the evidence is recorded here so nobody has to
+re-derive it.
+
 - **`AnodexApi` mixes `Result<T>` and bare-`T` returns** — 85 against 82, with no
   visible rule. A bare method rejects on any main-side throw, pushing the burden
-  onto each call site to remember a `try`/`catch`; `chatStore`'s `sendMessage`
-  was missing exactly that (see 8.2). The callers checked do handle it —
-  `projectStore` wraps every one — so this is a convention inconsistency rather
-  than a live bug, and normalising 167 signatures is its own change. Listed under
-  open cross-cutting items.
+  onto each call site. That produces 31 fire-and-forget `void anodex.…()` calls
+  with no `.catch`, which is the concrete exposure; every one was triaged. The
+  handlers behind them are trivial — `win.minimize()`, `shell.openPath`, a Map
+  lookup — so a rejection is not realistically reachable, and where it is, the
+  cost is a console warning rather than lost work. The likeliest-looking one,
+  `tools.respondConfirmation` (a silent failure there would hang a tool call
+  after the user clicked Approve), resolves to
+  `pendingConfirmations.get(id)?.(response)`, which cannot throw. No live
+  instances; normalising 167 signatures is not justified by this.
+
+  **Correction to an earlier version of this entry**, which cited `chatStore`'s
+  8.2 as an instance of this hazard. It is not. `chat.send` returns
+  `Result<ChatResult>` and still needed a `try`/`catch`, because its rejection
+  came from the _IPC layer_ — channel gone, process dead, a field that failed to
+  serialize — not from a handler throwing. That failure mode is identical under
+  both conventions, so normalising them would not have prevented 8.2. The two
+  concerns are orthogonal.
+
 - **Main-side handler return types are not tied to `AnodexApi`.** `ipcMain.handle`
   accepts any return value, so a handler could return a shape the renderer's type
-  says is impossible and nothing would complain until runtime. Closing it means a
-  typed `handle()` wrapper across every handler file — a real improvement, and far
-  outside one file's review.
+  says is impossible, with nothing complaining until runtime. All 188 channels
+  were checked for a real mismatch: **zero**. (Two candidates —
+  `models.discover` and `models.fetchTopModels` — were false positives; both
+  delegate to functions that do return `Result<…>`, one call deeper than a
+  handler-body scan can see.) Entirely theoretical, and closing it means a typed
+  `handle()` wrapper across every handler file. Not worth it against a bug class
+  that has never occurred here.
