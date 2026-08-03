@@ -1303,7 +1303,7 @@ orphan and alternation tests were confirmed to fail against their pre-fix files.
 tool here is read-only, and the write path is `mutationTools.ts` and
 `directoryTools.ts`. The ranking reasoning was wrong even though the placement is
 defensible: this is the model's entire view of the workspace, and what it reads
-決定s what it then does.
+decides what it then does.
 
 ### Bugs fixed
 
