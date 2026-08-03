@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEven
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import type { SkillSummary } from '@shared/skill.types'
 import type { PermissionMode } from '@shared/settings.types'
+import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import { useChatStore, type PendingMessage } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
@@ -13,7 +14,12 @@ import { COMPOSER_INPUT_ATTR } from '../../hooks/useGlobalKeyboardShortcuts'
 import { Icon, type IconName } from '../../components/Icon'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { anodex } from '../../lib/anodex'
-import { ANODEX_FILE_DRAG_TYPE, type ComposerAttachment } from '../../lib/attachments'
+import {
+  ANODEX_FILE_DRAG_TYPE,
+  intakeAttachments,
+  MAX_ATTACHMENTS,
+  type ComposerAttachment
+} from '../../lib/attachments'
 import { formatBytes } from '../../lib/format'
 import {
   applySkillSuggestion,
@@ -32,10 +38,6 @@ import {
 import styles from './ChatComposer.module.css'
 
 const MAX_TEXTAREA_HEIGHT = 200
-/** Keeps a single turn's attached content bounded — mirrors the old read_file cap. */
-const MAX_ATTACHMENTS = 10
-/** Keeps image payloads and multimodal prompt processing predictably bounded. */
-const MAX_IMAGE_ATTACHMENTS = 4
 // Stable reference for the no-queue case — a fresh `[]` literal in the
 // selector would give useSyncExternalStore a new snapshot on every call,
 // which React treats as "state changed every render" and throws "Maximum
@@ -45,6 +47,9 @@ const EMPTY_SKILL_NAMES: string[] = []
 
 /** Order matters: least → most permissive, mirroring the Settings page. */
 const PERMISSION_MODES: PermissionMode[] = ['ask', 'full', 'untethered']
+
+/** Matches `useGlobalKeyboardShortcuts`' own fallback for settings-not-loaded-yet. */
+const DEFAULT_STOP_SHORTCUT = DEFAULT_KEYBOARD_SHORTCUTS.stopGeneration
 
 function permissionIcon(mode: PermissionMode): IconName {
   if (mode === 'untethered') return 'unlock-keyhole'
@@ -78,6 +83,28 @@ export function ChatComposer(): JSX.Element {
   const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const permMenuRef = useRef<HTMLDivElement>(null)
+  /**
+   * The attachment list is mirrored in a ref because `attachFiles` awaits an
+   * IPC read per file, and every one of those awaits is a window for a second
+   * pass to start — a second drop, or the file picker, neither of which waits
+   * for the first to finish. Both passes then derive their bookkeeping from
+   * the `attachments` closure as it was before either added anything, so the
+   * caps are enforced twice against the same starting point (drop ten, drop
+   * ten again, get twenty) and the same file dropped twice clears both passes'
+   * duplicate checks. That last one is the damaging case: `path` is this
+   * list's React key and the only thing `removeAttachment` filters on, so two
+   * entries sharing a path render as duplicate keys and removing either one
+   * removes both. The ref is written synchronously on every commit, so a pass
+   * resuming after an await sees what the other has already added.
+   */
+  const attachmentsRef = useRef<ComposerAttachment[]>([])
+
+  const setAttachmentList = (
+    update: (current: ComposerAttachment[]) => ComposerAttachment[]
+  ): void => {
+    attachmentsRef.current = update(attachmentsRef.current)
+    setAttachments(attachmentsRef.current)
+  }
 
   const activeConversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const sendMessage = useChatStore((s) => s.sendMessage)
@@ -94,6 +121,13 @@ export function ChatComposer(): JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const updateSettings = useSettingsStore((s) => s.update)
   const permissionMode = settings?.general.permissionMode ?? 'ask'
+  // Typing while a reply streams replaces the Stop button with Queue (see the
+  // send controls below), so at exactly the moment a user is most likely to
+  // want to interrupt — they are already writing the correction — the only way
+  // out is the keyboard. Name it here rather than leave them hunting, and read
+  // the real binding so a remapped shortcut is not advertised as Escape.
+  const stopShortcut = settings?.keyboard.shortcuts.stopGeneration ?? DEFAULT_STOP_SHORTCUT
+  const stopHint = stopShortcut ? ` · ${stopShortcut} to stop` : ''
   const projects = useProjectStore((s) => s.projects)
   const activeProject = projects.find((project) => project.id === activeConversation?.projectId)
   const pinnedSkillNames = activeProject?.pinnedSkillNames ?? EMPTY_SKILL_NAMES
@@ -245,7 +279,7 @@ export function ChatComposer(): JSX.Element {
       const value = expandComposerText(text)
       const pendingAttachments = attachments
       setText('')
-      setAttachments([])
+      setAttachmentList(() => [])
       resetHeight()
       queueMessage(value, pendingAttachments)
       return
@@ -254,7 +288,7 @@ export function ChatComposer(): JSX.Element {
     const value = expandComposerText(text)
     const pendingAttachments = attachments
     setText('')
-    setAttachments([])
+    setAttachmentList(() => [])
     resetHeight()
     void sendMessage(value, pendingAttachments)
   }
@@ -303,65 +337,17 @@ export function ChatComposer(): JSX.Element {
   }
 
   const removeAttachment = (path: string): void => {
-    setAttachments((prev) => prev.filter((a) => a.path !== path))
+    setAttachmentList((prev) => prev.filter((a) => a.path !== path))
   }
 
-  const attachFiles = async (candidates: { path: string; name: string }[]): Promise<void> => {
-    let currentCount = attachments.length
-    let currentImageCount = attachments.filter((attachment) => attachment.kind === 'image').length
-    const seenPaths = new Set(attachments.map((a) => a.path))
-    for (const { path, name } of candidates) {
-      if (currentCount >= MAX_ATTACHMENTS) {
-        notifyError('Too many attachments', `Only the first ${MAX_ATTACHMENTS} files were added.`)
-        break
-      }
-      if (seenPaths.has(path)) continue
-      const result = await anodex.attachments.readFile(path)
-      if (!result.ok) {
-        notifyError('Could not attach file', result.error.message)
-        continue
-      }
-      if (result.value.kind === 'image') {
-        const image = result.value
-        if (!visionAvailable) {
-          notifyError(
-            'Vision model required',
-            'Load a local vision model with its matching mmproj projector, or select an image-capable cloud model.'
-          )
-          continue
-        }
-        if (currentImageCount >= MAX_IMAGE_ATTACHMENTS) {
-          notifyError(
-            'Too many images',
-            `Only ${MAX_IMAGE_ATTACHMENTS} images can be sent in one message.`
-          )
-          continue
-        }
-        seenPaths.add(path)
-        currentCount += 1
-        currentImageCount += 1
-        setAttachments((prev) => [
-          ...prev,
-          {
-            kind: 'image',
-            path,
-            name,
-            dataUrl: image.dataUrl,
-            mimeType: image.mimeType,
-            sizeBytes: image.sizeBytes
-          }
-        ])
-        continue
-      }
-      seenPaths.add(path)
-      currentCount += 1
-      const { content, sizeBytes, truncated } = result.value
-      setAttachments((prev) => [
-        ...prev,
-        { kind: 'text', path, name, content, sizeBytes, truncated }
-      ])
-    }
-  }
+  const attachFiles = (candidates: { path: string; name: string }[]): Promise<void> =>
+    intakeAttachments(candidates, {
+      getAttachments: () => attachmentsRef.current,
+      commit: setAttachmentList,
+      readFile: (path) => anodex.attachments.readFile(path),
+      notifyError,
+      visionAvailable
+    })
 
   const handleDragEnter = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault()
@@ -676,7 +662,7 @@ export function ChatComposer(): JSX.Element {
       </div>
       <div className={styles.hint}>
         {generating
-          ? `Enter to queue for after this reply · Shift+Enter for a new line · ${SLASH_COMMAND_HINT}`
+          ? `Enter to queue for after this reply · Shift+Enter for a new line${stopHint} · ${SLASH_COMMAND_HINT}`
           : `Enter to send · Shift+Enter for a new line · ${
               visionAvailable ? 'Drag or attach files and images' : 'Drag or attach a file'
             } · ${

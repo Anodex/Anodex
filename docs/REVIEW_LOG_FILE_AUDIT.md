@@ -60,7 +60,7 @@ guess (the mistake that made round one's first table wrong).
 | 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ✅ done | Drives the research loop                                    |
 | 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3 → 6 | ✅ done | Fetches untrusted content the model then acts on            |
 | 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 0 → 5 | ✅ done | The unreviewed third mail adapter                           |
-| 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0     | ☐       | Every message starts here                                   |
+| 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0 → 8 | ✅ done | Every message starts here                                   |
 | 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0     | ☐       | Handles API keys                                            |
 | 13  | `src/main/tools/helpers.ts`                                                   | 501   | 26    | ☐       | Best-covered module in the tree; read at the user’s request |
 
@@ -2087,3 +2087,104 @@ file — the folder-scoped search and the 120-message thread action. The other
 three are the guards that stop the first fix overreaching: unscoped search stays
 global, a bare listing stays on the inbox, and a thread that resolves to nothing
 is still refused.
+
+## Round two, 11. `src/renderer/features/chat/ChatComposer.tsx` — done
+
+690 lines, no tests, and the first renderer file in this review. Every message
+the app sends starts here. The two defects are both in the gap between what the
+component decides and what it applies.
+
+**Renderer tests here cannot drive a component.** The vitest environment is
+`node` and there is no Testing Library or jsdom; the existing `.test.tsx` files
+under `features/chat/__tests__` use `renderToStaticMarkup`, which runs one
+initial render — no effects, no refs, no events. So a fix whose whole substance
+is _sequencing across an await_ could not be verified in place. `attachFiles`
+moved to `src/renderer/lib/attachments.ts` as `intakeAttachments`, taking its
+list access and file reads as parameters. That is what made the interleaving
+testable, and it thins the component by ~60 lines.
+
+### Bugs fixed
+
+**11.1 Two attachment passes racing each other doubled the cap and produced
+duplicate React keys.** `attachFiles` read the list once, before its loop:
+
+```ts
+let currentCount = attachments.length
+const seenPaths = new Set(attachments.map((a) => a.path))
+for (const { path, name } of candidates) {
+  if (currentCount >= MAX_ATTACHMENTS) { … }
+  if (seenPaths.has(path)) continue
+  const result = await anodex.attachments.readFile(path)   // yields
+```
+
+Correct for one pass. There is nothing that limits it to one. `handleDrop` and
+`handleAttachClick` both call it as `void attachFiles(…)`, and it awaits an IPC
+read per file — so a second drop, or the picker, starts its own pass while the
+first is parked. `attachments` is a `useState` closure value, so both passes
+measure the list as it was before either added anything:
+
+- **The cap is enforced twice against the same zero.** Ten files dropped twice
+  gave twenty attachments. Measured: the pre-fix algorithm admits 20 where the
+  limit is 10.
+- **The same file clears both passes' duplicate checks.** This is the damaging
+  one. `path` is the list's React key (`key={attachment.path}`) _and_ the only
+  thing `removeAttachment` filters on — so two entries sharing a path render as
+  duplicate keys, and clicking remove on either deletes both.
+
+The fix mirrors the list in a ref written synchronously at each commit, and
+re-reads it _after_ the await rather than only before. Everything from that
+re-read to the commit runs without yielding, so it is the one point where the
+list a decision is made against is still the list it is applied to.
+
+While in there, the overflow notice was corrected. `Only the first 10 files were
+added` was wrong in both directions: it claimed ten additions when the list was
+already full and none were added, and still said ten when two of five had fit.
+It now names the limit — the one thing it actually knows — once per pass rather
+than once per skipped file.
+
+**11.2 While generating with text typed, there was no way to stop, and nothing
+said so.** The send controls are a three-way:
+
+| State                       | Button |
+| --------------------------- | ------ |
+| `generating && !hasContent` | Stop   |
+| `generating && hasContent`  | Queue  |
+| otherwise                   | Send   |
+
+Typing a correction mid-reply — exactly when a user wants to interrupt — swaps
+Stop out for Queue. `useGlobalKeyboardShortcuts` does keep Esc-to-stop live
+inside the composer, deliberately and with a comment saying why, so the
+capability is there. It just was not discoverable: the generating hint read
+`Enter to queue for after this reply · Shift+Enter for a new line · …` and never
+mentioned it. The hint now names the binding, read from
+`settings.keyboard.shortcuts.stopGeneration` so a remapped shortcut is not
+advertised as Escape.
+
+### Assessed, not changed
+
+- **`Escape` clears the composer while slash suggestions show**, and its
+  `preventDefault` also blocks Esc-to-stop for that keystroke. Bounded to
+  near-nothing: `getSlashCommandSuggestions` returns matches only for a bare
+  `/word` with no whitespace, so at most a few characters are lost, and a second
+  Esc stops generation. Giving the menu its own dismissed-state to close instead
+  is a feature change, not a fix.
+- **`chatStore.compactConversation` and `stopGeneration` do not wrap their
+  `ipcRenderer.invoke` calls**, so an IPC-level rejection becomes an unhandled
+  rejection with no toast — the exact failure `sendMessage` already documents and
+  guards at `chatStore.ts:613`. Real, but it is a `chatStore` defect found from
+  next door; recorded here rather than fixed under file 11.
+- **`dragCounter` is not reset on `dragend`.** Enter/leave/drop already balance
+  it in every path the OS actually produces.
+- **The internal-drag `JSON.parse` is guarded but the `getAbsolutePath` promise
+  after it is not.** The payload is written by Anodex's own Files panel, so a
+  malformed shape is not reachable from outside the app.
+
+### Tests
+
+`src/renderer/lib/__tests__/attachmentIntake.test.ts` — 8 tests, the first
+coverage this logic has had. Three fail against the pre-fix algorithm
+(re-inserted verbatim to check, then reverted): the duplicate-path race, the cap
+race (20 vs 10), and the overflow wording. The other five pin the behaviour the
+fix had to preserve — text and image intake, a failed read reported once without
+ending the pass, an already-attached path skipped, images refused without a
+vision model, and the image cap holding independently of the overall cap.
