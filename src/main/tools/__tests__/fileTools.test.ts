@@ -397,7 +397,74 @@ describe('AI file tools', () => {
     })
   })
 
+  describe('search_files', () => {
+    it('rejects an empty query instead of matching every line in the workspace', async () => {
+      // find_files already guarded this. Without the same check here an empty
+      // needle matched every line of every text file, and the model got back
+      // whichever 100 the walk happened to reach first.
+      await writeFile(join(workspace, 'a.txt'), 'alpha\nbeta')
+      const ctx = createMockContext(workspace)
+      const tool = searchFilesTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { query: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ query: '   ' })
+
+      expect(result).toContain('query was empty')
+      expect(result).not.toContain('alpha')
+    })
+  })
+
   describe('read_file_range', () => {
+    /** A runtime budget whose per-result cap is exactly `tokens` (chars = 3x). */
+    const budgetOf = (tokens: number) => ({
+      contextSizeTokens: 8_000,
+      inputLimitTokens: 8_000,
+      fixedTokens: 0,
+      minimumReplyReserveTokens: 1_024,
+      maxTokensPerResult: tokens
+    })
+
+    it('does not mark a line it only returned part of as read', async () => {
+      // A budget that cuts mid-line: coverage is what the model has actually
+      // seen, so recording the cut line as covered puts the rest of it
+      // permanently out of reach — every later request short-circuits as
+      // "already read earlier this task" and the tail is never returned.
+      await writeFile(join(workspace, 'wide.txt'), ['short', 'x'.repeat(400), 'tail'].join('\n'))
+      const ctx = createMockContext(workspace)
+      // 300 chars, less the 200-char header reserve: the 400-char line cannot
+      // fit whole, so it is returned cut short.
+      ctx.modelResultBudget.current = budgetOf(100)
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+      }
+
+      const first = await tool.handler({ path: 'wide.txt', startLine: 2, endLine: 2 })
+      expect(first).toContain('was cut short')
+
+      // Line 2 was only partly shown, so it must still count as unread.
+      expect(ctx.readCoverage.uncovered(join(workspace, 'wide.txt'), 2, 2)).toHaveLength(1)
+    })
+
+    it('says so plainly when no budget is left rather than inverting the range', async () => {
+      await writeFile(join(workspace, 'lines.txt'), 'a\nb\nc')
+      const ctx = createMockContext(workspace)
+      // 150 chars, entirely consumed by the 200-char header reserve — nothing
+      // is left for content, but the budget itself is not zero, so this is the
+      // tool's own decision rather than an upstream cap.
+      ctx.modelResultBudget.current = budgetOf(50)
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'lines.txt', startLine: 2, endLine: 3 })
+
+      // Falling through produced "lines 2-1" with empty content, which reads
+      // as a broken tool rather than an exhausted budget.
+      expect(result).toContain('no room left in the active context')
+      expect(result).not.toMatch(/lines 2-1/)
+    })
+
     it('returns the requested 1-indexed line range', async () => {
       await writeFile(join(workspace, 'lines.txt'), 'a\nb\nc\nd\ne')
       const ctx = createMockContext(workspace)

@@ -255,17 +255,30 @@ export const searchFilesTool: WorkspaceToolFactory = (define, ctx) =>
         title: `Search "${args.query}"`,
         args,
         async run() {
+          // `find_files` already rejects this; without the same guard here an
+          // empty needle matched every line of every text file and returned
+          // whatever 100 the walk happened to reach first.
+          const query = args.query.trim()
+          if (!query) throw new Error('query was empty.')
+
           const start = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
           const results: string[] = []
-          await walk(start, ctx.workspaceRoot, args.query.toLowerCase(), results)
+          await walk(start, ctx.workspaceRoot, query.toLowerCase(), results)
           const shown = results.slice(0, MAX_SEARCH_RESULTS)
+          // The walk itself stops at `SEARCH_HARD_CAP`, so once it is reached
+          // the count is a floor rather than a total — reporting it bare told
+          // the model there were exactly 100 more when there might be
+          // thousands, which is the difference between "nearly done" and
+          // "narrow your query".
+          const capped = results.length >= SEARCH_HARD_CAP
           const overflow =
             results.length > MAX_SEARCH_RESULTS
-              ? `\n… ${results.length - MAX_SEARCH_RESULTS} more matches`
+              ? `\n… ${results.length - MAX_SEARCH_RESULTS}${capped ? '+' : ''} more matches` +
+                (capped ? ' (search stopped early; narrow the query or the path)' : '')
               : ''
           return {
             modelResult: (shown.length ? shown.join('\n') : 'No matches found.') + overflow,
-            detail: `${results.length} matches`
+            detail: `${results.length}${capped ? '+' : ''} matches`
           }
         }
       })
@@ -314,13 +327,17 @@ export const findFilesTool: WorkspaceToolFactory = (define, ctx) =>
           )
 
           const shown = results.slice(0, MAX_FIND_RESULTS)
+          // Same floor-not-total caveat as `search_files` — the walk stops at
+          // twice the display cap.
+          const capped = results.length >= MAX_FIND_RESULTS * 2
           const overflow =
             results.length > MAX_FIND_RESULTS
-              ? `\n... ${results.length - MAX_FIND_RESULTS} more matches`
+              ? `\n... ${results.length - MAX_FIND_RESULTS}${capped ? '+' : ''} more matches` +
+                (capped ? ' (scan stopped early; narrow the query or the path)' : '')
               : ''
           return {
             modelResult: (shown.length ? shown.join('\n') : 'No matching paths found.') + overflow,
-            detail: `${results.length} matches`
+            detail: `${results.length}${capped ? '+' : ''} matches`
           }
         }
       })
@@ -470,11 +487,28 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
             requestedLines,
             charBudget
           )
+          if (includedLines.length === 0) {
+            // Nothing fits at all. Falling through produced an inverted range
+            // ("lines 5-4") with empty content, which reads as a file bug
+            // rather than an exhausted budget.
+            return {
+              modelResult:
+                `[${normalized.path}: no room left in the active context to return any of lines ${start}-${requestedEnd}.]\n` +
+                'Summarize or act on what you already have before reading more.',
+              detail: 'No context budget left'
+            }
+          }
           const actualEnd = start + includedLines.length - 1
           const content = includedLines.join('\n')
           // Recorded before the continuation hint below is computed, so the
           // hint can see this call's own coverage merged in.
-          if (actualEnd >= start) ctx.readCoverage.recordRange(file, start, actualEnd)
+          //
+          // A last line cut mid-way is deliberately NOT recorded: coverage is
+          // what the model has actually seen, and marking a partial line
+          // covered puts the rest of it permanently out of reach — every later
+          // request for it short-circuits as "already read earlier this task".
+          const coveredEnd = partialLastLine ? actualEnd - 1 : actualEnd
+          if (coveredEnd >= start) ctx.readCoverage.recordRange(file, start, coveredEnd)
           // Points at the next line NOT yet covered this task, not blindly at
           // `actualEnd + 1` — when a covered island sits just past this
           // call's end (an earlier cycle read it), the naive hint would send
@@ -641,8 +675,12 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
               results.push(`${header}\n${bounded}`)
               readTouches.push({ path: relativePath, action: 'read' })
               if (wasTruncated) {
-                if (includedLines.length > 0)
-                  ctx.readCoverage.recordRange(file, 1, includedLines.length)
+                // Same rule as `read_file_range`: a last line cut mid-way is
+                // not covered, or the rest of it can never be fetched.
+                const completeLines = partialLastLine
+                  ? includedLines.length - 1
+                  : includedLines.length
+                if (completeLines > 0) ctx.readCoverage.recordRange(file, 1, completeLines)
               } else {
                 ctx.readCoverage.recordFullFile(file)
               }

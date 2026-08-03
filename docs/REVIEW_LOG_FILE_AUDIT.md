@@ -69,8 +69,10 @@ empty-subject thread resolving to the whole mailbox, a background refresh erasin
 a live turn. The tool layer is the same class of code with the model's hand on
 it, and it is the least covered part of the app.
 
-`helpers.ts` (501 lines) is deliberately absent: 26 test files exercise it, by
-far the best-covered module in the tree.
+`helpers.ts` (501 lines) is on the list at the user's request, placed last: 26
+test files exercise it, by far the best-covered module in the tree, so it is
+the least likely to be hiding anything — but it is also the layer every tool
+runs through, which is a fair reason to read it anyway.
 
 ## Open cross-cutting items
 
@@ -1288,3 +1290,61 @@ the fixture that still does exercise it.
 Six: two on the round separator (text joined across rounds; a tool-only round
 contributing nothing), three on cut alignment, one on strict alternation. The
 orphan and alternation tests were confirmed to fail against their pre-fix files.
+
+---
+
+## R2.1 `src/main/tools/fileTools.ts` — done
+
+748 lines: `list_directory`, `read_file`, `search_files`, `find_files`,
+`get_file_info`, `read_file_range`, `read_multiple_files`.
+
+**A correction to this round's own ranking.** It was placed first as the file
+"the model writes, edits and deletes the user's files through". It is not — every
+tool here is read-only, and the write path is `mutationTools.ts` and
+`directoryTools.ts`. The ranking reasoning was wrong even though the placement is
+defensible: this is the model's entire view of the workspace, and what it reads
+決定s what it then does.
+
+### Bugs fixed
+
+**R2.1.1 A line returned only in part was recorded as fully read.**
+`read_file_range` bounds output to the active context budget, and a single line
+too long to fit is returned truncated with `partialLastLine: true` and a note
+saying so. It then recorded coverage across the whole served range including that
+line. `ReadCoverageTracker.recordRange` is inclusive, so every later request for
+that line short-circuited as "already read earlier this task" — the rest of it
+was unreachable for the remainder of the task. `read_multiple_files` had the same
+bug in its own truncation path.
+
+Coverage is what the model has actually seen, so a cut line is no longer counted.
+
+**R2.1.2 An exhausted budget produced an inverted range and no content.**
+When nothing fit, `includedLines` was empty, `actualEnd` became `start - 1`, and
+the result announced "lines 5-4 of 200" with an empty body — which reads as a
+broken tool rather than an exhausted budget. It now says so plainly.
+
+**R2.1.3 `search_files` accepted an empty query.** `find_files` rejects one;
+this did not, so an empty needle matched every line of every text file and
+returned whichever 100 the walk reached first, at full scan cost.
+
+**R2.1.4 Overflow counts were floors reported as totals.** Both walks stop at a
+hard cap (200 matches for search, 400 paths for find), so "… 100 more matches"
+was the arithmetic of the cap rather than the truth — there might be thousands.
+That is the difference between "nearly done" and "narrow your query". Now marked
+`+` with a note that the scan stopped early.
+
+### Deliberate non-changes
+
+- **`countLines` counts a trailing newline as an extra line** (`"a
+"` → 2).
+  Conventionally wrong, but `read_file_range` splits identically, so the numbers
+  agree with each other and with the line numbers the model is given. Changing
+  one without the other is what would actually cause harm.
+- **`get_file_info` decodes up to 10 MB to count lines.** Heavy for a metadata
+  call, but bounded, documented, and the count is the useful part of the answer.
+
+### Tests added
+
+Three, all confirmed to fail against the pre-fix file: the partial-line coverage
+rule, the exhausted-budget message, and the empty-query rejection. The overflow
+phrasing is not covered — it is a wording change with no behavioural edge.
