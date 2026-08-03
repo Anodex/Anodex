@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { checkpointStore } from '../CheckpointStore'
 
@@ -376,5 +376,84 @@ describe('CheckpointStore', () => {
     expect(result.conflicts).toEqual([])
     expect(result.restoredFiles).toEqual(['app.ts'])
     expect(readFileSync(file, 'utf-8')).toBe('original')
+  })
+
+  /**
+   * A damaged checkpoint file used to throw out of every path except `list()`,
+   * which was the only one that guarded against it.
+   */
+  describe('an unusable checkpoint file', () => {
+    function corrupt(root: string, contents: string): string {
+      const path = join(root, '.anodex', 'checkpoints', 'c1', 'm1.json')
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, contents, 'utf-8')
+      return path
+    }
+
+    it('does not fail a write that already succeeded', () => {
+      const root = workspace()
+      const path = corrupt(root, '{ this is not json')
+
+      // `runGuardedTool` records the checkpoint *after* the file is on disk, so
+      // a throw here reported a successful `write_file` as a failure — and the
+      // likeliest response to that is writing it a second time.
+      const summary = checkpointStore.recordChange(root, 'c1', 'm1', {
+        path: 'app.ts',
+        before: 'original',
+        after: 'edited'
+      })
+
+      expect(summary.changedFiles).toEqual(['app.ts'])
+      // Moved aside rather than left to poison every later read — and kept,
+      // because this is the undo system.
+      expect(existsSync(`${path}.corrupt`)).toBe(true)
+    })
+
+    it('reports no checkpoint rather than throwing at the end of a turn', () => {
+      const root = workspace()
+      corrupt(root, '{ this is not json')
+
+      // `runGeneration` calls this unguarded on every turn, after all the tool
+      // work is done.
+      expect(checkpointStore.getSummary(root, 'c1', 'm1')).toBeNull()
+    })
+
+    it('rejects a file that parses but is not a checkpoint', () => {
+      const root = workspace()
+      corrupt(root, '{}')
+
+      // Valid JSON, so it used to survive `JSON.parse` and become an entry with
+      // an undefined message id and `createdAt`, which then sorted as NaN
+      // against every real entry in the history.
+      expect(checkpointStore.list(root)).toEqual([])
+      expect(checkpointStore.getSummary(root, 'c1', 'm1')).toBeNull()
+    })
+  })
+
+  it('records the files a failed restore did put back', () => {
+    const root = workspace()
+    writeFileSync(join(root, 'first.ts'), 'edited', 'utf-8')
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'first.ts',
+      before: 'original',
+      after: 'edited'
+    })
+    checkpointStore.recordChange(root, 'c1', 'm1', {
+      path: 'nested/second.ts',
+      before: 'original',
+      after: 'edited'
+    })
+    // `nested` is a regular file, so creating the directory that
+    // `nested/second.ts` needs fails part-way through the restore — the same
+    // shape as a locked file, a permission, or a full disk.
+    writeFileSync(join(root, 'nested'), 'not a directory', 'utf-8')
+
+    expect(() => checkpointStore.restore(root, 'c1', 'm1', { force: true })).toThrow()
+
+    // Without persisting in a `finally`, the record claimed nothing had been
+    // restored while the disk said otherwise, and the retry then reported a
+    // conflict on the one file that had been put back correctly.
+    expect(checkpointStore.getSummary(root, 'c1', 'm1')?.restoredFiles).toEqual(['first.ts'])
+    expect(readFileSync(join(root, 'first.ts'), 'utf-8')).toBe('original')
   })
 })

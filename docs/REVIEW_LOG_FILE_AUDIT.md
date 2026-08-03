@@ -53,7 +53,7 @@ guess (the mistake that made round one's first table wrong).
 | 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1 → 3 | ✅ done | Runs arbitrary shell commands                               |
 | 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2 → 6 | ✅ done | The write path proper                                       |
 | 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1 → 3 | ✅ done | Sends real mail on the user's behalf — irreversible         |
-| 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4     | ☐       | The undo for all of the above                               |
+| 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4 → 8 | ✅ done | The undo for all of the above                               |
 | 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1     | ☐       | Local vision transport, never read end to end               |
 | 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2     | ☐       | Mid-generation context surgery                              |
 | 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3     | ☐       | Largest unreviewed file; long unattended runs               |
@@ -1559,3 +1559,83 @@ These tests spawn real processes into the temp workspace, and on Windows a
 directory that has just hosted a killed child stays locked briefly after it
 exits. Failing a passing test over temp-directory housekeeping would be
 reporting the wrong thing.
+
+---
+
+## Round two, 4. `src/main/checkpoints/CheckpointStore.ts` — done
+
+436 lines: the undo for everything files 1–3 can do to a workspace. Every
+`write_file`, `edit_file`, `patch_file` and `run_command` side effect is recorded
+here, and this is the only path back.
+
+### Bugs fixed
+
+**4.1 One damaged checkpoint file failed writes that had already succeeded.**
+`readFile` did a bare `JSON.parse`, and `list()` was the only one of its five
+callers that guarded against a throw — its own comment says "one damaged
+checkpoint should not hide the rest of the project history". The other four
+inherited nothing, and the consequences ran in the worst possible direction:
+
+- `recordChange` reads the existing checkpoint _after_ `runGuardedTool` has
+  written the file to disk (`helpers.ts:369` runs `spec.run()`, then `:378`
+  records). A throw there reported a `write_file` that genuinely succeeded as a
+  failure — and the likeliest response to that is writing it again. Once one
+  file was damaged, every later write to the same message failed the same way.
+- `getSummary` is called unguarded at the end of every turn
+  (`runGeneration.ts:624`), so a single bad file failed whole turns after all
+  their tool work was already done.
+- `restore`/`inspect`/`undoRestore` surfaced a raw `SyntaxError` rather than a
+  sentence about checkpoints.
+
+`readFile` now returns `null` for anything unusable and moves the file aside as
+`.corrupt` — it stops poisoning every later read, and this is the undo system,
+so the bytes are kept rather than silently overwritten.
+
+**4.2 A file that parsed but was not a checkpoint became a garbage history
+entry.** The change list and `restoredPaths` were validated; the identity fields
+were not. `{}` is valid JSON, so it survived `JSON.parse` and produced an entry
+with `undefined` for its message id and `createdAt`, which then sorted as `NaN`
+against every real entry in `list()`. `normalizeCheckpoint` now requires the
+conversation id, message id and a finite `createdAt`, and rejects the file
+otherwise.
+
+**4.3 A restore that failed part-way recorded that nothing had been restored.**
+`restore`, `undoRestore` and `rollback`'s inner loop all wrote files one at a
+time and persisted the result only after the loop finished. A write that threw
+mid-loop — a file open in an editor on Windows, a permission, a full disk — left
+some files correctly put back on disk while the checkpoint still claimed none of
+them were. The retry then ran `hasStateConflict` against those files, found the
+_before_ state where it expected the _after_ state, and reported a conflict on
+precisely the files that had already been restored correctly.
+
+All three now persist from a `finally`, through a shared `persistProgress` that
+swallows its own write failure — called from a `finally`, it must not replace
+the real error (the write that failed) with a less useful one about recording it.
+
+### Verified, not bugs
+
+- **Restore cannot escape the workspace.** `writeState` and `readState` both go
+  through `resolveInWorkspace`, which rejects `..` traversal _and_ calls
+  `assertRealPathInside` for symlinks — so a hand-edited checkpoint naming
+  `../../../etc/passwd` is refused rather than written.
+- **`sanitizeId` collapsing distinct ids onto one filename** (`a.b`, `a/b` and
+  `a_b` all become `a_b`) is unreachable: conversation and message ids are
+  generated by the app as `m_<base36>_<random>` and already contain nothing the
+  regex touches. It is doing its real job, which is blocking traversal in a path
+  segment.
+- **`writeState` leaves empty parent directories behind** after restoring a
+  deletion. Cosmetic, and removing directories on the undo path is a good deal
+  riskier than leaving them.
+
+### Tests
+
+`src/main/checkpoints/__tests__/CheckpointStore.test.ts` — 4 added (19 total),
+all four confirmed failing against the pre-fix file: a corrupt file no longer
+fails a completed write (and is moved aside), `getSummary` reports no checkpoint
+rather than throwing, `{}` is rejected instead of becoming a history entry, and
+a restore that fails part-way records the files it did put back.
+
+The partial-failure test makes the write fail for real rather than by mocking —
+`node:fs` exports cannot be spied on under ESM — by recording `nested/second.ts`
+and putting a regular _file_ at `nested`, so the `mkdirSync` for its parent
+fails exactly the way a locked file or a full disk would.

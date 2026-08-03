@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import type {
   CheckpointFileChange,
@@ -13,6 +21,9 @@ import type {
 } from '@shared/checkpoint.types'
 import { writeJsonAtomic } from '../utils/atomicWrite'
 import { resolveInWorkspace } from '../tools/workspace'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('checkpoints')
 
 interface PersistedCheckpoint {
   conversationId: string
@@ -145,19 +156,21 @@ class CheckpointStore {
     }
 
     const restoredFiles: string[] = []
-    for (const change of selectedChanges) {
-      writeState(workspaceRoot, change.path, change.before, change.beforeEncoding)
-      restoredFiles.push(change.path)
-      restoredPaths.add(change.path)
+    // Persisted in a `finally` so a write that fails part-way — a file locked
+    // by an editor, a permission, a full disk — still records what did land.
+    // Without it the record claimed nothing was restored while the disk said
+    // otherwise, and the retry then reported conflicts on precisely the files
+    // that had already been put back correctly.
+    let restored: PersistedCheckpoint = checkpoint
+    try {
+      for (const change of selectedChanges) {
+        writeState(workspaceRoot, change.path, change.before, change.beforeEncoding)
+        restoredFiles.push(change.path)
+        restoredPaths.add(change.path)
+      }
+    } finally {
+      restored = persistProgress(filePath, checkpoint, restoredPaths)
     }
-
-    const allRestored = checkpoint.changes.every((change) => restoredPaths.has(change.path))
-    const restored: PersistedCheckpoint = {
-      ...checkpoint,
-      restoredAt: allRestored ? (checkpoint.restoredAt ?? Date.now()) : undefined,
-      restoredPaths: [...restoredPaths]
-    }
-    writeJsonAtomic(filePath, restored)
     return { restoredFiles, conflicts: [], checkpoint: toSummary(restored) }
   }
 
@@ -217,21 +230,18 @@ class CheckpointStore {
     const rolledBackMessages: string[] = []
     for (const entry of pending) {
       if (entry.changes.length === 0) continue
-      for (const change of entry.changes) {
-        writeState(workspaceRoot, change.path, change.before, change.beforeEncoding)
-        entry.restored.add(change.path)
-        restoredFiles.add(change.path)
+      // Same `finally` as `restore` — a rollback spans several checkpoints, so
+      // a failure part-way through one of them must not lose the record of the
+      // files it had already put back.
+      try {
+        for (const change of entry.changes) {
+          writeState(workspaceRoot, change.path, change.before, change.beforeEncoding)
+          entry.restored.add(change.path)
+          restoredFiles.add(change.path)
+        }
+      } finally {
+        persistProgress(entry.filePath, entry.checkpoint, entry.restored)
       }
-
-      const allRestored = entry.checkpoint.changes.every((change) =>
-        entry.restored.has(change.path)
-      )
-      const restored: PersistedCheckpoint = {
-        ...entry.checkpoint,
-        restoredAt: allRestored ? (entry.checkpoint.restoredAt ?? Date.now()) : undefined,
-        restoredPaths: [...entry.restored]
-      }
-      writeJsonAtomic(entry.filePath, restored)
       rolledBackMessages.push(entry.checkpoint.messageId)
     }
 
@@ -271,18 +281,19 @@ class CheckpointStore {
     }
 
     const undoneFiles: string[] = []
-    for (const change of selectedChanges) {
-      writeState(workspaceRoot, change.path, change.after, change.afterEncoding)
-      restoredPaths.delete(change.path)
-      undoneFiles.push(change.path)
+    let undone: PersistedCheckpoint = checkpoint
+    try {
+      for (const change of selectedChanges) {
+        writeState(workspaceRoot, change.path, change.after, change.afterEncoding)
+        restoredPaths.delete(change.path)
+        undoneFiles.push(change.path)
+      }
+    } finally {
+      // Mirrors `restore`. Undo is the direction where losing the record is
+      // worse: the file is back at its post-change state while the checkpoint
+      // still lists it as restored, so the next undo would decline it.
+      undone = persistProgress(filePath, checkpoint, restoredPaths)
     }
-
-    const undone: PersistedCheckpoint = {
-      ...checkpoint,
-      restoredAt: undoneFiles.length > 0 ? undefined : checkpoint.restoredAt,
-      restoredPaths: [...restoredPaths]
-    }
-    writeJsonAtomic(filePath, undone)
     return { undoneFiles, conflicts: [], checkpoint: toSummary(undone) }
   }
 
@@ -296,24 +307,84 @@ class CheckpointStore {
     return checkpoint
   }
 
+  /**
+   * Read one checkpoint, or `null` if the file is missing or unusable.
+   *
+   * Unusable has to mean `null` rather than a throw. `list()` was the only
+   * caller that guarded against a damaged file — its own comment says "one
+   * damaged checkpoint should not hide the rest of the project history" — and
+   * the other four call paths inherited a bare `JSON.parse`. The consequences
+   * ran in the wrong direction entirely:
+   *
+   * - `recordChange` reads the existing checkpoint *after* `runGuardedTool` has
+   *   already written the file to disk (`helpers.ts:369` runs, then `:378`
+   *   records). A throw there fails a `write_file` that genuinely succeeded,
+   *   and the model's likeliest response is to write it again.
+   * - `getSummary` is called unguarded at the very end of every turn
+   *   (`runGeneration.ts:624`), so one bad file failed whole turns after all
+   *   their tool work was done.
+   * - `restore`/`inspect`/`undoRestore` surfaced a raw `SyntaxError` instead of
+   *   a sentence about checkpoints.
+   *
+   * A file that cannot be parsed is moved aside rather than left in place: it
+   * stops poisoning every later read, and this is the undo system, so the bytes
+   * are kept for anyone who wants to look at them.
+   */
   private readFile(filePath: string): PersistedCheckpoint | null {
     if (!existsSync(filePath)) return null
-    const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as PersistedCheckpoint
-    const changes = Array.isArray(parsed.changes) ? parsed.changes.filter(isCheckpointChange) : []
-    const restoredPaths = Array.isArray(parsed.restoredPaths)
-      ? parsed.restoredPaths.filter((path): path is string => typeof path === 'string')
-      : parsed.restoredAt
-        ? changes.map((change) => change.path)
-        : []
-    return {
-      conversationId: parsed.conversationId,
-      messageId: parsed.messageId,
-      createdAt: parsed.createdAt,
-      restoredAt: parsed.restoredAt,
-      restoredPaths,
-      changes
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(readFileSync(filePath, 'utf-8'))
+    } catch (error) {
+      this.quarantine(filePath, 'could not be parsed', error)
+      return null
+    }
+    const checkpoint = normalizeCheckpoint(parsed)
+    if (!checkpoint) {
+      this.quarantine(filePath, 'is not a checkpoint', null)
+      return null
+    }
+    return checkpoint
+  }
+
+  /** Move an unusable checkpoint out of the way, best effort. */
+  private quarantine(filePath: string, reason: string, error: unknown): void {
+    const aside = `${filePath}.corrupt`
+    try {
+      renameSync(filePath, aside)
+      log.warn(`Checkpoint ${filePath} ${reason}; moved to ${aside}.`, error)
+    } catch (renameError) {
+      log.warn(`Checkpoint ${filePath} ${reason} and could not be moved aside.`, renameError)
     }
   }
+}
+
+/**
+ * Write back which of a checkpoint's files are currently restored.
+ *
+ * Called from a `finally`, so it must not throw: a failure to record progress
+ * would otherwise replace the real error (the write that failed) with a less
+ * useful one about the record of it.
+ */
+function persistProgress(
+  filePath: string,
+  checkpoint: PersistedCheckpoint,
+  restoredPaths: ReadonlySet<string>
+): PersistedCheckpoint {
+  const allRestored =
+    checkpoint.changes.length > 0 &&
+    checkpoint.changes.every((change) => restoredPaths.has(change.path))
+  const next: PersistedCheckpoint = {
+    ...checkpoint,
+    restoredAt: allRestored ? (checkpoint.restoredAt ?? Date.now()) : undefined,
+    restoredPaths: [...restoredPaths]
+  }
+  try {
+    writeJsonAtomic(filePath, next)
+  } catch (error) {
+    log.warn(`Could not record checkpoint progress for ${filePath}.`, error)
+  }
+  return next
 }
 
 function upsertChange(
@@ -415,6 +486,37 @@ function contentSize(
 
 function isBinaryChange(change: CheckpointFileChange): boolean {
   return change.beforeEncoding === 'base64' || change.afterEncoding === 'base64'
+}
+
+/**
+ * Coerce a parsed file into a checkpoint, or `null` if it is not one.
+ *
+ * The change list and `restoredPaths` were already validated; the identity
+ * fields were not, so a syntactically valid file missing them — `{}` is the
+ * simplest — parsed cleanly and produced an entry with `undefined` for its
+ * message id and `createdAt`, which then sorted as `NaN` against every other
+ * entry in the history list.
+ */
+function normalizeCheckpoint(value: unknown): PersistedCheckpoint | null {
+  if (!value || typeof value !== 'object') return null
+  const parsed = value as Partial<PersistedCheckpoint>
+  if (typeof parsed.conversationId !== 'string' || typeof parsed.messageId !== 'string') return null
+  if (!Number.isFinite(parsed.createdAt)) return null
+
+  const changes = Array.isArray(parsed.changes) ? parsed.changes.filter(isCheckpointChange) : []
+  const restoredPaths = Array.isArray(parsed.restoredPaths)
+    ? parsed.restoredPaths.filter((path): path is string => typeof path === 'string')
+    : parsed.restoredAt
+      ? changes.map((change) => change.path)
+      : []
+  return {
+    conversationId: parsed.conversationId,
+    messageId: parsed.messageId,
+    createdAt: parsed.createdAt as number,
+    restoredAt: typeof parsed.restoredAt === 'number' ? parsed.restoredAt : undefined,
+    restoredPaths,
+    changes
+  }
 }
 
 function isCheckpointChange(value: unknown): value is CheckpointFileChange {
