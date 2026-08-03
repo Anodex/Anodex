@@ -30,7 +30,7 @@ non-change, and the suite still passes.
 | 6   | `src/main/email/EmailService.ts`                 | 713   | 1 → 2 added  | ✅ done |
 | 7   | `src/main/email/providers/ImapSmtpAdapter.ts`    | 919   | 0 → 18 added | ✅ done |
 | 8   | `src/renderer/stores/chatStore.ts`               | 1244  | 1 → 5 added  | ✅ done |
-| 9   | `src/shared/ipc.ts`                              | 862   | 3            | ☐       |
+| 9   | `src/shared/ipc.ts`                              | 862   | 3 → 10 added | ✅ done |
 | 10  | `src/renderer/features/chat/ChatCircuit.tsx`     | 956   | 0            | ☐       |
 | 11  | `src/renderer/features/startup/startupEngine.ts` | 792   | 0            | ☐       |
 | 12  | `src/renderer/features/email/EmailView.tsx`      | 1251  | 0            | ☐       |
@@ -52,6 +52,7 @@ from.
 | No timeout on API-key verify clients (all providers)        | 4        | ☐               |
 | Empty turns can leave consecutive same-role messages        | 4        | ☐ narrowed in 5 |
 | `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ☐               |
+| `AnodexApi` mixes `Result<T>` and bare-`T` returns          | 9        | ☐               |
 | No Sent copy is filed after an SMTP send                    | 7        | ✅ fixed        |
 | `unarchive` cannot resolve an already-archived thread       | 7        | ✅ fixed        |
 
@@ -882,3 +883,67 @@ the notification and chime paths the result branches touch — more harness than
 the eight-line change warrants, and the existing file's mock is deliberately
 minimal so an unexpected bridge call fails loudly. Stated here rather than left
 to look covered.
+
+---
+
+## 9. `src/shared/ipc.ts` — done
+
+862 lines and no runtime logic beyond the `IpcChannel` map: a channel table plus
+the `AnodexApi` type. So "correctness" here is drift, not behaviour — and the
+useful audit is mechanical rather than a read for logic errors.
+
+### What was already sound
+
+The half of the contract TypeScript can prove is proven. The preload bridge is
+declared `const api: AnodexApi`, so a missing, misspelt or wrongly-typed method
+there is a compile error, and excess-property checking rejects a preload-only
+extra. Nothing to add.
+
+The channel half was checked exhaustively against the real source. All 188
+channels: no duplicate strings, every one namespaced, every one referenced in
+both main and preload, every preload `invoke` backed by an `ipcMain` handler, and
+no hardcoded channel literal anywhere bypassing the map. The file lives up to its
+own doc comment.
+
+### Fixed
+
+**9.1 `VerifyProviderKeyRequest.provider` restated a union it already imported.**
+It listed the same eleven ids as `CloudProviderId`, which is imported twelve
+lines above for `getUsageSnapshot`. Adding a provider meant editing this list
+too, in a file that otherwise has no reason to change. Now `provider:
+CloudProviderId` — structurally identical (both typecheck configs confirm), and
+`local` stays correctly absent since there is no key to verify.
+
+### Tests added
+
+`src/shared/__tests__/ipcContract.test.ts` — 7 tests that read the real `src/main`
+and `src/preload` sources rather than a fixture, so drift fails on the commit
+that introduces it.
+
+These pass against current code by construction, so each guard was verified by
+deliberately introducing the drift it claims to catch:
+
+| Mutation                                    | Caught by                                    |
+| ------------------------------------------- | -------------------------------------------- |
+| Point `Chat.stop` at `'models:list'`        | never reuses a channel string                |
+| `ipcMain.handle('bogus:channel', …)`        | routes every registration through IpcChannel |
+| Retarget `Conversations.getState`'s handler | main-process reference + handler-for-invoke  |
+
+The duplicate-string guard is the one that matters most: Electron keeps only the
+last handler registered per channel, so two entries sharing a string means one
+feature silently stops working with no error at either end.
+
+### Deliberate non-changes
+
+- **`AnodexApi` mixes `Result<T>` and bare-`T` returns** — 85 against 82, with no
+  visible rule. A bare method rejects on any main-side throw, pushing the burden
+  onto each call site to remember a `try`/`catch`; `chatStore`'s `sendMessage`
+  was missing exactly that (see 8.2). The callers checked do handle it —
+  `projectStore` wraps every one — so this is a convention inconsistency rather
+  than a live bug, and normalising 167 signatures is its own change. Listed under
+  open cross-cutting items.
+- **Main-side handler return types are not tied to `AnodexApi`.** `ipcMain.handle`
+  accepts any return value, so a handler could return a shape the renderer's type
+  says is impossible and nothing would complain until runtime. Closing it means a
+  typed `handle()` wrapper across every handler file — a real improvement, and far
+  outside one file's review.

@@ -436,18 +436,14 @@ export const IpcChannel = {
 
 /** Request to test whether a cloud provider API key (and model) works. */
 export interface VerifyProviderKeyRequest {
-  provider:
-    | 'anthropic'
-    | 'openai'
-    | 'google'
-    | 'xai'
-    | 'deepseek'
-    | 'mistral'
-    | 'groq'
-    | 'openrouter'
-    | 'azure'
-    | 'kimi'
-    | 'qwen'
+  /**
+   * Derived rather than restated. This was a hand-written union listing the
+   * same eleven ids as {@link CloudProviderId} — already imported into this
+   * file — so adding a provider meant editing the list here too, in a file with
+   * no other reason to change. `local` is correctly absent either way: there is
+   * no key to verify.
+   */
+  provider: CloudProviderId
   apiKey: string
   /** Model id for every provider except `azure`, which has no fixed model catalog. */
   model: string
