@@ -199,4 +199,31 @@ describe('runChatCompletionsLoop — round budget', () => {
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('rounds-exhausted')
   })
+
+  it('never sends two consecutive turns of the same role', async () => {
+    // An assistant turn that errored or was stopped is still persisted into
+    // history, and a turn with no text and no images is skipped when building
+    // the request — leaving the two user turns either side of it adjacent.
+    // Mistral and Google's compat layer have historically required strict
+    // alternation, so that is a malformed request rather than a cosmetic one.
+    mocks.rounds.push({ text: 'Fine.' })
+
+    await run({
+      history: [
+        { role: 'user', content: 'first question' },
+        { role: 'assistant', content: '' },
+        { role: 'user', content: 'second question' }
+      ]
+    })
+
+    const sent = mocks.requests[0].messages as Array<{ role: string; content: unknown }>
+    const roles = sent.map((message) => message.role)
+    expect(roles.some((role, i) => i > 0 && role === roles[i - 1])).toBe(false)
+    // Merged, not dropped: neither question is lost.
+    const merged = sent.find(
+      (message) =>
+        typeof message.content === 'string' && String(message.content).includes('first question')
+    )
+    expect(String(merged?.content)).toContain('second question')
+  })
 })

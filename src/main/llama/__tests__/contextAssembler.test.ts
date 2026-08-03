@@ -149,12 +149,16 @@ describe('assembleModelContext', () => {
       }
     })
 
-    expect(summarizedCalls).toHaveLength(2)
-    // The fold-back pass folds ONLY the newly overflowing turn into the
-    // existing rolling summary — not the whole accumulated older slice again.
-    expect(summarizedCalls[1].transcript).toContain('B'.repeat(250))
-    expect(summarizedCalls[1].transcript).not.toContain('A'.repeat(220))
-    expect(summarizedCalls[1].previous).toBe('S'.repeat(250))
+    // One pass, where this needed two. The budget walk used to cut mid-pair and
+    // keep `B` — an assistant reply to a question no longer in history — which
+    // then had to be folded back on a second pass once the summary grew.
+    // `splitHistoryByTokenBudget` now aligns the cut to a user turn, so the
+    // orphan never survives the first split and there is nothing to fold back.
+    expect(summarizedCalls).toHaveLength(1)
+    expect(summarizedCalls[0].transcript).toContain('A'.repeat(220))
+    expect(summarizedCalls[0].transcript).toContain('B'.repeat(250))
+    // The outcome is unchanged, which is the point: same kept history, same
+    // count removed, one fewer model call to get there.
     expect(assembled.history).toEqual([history[2], history[3]])
     expect(assembled.removedTurns).toBe(2)
   })
@@ -167,17 +171,27 @@ describe('assembleModelContext', () => {
     }))
     const summarySizes = [400, 700, 1_000]
     let summaryCall = 0
+    const calls: Array<{ transcript: string; previous?: string }> = []
 
     const assembled = await assembleModelContext({
       systemPrompt: undefined,
       history,
       contextSize: 2_000,
       countTokens,
-      summarizeOlderTurns: () =>
-        Promise.resolve('s'.repeat(summarySizes[Math.min(summaryCall++, summarySizes.length - 1)]))
+      summarizeOlderTurns: (transcript, previous) => {
+        calls.push({ transcript, previous })
+        return Promise.resolve(
+          's'.repeat(summarySizes[Math.min(summaryCall++, summarySizes.length - 1)])
+        )
+      }
     })
 
-    expect(summaryCall).toBeGreaterThan(2)
+    // More than one: a replacement summary that grows can push history back
+    // over budget, and the pass has to keep folding until it stops.
+    expect(summaryCall).toBeGreaterThan(1)
+    // Each fold is a rolling update of the summary before it, not a fresh
+    // summary of the whole older slice — that is what keeps the cost bounded.
+    expect(calls[1].previous).toBe('s'.repeat(summarySizes[0]))
     expect(assembled.report.historyTokens).toBeLessThanOrEqual(assembled.report.historyBudgetTokens)
   })
 

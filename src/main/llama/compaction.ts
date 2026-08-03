@@ -216,6 +216,19 @@ export function splitHistoryByTokenBudget(
     keepIndices.unshift(i)
   }
 
+  // Align the cut to a user turn. The walk above stops wherever the budget runs
+  // out, and since turns alternate, roughly half of all cuts land immediately
+  // after a user turn — leaving that turn's assistant reply as the first
+  // surviving one, i.e. the conversation opening with an answer to a question
+  // the model can no longer see. What is dropped here is one turn already
+  // represented in the rolling summary the older half becomes.
+  //
+  // Never down to nothing: a single kept turn stays even if it is an assistant
+  // one, because an orphan is a smaller problem than an empty history.
+  while (keepIndices.length > 1 && history[keepIndices[0]].role === 'assistant') {
+    keepIndices.shift()
+  }
+
   const firstKeptIndex = keepIndices[0] ?? history.length
   const recent = keepIndices.map((i) => history[i])
   if (recent.length === 1) {

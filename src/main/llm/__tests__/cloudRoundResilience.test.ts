@@ -209,6 +209,31 @@ describe.each(providers)('$name provider round resilience', ({ generate }) => {
     expect(late?.maxTokensPerResult).toBeLessThan(early?.maxTokensPerResult ?? 0)
   })
 
+  it('separates the text of one round from the next', async () => {
+    // A model that narrates before a tool call and answers after it produces
+    // text in two bursts. Concatenated directly — which is what `content +=
+    // delta` across rounds amounts to — the last word of one ran into the first
+    // of the next: `Let me check the config.Found three problems.`
+    mocks.rounds.push(
+      { toolCall: true, text: 'Let me check the config.' },
+      { text: 'Found three problems.' }
+    )
+
+    const outcome = await generate(params({ tools: withTools }))
+
+    expect(outcome.content).toBe('Let me check the config.\n\nFound three problems.')
+  })
+
+  it('leaves a round that only called a tool out of the reply entirely', async () => {
+    // The common case: no text at all before the call. A blank gap where that
+    // round would have been is as wrong as a missing separator.
+    mocks.rounds.push({ toolCall: true }, { text: 'Done.' })
+
+    const outcome = await generate(params({ tools: withTools }))
+
+    expect(outcome.content).toBe('Done.')
+  })
+
   it('keeps the work of earlier rounds when a later one fails', async () => {
     mocks.rounds.push(
       { toolCall: true, text: 'Read the config. ' },
@@ -219,7 +244,9 @@ describe.each(providers)('$name provider round resilience', ({ generate }) => {
 
     // Throwing here discarded the whole outcome, and `boundedChatRunner` has no
     // catch of its own — so a multi-cycle reply lost every earlier cycle too.
-    expect(outcome.content).toBe('Read the config. ')
+    // Trailing space gone: round text is now folded through `appendRoundText`,
+    // which trims each round so a blank-line join between rounds is exact.
+    expect(outcome.content).toBe('Read the config.')
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('provider-error')
     // The provider's own message travels with it: a turn preserved after a rate

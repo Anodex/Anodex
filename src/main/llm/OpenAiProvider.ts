@@ -30,7 +30,9 @@ import {
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
+import { VERIFY_KEY_TIMEOUT_MS } from './verifyKeyTimeout'
 import { toStopDetail } from '@shared/stopDetail'
+import { appendRoundText } from '@shared/roundText'
 import type { LlmProvider } from './LlmProvider'
 import { cloudCompatibleImages, openAiUserContent } from './cloudVisionContent'
 import {
@@ -193,15 +195,22 @@ class OpenAiProvider implements LlmProvider {
         { signal: params.signal }
       )
 
+      // Per round, not per turn — folded into `content` with a separator below,
+      // so narration before a tool call does not run into the answer after it.
+      let roundContent = ''
       stream.on('response.output_text.delta', (event) => {
-        content += event.delta
+        roundContent += event.delta
         params.onToken(event.delta)
       })
 
       let response: OpenAI.Responses.Response
       try {
         response = await stream.finalResponse()
+        content = appendRoundText(content, roundContent)
       } catch (error) {
+        // Folded before anything below reads `content`, so a round that
+        // streamed real text before failing is judged on what it produced.
+        content = appendRoundText(content, roundContent)
         if (params.signal?.aborted || error instanceof APIUserAbortError) {
           stopped = true
           break
@@ -428,7 +437,7 @@ export async function summarizeForCompactionOpenAi(
  * to show the user; callers just need to catch and relay it.
  */
 export async function verifyOpenAiKey(apiKey: string, model: string): Promise<void> {
-  const client = new OpenAI({ apiKey })
+  const client = new OpenAI({ apiKey, timeout: VERIFY_KEY_TIMEOUT_MS })
   try {
     await client.models.retrieve(model)
   } catch (error) {

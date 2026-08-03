@@ -92,6 +92,7 @@ import {
 } from './intentNudges'
 import { createAsyncMutex } from './asyncMutex'
 import { toStopDetail } from '@shared/stopDetail'
+import { appendRoundText } from '@shared/roundText'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import {
@@ -940,7 +941,7 @@ class LlamaService extends EventEmitter {
     // begins, once detected — everything from here on is dropped.
     let fabricatedTurnCut: number | null = null
     const finalizeFabricatedTurn = (keptContent: string): void => {
-      visibleContent = appendContent(visibleContent, keptContent.trimEnd())
+      visibleContent = appendRoundText(visibleContent, keptContent.trimEnd())
       stopped = true
       fabricationDetectedThisTurn = true
       if (currentModel) {
@@ -1148,7 +1149,7 @@ class LlamaService extends EventEmitter {
           }
           const isContextShiftFailure = isContextShiftCrash(error)
           if (genController.signal.aborted) {
-            visibleContent = appendContent(visibleContent, stripLeakedChannelTokens(roundContent))
+            visibleContent = appendRoundText(visibleContent, stripLeakedChannelTokens(roundContent))
             if (roundSegment.trim()) {
               thinkingText = thinkingText
                 ? `${thinkingText}\n\n${roundSegment.trim()}`
@@ -1177,7 +1178,10 @@ class LlamaService extends EventEmitter {
             // the outer catch cannot decide whether a turn has work worth
             // keeping if the work is invisible to it.
             if (!genController.signal.aborted) {
-              visibleContent = appendContent(visibleContent, stripLeakedChannelTokens(roundContent))
+              visibleContent = appendRoundText(
+                visibleContent,
+                stripLeakedChannelTokens(roundContent)
+              )
               if (roundSegment.trim()) {
                 thinkingText = thinkingText
                   ? `${thinkingText}\n\n${roundSegment.trim()}`
@@ -1249,7 +1253,7 @@ class LlamaService extends EventEmitter {
         })
 
         if (meta.stopReason === 'abort') {
-          visibleContent = appendContent(visibleContent, roundContent)
+          visibleContent = appendRoundText(visibleContent, roundContent)
           stopped = true
           break
         }
@@ -1259,7 +1263,7 @@ class LlamaService extends EventEmitter {
         // result instead of nudging the model into a fresh round with a reset
         // allowance or silently presenting truncated work as complete.
         if (meta.stopReason === 'maxTokens') {
-          visibleContent = appendContent(visibleContent, roundContent)
+          visibleContent = appendRoundText(visibleContent, roundContent)
           terminalStopReason = 'token-limit'
           stopped = true
           log.warn('Bounded local generation stop diagnostics', diagnostics.snapshot())
@@ -1353,7 +1357,7 @@ class LlamaService extends EventEmitter {
           const displayRoundContent = hasEditTool
             ? stripSubstantialCodeFences(roundContent, originalPrompt)
             : roundContent
-          visibleContent = appendContent(visibleContent, displayRoundContent)
+          visibleContent = appendRoundText(visibleContent, displayRoundContent)
 
           // Give it one chance to actually act.
           if (needsActionNudge && !usedIntentNudge) {
@@ -1376,7 +1380,7 @@ class LlamaService extends EventEmitter {
         const cleanedRoundContent = hasEditTool
           ? stripSubstantialCodeFences(strippedFallbackContent, originalPrompt)
           : strippedFallbackContent
-        visibleContent = appendContent(visibleContent, cleanedRoundContent)
+        visibleContent = appendRoundText(visibleContent, cleanedRoundContent)
 
         const resultText = await runFallbackToolCall(activeFunctions, fallback)
         prompt = `Tool result for ${fallback.name}:\n${resultText}\n\nContinue the task using this result. If the task is complete, summarize what you did instead of calling another tool.`
@@ -2717,13 +2721,6 @@ function buildStats(tokens: number, startedAt: number): GenerationStats {
     durationMs,
     tokensPerSecond: Number((tokens / (durationMs / 1000)).toFixed(1))
   }
-}
-
-/** Join successive generation rounds with a blank line, skipping empty ones. */
-function appendContent(existing: string, next: string): string {
-  const trimmed = next.trim()
-  if (!trimmed) return existing
-  return existing ? `${existing}\n\n${trimmed}` : trimmed
 }
 
 /**

@@ -20,6 +20,7 @@ import { createLoopGuardState } from '../tools/loopGuard'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import { createLogger } from '../utils/logger'
 import { toStopDetail } from '@shared/stopDetail'
+import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { resolveLocalOutputBudget } from './localOutputBudget'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
@@ -265,6 +266,8 @@ export class LlamaVisionService {
     const messages = await this.buildMessages(params)
     const startedAt = Date.now()
     let content = ''
+    /** The current round's visible text; see the fold at the top of the loop. */
+    let roundContent = ''
     let thinking = ''
     let outputTokens = 0
     let stopped = false
@@ -393,7 +396,11 @@ export class LlamaVisionService {
         }
       }
 
-      let roundContent = ''
+      // Folded into `content` at the top of the next round and once after the
+      // loop, so narration before a tool call does not run into the answer
+      // after it — and so every `break` path keeps the round it was in.
+      content = appendRoundText(content, roundContent)
+      roundContent = ''
       let roundThinking = ''
       let finishReason: string | null = null
       const roundStartedAt = Date.now()
@@ -429,7 +436,6 @@ export class LlamaVisionService {
           const delta = choice.delta
           if (delta.content) {
             roundContent += delta.content
-            content += delta.content
             params.onToken(delta.content)
           }
           const reasoning = (delta as typeof delta & { reasoning_content?: string })
@@ -546,10 +552,12 @@ export class LlamaVisionService {
           fallbackRounds += 1
           hadAnyToolAttempt = true
           // Drop the raw call text from the visible reply; the tool card
-          // stands in for it. `content` is rewound by exactly this round's
-          // contribution so earlier rounds are untouched.
+          // stands in for it. Editing the round's own text is all that is
+          // needed now it is folded into `content` at the round boundary —
+          // this used to rewind `content` by exactly this round's length,
+          // which only held while the two were concatenated verbatim.
           const stripped = stripFallbackCall(roundContent, fallback)
-          content = content.slice(0, content.length - roundContent.length) + stripped
+          roundContent = stripped
           const id = `fallback_${round}`
           messages.push({
             role: 'assistant',
@@ -657,6 +665,8 @@ export class LlamaVisionService {
         })
       }
     }
+    // The last round has no next iteration to fold it in.
+    content = appendRoundText(content, roundContent)
 
     // Only a throw when the turn has nothing to lose. Throwing discards the
     // whole `GenerateOutcome`, so on a turn that had already streamed a reply

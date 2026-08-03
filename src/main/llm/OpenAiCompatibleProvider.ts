@@ -1,6 +1,7 @@
 import OpenAI, { APIUserAbortError } from 'openai'
 import type {
   ChatCompletionAssistantMessageParam,
+  ChatCompletionContentPart,
   ChatCompletionMessageParam,
   ChatCompletionMessageToolCall,
   ChatCompletionTool,
@@ -31,7 +32,9 @@ import {
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
+import { VERIFY_KEY_TIMEOUT_MS } from './verifyKeyTimeout'
 import { toStopDetail } from '@shared/stopDetail'
+import { appendRoundText } from '@shared/roundText'
 import type { LlmProvider } from './LlmProvider'
 import { chatCompletionsUserContent, cloudCompatibleImages } from './cloudVisionContent'
 import {
@@ -207,8 +210,15 @@ export async function runChatCompletionsLoop(
     params.history,
     MAX_VISION_IMAGES - currentImages.length
   )
-  const messages = buildMessages(params.systemPrompt, params.history, historyImages)
-  messages.push({ role: 'user', content: chatCompletionsUserContent(params.prompt, currentImages) })
+  // Merged only once the current prompt has joined the list — history that
+  // ends on a user turn plus this prompt is itself an adjacent pair, so
+  // merging inside `buildMessages` alone would miss the commonest case.
+  // Everything appended later is assistant/tool, which alternates by
+  // construction.
+  const messages = mergeConsecutiveRoles([
+    ...buildMessages(params.systemPrompt, params.history, historyImages),
+    { role: 'user', content: chatCompletionsUserContent(params.prompt, currentImages) }
+  ])
 
   const maxTokens = params.options?.maxTokens || DEFAULT_MAX_TOKENS
   const startedAt = Date.now()
@@ -249,15 +259,24 @@ export async function runChatCompletionsLoop(
       { signal: params.signal }
     )
 
+    // Per round, not per turn: folded into `content` below with a separator, so
+    // narration before a tool call does not run into the answer after it.
+    // Streaming stays raw — the renderer replaces its own accumulation with the
+    // authoritative `content` when the turn finishes, same as the local path.
+    let roundContent = ''
     stream.on('content', (delta) => {
-      content += delta
+      roundContent += delta
       params.onToken(delta)
     })
 
     let completion: OpenAI.ChatCompletion
     try {
       completion = await stream.finalChatCompletion()
+      content = appendRoundText(content, roundContent)
     } catch (error) {
+      // Folded before anything below reads `content`, so a round that streamed
+      // real text before failing is judged on what it produced.
+      content = appendRoundText(content, roundContent)
       if (params.signal?.aborted || error instanceof APIUserAbortError) {
         stopped = true
         break
@@ -373,6 +392,62 @@ async function runTool(
     log.error(`Tool "${call.function.name}" threw:`, error)
     return { role: 'tool', tool_call_id: call.id, content: `Error: ${message}` }
   }
+}
+
+/**
+ * Collapses consecutive same-role messages into one.
+ *
+ * A turn with no text and no images is skipped when building the request —
+ * an assistant turn that errored or was stopped is still persisted into
+ * history, so this is ordinary. Skipping it leaves the two user turns either
+ * side of it adjacent, and while most OpenAI-compatible endpoints tolerate
+ * that, Mistral and Google's compat layer have historically required strict
+ * alternation.
+ *
+ * Merging rather than dropping or inventing a placeholder: nothing the user
+ * said is lost, and the result is what the conversation actually was — someone
+ * saying two things without an answer in between. Anthropic's API does exactly
+ * this server-side, which is why its own provider needs no equivalent.
+ */
+function mergeConsecutiveRoles(
+  messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+  const merged: ChatCompletionMessageParam[] = []
+  for (const message of messages) {
+    const previous = merged[merged.length - 1]
+    // Only user and assistant alternate; system and tool messages have their
+    // own placement rules and are never merged.
+    const mergeable =
+      previous !== undefined &&
+      previous.role === message.role &&
+      (message.role === 'user' || message.role === 'assistant')
+    if (!mergeable) {
+      merged.push(message)
+      continue
+    }
+    merged[merged.length - 1] = {
+      ...previous,
+      content: joinContent(previous.content, message.content)
+    } as ChatCompletionMessageParam
+  }
+  return merged
+}
+
+/** Joins two message contents, promoting to parts when either side carries images. */
+function joinContent(
+  left: ChatCompletionMessageParam['content'],
+  right: ChatCompletionMessageParam['content']
+): string | ChatCompletionContentPart[] {
+  const leftText = typeof left === 'string' ? left : null
+  const rightText = typeof right === 'string' ? right : null
+  if (leftText !== null && rightText !== null) {
+    return [leftText, rightText].filter(Boolean).join('\n\n')
+  }
+  const toParts = (value: ChatCompletionMessageParam['content']): ChatCompletionContentPart[] => {
+    if (typeof value === 'string') return value ? [{ type: 'text', text: value }] : []
+    return Array.isArray(value) ? (value as ChatCompletionContentPart[]) : []
+  }
+  return [...toParts(left), ...toParts(right)]
 }
 
 /**
@@ -521,6 +596,10 @@ export async function verifyOpenAiCompatibleKey(
   apiKey: string,
   model: string
 ): Promise<void> {
-  const client = new OpenAI({ apiKey, baseURL: config.baseURL })
+  const client = new OpenAI({
+    apiKey,
+    baseURL: config.baseURL,
+    timeout: VERIFY_KEY_TIMEOUT_MS
+  })
   return verifyKeyViaModelsRetrieve(client, model)
 }

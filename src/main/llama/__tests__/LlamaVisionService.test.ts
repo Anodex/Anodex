@@ -885,7 +885,7 @@ describe('LlamaVisionService.generate', () => {
 
     const outcome = await (await service()).generate(params({ tools: withTools }))
 
-    expect(outcome.content).toBe('Wrote the stylesheet. ')
+    expect(outcome.content).toBe('Wrote the stylesheet.')
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('provider-error')
     expect(outcome.stopDetail).toBeTruthy()
@@ -916,7 +916,7 @@ describe('LlamaVisionService.generate', () => {
     // Throwing here discarded the whole outcome: the user saw a bare red error
     // while the files this turn had already written sat on disk, recorded
     // against no message at all.
-    expect(outcome.content).toBe('Step 1 done. ')
+    expect(outcome.content).toBe('Step 1 done.')
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('runtime-stalled')
   })

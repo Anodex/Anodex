@@ -343,3 +343,45 @@ describe('summaryChunkBudgetForContext', () => {
     expect(summaryChunkBudgetForContext(0, ROLLING_SUMMARY_TOKEN_CEILING)).toBeGreaterThan(0)
   })
 })
+
+describe('splitHistoryByTokenBudget cut alignment', () => {
+  const countTokens = (text: string): number => text.length
+  const history: ChatHistoryTurn[] = [
+    { role: 'user', content: 'A'.repeat(100) },
+    { role: 'assistant', content: 'B'.repeat(100) },
+    { role: 'user', content: 'C'.repeat(100) },
+    { role: 'assistant', content: 'D'.repeat(100) }
+  ]
+
+  it('never opens the kept history with an orphaned assistant reply', () => {
+    // A budget that fits three turns cuts after `A`, which used to leave `B` —
+    // an answer to a question the model can no longer see — as the first turn
+    // it reads. Since turns alternate, roughly half of all cuts land there.
+    const split = splitHistoryByTokenBudget(history, 340, countTokens)
+
+    expect(split.recent[0].role).toBe('user')
+    expect(split.recent).toEqual([history[2], history[3]])
+    // The dropped turn moves to the older half, which becomes the summary —
+    // it is set aside, not discarded.
+    expect(split.older).toEqual([history[0], history[1]])
+  })
+
+  it('leaves a cut that already lands on a user turn alone', () => {
+    const split = splitHistoryByTokenBudget(history, 240, countTokens)
+
+    expect(split.recent).toEqual([history[2], history[3]])
+  })
+
+  it('keeps a lone assistant turn rather than returning nothing', () => {
+    // An orphan is a smaller problem than an empty history, which would send
+    // the model a turn with no context at all.
+    const split = splitHistoryByTokenBudget(
+      [{ role: 'assistant', content: 'only' }],
+      10,
+      countTokens
+    )
+
+    expect(split.recent).toHaveLength(1)
+    expect(split.older).toEqual([])
+  })
+})

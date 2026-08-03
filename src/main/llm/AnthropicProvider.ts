@@ -24,7 +24,9 @@ import {
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
+import { VERIFY_KEY_TIMEOUT_MS } from './verifyKeyTimeout'
 import { toStopDetail } from '@shared/stopDetail'
+import { appendRoundText } from '@shared/roundText'
 import { providerUsageStore } from './ProviderUsageStore'
 import type { LlmProvider } from './LlmProvider'
 import { anthropicUserContent, cloudCompatibleImages } from './cloudVisionContent'
@@ -186,8 +188,11 @@ class AnthropicProvider implements LlmProvider {
         { signal: params.signal }
       )
 
+      // Per round, not per turn — folded into `content` with a separator below,
+      // so narration before a tool call does not run into the answer after it.
+      let roundContent = ''
       stream.on('text', (delta) => {
-        content += delta
+        roundContent += delta
         params.onToken(delta)
       })
       // Best-effort: `.response` is only populated once the connection is
@@ -199,7 +204,11 @@ class AnthropicProvider implements LlmProvider {
       let response: Anthropic.Message
       try {
         response = await stream.finalMessage()
+        content = appendRoundText(content, roundContent)
       } catch (error) {
+        // Folded before anything below reads `content`, so a round that
+        // streamed real text before failing is judged on what it produced.
+        content = appendRoundText(content, roundContent)
         if (params.signal?.aborted || error instanceof APIUserAbortError) {
           stopped = true
           break
@@ -458,7 +467,7 @@ export async function summarizeForCompactionAnthropic(
  * to show the user; callers just need to catch and relay it.
  */
 export async function verifyAnthropicKey(apiKey: string, model: string): Promise<void> {
-  const client = new Anthropic({ apiKey })
+  const client = new Anthropic({ apiKey, timeout: VERIFY_KEY_TIMEOUT_MS })
   try {
     await client.models.retrieve(model)
   } catch (error) {

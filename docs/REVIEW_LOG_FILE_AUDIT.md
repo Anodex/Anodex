@@ -48,10 +48,10 @@ from.
 
 | Item                                                        | Found in | Status            |
 | ----------------------------------------------------------- | -------- | ----------------- |
-| Round text concatenated with no separator (4 transports)    | 4        | ☐                 |
-| No timeout on API-key verify clients (all providers)        | 4        | ☐                 |
-| Empty turns can leave consecutive same-role messages        | 4        | ☐ narrowed in 5   |
-| `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ☐                 |
+| Round text concatenated with no separator (4 transports)    | 4        | ✅ fixed          |
+| No timeout on API-key verify clients (all providers)        | 4        | ✅ fixed          |
+| Empty turns can leave consecutive same-role messages        | 4        | ✅ fixed          |
+| `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ✅ fixed          |
 | `AnodexApi` mixes `Result<T>` and bare-`T` returns          | 9        | assessed — no fix |
 | No Sent copy is filed after an SMTP send                    | 7        | ✅ fixed          |
 | `unarchive` cannot resolve an already-archived thread       | 7        | ✅ fixed          |
@@ -1183,3 +1183,75 @@ a gap rather than papered over.
 Manual checks offered instead: type a search, run it, then click another
 mailbox (the box should clear); open the account menu and resize the window (it
 should close); save an attachment.
+
+---
+
+## Closing the cross-cutting items
+
+The four items that outlived the file they were found in, done as one change
+rather than four divergent ones — which is why they were deferred in the first
+place.
+
+**Round text ran together across tool rounds.** `content += delta` accumulated
+into one turn-wide buffer, so a model that narrates before a call and answers
+after it produced `Let me search.Found 3 results.` Only the node-llama-cpp path
+had solved this, with a private `appendContent`.
+
+That helper is now `@shared/roundText`'s `appendRoundText`, and all five
+transports fold per round through it — the three cloud providers and the vision
+transport gained a per-round buffer, and `LlamaService` dropped its private copy
+so there is one definition rather than five.
+
+The vision transport needed more than a buffer swap: it rewound `content` by
+exactly the round's length to strip a fallback call, arithmetic that only held
+while the two were concatenated verbatim. It now edits the round's own text
+before the fold, which is both correct and simpler. Its round buffer is folded at
+the top of the next iteration and once after the loop, so every `break` path
+keeps the round it was in rather than needing a fold at each exit.
+
+Three existing tests asserted a trailing space that the trim now removes; they
+were about preserving earlier rounds' work, and the space was incidental.
+
+**Verify clients had no timeout.** Both SDKs default to ten minutes — reasonable
+for a generation, useless for a reachability check, so a black-holed endpoint
+left "Test connection" spinning indistinguishably from a slow provider. All four
+paths now use one shared 15-second ceiling. Azure needed care: its client factory
+is shared with real generation, where a short ceiling would abort long legitimate
+replies, so the timeout is an opt-in parameter only the verify path passes.
+
+**Empty turns broke strict alternation.** A turn with no text and no images is
+skipped when building the request — an assistant turn that errored or was
+stopped is still persisted into history, so this is ordinary — which left the two
+user turns either side of it adjacent. Consecutive same-role messages are now
+merged rather than dropped or padded with a placeholder: nothing is lost, and the
+result is what the conversation actually was. Anthropic does this server-side,
+which is why only the OpenAI-compatible path needed it.
+
+The first version of this merged inside `buildMessages`, and the new test caught
+that it misses the commonest case: the current prompt is pushed _after_ that, so
+history ending on a user turn plus the prompt is itself an adjacent pair. Merging
+now happens once the prompt has joined the list.
+
+**`splitHistoryByTokenBudget` cut mid-pair.** The root of 5.1, shared by every
+stateless transport. The budget walk stopped wherever it ran out and, since turns
+alternate, roughly half of all cuts landed immediately after a user turn —
+leaving that turn's assistant reply as the first surviving one. The cut is now
+aligned to a user turn, never down to nothing: a single kept assistant turn stays,
+because an orphan is a smaller problem than an empty history.
+
+`AnthropicProvider`'s own drop of leading assistant turns (5.1) is now redundant
+but kept as defence in depth, and its tests still pass unchanged.
+
+Two `contextAssembler` tests asserted how many fold-back passes the pass needed.
+Alignment legitimately removes one — the orphan no longer survives the first
+split, so there is nothing to fold back — and the outcome is identical with one
+fewer model call. Rather than contort a fixture into forcing a pass, the test that
+no longer exercises the fold-back now documents that, and the fold-back's own
+assertions (a rolling update of the previous summary, not a fresh one) moved to
+the fixture that still does exercise it.
+
+### Tests added
+
+Six: two on the round separator (text joined across rounds; a tool-only round
+contributing nothing), three on cut alignment, one on strict alternation. The
+orphan and alternation tests were confirmed to fail against their pre-fix files.

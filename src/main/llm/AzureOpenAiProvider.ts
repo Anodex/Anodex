@@ -1,4 +1,5 @@
 import { AzureOpenAI } from 'openai'
+import { VERIFY_KEY_TIMEOUT_MS } from './verifyKeyTimeout'
 import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import type { LlmProvider } from './LlmProvider'
@@ -41,17 +42,25 @@ class AzureOpenAiProvider implements LlmProvider {
   }
 }
 
-function buildClient(settings: {
-  apiKey: string
-  resourceName: string
-  deploymentName: string
-  apiVersion: string
-}): AzureOpenAI {
+function buildClient(
+  settings: {
+    apiKey: string
+    resourceName: string
+    deploymentName: string
+    apiVersion: string
+  },
+  /**
+   * Only the reachability check passes one. This factory is shared with real
+   * generation, where a short ceiling would abort long legitimate replies.
+   */
+  timeoutMs?: number
+): AzureOpenAI {
   return new AzureOpenAI({
     apiKey: settings.apiKey.trim(),
     endpoint: `https://${settings.resourceName.trim()}.openai.azure.com`,
     deployment: settings.deploymentName.trim(),
-    apiVersion: settings.apiVersion.trim() || '2024-10-21'
+    apiVersion: settings.apiVersion.trim() || '2024-10-21',
+    ...(timeoutMs === undefined ? {} : { timeout: timeoutMs })
   })
 }
 
@@ -95,7 +104,10 @@ export async function verifyAzureKey(
 ): Promise<void> {
   if (!resourceName.trim()) throw new Error('Enter the Azure resource name first.')
   if (!deploymentName.trim()) throw new Error('Enter the deployment name first.')
-  const client = buildClient({ apiKey, resourceName, deploymentName, apiVersion })
+  const client = buildClient(
+    { apiKey, resourceName, deploymentName, apiVersion },
+    VERIFY_KEY_TIMEOUT_MS
+  )
   return verifyKeyViaModelsRetrieve(client, deploymentName)
 }
 
