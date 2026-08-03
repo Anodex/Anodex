@@ -894,6 +894,37 @@ class CriticalThinkingService {
     const attempts: CriticalThinkingSynthesisAttemptDiagnostic[] = []
     const sections = new Map<string, string>()
     let stats: GenerationStats = { tokens: 0, durationMs: 0, tokensPerSecond: 0 }
+    /**
+     * The sections finished so far, assembled into a report.
+     *
+     * Every stage below can end on a non-recoverable stop — the run's time
+     * limit lands mid-way far more often than not, since hierarchical recovery
+     * only runs after a draft has already failed and eaten part of the budget.
+     * Those exits used to return `candidate: null`, discarding every section
+     * already written and citation-checked, so a run that produced five good
+     * sections out of six contributed nothing and fell back to the bullet-dump.
+     *
+     * Assembling early is safe: `assembleHierarchicalReport` already skips
+     * steps with no section and already synthesises its own overview when it
+     * has none, and the caller scores whatever comes back against the existing
+     * draft — so a thin partial simply loses rather than replacing a better
+     * report.
+     */
+    const salvageSections = (): ReportCandidate | null => {
+      if (sections.size === 0) return null
+      return evaluateReportCandidate(
+        assembleHierarchicalReport({
+          title: run.plan?.title ?? run.question,
+          steps: run.steps,
+          sections,
+          overview: null,
+          sources: run.sources
+        }),
+        artifacts,
+        run.sources,
+        run.steps.length
+      )
+    }
     // A section's prompt is small — one step's evidence, capped at 18,000
     // characters — so the context has room to spare here. The old 3,072
     // ceiling was below what this model spends on hidden reasoning alone,
@@ -1004,7 +1035,7 @@ class CriticalThinkingService {
         )
         sectionCandidate = chooseBetterHierarchicalSection(sectionCandidate, repairedCandidate)
         if (repairedStopReason && !isRecoverableContentStopReason(repairedStopReason)) {
-          return { candidate: null, stats, attempts, stopReason: repairedStopReason }
+          return { candidate: salvageSections(), stats, attempts, stopReason: repairedStopReason }
         }
       }
 
@@ -1021,7 +1052,7 @@ class CriticalThinkingService {
       }
       if (sectionCandidate.usable) sections.set(step.id, sectionCandidate.content)
       if (sectionStopReason && !isRecoverableContentStopReason(sectionStopReason)) {
-        return { candidate: null, stats, attempts, stopReason: sectionStopReason }
+        return { candidate: salvageSections(), stats, attempts, stopReason: sectionStopReason }
       }
     }
 
@@ -1090,7 +1121,7 @@ class CriticalThinkingService {
         )
       }
       if (consistencyStopReason && !isRecoverableContentStopReason(consistencyStopReason)) {
-        return { candidate: null, stats, attempts, stopReason: consistencyStopReason }
+        return { candidate: salvageSections(), stats, attempts, stopReason: consistencyStopReason }
       }
     }
 
@@ -1141,7 +1172,7 @@ class CriticalThinkingService {
       attempts.push(rawSynthesisDiagnostic('overview', overviewResult.content, overviewStopReason))
     }
     if (overviewStopReason && !isRecoverableContentStopReason(overviewStopReason)) {
-      return { candidate: null, stats, attempts, stopReason: overviewStopReason }
+      return { candidate: salvageSections(), stats, attempts, stopReason: overviewStopReason }
     }
 
     const baseReport = assembleHierarchicalReport({

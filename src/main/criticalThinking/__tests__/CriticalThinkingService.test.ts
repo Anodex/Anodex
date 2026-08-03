@@ -878,6 +878,65 @@ A second substantiated point about the underlying pain mechanism follows [[S1:P1
     expect(mocks.runGeneration).toHaveBeenCalledTimes(5)
   })
 
+  it('keeps the sections it finished when a later stage is cut short', async () => {
+    // Hierarchical recovery only runs after a draft has already failed and
+    // eaten part of the budget, so the run's time limit landing part-way
+    // through is the ordinary case rather than the exotic one. Every stage
+    // used to return `candidate: null` on a non-recoverable stop, discarding
+    // sections that were already written and citation-checked — so a run that
+    // produced good sections for both steps contributed nothing, and the
+    // report fell back to the deterministic bullet-dump.
+    const run = seedHierarchicalSynthesisRun()
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({ content: 'A short uncited draft.', stats: EMPTY_STATS, stopped: false })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: 'An equally unusable repair.',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content:
+            'Bee venom produces the sharper acute pain response in the fetched comparison [[S1:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content:
+            'Wasp venom produces the longer-lasting inflammatory response in the independent comparison [[S2:P1]].',
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      // The overview never gets to run to completion.
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: '',
+          stats: EMPTY_STATS,
+          stopped: true,
+          stopReason: 'time-limit'
+        })
+      )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    // Both finished sections survive, and the assembler supplies its own
+    // overview rather than needing the one that was cut off.
+    expect(persisted?.report).toContain('sharper acute pain response')
+    expect(persisted?.report).toContain('longer-lasting inflammatory response')
+    expect(persisted?.report).not.toContain('Research result:')
+    // Still partial: the run really was cut short, and the report is missing
+    // the cross-section summary it would otherwise have had.
+    expect(persisted?.status).toBe('partial')
+  })
+
   it('retains a verified fallback section when both model attempts for one step are unsafe', async () => {
     const run = seedHierarchicalSynthesisRun()
     mocks.runGeneration

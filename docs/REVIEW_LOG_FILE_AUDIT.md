@@ -56,7 +56,7 @@ guess (the mistake that made round one's first table wrong).
 | 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4 → 8 | ✅ done | The undo for all of the above                               |
 | 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1 → 3 | ✅ done | Local vision transport, never read end to end               |
 | 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2 → 3 | ✅ done | Mid-generation context surgery                              |
-| 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3     | ☐       | Largest unreviewed file; long unattended runs               |
+| 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3 → 4 | ✅ done | Largest unreviewed file; long unattended runs               |
 | 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ☐       | Drives the research loop                                    |
 | 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3     | ☐       | Fetches untrusted content the model then acts on            |
 | 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 2     | ☐       | The unreviewed third mail adapter                           |
@@ -1768,3 +1768,79 @@ a bound of 1,000, on the same pathological shape. The bound is deliberately
 loose — it pins the order of magnitude, not a count, so ordinary changes to the
 trim passes stay free. It also asserts the result still fits, so the guard
 cannot be satisfied by simply measuring less.
+
+---
+
+## Round two, 7. `src/main/criticalThinking/CriticalThinkingService.ts` — done
+
+2,024 lines and the largest file in the audit: planning, breadth-first research
+waves, single-pass synthesis, hierarchical recovery, a consistency review, chart
+selection, and a deterministic fallback — all inside runs that go unattended for
+up to an hour.
+
+The file is unusually well documented. Nearly every branch carries the live
+failure that produced it ("a run holding 53 verified sources and 119 evidence
+artifacts finished with an empty report because the model spent its entire
+output budget on hidden reasoning"), and its governing principle is stated
+repeatedly: a run that gathered evidence must never finish with nothing to show
+for it. The bug below is the one place that principle is not applied.
+
+### Bug fixed
+
+**7.1 Hierarchical recovery discarded every section it had finished the moment
+a later stage was cut short.** `runHierarchicalSynthesis` builds one
+citation-checked section per research step, then reviews them for consistency
+and asks for a cross-section overview. Four stages can end on a
+non-recoverable stop — a section, a section repair, the consistency pass, the
+overview — and all four returned `candidate: null`, throwing away the sections
+already written.
+
+The cost is concentrated by when this path runs at all. Hierarchical recovery
+is only entered _after_ a draft has already failed validation and consumed part
+of the budget, so the run's time limit landing part-way through is the ordinary
+case rather than an exotic one. A run that produced good sections for five of
+six steps therefore contributed nothing, `candidate` stayed as the failed draft,
+and the report fell through to the deterministic bullet-dump — with the real
+sections sitting complete and unused in a local `Map`.
+
+The overview case is the clearest: the line immediately after that early return
+assembles a report with `overview: null`, and `assembleHierarchicalReport`
+already skips steps with no section and already synthesises its own summary and
+conclusion when it has none. The salvage path existed and was simply not reached.
+
+All four exits now assemble whatever sections exist and return that. Nothing is
+forced: the caller scores the result against the existing draft with
+`chooseBetterReportCandidate`, so a thin partial loses rather than replacing a
+better report, and the stop reason still travels with it so the run is reported
+`partial` rather than `completed`.
+
+### Verified, not bugs
+
+- **`activeRunId` cannot leak on the early return in `runResearch`.** The
+  `!initialRun.plan` guard returns before `activeRunId` is ever assigned, so the
+  missing `clearActiveRun()` on that path clears nothing that was set. Both
+  `runPlanning` and `runResearch` assign it synchronously before their first
+  `await`, so the `if (this.activeRunId) throw` guards in `start`/`approve`/
+  `resume` cannot be raced by the `void`-invoked call that precedes them.
+- **The research and synthesis timers cannot both be live.** `runResearch`
+  clears the research timer before re-arming for synthesis, and the `finally`
+  clears whichever is current. Synthesis is guaranteed its reserve even when
+  research overruns, which is the documented intent.
+- **`run.plan!` in `runSynthesis`** is a non-null assertion on a value re-read
+  from the store rather than the one already checked. Reachable only if `plan`
+  were cleared mid-run, which nothing does — `approve` and `resume` both write it
+  before starting. Left alone rather than restructured for a state that cannot
+  occur.
+
+### Tests
+
+`CriticalThinkingService.test.ts` — 1 added (29 total), confirmed failing
+against the pre-fix file: two finished sections survive an overview that is cut
+short by the run's time limit, the assembler supplies its own overview in place
+of the one that never arrived, and the run is still reported `partial` because
+it genuinely was cut short.
+
+The existing suite is strong here — 28 tests already covering the draft/repair/
+hierarchical/chart/fallback paths, several named after the exact live failures
+in the handoff docs. The gap was narrow and specific: every test drove stages
+that completed, so nothing exercised a stage that stopped part-way.
