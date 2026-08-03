@@ -47,21 +47,22 @@ wrong, times untested, times centrality — not size. Test counts are files that
 mention the module, checked against the real test tree rather than a filename
 guess (the mistake that made round one's first table wrong).
 
-| #   | File                                                                          | Lines | Tests | Why it ranks here                                                      |
-| --- | ----------------------------------------------------------------------------- | ----- | ----- | ---------------------------------------------------------------------- |
-| 1   | `src/main/tools/fileTools.ts`                                                 | 748   | 1     | The model writes, edits and deletes the user's files through this      |
-| 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1     | Runs arbitrary shell commands; small enough to read alongside 1        |
-| 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2     | The other half of the write path                                       |
-| 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1     | Sends real mail on the user's behalf — irreversible and outward-facing |
-| 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4     | The undo for all of the above; wrong here means restore destroys       |
-| 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1     | Local vision transport, repeatedly patched, never read end to end      |
-| 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2     | Mid-generation context surgery; failures wedge a conversation          |
-| 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3     | Largest unreviewed file; long unattended runs                          |
-| 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | Drives the research loop the above orchestrates                        |
-| 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3     | Fetches untrusted content the model then acts on                       |
-| 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 2     | The unreviewed third mail adapter                                      |
-| 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0     | Every message starts here                                              |
-| 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0     | Handles API keys                                                       |
+| #   | File                                                                          | Lines | Tests | Status  | Why it ranks here                                           |
+| --- | ----------------------------------------------------------------------------- | ----- | ----- | ------- | ----------------------------------------------------------- |
+| 1   | `src/main/tools/fileTools.ts`                                                 | 748   | 1 → 4 | ✅ done | The model's whole read view of the workspace                |
+| 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1     | ☐       | Runs arbitrary shell commands                               |
+| 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2 → 6 | ✅ done | The write path proper                                       |
+| 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1     | ☐       | Sends real mail on the user's behalf — irreversible         |
+| 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4     | ☐       | The undo for all of the above                               |
+| 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1     | ☐       | Local vision transport, never read end to end               |
+| 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2     | ☐       | Mid-generation context surgery                              |
+| 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3     | ☐       | Largest unreviewed file; long unattended runs               |
+| 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ☐       | Drives the research loop                                    |
+| 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3     | ☐       | Fetches untrusted content the model then acts on            |
+| 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 2     | ☐       | The unreviewed third mail adapter                           |
+| 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0     | ☐       | Every message starts here                                   |
+| 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0     | ☐       | Handles API keys                                            |
+| 13  | `src/main/tools/helpers.ts`                                                   | 501   | 26    | ☐       | Best-covered module in the tree; read at the user’s request |
 
 Why 1–4 lead: round one's worst findings were all in code that persists, moves
 or sends the user's data — a failed write destroying a conversation, an
