@@ -57,7 +57,7 @@ guess (the mistake that made round one's first table wrong).
 | 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1 → 3 | ✅ done | Local vision transport, never read end to end               |
 | 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2 → 3 | ✅ done | Mid-generation context surgery                              |
 | 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3 → 4 | ✅ done | Largest unreviewed file; long unattended runs               |
-| 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ☐       | Drives the research loop                                    |
+| 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ✅ done | Drives the research loop                                    |
 | 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3     | ☐       | Fetches untrusted content the model then acts on            |
 | 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 2     | ☐       | The unreviewed third mail adapter                           |
 | 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0     | ☐       | Every message starts here                                   |
@@ -1844,3 +1844,81 @@ The existing suite is strong here — 28 tests already covering the draft/repair
 hierarchical/chart/fallback paths, several named after the exact live failures
 in the handoff docs. The gap was narrow and specific: every test drove stages
 that completed, so nothing exercised a stage that stopped part-way.
+
+---
+
+## Round two, 8. `src/main/criticalThinking/CriticalThinkingResearchRunner.ts` — done
+
+1,398 lines executing one plan step as persisted, resumable phases: choose
+queries, search, read, assess. Every phase is checkpointed, every network
+operation is cancellable and concurrent, and the whole thing is written so that
+a dead round cannot unwind the investigation — the failure this file exists to
+prevent.
+
+That discipline holds throughout. The bug is in what it hands back.
+
+### Bug fixed
+
+**8.1 A run could be resumed but would do no research.** `pauseStep` and
+`limitStep` mark a step `'limited'` for every termination reason except a user
+Stop. That includes the run-level budgets — `time-limit`, `tool-limit`,
+`evidence-limit`, `rounds-exhausted` — which say nothing about the step being
+exhausted, only that the _run_ ran out.
+
+`CriticalThinkingService.runResearchWaves` treats `'limited'` as terminal, and
+`resume` rebuilt only `status`, `report`, `synthesisDiagnostics` and
+`lastError`; step statuses were never cleared, and `createStepStates` is called
+only from `approve` and planning. So the ordinary case — a long run that hits
+its research time budget and finishes `partial` — presented a Resume button
+that skipped every step, found `pendingIndexes` empty, returned immediately, and
+went straight to re-synthesising the same evidence into the same report.
+
+The fresh budget was already there: `runResearch` resets `usage` to zeros on
+every call. Only the statuses were holding it shut.
+
+`resume` now reopens every step that did not complete. Safe rather than
+optimistic: the per-step lifetime cap is checked inside `run()` against
+`spentRoundCount(step)`, which derives from persisted `rounds` — preserved here —
+so a step that genuinely used its whole allowance re-limits itself immediately
+without spending anything. Completed steps keep their findings and are never
+revisited.
+
+The fix lands in `CriticalThinkingService.ts` (file 7) because that is where
+`resume` lives, but it belongs to this file's row: the runner is what assigns
+`'limited'`, and reading it is what made the asymmetry visible.
+
+### Verified, not bugs
+
+- **`createLinkedTimeout` distinguishes its own timeout from an outer abort.**
+  `timedOut()` is what lets `abortReason()` report `time-limit` rather than
+  `user`, the outer signal's reason propagates through, and `dispose()` clears
+  the timer _and_ removes the listener — so a step that finishes early leaves
+  nothing armed.
+- **`everyOperationFailed` requires `results.length > 0`**, so a round that
+  attempted nothing is not misread as a round where everything failed. Its
+  callers `limitStep` rather than throwing, which is the specific guard against
+  a dead round unwinding the run.
+- **Search and fetch counters increment inside the worker, not when the batch is
+  reserved.** A timeout can stop the queue before every reserved item starts;
+  charging unstarted work would silently consume the next step's budget.
+- **`spentRoundCount` derives the per-step cap from persisted rounds**, not a
+  per-invocation counter — required for correctness under the wave scheduler,
+  which calls `run()` repeatedly for the same step.
+- **`readRound` captures `run`/`step` once and uses them inside the concurrent
+  fetch workers**, where `searchRound` re-reads through `this.deps.getRun()`.
+  Inconsistent, but not a bug: the captured values are the question text, the
+  step title and the step id, none of which can change while a single round's
+  fetches are in flight.
+
+### Tests
+
+No test was added to this file's own suite. The behaviour the fix changes is
+`resume`'s, so the test lives with it in `CriticalThinkingService.test.ts` — a
+run whose second step was limited by `time-limit` comes back researchable while
+the completed first step keeps its finding. Confirmed failing against the
+pre-fix file.
+
+That is also the honest description of this file's coverage: one suite exercises
+the runner directly, and it is thin relative to 1,398 lines of budget and
+termination logic. Nothing further was added here because nothing further was
+found to be wrong — the gap is worth noting rather than filling speculatively.

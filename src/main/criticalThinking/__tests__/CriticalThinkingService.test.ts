@@ -1284,6 +1284,64 @@ describe('CriticalThinkingService research: breadth-first step scheduling (P0-D)
   })
 })
 
+describe('CriticalThinkingService: resuming an unfinished run', () => {
+  it('reopens steps that were only limited by the run budget', async () => {
+    // Every stop reason except a user Stop marks a step `'limited'`, including
+    // the run-level budgets that say nothing about that step being exhausted.
+    // `runResearchWaves` treats `'limited'` as terminal, so a long run that hit
+    // its time budget offered a Resume that did no research at all: every step
+    // was skipped and the run went straight back to re-synthesising the
+    // evidence it already had. The fresh budget was already there —
+    // `runResearch` resets `usage` on every call — only the statuses held it shut.
+    const run = seedRun({
+      status: 'partial',
+      plan: {
+        title: 'Bee and Wasp Sting Pain Research',
+        steps: [
+          { id: 'step-1', title: 'Compare venom composition', status: 'completed' },
+          { id: 'step-2', title: 'Compare inflammatory duration', status: 'pending' }
+        ],
+        updatedAt: 1
+      },
+      steps: [
+        {
+          id: 'step-1',
+          title: 'Compare venom composition',
+          status: 'completed',
+          attempts: 1,
+          evidenceIds: [],
+          finding: 'Bee venom is more acute.',
+          uncertainties: [],
+          rounds: []
+        },
+        {
+          id: 'step-2',
+          title: 'Compare inflammatory duration',
+          status: 'limited',
+          attempts: 1,
+          evidenceIds: [],
+          finding: '',
+          uncertainties: [],
+          rounds: [],
+          terminationReason: 'time-limit'
+        }
+      ]
+    })
+
+    const { criticalThinkingService } = await import('../CriticalThinkingService')
+    const service = criticalThinkingService as unknown as {
+      resume: (id: string) => CriticalThinkingRun
+    }
+    const resumed = service.resume(run.id)
+
+    // The unfinished step is researchable again...
+    expect(resumed.steps[1]).toMatchObject({ status: 'pending', terminationReason: undefined })
+    // ...and the finished one keeps its finding and is never revisited.
+    expect(resumed.steps[0]).toMatchObject({ status: 'completed' })
+    expect(resumed.steps[0].finding).toBe('Bee venom is more acute.')
+  })
+})
+
 describe('CriticalThinkingService research: failure salvage', () => {
   it('salvages a report from verified evidence when synthesis throws, instead of failing empty', async () => {
     const run = seedSynthesisRun()

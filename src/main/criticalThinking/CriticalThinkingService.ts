@@ -207,7 +207,8 @@ class CriticalThinkingService {
       status: 'researching',
       report: '',
       synthesisDiagnostics: null,
-      lastError: null
+      lastError: null,
+      steps: reopenUnfinishedSteps(run.steps)
     })
     this.broadcastRunsChanged()
     void this.runResearch(updated)
@@ -1820,6 +1821,36 @@ function normalizePlan(plan: Plan): Plan {
     }))
   if (steps.length === 0) throw new Error('Keep at least one research step in the plan.')
   return { title: truncate(title, MAX_PLAN_STEP_CHARS), steps, updatedAt: Date.now() }
+}
+
+/**
+ * Reopen every step that did not finish, so a resumed run can actually research.
+ *
+ * `pauseStep`/`limitStep` mark a step `'limited'` for every stop reason except a
+ * user Stop — including the run-level budgets (`time-limit`, `tool-limit`,
+ * `evidence-limit`, `rounds-exhausted`), which say nothing about that step
+ * being exhausted, only that the run ran out. `runResearchWaves` then treats
+ * `'limited'` as terminal, and `resume` did not clear it. So the ordinary case
+ * — a long run that hit its time budget and finished `partial` — offered a
+ * Resume button that did no research at all: every step was skipped,
+ * `pendingIndexes` came back empty, and the run went straight to
+ * re-synthesising the evidence it already had.
+ *
+ * The fresh budget was already there; `runResearch` resets `usage` on every
+ * call. Only the step statuses were holding it shut.
+ *
+ * Reopening is safe rather than optimistic: the per-step lifetime cap is
+ * checked inside `run()` against `spentRoundCount(step)`, and `rounds` is
+ * preserved here — so a step that genuinely used its whole allowance re-limits
+ * itself immediately, without spending anything. Completed steps keep their
+ * findings and are never revisited.
+ */
+function reopenUnfinishedSteps(steps: CriticalThinkingStepState[]): CriticalThinkingStepState[] {
+  return steps.map((step) =>
+    step.status === 'completed'
+      ? step
+      : { ...step, status: 'pending' as const, terminationReason: undefined }
+  )
 }
 
 function createStepStates(plan: Plan): CriticalThinkingStepState[] {
