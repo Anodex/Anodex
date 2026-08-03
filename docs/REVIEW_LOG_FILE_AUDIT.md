@@ -46,15 +46,15 @@ would create a fresh inconsistency rather than remove one. Listed here so they
 survive the pass that found them; each is also written up under the file it came
 from.
 
-| Item                                                        | Found in | Status          |
-| ----------------------------------------------------------- | -------- | --------------- |
-| Round text concatenated with no separator (4 transports)    | 4        | ☐               |
-| No timeout on API-key verify clients (all providers)        | 4        | ☐               |
-| Empty turns can leave consecutive same-role messages        | 4        | ☐ narrowed in 5 |
-| `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ☐               |
-| `AnodexApi` mixes `Result<T>` and bare-`T` returns          | 9        | ☐               |
-| No Sent copy is filed after an SMTP send                    | 7        | ✅ fixed        |
-| `unarchive` cannot resolve an already-archived thread       | 7        | ✅ fixed        |
+| Item                                                        | Found in | Status            |
+| ----------------------------------------------------------- | -------- | ----------------- |
+| Round text concatenated with no separator (4 transports)    | 4        | ☐                 |
+| No timeout on API-key verify clients (all providers)        | 4        | ☐                 |
+| Empty turns can leave consecutive same-role messages        | 4        | ☐ narrowed in 5   |
+| `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ☐                 |
+| `AnodexApi` mixes `Result<T>` and bare-`T` returns          | 9        | assessed — no fix |
+| No Sent copy is filed after an SMTP send                    | 7        | ✅ fixed          |
+| `unarchive` cannot resolve an already-archived thread       | 7        | ✅ fixed          |
 
 ---
 
