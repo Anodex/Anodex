@@ -37,6 +37,7 @@ vi.mock('../AgentRunStore', () => ({
 
 vi.mock('../../conversations/ConversationStore', () => ({
   conversationStore: {
+    get: (id: string) => (id === conversation.id ? conversation : undefined),
     listAll: () => [conversation],
     save: vi.fn(),
     list: () => [conversation]

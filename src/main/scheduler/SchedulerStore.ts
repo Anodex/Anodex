@@ -21,7 +21,13 @@ const MAX_RUN_HISTORY = 20
 export interface RecordRunOptions {
   status: ScheduledTaskRunStatus
   summary: string | null
-  conversationId: string
+  /**
+   * The conversation this run wrote into. Null when the run failed before it
+   * had one — a failed conversation write, which is recorded like any other
+   * failure so the schedule still advances. The task keeps whichever
+   * conversation it already had rather than losing the link to its history.
+   */
+  conversationId: string | null
   /** The assistant message holding the full reply, or null if the run errored before producing one. */
   messageId: string | null
   /** The user message that opened this run, used to segment the transcript by run. */
@@ -153,7 +159,7 @@ class SchedulerStore {
     }
     const next: ScheduledTask = {
       ...task,
-      conversationId: options.conversationId,
+      conversationId: options.conversationId ?? task.conversationId,
       lastRunAt: now,
       lastRunStatus: options.status,
       lastRunSummary: options.summary,

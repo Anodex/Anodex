@@ -7,6 +7,7 @@ import type { ToolCall } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
+import { appendBackgroundTurn } from '../conversations/backgroundTurn'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
 import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
@@ -171,7 +172,7 @@ class AgentRunService {
     if (run.status !== 'needs-review') throw new Error('This run is not waiting for plan review.')
     if (this.runningRunId) throw new Error('Another agent run is currently in progress.')
     if (!run.conversationId) throw new Error("This run's conversation could not be found.")
-    const conversation = conversationStore.listAll().find((c) => c.id === run.conversationId)
+    const conversation = conversationStore.get(run.conversationId)
     if (!conversation) throw new Error("This run's conversation could not be found.")
 
     const updated = agentRunStore.update(runId, { status: 'running' })
@@ -605,10 +606,13 @@ class AgentRunService {
     // shows the same live plan instead of "No active plan for this session."
     if (latestPlan) conversation.plan = latestPlan
 
-    this.saveConversationTurn(conversation, [userMessage, assistantMessage])
+    const saved = appendBackgroundTurn(conversation, [userMessage, assistantMessage])
     // `conversation` is reused by the next turn in this same loop — keep its
-    // in-memory `messages` in sync with what was just persisted.
-    conversation.messages = [...conversation.messages, userMessage, assistantMessage]
+    // in-memory `messages` in sync with what was just persisted, which is the
+    // merged history rather than this snapshot's, so a turn the user typed
+    // into the run's chat is carried into the next turn instead of being
+    // dropped from it.
+    conversation.messages = saved.messages
 
     return {
       finished: Boolean(finishCall),
@@ -676,16 +680,6 @@ class AgentRunService {
     }
     conversationStore.save(conversation)
     return conversation
-  }
-
-  private saveConversationTurn(conversation: Conversation, newMessages: ChatMessage[]): void {
-    conversationStore.save({
-      ...conversation,
-      messages: [...conversation.messages, ...newMessages],
-      archived: false,
-      archivedAt: undefined,
-      updatedAt: Date.now()
-    })
   }
 
   /**

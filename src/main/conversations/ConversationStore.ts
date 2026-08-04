@@ -74,6 +74,15 @@ class ConversationStore {
     return this.list().filter((c) => c.projectId === projectId)
   }
 
+  /**
+   * Look one conversation up by id, archived or not. Callers used to reach for
+   * `listAll().find(...)`, which copies and sorts every conversation in the
+   * store to answer a single-key question the cache can answer directly.
+   */
+  get(id: string): Conversation | undefined {
+    return this.ensureCache().get(id)?.conversation
+  }
+
   /** Persist a single conversation, keeping the cache in sync. */
   save(conversation: Conversation): void {
     const normalized = sanitizeConversationTranscript(conversation).conversation

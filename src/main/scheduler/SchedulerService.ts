@@ -6,6 +6,7 @@ import type { ScheduledTask } from '@shared/scheduledTask.types'
 import type { ToolCall } from '@shared/tools.types'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
+import { appendBackgroundTurn } from '../conversations/backgroundTurn'
 import { llamaService } from '../llama/LlamaService'
 import { showToastWindow } from '../toastWindow'
 import { runBoundedChatGeneration } from '../chat/boundedChatRunner'
@@ -40,20 +41,36 @@ class SchedulerService {
   private startupTimer: ReturnType<typeof setTimeout> | null = null
   private runningTaskId: string | null = null
   private activeController: AbortController | null = null
+  /** Set once `stop()` has run, so a run still unwinding doesn't act as if the app were still up. */
+  private stopping = false
 
   init(): void {
-    this.startupTimer = setTimeout(() => void this.tick(), STARTUP_TICK_DELAY_MS)
-    this.tickTimer = setInterval(() => void this.tick(), TICK_INTERVAL_MS)
+    // A scheduler that has been started is not shutting down. Without this a
+    // restart would leave `stopping` latched from the previous `stop()` and
+    // silently suppress every run's toast from then on.
+    this.stopping = false
+    this.startupTimer = setTimeout(() => this.safeTick(), STARTUP_TICK_DELAY_MS)
+    this.tickTimer = setInterval(() => this.safeTick(), TICK_INTERVAL_MS)
     log.info('Scheduler service started')
   }
 
   /** Stop the loop and abort any run in progress — called on app quit. */
   stop(): void {
+    this.stopping = true
     if (this.tickTimer) clearInterval(this.tickTimer)
     if (this.startupTimer) clearTimeout(this.startupTimer)
     this.tickTimer = null
     this.startupTimer = null
     this.activeController?.abort()
+  }
+
+  /**
+   * `tick` is driven by timers, which have nowhere to report a rejection to.
+   * `runTask` is written not to reject, but a bug that made it do so would
+   * otherwise surface only as an unhandled rejection with no context.
+   */
+  private safeTick(): void {
+    this.tick().catch((error) => log.error('Scheduler tick failed:', error))
   }
 
   /** Manually trigger a task right now, regardless of its schedule. */
@@ -102,6 +119,18 @@ class SchedulerService {
     await this.runTask(next)
   }
 
+  /**
+   * Hold the run lock for one task, and release it whatever happens.
+   *
+   * Everything that can fail lives inside the `try`, including creating the
+   * task's conversation. That write can throw on its own — `ConversationStore`
+   * rethrows a failed save rather than swallowing it — and it used to sit
+   * between taking the lock and the `try`, so a full disk or a locked file
+   * escaped past the `finally` with `runningTaskId` still set. From then on
+   * every tick found "a task is already running", `runNow` refused for the
+   * same reason, and no `recordRun` ever advanced `nextRunAt`: one failed
+   * write stopped every scheduled task for the life of the process.
+   */
   private async runTask(task: ScheduledTask): Promise<void> {
     this.runningTaskId = task.id
     const controller = new AbortController()
@@ -109,6 +138,35 @@ class SchedulerService {
     const startedAt = Date.now()
     log.info('Running scheduled task:', task.id, task.name)
 
+    try {
+      await this.executeRun(task, controller.signal, startedAt)
+    } catch (error) {
+      // `executeRun` reports a failed *generation* itself, so anything landing
+      // here failed before the run had a conversation to record against. It is
+      // still recorded, so the schedule advances rather than leaving the task
+      // permanently due and re-attempted every 30 seconds.
+      log.error('Scheduled task could not start:', task.id, error)
+      schedulerStore.recordRun(task.id, {
+        status: 'error',
+        summary: error instanceof Error ? error.message : 'Run failed.',
+        conversationId: task.conversationId,
+        messageId: null,
+        userMessageId: null,
+        startedAt
+      })
+    } finally {
+      this.runningTaskId = null
+      this.activeController = null
+      this.notifyTasksChanged()
+    }
+  }
+
+  /** One run, start to finish: generate, persist the turn, record the outcome, announce it. */
+  private async executeRun(
+    task: ScheduledTask,
+    signal: AbortSignal,
+    startedAt: number
+  ): Promise<void> {
     const conversation = this.getOrCreateConversation(task)
     const userMessage: ChatMessage = {
       id: generateId('sched_msg'),
@@ -122,6 +180,9 @@ class SchedulerService {
     // order calls started — same de-dup shape the interactive chat path gets
     // for free from the renderer's own tool-activity accumulation.
     const toolCallsById = new Map<string, ToolCall>()
+    /** Guards the failure path from re-appending a prompt whose turn was already persisted. */
+    let turnSaved = false
+    let toastBody: string
 
     try {
       const result = await runBoundedChatGeneration(
@@ -135,7 +196,7 @@ class SchedulerService {
           plan: null
         },
         {
-          signal: controller.signal,
+          signal,
           enabledTools: new Set(task.enabledTools),
           // Restricted to only the tools the task owner opted in (above); of
           // those, `headlessConfirm` decides what may run with no one present
@@ -165,7 +226,8 @@ class SchedulerService {
       // growing history from scratch instead of seeding from what this run
       // already paid to compact.
       if (result.context) conversation.context = result.context
-      this.saveConversationTurn(conversation, [userMessage, assistantMessage])
+      appendBackgroundTurn(conversation, [userMessage, assistantMessage])
+      turnSaved = true
 
       const summary = result.stopped
         ? scheduledStopSummary(result.stopReason, result.stopDetail)
@@ -179,16 +241,15 @@ class SchedulerService {
         startedAt,
         fabricationDetected: result.fabricationDetected ?? false
       })
-      showToastWindow({
-        title: task.name,
-        body: summary ?? 'Finished — open the chat to see the reply.',
-        conversationId: conversation.id
-      })
+      toastBody = summary ?? 'Finished — open the chat to see the reply.'
     } catch (error) {
       log.error('Scheduled task run failed:', task.id, error)
       // Still append the user turn so the conversation shows what was
-      // attempted, even though it failed.
-      this.saveConversationTurn(conversation, [userMessage])
+      // attempted — unless the reply was already persisted, in which case the
+      // failure came from reporting the run rather than from running it, and
+      // appending again would stack a second copy of the prompt on top of a
+      // turn that succeeded.
+      if (!turnSaved) appendBackgroundTurn(conversation, [userMessage])
       schedulerStore.recordRun(task.id, {
         status: 'error',
         summary: error instanceof Error ? error.message : 'Run failed.',
@@ -197,22 +258,40 @@ class SchedulerService {
         userMessageId: userMessage.id,
         startedAt
       })
-      showToastWindow({
-        title: task.name,
-        body: 'This scheduled task failed to run.',
-        conversationId: conversation.id
-      })
-    } finally {
-      this.runningTaskId = null
-      this.activeController = null
-      this.broadcastTasksChanged()
+      toastBody = 'This scheduled task failed to run.'
+    }
+
+    // Announcing the run is deliberately outside the block above. Opening a
+    // window is the one step here that can fail for reasons of its own, and
+    // when it did, the failure path re-entered as though the *run* had failed:
+    // it recorded a second run, reported the successful one as an error, and
+    // re-saved the conversation without the reply it had just written.
+    this.announceRun(task, toastBody, conversation.id)
+  }
+
+  /**
+   * Show the run's toast, unless the app is on its way out. `stop()` aborts the
+   * in-flight run, which unwinds a tick later — by then `will-quit` has already
+   * run `closeToast()`, so a toast opened here would be a window created during
+   * shutdown that nothing is left to close.
+   */
+  private announceRun(task: ScheduledTask, body: string, conversationId: string): void {
+    if (this.stopping) {
+      log.info('Skipping toast for', task.id, '— the app is quitting')
+      return
+    }
+    try {
+      showToastWindow({ title: task.name, body, conversationId })
+    } catch (error) {
+      // The run is finished and already recorded by this point. Failing to
+      // announce it is not a failure of the run, and must not reach a handler
+      // that would record it a second time as one.
+      log.warn('Failed to show the toast for scheduled task', task.id, error)
     }
   }
 
   private getOrCreateConversation(task: ScheduledTask): Conversation {
-    const existing = task.conversationId
-      ? conversationStore.listAll().find((c) => c.id === task.conversationId)
-      : undefined
+    const existing = task.conversationId ? conversationStore.get(task.conversationId) : undefined
     if (existing) return existing
 
     const conversation: Conversation = {
@@ -226,17 +305,6 @@ class SchedulerService {
     }
     conversationStore.save(conversation)
     return conversation
-  }
-
-  /** Persist new messages onto a task's conversation, un-archiving it if the user had archived it. */
-  private saveConversationTurn(conversation: Conversation, newMessages: ChatMessage[]): void {
-    conversationStore.save({
-      ...conversation,
-      messages: [...conversation.messages, ...newMessages],
-      archived: false,
-      archivedAt: undefined,
-      updatedAt: Date.now()
-    })
   }
 
   /** Best-effort local summary for the toast body; falls back to null if the local model isn't ready. */
@@ -256,10 +324,6 @@ class SchedulerService {
    * over IPC, so nothing else would tell the Scheduler page a task appeared.
    */
   notifyTasksChanged(): void {
-    this.broadcastTasksChanged()
-  }
-
-  private broadcastTasksChanged(): void {
     broadcastToWindows(IpcChannel.Scheduler.tasksChanged, schedulerStore.list())
   }
 }

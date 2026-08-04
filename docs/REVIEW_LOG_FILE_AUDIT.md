@@ -56,7 +56,7 @@ mirage a second time.
 | --- | ----------------------------------------------------------------------- | ----- | ------- | ------- | -------------------------------------------------------------- |
 | 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0 → 11  | ✅ done | Sends real mail; the last unreviewed adapter, and untested     |
 | 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11 → 16 | ✅ done | Runs tools autonomously with nobody watching                   |
-| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0       | ☐       | Starts those unattended runs on a timer; no coverage at all    |
+| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0 → 8   | ✅ done | Starts those unattended runs on a timer; no coverage at all    |
 | 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29      | ☐       | The entire tool security model, in 192 lines                   |
 | 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58      | ☐       | Holds every API key and mail credential, and persists them     |
 | 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12      | ☐       | Connects and executes third-party servers' tools               |
@@ -129,16 +129,17 @@ would create a fresh inconsistency rather than remove one. Listed here so they
 survive the pass that found them; each is also written up under the file it came
 from.
 
-| Item                                                        | Found in | Status            |
-| ----------------------------------------------------------- | -------- | ----------------- |
-| Round text concatenated with no separator (4 transports)    | 4        | ✅ fixed          |
-| No timeout on API-key verify clients (all providers)        | 4        | ✅ fixed          |
-| Empty turns can leave consecutive same-role messages        | 4        | ✅ fixed          |
-| `splitHistoryByTokenBudget` cuts without regard for pairing | 5        | ✅ fixed          |
-| `AnodexApi` mixes `Result<T>` and bare-`T` returns          | 9        | assessed — no fix |
-| No Sent copy is filed after an SMTP send                    | 7        | ✅ fixed          |
-| `unarchive` cannot resolve an already-archived thread       | 7        | ✅ fixed          |
-| `save_email_attachment` does not disclose an overwrite      | R2.3     | ✅ fixed          |
+| Item                                                         | Found in | Status            |
+| ------------------------------------------------------------ | -------- | ----------------- |
+| Round text concatenated with no separator (4 transports)     | 4        | ✅ fixed          |
+| No timeout on API-key verify clients (all providers)         | 4        | ✅ fixed          |
+| Empty turns can leave consecutive same-role messages         | 4        | ✅ fixed          |
+| `splitHistoryByTokenBudget` cuts without regard for pairing  | 5        | ✅ fixed          |
+| `AnodexApi` mixes `Result<T>` and bare-`T` returns           | 9        | assessed — no fix |
+| No Sent copy is filed after an SMTP send                     | 7        | ✅ fixed          |
+| Conversations are saved whole, so concurrent writers clobber | R3 3     | ☐ open            |
+| `unarchive` cannot resolve an already-archived thread        | 7        | ✅ fixed          |
+| `save_email_attachment` does not disclose an overwrite       | R2.3     | ✅ fixed          |
 
 ---
 
@@ -2695,3 +2696,172 @@ not directly tested, for the same reason the pure functions were extracted in th
 first place: those methods need `runGeneration`, the store, IPC broadcast, and
 toast windows. Mitigated by both call sites now going through the same
 `activeElapsedMs` the tests exercise, rather than repeating the arithmetic.
+
+## Round three, 3. `src/main/scheduler/SchedulerService.ts` — done
+
+309 lines and genuinely zero tests — the smallest file on this list and the one
+with the least standing behind it. It fires tasks on a 30-second timer with
+nobody watching, which makes its failure modes a particular shape: none of the
+four below produce an error a person ever sees. Two of them are silent for the
+rest of the process's life.
+
+Its neighbours were read alongside it because it cannot be judged alone:
+`SchedulerStore` (its whole recurrence and history brain), `nextRun.ts` (the
+date arithmetic underneath that), `toastWindow.ts` (what it calls to report a
+run), and `boundedChatRunner` (which it hands the run to). `nextRun.ts` and
+`SchedulerStore` were correct as written; the defects are all in the seams
+around the run itself, not in the model call or the schedule maths.
+
+### 1. One failed conversation write stopped every scheduled task, permanently
+
+`runTask` took the run lock — `this.runningTaskId = task.id` — and then called
+`getOrCreateConversation`, which persists a new conversation file. That call
+sits **outside** the `try`, and `ConversationStore.save` deliberately rethrows a
+failed write rather than swallowing it (that rethrow is correct; it is what
+stops a failed save being mistaken for a successful one). So a full disk, a
+locked file, or an antivirus scanner holding the handle threw straight past the
+`finally` that clears the lock.
+
+From that moment on, for the life of the process:
+
+- every tick found `runningTaskId` set and logged "they will start once it
+  finishes" about a run that had already ended,
+- `runNow` refused with "Another scheduled task is currently running",
+- and because `recordRun` never fired, `nextRunAt` was never recomputed — so the
+  task stayed permanently due and was re-attempted every 30 seconds forever,
+- with the original throw surfacing only as an unhandled rejection from
+  `void this.tick()`.
+
+Nothing in the UI says a word about any of this. The user's scheduled tasks
+simply stop happening until they restart the app.
+
+Fixed by splitting `runTask` (take the lock, and release it whatever happens)
+from `executeRun` (the run itself), so everything that can fail — conversation
+creation included — is inside the guarded region. The outer handler records the
+failure like any other, so the schedule advances instead of spinning. That
+needed `RecordRunOptions.conversationId` to become `string | null`, since a run
+that failed this early has no conversation to point at; `recordRun` now keeps
+whichever conversation the task already had rather than clearing the link to its
+own history.
+
+`safeTick` was added at the same time. `tick` is driven by timers, which have
+nowhere to report a rejection to; `runTask` is now written not to reject, but a
+future bug that made it do so should not be discoverable only as an unhandled
+rejection with no context attached.
+
+**Not a shared defect.** `AgentRunService` looks similar and is not: `start`
+creates its conversation before `runningRunId` is ever set, so the same throw
+leaves no lock behind.
+
+### 2. Failing to _announce_ a run was treated as failing the run — destructively
+
+The `try` covered the whole run, generation _and_ reporting, in this order:
+persist the turn → `recordRun` → `showToastWindow`. The toast is the one step
+here that can fail for reasons entirely its own — it opens a `BrowserWindow`,
+which is not something that always succeeds, particularly during shutdown. When
+it did fail, control went to the `catch`, which:
+
+- called `saveConversationTurn(conversation, [userMessage])` on the snapshot
+  taken **before** the run — silently rewriting the conversation without the
+  assistant reply that had just been saved to it, and
+- called `recordRun` a second time with `status: 'error'`, so one run counted as
+  two in `runCount`, the Scheduler page reported a failure that had not happened,
+  and `nextRunAt` advanced twice — silently skipping the task's next slot.
+
+A successful run, its reply destroyed and reported as a failure, because a toast
+window could not open.
+
+Announcing the run now happens after the guarded block, in `announceRun`, which
+catches its own failure and logs it: the run is finished and already recorded by
+then, and failing to announce it is not a failure of the run. The failure path
+also no longer re-appends the prompt when the turn was already persisted.
+
+**This one bit me while fixing it.** The first version moved the toast out of
+the inner `try` but left it inside `runTask`'s new outer one, so a toast throw
+still reached a handler that recorded the run a second time — the test written
+for it failed against my own fix, which is what the test was for.
+
+### 3. A run overwrote anything the user did in its chat while it was working
+
+`getOrCreateConversation` returns a snapshot; the turn was written back minutes
+later as `{ ...snapshot, messages: [...snapshot.messages, ...new] }`, and
+`conversationStore.save` replaces the whole document. Anything that landed in
+between was erased.
+
+This is not hypothetical. A scheduled task's conversation is an ordinary
+conversation: it appears in the sidebar with its own badge (`ChatRow.tsx`), the
+run's toast links straight to it, and the renderer persists a chat by saving all
+of it (`chatStore.ts`'s `saveConversation`). Open the chat while the task is
+still working, type a message, and both it and its reply disappear when the run
+finishes. So does a rename.
+
+Fixed by `appendBackgroundTurn` in the new
+`src/main/conversations/backgroundTurn.ts`, which re-reads the conversation
+immediately before writing and merges — narrowing the window from the whole run
+to a synchronous merge. Only the fields a background run genuinely owns are
+carried across from its own copy: the compacted `context` snapshot it just paid
+for, and the `plan` an agent turn updated.
+
+**`AgentRunService` had the identical method and the identical defect,** over a
+much longer window — a whole agent loop rather than one turn. Both now use the
+shared helper, and the agent's per-turn `conversation.messages` resync takes the
+merged history, so a message the user typed mid-run is carried into the next
+turn instead of being dropped from it. The duplicated private
+`saveConversationTurn` is gone from both.
+
+### 4. A run aborted by quitting opened a toast during shutdown
+
+`will-quit` calls `schedulerService.stop()`, which aborts the in-flight run, and
+then `closeToast()`. The aborted run unwinds a tick _later_ — after `closeToast`
+has already run — and opened a toast window with nothing left to close it. Now
+`stop()` latches a `stopping` flag that `announceRun` checks; `init()` clears it,
+so a restarted scheduler is not left silently suppressing every toast.
+
+### Cleanups
+
+- `conversationStore.get(id)` added. Three call sites answered a single-key
+  question with `listAll().find(...)`, which copies and sorts every conversation
+  in the store to do it. Two of them now use `get`.
+- `notifyTasksChanged` was a public one-line passthrough to a private
+  `broadcastTasksChanged`; the two are now one method.
+
+### Deliberate non-changes
+
+- **`runNow` does not check `llamaService.isGenerating()`,** where `tick` does.
+  Correct as it stands: the tick guard exists so a background run never queues
+  behind a live reply the user is watching, but "Run now" is an explicit
+  instruction, and the local model lock queues it rather than failing. Refusing
+  would be worse than waiting.
+- **`runNow` holds the IPC call open for the whole run** — up to 15 minutes.
+  That is the designed UX, not an oversight: the renderer shows a pending toast
+  for the duration and reads `lastRunStatus` from the broadcast when it resolves.
+- **A stopped-by-quit run is still recorded, advancing `nextRunAt`.** Honest
+  about what happened, and the alternative — leaving the slot due — would fire it
+  on the next launch regardless of how long ago that was.
+- **An empty reply with `stopped: false` is recorded as a success** with a null
+  summary. Arguably it should say something; nothing about it is wrong, and no
+  behaviour depends on the distinction.
+- **The mirror race is still open.** These fixes stop the _scheduler_ clobbering
+  the user; the renderer holds its own whole-conversation copy and can still
+  clobber a background turn in the other direction, because nothing broadcasts
+  that a conversation changed. That is a store-wide design question
+  (whole-document last-write-wins), not a scheduler one — recorded in the
+  cross-cutting table rather than fixed here.
+
+### Tests
+
+`SchedulerService.test.ts` — 8 added, its first coverage. The conversation store
+is a real in-memory map rather than a spy, so the merge in finding 3 is genuinely
+exercised instead of asserted against a recorded call.
+
+Seven of the eight fail against the pre-fix file for the right reasons — checked
+per `describe` block in isolation, because findings 1 and 2 wedge the singleton
+badly enough that a whole-file run would have failed the later tests for the
+wrong reason. The eighth (a failed generation still persisting the prompt and
+recording an error) passes either way and is labelled in the file as a
+regression guard, not evidence of a fix.
+
+**A false signal caught on the way.** The first pre-fix run showed all eight
+failing, which was wrong: the mock omitted `conversationStore.listAll`, which
+only the pre-fix code calls, so every test died on a `TypeError` before reaching
+an assertion. Added it and re-ran; that is when the eighth turned out to pass.
