@@ -39,6 +39,53 @@ Why this order: 1 and 6–7 can destroy or leak user data; 2–5 are the generat
 path where a bug burns tokens or truncates a reply; 8–10 are the app's spine;
 11–12 are contained UI.
 
+## Round three — the next twelve, non-UI
+
+Ranked 2026-08-03, after rounds one and two closed and the cross-cutting table
+emptied. The user asked for the next twelve and said explicitly not to weight UI
+files, so this list is `src/main`, `src/shared`, and `src/preload` only.
+
+Same rule as before — what can hurt the user, not what is biggest — with one
+addition learned from round two: **a test count is not coverage until it has been
+checked.** `MicrosoftAdapter` was credited with two tests that turned out to be
+`vi.mock` stubs naming the class without executing a line of it. Every count
+below was verified against the real test tree, and `GmailAdapter` is the same
+mirage a second time.
+
+| #   | File                                                                    | Lines | Tests | Status | Why it ranks here                                              |
+| --- | ----------------------------------------------------------------------- | ----- | ----- | ------ | -------------------------------------------------------------- |
+| 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0     | ☐      | Sends real mail; the last unreviewed adapter, and untested     |
+| 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11    | ☐      | Runs tools autonomously with nobody watching                   |
+| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0     | ☐      | Starts those unattended runs on a timer; no coverage at all    |
+| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29    | ☐      | The entire tool security model, in 192 lines                   |
+| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58    | ☐      | Holds every API key and mail credential, and persists them     |
+| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12    | ☐      | Connects and executes third-party servers' tools               |
+| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32    | ☐      | Largest unreviewed file; the sidecar a run's citations live in |
+| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*   | ☐      | Last unreviewed cloud provider; both siblings had real bugs    |
+| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9     | ☐      | Decides what the model is told it can do; thin for its size    |
+| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15    | ☐      | History and token budgeting on every local turn                |
+| 11  | `src/preload/index.ts`                                                  | 317   | 0\*\* | ☐      | The renderer↔main boundary every IPC call crosses              |
+| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5     | ☐      | Writes and deletes files on disk under a thin test             |
+
+\* No direct suite, but genuinely exercised by `cloudRoundResilience.test.ts` and
+`CloudProviderVision.test.ts`, which import the real provider.
+\*\* No behavioural tests. `ipcContract.test.ts` reads it as _source text_ to prove
+every declared channel is referenced — a structural guard, not coverage.
+
+**Why this order.** 1–3 are the unattended and irreversible surfaces: sending
+mail cannot be undone, and an agent or a scheduled run executes tools with no
+person present to catch a mistake. 4 is small enough to read in one sitting and
+is the only thing standing between a tool call and the user's filesystem. 5–6
+hold credentials and run third-party code. 7–10 are correctness on the paths
+every run goes through. 11–12 are the boundary and the disk.
+
+**Deliberately not on the list.** `toolCallFallback.ts` (377 lines, 52 tests),
+`huggingFaceCatalog.ts` (434/39), `compaction.ts` (357/27), and `registry.ts`
+(284/23) are all well covered relative to their size and their blast radius is
+smaller. `MemoryStore.ts` (333/18) was the closest thing to a thirteenth entry.
+
+---
+
 ## Round two — the next twelve, by the same rule
 
 Round one's twelve are done and its cross-cutting items are closed. Re-measured
