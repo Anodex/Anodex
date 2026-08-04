@@ -1868,7 +1868,15 @@
   height: 7px;
   background: currentColor;
   border-radius: 50%;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 12%, transparent);
+  /* Ring keyed off `currentColor` so the not-connected modifier only has to
+     change the text colour and both the dot and its halo follow. */
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent);
+}
+
+/* The active provider is missing the credentials it needs to generate a reply,
+   so chat is blocked until it is filled in — a stop, not a soft warning. */
+.providerNotReady {
+  color: var(--danger);
 }
 
 .providerPrivacyNote,

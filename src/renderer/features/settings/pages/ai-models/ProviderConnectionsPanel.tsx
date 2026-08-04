@@ -393,6 +393,7 @@ export function ProviderConnectionsPanel({
 
   const selected = PROVIDERS.find((provider) => provider.id === selectedId) ?? PROVIDERS[0]
   const active = activeProviderDefinition(settings)
+  const activeConnected = providerConnected(active.id, settings)
   const connectedCount = PROVIDERS.filter((provider) =>
     providerConnected(provider.id, settings)
   ).length
@@ -431,8 +432,16 @@ export function ProviderConnectionsPanel({
             <strong>{active.name}</strong>
             <small>{activeDetail}</small>
           </div>
-          <span className={styles.providerReady}>
-            <span /> Ready
+          {/* Reads the same `providerConnected` the catalog and detail pane
+              use. This badge used to be the literal word "Ready", which was a
+              claim it never checked: clearing the API key of the provider that
+              is currently active — doable a few rows below, without changing
+              which provider is active — left this card saying Ready while the
+              composer was disabled and telling the user to add a key. */}
+          <span
+            className={`${styles.providerReady} ${activeConnected ? '' : styles.providerNotReady}`}
+          >
+            <span /> {activeConnected ? 'Ready' : 'Not connected'}
           </span>
           <Button
             variant="secondary"
@@ -704,7 +713,19 @@ export function ProviderConnectionsPanel({
             )}
 
             {isSimpleCloudProvider(selected.id) && (
-              <div className={styles.providerFields}>
+              // Keyed by provider. The other four providers each have their own
+              // conditional slot, so switching between them unmounts one and
+              // mounts another; these eight share this one, and without a key
+              // React sees the same `div` in the same position and keeps the
+              // subtree — and its state — alive across the switch. That handed
+              // one provider's local state to the next: `DailyCapInput` seeds
+              // its text once at mount, so a cap set on Google was still
+              // displayed under xAI while xAI's real cap was something else
+              // entirely, and `ApiKeyField` kept its per-mount auto-verify from
+              // firing (a saved, valid key read as "Unverified") along with any
+              // in-flight check, so the new provider's dot could show
+              // "Checking…" for the previous provider's request.
+              <div className={styles.providerFields} key={selected.id}>
                 <SettingRow
                   label="API key"
                   description="Stored securely on this computer. Use Test connection to verify it."

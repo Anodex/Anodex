@@ -61,7 +61,7 @@ guess (the mistake that made round one's first table wrong).
 | 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3 → 6 | ✅ done | Fetches untrusted content the model then acts on            |
 | 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 0 → 5 | ✅ done | The unreviewed third mail adapter                           |
 | 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0 → 8 | ✅ done | Every message starts here                                   |
-| 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0     | ☐       | Handles API keys                                            |
+| 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0 → 7 | ✅ done | Handles API keys                                            |
 | 13  | `src/main/tools/helpers.ts`                                                   | 501   | 26    | ☐       | Best-covered module in the tree; read at the user’s request |
 
 Why 1–4 lead: round one's worst findings were all in code that persists, moves
@@ -2188,3 +2188,108 @@ race (20 vs 10), and the overflow wording. The other five pin the behaviour the
 fix had to preserve — text and image intake, a failed read reported once without
 ending the pass, an already-attached path skipped, images refused without a
 vision model, and the image cap holding independently of the overall cap.
+
+## Round two, 12. `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` — done
+
+867 lines, no tests, twelve providers. Both defects are places where the panel
+displays something it never actually checked.
+
+### Bugs fixed
+
+**12.1 Eight providers share one conditional slot, so switching between them
+carried the previous one's state over.** The detail pane is four sibling
+conditionals — `local`, `openai`, `anthropic`, `azure` — plus one that covers
+all eight simple cloud providers:
+
+```tsx
+{
+  isSimpleCloudProvider(selected.id) && <div className={styles.providerFields}> … </div>
+}
+```
+
+Switching `openai → anthropic` moves between two different slots, so React
+unmounts one and mounts the other. Switching `google → xai` does not: same
+position, same element type, no key, so React reconciles it as the same subtree
+and keeps its children's state alive. Two components in there hold state:
+
+- **`DailyCapInput` seeds its text once, at mount** — it has no resync effect,
+  unlike `MaxResponseTokensRow` twenty lines above it, which does. So a daily
+  token cap of 50,000 entered under Google was still sitting in the field under
+  xAI, whose real cap was null or something else entirely. Nothing writes, so
+  the mismatch just persists as a wrong number on a spend-limit control; edit
+  the field at all and the new value is committed to the provider from a
+  starting point that was never theirs.
+- **`ApiKeyField` auto-verifies once per mount.** With no remount, selecting a
+  different provider never triggers it: a saved, valid key reads "Unverified"
+  until the user clicks Test. Its in-flight `checking` flag carries over too, so
+  switching mid-check showed the new provider's dot as "Checking…" for the
+  previous provider's request.
+
+Fixed at the root with `key={selected.id}` on the shared block, which restores
+the unmount/mount the other four slots get for free. The key was preferred over
+adding a resync effect to `DailyCapInput`: the effect would fix only the cap
+display, leave both `ApiKeyField` symptoms, and introduce a
+commit-round-trip-versus-typing race the component does not currently have.
+
+The API key text itself was never at risk — `ApiKeyField` renders `value`
+straight from settings with no local draft, so no key was ever shown under
+another provider's name.
+
+**12.2 The "Active provider" card claimed "Ready" without checking anything.**
+It was the literal string:
+
+```tsx
+<span className={styles.providerReady}>
+  <span /> Ready
+</span>
+```
+
+`providerConnected` already exists in this file and is what the catalog list and
+the detail pane both use; this card simply did not call it. Clearing the active
+provider's API key is doable a few rows below without changing which provider is
+active, and left the card saying Ready while `ChatComposer` disabled itself and
+told the user to add a key. It now reads `providerConnected(active.id, settings)`
+and says "Not connected" otherwise, in `--danger` — the active provider missing
+its credentials blocks chat outright rather than being a soft warning. The dot's
+halo moved from a hardcoded `var(--success)` mix to `currentColor` so the
+modifier only has to set the text colour.
+
+### Assessed, not changed
+
+- **`MaxResponseTokensRow`'s toggle loses the previous number.** Turning it off
+  commits `null`, so turning it back on always restores
+  `DEFAULT_MAX_RESPONSE_TOKENS` — the doc comment's "if the provider has never
+  had one" describes an intent the toggle cannot deliver, since it destroys the
+  old value on the way out. Cosmetic, and holding the old value across an off
+  state needs somewhere to keep it.
+- **`parseDailyCapInput` silently ignores `0`, negatives, and non-numeric
+  text** — no commit, no message, the field keeps showing what was typed. It
+  errs toward not writing a bad cap, which is the right side to err on.
+- **Clearing a daily cap works.** `null` is a real stored value here, not a
+  removal sentinel — `REMOVABLE_SETTING_PATHS` is a deliberate allowlist
+  (`lastModelPath`, `visionProjectorPaths.*`) precisely so settings like this
+  one keep a meaningful `null` through the merge. Checked because the reverse
+  has bitten this project before.
+- **`connectedCount` counts `local`**, which is always connected, so a fresh
+  install reads "1 connected · 12 providers". Accurate rather than misleading.
+
+### Tests
+
+`src/renderer/features/settings/pages/ai-models/__tests__/ProviderConnectionsPanel.test.tsx`
+— 7 tests, the first this panel has had. Three fail against the pre-fix badge:
+a cloud provider with an empty key, one with a whitespace-only key, and Azure
+with a key but no deployment. The other four pin what must not change — local
+and a keyed cloud provider still read Ready, Azure reads Ready once all three
+of its fields are set, and both simple cloud providers render through the one
+slot that 12.1 is about.
+
+**What is not covered.** 12.1 is a reconciliation behaviour, and this project's
+renderer tests run under `environment: 'node'` with no Testing Library and no
+jsdom — `renderToStaticMarkup` performs a single render with no effects, no
+refs, and no re-render, so component state cannot be carried across a prop
+change to observe the bug or the fix. The test above asserts only the structural
+condition that makes it possible. Verifying the fix itself means opening
+Settings → AI & Models, setting a daily cap on one simple cloud provider,
+selecting another, and seeing the field empty rather than carrying the first
+provider's number. Adding a DOM test environment would close this gap for the
+renderer generally and is worth its own decision, not a side effect of this file.
