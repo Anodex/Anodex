@@ -44,15 +44,37 @@ export function needsTurnGate(
   )
 }
 
+/**
+ * A recursive *and* forced delete, in any spelling and either order: bundled
+ * (`rm -rf`), separate (`rm -r -f`), reversed (`rm -f -r`), long
+ * (`rm --recursive --force`), or mixed. Two independent lookaheads rather than
+ * one pattern per ordering, which is what the hand-written pairs below used to
+ * be — and they covered only half of it. `rm -f -r`, `rm --recursive --force`
+ * and every mixed spelling classified as merely `sensitive`, which auto-runs
+ * with nobody watching.
+ *
+ * `[^\r\n|;&]*` keeps each lookahead inside a single command, so the `-f` in
+ * `rm -r dist | grep -f pattern` does not complete the pair. Both flags must be
+ * present: `rm -r` or `rm -f` alone is not what this tier is for.
+ */
+function recursiveForcedDelete(command: string, recursive: string, force: string): RegExp {
+  const near = String.raw`[^\r\n|;&]*\s`
+  return new RegExp(String.raw`\b${command}\b(?=${near}${recursive}\b)(?=${near}${force}\b)`, 'i')
+}
+
 /** Patterns that mark a shell command as destructive regardless of permission mode. */
 const DESTRUCTIVE_COMMAND_PATTERNS: RegExp[] = [
-  /\brm\s+(-\w*r\w*f\w*|-\w*f\w*r\w*)\b/i, // rm -rf / rm -fr (and combined flags)
-  /\brm\s+(?:-\w*r\w*\s+)(?:-\w*f\w*\s+)/i, // rm -r -f (separate flags)
+  recursiveForcedDelete(
+    'rm',
+    String.raw`(?:--recursive|-\w*r\w*)`,
+    String.raw`(?:--force|-\w*f\w*)`
+  ),
+  // PowerShell accepts any unambiguous prefix of a parameter name, so `-rec`
+  // and `-fo` are the same command as `-Recurse -Force` and were not matched.
+  recursiveForcedDelete('remove-item', String.raw`-r\w*`, String.raw`-f\w*`),
   /\brd\s+\/s\b/i, // rd /s
   /\brmdir\s+\/s\b/i, // rmdir /s
   /\bdel\s+(\/[a-z]\s*)*\/s\b/i, // del ... /s
-  /\bremove-item\b[^\r\n|;&]*(?:-recurse|-r)\b[^\r\n|;&]*(?:-force|-fo)\b/i,
-  /\bremove-item\b[^\r\n|;&]*(?:-force|-fo)\b[^\r\n|;&]*(?:-recurse|-r)\b/i,
   /\bformat\s+[a-z]:/i, // format c:
   /\bdiskpart\b/i,
   /\bgit\s+push\b.*(--force|-f)\b/i,

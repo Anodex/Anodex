@@ -57,7 +57,7 @@ mirage a second time.
 | 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0 → 11  | ✅ done | Sends real mail; the last unreviewed adapter, and untested     |
 | 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11 → 16 | ✅ done | Runs tools autonomously with nobody watching                   |
 | 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0 → 8   | ✅ done | Starts those unattended runs on a timer; no coverage at all    |
-| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29      | ☐       | The entire tool security model, in 192 lines                   |
+| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29 → 39 | ✅ done | The entire tool security model, in 192 lines                   |
 | 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58      | ☐       | Holds every API key and mail credential, and persists them     |
 | 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12      | ☐       | Connects and executes third-party servers' tools               |
 | 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32      | ☐       | Largest unreviewed file; the sidecar a run's citations live in |
@@ -2865,3 +2865,160 @@ regression guard, not evidence of a fix.
 failing, which was wrong: the mock omitted `conversationStore.listAll`, which
 only the pre-fix code calls, so every test died on a `TypeError` before reaching
 an assertion. Added it and re-ran; that is when the eighth turned out to pass.
+
+## Round three, 4. The tool security model — done
+
+`src/main/tools/workspace.ts` (77), `permissions.ts` (75) and
+`headlessConfirm.ts` (42): 192 lines that decide, between them, which paths a
+tool may touch, which calls need a person, and what a run with no person present
+is allowed to do anyway. The smallest entry on this list by a wide margin and the
+one with the largest blast radius per line.
+
+Both defects are the same shape — a guard that was written for the common
+spelling of a thing and silently passes the others.
+
+### 1. A symlink pointing at a file that does not exist yet escaped the workspace
+
+`resolveInWorkspace` does two checks: a lexical one that blocks `..` and
+absolute paths elsewhere, then `assertRealPathInside`, which exists precisely
+because a link inside the workspace can point outside it. That second check
+found the nearest _existing_ part of the path with `existsSync` and resolved it
+with `realpathSync`.
+
+Neither function can see a dangling link. Verified on this machine rather than
+reasoned about:
+
+```
+existsSync(link)    = false          // the link is right there
+lstatSync(link).isSymbolicLink() = true
+realpathSync(link)  -> throws ENOENT
+writeFileSync(link, 'escaped payload')
+  -> the bytes land at outside/planted.txt
+```
+
+So `existsSync` said absent, the walk continued up to the workspace directory,
+that resolved inside, and the path was cleared. And on the other branch — if
+`realpathSync` had been reached — its `catch` logged a warning and **returned**,
+treating "cannot resolve" as "allow".
+
+A test written against the real function confirmed it: `resolveInWorkspace`
+returned the path rather than throwing, and every file tool then writes through
+it to wherever the link points.
+
+**Reachability.** The model cannot create a link with the file tools, so this
+needs either `run_command` (which can, and which auto-runs at `sensitive` in
+`untethered` — the mode scheduled tasks and agent runs use) or a link already
+present in the workspace. `run_command` can write outside the workspace anyway,
+so this does not hand it new capability; what it does is defeat the confinement
+for every _other_ tool, in a workspace the user has not otherwise given away.
+
+Fixed by replacing the ancestor walk with `realLocation`, which decides
+existence by `lstat` — so a link counts as existing whatever it points at — and,
+when `realpathSync` will not resolve one, follows it by hand with `readlink`
+instead of waving it through. Bounded at 16 hops so a cycle cannot spin.
+
+Checking only the nearest existing entry is still enough on its own, and the
+comment now says why: if that resolves inside the workspace so does everything
+nested under it, and a link deeper down gets its own check when it is reached.
+
+### 2. `rm -f -r` was not a recursive forced delete
+
+`classifyCommandRisk` returns `destructive` for a matched pattern and
+`sensitive` for everything else — and `sensitive` auto-runs in `untethered`. So
+a spelling that misses the list is a recursive forced delete executing in a run
+with nobody watching.
+
+Two patterns covered `rm`: one for bundled flags (`-rf`, `-fr`), one for
+separate flags. The second was written as `-r` then `-f`, in that order only.
+Probed rather than eyeballed:
+
+| command                    | matched |
+| -------------------------- | ------- |
+| `rm -rf build`             | yes     |
+| `rm -r -f build`           | yes     |
+| `rm -f -r build`           | **no**  |
+| `rm --recursive --force /` | **no**  |
+| `rm --force --recursive /` | **no**  |
+| `rm -r --force /`          | **no**  |
+| `rm --recursive -f /`      | **no**  |
+
+The reversed short flags were the surprise: that is the same two flags the
+pattern was written for, in the other order. GNU `rm` accepts all seven.
+
+Replaced with one pattern built from two independent lookaheads — a recursive
+flag somewhere, a force flag somewhere, both before a command separator, in
+either order and either spelling. That covers the bundled case too, so it
+replaces both patterns rather than adding a third. `[^\r\n|;&]*` keeps each
+lookahead inside a single command, so the `-f` in `rm -r dist | grep -f pattern`
+does not complete the pair.
+
+The same shape was applied to `Remove-Item`, which had the same two-orderings
+duplication and additionally required the parameter names spelled out.
+PowerShell accepts any unambiguous prefix, so `Remove-Item . -rec -fo` is the
+identical command and was classified `sensitive`.
+
+### `headlessConfirm` — read, unchanged
+
+Correct as written, and the thing that looked wrong is documented design.
+
+`forceConfirm` never reaches it: `runGuardedTool` passes
+`requiresHumanApproval` on the confirm request and not `forceConfirm`, so three
+"always ask" signals — `web_search`'s privacy toggle, `memory`'s
+confirm-before-saving toggle, and the GitHub preset's non-read-only MCP tools —
+auto-approve in an unattended run. That is the stated contract, not an
+oversight: `helpers.ts:137-146` defines `requiresHumanApproval` as "stronger
+than `forceConfirm`: this call needs an actual person, so the unattended
+surfaces refuse it", and `forceConfirm` as an extra reason to confirm
+interactively. The two fields exist to draw exactly this line. Changing it would
+mean a scheduled research task could no longer search the web, which is a
+product decision and not a bug fix.
+
+### Carried to file 6
+
+`classifyMcpTool` gives a _generic_ third-party server's tools
+`{ risk: 'sensitive', forceConfirm: false }`, while the trusted GitHub preset's
+non-read-only tools get `forceConfirm: true`. The untrusted case is the more
+permissive one. It only shows in `untethered`, where `sensitive` auto-runs, and
+it is `McpManager`'s classification to defend or change — noted here so it is
+not lost, and to be settled when that file is read.
+
+### Deliberate non-changes
+
+- **The destructive-command list is a blocklist and cannot be completed.**
+  `echo "rm -rf /" > note.txt` classifies as destructive (a false positive that
+  merely over-confirms), and `dd of=/dev/sda`, `find . -delete` and anything
+  obfuscated classify as `sensitive`. Widening the patterns until they are
+  "complete" is not achievable and would trade real false positives for
+  imagined coverage. What this tier is for is stopping the obvious thing, and
+  the fix above closes a gap in a command already on the list rather than
+  pretending the list is exhaustive.
+- **`\bshutdown\b` matches the word anywhere,** so `grep shutdown log.txt` is
+  classified destructive and refused in an unattended run. Annoying, fails safe,
+  and loosening it is not worth the exchange.
+- **`needsTurnGate` reduces to `mode === 'full' && risk === 'safe' &&
+!turnGateApproved`,** but is written as four conditions including a
+  `resolvePermission` call. The indirection is what keeps it correct if
+  `ToolRisk` ever gains a tier; simplifying it to the literal reduction would
+  make it silently wrong on that day.
+- **The confinement check is inherently TOCTOU.** A link created between
+  `resolveInWorkspace` and the write still wins. Closing that needs the file
+  tools to open by handle and verify, which is a change to every call site, not
+  to these 77 lines.
+
+### Tests
+
+`workspace.test.ts` — 4 added (17 total); `permissions.test.ts` — 6 added (15
+total).
+
+Three of the ten fail against the pre-fix files, verified by reverting each
+source file in turn: the dangling link being allowed, the link chain being
+cleared on its first hop, and the six unmatched `rm` spellings plus the
+abbreviated PowerShell form.
+
+The other seven pass either way and are labelled in place. They are not padding
+— both fixes replace a narrow check with a broader one, and the risk of a
+broader check is that it now blocks or flags things it should not. Those seven
+are what holds that line: a link pointing back inside the workspace still works,
+a cycle terminates, `rm -r` and `rm -f` alone stay `sensitive`, a flag belonging
+to a piped command does not complete the pair, and a dash inside a filename is
+not read as a flag.

@@ -82,6 +82,83 @@ describe('workspace path safety', () => {
       }
     })
 
+    it('blocks a link pointing outside at a file that does not exist yet', () => {
+      // `realpathSync` throws ENOENT for a dangling link and `existsSync`
+      // reports it as absent, so the confinement check used to skip straight
+      // past it to the workspace directory and allow the path. Writing to the
+      // returned path then creates the file wherever the link points —
+      // verified on Windows: the bytes land outside the workspace.
+      const parent = mkdtempSync(join(tmpdir(), 'anodex-workspace-'))
+      const workspace = join(parent, 'workspace')
+      const outside = join(parent, 'outside')
+      mkdirSync(workspace)
+      mkdirSync(outside)
+
+      try {
+        symlinkSync(join(outside, 'planted.txt'), join(workspace, 'notes.txt'), 'file')
+
+        expect(() => resolveInWorkspace(workspace, 'notes.txt')).toThrow(/outside the workspace/)
+      } finally {
+        rmSync(parent, { recursive: true, force: true })
+      }
+    })
+
+    // This and the cycle case below pass against the pre-fix file too, which
+    // allowed everything of this shape. They are not evidence of a fix; they
+    // guard the hand-rolled link following that replaced it from over-blocking
+    // or spinning.
+    it('still allows a link pointing at a not-yet-created file inside the workspace', () => {
+      // The fix must confine, not ban links — one pointing back into the
+      // workspace is ordinary and has to keep working.
+      const parent = mkdtempSync(join(tmpdir(), 'anodex-workspace-'))
+      const workspace = join(parent, 'workspace')
+      mkdirSync(workspace)
+      mkdirSync(join(workspace, 'real'))
+
+      try {
+        symlinkSync(join(workspace, 'real', 'pending.txt'), join(workspace, 'notes.txt'), 'file')
+
+        expect(resolveInWorkspace(workspace, 'notes.txt')).toBe(join(workspace, 'notes.txt'))
+      } finally {
+        rmSync(parent, { recursive: true, force: true })
+      }
+    })
+
+    it('follows a chain of links to where it actually lands', () => {
+      // One hop inside the workspace, the next outside. Checking only the
+      // first hop would clear this as "still in the workspace".
+      const parent = mkdtempSync(join(tmpdir(), 'anodex-workspace-'))
+      const workspace = join(parent, 'workspace')
+      const outside = join(parent, 'outside')
+      mkdirSync(workspace)
+      mkdirSync(outside)
+
+      try {
+        symlinkSync(join(outside, 'planted.txt'), join(workspace, 'b.txt'), 'file')
+        symlinkSync(join(workspace, 'b.txt'), join(workspace, 'a.txt'), 'file')
+
+        expect(() => resolveInWorkspace(workspace, 'a.txt')).toThrow(/outside the workspace/)
+      } finally {
+        rmSync(parent, { recursive: true, force: true })
+      }
+    })
+
+    it('does not hang on a link that points at itself', () => {
+      const parent = mkdtempSync(join(tmpdir(), 'anodex-workspace-'))
+      const workspace = join(parent, 'workspace')
+      mkdirSync(workspace)
+
+      try {
+        symlinkSync(join(workspace, 'b.txt'), join(workspace, 'a.txt'), 'file')
+        symlinkSync(join(workspace, 'a.txt'), join(workspace, 'b.txt'), 'file')
+
+        // Whatever it decides, it has to decide — a cycle must not spin.
+        expect(() => resolveInWorkspace(workspace, 'a.txt')).not.toThrow(/Maximum call stack/)
+      } finally {
+        rmSync(parent, { recursive: true, force: true })
+      }
+    })
+
     it('warns and falls back to lexical confinement when the workspace root cannot be resolved', () => {
       // A workspace root that does not exist on disk makes realpathSync.native
       // throw — the lexical ".."/absolute checks in resolveInWorkspace/

@@ -70,4 +70,46 @@ describe('classifyCommandRisk', () => {
     expect(classifyCommandRisk('git status')).toBe('sensitive')
     expect(classifyCommandRisk('npm install lodash')).toBe('sensitive')
   })
+
+  // Every spelling below is the same command. `sensitive` auto-runs in
+  // `untethered`, which is the mode scheduled tasks and agent runs use, so a
+  // spelling that slips through is a recursive forced delete executing in a
+  // run with nobody watching.
+  it('flags a recursive forced delete however the flags are written', () => {
+    expect(classifyCommandRisk('rm -f -r build')).toBe('destructive')
+    expect(classifyCommandRisk('rm --recursive --force /')).toBe('destructive')
+    expect(classifyCommandRisk('rm --force --recursive /')).toBe('destructive')
+    expect(classifyCommandRisk('rm -r --force /')).toBe('destructive')
+    expect(classifyCommandRisk('rm --recursive -f /')).toBe('destructive')
+    expect(classifyCommandRisk('rm -v -r -f build')).toBe('destructive')
+  })
+
+  it('flags an abbreviated PowerShell recursive forced delete', () => {
+    // PowerShell accepts any unambiguous prefix, so these run identically to
+    // the fully spelled parameters the patterns used to require.
+    expect(classifyCommandRisk('Remove-Item . -rec -fo')).toBe('destructive')
+    expect(classifyCommandRisk('Remove-Item . -Force -Recurse')).toBe('destructive')
+  })
+
+  // The three below pass against the pre-fix patterns too. They are not
+  // evidence of a fix; they are what stops the broader pattern that replaced
+  // those patterns from over-matching, which in an unattended run means
+  // refusing ordinary commands rather than letting dangerous ones through.
+  it('does not flag a delete that is only recursive, or only forced', () => {
+    // Both flags together are the destructive combination; either alone is an
+    // ordinary command, and over-classifying means an unattended run refuses it.
+    expect(classifyCommandRisk('rm -r build')).toBe('sensitive')
+    expect(classifyCommandRisk('rm -f build.txt')).toBe('sensitive')
+    expect(classifyCommandRisk('Remove-Item build.txt -Force')).toBe('sensitive')
+  })
+
+  it('does not let a second command in the line complete the pair', () => {
+    // The force flag here belongs to `grep`, not to the delete.
+    expect(classifyCommandRisk('rm -r dist | grep -f pattern')).toBe('sensitive')
+    expect(classifyCommandRisk('rm -r dist; echo -f')).toBe('sensitive')
+  })
+
+  it('does not mistake a dash inside a filename for a flag', () => {
+    expect(classifyCommandRisk('rm file-r.txt file-f.txt')).toBe('sensitive')
+  })
 })
