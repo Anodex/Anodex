@@ -265,15 +265,31 @@ export class GmailAdapter implements EmailProviderAdapter {
       ? `/threads/${encodeURIComponent(target.threadId)}/modify`
       : `/messages/${encodeURIComponent(requireMessageId(target))}/modify`
 
+    // Gmail labels are additive, so applying one is a label add rather than a
+    // move; the inbox label is removed as well so the thread also leaves the
+    // inbox, which is what "move to X" means to the user.
+    //
+    // Except when X *is* the inbox. `move_email` takes any name `list_mailboxes`
+    // returns, and that list includes the INBOX system label — the tool's own
+    // description tells the model to pick from it — so "put this back in my
+    // inbox" arrives here as a perfectly ordinary move. Sending Gmail
+    // `{ addLabelIds: ['INBOX'], removeLabelIds: ['INBOX'] }` asks it to add and
+    // remove the same label in one call, which is at best undefined and in
+    // practice leaves the thread archived: the exact opposite of the request,
+    // reported back as the self-contradicting "Applied label INBOX and removed
+    // it from the inbox".
+    const movingToInbox = labelId === LABEL_INBOX
     await this.fetch(account, path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // Gmail labels are additive, so applying one is a label add rather than a
-      // move; the inbox label is removed so the thread also leaves the inbox,
-      // which is what "move to X" means to the user.
-      body: JSON.stringify({ addLabelIds: [labelId], removeLabelIds: [LABEL_INBOX] })
+      body: JSON.stringify({
+        addLabelIds: [labelId],
+        removeLabelIds: movingToInbox ? [] : [LABEL_INBOX]
+      })
     })
-    return `Applied label ${target.mailbox} and removed it from the inbox`
+    return movingToInbox
+      ? 'Moved back to the inbox'
+      : `Applied label ${target.mailbox} and removed it from the inbox`
   }
 
   async listMailboxes(account: EmailAccount): Promise<EmailMailbox[]> {
@@ -357,13 +373,17 @@ function toThreadSummary(thread: GmailThreadResponse, account: EmailAccount): Em
     from: header(message, 'From') || 'Unknown sender',
     snippet: message.snippet ?? '',
     updatedAt: Number(message.internalDate ?? Date.now()),
-    unread: Boolean(message.labelIds?.includes(LABEL_UNREAD)),
+    // Any unread message makes the thread unread, matching the line below it,
+    // both other adapters, and Gmail's own web UI. Reading only the newest
+    // message made this the odd one out three ways over: a thread whose latest
+    // reply had been read but which still held an unread earlier message
+    // reported itself as read, so it dropped out of unread filters while
+    // `getUnreadThreadCount` — which asks Gmail for the label's own
+    // `threadsUnread` — went on counting it.
+    unread: messages.some((item) => item.labelIds?.includes(LABEL_UNREAD)),
     starred: messages.some((item) => item.labelIds?.includes(LABEL_STARRED)),
     messageCount: messages.length,
-    attachmentCount: messages.reduce(
-      (total, item) => total + extractAttachments(item.payload, item.id).length,
-      0
-    )
+    attachmentCount: messages.reduce((total, item) => total + countAttachments(item.payload), 0)
   }
 }
 
@@ -398,6 +418,11 @@ function header(message: GmailApiMessage, name: string): string {
 
 function extractBody(payload: GmailPayload | undefined): string {
   if (!payload) return ''
+  // A part carrying a filename is an attached file, not the message. Gmail
+  // inlines small parts' bytes directly in `body.data`, so a short .txt or
+  // .html attachment on a message with an empty body was being read out as if
+  // it were what the sender had written.
+  if (payload.filename?.trim()) return ''
   if (payload.mimeType === 'text/plain' && payload.body?.data) {
     return decodeBase64Url(payload.body.data)
   }
@@ -453,6 +478,27 @@ function collectInlineParts(payload: GmailPayload | undefined): InlinePart[] {
       : []
 
   return [...current, ...(payload.parts?.flatMap(collectInlineParts) ?? [])]
+}
+
+/**
+ * How many attached files a message has, without needing their ids.
+ *
+ * `extractAttachments` cannot answer this for a thread listing. That path
+ * fetches `format=metadata`, which returns headers and the MIME structure but
+ * no body data and no `attachmentId` — and `extractAttachments` requires an
+ * `attachmentId`, because its whole purpose is producing ids to fetch with. So
+ * every thread in every listing reported `attachmentCount: 0`, and the paperclip
+ * never appeared however many files were attached.
+ *
+ * `filename` is present in both formats, and is the same thing that marks a
+ * part as an attachment rather than a body in the first place. Counting on it
+ * gives the same answer as before under `format=full` and a correct one under
+ * `format=metadata`.
+ */
+function countAttachments(payload: GmailPayload | undefined): number {
+  if (!payload) return 0
+  const self = payload.filename?.trim() ? 1 : 0
+  return self + (payload.parts ?? []).reduce((total, part) => total + countAttachments(part), 0)
 }
 
 function extractAttachments(

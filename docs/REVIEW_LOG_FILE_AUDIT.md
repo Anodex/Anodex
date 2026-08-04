@@ -52,20 +52,20 @@ checked.** `MicrosoftAdapter` was credited with two tests that turned out to be
 below was verified against the real test tree, and `GmailAdapter` is the same
 mirage a second time.
 
-| #   | File                                                                    | Lines | Tests | Status | Why it ranks here                                              |
-| --- | ----------------------------------------------------------------------- | ----- | ----- | ------ | -------------------------------------------------------------- |
-| 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0     | ☐      | Sends real mail; the last unreviewed adapter, and untested     |
-| 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11    | ☐      | Runs tools autonomously with nobody watching                   |
-| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0     | ☐      | Starts those unattended runs on a timer; no coverage at all    |
-| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29    | ☐      | The entire tool security model, in 192 lines                   |
-| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58    | ☐      | Holds every API key and mail credential, and persists them     |
-| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12    | ☐      | Connects and executes third-party servers' tools               |
-| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32    | ☐      | Largest unreviewed file; the sidecar a run's citations live in |
-| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*   | ☐      | Last unreviewed cloud provider; both siblings had real bugs    |
-| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9     | ☐      | Decides what the model is told it can do; thin for its size    |
-| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15    | ☐      | History and token budgeting on every local turn                |
-| 11  | `src/preload/index.ts`                                                  | 317   | 0\*\* | ☐      | The renderer↔main boundary every IPC call crosses              |
-| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5     | ☐      | Writes and deletes files on disk under a thin test             |
+| #   | File                                                                    | Lines | Tests  | Status  | Why it ranks here                                              |
+| --- | ----------------------------------------------------------------------- | ----- | ------ | ------- | -------------------------------------------------------------- |
+| 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0 → 11 | ✅ done | Sends real mail; the last unreviewed adapter, and untested     |
+| 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11     | ☐       | Runs tools autonomously with nobody watching                   |
+| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0      | ☐       | Starts those unattended runs on a timer; no coverage at all    |
+| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29     | ☐       | The entire tool security model, in 192 lines                   |
+| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58     | ☐       | Holds every API key and mail credential, and persists them     |
+| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12     | ☐       | Connects and executes third-party servers' tools               |
+| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32     | ☐       | Largest unreviewed file; the sidecar a run's citations live in |
+| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*    | ☐       | Last unreviewed cloud provider; both siblings had real bugs    |
+| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9      | ☐       | Decides what the model is told it can do; thin for its size    |
+| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15     | ☐       | History and token budgeting on every local turn                |
+| 11  | `src/preload/index.ts`                                                  | 317   | 0\*\*  | ☐       | The renderer↔main boundary every IPC call crosses              |
+| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5      | ☐       | Writes and deletes files on disk under a thin test             |
 
 \* No direct suite, but genuinely exercised by `cloudRoundResilience.test.ts` and
 `CloudProviderVision.test.ts`, which import the real provider.
@@ -2497,3 +2497,107 @@ destination edited while the confirm prompt was up being refused with the file
 left as the editor wrote it, the prompt naming the attachment rather than its
 id, and an unknown id resolving to an error with no prompt raised and no
 payload fetched.
+
+## Round three, 1. `src/main/email/providers/GmailAdapter.ts` — done
+
+479 lines, no tests, and the third of three mail adapters to be read. Its two
+siblings each turned up a defect that silently widened or narrowed the set of
+mail an action touched; Gmail's are different in kind — three of the four are
+places where the adapter reports something other than what is true.
+
+**Its test count was zero, and this is the second time that mirage has appeared.**
+`EmailService.drafts.test.ts` and `EmailService.forward.test.ts` both name the
+class, and both do it through `vi.mock('../providers/GmailAdapter')` — the exact
+pattern that had `MicrosoftAdapter` credited with two tests it did not have. The
+round-three ranking already recorded this as 0 after checking; noting it again
+because a count taken from filenames would have been wrong twice.
+
+### Bugs fixed
+
+**3.1.1 Moving a thread to the inbox archived it instead.** `move` treated every
+destination the same way:
+
+```ts
+body: JSON.stringify({ addLabelIds: [labelId], removeLabelIds: [LABEL_INBOX] })
+```
+
+Gmail has no folders, so a move is a label add plus dropping `INBOX` — correct,
+until the destination _is_ `INBOX`. Then the request asks Gmail to add and remove
+the same label in one call, which is undefined at best and in practice leaves the
+removal winning: the thread stays archived. The reply sent back to the model was
+its own giveaway — "Applied label INBOX and removed it from the inbox".
+
+Not a hypothetical path. `move_email` accepts any name `list_mailboxes` returns,
+`list_mailboxes` returns Gmail's labels including the `INBOX` system label, and
+the tool's description tells the model to pick from that list. "Put this back in
+my inbox" is an ordinary move, and `manage_email`'s `unarchive` action being the
+tidier route does not stop the model taking the one it was pointed at.
+
+**3.1.2 A thread with an unread earlier message reported itself read.**
+
+```ts
+unread: Boolean(message.labelIds?.includes(LABEL_UNREAD)),   // newest message only
+starred: messages.some((item) => item.labelIds?.includes(LABEL_STARRED)),
+```
+
+`message` is the newest in the thread; `messages` is all of them. The line below
+it gets this right, and so do both other adapters —
+`MicrosoftAdapter.ts:517` and `ImapSmtpAdapter.ts:1072` are each
+`sorted.some(...)`. Gmail's own web UI bolds a thread with any unread message
+too. So a thread whose latest reply had been read but which still held an unread
+earlier message dropped out of unread filters, while `getUnreadThreadCount` —
+which asks Gmail for the label's own `threadsUnread` — kept counting it. The
+badge and the list disagreed, and neither was obviously the broken one.
+
+**3.1.3 Every thread in every listing reported zero attachments.**
+`attachmentCount` was summed through `extractAttachments`, which requires
+`payload.body.attachmentId` because its purpose is producing ids to fetch with.
+Thread listings are fetched with `format=metadata`, which returns headers and
+the MIME structure but no body data and no attachment ids — so the count was
+structurally always 0 and the paperclip never appeared.
+
+Counting moved to a new `countAttachments`, keyed on `filename`, which is present
+in both formats and is what distinguishes an attached file from a body part in
+the first place. Under `format=full` it returns exactly what the old code did.
+
+_Confidence:_ this one rests on Gmail's documented behaviour for
+`format=metadata` ("returns only email message ID, labels, and email headers")
+rather than a live call, which is not available from here. The change is
+neutral-or-fixing either way — if metadata did carry attachment ids, counting by
+filename returns the same number — so it is safe to hold, but it is the one
+finding in this file that is reasoned rather than observed.
+
+**3.1.4 A text attachment could be read out as the message body.** `extractBody`
+matched any `text/plain` part with `body.data` and no check on `filename`. Gmail
+inlines small parts' bytes directly whether they are the message or a file
+attached to it, so a message with an empty body and a short `.txt` attached
+returned the attachment's contents as what the sender wrote. `extractAttachments`
+already distinguishes the two by `filename`; `extractBody` now does the same.
+
+### Assessed, not changed
+
+- **`listThreads` scopes a search correctly** — `q` and `labelIds` are both
+  applied, so the Outlook defect (folder dropped on the query path) is absent
+  here. Pinned with a test so it stays that way.
+- **Thread and message flag actions are not capped.** Gmail's
+  `/threads/{id}/modify` applies server-side to the whole thread, so the
+  50-message truncation `MicrosoftAdapter` had cannot happen.
+- **Sent mail is filed.** Gmail's `messages/send` does it natively, which is the
+  defect the IMAP adapter had.
+- **`listThreads` is N+1** — one metadata fetch per listed thread, 21 requests
+  for a 20-thread page. Real, but it is what building a summary from Gmail's
+  thread list costs without a second index, and correctness came first here.
+- **A thread with no messages is skipped without backfilling**, so a page can
+  come back short of `limit`. Harmless, and refetching to top up would cost
+  another round-trip per gap.
+
+### Tests
+
+`src/main/email/providers/__tests__/GmailAdapter.test.ts` — 11 tests, the first
+this adapter has had, mocked at `fetch` like the Outlook suite. Five fail against
+the pre-fix file: the inbox move, the same move by lowercase name, the unread
+roll-up, the metadata-format attachment count, and the text attachment read as a
+body. The other six are the guards — a normal label move still drops `INBOX`, an
+unknown label is still refused by name, search still carries both `q` and
+`labelIds`, a plain listing still defaults to the inbox while a search does not,
+a fully-read thread stays read, and the plain-text part still wins over HTML.
