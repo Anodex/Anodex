@@ -61,7 +61,7 @@ mirage a second time.
 | 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58 → 68 | ✅ done | Holds every API key and mail credential, and persists them     |
 | 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12 → 21 | ✅ done | Connects and executes third-party servers' tools               |
 | 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32 → 43 | ✅ done | Largest unreviewed file; the sidecar a run's citations live in |
-| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*     | ☐       | Last unreviewed cloud provider; both siblings had real bugs    |
+| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\* → 7 | ✅ done | Last unreviewed cloud provider; both siblings had real bugs    |
 | 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9       | ☐       | Decides what the model is told it can do; thin for its size    |
 | 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15      | ☐       | History and token budgeting on every local turn                |
 | 11  | `src/preload/index.ts`                                                  | 317   | 0\*\*   | ☐       | The renderer↔main boundary every IPC call crosses              |
@@ -142,6 +142,8 @@ from.
 | `save_email_attachment` does not disclose an overwrite        | R2.3     | ✅ fixed          |
 | Untrusted MCP tools are gated less strictly than trusted ones | R3 4     | ✅ fixed at R3 6  |
 | Only 3 of 12 providers' API keys are encrypted at rest        | R3 5     | ☐ open            |
+| Cloud compaction summary had no timeout (3 providers)         | R3 8     | ✅ fixed          |
+| Configured reply ceiling never reached a headless run         | R3 8     | ✅ fixed          |
 
 ### Cross-cutting items in full
 
@@ -3442,3 +3444,109 @@ being accepted, and a quotation inheriting its introducing sentence's citation �
 passed before only because nothing was being checked at all. They matter now:
 they are what stops the widened quote check from reporting every correctly
 quoted report as a fabrication.
+
+## Round three, 8. `src/main/llm/OpenAiProvider.ts` — done
+
+454 lines, the last of the three cloud providers to be read. Its two siblings
+each turned up real defects, so the first pass here was a checklist of theirs —
+and it came back clean. Every cross-cutting fix from rounds one and two is
+present and correct: round text joined through `appendRoundText`, the verify
+call bounded, tool schemas rendered by the shared `toolParameterSchema`, tool
+results sized by `cloudToolResultBudget` and re-sized each round from OpenAI's
+own reported usage, and a mid-turn provider failure reported as
+`provider-error` rather than thrown away.
+
+The two defects found are both things all three providers share, which is why
+neither showed up when the siblings were read one at a time.
+
+### 1. The compaction summary call had no deadline
+
+Every cloud provider makes a summary call for context compaction, and all three
+made it with the SDK default of ten minutes.
+
+That is the same omission the round-one cross-cutting item fixed for the
+API-key verify call, in a worse place. This one runs **inside a turn**, from
+`boundHistoryForStatelessProvider`, and no abort signal reaches it — the
+`RollingSummarizer` contract has nowhere to put one. So a provider that
+accepted the request and went quiet held the turn open for most of its own
+fifteen-minute budget, with the Stop button unable to touch it.
+
+Bounded at sixty seconds for all three. Failing is cheap here, which is what
+makes a tight bound right rather than merely safe: every caller treats `null` as
+"no summary available" and falls back to dropping the older turns, so a slow
+summary costs the turn far more than a missing one does.
+
+`verifyKeyTimeout.ts` became `cloudTimeouts.ts` and now holds both constants,
+for the reason its own doc comment already gave about the first one: shared so a
+provider added later inherits it rather than the SDK default, "which is how
+every provider came to have this".
+
+### 2. The reply ceiling configured in Settings never reached an unattended run
+
+`provider.<id>.maxResponseTokens` is the user's ceiling on what a cloud reply
+may cost. It reaches a provider as `options.maxTokens` — and **only the renderer
+ever sets `options`**. Every headless caller builds its `ChatRequest` without
+one, so a scheduled task or an agent run arrived with `options: undefined` and
+each cloud provider fell back to its own `DEFAULT_MAX_TOKENS` of 4096.
+
+A ceiling raised in Settings therefore applied to interactive chat and silently
+not to the unattended runs that produce the longest replies. The direction is
+kind on cost and unkind on completeness: an agent run's final report is cut at
+4096 tokens with nothing saying why.
+
+Filled in at `runGeneration`'s call to the provider rather than in each caller,
+because that is where `io.providerOverride` is resolved — and the ceiling
+belongs to whichever provider ends up serving the turn, not the one selected in
+Settings. An agent run that overrides to OpenAI gets OpenAI's ceiling. A caller
+that named its own (Critical Thinking sizes its phases) keeps it, and a provider
+with none configured still gets `undefined`, which is the documented "the
+provider decides".
+
+`CriticalThinkingService` was already passing `maxTokens` explicitly and is
+unaffected; `SchedulerService` and `AgentRunService` are the two that were not.
+
+### Deliberate non-changes
+
+- **`assertCloudVisionCompatible(inspectionImages)` inside the round loop is
+  unreachable.** The queue it drains was constructed with
+  `CLOUD_VISION_MIME_TYPES` three lines above, and `enqueueVisualInput` rejects
+  anything outside that set at push time — so a BMP can never reach the drain.
+  All three providers carry the same redundant line. Left in place: the sibling
+  call on `params.images` is genuinely live (user attachments never go through
+  the queue), and removing only the second would make the code depend on a
+  constructor argument stated somewhere else to stay correct.
+- **`historyToInput` skips a turn with no text and no images**, which can leave
+  two same-role items adjacent — the exact shape fixed as a cross-cutting item
+  for the compatible provider. Not a defect here: that fix existed because
+  Mistral's and Google's compatibility layers require strict alternation, and
+  the Responses API takes `input` as an ordered item list with no such rule.
+- **Sampling parameters are omitted deliberately** (the file says why: reasoning
+  models reject non-default `temperature`/`top_p`), so `generation.temperature`
+  has no effect on this provider. That is a stated product decision, not drift.
+- **The compaction call spends `max_output_tokens` on reasoning too.** For the
+  gpt-5.x family those tokens come out of the same budget as the summary, so a
+  model that reasons at length can return empty text and the summary degrades to
+  "drop the older turns". Setting a reasoning effort here would be a real
+  improvement and a behaviour change worth measuring, not a bug fix.
+
+### Tests
+
+New `cloudCompactionTimeout.test.ts` — 3, asserting the bound is on the request
+for OpenAI and Anthropic together, since the same omission existed in three
+places for the same reason. `runGeneration.test.ts` — 4 added (11 total).
+
+Four of the seven fail against the pre-fix code: both compaction deadlines, the
+headless run inheriting the configured ceiling, and the override being followed
+instead of the Settings selection.
+
+Three pass either way and are labelled — the caller's own ceiling being left
+alone, "no ceiling configured" staying `undefined` rather than becoming an empty
+options object, and the bound sitting well inside a turn's budget. The first two
+are what stop the fill-in from overriding callers that sized their own turn.
+
+**A note on how these were verified.** `git stash` could not be used this time:
+the rename of `verifyKeyTimeout.ts` meant stashing the source left the four
+providers importing a module that no longer existed, and every test failed to
+load rather than failing on an assertion — the same false signal as round
+three's `listAll` mock, caught the same way. Each fix was instead reverted in
+place, one at a time, and restored from a copy.

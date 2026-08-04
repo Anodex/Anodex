@@ -30,7 +30,7 @@ import {
 import { settingsStore } from '../settings/SettingsStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { createLogger } from '../utils/logger'
-import { VERIFY_KEY_TIMEOUT_MS } from './verifyKeyTimeout'
+import { COMPACTION_TIMEOUT_MS, VERIFY_KEY_TIMEOUT_MS } from './cloudTimeouts'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import type { LlmProvider } from './LlmProvider'
@@ -399,18 +399,21 @@ export async function summarizeForCompactionOpenAi(
   const model = modelOverride?.trim() || settings.model.trim() || DEFAULT_OPENAI_MODEL
 
   try {
-    const response = await client.responses.create({
-      model,
-      max_output_tokens: MAX_COMPACTION_SUMMARY_TOKENS,
-      input: [
-        {
-          role: 'user',
-          content: previousSummary
-            ? buildCompactionUpdatePrompt(transcript, previousSummary)
-            : buildCompactionSummaryPrompt(transcript)
-        }
-      ]
-    })
+    const response = await client.responses.create(
+      {
+        model,
+        max_output_tokens: MAX_COMPACTION_SUMMARY_TOKENS,
+        input: [
+          {
+            role: 'user',
+            content: previousSummary
+              ? buildCompactionUpdatePrompt(transcript, previousSummary)
+              : buildCompactionSummaryPrompt(transcript)
+          }
+        ]
+      },
+      { timeout: COMPACTION_TIMEOUT_MS }
+    )
     // Real billed usage with no chat turn attached to it — fold into the
     // daily/model token totals so the usage gauge and daily cap comparison
     // aren't blind to compaction spend (see `recordAncillaryUsage`'s comment).

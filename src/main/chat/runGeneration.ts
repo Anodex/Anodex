@@ -15,6 +15,8 @@ import type { ConversationContext } from '@shared/context.types'
 import type { CheckpointSummary } from '@shared/checkpoint.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
+import type { GenerationOptions } from '@shared/chat.types'
+import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import { cloudContextWindowTokens } from '@shared/contextBudget'
@@ -531,7 +533,7 @@ export async function runGeneration(
       prompt: request.prompt,
       images: request.images,
       sessionMode: io.sessionMode,
-      options: request.options,
+      options: withConfiguredReplyCeiling(request.options, effectiveProviderId),
       modelOverride: io.providerOverride?.model,
       maxProviderRounds: executionPolicy.maxProviderRounds,
       onContextShift: () => execution?.recordContextShift(),
@@ -662,4 +664,30 @@ function composeProjectRules(
     )
   }
   return parts.filter((part): part is string => Boolean(part)).join('\n\n') || null
+}
+
+/**
+ * Fill in the reply ceiling the user configured for whichever provider is
+ * actually handling this turn, when the caller did not name one itself.
+ *
+ * Only the renderer sets `options`, so every headless caller — a scheduled
+ * task, an agent run — reached the cloud providers with none, and each fell
+ * back to its own `DEFAULT_MAX_TOKENS` of 4096. A ceiling raised in Settings
+ * therefore applied to interactive chat and silently not to the unattended runs
+ * that produce the longest replies. Resolved here rather than in each caller
+ * because this is where the provider override is applied, and the ceiling
+ * belongs to the provider that ends up serving the turn, not the one selected
+ * in Settings.
+ *
+ * Returns the original object untouched when there is nothing to add, so a
+ * caller that passed no options still gets `undefined` rather than an empty one.
+ */
+function withConfiguredReplyCeiling(
+  options: GenerationOptions | undefined,
+  providerId: ProviderSettings['active']
+): GenerationOptions | undefined {
+  if (options?.maxTokens !== undefined) return options
+  const configured = providerMaxResponseTokens(settingsStore.get().provider, providerId)
+  if (configured === undefined) return options
+  return { ...options, maxTokens: configured }
 }

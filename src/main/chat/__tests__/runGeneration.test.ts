@@ -24,7 +24,11 @@ const mocks = vi.hoisted(() => ({
   activeProjectId: null as string | null,
   providerActive: 'local',
   /** Whether the scripted provider reports a successful write this turn. */
-  writeDuringTurn: false
+  writeDuringTurn: false,
+  /** The reply ceiling configured for the cloud providers, or null for none. */
+  configuredMaxTokens: null as number | null,
+  /** `options` as the provider actually received it, per call. */
+  seenOptions: [] as Array<GenerateParams['options']>
 }))
 
 vi.mock('../../settings/SettingsStore', () => ({
@@ -41,7 +45,7 @@ vi.mock('../../settings/SettingsStore', () => ({
       provider: {
         active: mocks.providerActive,
         anthropic: { model: 'claude-x' },
-        openai: { model: 'gpt-x' },
+        openai: { model: 'gpt-x', maxResponseTokens: mocks.configuredMaxTokens },
         azure: { deploymentName: '' },
         google: { model: 'gemini-x' }
       }
@@ -89,6 +93,7 @@ vi.mock('../../llm/ProviderRegistry', () => ({
   getActiveProvider: () => ({
     id: 'test',
     generate: (params: GenerateParams) => {
+      mocks.seenOptions.push(params.options)
       // Tool activity has to land *during* the turn, the way a real provider
       // reports it — the recording under test reads what those callbacks
       // accumulated, so firing them afterwards would prove nothing.
@@ -167,6 +172,8 @@ beforeEach(() => {
   mocks.activeProjectId = 'p1'
   mocks.providerActive = 'local'
   mocks.writeDuringTurn = false
+  mocks.configuredMaxTokens = null
+  mocks.seenOptions.length = 0
 })
 
 describe('runGeneration — project memory', () => {
@@ -247,5 +254,56 @@ describe('runGeneration — token activity', () => {
     await runGeneration(request(), io)
 
     expect(mocks.usageQueriedModelIds).toContain('gemini-x')
+  })
+})
+
+describe('runGeneration — the reply ceiling configured in Settings', () => {
+  it('applies it to a headless run that named no options of its own', async () => {
+    // Only the renderer sets `options`, so a scheduled task or agent run
+    // reached the cloud providers with none and each fell back to its own
+    // 4096-token default — a ceiling raised in Settings quietly applied to
+    // interactive chat and not to the unattended runs that write the longest
+    // replies.
+    mocks.providerActive = 'openai'
+    mocks.configuredMaxTokens = 16_000
+
+    await runGeneration(request(), io)
+
+    expect(mocks.seenOptions[0]?.maxTokens).toBe(16_000)
+  })
+
+  it('follows the provider override rather than the one selected in Settings', async () => {
+    // An agent run picks its own provider; the ceiling belongs to whichever
+    // one actually serves the turn.
+    mocks.providerActive = 'local'
+    mocks.configuredMaxTokens = 16_000
+
+    await runGeneration(request(), { ...io, providerOverride: { provider: 'openai' } })
+
+    expect(mocks.seenOptions[0]?.maxTokens).toBe(16_000)
+  })
+
+  // This and the next pass against the pre-fix file. They are what stops the
+  // fill-in from overriding a caller that sized its own turn, or turning
+  // "the provider decides" into an empty options object.
+  it('never overrides a ceiling the caller asked for itself', async () => {
+    // Critical Thinking sizes its own phases and must keep that number.
+    mocks.providerActive = 'openai'
+    mocks.configuredMaxTokens = 16_000
+
+    await runGeneration({ ...request(), options: { maxTokens: 800 } }, io)
+
+    expect(mocks.seenOptions[0]?.maxTokens).toBe(800)
+  })
+
+  it('leaves options alone when no ceiling is configured', async () => {
+    // `undefined` means "the provider decides", which is the default for the
+    // local engine and must not become an empty options object.
+    mocks.providerActive = 'openai'
+    mocks.configuredMaxTokens = null
+
+    await runGeneration(request(), io)
+
+    expect(mocks.seenOptions[0]).toBeUndefined()
   })
 })

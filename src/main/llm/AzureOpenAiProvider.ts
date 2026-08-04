@@ -1,5 +1,5 @@
 import { AzureOpenAI } from 'openai'
-import { VERIFY_KEY_TIMEOUT_MS } from './verifyKeyTimeout'
+import { VERIFY_KEY_TIMEOUT_MS } from './cloudTimeouts'
 import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import type { LlmProvider } from './LlmProvider'

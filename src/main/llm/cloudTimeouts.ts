@@ -13,3 +13,18 @@
  * came to have this.
  */
 export const VERIFY_KEY_TIMEOUT_MS = 15_000
+
+/**
+ * How long a context-compaction summary waits before the turn gives up on it.
+ *
+ * Same SDK ten-minute default, and a worse fit again: this call runs *inside* a
+ * turn, from `boundHistoryForStatelessProvider`, and no abort signal is plumbed
+ * through the `RollingSummarizer` contract — so a stalled compaction held the
+ * turn open for most of its own fifteen-minute budget with the Stop button
+ * unable to touch it.
+ *
+ * Failing is cheap here, which is what makes a tight bound right: every caller
+ * treats `null` as "no summary available" and falls back to dropping the older
+ * turns, so a slow summary costs the turn far more than a missing one does.
+ */
+export const COMPACTION_TIMEOUT_MS = 60_000
