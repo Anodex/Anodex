@@ -52,20 +52,20 @@ checked.** `MicrosoftAdapter` was credited with two tests that turned out to be
 below was verified against the real test tree, and `GmailAdapter` is the same
 mirage a second time.
 
-| #   | File                                                                    | Lines | Tests   | Status  | Why it ranks here                                              |
-| --- | ----------------------------------------------------------------------- | ----- | ------- | ------- | -------------------------------------------------------------- |
-| 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0 → 11  | ✅ done | Sends real mail; the last unreviewed adapter, and untested     |
-| 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11 → 16 | ✅ done | Runs tools autonomously with nobody watching                   |
-| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0 → 8   | ✅ done | Starts those unattended runs on a timer; no coverage at all    |
-| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29 → 39 | ✅ done | The entire tool security model, in 192 lines                   |
-| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58 → 68 | ✅ done | Holds every API key and mail credential, and persists them     |
-| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12 → 21 | ✅ done | Connects and executes third-party servers' tools               |
-| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32 → 43 | ✅ done | Largest unreviewed file; the sidecar a run's citations live in |
-| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\* → 7 | ✅ done | Last unreviewed cloud provider; both siblings had real bugs    |
-| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9 → 17  | ✅ done | Decides what the model is told it can do; thin for its size    |
-| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15 → 18 | ✅ done | History and token budgeting on every local turn                |
-| 11  | `src/preload/index.ts`                                                  | 317   | 0\*\*   | ☐       | The renderer↔main boundary every IPC call crosses              |
-| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5       | ☐       | Writes and deletes files on disk under a thin test             |
+| #   | File                                                                    | Lines | Tests     | Status  | Why it ranks here                                              |
+| --- | ----------------------------------------------------------------------- | ----- | --------- | ------- | -------------------------------------------------------------- |
+| 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0 → 11    | ✅ done | Sends real mail; the last unreviewed adapter, and untested     |
+| 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11 → 16   | ✅ done | Runs tools autonomously with nobody watching                   |
+| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0 → 8     | ✅ done | Starts those unattended runs on a timer; no coverage at all    |
+| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29 → 39   | ✅ done | The entire tool security model, in 192 lines                   |
+| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58 → 68   | ✅ done | Holds every API key and mail credential, and persists them     |
+| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12 → 21   | ✅ done | Connects and executes third-party servers' tools               |
+| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32 → 43   | ✅ done | Largest unreviewed file; the sidecar a run's citations live in |
+| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\* → 7   | ✅ done | Last unreviewed cloud provider; both siblings had real bugs    |
+| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9 → 17    | ✅ done | Decides what the model is told it can do; thin for its size    |
+| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15 → 18   | ✅ done | History and token budgeting on every local turn                |
+| 11  | `src/preload/index.ts`                                                  | 317   | 0\*\* → 8 | ✅ done | The renderer↔main boundary every IPC call crosses              |
+| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5         | ☐       | Writes and deletes files on disk under a thin test             |
 
 \* No direct suite, but genuinely exercised by `cloudRoundResilience.test.ts` and
 `CloudProviderVision.test.ts`, which import the real provider.
@@ -3742,3 +3742,82 @@ deliberately keeps the newest turn even when it alone exceeds the budget, so at
 a small context size the report legitimately shows history above a budget of
 zero. Rewritten to assert what is actually true: the report measures the turns
 that were kept, not the ones that were dropped.
+
+## Round three, 11. `src/preload/index.ts` — done
+
+317 lines, and 312 of them are a mechanical channel map. The whole file is one
+declaration — `const api: AnodexApi` — plus a five-line `subscribe` helper and a
+single `contextBridge.exposeInMainWorld`. Everything the renderer can reach goes
+through it.
+
+**No defect.** Like file 9, the honest result is that this one is correct, and
+the value of the pass is the verification plus the behavioural coverage it never
+had.
+
+### What was checked and held
+
+- **Nothing privileged crosses the bridge.** `ipcRenderer` is not exposed, no
+  channel string is reachable from renderer code, and every member of the
+  surface is a function closing over its own channel constant.
+- **`subscribe` strips the event object.** `IpcRendererEvent` carries `sender`;
+  the handler is `(_event, payload) => listener(payload)`, so renderer code
+  receives the payload and nothing else. This is the single property holding up
+  the file's own claim of "no `ipcRenderer` … leaks into the renderer", and it
+  was untested.
+- **Unsubscribe removes the same handler it registered**, by closure identity —
+  so two subscribers on one channel are independent and one unmounting cannot
+  silence the other.
+- **`exposeInMainWorld` is unconditional**, with no `process.contextIsolated`
+  fallback to `window.anodex = api`. That is the right call, not an omission:
+  both windows are created with `contextIsolation: true` and `sandbox: true`, so
+  the fallback would be dead code whose only effect, if ever reached, would be
+  to silently take the insecure path. Throwing is the better failure.
+- **`webUtils.getPathForFile` is the sanctioned replacement** for the removed
+  `File.path`, and works in a sandboxed preload.
+
+### The toast window, checked because it shares this preload
+
+`toastWindow.ts` loads the same preload, so a window whose entire job is to show
+a title and a body receives the full API — every channel, including
+`conversations.deleteAll`, `workspace.writeFileContent` and `email.send` — while
+using exactly one method, `toast.focusMain`.
+
+That is worth stating but is not a hole, and the reason matters: the toast loads
+the same local renderer bundle as the main window, so there is no trust boundary
+between them to defend. A second, narrower preload would guard our own code
+against itself.
+
+What did deserve checking is that a scheduled task's **model-generated** summary
+becomes the toast's `body`, travels as a URL query parameter, and is rendered
+inside that fully-privileged window. Followed it through: `ToastWindow.tsx`
+reads it with `URLSearchParams` and renders it as a React text child, with no
+`dangerouslySetInnerHTML` anywhere in the component. Escaped, and no path from
+model output to script in a window holding the whole IPC surface.
+
+### Deliberate non-changes
+
+- **The toast keeps the shared preload**, per the reasoning above.
+- **`subscribe` does not raise `ipcRenderer`'s listener ceiling.** Electron warns
+  past ten listeners on one channel, which is a leak signal worth keeping rather
+  than suppressing; nothing in the renderer subscribes anywhere near that many
+  times to a single channel today.
+
+### Tests
+
+New `preload/__tests__/preload.test.ts` — 8, the file's first behavioural
+coverage. `ipcContract.test.ts` reads this file as source _text_ to prove every
+declared channel is referenced, which says nothing about what the bridge hands
+over at runtime.
+
+**None fail against the unmodified file, because nothing is wrong with it.** So
+they were verified the only way that means anything here — by breaking the two
+invariants they exist to protect and confirming they fire. Forwarding the event
+object to the listener, and adding a raw `ipcRenderer` handle to the surface,
+between them failed four of the eight:
+
+```
+× puts nothing on the surface but namespaces of functions
+× never hands the renderer the event object
+× stops delivering once unsubscribed
+× unsubscribes only its own listener, not everyone on the channel
+```
