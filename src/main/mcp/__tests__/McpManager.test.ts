@@ -138,3 +138,55 @@ describe('mergeSecretEnvironment', () => {
     ).toEqual({ KEEP: 'secret', REPLACE: 'new' })
   })
 })
+
+describe('toDescriptor — how much a server is trusted decides how much it is gated', () => {
+  const github: McpRemoteServerConfig = {
+    id: 'github',
+    name: 'GitHub',
+    enabled: true,
+    type: 'remote',
+    preset: 'github',
+    url: 'https://api.githubcopilot.com/mcp/'
+  }
+
+  it('gates an unvetted third-party tool at least as tightly as the trusted preset', () => {
+    // `forceConfirm` only bites in `untethered`, the one mode where `sensitive`
+    // auto-runs. A generic server's tool used to skip the prompt there while
+    // GitHub's equivalent still raised one — the less the server is known, the
+    // less it was asked about.
+    const generic = toDescriptor(server, { name: 'anything', inputSchema: { type: 'object' } })
+    const trusted = toDescriptor(github, { name: 'create_pull_request', inputSchema: {} })
+
+    expect(trusted.forceConfirm).toBe(true)
+    expect(generic.forceConfirm).toBe(true)
+  })
+
+  // This and the next pass against the pre-fix file. They are what stops the
+  // change above from drifting into "prompt for everything" or "trust the
+  // annotations after all".
+  it('still refuses to let a generic server downgrade itself with annotations', () => {
+    // The point of the preset check: annotations are hints, and a server that
+    // claims to be read-only must not be believed into a lower risk tier.
+    const descriptor = toDescriptor(server, {
+      name: 'definitely_safe',
+      inputSchema: {},
+      annotations: { readOnlyHint: true }
+    })
+
+    expect(descriptor.readOnly).toBe(false)
+    expect(descriptor.risk).toBe('sensitive')
+  })
+
+  it('leaves a verified read-only preset tool unprompted', () => {
+    // The fix must not turn every MCP call into a prompt — a tool that is
+    // genuinely a read never reaches the guarded path at all.
+    const descriptor = toDescriptor(github, {
+      name: 'get_me',
+      inputSchema: {},
+      annotations: { readOnlyHint: true }
+    })
+
+    expect(descriptor.readOnly).toBe(true)
+    expect(descriptor.forceConfirm).toBe(false)
+  })
+})

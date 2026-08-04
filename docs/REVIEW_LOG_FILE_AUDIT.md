@@ -59,7 +59,7 @@ mirage a second time.
 | 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0 → 8   | ✅ done | Starts those unattended runs on a timer; no coverage at all    |
 | 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29 → 39 | ✅ done | The entire tool security model, in 192 lines                   |
 | 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58 → 68 | ✅ done | Holds every API key and mail credential, and persists them     |
-| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12      | ☐       | Connects and executes third-party servers' tools               |
+| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12 → 21 | ✅ done | Connects and executes third-party servers' tools               |
 | 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32      | ☐       | Largest unreviewed file; the sidecar a run's citations live in |
 | 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*     | ☐       | Last unreviewed cloud provider; both siblings had real bugs    |
 | 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9       | ☐       | Decides what the model is told it can do; thin for its size    |
@@ -140,10 +140,10 @@ from.
 | Conversations are saved whole, so concurrent writers clobber  | R3 3     | ☐ open            |
 | `unarchive` cannot resolve an already-archived thread         | 7        | ✅ fixed          |
 | `save_email_attachment` does not disclose an overwrite        | R2.3     | ✅ fixed          |
-| Untrusted MCP tools are gated less strictly than trusted ones | R3 4     | ☐ open — see R3 6 |
+| Untrusted MCP tools are gated less strictly than trusted ones | R3 4     | ✅ fixed at R3 6  |
 | Only 3 of 12 providers' API keys are encrypted at rest        | R3 5     | ☐ open            |
 
-### The two still open, in full
+### Cross-cutting items in full
 
 **Conversations are saved whole, so concurrent writers clobber each other.**
 `conversationStore.save` replaces the entire document, and both sides hold their
@@ -158,7 +158,13 @@ properly means either a `conversationsChanged` broadcast the renderer merges
 from, or moving off whole-document writes for messages. Both are store-wide
 design changes, which is why neither belongs in a single file's row.
 
-**Untrusted MCP tools are gated less strictly than trusted ones.**
+**Untrusted MCP tools are gated less strictly than trusted ones — fixed at R3 6.**
+It was real, and in the one place I had doubted: `forceConfirm` bites only in
+`untethered`, so _interactive_ chat on that mode prompted for the trusted
+preset's tools and stayed silent for an unvetted server's. Headless runs were
+never affected — `headlessConfirm` approves both. Generic MCP tools now carry
+`forceConfirm: true` too. The original note follows, as written.
+
 `classifyMcpTool` gives a generic third-party server's tools
 `{ risk: 'sensitive', forceConfirm: false }`, while the _trusted_ GitHub
 preset's non-read-only tools get `forceConfirm: true`. The untrusted case is the
@@ -3179,3 +3185,130 @@ not exist, the app still starting from defaults after a corrupt read, the
 migrating session reading its own key correctly, and a properly-shaped block
 still being accepted. The first three guard against the fixes over-correcting;
 the fourth is half of the pair described in finding 3.
+
+## Round three, 6. `src/main/mcp/McpManager.ts` — done
+
+526 lines, credited with 12 tests. **All 12 test pure helpers** —
+`toDescriptor`, `normalizeToolResult`, `mergeSecretEnvironment` — and not one
+of them reaches the class: connections, dispatch, timeouts and status had no
+coverage at all. That is the third time this round's "a test count is not
+coverage" rule has earned itself.
+
+This file runs other people's code. Everything below is about what happens when
+a third-party server is slow, replaced, or simply not trustworthy.
+
+### 1. The less a server was trusted, the less it was asked about
+
+`classifyMcpTool` gave a generic third-party server's tools
+`{ risk: 'sensitive', forceConfirm: false }`, while the _trusted_ built-in
+GitHub preset's non-read-only tools got `forceConfirm: true`.
+
+This was the item carried forward from R3 4, where I recorded it as possibly
+having no effect. It has one. `forceConfirm` bites in exactly one place:
+`untethered`, the only mode where `sensitive` auto-runs. In interactive chat on
+that mode, a GitHub-preset tool raised a confirmation and an unvetted
+third-party server's tool did not — caution running backwards against how well
+the server is known.
+
+Unattended runs are unaffected either way, which is what I had half-right
+before: `headlessConfirm` approves both, since neither is destructive nor marked
+as needing a person. The gap was interactive `untethered`, not the headless
+surfaces.
+
+Generic MCP tools now carry `forceConfirm: true` as well. The preset check still
+does its real job — a generic server cannot use `readOnlyHint` to talk itself
+down into the `safe` tier — and a genuinely verified read-only preset tool still
+goes through `runReadTool` and prompts for nothing.
+
+### 2. A timed-out tool call was abandoned, not cancelled
+
+`callToolResult` wrapped `client.callTool` in a hand-rolled `withTimeout` that
+races a `setTimeout` against the promise. Read against the SDK's own source,
+that loses three things the SDK does on its `timeout` option:
+
+```js
+const cancel = reason => {
+  this._responseHandlers.delete(messageId)   // ← ours leaks this entry
+  this._progressHandlers.delete(messageId)
+  this._cleanupTimeout(messageId)
+  this._transport?.send({ method: 'notifications/cancelled', ... })  // ← never sent
+  reject(error)
+}
+```
+
+So on our 60-second budget: the response handler stayed registered for the life
+of the connection, the server was never told to stop, and it carried on doing
+whatever was asked with nothing left to receive the result. For a tool call
+that is somebody else's API operation or long-running job, that is real work
+continuing past the point anyone is listening.
+
+Now handed to the SDK as `{ timeout: MCP_TOOL_TIMEOUT_MS }`. The one thing worth
+keeping from the wrapper was the message — the SDK's is a bare "Request timed
+out", and the model reads this text as the tool result, so a `RequestTimeout`
+`McpError` is still re-worded to name the tool. Nothing else is caught.
+
+`connect` and `listTools` keep the wrapper: those are bounded at 20 seconds
+against a server that is not yet talking, where there is no request to cancel.
+
+### 3. A replaced connection's tool list could overwrite the live one
+
+The `listChanged` handler looked the connection up by server id and stopped
+there. `handleUnexpectedClose`, twenty lines away, checks
+`connection.client !== client` for exactly the reason this needed to: after a
+reconnect the entry belongs to a newer client, and a notification still in
+flight from the old one would replace the live tool list with the dead
+connection's. Same guard, now in both places.
+
+### Checked and found correct
+
+Two things that looked wrong and were not — both worth recording so the next
+read does not re-litigate them.
+
+- **The legacy plaintext environment migration does clean up after itself.**
+  `migrateLegacyEnvironmentValues` never deletes `environment` from the server
+  record, which reads like the plaintext secrets it exists to move would stay on
+  disk. They do not: `McpServerStore.update` runs everything through
+  `sanitizeStoredConfig`, which rebuilds the record from an explicit field
+  allowlist, and `environment` is not on it. The failure path is right too — it
+  disables the server and keeps only the key names rather than falling back to
+  plaintext.
+- **The `listChanged` handler is live, not dead code.** The option shape
+  (`listChanged: { tools: { onChanged } }`) is unusual enough that I checked it
+  against the SDK's own `ClientOptions`; it is a supported `ListChangedHandlers`,
+  and the SDK skips it silently only when the server does not advertise the
+  capability.
+
+### Deliberate non-changes
+
+- **A dropped connection is never retried.** `handleUnexpectedClose` sets
+  `status: 'error'` and stops; recovering means toggling the server off and on.
+  For a flaky stdio server that is worse than it sounds, but reconnect-with-
+  backoff is a feature with its own failure modes, not a fix.
+- **`buildTransport` merges `config.headers` before its own `Authorization`,**
+  so a config carrying a lowercase `authorization` header would sit alongside
+  the bearer token rather than being replaced by it. Reachable only by typing a
+  conflicting header into the custom-headers box for a server that also has a
+  static token.
+- **Anodex validates nothing about a server's `inputSchema`** — it is handed to
+  the model as the tool's parameters verbatim. `mcpTools.ts` says so plainly.
+  Validating other people's JSON Schema is a real project and not this one.
+- **`normalizeToolResult` renders an image block as `[image content]`,** so an
+  MCP server that returns an image gives the model a placeholder even though the
+  app has a vision path. A gap, but a feature-sized one.
+
+### Tests
+
+`McpManager.test.ts` — 3 added (15 total). New file
+`McpManagerConnection.test.ts` — 6, the first coverage of the class, with the
+SDK mocked at the `Client` boundary so what is asserted is what the manager asks
+the SDK to do.
+
+Four of the nine fail against the pre-fix file: the trust asymmetry, the
+deadline being handed to the SDK, the timeout naming its tool, and the stale
+notification being ignored.
+
+Five pass either way and are labelled. They are what holds the new behaviour in
+place: a generic server still cannot downgrade itself with annotations, a
+verified read-only preset tool still prompts for nothing, a non-timeout error is
+still passed through untouched, an unconnected server is still refused, and the
+_live_ connection's notifications are still applied.

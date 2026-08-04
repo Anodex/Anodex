@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type {
   McpNewServerConfig,
@@ -22,6 +23,8 @@ import { McpOAuthProvider } from './oauth'
 const log = createLogger('mcp')
 const MCP_CONNECT_TIMEOUT_MS = 20_000
 const MCP_TOOL_TIMEOUT_MS = 60_000
+/** `McpError.code` is a plain `number`, so the enum member is widened to compare against it. */
+const REQUEST_TIMEOUT_CODE: number = ErrorCode.RequestTimeout
 
 export interface McpToolInfo {
   name: string
@@ -135,11 +138,25 @@ class McpManager extends EventEmitter {
   ): Promise<McpCallResult> {
     const connection = this.connections.get(serverId)
     if (!connection) throw new Error('This MCP server is not currently connected.')
-    return withTimeout(
-      connection.client.callTool({ name: toolName, arguments: args }) as Promise<McpCallResult>,
-      MCP_TOOL_TIMEOUT_MS,
-      `MCP tool "${toolName}" timed out.`
-    )
+    try {
+      // The SDK's own timeout rather than the `withTimeout` wrapper used for
+      // connect below. Racing a promise only stops *us* waiting: the request
+      // stays registered in the client's response map for the life of the
+      // connection, and the server carries on doing whatever was asked — which
+      // for a 60-second budget on somebody else's tool is real work continuing
+      // with nothing left to receive it. The SDK instead sends
+      // `notifications/cancelled`, drops the handler, and rejects.
+      return await connection.client.callTool({ name: toolName, arguments: args }, undefined, {
+        timeout: MCP_TOOL_TIMEOUT_MS
+      })
+    } catch (error) {
+      // The SDK's message is a bare "Request timed out" — the model reads this
+      // as the tool result, so it needs to say which tool.
+      if (error instanceof McpError && error.code === REQUEST_TIMEOUT_CODE) {
+        throw new Error(`MCP tool "${toolName}" timed out.`)
+      }
+      throw error
+    }
   }
 
   async callTool(
@@ -249,7 +266,11 @@ class McpManager extends EventEmitter {
             onChanged: (error, listed) => {
               if (error || !listed) return
               const connection = this.connections.get(config.id)
-              if (!connection) return
+              // Identity-checked for the same reason `handleUnexpectedClose`
+              // is: after a reconnect the entry belongs to a newer client, and
+              // a notification still in flight from the old one would replace
+              // the live tool list with the dead connection's.
+              if (!connection || connection.client !== client) return
               connection.tools = listed.map((tool) => toDescriptor(config, tool))
               this.setStatus({
                 id: config.id,
@@ -432,8 +453,16 @@ function classifyMcpTool(
 ): Pick<McpToolDescriptor, 'readOnly' | 'risk' | 'forceConfirm'> {
   // Tool annotations are hints. Only the built-in official GitHub preset is trusted
   // enough for them to reduce approval requirements; generic MCP stays sensitive.
+  //
+  // `forceConfirm` matters in exactly one place: `untethered`, the only mode
+  // where `sensitive` auto-runs. Without it here, an unvetted third-party
+  // server's tool executed silently in that mode while the *trusted* preset's
+  // equivalent below still raised a confirmation — caution running backwards
+  // against how well the server is known. Unattended runs are unaffected either
+  // way: `headlessConfirm` approves both, since neither is destructive nor
+  // marked as needing a person.
   if (config.preset !== 'github') {
-    return { readOnly: false, risk: 'sensitive', forceConfirm: false }
+    return { readOnly: false, risk: 'sensitive', forceConfirm: true }
   }
   if (isGithubReadOnlyConfig(config) || annotations?.readOnlyHint === true) {
     return { readOnly: true, risk: 'safe', forceConfirm: false }
