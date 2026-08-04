@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname } from 'node:path'
 import type {
   EmailDraft,
@@ -11,6 +11,7 @@ import type { EmailDraftPreview } from '@shared/tools.types'
 import type { ToolFactory, ToolRuntimeContext, WorkspaceToolFactory } from './types'
 import { runGuardedTool, runGuardedToolWithPrepare, runReadTool } from './helpers'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
+import { assertFileStateUnchanged } from './fileState'
 import { emailService, type PreparedOutgoing } from '../email/EmailService'
 import { MAX_ATTACHMENT_TOTAL_BYTES } from '../email/mime'
 import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
@@ -21,6 +22,17 @@ import { extractAttachmentText, MAX_ATTACHMENT_TEXT_CHARS } from '../email/attac
 import { saveVisualPreviewAsset } from './visualPreviewAssets'
 
 const MAX_BODY_PREVIEW = 700
+
+/**
+ * Sizes elsewhere in this file are raw byte counts, which is right for the
+ * model. This one lands in an approval prompt a person reads, and "4194304
+ * bytes" is not a size anybody weighs a decision against.
+ */
+function formatByteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} byte${bytes === 1 ? '' : 's'}`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 /** Shared schema fragment: every email tool can target a specific account. */
 const ACCOUNT_PARAM = {
@@ -969,29 +981,59 @@ export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
       required: ['messageId', 'attachmentId', 'path']
     } as const,
     handler: (args: { messageId: string; attachmentId: string; path: string; account?: string }) =>
-      runGuardedTool(ctx, {
-        name: 'save_email_attachment',
-        kind: 'write',
-        title: `Save email attachment to ${args.path}`,
-        args,
-        confirmDetail: `Save attachment ${args.attachmentId} from message ${args.messageId} to ${args.path}`,
-        risk: 'safe',
-        touch: { path: args.path, action: 'write' },
-        async run() {
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'save_email_attachment',
+          kind: 'write',
+          title: `Save email attachment to ${args.path}`,
+          args,
+          risk: 'safe',
+          touch: { path: args.path, action: 'write' }
+        },
+        // Prepared rather than run straight through, for one reason: this tool
+        // writes to a caller-supplied path and said nothing about what was
+        // already there. Every other workspace write discloses that — the
+        // mutation tools render a real before/after diff in the prompt — but an
+        // attachment's bytes are binary, so there is no diff to show and the
+        // prompt read the same whether the path was free or held a file the
+        // user cared about. "Save attachment to notes.pdf" is a very different
+        // request depending on which, and only one of them is reversible
+        // without reaching for the checkpoint.
+        //
+        // The destination is inspected here and named in the prompt; the
+        // attachment itself is still fetched in `run()`, so a call the user
+        // denies costs no request against their mailbox.
+        async () => {
           const destination = resolveInWorkspace(ctx.workspaceRoot, args.path)
-          const beforeExists = await access(destination)
-            .then(() => true)
-            .catch(() => false)
-          const before = beforeExists ? encodeCheckpointBuffer(await readFile(destination)) : null
+          const relativePath = toWorkspaceRelative(ctx.workspaceRoot, destination)
+          const beforeBuffer = await readFile(destination).catch(() => null)
+          const before = beforeBuffer ? encodeCheckpointBuffer(beforeBuffer) : null
+          return {
+            confirmDetail: [
+              `Save attachment ${args.attachmentId} from message ${args.messageId} to ${relativePath}.`,
+              beforeBuffer
+                ? `This replaces the existing ${formatByteSize(beforeBuffer.length)} file at that path.`
+                : 'No file exists at that path yet.'
+            ].join('\n\n'),
+            data: { destination, relativePath, beforeBuffer, before }
+          }
+        },
+        async ({ destination, relativePath, beforeBuffer, before }) => {
           const attachment = await emailService.getAttachment(
             args.messageId,
             args.attachmentId,
             args.account
           )
+          // The prompt described the destination as it was before the user was
+          // asked. Anything that changed it since — their own editor, a build
+          // step — means they approved a replacement of content that is no
+          // longer there, and the `before` below would checkpoint a version
+          // that never existed at write time.
+          await assertFileStateUnchanged(destination, beforeBuffer, 'save')
           const after = encodeCheckpointBuffer(attachment.data)
           await mkdir(dirname(destination), { recursive: true })
           await writeFile(destination, attachment.data)
-          const relativePath = toWorkspaceRelative(ctx.workspaceRoot, destination)
           return {
             modelResult: `Saved attachment ${attachment.filename} (${attachment.mimeType}, ${attachment.data.length} bytes) to ${relativePath}.`,
             detail: `${attachment.filename} → ${relativePath}`,
@@ -1006,7 +1048,7 @@ export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
             ]
           }
         }
-      })
+      )
   })
 
 const FLAG_TITLES: Record<EmailFlagAction, string> = {

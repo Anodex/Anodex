@@ -975,6 +975,114 @@ describe('email tools', () => {
     }
   })
 
+  // Every other workspace write shows the user what it is about to replace —
+  // the mutation tools render a real before/after diff in the prompt. An
+  // attachment is binary, so there is no diff to render, and this prompt used
+  // to read identically whether the path was free or held a file they cared
+  // about.
+  it('tells the user the save will replace an existing file, and how big it is', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'anodex-attachment-overwrite-'))
+    try {
+      await writeFile(join(workspace, 'report.pdf'), Buffer.alloc(4096, 7))
+      const attachment = Buffer.from([1, 2, 3])
+      getAttachmentMock.mockResolvedValue({
+        id: 'attachment-1',
+        messageId: 'message-1',
+        filename: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: attachment.length,
+        data: attachment
+      })
+      const { requests, confirm } = captureConfirmations()
+      const ctx = { ...createMockContext(workspace), confirm }
+      const tool = saveEmailAttachmentTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: unknown) => Promise<string>
+      }
+
+      await tool.handler({
+        messageId: 'message-1',
+        attachmentId: 'attachment-1',
+        path: 'report.pdf'
+      })
+
+      expect(requests[0].detail).toContain('replaces the existing 4.0 KB file')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('says plainly when nothing is being replaced', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'anodex-attachment-create-'))
+    try {
+      const attachment = Buffer.from([1, 2, 3])
+      getAttachmentMock.mockResolvedValue({
+        id: 'attachment-1',
+        messageId: 'message-1',
+        filename: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: attachment.length,
+        data: attachment
+      })
+      const { requests, confirm } = captureConfirmations()
+      const ctx = { ...createMockContext(workspace), confirm }
+      const tool = saveEmailAttachmentTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: unknown) => Promise<string>
+      }
+
+      await tool.handler({
+        messageId: 'message-1',
+        attachmentId: 'attachment-1',
+        path: 'new-report.pdf'
+      })
+
+      expect(requests[0].detail).toContain('No file exists at that path yet')
+      expect(requests[0].detail).not.toContain('replaces')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  // The prompt describes the destination as it was before the user was asked.
+  // If it changes while they are deciding, they approved replacing content
+  // that is no longer there — and the checkpoint would record that vanished
+  // content as `before`, so undo would restore a file that never existed.
+  it('refuses a save whose destination changed while the user was deciding', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'anodex-attachment-toctou-'))
+    try {
+      const destination = join(workspace, 'report.pdf')
+      await writeFile(destination, Buffer.from('as-described'))
+      getAttachmentMock.mockResolvedValue({
+        id: 'attachment-1',
+        messageId: 'message-1',
+        filename: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: 3,
+        data: Buffer.from([1, 2, 3])
+      })
+      const ctx = {
+        ...createMockContext(workspace),
+        confirm: async () => {
+          await writeFile(destination, Buffer.from('edited-while-the-prompt-was-up'))
+          return { approved: true }
+        }
+      }
+      const tool = saveEmailAttachmentTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: unknown) => Promise<string>
+      }
+
+      const result = await tool.handler({
+        messageId: 'message-1',
+        attachmentId: 'attachment-1',
+        path: 'report.pdf'
+      })
+
+      expect(result).toContain('changed since this save was proposed')
+      expect(await readFile(destination)).toEqual(Buffer.from('edited-while-the-prompt-was-up'))
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   describe('attaching files the user put in the chat', () => {
     async function withUserFile(
       run: (ctx: ToolRuntimeContext, path: string) => Promise<void>

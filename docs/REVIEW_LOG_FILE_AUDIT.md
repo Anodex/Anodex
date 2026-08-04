@@ -91,7 +91,7 @@ from.
 | `AnodexApi` mixes `Result<T>` and bare-`T` returns          | 9        | assessed — no fix |
 | No Sent copy is filed after an SMTP send                    | 7        | ✅ fixed          |
 | `unarchive` cannot resolve an already-archived thread       | 7        | ✅ fixed          |
-| `save_email_attachment` does not disclose an overwrite      | R2.3     | ☐                 |
+| `save_email_attachment` does not disclose an overwrite      | R2.3     | ✅ fixed          |
 
 ---
 
@@ -2371,3 +2371,58 @@ sweep and nothing is double-claimed by a later call of the same tool.
 `provisional-2`. The other two are the guards around it — the success path still
 resolves the same provisional card end to end, and a call with nothing
 pre-emitted still falls back to a fresh id.
+
+## Cross-cutting, closed: `save_email_attachment` did not disclose an overwrite
+
+The last open row in the cross-cutting table, raised while reviewing
+`emailTools.ts` (R2.3) and left for its own change because the fix is a
+restructure rather than a line.
+
+`save_email_attachment` writes an attachment to a caller-supplied workspace
+path, and its approval prompt said only where the file was going:
+
+```ts
+confirmDetail: `Save attachment ${args.attachmentId} from message ${args.messageId} to ${args.path}`
+```
+
+Every other workspace write discloses what it is about to destroy — the
+mutation tools build a real before/after diff and the confirm card renders it.
+This one could not: an attachment is binary, so there is no diff to show, and
+the prompt therefore read identically whether the path was free or held
+something the user cared about. "Save attachment to report.pdf" is a materially
+different request depending on which, and only one of them is undoable without
+reaching for the checkpoint.
+
+Converted from `runGuardedTool` to `runGuardedToolWithPrepare`, which exists for
+exactly this — computing what the prompt needs before the prompt is shown. The
+`prepare()` step resolves the destination and reads it; the prompt now ends with
+either `This replaces the existing 4.0 KB file at that path.` or `No file exists
+at that path yet.` Sizes are formatted for a person here rather than as the raw
+byte counts the rest of the file gives the model.
+
+**Two deliberate choices inside the conversion.**
+
+The attachment is still fetched in `run()`, after approval, not in `prepare()`.
+Fetching it earlier would let the prompt name the real filename and size, but it
+would also spend a request against the user's mailbox for a call they may be
+about to deny. The overwrite question is answerable from the destination alone.
+
+Reading the destination during `prepare()` opens a gap that did not exist when
+everything happened in `run()`: the user is looking at a description of a file
+that something else — their editor, a build step — can change while they decide.
+Approving then writes over content the prompt never described, and the
+checkpoint records the vanished content as `before`, so an undo restores a
+version that was never on disk at write time. `assertFileStateUnchanged` closes
+it, the same guard `write_file` and the other mutation tools already use.
+
+That guard was private to `mutationTools.ts`, so it moved to a new
+`src/main/tools/fileState.ts` rather than being imported across peer tool
+modules or copied. Pure move, no behaviour change, and its doc comment now
+explains the failure it prevents instead of just restating the check.
+
+### Tests
+
+`emailTools.test.ts` — 3 added (38 total), all three confirmed failing against
+the pre-fix file: the overwrite disclosure with its size, the create-case
+wording, and a destination edited while the confirm prompt was up being refused
+with the file left as the editor wrote it.

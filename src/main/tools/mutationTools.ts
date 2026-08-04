@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import type { ToolCallDiff } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
+import { assertFileStateUnchanged } from './fileState'
 import { runGuardedToolWithPrepare } from './helpers'
 import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
 
@@ -438,23 +439,6 @@ async function readEditableText(
     )
   }
   return { text, buffer }
-}
-
-async function assertFileStateUnchanged(
-  path: string,
-  expected: Buffer | null,
-  action: string
-): Promise<void> {
-  const current = await readFile(path).catch((error: unknown) => {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw error
-  })
-  if (
-    (expected === null && current !== null) ||
-    (expected !== null && (current === null || !current.equals(expected)))
-  ) {
-    throw new Error(`The file changed since this ${action} was proposed; read it again and retry.`)
-  }
 }
 
 function preview(text: string): string {
