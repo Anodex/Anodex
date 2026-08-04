@@ -10,7 +10,8 @@ import {
   MIN_CHARS_TO_SUMMARIZE,
   renderTurnsForSummary,
   reservedNonHistoryTokens,
-  splitHistoryByTokenBudget
+  splitHistoryByTokenBudget,
+  turnTokenCost
 } from './compaction'
 import { foldIntoRollingSummary, type RollingSummarizer } from './rollingSummary'
 
@@ -205,7 +206,7 @@ export async function assembleModelContext({
       removedTurns,
       summarized: summary !== null,
       historyBudgetTokens: finalBudget,
-      historyTokens: historyTokens(projectedRecent, countTokens),
+      historyTokens: historyTokens(projectedRecent, countTokens, messageFramingTokens),
       systemTokens: countTokens(projectedSystemPrompt ?? '')
     }
   }
@@ -447,14 +448,26 @@ function historyBudgetTokens(
   )
 }
 
-function historyTokens(history: ChatHistoryTurn[], countTokens: (text: string) => number): number {
-  return history.reduce((total, turn) => {
-    let next = total + countTokens(turn.content)
-    for (const call of turn.toolCalls ?? []) {
-      next += countTokens(call.result ?? call.detail ?? '')
-    }
-    return next
-  }, 0)
+/**
+ * What the retained turns actually cost, measured the same way the budget that
+ * selected them was.
+ *
+ * This had its own hand-rolled sum, and it disagreed with `turnTokenCost` in
+ * two directions at once: it charged nothing for per-message framing, and
+ * nothing for a tool call's title — so a call that recorded a title and no
+ * result counted as zero. The figure it produces is what a developer reads out
+ * of the compaction log while working out why a turn overflowed, and it read
+ * low, which is the one direction that misleads.
+ */
+function historyTokens(
+  history: ChatHistoryTurn[],
+  countTokens: (text: string) => number,
+  messageFramingTokens: number
+): number {
+  return history.reduce(
+    (total, turn) => total + turnTokenCost(turn, countTokens, messageFramingTokens),
+    0
+  )
 }
 
 function truncateToolText(text: string): string {

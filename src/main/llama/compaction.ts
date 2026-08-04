@@ -200,7 +200,7 @@ function toolCallCostText(call: { title: string; result?: string; detail?: strin
  * behaviour for callers whose transport reuses a KV cache rather than
  * re-rendering every message.
  */
-function turnTokenCost(
+export function turnTokenCost(
   turn: ChatHistoryTurn,
   countTokens: (text: string) => number,
   messageFramingTokens = 0

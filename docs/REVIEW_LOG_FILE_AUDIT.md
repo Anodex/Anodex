@@ -63,7 +63,7 @@ mirage a second time.
 | 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32 → 43 | ✅ done | Largest unreviewed file; the sidecar a run's citations live in |
 | 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\* → 7 | ✅ done | Last unreviewed cloud provider; both siblings had real bugs    |
 | 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9 → 17  | ✅ done | Decides what the model is told it can do; thin for its size    |
-| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15      | ☐       | History and token budgeting on every local turn                |
+| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15 → 18 | ✅ done | History and token budgeting on every local turn                |
 | 11  | `src/preload/index.ts`                                                  | 317   | 0\*\*   | ☐       | The renderer↔main boundary every IPC call crosses              |
 | 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5       | ☐       | Writes and deletes files on disk under a thin test             |
 
@@ -3653,3 +3653,92 @@ verified by deliberately setting `GATEWAY_TOOL_COUNT` to 4 and watching it fail,
 which is the drift it exists to stop, and the partition test asserts every tool
 is reachable exactly once, native or deferred, so a tool can never fall into
 neither list.
+
+## Round three, 10. `src/main/llama/contextAssembler.ts` — done
+
+436 lines, 15 tests. Every local turn and every stateless-transport turn goes
+through here: it applies the persisted snapshot, splits history against the
+token budget, folds the overflow into a rolling summary, and hands back the
+projection the model actually sees.
+
+One defect, and it is in the reporting rather than the decision. The rest of
+this entry is what was checked and held, because for a file this central that is
+the more useful record.
+
+### 1. The report measured history differently from the budget that selected it
+
+`assembleModelContext` returns a `report` whose `historyTokens` is what a
+developer reads out of the compaction log — `LlamaService` logs it verbatim
+while working out why a turn overflowed. It had its own hand-rolled sum:
+
+```ts
+let next = total + countTokens(turn.content)
+for (const call of turn.toolCalls ?? []) {
+  next += countTokens(call.result ?? call.detail ?? '')
+}
+```
+
+The budget that chose those same turns uses `turnTokenCost`, which charges two
+things this did not: the per-message framing the transport pays, and a tool
+call's `title`. A call that recorded a title and no result — every `running`
+call, and every one that failed without detail — counted as **zero**.
+
+So the number read low, which is the one direction that misleads: history looks
+like it still fits at exactly the moment someone is trying to find out why it
+did not. `historyTokens` now calls `turnTokenCost` with the same framing figure
+the split used, so the two agree by construction rather than by maintenance.
+
+### What was checked and held
+
+- **The fold loop terminates.** Each pass either breaks on an empty `older` or
+  removes at least one turn from `projectedRecent`, so it converges in at most
+  the number of retained turns — and the summary cannot grow without bound
+  because `foldIntoRollingSummary` clamps every result to
+  `ROLLING_SUMMARY_TOKEN_CEILING`. The comment claiming this is accurate.
+- **Turns are never dropped silently while the boundary advances past them.**
+  This was the failure I went looking for: if a fold returned nothing, the turns
+  would already have left `projectedRecent`, `compactedThroughMessageId` would
+  move past them, and the next turn would slice them away for good. It cannot
+  happen — `foldChunk` falls back to a deterministic digest when the summarizer
+  throws or returns empty, so a non-empty slice always produces a non-empty
+  summary. The one path that returns `null` is the initial tiny slice, and there
+  the boundary does not advance.
+- **`toolSchemaReserveTokens` reaches the only caller that needs it.**
+  `boundHistoryForStatelessProvider`'s doc comment calls it "not optional in
+  spirit, only in signature", which is the sort of claim worth checking after
+  `ff43661` touched this file; `runGeneration` is the single call site and it
+  passes both reserve options.
+- **A snapshot whose boundary message no longer exists degrades safely** —
+  `seedContextFromSnapshot` returns the full history unapplied, and
+  `assembleModelContext` re-compacts it, so the information comes back rather
+  than being lost.
+
+### Deliberate non-changes
+
+- **A turn that both loads a snapshot and compacts again shows two summary
+  blocks** with the identical header, because `buildCompactionSystemPrompt` is
+  applied once by the seeding step and again by the fold. The accounting is
+  right (both blocks are charged), the order is chronological, and it self-heals
+  on the next turn, since `mergeContextSummaries` persists them as one. Fixing
+  it means threading the base prompt and the prior summary through
+  `assembleModelContext` separately — a change to the entry point's shape for a
+  cosmetic gain.
+- **`truncateToolText` slices by character**, so it can split a surrogate pair
+  and leave a lone surrogate in the prompt. Tokenizers and `JSON.stringify`
+  both handle it; the cost of getting this exactly right is not repaid.
+- **`historyTokens` re-sanitizes turns that `projectHistoryForModel` already
+  sanitized**, because `turnTokenCost` does its own. Idempotent, and paying it
+  is what makes the report and the budget the same measurement.
+
+### Tests
+
+`contextAssembler.test.ts` — 3 added (18 total). All three fail against the
+pre-fix implementation: the framing charge, the title-only tool call counting as
+zero, and the retained-vs-dropped total.
+
+**One of them was wrong first.** I wrote the third as "history never costs more
+than its budget", which failed — and the code was right. `splitHistoryByTokenBudget`
+deliberately keeps the newest turn even when it alone exceeds the budget, so at
+a small context size the report legitimately shows history above a budget of
+zero. Rewritten to assert what is actually true: the report measures the turns
+that were kept, not the ones that were dropped.

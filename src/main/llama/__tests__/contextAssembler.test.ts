@@ -394,3 +394,82 @@ describe('boundHistoryForStatelessProvider', () => {
     expect(bounded.history).toEqual([history[2]])
   })
 })
+
+describe('assembleModelContext — what the report says history cost', () => {
+  /**
+   * The report is what a developer reads out of the compaction log while
+   * working out why a turn overflowed, so it has to measure history the same
+   * way the budget that selected it did.
+   */
+  it('charges the per-message framing the budget charged', async () => {
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' }
+    ]
+
+    const assembled = await assembleModelContext({
+      systemPrompt: '',
+      history,
+      contextSize: 2_000,
+      countTokens,
+      summarizeOlderTurns: () => Promise.resolve(null),
+      messageFramingTokens: 10
+    })
+
+    // 'hi' + 'hello' = 7 characters, plus 10 framing tokens per message.
+    expect(assembled.report.recentTurns).toBe(2)
+    expect(assembled.report.historyTokens).toBe(27)
+  })
+
+  it('charges for a tool call that recorded a title and no result', async () => {
+    // This used to count as zero: the sum read `result ?? detail ?? ''` and
+    // never looked at the title, which the budget does charge for.
+    const history: ChatHistoryTurn[] = [
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          {
+            id: 'c1',
+            name: 'run_command',
+            kind: 'command',
+            status: 'running',
+            title: 'Run: npm test'
+          }
+        ]
+      }
+    ]
+
+    const assembled = await assembleModelContext({
+      systemPrompt: '',
+      history,
+      contextSize: 2_000,
+      countTokens,
+      summarizeOlderTurns: () => Promise.resolve(null)
+    })
+
+    expect(assembled.report.historyTokens).toBe('Run: npm test'.length)
+  })
+
+  it('measures only the turns it kept, not the ones it dropped', async () => {
+    // The budget and the report have to be talking about the same history, or
+    // the log reads as though everything still fits.
+    const history: ChatHistoryTurn[] = Array.from({ length: 6 }, (_, index) => ({
+      role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      content: `turn ${index} `.repeat(20)
+    }))
+
+    const assembled = await assembleModelContext({
+      systemPrompt: 'be helpful',
+      history,
+      contextSize: 1_000,
+      countTokens,
+      summarizeOlderTurns: () => Promise.resolve(null),
+      messageFramingTokens: 4
+    })
+
+    const keptCost = assembled.history.reduce((total, turn) => total + turn.content.length + 4, 0)
+    expect(assembled.report.removedTurns).toBeGreaterThan(0)
+    expect(assembled.report.historyTokens).toBe(keptCost)
+  })
+})
