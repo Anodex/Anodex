@@ -7,6 +7,27 @@ const GATEWAY_TOOL_NAMES = [
   'call_available_tool'
 ] as const
 
+/**
+ * Native schemas `boundToolSurface` always adds for the deferred-tool gateway.
+ *
+ * Exported because a caller sizing a reserve before the surface exists has to
+ * account for them, and `LlamaVisionService` was doing that against its own
+ * hardcoded `3`. Derived from the list above so the two cannot drift.
+ */
+export const GATEWAY_TOOL_COUNT = GATEWAY_TOOL_NAMES.length
+
+/**
+ * How many tools may keep a full native schema at a given context size. Small
+ * contexts rely more heavily on the deferred gateway to preserve working room.
+ *
+ * Lives here rather than in each transport: it is the single knob deciding how
+ * much of the catalog a model is told about directly, and both transports had
+ * their own byte-identical copy of it with nothing keeping them in step.
+ */
+export function maxDirectToolsForContext(contextSize: number): number {
+  return Math.max(8, Math.min(24, Math.floor(contextSize / 1_024) + 4))
+}
+
 const MAX_FIND_DESCRIPTION_CHARS = 320
 const MAX_SCHEMA_CHUNK_CHARS = 4_000
 
@@ -229,7 +250,9 @@ function hasAny(text: string, terms: readonly string[]): boolean {
 }
 
 function isGithubTool(name: string): boolean {
-  return name.toLowerCase().includes('github') || name.toLowerCase().startsWith('github__')
+  // The `startsWith('github__')` half this used to also test could never add a
+  // match: anything starting with it already contains "github".
+  return name.toLowerCase().includes('github')
 }
 
 function createDeferredToolGateway(define: DefineChatSessionFunction): Gateway {

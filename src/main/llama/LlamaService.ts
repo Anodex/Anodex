@@ -80,7 +80,7 @@ import {
   GenerationDiagnosticsTracker,
   type LocalGenerationDiagnostics
 } from './generationDiagnostics'
-import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
+import { boundToolSurface, maxDirectToolsForContext, type BoundedToolSurface } from './toolSurface'
 import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
 import type { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
@@ -2685,11 +2685,6 @@ export function cleanChatTitle(raw: string): string | null {
 
 function defaultContextShiftReserve(contextSize: number): number {
   return Math.max(1, Math.floor(contextSize / 10))
-}
-
-/** Small contexts rely more heavily on the deferred gateway to preserve working room. */
-function maxDirectToolsForContext(contextSize: number): number {
-  return Math.max(8, Math.min(24, Math.floor(contextSize / 1_024) + 4))
 }
 
 function appendUserPrompt(

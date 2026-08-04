@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { DefineChatSessionFunction, ToolFunction } from '../../tools/types'
-import { boundToolSurface, rankToolNames } from '../toolSurface'
+import {
+  boundToolSurface,
+  GATEWAY_TOOL_COUNT,
+  maxDirectToolsForContext,
+  rankToolNames
+} from '../toolSurface'
 
 function define(config: unknown): ToolFunction {
   return config as ToolFunction
@@ -241,5 +246,103 @@ describe('bounded tool surface', () => {
 
     expect(ranked.indexOf('update_plan_step')).toBeLessThan(ranked.indexOf('update_change_task'))
     expect(ranked.indexOf('write_plan')).toBeLessThan(ranked.indexOf('update_change_task'))
+  })
+})
+
+describe('the deferred-tool gateway', () => {
+  /** A surface small enough that only the highest-ranked tool stays native. */
+  function routedSurface(): ReturnType<typeof boundToolSurface> {
+    return boundToolSurface({
+      allFunctions: {
+        read_file: tool('Read a file from the workspace and return its contents.'),
+        send_email: tool('Send an email message to the given recipients.'),
+        list_mailboxes: tool('List the mailboxes available on an email account.'),
+        generate_image: tool('Generate an image from a text description.')
+      },
+      define: fakeDefine,
+      routingText: 'read the source file',
+      targetFixedTokens: 500,
+      measureFixedTokens: fixedCost,
+      maxDirectTools: 1
+    })
+  }
+
+  it('always adds exactly the gateway tools it publishes a count for', () => {
+    // `LlamaVisionService` reserves prompt room for these before the surface
+    // exists, and used its own hardcoded 3 to do it.
+    const surface = routedSurface()
+    const gatewayNames = Object.keys(surface.functions).filter(
+      (name) => !surface.directToolNames.includes(name)
+    )
+
+    expect(gatewayNames).toHaveLength(GATEWAY_TOOL_COUNT)
+    expect(gatewayNames).toEqual([
+      'find_available_tool',
+      'describe_available_tool',
+      'call_available_tool'
+    ])
+  })
+
+  it('accounts for every tool exactly once, native or deferred', () => {
+    // A tool in neither list is one the model can never reach.
+    const surface = routedSurface()
+    const reachable = [...surface.directToolNames, ...surface.deferredToolNames].sort()
+
+    expect(reachable).toEqual(['generate_image', 'list_mailboxes', 'read_file', 'send_email'])
+    expect(surface.directToolNames).toEqual(['read_file'])
+  })
+
+  it('finds a deferred tool by capability rather than by its exact name', async () => {
+    // The whole point of the gateway: the model does not know these names,
+    // because their schemas were never put in front of it.
+    const surface = routedSurface()
+    const find = surface.functions.find_available_tool
+
+    const result = (await find.handler({ query: 'send a message to someone' })) as string
+
+    expect(result).toContain('send_email')
+  })
+
+  it('says so plainly when nothing matches, rather than listing everything', async () => {
+    const surface = routedSurface()
+    const find = surface.functions.find_available_tool
+
+    const result = (await find.handler({ query: 'quantum chromodynamics' })) as string
+
+    expect(result).toContain('No deferred tools matched')
+  })
+
+  it('refuses to describe a tool that is native rather than deferred', async () => {
+    // `read_file` is on the native surface, so the gateway does not own it and
+    // must not pretend to — the model already has its real schema.
+    const surface = routedSurface()
+    const describe = surface.functions.describe_available_tool
+
+    const result = (await describe.handler({ name: 'read_file' })) as string
+
+    expect(result).toContain('No deferred tool named')
+  })
+
+  it('refuses to call a tool that is native rather than deferred', async () => {
+    const surface = routedSurface()
+    const call = surface.functions.call_available_tool
+
+    await expect(call.handler({ name: 'read_file', argumentsJson: '{}' })).rejects.toThrow(
+      /No deferred tool named/
+    )
+  })
+})
+
+describe('maxDirectToolsForContext', () => {
+  it('never leaves a model with fewer native schemas than it can work with', () => {
+    // Both transports had their own byte-identical copy of this; it is the one
+    // knob deciding how much of the catalog a model is told about directly.
+    expect(maxDirectToolsForContext(1_024)).toBe(8)
+    expect(maxDirectToolsForContext(0)).toBe(8)
+  })
+
+  it('grows with the context and then stops', () => {
+    expect(maxDirectToolsForContext(8_192)).toBe(12)
+    expect(maxDirectToolsForContext(1_000_000)).toBe(24)
   })
 })

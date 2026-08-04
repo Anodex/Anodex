@@ -30,7 +30,12 @@ import {
   truncatedArgumentsLength,
   truncatedArgumentsPreview
 } from './truncatedToolCallError'
-import { boundToolSurface, type BoundedToolSurface } from './toolSurface'
+import {
+  boundToolSurface,
+  GATEWAY_TOOL_COUNT,
+  maxDirectToolsForContext,
+  type BoundedToolSurface
+} from './toolSurface'
 import { toolParameterSchema } from '../tools/toolParameterSchema'
 import {
   computeModelToolResultBudget,
@@ -116,8 +121,6 @@ export const MESSAGE_FRAMING_TOKENS = 4
  * `visionToolSchemaReserveTokens` (before this turn's surface has been built).
  */
 const ESTIMATED_TOOL_SCHEMA_TOKENS = 140
-/** Native schemas `boundToolSurface` always adds for the deferred-tool gateway. */
-const GATEWAY_TOOL_COUNT = 3
 /**
  * Assumed prompt cost of one image after the projector.
  *
@@ -1225,11 +1228,6 @@ function contextBudgetFor(input: {
 /** Token target `boundToolSurface` sizes this transport's native surface against. */
 function toolSurfaceTargetTokens(contextSize: number): number {
   return Math.max(1_200, Math.floor(contextSize * 0.28))
-}
-
-/** Small contexts rely more heavily on the deferred gateway to preserve working room. */
-function maxDirectToolsForContext(contextSize: number): number {
-  return Math.max(8, Math.min(24, Math.floor(contextSize / 1_024) + 4))
 }
 
 /**

@@ -62,7 +62,7 @@ mirage a second time.
 | 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12 → 21 | ✅ done | Connects and executes third-party servers' tools               |
 | 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32 → 43 | ✅ done | Largest unreviewed file; the sidecar a run's citations live in |
 | 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\* → 7 | ✅ done | Last unreviewed cloud provider; both siblings had real bugs    |
-| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9       | ☐       | Decides what the model is told it can do; thin for its size    |
+| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9 → 17  | ✅ done | Decides what the model is told it can do; thin for its size    |
 | 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15      | ☐       | History and token budgeting on every local turn                |
 | 11  | `src/preload/index.ts`                                                  | 317   | 0\*\*   | ☐       | The renderer↔main boundary every IPC call crosses              |
 | 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5       | ☐       | Writes and deletes files on disk under a thin test             |
@@ -3550,3 +3550,106 @@ providers importing a module that no longer existed, and every test failed to
 load rather than failing on an assertion — the same false signal as round
 three's `listAll` mock, caught the same way. Each fix was instead reverted in
 place, one at a time, and restored from a copy.
+
+## Round three, 9. `src/main/llama/toolSurface.ts` — done
+
+499 lines, 9 tests. This is the module that decides what the model is told it
+can do: when the full catalog's native schemas will not fit the context, it
+keeps the highest-ranked tools as real function schemas and puts the rest behind
+a three-tool discover → describe → call gateway.
+
+**It had no live defect.** That is the finding, and it is worth stating plainly
+rather than dressing three latent issues up as bugs. The ranking is sound, the
+gateway preserves every safety property it claims to, the paging is bounded, and
+the argument validation is real. What this pass produced is hardening against
+drift, one dead branch removed, and the coverage the gateway never had.
+
+### What was checked and held
+
+- **The gateway does not launder away approval.** `call_available_tool` invokes
+  the original `tool.handler`, which is the one `buildTools` already wrapped in
+  `runGuardedTool`/`runReadTool` — so a deferred `run_command` still confirms
+  exactly as a native one would. Its own doc comment claims this; it is true.
+- **A disabled tool cannot be reached through it.** `deferred.current` is filled
+  from the same `allFunctions` the registry already filtered by `isEnabled`, so
+  the gateway can only ever offer what the turn was allowed to have.
+- **Every result is bounded.** `find` returns at most eight entries with
+  descriptions truncated to 320 characters; `describe` pages at 4,000; `call`
+  returns whatever the real tool returns, and that has already been through the
+  tool-result cap.
+- **The ranking works.** I probed it with realistic tool descriptions rather
+  than trusting the shape of the code: "Please read the config file and tell me
+  what the timeout is set to" ranks `read_file` first and the three email tools
+  last. The lexical score matches substrings including stopwords ("the", "and"),
+  which looked like a flaw, but it is capped at 900 — below every category score
+  — so it only ever breaks ties, and the categories carry the decision.
+
+### 1. The one knob deciding how much of the catalog a model sees, kept in two places
+
+`maxDirectToolsForContext` existed **twice**, byte-identical down to its doc
+comment, once in `LlamaService.ts` and once in `LlamaVisionService.ts` — the two
+transports that both feed `boundToolSurface`. They agreed today; nothing kept
+them agreeing, and a change to one would silently give the two transports
+different tool surfaces for the same model and context size.
+
+Moved into `toolSurface.ts`, which is the module that consumes it.
+
+### 2. A reserve sized against a hardcoded copy of the gateway's size
+
+`LlamaVisionService` reserves prompt room for the tool surface _before_ that
+surface exists, and did it against its own `const GATEWAY_TOOL_COUNT = 3` — a
+number that has to match `GATEWAY_TOOL_NAMES.length` in this file and had
+nothing tying it there. A fourth gateway tool would have under-reserved, on the
+transport whose accounting comment says under-charging "lets the real prompt run
+past the context end mid-tool-call, which is the failure this whole accounting
+path exists to prevent."
+
+Now exported from the list it is derived from.
+
+### 3. A branch that could never match
+
+`isGithubTool` tested `includes('github') || startsWith('github__')`. Anything
+starting with `github__` already contains `github`; the second half could never
+add a match. Removed.
+
+Worth noting what it does _not_ do, since the dead branch suggests someone
+intended it to: an MCP GitHub server registered under any id other than
+`github` produces tools named `<id>__create_issue`, which this does not
+recognise. That is a real limit of name-based classification and a deliberate
+non-change — inferring provenance from a user-chosen server id would be
+guessing.
+
+### Deliberate non-changes
+
+- **The gateway's own three schemas are never budget-checked.** `selected`
+  starts with them and the loop only measures candidates added _after_. On the
+  vision transport this cannot bite — `toolSurfaceTargetTokens` floors at 1,200
+  and the gateway costs roughly 420 by the same estimate. It is a deliberate
+  floor either way: a surface too small for the gateway would leave the model
+  with no tools at all rather than three.
+- **Selection is O(n) measurements over a growing set**, and on the
+  node-llama-cpp path each one tokenizes. With a full catalog that is real
+  per-turn work. It only runs when routing engages, which is the small-context
+  case where the model itself is the bottleneck; restructuring it to measure
+  incrementally is an optimisation to make against a measurement, not a guess.
+- **`find_available_tool` and `describe_available_tool` bypass `ctx.emit` and
+  the loop guard**, so they show no tool activity in the UI and are not counted
+  as repeated work. They are plumbing rather than actions, the round cap still
+  bounds them, and `call_available_tool` delegates to a handler that does emit.
+- **Category keywords match substrings**, so "thread safety" scores the email
+  tools and "fix the issues" scores the GitHub ones. A false positive costs a
+  slightly worse native selection and nothing else; tightening to word
+  boundaries would trade that for missing real matches like "threads".
+
+### Tests
+
+`toolSurface.test.ts` — 8 added (17 total). The gateway had **no** coverage
+before: nothing exercised discovery, the not-found paths, or the guarantee that
+a native tool is not also reachable through it.
+
+**None of the eight fail against the pre-fix file, and none should** — there was
+no live bug to catch. Two of them are the point: the gateway-count test was
+verified by deliberately setting `GATEWAY_TOOL_COUNT` to 4 and watching it fail,
+which is the drift it exists to stop, and the partition test asserts every tool
+is reachable exactly once, native or deferred, so a tool can never fall into
+neither list.
