@@ -35,6 +35,7 @@ class SettingsStore {
     this.ensureDir(this.modelsDirectory)
     this.cache = this.load()
     log.info('Initialised at', this.filePath)
+    logSecretStorageBackend()
   }
 
   get(): AppSettings {
@@ -395,11 +396,45 @@ export function migrateLegacyGmailAccount(
 const ENCRYPTED_PREFIX = 'enc:'
 
 /**
- * Encrypts a provider/search API key with the OS credential store (Keychain,
- * DPAPI, libsecret) via `safeStorage`, so keys don't sit as plaintext in
- * `settings.json`. Falls back to leaving the value untouched when encryption
- * isn't available (e.g. some Linux setups with no keyring) — the same
- * behaviour as today, not a regression.
+ * Say once, at startup, whether stored keys are actually protected on this
+ * machine — the one question the diagnostics log could not answer before.
+ *
+ * It matters most on Linux, where the answer genuinely varies by desktop
+ * session, and where a user whose keyring is missing deserves to find that out
+ * from a log line rather than from a plaintext file.
+ */
+function logSecretStorageBackend(): void {
+  if (!safeStorage.isEncryptionAvailable()) {
+    log.warn(
+      'OS credential storage is unavailable, so API keys are stored as plaintext in settings.json. ' +
+        'On Linux this usually means no gnome-keyring or KWallet is running for this session.'
+    )
+    return
+  }
+  const backend =
+    process.platform === 'linux' ? ` (backend: ${safeStorage.getSelectedStorageBackend()})` : ''
+  log.info(`API keys are encrypted at rest using OS credential storage${backend}.`)
+}
+
+/**
+ * Encrypts a provider/search API key with the OS credential store so keys
+ * don't sit as plaintext in `settings.json`. What that means per platform:
+ *
+ * - **Windows** — DPAPI, keyed to the Windows user account. Always available
+ *   once the app is ready.
+ * - **macOS** — the login Keychain. Always available.
+ * - **Linux** — libsecret, via gnome-keyring or KWallet, depending on the
+ *   desktop session. There may be neither, in which case
+ *   `isEncryptionAvailable()` is false and the value is left as plaintext —
+ *   no worse than before this existed, and the only alternative is refusing
+ *   to store a key the user asked us to store.
+ *
+ * Anodex deliberately never calls `safeStorage.setUsePlainTextEncryption(true)`.
+ * That switch makes Linux fall back to a key derived from a hard-coded
+ * in-memory password (`getSelectedStorageBackend()` reports `basic_text`),
+ * which flips `isEncryptionAvailable()` to true while providing no real
+ * protection at all. Storing a key under `enc:` that anyone can trivially
+ * reverse, and believing it protected, is worse than knowing it is plaintext.
  */
 function encryptSecret(value: string): string {
   if (!value || !safeStorage.isEncryptionAvailable()) return value
@@ -428,40 +463,77 @@ function decryptSecret(value: string): string {
   }
 }
 
-function withEncryptedSecrets(settings: AppSettings): AppSettings {
+/**
+ * Ciphertext this process read but could not decrypt, keyed by the settings
+ * path it came from.
+ *
+ * A failed decrypt hands the rest of the app an empty key, which is right — an
+ * unusable key must not be sent to a provider. What is not right is letting the
+ * next save write that emptiness back over the ciphertext, because the usual
+ * reason for a failed decrypt is temporary: a Linux keyring not yet unlocked
+ * when the app launched, a Keychain prompt dismissed. Destroying every stored
+ * key because the keyring was late is a far worse outcome than one session
+ * running without them, and it used to be one settings change away.
+ */
+const undecryptable = new Map<string, string>()
+
+/**
+ * Apply `transform` to every stored secret, found by walking the settings
+ * shape rather than by listing the fields.
+ *
+ * Listing them is what went wrong before: `provider.anthropic`,
+ * `provider.openai` and `webSearch` were named explicitly, and the nine cloud
+ * providers added since — Google, xAI, DeepSeek, Mistral, Groq, OpenRouter,
+ * Azure, Kimi, Qwen — were never added, so their keys sat in `settings.json`
+ * as plaintext. Every provider block except `local` carries an `apiKey`, so
+ * the blocks themselves are the list, and a provider added later is covered
+ * without anyone remembering to come back here.
+ */
+function mapSecrets(
+  settings: AppSettings,
+  transform: (value: string, path: string) => string
+): AppSettings {
+  const provider = { ...settings.provider }
+  for (const key of Object.keys(provider) as Array<keyof typeof provider>) {
+    if (key === 'active') continue
+    const entry = provider[key] as { apiKey?: string }
+    // `local` is the one backend with no key of its own.
+    if (typeof entry?.apiKey !== 'string') continue
+    provider[key] = {
+      ...entry,
+      apiKey: transform(entry.apiKey, `provider.${key}.apiKey`)
+    } as never
+  }
   return {
     ...settings,
-    provider: {
-      ...settings.provider,
-      anthropic: {
-        ...settings.provider.anthropic,
-        apiKey: encryptSecret(settings.provider.anthropic.apiKey)
-      },
-      openai: {
-        ...settings.provider.openai,
-        apiKey: encryptSecret(settings.provider.openai.apiKey)
-      }
-    },
-    webSearch: { ...settings.webSearch, apiKey: encryptSecret(settings.webSearch.apiKey) }
+    provider,
+    webSearch: {
+      ...settings.webSearch,
+      apiKey: transform(settings.webSearch.apiKey, 'webSearch.apiKey')
+    }
   }
 }
 
+function withEncryptedSecrets(settings: AppSettings): AppSettings {
+  return mapSecrets(settings, (value, path) => {
+    // Restore the ciphertext we could not read rather than erasing it. See
+    // `undecryptable`.
+    const preserved = undecryptable.get(path)
+    if (!value && preserved) return preserved
+    return encryptSecret(value)
+  })
+}
+
 function withDecryptedSecrets(settings: AppSettings): AppSettings {
-  return {
-    ...settings,
-    provider: {
-      ...settings.provider,
-      anthropic: {
-        ...settings.provider.anthropic,
-        apiKey: decryptSecret(settings.provider.anthropic.apiKey)
-      },
-      openai: {
-        ...settings.provider.openai,
-        apiKey: decryptSecret(settings.provider.openai.apiKey)
-      }
-    },
-    webSearch: { ...settings.webSearch, apiKey: decryptSecret(settings.webSearch.apiKey) }
-  }
+  return mapSecrets(settings, (value, path) => {
+    const decrypted = decryptSecret(value)
+    if (!decrypted && value.startsWith(ENCRYPTED_PREFIX)) {
+      undecryptable.set(path, value)
+    } else {
+      undecryptable.delete(path)
+    }
+    return decrypted
+  })
 }
 
 /**

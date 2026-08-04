@@ -19,6 +19,8 @@ const baseSettings = () => createDefaultSettings('/models')
 
 let userDataDir = ''
 let encryptionAvailable = true
+/** Stands in for a keyring that is present but refuses (locked, or a different user). */
+let decryptionFails = false
 
 function readPersistedSettings(): AppSettings {
   return JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf-8')) as AppSettings
@@ -33,8 +35,12 @@ vi.mock('electron', () => ({
   // reversible so the store's own prefix/roundtrip logic can be tested.
   safeStorage: {
     isEncryptionAvailable: () => encryptionAvailable,
+    getSelectedStorageBackend: () => 'gnome_libsecret',
     encryptString: (value: string) => Buffer.from(value, 'utf-8'),
-    decryptString: (buffer: Buffer) => buffer.toString('utf-8')
+    decryptString: (buffer: Buffer) => {
+      if (decryptionFails) throw new Error('The keyring is locked.')
+      return buffer.toString('utf-8')
+    }
   }
 }))
 
@@ -364,6 +370,7 @@ describe('SettingsStore.update validation', () => {
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
     encryptionAvailable = true
+    decryptionFails = false
     vi.resetModules()
   })
 
@@ -446,6 +453,7 @@ describe('SettingsStore.update key removal', () => {
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
     encryptionAvailable = true
+    decryptionFails = false
     vi.resetModules()
   })
 
@@ -527,6 +535,7 @@ describe('SettingsStore API key encryption', () => {
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
     encryptionAvailable = true
+    decryptionFails = false
     vi.resetModules()
   })
 
@@ -632,6 +641,7 @@ describe('SettingsStore — switching to a cloud provider', () => {
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
     encryptionAvailable = true
+    decryptionFails = false
     vi.resetModules()
   })
 
@@ -680,6 +690,7 @@ describe('SettingsStore — a settings file that cannot be read', () => {
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
     encryptionAvailable = true
+    decryptionFails = false
     vi.resetModules()
   })
 
@@ -716,6 +727,7 @@ describe('SettingsStore — a migration running over encrypted keys', () => {
   beforeEach(() => {
     userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
     encryptionAvailable = true
+    decryptionFails = false
     vi.resetModules()
   })
 
@@ -783,5 +795,139 @@ describe('validatePatch — a block replaced by the wrong kind of value', () => 
 
   it('still accepts the block sent properly', () => {
     expect(() => validatePatch({ provider: { active: 'anthropic' } })).not.toThrow()
+  })
+})
+
+describe('SettingsStore — every provider key is encrypted at rest', () => {
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
+    encryptionAvailable = true
+    decryptionFails = false
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  /** Every provider that carries a key of its own — `local` has none. */
+  const keyedProviders = Object.keys(baseSettings().provider).filter(
+    (id) => id !== 'active' && id !== 'local'
+  )
+
+  it('covers all of them, not just the three that were named', async () => {
+    // Google, xAI, DeepSeek, Mistral, Groq, OpenRouter, Azure, Kimi and Qwen
+    // were added after the encryption was written and never added to it, so
+    // their keys sat in settings.json in the clear.
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    for (const id of keyedProviders) {
+      settingsStore.update({ provider: { [id]: { apiKey: `sk-${id}-secret` } } })
+    }
+
+    const onDisk = readPersistedSettings()
+    for (const id of keyedProviders) {
+      const stored = (onDisk.provider as unknown as Record<string, { apiKey: string }>)[id].apiKey
+      expect(stored, id).toMatch(/^enc:/)
+      expect(stored, id).not.toContain('secret')
+    }
+  })
+
+  it('hands the plaintext back in memory, for every provider', async () => {
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({ provider: { openrouter: { apiKey: 'sk-or-live' } } })
+
+    expect(settingsStore.get().provider.openrouter.apiKey).toBe('sk-or-live')
+  })
+
+  it('still encrypts the web-search key', async () => {
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({ webSearch: { apiKey: 'brave-secret' } })
+
+    expect(readPersistedSettings().webSearch.apiKey).toMatch(/^enc:/)
+    expect(settingsStore.get().webSearch.apiKey).toBe('brave-secret')
+  })
+
+  it('leaves a key alone where the OS offers no protection', async () => {
+    // Some Linux sessions have no keyring. Storing plaintext is the honest
+    // outcome; claiming an `enc:` prefix for something unprotected is not.
+    encryptionAvailable = false
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({ provider: { groq: { apiKey: 'sk-groq-live' } } })
+
+    expect(readPersistedSettings().provider.groq.apiKey).toBe('sk-groq-live')
+    expect(settingsStore.get().provider.groq.apiKey).toBe('sk-groq-live')
+  })
+})
+
+describe('SettingsStore — a keyring that is unavailable this session', () => {
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
+    encryptionAvailable = true
+    decryptionFails = false
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  it('does not destroy the stored keys when it cannot read them', async () => {
+    // A locked or late-starting keyring makes every key read as empty. Writing
+    // that emptiness back over the ciphertext turns a temporary problem into a
+    // permanent one — and with every provider now encrypted, it would take all
+    // of them at once.
+    const first = await import('../SettingsStore')
+    first.settingsStore.init()
+    first.settingsStore.update({ provider: { anthropic: { apiKey: 'sk-ant-live' } } })
+    const stored = readPersistedSettings().provider.anthropic.apiKey
+
+    vi.resetModules()
+    decryptionFails = true
+    const second = await import('../SettingsStore')
+    second.settingsStore.init()
+    expect(second.settingsStore.get().provider.anthropic.apiKey).toBe('')
+
+    // Any unrelated settings change rewrites the whole file.
+    second.settingsStore.update({ generation: { temperature: 0.5 } })
+
+    expect(readPersistedSettings().provider.anthropic.apiKey).toBe(stored)
+  })
+
+  it('reads the key again once the keyring comes back', async () => {
+    const first = await import('../SettingsStore')
+    first.settingsStore.init()
+    first.settingsStore.update({ provider: { anthropic: { apiKey: 'sk-ant-live' } } })
+
+    vi.resetModules()
+    decryptionFails = true
+    const second = await import('../SettingsStore')
+    second.settingsStore.init()
+    second.settingsStore.update({ generation: { temperature: 0.5 } })
+
+    vi.resetModules()
+    decryptionFails = false
+    const third = await import('../SettingsStore')
+    third.settingsStore.init()
+
+    expect(third.settingsStore.get().provider.anthropic.apiKey).toBe('sk-ant-live')
+  })
+
+  it('still lets a key be replaced by hand while the keyring is down', async () => {
+    // Preserving the old ciphertext must not stop the user entering a new key.
+    const first = await import('../SettingsStore')
+    first.settingsStore.init()
+    first.settingsStore.update({ provider: { anthropic: { apiKey: 'sk-old' } } })
+
+    vi.resetModules()
+    decryptionFails = true
+    const second = await import('../SettingsStore')
+    second.settingsStore.init()
+    second.settingsStore.update({ provider: { anthropic: { apiKey: 'sk-new' } } })
+
+    expect(second.settingsStore.get().provider.anthropic.apiKey).toBe('sk-new')
   })
 })
