@@ -1,6 +1,6 @@
 import { app, safeStorage } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import type { AppSettings, DeepPartial, SettingsPatch } from '@shared/settings.types'
 import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
@@ -109,15 +109,41 @@ class SettingsStore {
         retired.changed
       ) {
         try {
-          this.persist(migrated)
+          // `persist` encrypts what it is given, and `migrated` still holds the
+          // ciphertext read off disk — decryption happens on the way out, below.
+          // Handing it over as-is encrypted the keys a second time, so the next
+          // load decrypted one layer and returned `enc:…` as the API key.
+          this.persist(withDecryptedSecrets(migrated))
         } catch (error) {
           log.error('Failed to persist settings migration:', error)
         }
       }
       return withDecryptedSecrets(migrated)
     } catch (error) {
-      log.warn('Failed to parse settings, falling back to defaults:', error)
+      // Falling back to defaults is right — the app has to start. Doing it
+      // silently was not: nothing overwrites `settings.json` at this point, but
+      // the very next `update()` persists the defaults straight over it, and
+      // every API key, every linked mail account and every preference in the
+      // unreadable file is gone with no copy anywhere. Moved aside first, the
+      // same way `CheckpointStore` handles a checkpoint it cannot parse, so the
+      // keys are still recoverable by hand.
+      this.quarantine(error)
       return defaults
+    }
+  }
+
+  /** Move an unreadable settings file aside, best effort. */
+  private quarantine(error: unknown): void {
+    const aside = `${this.filePath}.corrupt`
+    try {
+      renameSync(this.filePath, aside)
+      log.warn(`Could not parse settings; moved to ${aside} and started from defaults.`, error)
+    } catch (renameError) {
+      log.error(
+        'Could not parse settings and could not move the file aside — the next save will ' +
+          'overwrite it with defaults:',
+        renameError
+      )
     }
   }
 
@@ -377,6 +403,12 @@ const ENCRYPTED_PREFIX = 'enc:'
  */
 function encryptSecret(value: string): string {
   if (!value || !safeStorage.isEncryptionAvailable()) return value
+  // Already encrypted. A real key never starts with this prefix, and wrapping a
+  // second time is not a harmless no-op: one `decryptSecret` on the way back out
+  // strips one layer only, so the caller is handed `enc:…` and authenticates
+  // with it. Idempotent here so no future caller can corrupt a key by passing
+  // ciphertext to something that expects plaintext.
+  if (value.startsWith(ENCRYPTED_PREFIX)) return value
   return ENCRYPTED_PREFIX + safeStorage.encryptString(value).toString('base64')
 }
 
@@ -468,6 +500,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/**
+ * Every backend that may be `provider.active`, taken from the settings shape
+ * itself: `ProviderSettings` holds one block per backend alongside `active`, so
+ * the keys either side of that are exactly the valid choices, and adding a
+ * provider cannot leave this behind.
+ */
+function validProviderIds(): string[] {
+  return Object.keys(createDefaultSettings('').provider).filter((key) => key !== 'active')
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
@@ -493,7 +535,17 @@ function assertKnownKeys(
     // This is an intentionally open string-to-string record. Its keys are
     // absolute model paths, so they cannot appear in the canonical defaults.
     if (`${path}${key}` === 'visionProjectorPaths') continue
-    if (isPlainObject(refValue) && isPlainObject(patchValue)) {
+    if (isPlainObject(refValue)) {
+      // A whole settings block replaced by a scalar or an array. `deepMerge`
+      // only recurses when both sides are objects, so it would take the value
+      // wholesale — `{ provider: 'x' }` leaves `settings.provider` a string,
+      // persists it, and every read of `provider.anthropic.apiKey` throws from
+      // then on, across restarts, until the file is deleted by hand. `null`
+      // stays allowed: that is the removal sentinel, which `deepMerge` handles.
+      if (patchValue === null) continue
+      if (!isPlainObject(patchValue)) {
+        throw new Error(`Settings key ${path}${key} must be an object`)
+      }
       assertKnownKeys(patchValue, refValue, `${path}${key}.`)
     }
   }
@@ -649,8 +701,16 @@ export function validatePatch(patch: SettingsPatch): void {
   }
 
   if (patch.provider?.active !== undefined) {
-    if (!['local', 'anthropic', 'openai'].includes(patch.provider.active)) {
-      throw new Error('provider.active must be "local", "anthropic", or "openai"')
+    // Derived from the settings shape rather than listed by hand. The hand-
+    // written list said `local`, `anthropic`, `openai` and was never extended
+    // as the other nine were added, so connecting Google, xAI, DeepSeek,
+    // Mistral, Groq, OpenRouter, Azure, Kimi or Qwen worked but pressing "Use
+    // for chat" threw — every one of them is offered by the Provider
+    // Connections panel, which patches exactly this field. `ProviderSettings`
+    // carries one settings block per backend, so its own keys are the list.
+    const known = validProviderIds()
+    if (!known.includes(patch.provider.active)) {
+      throw new Error(`provider.active must be one of ${known.join(', ')}`)
     }
   }
   if (patch.provider?.anthropic?.model !== undefined) {

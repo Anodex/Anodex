@@ -58,7 +58,7 @@ mirage a second time.
 | 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11 → 16 | ✅ done | Runs tools autonomously with nobody watching                   |
 | 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0 → 8   | ✅ done | Starts those unattended runs on a timer; no coverage at all    |
 | 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29 → 39 | ✅ done | The entire tool security model, in 192 lines                   |
-| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58      | ☐       | Holds every API key and mail credential, and persists them     |
+| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58 → 68 | ✅ done | Holds every API key and mail credential, and persists them     |
 | 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12      | ☐       | Connects and executes third-party servers' tools               |
 | 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32      | ☐       | Largest unreviewed file; the sidecar a run's citations live in |
 | 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*     | ☐       | Last unreviewed cloud provider; both siblings had real bugs    |
@@ -141,6 +141,7 @@ from.
 | `unarchive` cannot resolve an already-archived thread         | 7        | ✅ fixed          |
 | `save_email_attachment` does not disclose an overwrite        | R2.3     | ✅ fixed          |
 | Untrusted MCP tools are gated less strictly than trusted ones | R3 4     | ☐ open — see R3 6 |
+| Only 3 of 12 providers' API keys are encrypted at rest        | R3 5     | ☐ open            |
 
 ### The two still open, in full
 
@@ -168,6 +169,17 @@ may be a reason for it, since the preset's whole point is that annotations are
 trusted enough to _reduce_ requirements there and nowhere else. Found while
 reading R3 4; it is `McpManager`'s classification to defend or change, so it is
 settled at R3 6 rather than guessed at here.
+
+**Only 3 of 12 providers' API keys are encrypted at rest.** `withEncryptedSecrets`
+and `withDecryptedSecrets` name `provider.anthropic`, `provider.openai` and
+`webSearch` explicitly, so those three go through `safeStorage` (Keychain,
+DPAPI, libsecret) while Google, xAI, DeepSeek, Mistral, Groq, OpenRouter, Azure,
+Kimi and Qwen sit in `settings.json` as plaintext. The same drift as R3 5's
+first finding — a hand-written list that new providers were never added to —
+but the fix is not the same size: it changes what is written to disk for nine
+providers, so the read path has to keep accepting a plaintext value that was
+never encrypted, and a downgrade to an older build has to not brick. Deliberately
+not folded into R3 5.
 
 ---
 
@@ -3050,3 +3062,120 @@ are what holds that line: a link pointing back inside the workspace still works,
 a cycle terminates, `rm -r` and `rm -f` alone stay `sensitive`, a flag belonging
 to a piped command does not complete the pair, and a dash inside a filename is
 not read as a flag.
+
+## Round three, 5. `src/main/settings/SettingsStore.ts` — done
+
+754 lines, 58 tests — the best-covered file on this list, and it still had four
+defects, three of which touch the API keys and mail credentials it exists to
+hold. The coverage was real but pointed almost entirely at the pure migration
+functions, which are exported and easy to test; the store's own load/persist
+path had four tests, all of them happy-path.
+
+### 1. Nine of the twelve providers could not be selected
+
+`ProviderSettings.active` is a union of twelve backends. `validatePatch`
+checked it against a hand-written `['local', 'anthropic', 'openai']` and threw
+otherwise.
+
+Every one of the other nine — Google, xAI, DeepSeek, Mistral, Groq, OpenRouter,
+Azure, Kimi, Qwen — is listed by the Provider Connections panel with
+`available: true`, and its "Use for chat" button calls
+`onUpdate({ provider: { active: selected.id } })`. So the whole flow works
+right up to the last step: the key is entered, verified, the provider shows as
+Connected, and pressing the button throws
+`provider.active must be "local", "anthropic", or "openai"`.
+
+The literal was simply never extended as providers were added. Replaced with
+`validProviderIds()`, derived from the settings shape itself — `ProviderSettings`
+carries one settings block per backend alongside `active`, so its own keys are
+the list, and adding a provider cannot leave this behind again.
+
+### 2. An unreadable settings file was silently replaced with defaults
+
+`load`'s parse failure returned defaults and logged a warning. Nothing
+overwrites the file at that moment — but the next `update()` persists those
+defaults straight over it. Every API key, every linked mail account, every
+preference in the unreadable file, gone, with no copy anywhere and only a log
+line nobody reads to say it happened.
+
+The house pattern for this already exists twice in the tree — `ConversationStore`
+and `CheckpointStore` both move an unparseable file to `<path>.corrupt` before
+falling back. This one now does the same. Falling back to defaults is still
+right; the app has to start. Doing it destructively was the bug.
+
+### 3. Upgrading re-encrypted the stored API keys, breaking them on the next launch
+
+`persist` encrypts whatever it is handed. Everywhere it is called it receives
+the decrypted in-memory settings — except in `load`, where the migration write
+happens _before_ `withDecryptedSecrets` runs on the way out. So it was handed
+the ciphertext just read off disk and encrypted it a second time.
+
+`decryptSecret` strips one layer. The result is that the next launch loads
+`enc:…` **as the API key** and every request to that provider fails to
+authenticate, with the key still looking correct in Settings.
+
+The session that performs the migration never sees this — it decrypts the copy
+it already holds and works fine — which is why it survived 58 tests and why the
+two tests covering it are a pair: one asserts the migrating session is fine
+(and passes against the pre-fix file), the other asserts the _next_ launch is
+too (and does not).
+
+Triggered by any load that also has a legacy field to migrate: a retired
+`general` key, `ui.systemPrompt`, the old theme pair, the pre-multi-account
+`email` block, or `generation.maxTokens`. In other words, precisely the upgrade
+path.
+
+Fixed at the call site, so `persist` always receives what it expects, and
+`encryptSecret` is now idempotent as well — a real key never starts with `enc:`,
+and wrapping twice is not a harmless no-op.
+
+### 4. A settings block could be replaced by a scalar and bricked on disk
+
+`assertKnownKeys` checked that every key exists and recursed when both sides
+were objects. It never checked the case where the reference is an object and
+the patch is not. `deepMerge` only recurses when both sides are objects too, so
+`{ provider: 'anthropic' }` was taken wholesale: `settings.provider` becomes the
+string, gets persisted, and every later read of `provider.anthropic.apiKey`
+throws — across restarts, until the file is deleted by hand.
+
+Only reachable from a malformed `settings:update` payload, and the renderer is
+our own code. But this function's own doc comment calls itself "the only runtime
+check on data crossing the IPC boundary", and it was not checking the most basic
+thing about the shape. Now rejected, with `null` still allowed through as the
+removal sentinel `deepMerge` handles.
+
+### Deliberate non-changes
+
+- **Secrets are decrypted in the in-memory cache** and `get()` hands the whole
+  `AppSettings` out, so a plaintext key is reachable from anything holding the
+  store. That is the design — providers need the key — and narrowing it means an
+  accessor per secret and a change at every call site, which is a refactor, not
+  a fix.
+- **`decryptSecret` returns `''` when decryption fails**, so a key encrypted
+  under a different OS user or a reset keychain silently reads as unset rather
+  than reporting itself. The log line is there, the UI shows the provider
+  disconnected, and the recovery is the same either way: re-enter the key.
+  Distinguishing "never set" from "cannot be decrypted" in the UI is a feature.
+- **Only `anthropic`, `openai` and `webSearch` keys are encrypted.** The other
+  nine providers' keys sit in `settings.json` as plaintext —
+  `withEncryptedSecrets` names three fields explicitly. This is the same
+  drift as finding 1 and deserves the same treatment, but it changes what is
+  written to disk for nine providers and needs a read path that copes with both
+  states; recorded as its own cross-cutting row rather than folded in here.
+- **`update` reverts the cache when the write fails** and rethrows, which is
+  correct and already the behaviour the round-one `ConversationStore` finding
+  established.
+
+### Tests
+
+`SettingsStore.test.ts` — 10 added (68 total).
+
+Six fail against the pre-fix file: the twelve-provider check, the persisted
+switch, the corrupt file being preserved, the key still working on the next
+launch, and the two shape rejections.
+
+Four pass either way and are labelled: rejecting a provider that genuinely does
+not exist, the app still starting from defaults after a corrupt read, the
+migrating session reading its own key correctly, and a properly-shaped block
+still being accepted. The first three guard against the fixes over-correcting;
+the fourth is half of the pair described in finding 3.

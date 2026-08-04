@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -625,5 +625,163 @@ describe('migrateLegacyMaxTokens', () => {
 
     expect(migrated.provider.anthropic.maxResponseTokens).toBeNull()
     expect(migrated.provider.local.maxResponseTokens).toBeNull()
+  })
+})
+
+describe('SettingsStore — switching to a cloud provider', () => {
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
+    encryptionAvailable = true
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  // `ProviderSettings.active` is a union of twelve, every one of which the
+  // Provider Connections panel offers with `available: true` and a "Use for
+  // chat" button that patches exactly this field.
+  it('accepts every provider the settings type allows as the active one', () => {
+    const active: Array<AppSettings['provider']['active']> = [
+      'local',
+      'anthropic',
+      'openai',
+      'google',
+      'xai',
+      'deepseek',
+      'mistral',
+      'groq',
+      'openrouter',
+      'azure',
+      'kimi',
+      'qwen'
+    ]
+    for (const id of active) {
+      expect(() => validatePatch({ provider: { active: id } })).not.toThrow()
+    }
+  })
+
+  it('still rejects a provider that does not exist', () => {
+    expect(() => validatePatch({ provider: { active: 'nope' } } as never)).toThrow(
+      /provider\.active/
+    )
+  })
+
+  it('persists the switch, so the choice survives a restart', async () => {
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({ provider: { active: 'openrouter' } })
+    expect(readPersistedSettings().provider.active).toBe('openrouter')
+  })
+})
+
+describe('SettingsStore — a settings file that cannot be read', () => {
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
+    encryptionAvailable = true
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  it('keeps the unreadable file instead of overwriting it with defaults', async () => {
+    // This file holds every API key and every linked mail account. Falling back
+    // to defaults is right — the app has to start — but the next save used to
+    // write those defaults straight over the only copy, with nothing to recover
+    // from and only a log line to say so.
+    const path = join(userDataDir, 'settings.json')
+    writeFileSync(path, '{"provider": {"anthropic": {"apiKey": "sk-live-key"', 'utf-8')
+
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+    settingsStore.update({ generation: { temperature: 0.5 } })
+
+    expect(readFileSync(`${path}.corrupt`, 'utf-8')).toContain('sk-live-key')
+  })
+
+  it('still starts from defaults so the app is usable', async () => {
+    writeFileSync(join(userDataDir, 'settings.json'), 'not json at all', 'utf-8')
+
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+
+    expect(settingsStore.get().provider.active).toBe('local')
+  })
+})
+
+describe('SettingsStore — a migration running over encrypted keys', () => {
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'anodex-settings-'))
+    encryptionAvailable = true
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  /** A settings file with a stored key and a retired field that forces a migration write. */
+  function writeUpgradeableSettings(): void {
+    const stored = {
+      ...baseSettings(),
+      general: { autoSave: true },
+      provider: {
+        ...baseSettings().provider,
+        anthropic: {
+          ...baseSettings().provider.anthropic,
+          apiKey: `enc:${Buffer.from('sk-real-key', 'utf-8').toString('base64')}`
+        }
+      }
+    }
+    writeFileSync(join(userDataDir, 'settings.json'), JSON.stringify(stored), 'utf-8')
+  }
+
+  // Passes against the pre-fix file: the session that performs the migration
+  // decrypts the copy it already holds, so it never sees the damage it just
+  // wrote. Kept as the other half of the pair below, which is where it shows.
+  it('reads the key correctly in the session that migrates', async () => {
+    writeUpgradeableSettings()
+
+    const { settingsStore } = await import('../SettingsStore')
+    settingsStore.init()
+
+    expect(settingsStore.get().provider.anthropic.apiKey).toBe('sk-real-key')
+  })
+
+  it('leaves the key usable on the next launch, not just this one', async () => {
+    // The migration write happens before decryption, so it was handed the
+    // ciphertext read off disk and encrypted it again. One `decryptSecret` on
+    // the way back out strips one layer only, so the next launch loads `enc:…`
+    // as the API key and every request to that provider fails to authenticate.
+    writeUpgradeableSettings()
+
+    const first = await import('../SettingsStore')
+    first.settingsStore.init()
+
+    vi.resetModules()
+    const second = await import('../SettingsStore')
+    second.settingsStore.init()
+
+    expect(second.settingsStore.get().provider.anthropic.apiKey).toBe('sk-real-key')
+  })
+})
+
+describe('validatePatch — a block replaced by the wrong kind of value', () => {
+  it('rejects a settings block sent as a scalar', () => {
+    // `deepMerge` only recurses when both sides are objects, so this would be
+    // taken wholesale and persisted, leaving `settings.provider` a string and
+    // every later read of it throwing — across restarts.
+    expect(() => validatePatch({ provider: 'anthropic' } as never)).toThrow(/must be an object/)
+  })
+
+  it('rejects a settings block sent as an array', () => {
+    expect(() => validatePatch({ generation: [] } as never)).toThrow(/must be an object/)
+  })
+
+  it('still accepts the block sent properly', () => {
+    expect(() => validatePatch({ provider: { active: 'anthropic' } })).not.toThrow()
   })
 })
