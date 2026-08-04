@@ -207,19 +207,48 @@ const pendingToolPayloadByMessage = new Map<string, string>()
  * agent-run broadcast, and an agent run broadcasts once per turn — so leaving a
  * run going in the background while chatting was enough to erase the chat.
  */
-function preserveInFlight(current: Conversation[], loaded: Conversation[]): Conversation[] {
+export function preserveInFlight(current: Conversation[], loaded: Conversation[]): Conversation[] {
   const inFlight = new Map(
     current.filter((c) => c.messages.some((m) => m.streaming)).map((c) => [c.id, c])
   )
   if (inFlight.size === 0) return loaded
 
-  const merged = loaded.map((c) => inFlight.get(c.id) ?? c)
+  const merged = loaded.map((c) => {
+    const live = inFlight.get(c.id)
+    return live ? withPersistedTurnsMissingFrom(live, c) : c
+  })
   // Still generating but absent from the loaded list — keep it until its turn
   // finishes rather than pulling the conversation out from under a live reply.
   for (const [id, conversation] of inFlight) {
     if (!merged.some((c) => c.id === id)) merged.unshift(conversation)
   }
   return merged
+}
+
+/**
+ * Keep the live copy of a conversation, but carry over any turn that reached
+ * disk while it was generating.
+ *
+ * Holding the live copy whole is what protects a streaming reply, and it is
+ * also how a background turn got lost: a scheduled task or agent run writes
+ * into its own conversation, and if the user happens to be mid-reply in that
+ * same chat, the refresh skips it — so the live copy never learns about the
+ * new turn, and persists over it when the reply finishes.
+ *
+ * Only messages the live copy has never seen are taken, appended in their
+ * persisted order. Nothing is removed: a message missing from the persisted
+ * copy is one this renderer has not saved yet, not one that was deleted.
+ */
+function withPersistedTurnsMissingFrom(live: Conversation, persisted: Conversation): Conversation {
+  const known = new Set(live.messages.map((message) => message.id))
+  const missing = persisted.messages.filter((message) => !known.has(message.id))
+  if (missing.length === 0) return live
+  // Appended rather than slotted in by time. The in-flight exchange is the
+  // user's message and the reply streaming into it, and inserting between the
+  // two to honour timestamps would split a question from its answer. Landing
+  // the background turn after it reorders nothing that is already on screen,
+  // and nothing is lost either way.
+  return { ...live, messages: [...live.messages, ...missing] }
 }
 
 /**

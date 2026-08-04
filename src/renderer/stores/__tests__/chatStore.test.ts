@@ -310,3 +310,99 @@ describe('refreshing the conversation list mid-turn', () => {
     ).toEqual(['agent-run', 'c1'])
   })
 })
+
+describe('a background turn landing in the chat the user is mid-reply in', () => {
+  /** The scheduled task's own chat, which the user also has open and is replying in. */
+  function liveVersion(): Conversation {
+    return {
+      id: 'sched',
+      projectId: null,
+      title: 'Morning digest',
+      createdAt: 1,
+      updatedAt: 1,
+      origin: 'scheduled',
+      messages: [
+        { id: 'u1', role: 'user', content: 'anything urgent?', createdAt: 2 },
+        {
+          id: 'a1',
+          role: 'assistant',
+          content: 'looking',
+          createdAt: 3,
+          streaming: true,
+          blocks: [{ type: 'text', text: 'looking' }]
+        }
+      ]
+    }
+  }
+
+  /** The same chat on disk, after the scheduled run appended its own turn. */
+  function persistedWithBackgroundTurn(): Conversation {
+    return {
+      ...liveVersion(),
+      messages: [
+        { id: 'sched_u', role: 'user', content: 'Summarize new mail.', createdAt: 4 },
+        { id: 'sched_a', role: 'assistant', content: 'Three new messages.', createdAt: 5 }
+      ]
+    }
+  }
+
+  beforeEach(() => {
+    listConversations.mockReset()
+    useChatStore.setState({
+      conversations: [liveVersion()],
+      activeId: 'sched',
+      loaded: true,
+      pendingMessages: {}
+    })
+  })
+
+  it('keeps the background turn instead of losing it to the live copy', async () => {
+    // Preserving the live copy whole is what protects a streaming reply, and it
+    // is also how the scheduled run's turn used to disappear: the refresh skips
+    // this conversation, so the live copy never learns about the new turn and
+    // persists over it when the reply finishes.
+    listConversations.mockResolvedValue([persistedWithBackgroundTurn()])
+
+    await useChatStore.getState().refreshConversations()
+
+    const [conversation] = useChatStore.getState().conversations
+    expect(conversation.messages.map((m) => m.id)).toEqual(['u1', 'a1', 'sched_u', 'sched_a'])
+  })
+
+  it('does not disturb the reply still streaming into it', async () => {
+    listConversations.mockResolvedValue([persistedWithBackgroundTurn()])
+
+    await useChatStore.getState().refreshConversations()
+
+    const [conversation] = useChatStore.getState().conversations
+    const streaming = conversation.messages.find((m) => m.id === 'a1')
+    expect(streaming?.streaming).toBe(true)
+    expect(streaming?.content).toBe('looking')
+  })
+
+  it('adds nothing when the persisted copy holds nothing new', async () => {
+    // The ordinary case, and the one the previous behaviour got right: a
+    // refresh mid-turn must not start duplicating the turn it is protecting.
+    listConversations.mockResolvedValue([{ ...liveVersion(), messages: [] }])
+
+    await useChatStore.getState().refreshConversations()
+
+    const [conversation] = useChatStore.getState().conversations
+    expect(conversation.messages.map((m) => m.id)).toEqual(['u1', 'a1'])
+  })
+
+  it('never resurrects a message the renderer deliberately dropped', async () => {
+    // Edit-and-regenerate persists the truncated transcript first, then sends.
+    // Those discarded turns are on disk for an instant; taking them back would
+    // undo the edit.
+    useChatStore.setState({ conversations: [{ ...liveVersion(), messages: [] }] })
+    listConversations.mockResolvedValue([persistedWithBackgroundTurn()])
+
+    await useChatStore.getState().refreshConversations()
+
+    // Nothing is streaming, so the loaded copy is authoritative — the merge
+    // only ever applies to a conversation with a turn in flight.
+    const [conversation] = useChatStore.getState().conversations
+    expect(conversation.messages.map((m) => m.id)).toEqual(['sched_u', 'sched_a'])
+  })
+})

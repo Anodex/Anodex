@@ -137,11 +137,11 @@ from.
 | `splitHistoryByTokenBudget` cuts without regard for pairing   | 5        | ✅ fixed          |
 | `AnodexApi` mixes `Result<T>` and bare-`T` returns            | 9        | assessed — no fix |
 | No Sent copy is filed after an SMTP send                      | 7        | ✅ fixed          |
-| Conversations are saved whole, so concurrent writers clobber  | R3 3     | ☐ open            |
+| Conversations are saved whole, so concurrent writers clobber  | R3 3     | ✅ fixed          |
 | `unarchive` cannot resolve an already-archived thread         | 7        | ✅ fixed          |
 | `save_email_attachment` does not disclose an overwrite        | R2.3     | ✅ fixed          |
 | Untrusted MCP tools are gated less strictly than trusted ones | R3 4     | ✅ fixed at R3 6  |
-| Only 3 of 12 providers' API keys are encrypted at rest        | R3 5     | ☐ open            |
+| Only 3 of 12 providers' API keys are encrypted at rest        | R3 5     | ✅ fixed          |
 | Cloud compaction summary had no timeout (3 providers)         | R3 8     | ✅ fixed          |
 | Configured reply ceiling never reached a headless run         | R3 8     | ✅ fixed          |
 
@@ -3969,3 +3969,49 @@ rather than counting that it did.
 as whole documents, so the renderer can still clobber a background turn in the
 direction R3 3 did not fix; and only 3 of 12 providers' API keys are encrypted
 at rest.
+
+## Both remaining cross-cutting items — closed
+
+Taken at the user's direction after round three, together with one behaviour
+change they asked for.
+
+**Conversations saved whole.** The renderer already reloads the conversation
+list on every scheduler and agent broadcast, so a background turn was normally
+picked up within a second. The hole was the one conversation the refresh
+deliberately skips: `preserveInFlight` keeps the _live_ copy of any chat with a
+streaming reply, because replacing it would discard the turn in progress. A
+scheduled task writing into that same chat therefore landed on disk and was
+never seen — and the live copy overwrote it when the reply finished. The refresh
+now carries over any persisted message the live copy has never seen, appended,
+removing nothing. A message missing from disk is one this renderer has not saved
+yet, not one that was deleted, which is what keeps edit-and-regenerate working:
+that path persists its truncated transcript first, and the merge only ever
+applies to a conversation with a turn actually in flight.
+
+**Provider keys at rest.** Fixed by deriving the secret list from the settings
+shape instead of naming three fields — the same drift, and the same fix, as
+`provider.active`. It surfaced a second and worse problem in the process: a key
+that fails to decrypt reads as empty, and the next save wrote that emptiness
+back over the ciphertext. With twelve keys encrypted rather than three, one
+settings change while a Linux keyring was still locked would have destroyed all
+of them. Ciphertext that failed to decrypt is now preserved across a save.
+
+Per platform, since it was asked: DPAPI on Windows and the login Keychain on
+macOS are always available once the app is ready. Linux depends on the desktop
+session having gnome-keyring or KWallet; where there is none the value stays
+plaintext, which is what it always was. Anodex deliberately does not call
+`safeStorage.setUsePlainTextEncryption(true)` — it would make
+`isEncryptionAvailable()` report true while deriving the key from a hard-coded
+password, so keys would carry an `enc:` prefix anyone could reverse. A known
+plaintext is better than a false assurance. The selected backend is logged at
+startup so the question is answerable from diagnostics.
+
+**`finish_goal` now requires real work.** At the user's direction: an agent must
+plan _and_ carry out the goal, so `plan`-kind calls no longer satisfy the
+precondition. A run could previously write a plan, tick a step, and declare the
+goal complete without touching a file.
+
+**Left as it stands, also at the user's direction:** the `web_search` and
+memory-save approval toggles still auto-approve in unattended runs. A scheduled
+task exists to work with nobody watching, and a prompt no one can answer would
+only make it fail.
