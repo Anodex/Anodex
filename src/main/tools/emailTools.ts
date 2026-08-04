@@ -1001,17 +1001,40 @@ export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
         // request depending on which, and only one of them is reversible
         // without reaching for the checkpoint.
         //
-        // The destination is inspected here and named in the prompt; the
-        // attachment itself is still fetched in `run()`, so a call the user
-        // denies costs no request against their mailbox.
+        // Both halves of the decision are resolved here: what is about to be
+        // written, and what it lands on. `readMessage` returns attachment
+        // metadata without payloads, so naming the file costs one message
+        // fetch rather than a download of bytes the user may be about to
+        // refuse — the attachment itself is still fetched in `run()`.
+        //
+        // Naming it matters because the model supplies both ids from an
+        // earlier `read_email`/`find_attachments` call, and "attachment-1 from
+        // message-1" gives the person approving nothing to check them against.
+        // Picking the wrong attachment out of a thread is precisely the
+        // mistake this prompt exists to catch, and it was unreviewable. The
+        // lookup also means a bad id fails before anyone is asked to approve a
+        // call that cannot succeed — which is what `runGuardedToolWithPrepare`
+        // is for.
         async () => {
           const destination = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, destination)
+          const message = await emailService.readMessage(args.messageId, args.account)
+          const summary = message.attachments.find(
+            (candidate) => candidate.id === args.attachmentId
+          )
+          if (!summary) {
+            throw new Error(
+              `Message ${args.messageId} has no attachment ${args.attachmentId}. ` +
+                (message.attachments.length
+                  ? `Available: ${message.attachments.map((a) => `${a.filename} (${a.id})`).join(', ')}.`
+                  : 'It has no attachments.')
+            )
+          }
           const beforeBuffer = await readFile(destination).catch(() => null)
           const before = beforeBuffer ? encodeCheckpointBuffer(beforeBuffer) : null
           return {
             confirmDetail: [
-              `Save attachment ${args.attachmentId} from message ${args.messageId} to ${relativePath}.`,
+              `Save ${summary.filename} (${summary.mimeType}, ${formatByteSize(summary.size)}) from message ${args.messageId} to ${relativePath}.`,
               beforeBuffer
                 ? `This replaces the existing ${formatByteSize(beforeBuffer.length)} file at that path.`
                 : 'No file exists at that path yet.'

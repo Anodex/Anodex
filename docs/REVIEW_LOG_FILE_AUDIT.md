@@ -2400,12 +2400,34 @@ either `This replaces the existing 4.0 KB file at that path.` or `No file exists
 at that path yet.` Sizes are formatted for a person here rather than as the raw
 byte counts the rest of the file gives the model.
 
-**Two deliberate choices inside the conversion.**
+**Two deliberate choices inside the conversion**, the first of which was
+revisited straight afterwards and changed.
 
-The attachment is still fetched in `run()`, after approval, not in `prepare()`.
-Fetching it earlier would let the prompt name the real filename and size, but it
-would also spend a request against the user's mailbox for a call they may be
-about to deny. The overwrite question is answerable from the destination alone.
+_Where the attachment is resolved._ The first version left the whole fetch in
+`run()`, after approval, reasoning that fetching earlier would spend a request
+against the user's mailbox for a call they might deny. That reasoning does not
+hold: `find_attachments`, `view_email_attachment`, and `read_email_attachment`
+are all `kind: 'read'` with no confirm gate at all, so the model can already
+download any attachment in the mailbox without asking anyone. Deferring this one
+fetch protected nothing that was not already unprotected, and it cost two things
+that matter.
+
+It left the prompt naming only ids — `Save attachment attachment-1 from message
+message-1` — which the model itself supplied from an earlier call. The person
+approving had nothing to check them against, so the model picking the wrong
+attachment out of a thread, exactly the mistake an approval prompt exists to
+catch, was unreviewable. And a bad id still produced a prompt, an approval, and
+_then_ an error, which contradicts the documented purpose of the function the
+tool had just been converted to: no confirm prompt for a call already known to
+fail.
+
+Resolved with a third option rather than either extreme. `prepare()` now calls
+`emailService.readMessage`, which returns attachment metadata with no payloads,
+and looks the id up in it. The prompt names the file — `Save invoice-q3.pdf
+(application/pdf, 2.1 MB) from message message-1 to report.pdf` — an unknown id
+fails before anyone is asked, listing what the message does have so the model can
+correct itself, and the bytes are still only downloaded after approval. The cost
+is one metadata fetch on a denied call, the cheapest of the three.
 
 Reading the destination during `prepare()` opens a gap that did not exist when
 everything happened in `run()`: the user is looking at a description of a file
@@ -2422,7 +2444,9 @@ explains the failure it prevents instead of just restating the check.
 
 ### Tests
 
-`emailTools.test.ts` — 3 added (38 total), all three confirmed failing against
-the pre-fix file: the overwrite disclosure with its size, the create-case
-wording, and a destination edited while the confirm prompt was up being refused
-with the file left as the editor wrote it.
+`emailTools.test.ts` — 5 added (39 total), all confirmed failing against the
+pre-fix file: the overwrite disclosure with its size, the create-case wording, a
+destination edited while the confirm prompt was up being refused with the file
+left as the editor wrote it, the prompt naming the attachment rather than its
+id, and an unknown id resolving to an error with no prompt raised and no
+payload fetched.

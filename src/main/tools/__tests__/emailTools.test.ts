@@ -82,6 +82,31 @@ vi.mock('../../email/EmailService', () => ({
   }
 }))
 
+/**
+ * `save_email_attachment` looks the attachment up by id during `prepare()`, so
+ * the confirm prompt can name the file rather than echo two opaque ids back at
+ * the person approving it. These tests all go through that lookup.
+ */
+function stubMessageWithAttachment(
+  attachment: Pick<EmailAttachmentSummary, 'id' | 'filename' | 'mimeType' | 'size'>
+): void {
+  readMessageMock.mockResolvedValue({
+    id: 'message-1',
+    threadId: 'thread-1',
+    provider: 'gmail',
+    accountId: 'account-1',
+    subject: 'Report',
+    from: 'sender@example.com',
+    to: ['user@example.com'],
+    cc: [],
+    bcc: [],
+    date: 0,
+    snippet: '',
+    body: 'Attached.',
+    attachments: [{ messageId: 'message-1', ...attachment }]
+  })
+}
+
 describe('email tools', () => {
   beforeEach(() => {
     createDraftMock.mockReset()
@@ -935,6 +960,12 @@ describe('email tools', () => {
       const original = Buffer.from([0, 10, 20, 30, 255])
       const attachment = Buffer.from([0, 80, 68, 70, 200, 100])
       await writeFile(join(workspace, 'report.pdf'), original)
+      stubMessageWithAttachment({
+        id: 'attachment-1',
+        filename: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: attachment.length
+      })
       getAttachmentMock.mockResolvedValue({
         id: 'attachment-1',
         messageId: 'message-1',
@@ -985,6 +1016,12 @@ describe('email tools', () => {
     try {
       await writeFile(join(workspace, 'report.pdf'), Buffer.alloc(4096, 7))
       const attachment = Buffer.from([1, 2, 3])
+      stubMessageWithAttachment({
+        id: 'attachment-1',
+        filename: 'invoice-q3.pdf',
+        mimeType: 'application/pdf',
+        size: attachment.length
+      })
       getAttachmentMock.mockResolvedValue({
         id: 'attachment-1',
         messageId: 'message-1',
@@ -1006,6 +1043,11 @@ describe('email tools', () => {
       })
 
       expect(requests[0].detail).toContain('replaces the existing 4.0 KB file')
+      // The ids come from an earlier read_email/find_attachments call, so
+      // "attachment-1 from message-1" gave the person approving nothing to
+      // check the model's choice against. Picking the wrong attachment out of
+      // a thread is exactly what this prompt is for.
+      expect(requests[0].detail).toContain('Save invoice-q3.pdf (application/pdf, 3 bytes)')
     } finally {
       await rm(workspace, { recursive: true, force: true })
     }
@@ -1015,6 +1057,12 @@ describe('email tools', () => {
     const workspace = await mkdtemp(join(tmpdir(), 'anodex-attachment-create-'))
     try {
       const attachment = Buffer.from([1, 2, 3])
+      stubMessageWithAttachment({
+        id: 'attachment-1',
+        filename: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: attachment.length
+      })
       getAttachmentMock.mockResolvedValue({
         id: 'attachment-1',
         messageId: 'message-1',
@@ -1042,6 +1090,41 @@ describe('email tools', () => {
     }
   })
 
+  // `runGuardedToolWithPrepare` exists so a call already known to fail never
+  // reaches a confirm prompt. Resolving the attachment during prepare is what
+  // brings a bad id under that rule — it used to prompt, get approved, and
+  // only then fail on the fetch.
+  it('rejects an unknown attachment id before anyone is asked to approve it', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'anodex-attachment-badid-'))
+    try {
+      stubMessageWithAttachment({
+        id: 'attachment-1',
+        filename: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: 3
+      })
+      const { requests, confirm } = captureConfirmations()
+      const ctx = { ...createMockContext(workspace), confirm }
+      const tool = saveEmailAttachmentTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: unknown) => Promise<string>
+      }
+
+      const result = await tool.handler({
+        messageId: 'message-1',
+        attachmentId: 'attachment-9',
+        path: 'report.pdf'
+      })
+
+      expect(result).toContain('has no attachment attachment-9')
+      // Names what it does have, so the model can correct itself.
+      expect(result).toContain('report.pdf (attachment-1)')
+      expect(requests).toHaveLength(0)
+      expect(getAttachmentMock).not.toHaveBeenCalled()
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   // The prompt describes the destination as it was before the user was asked.
   // If it changes while they are deciding, they approved replacing content
   // that is no longer there — and the checkpoint would record that vanished
@@ -1051,6 +1134,12 @@ describe('email tools', () => {
     try {
       const destination = join(workspace, 'report.pdf')
       await writeFile(destination, Buffer.from('as-described'))
+      stubMessageWithAttachment({
+        id: 'attachment-1',
+        filename: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: 3
+      })
       getAttachmentMock.mockResolvedValue({
         id: 'attachment-1',
         messageId: 'message-1',
