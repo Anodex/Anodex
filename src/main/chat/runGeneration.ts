@@ -23,6 +23,7 @@ import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService, type GenerateOutcome, type GenerateParams } from '../llama/LlamaService'
 import { boundHistoryForStatelessProvider } from '../llama/contextAssembler'
+import { MESSAGE_FRAMING_TOKENS, visionToolSchemaReserveTokens } from '../llama/LlamaVisionService'
 import { CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET, summaryChunkBudgetForContext } from '../llama/compaction'
 import { ROLLING_SUMMARY_TOKEN_CEILING } from '../llama/rollingSummary'
 import { summarizeForCompactionOpenAi } from '../llm/OpenAiProvider'
@@ -263,18 +264,30 @@ function cloudModelIdsForUsageQuery(
 export function resolveHistoryBounding(
   effectiveProviderId: ProviderSettings['active'],
   modelDescriptor: { id: string } | null,
-  io: RunGenerationIo
+  io: RunGenerationIo,
+  hasTools = false
 ): {
   contextWindowTokens: number
   summarize: (transcript: string, previousSummary?: string) => Promise<string | null>
   summaryChunkTokenBudget: number
+  /** Fixed schema overhead to hold back from history — see the same-named option on
+   *  `boundHistoryForStatelessProvider`. */
+  toolSchemaReserveTokens: number
+  /** Per-message chat-template framing this transport pays; 0 where it isn't known. */
+  messageFramingTokens: number
 } | null {
   if (effectiveProviderId !== 'local') {
     if (!modelDescriptor) return null
     return {
       contextWindowTokens: cloudContextWindowTokens(effectiveProviderId, modelDescriptor.id),
       summarize: cloudSummarizer(effectiveProviderId, io.providerOverride?.model),
-      summaryChunkTokenBudget: CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET
+      summaryChunkTokenBudget: CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET,
+      // Left unreserved for now: a cloud window is 128K and up, where the
+      // schema surface is a rounding error rather than the difference between
+      // a full answer and a truncated one. The local case below is the one
+      // that measurably ran out of room.
+      toolSchemaReserveTokens: 0,
+      messageFramingTokens: 0
     }
   }
 
@@ -290,7 +303,9 @@ export function resolveHistoryBounding(
     summaryChunkTokenBudget: summaryChunkBudgetForContext(
       local.contextSize,
       ROLLING_SUMMARY_TOKEN_CEILING
-    )
+    ),
+    toolSchemaReserveTokens: visionToolSchemaReserveTokens(local.contextSize, hasTools),
+    messageFramingTokens: MESSAGE_FRAMING_TOKENS
   }
 }
 
@@ -457,7 +472,10 @@ export async function runGeneration(
   let boundedSystemPrompt: string | undefined = systemPrompt
   let boundedHistory = request.history
   let contextUpdate: ConversationContext | undefined
-  const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io)
+  // `tools != null`, not `hasWorkspaceTools`: tool schemas are registered
+  // whenever tools are enabled at all — a chat with no workspace folder still
+  // carries the user-file, email and web surfaces, and so still pays for them.
+  const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io, tools != null)
   if (bounding) {
     const bounded = await boundHistoryForStatelessProvider(
       systemPrompt,
@@ -465,7 +483,11 @@ export async function runGeneration(
       request.context,
       bounding.contextWindowTokens,
       bounding.summarize,
-      bounding.summaryChunkTokenBudget
+      bounding.summaryChunkTokenBudget,
+      {
+        toolSchemaReserveTokens: bounding.toolSchemaReserveTokens,
+        messageFramingTokens: bounding.messageFramingTokens
+      }
     )
     boundedSystemPrompt = bounded.systemPrompt
     boundedHistory = bounded.history

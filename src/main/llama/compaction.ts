@@ -173,12 +173,42 @@ export interface HistorySplit {
   older: ChatHistoryTurn[]
 }
 
-/** Token cost of a single turn: its content plus any tool-call results. */
-function turnTokenCost(turn: ChatHistoryTurn, countTokens: (text: string) => number): number {
+/**
+ * Text one past tool call contributes to a turn's replay cost.
+ *
+ * Must mirror `rememberToolCallForModel` (`contextAssembler.ts`), which is what
+ * actually renders a remembered call into the model-facing message — it emits
+ * `title` *and* the result body. Counting the body alone, as this did, left
+ * every call's title unbudgeted: a turn carrying dozens of
+ * `Read src/main/llama/… (lines 1-380)` titles is several hundred tokens larger
+ * than the split believed, all of it in the direction that overflows.
+ */
+function toolCallCostText(call: { title: string; result?: string; detail?: string }): string {
+  const body = call.result ?? call.detail ?? ''
+  return body ? `${call.title}\n${body}` : call.title
+}
+
+/**
+ * Token cost of a single turn: its rendered content and tool calls, plus the
+ * chat template's own per-message framing.
+ *
+ * `messageFramingTokens` is the per-message surcharge a caller knows its
+ * transport will pay and this estimate cannot see (role headers, separators,
+ * the end-of-turn token). Charged once for the turn's own message; a turn's
+ * remembered tool calls are folded into that same message by `buildMessages`,
+ * so they add no further framing. Defaults to 0, which is the pre-existing
+ * behaviour for callers whose transport reuses a KV cache rather than
+ * re-rendering every message.
+ */
+function turnTokenCost(
+  turn: ChatHistoryTurn,
+  countTokens: (text: string) => number,
+  messageFramingTokens = 0
+): number {
   const sanitized = sanitizeHistoryTurn(turn)
-  let cost = countTokens(sanitized.content)
+  let cost = countTokens(sanitized.content) + messageFramingTokens
   for (const call of sanitized.toolCalls ?? []) {
-    cost += countTokens(call.result ?? call.detail ?? '')
+    cost += countTokens(toolCallCostText(call))
   }
   return cost
 }
@@ -203,14 +233,15 @@ function turnTokenCost(turn: ChatHistoryTurn, countTokens: (text: string) => num
 export function splitHistoryByTokenBudget(
   history: ChatHistoryTurn[],
   budgetTokens: number,
-  countTokens: (text: string) => number
+  countTokens: (text: string) => number,
+  messageFramingTokens = 0
 ): HistorySplit {
   if (history.length === 0) return { recent: [], older: [] }
 
   let total = 0
   const keepIndices: number[] = []
   for (let i = history.length - 1; i >= 0; i--) {
-    const cost = turnTokenCost(history[i], countTokens)
+    const cost = turnTokenCost(history[i], countTokens, messageFramingTokens)
     if (total + cost > budgetTokens && keepIndices.length > 0) break
     total += cost
     keepIndices.unshift(i)
@@ -257,7 +288,7 @@ function capTurnToTokenBudget(
 ): ChatHistoryTurn {
   if (!turn.toolCalls?.length) return turn
 
-  const callCosts = turn.toolCalls.map((call) => countTokens(call.result ?? call.detail ?? ''))
+  const callCosts = turn.toolCalls.map((call) => countTokens(toolCallCostText(call)))
   let total = countTokens(turn.content) + callCosts.reduce((sum, cost) => sum + cost, 0)
   if (total <= budgetTokens) return turn
 

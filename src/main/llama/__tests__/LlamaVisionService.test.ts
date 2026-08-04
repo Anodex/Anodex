@@ -165,7 +165,7 @@ vi.mock('../../models/ModelReliabilityStore', () => ({
   }
 }))
 
-const { LlamaVisionService } = await import('../LlamaVisionService')
+const { LlamaVisionService, visionToolSchemaReserveTokens } = await import('../LlamaVisionService')
 
 function textChunk(content: string, finish?: string | null): StreamChunk {
   return { choices: [{ delta: { content }, finish_reason: finish ?? null }] }
@@ -992,5 +992,32 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.content).toBe('Step 1 done.')
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('runtime-stalled')
+  })
+})
+
+describe('visionToolSchemaReserveTokens', () => {
+  it('reserves nothing when the turn registers no tools', () => {
+    expect(visionToolSchemaReserveTokens(32_768, false)).toBe(0)
+  })
+
+  it('reserves the schema surface that history compaction cannot shrink', () => {
+    // The live failure this guards: history was bounded with no schema
+    // reserve at all, so a 32K project chat planned as if the schemas were
+    // free and was left 1,628 tokens to reply in. The real surface measured
+    // 2,851 tokens; the bound is deliberately a little above that, since
+    // over-reserving costs replayed history while under-reserving costs the
+    // answer.
+    const reserve = visionToolSchemaReserveTokens(32_768, true)
+    expect(reserve).toBeGreaterThan(2_851)
+    expect(reserve).toBeLessThan(5_000)
+  })
+
+  it('never reserves more than the surface itself is capped at', () => {
+    // On a small context the 28% target binds before the per-tool bound does;
+    // reserving past it would evict history for schemas that cannot exist.
+    for (const contextSize of [4_096, 8_192, 16_384, 32_768, 131_072]) {
+      const target = Math.max(1_200, Math.floor(contextSize * 0.28))
+      expect(visionToolSchemaReserveTokens(contextSize, true)).toBeLessThanOrEqual(target)
+    }
   })
 })

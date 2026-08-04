@@ -107,7 +107,17 @@ const MAX_FALLBACK_ROUNDS = 8
  * that has accumulated dozens of call/result pairs it is hundreds of tokens of
  * pure under-count, all of it in the direction that overflows the context.
  */
-const MESSAGE_FRAMING_TOKENS = 4
+export const MESSAGE_FRAMING_TOKENS = 4
+/**
+ * Rough per-tool cost of one rendered OpenAI-style function schema.
+ *
+ * Shared by the two places that must guess at a schema surface rather than
+ * measure one: `estimatedInput` (when the runtime has no `/tokenize`) and
+ * `visionToolSchemaReserveTokens` (before this turn's surface has been built).
+ */
+const ESTIMATED_TOOL_SCHEMA_TOKENS = 140
+/** Native schemas `boundToolSurface` always adds for the deferred-tool gateway. */
+const GATEWAY_TOOL_COUNT = 3
 /**
  * Assumed prompt cost of one image after the projector.
  *
@@ -924,8 +934,8 @@ export class LlamaVisionService {
       routingText: [...params.history.slice(-8).map((turn) => turn.content), params.prompt].join(
         '\n'
       ),
-      targetFixedTokens: Math.max(1_200, Math.floor(this.contextSize * 0.28)),
-      maxDirectTools: Math.max(8, Math.min(24, Math.floor(this.contextSize / 1_024) + 4)),
+      targetFixedTokens: toolSurfaceTargetTokens(this.contextSize),
+      maxDirectTools: maxDirectToolsForContext(this.contextSize),
       measureFixedTokens: (functions) =>
         functions ? Math.ceil(JSON.stringify(toOpenAiTools(functions)).length / 4) : 0
     })
@@ -1212,10 +1222,46 @@ function contextBudgetFor(input: {
   }
 }
 
+/** Token target `boundToolSurface` sizes this transport's native surface against. */
+function toolSurfaceTargetTokens(contextSize: number): number {
+  return Math.max(1_200, Math.floor(contextSize * 0.28))
+}
+
+/** Small contexts rely more heavily on the deferred gateway to preserve working room. */
+function maxDirectToolsForContext(contextSize: number): number {
+  return Math.max(8, Math.min(24, Math.floor(contextSize / 1_024) + 4))
+}
+
+/**
+ * Tool-schema cost to hold back when compacting history for a turn on this
+ * transport, before its real surface exists.
+ *
+ * History is bounded in `runGeneration` — upstream of `generate()`, so the
+ * exact figure genuinely is not knowable yet. Reserving nothing (which this
+ * path did until now, unlike the node-llama-cpp path) hands the compaction
+ * planner a budget short by the whole schema surface, and because schemas are
+ * fixed overhead the shortfall comes out of the reply: a 32K project chat
+ * measured 30,341 tokens of fixed input and was left 1,628 tokens to answer in.
+ *
+ * Deliberately an upper bound rather than a live measurement. `boundToolSurface`
+ * is deterministic in the two limits below, so the surface can never exceed
+ * this; over-reserving costs a little replayed history, while under-reserving
+ * costs the answer. A cached real measurement would be tighter but would have
+ * to be keyed per conversation and would still be cold on the first turn after
+ * a restart — the exact case where history is longest.
+ */
+export function visionToolSchemaReserveTokens(contextSize: number, hasTools: boolean): number {
+  if (!hasTools) return 0
+  return Math.min(
+    toolSurfaceTargetTokens(contextSize),
+    (maxDirectToolsForContext(contextSize) + GATEWAY_TOOL_COUNT) * ESTIMATED_TOOL_SCHEMA_TOKENS
+  )
+}
+
 function estimatedInput(params: GenerateParams, toolCount: number): MeasuredInput {
   const systemTokens = Math.ceil((params.systemPrompt?.length ?? 0) / 4)
   const promptTokens = Math.ceil(params.prompt.length / 4)
-  const toolSchemaTokens = toolCount * 140
+  const toolSchemaTokens = toolCount * ESTIMATED_TOOL_SCHEMA_TOKENS
   return {
     systemTokens,
     promptTokens,

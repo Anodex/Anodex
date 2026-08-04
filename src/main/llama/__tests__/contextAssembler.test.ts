@@ -287,6 +287,37 @@ describe('boundHistoryForStatelessProvider', () => {
     expect(bounded.summarized).toBe(false)
   })
 
+  it('holds back tool-schema tokens so they do not come out of the reply', async () => {
+    // Regression test for a live failure: this path passed no tool-schema
+    // reserve, so it planned history as if the whole window minus the system
+    // prompt were available. The transport then added the schema surface on
+    // top, and because schemas are fixed overhead that no compaction can
+    // shrink, the shortfall landed on the answer — a 32K local project chat
+    // measured 30,341 tokens of fixed input and got 1,628 tokens to reply in.
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'A'.repeat(2_000) },
+      { id: 'm2', role: 'assistant', content: 'B'.repeat(2_000) },
+      { id: 'm3', role: 'user', content: 'latest' }
+    ]
+
+    // Same history, same window: fits when schemas are free...
+    const unreserved = await boundHistoryForStatelessProvider(undefined, history, null, 2_000)
+    expect(unreserved.omittedTurns).toBe(0)
+
+    // ...and is correctly compacted once their real cost is reserved.
+    const reserved = await boundHistoryForStatelessProvider(
+      undefined,
+      history,
+      null,
+      2_000,
+      undefined,
+      undefined,
+      { toolSchemaReserveTokens: 800 }
+    )
+    expect(reserved.omittedTurns).toBeGreaterThan(0)
+    expect(reserved.history.at(-1)).toEqual(history[2])
+  })
+
   it('applies a persisted snapshot before bounding, same as the local engine', async () => {
     const history: ChatHistoryTurn[] = [
       { id: 'm1', role: 'user', content: 'old request' },

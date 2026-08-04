@@ -144,6 +144,52 @@ describe('splitHistoryByTokenBudget', () => {
     expect(newTotal).toBeLessThanOrEqual(4000)
   })
 
+  it("charges a tool call's title, which is replayed alongside its result", () => {
+    // Regression test: `rememberToolCallForModel` renders `title` *and* the
+    // result body into the model-facing message, but the split used to count
+    // only the body. A turn carrying many long titles therefore measured as
+    // fitting a budget it actually overran — one of two undercounts that left
+    // a live 32K project chat with 1,628 tokens to answer in.
+    const title = 'Read src/main/llama/contextShiftStrategy.ts (lines 1-380)'
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'older' },
+      {
+        role: 'assistant',
+        content: 'ok',
+        toolCalls: [
+          { id: 't1', name: 'read_file', kind: 'read', title, status: 'success', result: 'x' }
+        ]
+      }
+    ]
+
+    // Budget sized to fit both turns if the title were free ('older' + 'ok' +
+    // 'x' + the newline = 9), but not once the title is charged.
+    const budget = 20
+    expect(title.length).toBeGreaterThan(budget)
+    const result = splitHistoryByTokenBudget(history, budget, countTokens)
+    expect(result.older).toEqual([history[0]])
+  })
+
+  it('charges per-message framing when the caller knows its transport pays it', () => {
+    // The chat template's role headers/separators are real prompt tokens that
+    // a character-count estimate structurally cannot see. Small per message,
+    // decisive across a long history — see MESSAGE_FRAMING_TOKENS.
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'aa' },
+      { role: 'assistant', content: 'bb' },
+      { role: 'user', content: 'cc' }
+    ]
+
+    // 6 characters total, so all three turns fit a budget of 6 unframed...
+    expect(splitHistoryByTokenBudget(history, 6, countTokens).older).toEqual([])
+    // ...but at 4 tokens of framing each the real cost is 18, and the oldest
+    // turns have to go.
+    expect(splitHistoryByTokenBudget(history, 6, countTokens, 4).older).toEqual([
+      history[0],
+      history[1]
+    ])
+  })
+
   it('does not count raw tool payload text once assistant content is sanitized', () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'do it' },

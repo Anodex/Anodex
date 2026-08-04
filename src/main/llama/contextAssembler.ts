@@ -88,6 +88,12 @@ export interface ModelContextAssemblyInput {
    * long series of small paid API calls (see that constant's doc comment).
    */
   summaryChunkTokenBudget?: number
+  /**
+   * Per-message framing the caller's transport pays and this assembly's
+   * character-based estimate cannot see. See `turnTokenCost` in
+   * `compaction.ts`; 0 (the default) preserves the prior behaviour.
+   */
+  messageFramingTokens?: number
 }
 
 /**
@@ -104,7 +110,8 @@ export async function assembleModelContext({
   countTokens,
   summarizeOlderTurns,
   toolSchemaReserveTokens = 0,
-  summaryChunkTokenBudget
+  summaryChunkTokenBudget,
+  messageFramingTokens = 0
 }: ModelContextAssemblyInput): Promise<ModelContextAssembly> {
   const projectedHistory = projectHistoryForModel(history)
   const initialBudget = historyBudgetTokens(
@@ -113,7 +120,12 @@ export async function assembleModelContext({
     countTokens,
     toolSchemaReserveTokens
   )
-  const split = splitHistoryByTokenBudget(projectedHistory, initialBudget, countTokens)
+  const split = splitHistoryByTokenBudget(
+    projectedHistory,
+    initialBudget,
+    countTokens,
+    messageFramingTokens
+  )
 
   let older = split.older
   let projectedRecent = split.recent
@@ -146,7 +158,12 @@ export async function assembleModelContext({
         countTokens,
         toolSchemaReserveTokens
       )
-      const finalSplit = splitHistoryByTokenBudget(projectedRecent, budget, countTokens)
+      const finalSplit = splitHistoryByTokenBudget(
+        projectedRecent,
+        budget,
+        countTokens,
+        messageFramingTokens
+      )
       projectedRecent = finalSplit.recent
       if (finalSplit.older.length === 0) break
 
@@ -261,6 +278,14 @@ export interface CloudBoundedContext {
  * gets a budget derived from its real context (see
  * `summaryChunkBudgetForContext`) — feeding cloud-sized chunks to a small
  * local context would overflow the very call meant to relieve the overflow.
+ *
+ * `options.toolSchemaReserveTokens` is not optional in spirit, only in
+ * signature. Tool schemas are fixed prompt overhead that no amount of history
+ * compaction can shrink, and a caller that omits them plans against a budget
+ * short by their entire cost — the shortfall then lands on the reply, since
+ * history is bounded before the transport ever measures the real prompt. The
+ * node-llama-cpp path has always reserved for this (`LlamaService.generate`);
+ * every stateless transport pays the same overhead and needs the same reserve.
  */
 export async function boundHistoryForStatelessProvider(
   systemPrompt: string | undefined,
@@ -268,17 +293,26 @@ export async function boundHistoryForStatelessProvider(
   context: ConversationContext | null | undefined,
   contextWindowTokens: number,
   summarizeOlderTurns?: RollingSummarizer,
-  summaryChunkTokenBudget: number = CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET
+  summaryChunkTokenBudget: number = CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET,
+  options?: { toolSchemaReserveTokens?: number; messageFramingTokens?: number }
 ): Promise<CloudBoundedContext> {
   const seeded = seedContextFromSnapshot(systemPrompt, history, context)
+  const toolSchemaReserveTokens = options?.toolSchemaReserveTokens ?? 0
+  const messageFramingTokens = options?.messageFramingTokens ?? 0
 
   if (!summarizeOlderTurns) {
     const budget = historyBudgetTokens(
       seeded.systemPrompt,
       contextWindowTokens,
-      estimateTokensApprox
+      estimateTokensApprox,
+      toolSchemaReserveTokens
     )
-    const split = splitHistoryByTokenBudget(seeded.history, budget, estimateTokensApprox)
+    const split = splitHistoryByTokenBudget(
+      seeded.history,
+      budget,
+      estimateTokensApprox,
+      messageFramingTokens
+    )
     return {
       systemPrompt: seeded.systemPrompt,
       history: split.recent,
@@ -293,7 +327,9 @@ export async function boundHistoryForStatelessProvider(
     contextSize: contextWindowTokens,
     countTokens: estimateTokensApprox,
     summarizeOlderTurns,
-    summaryChunkTokenBudget
+    summaryChunkTokenBudget,
+    toolSchemaReserveTokens,
+    messageFramingTokens
   })
 
   return {
