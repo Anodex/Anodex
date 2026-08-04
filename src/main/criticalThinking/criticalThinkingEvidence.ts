@@ -58,7 +58,14 @@ export function normalizeCitationMarkers(report: string): string {
       .split(/\s*[,;]\s*|\s*[-–—]\s*/)
       .map((part) => part.trim())
       .filter(Boolean)
-    if (parts.length < 2) return marker
+    // Single markers run through the same loop rather than returning early.
+    // They are already canonical far more often than not, but `[[s1]]`,
+    // `[[ S1]]` and `[[S1:p2]]` are not — and every regex downstream matches
+    // uppercase with no padding, so each of those was invisible in exactly the
+    // three ways the compound forms were: never checked against fetched
+    // evidence, rendered as literal `[[s1]]`, and counted as UNCITED, which on
+    // a report whose only citations slipped case reported "the report contains
+    // no evidence citation markers" about a properly sourced draft.
     const expanded: string[] = []
     let currentSource = ''
     for (const part of parts) {
@@ -273,22 +280,48 @@ export function validateResearchReport(
     if (!passagesByUrl.has(canonicalResearchUrl(rawUrl))) {
       collector.safety.push(`Raw URL is not backed by fetched evidence: ${rawUrl}`)
     } else {
-      collector.safety.push(`Use an internal citation marker instead of a raw URL: ${rawUrl}`)
+      // Coverage, not safety. Reaching this branch has just established that
+      // the URL *is* a page this run fetched, which is the opposite of the
+      // "claim not backed by real fetched evidence" that `safetyIssues` is
+      // defined as. Classifying it as fabrication threw away otherwise sound
+      // reports over a formatting preference — the model wrote the link out
+      // instead of a marker, having cited the same page correctly elsewhere.
+      collector.coverage.push(`Use an internal citation marker instead of a raw URL: ${rawUrl}`)
     }
   }
 
   const proseReport = report.replace(/```[\s\S]*?```/g, '')
-  for (const block of proseReport.split(/\n{2,}/)) {
-    const citedPassages = passagesForCitations(block, passagesByUrl, sourceById).map(normalizeQuote)
-    for (const match of block.matchAll(/[“"]([^”"\n]{20,})[”"]/g)) {
-      const quote = normalizeQuote(match[1])
+  const proseBlocks = proseReport.split(/\n{2,}/)
+  proseBlocks.forEach((block, index) => {
+    const own = passagesForCitations(block, passagesByUrl, sourceById).map(normalizeQuote)
+    // A pulled-out quotation is its own block and routinely carries no marker
+    // of its own — the attribution sits in the sentence that introduced it, one
+    // block earlier, which is how a reader resolves it too. Only the block
+    // immediately before, and only when this one cites nothing itself, so an
+    // uncited quotation still cannot borrow evidence from an arbitrary
+    // distance.
+    const citedPassages =
+      own.length > 0
+        ? own
+        : passagesForCitations(proseBlocks[index - 1] ?? '', passagesByUrl, sourceById).map(
+            normalizeQuote
+          )
+    // Quotes may span lines. Excluding `\n` from the class meant a fabricated
+    // quote written as a markdown block quote — the ordinary way to present one
+    // — was matched by nothing and checked against nothing, so the single class
+    // of issue this module promises never to let through had a bypass anyone
+    // would hit by accident. Blocks are split on blank lines and the class
+    // cannot cross a quote character, so a match still cannot run past the
+    // quotation it belongs to.
+    for (const match of block.matchAll(/[“"]([^”"]{20,})[”"]/g)) {
+      const quote = normalizeQuote(stripBlockQuoteMarkers(match[1]))
       if (!citedPassages.some((passage) => passage.includes(quote))) {
         collector.safety.push(
-          `Quoted text is not present in its cited fetched passages: “${match[1].slice(0, 80)}”`
+          `Quoted text is not present in its cited fetched passages: “${truncateIssue(match[1]).slice(0, 80)}”`
         )
       }
     }
-  }
+  })
 
   const exempt = uncitableBlocks(proseReport)
   validateCitationCoverage(proseReport, collector, exempt)
@@ -626,6 +659,17 @@ function trustedVerifiedSources(sources: CriticalThinkingSource[]): CriticalThin
 function truncateIssue(value: string): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
   return normalized.length > 120 ? `${normalized.slice(0, 119)}…` : normalized
+}
+
+/**
+ * Fold a quotation that was written across lines back onto one, dropping the
+ * `>` each continuation line carries in a markdown block quote. Without this,
+ * allowing quotes to span lines would turn every genuine block quote into a
+ * fabrication report: the marker survives normalization and no fetched passage
+ * has ever contained a stray `>` mid-sentence.
+ */
+function stripBlockQuoteMarkers(value: string): string {
+  return value.replace(/\n\s*>?\s*/g, ' ')
 }
 
 export function normalizeQuote(value: string): string {

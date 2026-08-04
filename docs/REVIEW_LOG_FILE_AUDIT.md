@@ -60,7 +60,7 @@ mirage a second time.
 | 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29 → 39 | ✅ done | The entire tool security model, in 192 lines                   |
 | 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58 → 68 | ✅ done | Holds every API key and mail credential, and persists them     |
 | 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12 → 21 | ✅ done | Connects and executes third-party servers' tools               |
-| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32      | ☐       | Largest unreviewed file; the sidecar a run's citations live in |
+| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32 → 43 | ✅ done | Largest unreviewed file; the sidecar a run's citations live in |
 | 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*     | ☐       | Last unreviewed cloud provider; both siblings had real bugs    |
 | 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9       | ☐       | Decides what the model is told it can do; thin for its size    |
 | 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15      | ☐       | History and token budgeting on every local turn                |
@@ -3312,3 +3312,133 @@ place: a generic server still cannot downgrade itself with annotations, a
 verified read-only preset tool still prompts for nothing, a non-timeout error is
 still passed through untouched, an unconnected server is still refused, and the
 _live_ connection's notifications are still applied.
+
+## Round three, 7. `src/main/criticalThinking/criticalThinkingEvidence.ts` — done
+
+839 lines, 32 tests — the largest unreviewed file, and the one that decides
+whether a Critical Thinking report is allowed to be shown. Its contract is
+stated at the top of the file: `safetyIssues` are claims **not backed by real
+fetched evidence**, and a report carrying one is never displayed; everything
+else is a coverage gap that leaves an imperfect report preferable to the blunt
+deterministic fallback.
+
+Three defects, each on one side of that line. All three were confirmed by
+running the real functions and printing what they returned, before anything was
+changed.
+
+### 1. A fabricated quotation written across two lines was never checked
+
+The quote check matched `/[“"]([^”"\n]{20,})[”"]/g`. Excluding `\n` meant a
+quotation that wrapped — which is to say a markdown block quote, the ordinary
+way to present one — matched nothing and was compared against nothing.
+
+```
+'Claim [[S1]]. "Teams reported a total collapse of everything."'
+  -> ["Quoted text is not present in its cited fetched passages: …"]
+
+'Claim [[S1]].\n\n> "Teams reported a total collapse\n> of every measured outcome."'
+  -> []
+```
+
+The identical fabrication, caught on one line and invisible on two. This is the
+single class of issue the module promises never to let through, and the bypass
+is one a model would hit by accident rather than have to find.
+
+Newlines are now allowed in the class. The blocks being scanned are already
+split on blank lines and the character class still cannot cross a quote mark, so
+a match cannot run past the quotation it belongs to.
+
+**Two things had to come with it, or the fix would have been worse than the
+bug.** A wrapped quotation carries a `>` on each continuation line, which
+survives normalization and matches no passage ever — so continuation markers are
+folded out before comparison. And a pulled-out quotation is its own block and
+routinely carries no marker of its own, the attribution sitting in the sentence
+that introduced it; without allowing that, every correctly-quoted report would
+suddenly have been reported as fabricating. A block that cites nothing itself
+now falls back to the citations of the block immediately before it, and only
+that one, so an uncited quotation still cannot reach across the report for
+evidence.
+
+I found this second point by writing a test that asserted the fix's _good_ case
+and watching it fail.
+
+### 2. One slipped character made a well-cited report look entirely uncited
+
+`normalizeCitationMarkers` exists to fold the compound citation forms a model
+reaches for into the single markers every regex in this file matches. It
+returned early for anything that was not compound:
+
+```
+[[s1]]     -> [[s1]]
+[[ S1]]    -> [[ S1]]
+[[S1:p2]]  -> [[S1:p2]]
+```
+
+Every downstream regex matches uppercase `S`/`P` with no padding, so each of
+those was invisible in exactly the three ways the function's own doc comment
+describes for the compound case: never checked against fetched evidence,
+rendered into the finished report as literal `[[s1]]`, and counted as UNCITED.
+On a report whose citations all slipped case, that last one produced _"The
+report contains no evidence citation markers"_ about a properly sourced draft —
+and that verdict is what sends a run to the deterministic fallback.
+
+Removing the early return was the whole fix: the loop below it already
+canonicalizes, upper-cases and re-emits, and already returns the marker
+untouched when it cannot parse — so a genuinely broken marker still stays
+visible as a defect rather than being silently deleted.
+
+### 3. A link to a page the run had fetched was classified as fabrication
+
+```ts
+if (!passagesByUrl.has(canonicalResearchUrl(rawUrl))) {
+  collector.safety.push(`Raw URL is not backed by fetched evidence: ${rawUrl}`)
+} else {
+  collector.safety.push(`Use an internal citation marker instead of a raw URL: ${rawUrl}`)
+}
+```
+
+The `else` branch has just established that the URL _is_ a page this run
+fetched. Its own message says what the problem really is — use a marker instead
+— which is a formatting preference, not a false claim. Filing it under
+`safetyIssues` meant a report that cited a source correctly and then also wrote
+its link out was discarded exactly as if it had invented the source.
+
+Now coverage. The unbacked branch is untouched and stays safety.
+
+### Deliberate non-changes
+
+- **A quotation under 20 characters is never checked**, and neither is one in
+  single quotes or none at all. The threshold is there because short strings
+  match too easily; below it the citation-coverage and numeric checks are what
+  hold. Raising it is a tuning exercise with real false-positive cost.
+- **Numeric and quote checks are paragraph-scoped**, so a paragraph citing S1
+  and S2 lets a figure from either satisfy a claim. Tightening to per-marker
+  attribution needs the model to place markers far more precisely than it does.
+- **`fetchedPassagesByUrl` assigns passage ids by order of first appearance**,
+  which is stable only while artifacts are appended. Nothing removes or reorders
+  them today; if anything ever did, existing citations would silently point at
+  different text. Recorded rather than defended against, because the guard would
+  cost more than the risk.
+- **`validateCharts`' catch reports "not valid JSON" for any throw**, including
+  one from the value comparison rather than the parse. Mislabels a rare case;
+  the chart is rejected either way, which is the safe direction.
+- **`findSourcesSection` only matches a heading that reads exactly "Sources"**,
+  so "## 8. Sources" or "## Sources and references" causes a second generated
+  Sources section to be appended below the model's own. Cosmetic, and tightening
+  the pattern risks swallowing real content, which the current comment says was
+  the reason it is strict.
+
+### Tests
+
+`criticalThinkingEvidence.test.ts` — 11 added (43 total).
+
+Five fail against the pre-fix file: the lone marker not being canonicalized, the
+"no citation markers" verdict on a cited report, the wrapped fabrication going
+unchecked, the fetched link being called fabrication, and an uncited quotation
+reaching past the block before it.
+
+Six pass either way and are labelled. Two of those — a genuine wrapped quote
+being accepted, and a quotation inheriting its introducing sentence's citation —
+passed before only because nothing was being checked at all. They matter now:
+they are what stops the widened quote check from reporting every correctly
+quoted report as a fabrication.

@@ -694,3 +694,115 @@ describe('sections about what the evidence does not cover', () => {
     expect(uncited.issues.join(' ')).toContain('has no evidence citation')
   })
 })
+
+describe('criticalThinkingEvidence — a citation whose case or spacing slipped', () => {
+  it('canonicalizes a lone marker so the validators can see it', () => {
+    // Every regex downstream matches uppercase with no padding, and a single
+    // marker used to return before reaching the normalizer's own loop.
+    expect(normalizeCitationMarkers('claim [[s1]].')).toBe('claim [[S1]].')
+    expect(normalizeCitationMarkers('claim [[ S1]].')).toBe('claim [[S1]].')
+    expect(normalizeCitationMarkers('claim [[S1:p2]].')).toBe('claim [[S1:P2]].')
+  })
+
+  it('does not report a properly cited report as having no citations at all', () => {
+    // The failure this prevents: one slipped character made the paragraph count
+    // as UNCITED *and* triggered "the report contains no evidence citation
+    // markers", pushing a correctly sourced draft toward the blunt fallback.
+    const report = normalizeCitationMarkers(
+      'Growth was strong across every measured region [[s1]].'
+    )
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(result.issues).toEqual([])
+  })
+
+  // Passes pre-fix. Guards the loosened normalizer from swallowing a genuinely
+  // broken marker, which is meant to stay visible rather than be deleted.
+  it('still leaves a marker it cannot parse alone, so the defect stays visible', () => {
+    expect(normalizeCitationMarkers('see [[Note]].')).toBe('see [[Note]].')
+    expect(normalizeCitationMarkers('see [[P3]].')).toBe('see [[P3]].')
+  })
+})
+
+describe('criticalThinkingEvidence — a quote written across lines', () => {
+  it('checks a quote spanning lines against the evidence like any other', () => {
+    // Excluding newlines meant a fabricated block quote — the ordinary way to
+    // present a quotation — was matched by nothing and checked against nothing.
+    const report =
+      'The study is clear [[S1]].\n\n> "Teams reported a total collapse\n> of every measured outcome."'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+
+  // Passes pre-fix, but only because nothing was checked at all. It earns its
+  // place now: with quotes matched across lines, the `>` each continuation line
+  // carries would otherwise make every genuine block quote a fabrication.
+  it('accepts a real quote that happens to wrap', () => {
+    const report = 'The study is clear [[S1]].\n\n> "Teams reported\n> better focus."'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(result.safetyIssues).toEqual([])
+  })
+
+  it('still catches a fabricated quote on one line', () => {
+    const report = 'The study is clear [[S1]]. "Teams reported a total collapse of everything."'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+})
+
+describe('criticalThinkingEvidence — a raw URL the run actually fetched', () => {
+  it('does not call a link to fetched evidence a fabrication', () => {
+    // `safetyIssues` means "a claim not backed by real fetched evidence", and
+    // this branch has just established the opposite. Treating it as fabrication
+    // discarded sound reports over a formatting preference.
+    const result = validateResearchReport(
+      'See https://example.com/study for the figure [[S1]].',
+      artifacts,
+      sources
+    )
+
+    expect(result.safetyIssues).toEqual([])
+    expect(result.issues.some((issue) => issue.includes('instead of a raw URL'))).toBe(true)
+  })
+
+  it('still treats a link to something never fetched as a fabrication', () => {
+    const result = validateResearchReport(
+      'See https://invented.example/page for the figure [[S1]].',
+      artifacts,
+      sources
+    )
+
+    expect(result.safetyIssues.some((issue) => issue.startsWith('Raw URL is not backed'))).toBe(
+      true
+    )
+  })
+})
+
+describe('criticalThinkingEvidence — how far a pulled-out quote may reach for its citation', () => {
+  // Also passes pre-fix for the same empty reason as above; it is what stops
+  // the new check demanding a marker inside every pulled-out quotation.
+  it('lets a quotation inherit the citation of the sentence that introduced it', () => {
+    const report = 'The study is clear [[S1]].\n\n> "Teams reported\n> better focus."'
+
+    expect(validateResearchReport(report, artifacts, sources).safetyIssues).toEqual([])
+  })
+
+  it('does not let it reach past the block immediately before', () => {
+    // Otherwise an uncited quotation anywhere in the report could borrow
+    // evidence from an arbitrary distance and read as verified.
+    const report =
+      'The study is clear [[S1]].\n\nSome uncited commentary sits here in between.\n\n> "Teams reported\n> better focus."'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+})
