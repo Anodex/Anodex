@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { activeElapsedMs, type AgentRun } from '@shared/agentRun.types'
+import { budgetExceededReason } from '../agentBudgets'
 import { buildRunEnabledTools, runPreflightReason } from '../AgentRunService'
 
 describe('buildRunEnabledTools', () => {
@@ -97,5 +99,67 @@ describe('runPreflightReason', () => {
     const reason = runPreflightReason(run, 2, 100, 0)
 
     expect(reason).toMatch(/already used during plan review/)
+  })
+})
+
+describe('activeElapsedMs — what the duration budget is measured against', () => {
+  function run(overrides: Partial<Pick<AgentRun, 'activeMs' | 'activeSinceAt'>> = {}) {
+    return { activeMs: 0, activeSinceAt: null, ...overrides }
+  }
+
+  it('reports only what has been banked while the run is idle', () => {
+    expect(activeElapsedMs(run({ activeMs: 90_000 }), 5_000_000)).toBe(90_000)
+  })
+
+  it('adds the segment currently in flight', () => {
+    expect(activeElapsedMs(run({ activeMs: 60_000, activeSinceAt: 1_000 }), 31_000)).toBe(90_000)
+  })
+
+  /**
+   * The regression this field exists for. `requirePlan` defaults to true, so
+   * the default run plans, then parks in `needs-review` until a human looks at
+   * it. The budget used to be `now - createdAt`, which charged that wait to the
+   * work budget: approve after lunch and the run stopped on arrival, having
+   * executed nothing, blaming a time budget the user's own deliberation spent.
+   */
+  it('does not charge time spent parked in needs-review', () => {
+    const createdAt = 0
+    // Two minutes of planning, then an hour sitting unapproved.
+    const parked = run({ activeMs: 120_000, activeSinceAt: null })
+    const approvedAt = createdAt + 62 * 60_000
+
+    expect(activeElapsedMs(parked, approvedAt)).toBe(120_000)
+    // What the old measurement would have produced, against a 30-minute budget.
+    expect(approvedAt - createdAt).toBeGreaterThan(30 * 60_000)
+    expect(
+      budgetExceededReason(
+        { maxTokens: 50_000, maxDurationMinutes: 30, createdAt },
+        0,
+        activeElapsedMs(parked, approvedAt)
+      )
+    ).toBeNull()
+    expect(
+      budgetExceededReason(
+        { maxTokens: 50_000, maxDurationMinutes: 30, createdAt },
+        0,
+        approvedAt - createdAt
+      )
+    ).toContain('30-minute time budget')
+  })
+
+  it('still stops a run that really has worked past its budget', () => {
+    const worked = run({ activeMs: 31 * 60_000 })
+    expect(
+      budgetExceededReason(
+        { maxTokens: 50_000, maxDurationMinutes: 30, createdAt: 0 },
+        0,
+        activeElapsedMs(worked, 0)
+      )
+    ).toContain('30-minute time budget')
+  })
+
+  it('treats a run persisted before these fields existed as having worked nothing', () => {
+    const legacy = { activeMs: undefined, activeSinceAt: undefined } as unknown as AgentRun
+    expect(activeElapsedMs(legacy, 5_000_000)).toBe(0)
   })
 })

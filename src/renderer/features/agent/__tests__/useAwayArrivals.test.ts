@@ -17,6 +17,8 @@ function run(id: string, status: AgentRunStatus): AgentRun {
     maxTokens: 50_000,
     tokensUsed: 1200,
     maxDurationMinutes: 30,
+    activeMs: 0,
+    activeSinceAt: null,
     limitsEnabled: true,
     conversationId: null,
     summary: null,

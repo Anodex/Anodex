@@ -77,6 +77,8 @@ class AgentRunStore {
         request.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES,
         MAX_MAX_DURATION_MINUTES
       ),
+      activeMs: 0,
+      activeSinceAt: null,
       limitsEnabled: request.limitsEnabled ?? true,
       conversationId: null,
       summary: null,

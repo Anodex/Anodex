@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AgentRun } from '@shared/agentRun.types'
+import { activeElapsedMs, type AgentRun } from '@shared/agentRun.types'
 import type { ChatMessage } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
 import { Icon } from '../../components/Icon'
@@ -132,7 +132,11 @@ function Gauge({
 function BudgetBlock({ run }: { run: AgentRun }): JSX.Element {
   useTick(run.status === 'running')
   const limited = run.limitsEnabled
-  const elapsedMs = (run.status === 'running' ? Date.now() : run.updatedAt) - run.createdAt
+  // The same number the budget check in `AgentRunService` uses. Reading
+  // `now - createdAt` here made the Time gauge climb while a run sat in
+  // `needs-review` waiting to be looked at — which was honest about what the
+  // budget then did, and wrong about both.
+  const elapsedMs = activeElapsedMs(run)
   const maxDurationMs = run.maxDurationMinutes * 60_000
 
   return (

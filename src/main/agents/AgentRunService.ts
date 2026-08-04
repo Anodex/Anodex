@@ -2,7 +2,7 @@ import { IpcChannel } from '@shared/ipc'
 import { broadcastToWindows } from '../broadcast'
 import type { ChatMessage, GenerationStopReason } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
-import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
+import { activeElapsedMs, type AgentRun, type CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { ToolCall } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
@@ -210,6 +210,13 @@ class AgentRunService {
     const controller = new AbortController()
     this.activeController = controller
     log.info('Starting agent run:', run.id, run.goal)
+    // Open an execution segment. The budget is measured against time actually
+    // spent working, not against `now - createdAt`, so a plan that waited on a
+    // human does not arrive here with its budget already spent — see
+    // `AgentRun.activeMs`.
+    const segment = { activeMs: run.activeMs ?? 0, activeSinceAt: Date.now() }
+    const workedMs = (): number => activeElapsedMs(segment)
+    agentRunStore.update(run.id, { activeSinceAt: segment.activeSinceAt })
 
     const enabledTools = buildRunEnabledTools(run)
     // Never touches the user's global `provider.active` setting — see
@@ -234,12 +241,7 @@ class AgentRunService {
       // loop ever starts — see `runPreflightReason`'s doc comment for why
       // that needs a check here, before the loop, and not just the
       // post-turn one already further down.
-      const preflightReason = runPreflightReason(
-        run,
-        startTurn,
-        tokensUsed,
-        Date.now() - run.createdAt
-      )
+      const preflightReason = runPreflightReason(run, startTurn, tokensUsed, workedMs())
       if (preflightReason) {
         this.finish(run.id, conversation.id, 'stopped', null, preflightReason)
         return
@@ -294,7 +296,7 @@ class AgentRunService {
         }
 
         if (run.limitsEnabled) {
-          const budgetReason = budgetExceededReason(run, tokensUsed, Date.now() - run.createdAt)
+          const budgetReason = budgetExceededReason(run, tokensUsed, workedMs())
           if (budgetReason) {
             this.finish(run.id, conversation.id, 'stopped', null, budgetReason)
             return
@@ -342,8 +344,13 @@ class AgentRunService {
       }
       this.finish(run.id, conversation.id, 'error', null, message)
     } finally {
+      // The lock is released first, unconditionally. `agentRunStore.update`
+      // throws for a run that no longer exists — deleted while it was
+      // generating — and a throw from in here would skip the two assignments
+      // below and wedge the service against every future run.
       this.runningRunId = null
       this.activeController = null
+      this.bankSegment(run.id, workedMs())
     }
   }
 
@@ -368,6 +375,11 @@ class AgentRunService {
     const controller = new AbortController()
     this.activeController = controller
     log.info('Starting plan review phase for agent run:', run.id, run.goal)
+    // Planning is the agent working, so it is banked like any other segment.
+    // The wait for approval that follows it is not, which is the whole point of
+    // measuring segments rather than `now - createdAt` — see `AgentRun.activeMs`.
+    const segment = { activeMs: run.activeMs ?? 0, activeSinceAt: Date.now() }
+    agentRunStore.update(run.id, { activeSinceAt: segment.activeSinceAt })
 
     const planningTools = new Set(PLANNING_TOOLS)
     const providerOverride = { provider: run.provider, model: run.model ?? undefined }
@@ -464,8 +476,10 @@ class AgentRunService {
         error instanceof Error ? error.message : 'Run failed.'
       )
     } finally {
+      // Lock first — see the identical ordering in `runLoop`.
       this.runningRunId = null
       this.activeController = null
+      this.bankSegment(run.id, activeElapsedMs(segment))
     }
 
     // Deliberately outside the try/finally above: `approvePlan` re-acquires
@@ -475,7 +489,22 @@ class AgentRunService {
     // overwrite the lock and then have this method's own `finally` clobber it
     // right back to null out from under an execution loop that's actually
     // still running.
-    if (autoApprove) this.approvePlan(run.id)
+    //
+    // Guarded because `approvePlan` throws — for a run deleted while it was
+    // planning, most plausibly — and this whole method is started with `void`,
+    // so a throw here is an unhandled rejection in the main process and a run
+    // left sitting in `needs-review` that untethered mode promised would never
+    // need a click.
+    if (!autoApprove) return
+    try {
+      this.approvePlan(run.id)
+    } catch (error) {
+      log.error('Could not auto-approve plan for agent run:', run.id, error)
+      agentRunStore.update(run.id, {
+        lastError: error instanceof Error ? error.message : 'Could not start the approved plan.'
+      })
+      this.broadcastRunsChanged()
+    }
   }
 
   /**
@@ -657,6 +686,26 @@ class AgentRunService {
       archivedAt: undefined,
       updatedAt: Date.now()
     })
+  }
+
+  /**
+   * Close the current work segment: fold its elapsed time into `activeMs` and
+   * clear `activeSinceAt`, so the next segment resumes from a banked total and
+   * a live view stops adding in-flight time.
+   *
+   * Failure here is swallowed on purpose. This runs from a `finally` whose job
+   * is releasing the run lock, and the one way it fails — the run having been
+   * deleted mid-flight — is a case where there is nothing left to record
+   * against. Losing a duration figure for a run that no longer exists is not
+   * worth taking down the service that has already released its lock.
+   */
+  private bankSegment(runId: string, workedMs: number): void {
+    try {
+      agentRunStore.update(runId, { activeMs: workedMs, activeSinceAt: null })
+      this.broadcastRunsChanged()
+    } catch (error) {
+      log.warn('Could not record worked time for agent run:', runId, error)
+    }
   }
 
   private broadcastRunsChanged(): void {

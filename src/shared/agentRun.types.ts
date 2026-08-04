@@ -15,7 +15,7 @@ export const DEFAULT_MAX_TOKENS = 50_000
 /** Hard ceiling a user can configure `maxTokens` up to. */
 export const MAX_MAX_TOKENS = 500_000
 
-/** Default wall-clock budget for a run, in minutes, from `createdAt`. */
+/** Default budget for a run, in minutes of time actually spent working. */
 export const DEFAULT_MAX_DURATION_MINUTES = 30
 
 /** Hard ceiling a user can configure `maxDurationMinutes` up to (4 hours). */
@@ -53,8 +53,30 @@ export interface AgentRun {
   /** Cumulative token budget across every turn. */
   maxTokens: number
   tokensUsed: number
-  /** Wall-clock budget in minutes, measured from `createdAt`. */
+  /** Wall-clock budget in minutes, measured against `activeMs` — time spent working. */
   maxDurationMinutes: number
+  /**
+   * Milliseconds this run has actually spent generating, summed across its
+   * planning phase and every execution segment.
+   *
+   * Deliberately not `now - createdAt`, which is what the budget used to be
+   * measured against. `requirePlan` defaults to true, so the default shape of a
+   * run is: plan, then sit in `needs-review` until a human looks at it. Charging
+   * that wait to the work budget meant a user who approved a plan after lunch
+   * got a run that stopped on arrival, having executed nothing, blaming a time
+   * budget their own deliberation had spent. Approval is the one part of a run
+   * that is explicitly not the agent working.
+   *
+   * Absent on runs persisted before this field existed; read it through
+   * `activeElapsedMs`.
+   */
+  activeMs: number
+  /**
+   * When the current execution or planning segment started, or null when the
+   * run is not generating. Lets a live view add the in-flight segment to
+   * `activeMs` without waiting for the next turn to persist it.
+   */
+  activeSinceAt: number | null
   /**
    * When false, `maxTurns`/`maxTokens`/`maxDurationMinutes` are never enforced — the
    * run continues until it finishes itself or is stopped manually. The budget values
@@ -97,4 +119,22 @@ export interface CreateAgentRunRequest {
   limitsEnabled?: boolean
   /** Defaults to true — see `AgentRun.requirePlan`. */
   requirePlan?: boolean
+}
+
+/**
+ * How long this run has actually been working: everything already banked in
+ * `activeMs`, plus the segment currently in flight.
+ *
+ * The single reader for both the budget checks in main and the Time gauge in
+ * the renderer, so the number the user watches climb is the same one that
+ * stops the run. `?? 0` covers runs persisted before these fields existed —
+ * their history is lost either way, and starting them from zero is the
+ * forgiving direction.
+ */
+export function activeElapsedMs(
+  run: Pick<AgentRun, 'activeMs' | 'activeSinceAt'>,
+  now = Date.now()
+): number {
+  const banked = run.activeMs ?? 0
+  return run.activeSinceAt ? banked + Math.max(0, now - run.activeSinceAt) : banked
 }

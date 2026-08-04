@@ -17,6 +17,8 @@ function makeRun(overrides: Partial<AgentRun> = {}): AgentRun {
     maxTokens: 50_000,
     tokensUsed: 0,
     maxDurationMinutes: 30,
+    activeMs: 0,
+    activeSinceAt: null,
     limitsEnabled: true,
     conversationId: null,
     summary: null,

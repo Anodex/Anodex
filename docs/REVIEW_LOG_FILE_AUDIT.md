@@ -52,20 +52,20 @@ checked.** `MicrosoftAdapter` was credited with two tests that turned out to be
 below was verified against the real test tree, and `GmailAdapter` is the same
 mirage a second time.
 
-| #   | File                                                                    | Lines | Tests  | Status  | Why it ranks here                                              |
-| --- | ----------------------------------------------------------------------- | ----- | ------ | ------- | -------------------------------------------------------------- |
-| 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0 → 11 | ✅ done | Sends real mail; the last unreviewed adapter, and untested     |
-| 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11     | ☐       | Runs tools autonomously with nobody watching                   |
-| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0      | ☐       | Starts those unattended runs on a timer; no coverage at all    |
-| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29     | ☐       | The entire tool security model, in 192 lines                   |
-| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58     | ☐       | Holds every API key and mail credential, and persists them     |
-| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12     | ☐       | Connects and executes third-party servers' tools               |
-| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32     | ☐       | Largest unreviewed file; the sidecar a run's citations live in |
-| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*    | ☐       | Last unreviewed cloud provider; both siblings had real bugs    |
-| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9      | ☐       | Decides what the model is told it can do; thin for its size    |
-| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15     | ☐       | History and token budgeting on every local turn                |
-| 11  | `src/preload/index.ts`                                                  | 317   | 0\*\*  | ☐       | The renderer↔main boundary every IPC call crosses              |
-| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5      | ☐       | Writes and deletes files on disk under a thin test             |
+| #   | File                                                                    | Lines | Tests   | Status  | Why it ranks here                                              |
+| --- | ----------------------------------------------------------------------- | ----- | ------- | ------- | -------------------------------------------------------------- |
+| 1   | `src/main/email/providers/GmailAdapter.ts`                              | 479   | 0 → 11  | ✅ done | Sends real mail; the last unreviewed adapter, and untested     |
+| 2   | `src/main/agents/AgentRunService.ts`                                    | 680   | 11 → 16 | ✅ done | Runs tools autonomously with nobody watching                   |
+| 3   | `src/main/scheduler/SchedulerService.ts`                                | 309   | 0       | ☐       | Starts those unattended runs on a timer; no coverage at all    |
+| 4   | `src/main/tools/workspace.ts` + `permissions.ts` + `headlessConfirm.ts` | 192   | 29      | ☐       | The entire tool security model, in 192 lines                   |
+| 5   | `src/main/settings/SettingsStore.ts`                                    | 754   | 58      | ☐       | Holds every API key and mail credential, and persists them     |
+| 6   | `src/main/mcp/McpManager.ts`                                            | 526   | 12      | ☐       | Connects and executes third-party servers' tools               |
+| 7   | `src/main/criticalThinking/criticalThinkingEvidence.ts`                 | 839   | 32      | ☐       | Largest unreviewed file; the sidecar a run's citations live in |
+| 8   | `src/main/llm/OpenAiProvider.ts`                                        | 454   | 0\*     | ☐       | Last unreviewed cloud provider; both siblings had real bugs    |
+| 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9       | ☐       | Decides what the model is told it can do; thin for its size    |
+| 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15      | ☐       | History and token budgeting on every local turn                |
+| 11  | `src/preload/index.ts`                                                  | 317   | 0\*\*   | ☐       | The renderer↔main boundary every IPC call crosses              |
+| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5       | ☐       | Writes and deletes files on disk under a thin test             |
 
 \* No direct suite, but genuinely exercised by `cloudRoundResilience.test.ts` and
 `CloudProviderVision.test.ts`, which import the real provider.
@@ -2601,3 +2601,97 @@ body. The other six are the guards — a normal label move still drops `INBOX`, 
 unknown label is still refused by name, search still carries both `q` and
 `labelIds`, a plain listing still defaults to the inbox while a search does not,
 a fully-read thread stays read, and the plain-text part still wins over HTML.
+
+## Round three, 2. `src/main/agents/AgentRunService.ts` — done
+
+680 lines driving the one surface where tools execute with nobody watching. Its
+existing 11 tests cover the two pure functions deliberately extracted for that
+purpose (`buildRunEnabledTools`, `runPreflightReason`); the loop itself needs the
+whole generation stack and had none.
+
+### Bugs fixed
+
+**3.2.1 A run's time budget was spent waiting for a human to approve its plan.**
+Both budget checks measured elapsed time as `Date.now() - run.createdAt`:
+
+```ts
+const preflightReason = runPreflightReason(run, startTurn, tokensUsed, Date.now() - run.createdAt)
+…
+const budgetReason = budgetExceededReason(run, tokensUsed, Date.now() - run.createdAt)
+```
+
+`requirePlan` defaults to `true`, so the default shape of a run is: plan, then
+park in `needs-review` until a person looks at it. That wait is wall-clock time
+since `createdAt`, so it was charged to the work budget. Start a run, go to
+lunch, approve the plan an hour later, and `runPreflightReason` stops it on
+arrival — zero execution turns, planning tokens spent for nothing, and a message
+blaming a 30-minute time budget the user's own deliberation had consumed. The
+default duration budget is 30 minutes, so "approved after lunch" is all it takes.
+
+`runPreflightReason`'s own doc comment shows this was unconsidered rather than
+decided: it reasons carefully about planning _turns and tokens_ being spent
+against the same budget before the loop starts, and never mentions the waiting.
+
+The budget now measures work. `AgentRun` gained `activeMs` (banked across
+segments) and `activeSinceAt` (the segment in flight), with one shared reader,
+`activeElapsedMs`, used by the service and the renderer alike — so the number the
+user watches climb in the Time gauge is the same one that stops the run. The
+gauge previously read `now - createdAt` too, which meant it visibly counted up
+while a run sat unapproved: honest about what the budget then did, and wrong
+about both. Planning still counts as work, because it is; only the wait does not.
+
+`budgetExceededReason` was left alone — it already took `elapsedMs` as a
+parameter, so every existing test of it still holds and the defect was entirely
+in what the callers passed.
+
+**3.2.2 Auto-approval could strand a run and take down nothing but itself,
+silently.** `runPlanningPhase` ends with `if (autoApprove) this.approvePlan(run.id)`,
+and `approvePlan` throws — for a run deleted while it was planning, most
+plausibly. The method is started with `void`, so that throw is an unhandled
+rejection in the main process and a run left sitting in `needs-review` that
+untethered mode had promised would never need a click. Now caught, logged, and
+recorded on the run as `lastError`.
+
+**3.2.3 (introduced and fixed in this pass) bookkeeping in a `finally` could
+wedge the service.** The first version of the segment accounting wrote to the
+store at the top of both `finally` blocks, above the two assignments that release
+the run lock. `agentRunStore.update` throws for a run that no longer exists, and
+a throw there would have skipped `runningRunId = null` — permanently blocking
+every future run behind "Another agent run is currently in progress." The lock is
+now released first, unconditionally, and the write happens after it through
+`bankSegment`, which swallows its own failure: there is nothing to record against
+for a run that has been deleted, and it is not worth taking down a service that
+has already let go of its lock.
+
+### Assessed, not changed
+
+- **`rejectPlan` asserts `run.conversationId!`.** A run in `needs-review` always
+  has one — `start` creates the conversation before any phase begins — so the
+  assertion holds, but it is an assertion rather than a check.
+- **"Stopped after N turns without finishing" names `maxTurns`,** which for a
+  plan-reviewed run includes the turns planning spent. Accurate about the budget,
+  slightly generous about how much execution actually happened.
+- **`saveConversationTurn` forces `archived: false` every turn,** so archiving a
+  running agent run's conversation is undone by its next turn. Defensible — a
+  conversation still being written to is not finished with — and changing it is a
+  behaviour decision, not a fix.
+- **A stop arriving between turns still starts one more turn**, which returns
+  immediately on the already-aborted signal but persists an empty exchange to the
+  conversation. Cosmetic noise in the transcript, not lost work.
+
+### Tests
+
+`AgentRunService.test.ts` — 5 added (16 total; 40 across the agents suite). The
+budget regression is pinned by a test that asserts both measurements side by
+side: the same parked run, at the same instant, passes under `activeElapsedMs`
+and fails under `now - createdAt` with "30-minute time budget reached". The
+others cover a banked-only run, a run with a segment in flight, a run that really
+has worked past its budget still being stopped, and a run persisted before these
+fields existed reading as zero rather than `NaN`.
+
+**What is not covered.** The wiring inside `runLoop` and `runPlanningPhase` —
+that they open a segment, pass `workedMs()` to both checks, and bank on exit — is
+not directly tested, for the same reason the pure functions were extracted in the
+first place: those methods need `runGeneration`, the store, IPC broadcast, and
+toast windows. Mitigated by both call sites now going through the same
+`activeElapsedMs` the tests exercise, rather than repeating the arithmetic.
