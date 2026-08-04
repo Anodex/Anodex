@@ -65,7 +65,7 @@ mirage a second time.
 | 9   | `src/main/llama/toolSurface.ts`                                         | 499   | 9 → 17    | ✅ done | Decides what the model is told it can do; thin for its size    |
 | 10  | `src/main/llama/contextAssembler.ts`                                    | 436   | 15 → 18   | ✅ done | History and token budgeting on every local turn                |
 | 11  | `src/preload/index.ts`                                                  | 317   | 0\*\* → 8 | ✅ done | The renderer↔main boundary every IPC call crosses              |
-| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5         | ☐       | Writes and deletes files on disk under a thin test             |
+| 12  | `src/main/conversations/ConversationAssetStore.ts`                      | 304   | 5 → 10    | ✅ done | Writes and deletes files on disk under a thin test             |
 
 \* No direct suite, but genuinely exercised by `cloudRoundResilience.test.ts` and
 `CloudProviderVision.test.ts`, which import the real provider.
@@ -3821,3 +3821,151 @@ between them failed four of the eight:
 × stops delivering once unsubscribed
 × unsubscribes only its own listener, not everyone on the channel
 ```
+
+## Round three, 12. `src/main/conversations/ConversationAssetStore.ts` — done
+
+304 lines, 5 tests. Screenshot and preview pixels kept beside conversation JSON
+rather than inside it — so this file writes binary blobs into a directory named
+after a conversation id, and deletes them again on a schedule nothing visible
+controls.
+
+**No live defect.** Two of its checks were dead, but neither was the thing
+keeping the store safe, and nothing escaped through either.
+
+### 1. A path guard that could never fire
+
+```ts
+const dir = resolve(this.baseDir, conversationId)
+const expected = resolve(this.baseDir, conversationId)
+if (dir !== expected) throw new Error('Unsafe conversation asset path.')
+```
+
+The same expression twice. The comparison is a tautology, so the error beneath
+it was unreachable — a security-shaped check doing nothing, of exactly the kind
+this round has now found three times.
+
+Nothing escaped: all four callers ran `assertSafeId` themselves first, and
+`SAFE_ID` (`^[A-Za-z0-9_-]+$`) admits no separator, dot, or drive letter. The
+guard simply was not what made them safe.
+
+Rather than delete it, the validation moved _into_ `dirForConversation` and the
+four duplicate calls came out. That is the one place a conversation id becomes a
+path, so putting the decision there makes it load-bearing: a method added later
+is confined whether or not its author remembers to ask. A real containment check
+(`resolve`d path must sit under a `resolve`d base) sits behind it as a second
+layer.
+
+Verified that layer holds on its own by removing the id validation and watching
+a traversal id still be refused — with `Unsafe conversation asset path.` instead
+of `Unsafe conversation id`, which is precisely the second layer catching what
+the first would have.
+
+### 2. A second dead clause, in the asset-id check
+
+`assertSafeAssetId` tested `!SAFE_ASSET_ID.test(assetId) || extname(assetId) === ''`.
+`SAFE_ASSET_ID` already ends `\.(?:png|jpg|jpeg|gif|bmp)$`, so anything it
+accepts has a non-empty extension and the second half can never reject. Removed.
+
+### What was checked and held
+
+- **Prune cannot delete outside its own directory.** It reads the conversation's
+  directory and removes files not in the keep set, and the keep set only ever
+  admits ids matching `SAFE_ASSET_ID` whose `preview.asset.conversationId`
+  matches the conversation being pruned — so a transcript claiming an asset in
+  someone else's conversation cannot protect or reach it.
+- **The keep set covers both places a preview can live.** `ChatMessage` carries
+  tool calls in `toolCalls` _and_ in `blocks[].call`, and `collectVisualPreviewAssetIds`
+  reads both. `MessageBlock`'s union has no third variant holding a `ToolCall`,
+  so there is no reference the collector cannot see — which matters, because
+  anything it fails to recognise is deleted.
+- **The eviction never deletes the asset it was called for.** `enforceLimits`
+  passes the just-written path as `protectedPath`, so a save that itself pushes
+  the conversation over its limit sheds older assets rather than the new one.
+- **Decoding validates three ways before anything is written** — the data URL's
+  prefix must match the declared MIME type, the byte length must equal the
+  declared `sizeBytes`, and the magic bytes must match the extension. Reads
+  re-check the signature, so a file swapped on disk cannot come back as a
+  different format.
+
+### Deliberate non-changes
+
+- **`pruneConversation` runs on every conversation read**, from
+  `ConversationStore.readFile`, doing a synchronous `readdirSync` per
+  conversation as the cache is built. On a large library that is real startup
+  I/O. Moving it off the read path is a scheduling change with its own
+  correctness questions (assets would outlive the transcript until whatever ran
+  instead), not a tidy-up.
+- **There is a narrow window where an asset can be pruned before its reference
+  is persisted** — written by a tool mid-turn, referenced only in memory, and
+  deleted if that conversation happens to be read from disk before the turn is
+  saved. In practice `readFile` runs once per conversation while the cache is
+  built, which is before generation; and the failure is recoverable, since
+  `saveVisualPreviewAsset` already treats a missing asset as "live rendering
+  works, restart recovery does not".
+- **`enforceLimits` lists and stats every asset twice per saved image.** With a
+  256 MB ceiling and megabyte screenshots that is hundreds of `stat` calls per
+  save. Worth revisiting against a measurement rather than a guess.
+- **`decodeImageDataUrl` compares the data-URL prefix case-sensitively** while
+  `extensionForMimeType` lowercases, so `image/PNG` would be rejected as an
+  invalid data URL. The caller already degrades to live-render-only, and no
+  producer emits a non-lowercase MIME type.
+
+### Tests
+
+`ConversationAssetStore.test.ts` — 5 added (10 total). The existing prune test
+covered only `toolCalls`; nothing covered the `blocks` path, the directory being
+removed when it empties, or confinement.
+
+**All ten pass against the real pre-fix file, because nothing was broken.** The
+new checks were verified by breaking what they protect, as in files 9 and 11.
+
+**A false signal, caught.** My first pre-fix run reported one failure — but I
+had rebuilt the "before" state by hand and left out the `assertSafeId` calls the
+committed file actually had, so the failure was my reconstruction, not the code.
+Re-run against `git show HEAD:` and all ten passed. Third time this round that a
+hand-made baseline has lied; the lesson is the same each time — take the
+baseline from git, not from memory.
+
+## Round three — closed
+
+All twelve done. 166 → 226 tests across the reviewed files; the suite went from
+2,445 to 2,566.
+
+**What the round actually found.** Eight of the twelve had a live defect; four
+(9, 11, 12, and the `headlessConfirm` third of 4) were correct as written, and
+saying so is part of the result rather than a failure to find something. The
+live ones clustered in two shapes:
+
+- **Guards written for one spelling of a thing.** `rm -f -r` unrecognised
+  because the pattern only knew `-r -f`; a dangling symlink invisible to the
+  workspace check because `existsSync` follows links; a fabricated quotation
+  unchecked because the pattern excluded newlines; `[[s1]]` invisible to every
+  citation validator because only uppercase was normalised. Each looked
+  deliberate and each had a spelling nobody had tried.
+- **Policy copied instead of shared.** Nine of twelve providers unselectable
+  because `validatePatch` kept its own list of three; `maxDirectToolsForContext`
+  byte-identical in two transports; `GATEWAY_TOOL_COUNT` hardcoded against
+  another file's array; the compaction report summing tokens its own way. All
+  agreed on the day they were written.
+
+**The most expensive single defect** was the scheduler's lock leak: one failed
+conversation write stopped every scheduled task for the life of the process,
+silently, with the task left permanently due and retried every thirty seconds.
+
+**Three dead security-shaped checks** turned up — `isGithubTool`'s second
+branch, `assertSafeAssetId`'s extension test, and `dirForConversation` comparing
+an expression to itself. None was load-bearing, all three read as though they
+were.
+
+**On method.** Three times this round a hand-made "before" state produced a
+false signal: a mock missing a method the old code called, a `git stash` broken
+by a file rename, and a by-hand reconstruction that omitted validation the
+committed file had. Each was caught by the result looking too good — every test
+failing, or failing for the wrong reason. The rule that survived: take the
+baseline from `git show HEAD:`, never from memory, and read _why_ a test failed
+rather than counting that it did.
+
+**Still open** (both in the cross-cutting table above): conversations are saved
+as whole documents, so the renderer can still clobber a background turn in the
+direction R3 3 did not fix; and only 3 of 12 providers' API keys are encrypted
+at rest.

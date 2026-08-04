@@ -146,3 +146,140 @@ describe('ConversationAssetStore', () => {
     await expect(limited.readImage('conversation-2', other)).resolves.toBeTruthy()
   })
 })
+
+describe('ConversationAssetStore — what prune counts as still referenced', () => {
+  let root: string
+  let store: ConversationAssetStore
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'anodex-conversation-assets-'))
+    store = new ConversationAssetStore()
+    store.init(root)
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  /** A conversation whose only reference to `assetId` is through `blocks`. */
+  function conversationWithBlockPreview(assetId: string): Conversation {
+    return {
+      id: 'conversation-1',
+      projectId: null,
+      title: 'Visual test',
+      messages: [
+        {
+          id: 'message-1',
+          role: 'assistant',
+          content: 'Done.',
+          createdAt: 1,
+          blocks: [
+            {
+              type: 'tool',
+              call: {
+                id: 'tool-1',
+                name: 'inspect_visual',
+                kind: 'read',
+                title: 'Inspect page.html',
+                status: 'success',
+                preview: {
+                  kind: 'image',
+                  title: 'Rendered page.html',
+                  path: 'page.html',
+                  mimeType: 'image/png',
+                  asset: { conversationId: 'conversation-1', id: assetId }
+                }
+              }
+            }
+          ]
+        }
+      ],
+      createdAt: 1,
+      updatedAt: 1
+    }
+  }
+
+  it('keeps an asset referenced only through a message block', async () => {
+    // `blocks` is where the renderer keeps interleaved tool calls, so this is
+    // the ordinary shape for anything recent. Prune runs on every conversation
+    // read, and anything it fails to recognise as referenced is deleted.
+    const assetId = await store.saveImage('conversation-1', 'message-1', IMAGE)
+
+    store.pruneConversation(conversationWithBlockPreview(assetId))
+
+    await expect(store.readImage('conversation-1', assetId)).resolves.toBeTruthy()
+  })
+
+  it('ignores a preview that claims to belong to a different conversation', async () => {
+    // The asset id alone is not authority to keep a file in this directory.
+    const assetId = await store.saveImage('conversation-1', 'message-1', IMAGE)
+    const conversation = conversationWithBlockPreview(assetId)
+    const block = conversation.messages[0].blocks?.[0]
+    if (
+      block?.type === 'tool' &&
+      block.call.preview?.kind === 'image' &&
+      block.call.preview.asset
+    ) {
+      block.call.preview.asset.conversationId = 'somewhere-else'
+    }
+
+    store.pruneConversation(conversation)
+
+    await expect(store.readImage('conversation-1', assetId)).rejects.toThrow()
+  })
+
+  it('takes the now-empty conversation directory with it', async () => {
+    const assetId = await store.saveImage('conversation-1', 'message-1', IMAGE)
+    expect((await store.getUsage()).conversationCount).toBe(1)
+
+    store.pruneConversation({
+      ...conversationWithBlockPreview(assetId),
+      messages: []
+    })
+
+    expect((await store.getUsage()).fileCount).toBe(0)
+    expect((await store.getUsage()).conversationCount).toBe(0)
+  })
+})
+
+describe('ConversationAssetStore — path confinement at the choke point', () => {
+  let root: string
+  let store: ConversationAssetStore
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'anodex-conversation-assets-'))
+    store = new ConversationAssetStore()
+    store.init(root)
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('refuses a traversal id on every method that resolves a directory', async () => {
+    // Validation lives in `dirForConversation` now, so it holds for whichever
+    // method reaches it rather than depending on each one asking first.
+    await expect(store.saveImage('../outside', 'message-1', IMAGE)).rejects.toThrow(
+      'Unsafe conversation id'
+    )
+    await expect(store.readImage('../outside', 'preview.png')).rejects.toThrow()
+    expect(() => store.removeConversation('../outside')).toThrow('Unsafe conversation id')
+    expect(() =>
+      store.pruneConversation({
+        id: '../outside',
+        projectId: null,
+        title: 'x',
+        messages: [],
+        createdAt: 1,
+        updatedAt: 1
+      })
+    ).toThrow('Unsafe conversation id')
+  })
+
+  it('refuses an absolute id, and an empty one', async () => {
+    await expect(store.saveImage('/etc', 'message-1', IMAGE)).rejects.toThrow(
+      'Unsafe conversation id'
+    )
+    await expect(store.saveImage('', 'message-1', IMAGE)).rejects.toThrow('Unsafe conversation id')
+  })
+})

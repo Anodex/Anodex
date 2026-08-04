@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, rmSync, rmdirSync } from 'node:fs'
 import { readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { extname, join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import type { ChatImageInput } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import type { ToolCallPreview, VisualPreviewContent } from '@shared/tools.types'
@@ -57,7 +57,6 @@ export class ConversationAssetStore {
     image: ChatImageInput
   ): Promise<string> {
     this.assertInitialized()
-    assertSafeId(conversationId, 'conversation id')
     assertSafeId(messageId, 'message id')
 
     const extension = extensionForMimeType(image.mimeType)
@@ -76,7 +75,6 @@ export class ConversationAssetStore {
 
   async readImage(conversationId: string, assetId: string): Promise<VisualPreviewContent> {
     this.assertInitialized()
-    assertSafeId(conversationId, 'conversation id')
     assertSafeAssetId(assetId)
 
     const filePath = join(this.dirForConversation(conversationId), assetId)
@@ -103,7 +101,6 @@ export class ConversationAssetStore {
    */
   pruneConversation(conversation: Conversation): void {
     this.assertInitialized()
-    assertSafeId(conversation.id, 'conversation id')
     const dir = this.dirForConversation(conversation.id)
     if (!existsSync(dir)) return
 
@@ -122,7 +119,6 @@ export class ConversationAssetStore {
 
   removeConversation(conversationId: string): void {
     this.assertInitialized()
-    assertSafeId(conversationId, 'conversation id')
     const dir = this.dirForConversation(conversationId)
     if (!existsSync(dir)) return
     try {
@@ -198,10 +194,24 @@ export class ConversationAssetStore {
     return assets
   }
 
+  /**
+   * The one place a conversation id becomes a directory path, and therefore
+   * the right place to decide whether it may.
+   *
+   * This used to compare `resolve(baseDir, id)` against `resolve(baseDir, id)`
+   * — the same expression twice, so the guard it looks like could never fire.
+   * Nothing escaped through it, because all four callers validated the id
+   * themselves first; the check simply was not the thing keeping them safe.
+   * Validating here instead makes it load-bearing, so a method added later is
+   * confined whether or not its author remembers to ask.
+   */
   private dirForConversation(conversationId: string): string {
-    const dir = resolve(this.baseDir, conversationId)
-    const expected = resolve(this.baseDir, conversationId)
-    if (dir !== expected) throw new Error('Unsafe conversation asset path.')
+    assertSafeId(conversationId, 'conversation id')
+    const base = resolve(this.baseDir)
+    const dir = resolve(base, conversationId)
+    if (dir === base || !dir.startsWith(`${base}${sep}`)) {
+      throw new Error('Unsafe conversation asset path.')
+    }
     return dir
   }
 
@@ -296,7 +306,10 @@ function assertSafeId(id: string, label: string): void {
 }
 
 function assertSafeAssetId(assetId: string): void {
-  if (!SAFE_ASSET_ID.test(assetId) || extname(assetId) === '') {
+  // `SAFE_ASSET_ID` already requires one of the supported extensions, so the
+  // `extname(assetId) === ''` half this also tested could never reject
+  // anything the pattern had accepted.
+  if (!SAFE_ASSET_ID.test(assetId)) {
     throw new Error(`Unsafe visual preview asset id: "${assetId}"`)
   }
 }
