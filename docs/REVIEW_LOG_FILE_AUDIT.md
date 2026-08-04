@@ -47,22 +47,22 @@ wrong, times untested, times centrality — not size. Test counts are files that
 mention the module, checked against the real test tree rather than a filename
 guess (the mistake that made round one's first table wrong).
 
-| #   | File                                                                          | Lines | Tests | Status  | Why it ranks here                                           |
-| --- | ----------------------------------------------------------------------------- | ----- | ----- | ------- | ----------------------------------------------------------- |
-| 1   | `src/main/tools/fileTools.ts`                                                 | 748   | 1 → 4 | ✅ done | The model's whole read view of the workspace                |
-| 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1 → 3 | ✅ done | Runs arbitrary shell commands                               |
-| 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2 → 6 | ✅ done | The write path proper                                       |
-| 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1 → 3 | ✅ done | Sends real mail on the user's behalf — irreversible         |
-| 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4 → 8 | ✅ done | The undo for all of the above                               |
-| 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1 → 3 | ✅ done | Local vision transport, never read end to end               |
-| 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2 → 3 | ✅ done | Mid-generation context surgery                              |
-| 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3 → 4 | ✅ done | Largest unreviewed file; long unattended runs               |
-| 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1     | ✅ done | Drives the research loop                                    |
-| 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3 → 6 | ✅ done | Fetches untrusted content the model then acts on            |
-| 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 0 → 5 | ✅ done | The unreviewed third mail adapter                           |
-| 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0 → 8 | ✅ done | Every message starts here                                   |
-| 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0 → 7 | ✅ done | Handles API keys                                            |
-| 13  | `src/main/tools/helpers.ts`                                                   | 501   | 26    | ☐       | Best-covered module in the tree; read at the user’s request |
+| #   | File                                                                          | Lines | Tests   | Status  | Why it ranks here                                           |
+| --- | ----------------------------------------------------------------------------- | ----- | ------- | ------- | ----------------------------------------------------------- |
+| 1   | `src/main/tools/fileTools.ts`                                                 | 748   | 1 → 4   | ✅ done | The model's whole read view of the workspace                |
+| 1b  | `src/main/tools/commandTools.ts`                                              | 130   | 1 → 3   | ✅ done | Runs arbitrary shell commands                               |
+| 2   | `src/main/tools/mutationTools.ts`                                             | 509   | 2 → 6   | ✅ done | The write path proper                                       |
+| 3   | `src/main/tools/emailTools.ts`                                                | 1238  | 1 → 3   | ✅ done | Sends real mail on the user's behalf — irreversible         |
+| 4   | `src/main/checkpoints/CheckpointStore.ts`                                     | 436   | 4 → 8   | ✅ done | The undo for all of the above                               |
+| 5   | `src/main/llama/LlamaVisionService.ts`                                        | 1257  | 1 → 3   | ✅ done | Local vision transport, never read end to end               |
+| 6   | `src/main/llama/contextShiftStrategy.ts`                                      | 979   | 2 → 3   | ✅ done | Mid-generation context surgery                              |
+| 7   | `src/main/criticalThinking/CriticalThinkingService.ts`                        | 2024  | 3 → 4   | ✅ done | Largest unreviewed file; long unattended runs               |
+| 8   | `src/main/criticalThinking/CriticalThinkingResearchRunner.ts`                 | 1398  | 1       | ✅ done | Drives the research loop                                    |
+| 9   | `src/main/tools/webTools.ts`                                                  | 598   | 3 → 6   | ✅ done | Fetches untrusted content the model then acts on            |
+| 10  | `src/main/email/providers/MicrosoftAdapter.ts`                                | 528   | 0 → 5   | ✅ done | The unreviewed third mail adapter                           |
+| 11  | `src/renderer/features/chat/ChatComposer.tsx`                                 | 690   | 0 → 8   | ✅ done | Every message starts here                                   |
+| 12  | `src/renderer/features/settings/pages/ai-models/ProviderConnectionsPanel.tsx` | 867   | 0 → 7   | ✅ done | Handles API keys                                            |
+| 13  | `src/main/tools/helpers.ts`                                                   | 501   | 44 → 47 | ✅ done | Best-covered module in the tree; read at the user’s request |
 
 Why 1–4 lead: round one's worst findings were all in code that persists, moves
 or sends the user's data — a failed write destroying a conversation, an
@@ -2293,3 +2293,81 @@ Settings → AI & Models, setting a daily cap on one simple cloud provider,
 selecting another, and seeing the field empty rather than carrying the first
 provider's number. Adding a DOM test environment would close this gap for the
 renderer generally and is worth its own decision, not a side effect of this file.
+
+## Round two, 13. `src/main/tools/helpers.ts` — done
+
+501 lines, and the best-covered module in the tree at 44 tests before this pass
+— read at the user's request precisely because good coverage is not the same as
+having been read. One bug, in the one path the existing tests did not reach.
+
+### Bug fixed
+
+**13.1 A `prepare()` failure was reported on a card the user was not
+watching.** `runReadTool` and `runGuardedTool` both open with the same line:
+
+```ts
+const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
+```
+
+That claims the provisional card `PendingToolCallTracker` puts on screen while
+the model is still _generating_ a file write's parameters, so the real
+running/success/error emits resolve the card in place. `runGuardedToolWithPrepare`
+did it everywhere except its own `prepare()` catch, which minted a fresh
+`randomUUID()`.
+
+The overlap is total, which is what makes it reachable rather than theoretical:
+
+| Provisional cards (`TRACKED_TOOLS`)     | `runGuardedToolWithPrepare` users                                   |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| `write_file`, `edit_file`, `patch_file` | `write_file`, `edit_file`, `patch_file`, `delete_file`, `move_file` |
+
+All three tracked tools go through this function, and `prepare()` is where
+their input validation lives — a path outside the workspace, a missing file,
+an `oldText` the file does not contain, which is `edit_file`'s single commonest
+failure. Every one of those produced **two** cards: the provisional one the user
+had watched stream in, left unclaimed and swept at the end of the round as
+"Interrupted", plus a second one carrying the actual reason. The card attached
+to the call they were watching was the one that did not say what went wrong.
+
+Fixed by claiming the id here too. Exactly one claim happens on either path —
+this one on failure, `runGuardedTool`'s on success — so nothing is left for the
+sweep and nothing is double-claimed by a later call of the same tool.
+
+### Assessed, not changed
+
+- **Plan bookkeeping satisfies `finish_goal`'s "real action" precondition, and
+  the two sides of that disagree in the source.** `markProgress` sets
+  `progress.madeChange` for any successful call whose `kind` is not `'read'`,
+  which includes `write_plan` and `update_plan_step` (`kind: 'plan'`).
+  `finish_goal`'s own refusal message enumerates what should count — "creating
+  or editing a file, running a command, sending an email, etc." — and writing a
+  plan is not on it. So a model that calls `write_plan` and then `finish_goal`
+  clears a guard that exists to stop exactly that: a completion claim with no
+  action behind it. **Left alone deliberately.** `helpers.test.ts:252` already
+  pins the current behaviour by name ("runReadTool marks progress for a non-read
+  kind (e.g. `write_plan`)"), so this is someone's stated intent rather than an
+  oversight, and narrowing it is a behaviour change for the user to decide. If
+  it should change, the fix is one clause in `markProgress` excluding
+  `kind === 'plan'`; `'web'` should keep counting, since a search is real work
+  for a research goal.
+- **A denial's reason does survive history replay.** The `denied` emit sets
+  `detail` and no `result`, but `rememberToolCallForModel` reads
+  `result ?? detail ?? ''`, so `Denied: <reason>` is what a later turn sees.
+  Checked rather than assumed, because the reverse would mean the model retrying
+  something the user had told it not to do.
+- **`runGuardedToolWithPrepare` runs `prepare()` before `beforeTool` and the
+  loop guard**, so a budget-exhausted or looping call still pays for its
+  validation, and a `prepare()` failure is reported instead of "Blocked:
+  execution budget reached". `prepare()` is read-only by contract, so this costs
+  a little work and a less precise message, not correctness.
+- **`truncateModelResult` reports `bytes`** where `String.length` counts UTF-16
+  code units. Wrong for any non-ASCII result, but it is a note to the model
+  about size, not a value anything computes from.
+
+### Tests
+
+`helpers.test.ts` — 3 added (47 total). One fails against the pre-fix file: a
+`prepare()` rejection emitting under a fresh UUID instead of the claimed
+`provisional-2`. The other two are the guards around it — the success path still
+resolves the same provisional card end to end, and a call with nothing
+pre-emitted still falls back to a fresh id.

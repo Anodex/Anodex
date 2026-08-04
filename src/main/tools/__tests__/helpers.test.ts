@@ -1,8 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { join, resolve } from 'node:path'
 import type { FileTouchAction } from '@shared/projectMemory.types'
-import { composeDenialMessage, runGuardedTool, runReadTool } from '../helpers'
-import { createMockContext, captureConfirmations } from './test-helpers'
+import {
+  composeDenialMessage,
+  runGuardedTool,
+  runGuardedToolWithPrepare,
+  runReadTool
+} from '../helpers'
+import { createMockContext, captureCalls, captureConfirmations } from './test-helpers'
 
 /**
  * An absolute workspace root on whatever OS is running the suite.
@@ -684,5 +689,94 @@ describe('model-result runtime budget clamping', () => {
 
     expect(result).toContain('No room left')
     expect(result).not.toContain('plenty of real content')
+  })
+})
+
+describe('runGuardedToolWithPrepare — provisional card handoff', () => {
+  const root = WORKSPACE_ROOT
+
+  /**
+   * Mirrors `PendingToolCallTracker.claim`: hands out the provisional id the
+   * streaming UI already showed, once, then reports a miss.
+   */
+  function pendingTracker(
+    name: string,
+    id: string
+  ): {
+    claim: (tool: string) => string | undefined
+    claimed: () => number
+  } {
+    let claims = 0
+    return {
+      claimed: () => claims,
+      claim: (tool) => {
+        if (tool !== name || claims > 0) return undefined
+        claims += 1
+        return id
+      }
+    }
+  }
+
+  it('resolves the provisional card when prepare succeeds', async () => {
+    const { calls, emit } = captureCalls()
+    const tracker = pendingTracker('write_file', 'provisional-1')
+    const ctx = {
+      ...createMockContext(root),
+      permissionMode: 'untethered' as const,
+      emit,
+      claimPendingToolCallId: tracker.claim
+    }
+
+    await runGuardedToolWithPrepare(
+      ctx,
+      { name: 'write_file', kind: 'write', title: 'Write foo.ts', risk: 'safe' },
+      () => Promise.resolve({ confirmDetail: 'foo.ts', data: 1 }),
+      () => Promise.resolve({ modelResult: 'written' })
+    )
+
+    expect(calls.every((call) => call.id === 'provisional-1')).toBe(true)
+    expect(calls.at(-1)?.status).toBe('success')
+  })
+
+  // The regression: `edit_file`'s commonest failure is an `oldText` the file
+  // does not contain, and that is raised in `prepare()`. The error used to be
+  // emitted under a fresh id, leaving the card the user watched stream in
+  // unclaimed — so it was swept as "Interrupted" while a second card carried
+  // the real reason.
+  it('reports a prepare failure on the provisional card, not a second one', async () => {
+    const { calls, emit } = captureCalls()
+    const tracker = pendingTracker('edit_file', 'provisional-2')
+    const ctx = { ...createMockContext(root), emit, claimPendingToolCallId: tracker.claim }
+
+    const result = await runGuardedToolWithPrepare(
+      ctx,
+      { name: 'edit_file', kind: 'write', title: 'Edit foo.ts', risk: 'safe' },
+      () => Promise.reject(new Error('oldText not found in foo.ts')),
+      () => Promise.resolve({ modelResult: 'unreachable' })
+    )
+
+    expect(result).toBe('Error: oldText not found in foo.ts')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].id).toBe('provisional-2')
+    expect(calls[0].status).toBe('error')
+    // Claimed exactly once, so nothing is left for the round sweep to mark
+    // "Interrupted" and nothing is double-claimed by a later call.
+    expect(tracker.claimed()).toBe(1)
+  })
+
+  it('falls back to a fresh id when nothing was pre-emitted', async () => {
+    const { calls, emit } = captureCalls()
+    const ctx = { ...createMockContext(root), emit, claimPendingToolCallId: () => undefined }
+
+    await runGuardedToolWithPrepare(
+      ctx,
+      { name: 'delete_file', kind: 'write', title: 'Delete foo.ts', risk: 'destructive' },
+      () => Promise.reject(new Error('foo.ts does not exist')),
+      () => Promise.resolve({ modelResult: 'unreachable' })
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].id).toEqual(expect.any(String))
+    expect(calls[0].status).toBe('error')
   })
 })

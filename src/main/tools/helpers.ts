@@ -480,7 +480,19 @@ export async function runGuardedToolWithPrepare<TData>(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     ctx.emit({
-      id: randomUUID(),
+      // Claimed here, exactly as `runGuardedTool` and `runReadTool` do on
+      // their own first line. This path used to mint a fresh id instead, and
+      // it is the one path where that is most visible: `write_file`,
+      // `edit_file`, and `patch_file` are simultaneously the only tools with a
+      // provisional streaming card (`PendingToolCallTracker`'s `TRACKED_TOOLS`)
+      // and all users of this function. A failing `prepare()` — a path outside
+      // the workspace, a missing file, an `oldText` that isn't in the file,
+      // which is edit_file's single commonest failure — therefore emitted the
+      // real error onto a brand-new card while the card the user had watched
+      // fill in was left unclaimed, to be swept at the end of the round as
+      // "Interrupted". One failed call, two cards, and the one naming the
+      // actual reason was not the one attached to the call they were watching.
+      id: ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID(),
       name: spec.name,
       kind: spec.kind,
       title: spec.title,
