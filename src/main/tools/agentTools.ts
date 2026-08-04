@@ -43,10 +43,11 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
           // of a silently-accepted, possibly fabricated "done".
           if (!ctx.progress.madeChange) {
             throw new Error(
-              'No other tool call has succeeded yet this turn, so this cannot be accepted as ' +
-                'the goal being complete — a claim of completion needs real action behind it. ' +
-                'If the goal requires doing something (creating or editing a file, running a ' +
-                'command, sending an email, etc.), do that first, then call finish_goal again. ' +
+              'Nothing has been done yet this turn, so this cannot be accepted as the goal ' +
+                'being complete — a claim of completion needs real action behind it. Reading ' +
+                'files and writing or updating the plan do not count: they describe the work ' +
+                'rather than carry it out. Do the thing the goal asks for (create or edit a ' +
+                'file, run a command, send an email, and so on), then call finish_goal again. ' +
                 'If the goal is already satisfied or you genuinely cannot make further ' +
                 'progress, explain why in your reply instead of calling finish_goal.'
             )

@@ -264,12 +264,19 @@ function normalizeTouchPath(ctx: ToolRuntimeContext, path: string): string {
 }
 
 /**
- * Marks `ctx.progress` once a non-read tool call succeeds — see
- * `ToolRuntimeContext.progress`'s doc comment. Excludes `finish_goal` itself
- * so it can never satisfy its own precondition.
+ * Marks `ctx.progress` once a tool call that did real work succeeds — see
+ * `ToolRuntimeContext.progress`'s doc comment.
+ *
+ * `read` and `plan` kinds are both excluded, and for the same reason. Reading
+ * is not doing, and neither is writing down what you intend to do: an agent
+ * run exists to carry out the goal it was given, so `write_plan` and
+ * `update_plan_step` describing the work must not let `finish_goal` declare
+ * the work done. Before this, a run could write a plan, tick a step, and
+ * finish without touching a file. `finish_goal` is `plan`-kind itself, which
+ * is what already stopped it satisfying its own precondition.
  */
 function markProgress(ctx: ToolRuntimeContext, spec: { name: string; kind: ToolKind }): void {
-  if (spec.name !== 'finish_goal' && spec.kind !== 'read') {
+  if (spec.kind !== 'read' && spec.kind !== 'plan') {
     ctx.progress.madeChange = true
   }
 }

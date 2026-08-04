@@ -254,7 +254,10 @@ describe('ctx.progress (finish_goal fabrication guard)', () => {
     expect(ctx.progress.madeChange).toBe(false)
   })
 
-  it('runReadTool marks progress for a non-read kind (e.g. write_plan)', async () => {
+  it('runReadTool does not mark progress for plan bookkeeping', async () => {
+    // Writing down an intention is not carrying it out. An agent run exists to
+    // do the work it was given, so a plan a model wrote for itself must not let
+    // `finish_goal` declare that work done.
     const ctx = createMockContext(root)
     await runReadTool(ctx, {
       name: 'write_plan',
@@ -263,10 +266,24 @@ describe('ctx.progress (finish_goal fabrication guard)', () => {
       run: () => Promise.resolve({ modelResult: 'ok' })
     })
 
+    expect(ctx.progress.madeChange).toBe(false)
+  })
+
+  it('runReadTool marks progress for a web-kind call', async () => {
+    // The exclusion is `read` and `plan` specifically, not "anything that is
+    // not a write" — fetching a page is real work a goal can genuinely need.
+    const ctx = createMockContext(root)
+    await runReadTool(ctx, {
+      name: 'fetch_url',
+      kind: 'web',
+      title: 'Fetch',
+      run: () => Promise.resolve({ modelResult: 'ok' })
+    })
+
     expect(ctx.progress.madeChange).toBe(true)
   })
 
-  it('runReadTool never marks progress for finish_goal itself, even though its kind is non-read', async () => {
+  it('runReadTool never marks progress for finish_goal itself', async () => {
     const ctx = createMockContext(root)
     await runReadTool(ctx, {
       name: 'finish_goal',

@@ -95,13 +95,18 @@ export interface ToolRuntimeContext {
   /**
    * Mutable per-generation flag, shared by every tool call in this
    * generation, same pattern as `plan`/`turnGate`/`loopGuard` above — set by
-   * `runReadTool`/`runGuardedTool` (see `helpers.ts`) whenever a non-read
-   * tool call (anything but `kind: 'read'`) succeeds. `finish_goal` (see
-   * `agentTools.ts`) reads this and refuses to report success if nothing
-   * else happened this turn — otherwise a model can call `finish_goal`
-   * claiming work it never did (observed directly: a local model claimed
-   * "Created hello2.txt" three turns running without ever calling
-   * `write_file`, and the file never existed on disk).
+   * `runReadTool`/`runGuardedTool` (see `helpers.ts`) whenever a tool call
+   * that did real work succeeds. `finish_goal` (see `agentTools.ts`) reads
+   * this and refuses to report success if nothing else happened this turn —
+   * otherwise a model can call `finish_goal` claiming work it never did
+   * (observed directly: a local model claimed "Created hello2.txt" three
+   * turns running without ever calling `write_file`, and the file never
+   * existed on disk).
+   *
+   * "Real work" excludes both `read` and `plan` kinds. Reading is not doing,
+   * and neither is writing down an intention: an agent run exists to carry
+   * out its goal, so `write_plan`/`update_plan_step` must not be able to
+   * satisfy this on their own.
    */
   progress: { madeChange: boolean }
   /**
