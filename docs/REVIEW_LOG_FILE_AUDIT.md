@@ -129,17 +129,45 @@ would create a fresh inconsistency rather than remove one. Listed here so they
 survive the pass that found them; each is also written up under the file it came
 from.
 
-| Item                                                         | Found in | Status            |
-| ------------------------------------------------------------ | -------- | ----------------- |
-| Round text concatenated with no separator (4 transports)     | 4        | ✅ fixed          |
-| No timeout on API-key verify clients (all providers)         | 4        | ✅ fixed          |
-| Empty turns can leave consecutive same-role messages         | 4        | ✅ fixed          |
-| `splitHistoryByTokenBudget` cuts without regard for pairing  | 5        | ✅ fixed          |
-| `AnodexApi` mixes `Result<T>` and bare-`T` returns           | 9        | assessed — no fix |
-| No Sent copy is filed after an SMTP send                     | 7        | ✅ fixed          |
-| Conversations are saved whole, so concurrent writers clobber | R3 3     | ☐ open            |
-| `unarchive` cannot resolve an already-archived thread        | 7        | ✅ fixed          |
-| `save_email_attachment` does not disclose an overwrite       | R2.3     | ✅ fixed          |
+| Item                                                          | Found in | Status            |
+| ------------------------------------------------------------- | -------- | ----------------- |
+| Round text concatenated with no separator (4 transports)      | 4        | ✅ fixed          |
+| No timeout on API-key verify clients (all providers)          | 4        | ✅ fixed          |
+| Empty turns can leave consecutive same-role messages          | 4        | ✅ fixed          |
+| `splitHistoryByTokenBudget` cuts without regard for pairing   | 5        | ✅ fixed          |
+| `AnodexApi` mixes `Result<T>` and bare-`T` returns            | 9        | assessed — no fix |
+| No Sent copy is filed after an SMTP send                      | 7        | ✅ fixed          |
+| Conversations are saved whole, so concurrent writers clobber  | R3 3     | ☐ open            |
+| `unarchive` cannot resolve an already-archived thread         | 7        | ✅ fixed          |
+| `save_email_attachment` does not disclose an overwrite        | R2.3     | ✅ fixed          |
+| Untrusted MCP tools are gated less strictly than trusted ones | R3 4     | ☐ open — see R3 6 |
+
+### The two still open, in full
+
+**Conversations are saved whole, so concurrent writers clobber each other.**
+`conversationStore.save` replaces the entire document, and both sides hold their
+own copy: the renderer keeps a chat in `chatStore` and persists all of it, while
+a background run holds a snapshot for the length of its turn. R3 3 fixed the
+direction that mattered most — a scheduled task or agent run no longer erases
+what the user did in its chat while it worked — by re-reading immediately before
+the write (`appendBackgroundTurn`). The other direction is untouched: nothing
+broadcasts that a conversation changed, so a renderer holding a copy from before
+a background turn landed will still overwrite it on its next save. Closing it
+properly means either a `conversationsChanged` broadcast the renderer merges
+from, or moving off whole-document writes for messages. Both are store-wide
+design changes, which is why neither belongs in a single file's row.
+
+**Untrusted MCP tools are gated less strictly than trusted ones.**
+`classifyMcpTool` gives a generic third-party server's tools
+`{ risk: 'sensitive', forceConfirm: false }`, while the _trusted_ GitHub
+preset's non-read-only tools get `forceConfirm: true`. The untrusted case is the
+more permissive one. It is invisible in `ask` and `full` (both confirm
+`sensitive` anyway) and shows only in `untethered` — the mode scheduled tasks,
+agent runs and critical-thinking runs use — where `sensitive` auto-runs. There
+may be a reason for it, since the preset's whole point is that annotations are
+trusted enough to _reduce_ requirements there and nowhere else. Found while
+reading R3 4; it is `McpManager`'s classification to defend or change, so it is
+settled at R3 6 rather than guessed at here.
 
 ---
 
