@@ -4015,3 +4015,194 @@ goal complete without touching a file.
 memory-save approval toggles still auto-approve in unattended runs. A scheduled
 task exists to work with nobody watching, and a prompt no one can answer would
 only make it fail.
+
+---
+
+## Round four — the next twelve, non-UI
+
+Ranked 2026-08-03, after round three closed. Same rule: what can hurt the user.
+`src/main`, `src/shared`, `src/preload` only, at the user's standing request.
+
+Counts verified against the real test tree, and the mirage check applied a third
+time — every file in the top block is mocked out in some other suite and has no
+dedicated test of its own. **Five of them are credential handling.**
+
+| #   | File                                                     | Lines | Tests | Status | Why it ranks here                                                |
+| --- | -------------------------------------------------------- | ----- | ----- | ------ | ---------------------------------------------------------------- |
+| 1   | `src/main/email/providers/oauthClients.ts`               | 124   | 0     | ☐      | Refreshes the token every Gmail/Graph request depends on         |
+| 2   | `src/main/email/EmailAuthStore.ts`                       | 155   | 0     | ☐      | Persists mail OAuth tokens on disk                               |
+| 3   | `src/main/email/oauth.ts`                                | 127   | 0     | ☐      | The mail authorization flow itself                               |
+| 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts` | 232   | 0     | ☐      | The same pair for third-party MCP servers                        |
+| 5   | `src/main/llama/LlamaServerRuntime.ts`                   | 365   | 0     | ☐      | Spawns and supervises a real child process                       |
+| 6   | `src/main/ipc/email.handlers.ts`                         | 294   | 0     | ☐      | The renderer's entire entry point into mail                      |
+| 7   | `src/main/criticalThinking/CriticalThinkingStore.ts`     | 491   | 6     | ☐      | Largest remaining store, thinnest coverage per line              |
+| 8   | `src/main/projects/ProjectStore.ts`                      | 264   | 4     | ☐      | Project records every workspace path is resolved against         |
+| 9   | `src/main/memory/MemoryStore.ts`                         | 333   | 18    | ☐      | Cross-chat memory; has leaked between chats before               |
+| 10  | `src/main/vision/imageInputs.ts`                         | 289   | 8     | ☐      | Decodes untrusted image bytes into prompts                       |
+| 11  | `src/main/email/mime.ts`                                 | 256   | 20    | ☐      | Builds every outgoing message; last unread part of the send path |
+| 12  | `src/main/tools/workspaceContext.ts`                     | 296   | 17    | ☐      | Injected into every prompt, on every turn                        |
+
+**Why this order.** 1–4 are credentials: 638 lines holding and refreshing the
+user's mail and MCP tokens, with no direct test anywhere between them. A defect
+there is not a wrong answer, it is a token leaked, dropped, or refreshed into the
+wrong account. 5–6 are a child process and an IPC boundary, both untested. 7–9
+are persistence with coverage thin enough that a regression would land silently.
+10–12 are read on every turn.
+
+**Deliberately not on the list.** `toolCallFallback.ts` (377/52),
+`huggingFaceCatalog.ts` (434/39), `compaction.ts` (388/29), `rollingSummary.ts`
+(312/16) and `registry.ts` (284/23) are well covered relative to size and blast
+radius. The `shared/*.types.ts` files are large but mostly declarations.
+
+---
+
+## Manual verification checklist
+
+Automated tests cover what a test can reach. This is the rest — changes whose
+proof is a person looking at the running app. **Each entry names why it is here
+rather than in a test file**, so nobody is tempted to "just write a test for it"
+without reading that reason first.
+
+Work through these in a build from `main`. Tick a box only after seeing the
+expected result; if something differs, note it under the entry rather than
+quietly editing the checklist.
+
+### Scope note
+
+These cover round two files 11–13, both cross-cutting email items, and round
+three files 1–2. **Round three files 3–12 were reviewed in a separate session and
+have no manual entries yet** — whoever picks this up should add them from those
+log sections, in this format.
+
+### 1. Composer — two attachment passes racing
+
+_Why not a test:_ renderer tests run under `environment: 'node'` with no DOM. The
+logic was extracted to `intakeAttachments` and unit-tested, but the wiring from
+drop and picker into it is not exercised anywhere.
+
+1. Open a chat with a workspace, and pick a file big enough that reading it is
+   not instant (a few MB).
+2. Drag it onto the composer, and **while it is still attaching, drag the same
+   file on again**.
+3. Repeat with the paperclip picker started before a drop finishes.
+
+**Expected:** one attachment chip, not two. No duplicate-key warning in the
+DevTools console. Its remove button clears it completely.
+
+Then drop ten files, and immediately drop ten more.
+**Expected:** ten chips total, and exactly one "Too many attachments" notice
+reading _"A message can carry 10 files. The rest were skipped."_
+
+### 2. Composer — stopping a reply while typing
+
+_Why not a test:_ keyboard routing through the global shortcut handler and a
+focused textarea has no DOM harness.
+
+1. Send a message that produces a long reply.
+2. While it streams, start typing a follow-up. The Stop button is replaced by
+   Queue — that part is intended.
+3. Read the hint line under the composer.
+
+**Expected:** the hint reads `… · Esc to stop · …` (or whatever `stopGeneration`
+is bound to, if it was remapped in Settings). Pressing that key stops the reply
+without clearing what was typed.
+
+### 3. Settings — one provider's form leaking into the next
+
+_Why not a test:_ this is React reconciliation. `renderToStaticMarkup` does one
+render with no state, so neither the bug nor the fix can be observed in a test.
+
+1. Settings → AI & Models → provider list.
+2. Select **Google**, set a Daily token cap of `50000`.
+3. Select **xAI** (or any of DeepSeek, Mistral, Groq, OpenRouter, Kimi, Qwen).
+
+**Expected:** the Daily token cap field is **empty**, not `50000`. Switch back to
+Google and it still reads `50000`.
+
+4. With a valid saved key on one of those providers, select it, wait for the key
+   field's status dot, then select another and come back.
+
+**Expected:** the dot re-checks on arrival rather than sitting on "Unverified",
+and a check in flight for one provider never shows as "Checking…" under another.
+
+### 4. Settings — the active provider's Ready badge
+
+1. Make a cloud provider active (needs a key), then clear that provider's API key
+   without changing which provider is active.
+
+**Expected:** the "Active provider" card reads **Not connected** in red, not
+"Ready". It should agree with the composer, which disables itself and asks for a
+key.
+
+### 5. Tools — a failed edit shows one card, not two
+
+_Why not a test:_ the provisional card comes from streamed parameter chunks in
+`LlamaService`; no harness drives that end to end.
+
+1. With a **local** model loaded, ask it to edit a file using text that is not in
+   that file (e.g. "in README.md replace the line `THIS DOES NOT EXIST` with
+   `x`"). A wrong path, or a path outside the workspace, works too.
+
+**Expected:** exactly **one** tool card in the transcript, carrying the real
+reason ("oldText not found…"). This previously produced two — one reading
+"Interrupted", and a second with the actual error.
+
+### 6. Email — saving an attachment discloses what it replaces
+
+1. In a chat with a workspace open and mail connected, ask to save an email
+   attachment to a path that **already holds a file**.
+
+**Expected:** the approval card names the attachment and the destination —
+_"Save invoice-q3.pdf (application/pdf, 2.1 MB) from message … to report.pdf"_ —
+and ends with _"This replaces the existing 4.0 KB file at that path."_
+
+2. Repeat to a fresh path. **Expected:** _"No file exists at that path yet."_
+3. Approve an overwrite, then use checkpoint restore on that message.
+   **Expected:** the original file returns byte for byte.
+4. Ask to save an attachment id that does not exist on the message.
+   **Expected:** an error naming the attachments that _do_ exist, and **no
+   approval card at all**.
+
+### 7. Email, Gmail account required — the four adapter fixes
+
+_Why not a test:_ the suite mocks `fetch`, so it proves the requests sent, not
+what Google does with them. One of these is reasoned from documentation rather
+than observed, and is marked.
+
+1. Archive a thread, then ask to move it to `INBOX` (through `move_email`, not
+   unarchive).
+   **Expected:** it lands back in the inbox. It previously stayed archived.
+2. Find a thread whose newest message is read but which holds an unread earlier
+   message.
+   **Expected:** it shows as unread in the list, and the unread badge and the
+   list agree.
+3. **(the reasoned one)** Open a mail list holding threads with attachments.
+   **Expected:** the attachment indicator appears. If it does not, the
+   `format=metadata` assumption in round three §3.1.3 is wrong and should be
+   reopened.
+4. Open a message whose body is empty but which has a small `.txt` attached.
+   **Expected:** the body renders empty; the `.txt` shows as an attachment and is
+   not printed as the message text.
+
+### 8. Agents — the time budget measures work, not waiting
+
+_Why not a test:_ the wiring needs `runGeneration`, the store, IPC broadcast and
+toast windows. Only the measurement itself is unit-tested.
+
+1. Create an agent run with **Require plan** on (the default) and a **Time budget
+   of 2 minutes**.
+2. Let it produce a plan and stop at "needs review". **Wait more than 2 minutes
+   without approving.** Watch the Time gauge while you wait.
+3. Approve the plan.
+
+**Expected:** the Time gauge does **not** climb while the run sits unapproved —
+it holds at whatever planning spent. On approval the run **executes normally**.
+It previously stopped at once with _"Stopped: 2-minute time budget reached"_,
+having run nothing.
+
+4. Let a run genuinely work past its budget.
+   **Expected:** it still stops, with that same message. The budget must not have
+   become unenforceable.
+5. Delete a run while it is mid-turn, then start another.
+   **Expected:** the new run starts. A wedged service would refuse with _"Another
+   agent run is currently in progress."_
