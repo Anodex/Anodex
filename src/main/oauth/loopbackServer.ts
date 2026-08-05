@@ -52,6 +52,13 @@ export async function runLoopbackAuthorization(options: {
    * redirects, so its flow needs 'localhost' where Google accepts either.
    */
   redirectHost?: '127.0.0.1' | 'localhost'
+  /**
+   * Abandon the authorization and release the port. Needed by any caller that
+   * binds a *fixed* port (see `port`), because there the leftover listener
+   * doesn't just idle — it makes the next attempt fail with `EADDRINUSE` until
+   * the original times out.
+   */
+  signal?: AbortSignal
 }): Promise<{ params: URLSearchParams; redirectUri: string }> {
   const { server, port } = await createLoopbackServer(options.port)
   const redirectUri = `http://${options.redirectHost ?? '127.0.0.1'}:${port}`
@@ -71,6 +78,11 @@ export async function runLoopbackAuthorization(options: {
     cancel = (reason) => {
       stop()
       reject(reason)
+    }
+    if (options.signal) {
+      const onAbort = (): void => cancel(new Error('Authorization was cancelled.'))
+      if (options.signal.aborted) onAbort()
+      else options.signal.addEventListener('abort', onAbort, { once: true })
     }
 
     server.on('request', (req, res) => {

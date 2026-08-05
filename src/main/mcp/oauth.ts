@@ -35,6 +35,7 @@ const MCP_OAUTH_TIMEOUT_MS = 180_000
 export class McpOAuthProvider implements OAuthClientProvider {
   private codeVerifierValue: string | undefined
   private pendingCode: Promise<string> | undefined
+  private pendingAbort: AbortController | undefined
   private stateValue: string | undefined
 
   constructor(private readonly serverId: string) {}
@@ -94,18 +95,37 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * resolves once the redirect lands.
    */
   redirectToAuthorization(authorizationUrl: URL): void {
+    // The URL's own `state` first: that is the value actually sent, and so the
+    // one the authorization server will echo back. `this.stateValue` is only a
+    // fallback for a caller that built the URL without asking for one.
     const expectedState =
-      this.stateValue ?? authorizationUrl.searchParams.get('state') ?? randomUUID()
-    this.pendingCode = runLoopbackAuthorization({
+      authorizationUrl.searchParams.get('state') ?? this.stateValue ?? randomUUID()
+    // This flow binds a fixed port, so an earlier attempt still listening is
+    // not merely idle — it makes this one fail with `EADDRINUSE`. Retrying is
+    // exactly what a user does after a connect that timed out while its
+    // three-minute authorization window was still open.
+    this.pendingAbort?.abort()
+    const abort = new AbortController()
+    this.pendingAbort = abort
+    const pending = runLoopbackAuthorization({
       expectedState,
       port: MCP_OAUTH_REDIRECT_PORT,
       timeoutMs: MCP_OAUTH_TIMEOUT_MS,
+      signal: abort.signal,
       buildAuthorizationUrl: () => authorizationUrl
     }).then(({ params }) => {
       const code = params.get('code')
       if (!code) throw new Error('MCP authorization response was missing a code.')
       return code
     })
+    // Nothing may ever await this. `McpManager` only calls
+    // `waitForPendingCode` when the connect attempt failed with
+    // `UnauthorizedError`, and its own 20-second connect timeout fires long
+    // before this three-minute one — so a slow server abandons this promise,
+    // and without a handler its rejection surfaced minutes later with nothing
+    // left to connect it to.
+    pending.catch(() => {})
+    this.pendingCode = pending
   }
 
   /** Awaits the code captured by the in-flight `redirectToAuthorization()` call. */
@@ -113,9 +133,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
     if (!this.pendingCode) {
       throw new Error('No MCP authorization redirect is in progress for this server.')
     }
-    const code = await this.pendingCode
+    // Cleared before awaiting, not after. Leaving a rejected promise in place
+    // made the next attempt fail instantly with the previous attempt's stale
+    // error instead of starting a fresh authorization.
+    const pending = this.pendingCode
     this.pendingCode = undefined
-    return code
+    return await pending
   }
 
   invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {

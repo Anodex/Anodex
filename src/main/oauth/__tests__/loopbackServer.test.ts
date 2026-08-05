@@ -149,3 +149,52 @@ describe('the OAuth loopback server lifetime', () => {
     await expect(fetch(`${uri}/?code=x`)).rejects.toThrow()
   })
 })
+
+describe('the OAuth loopback on a fixed port', () => {
+  /**
+   * The MCP flow registers its redirect URI with the server, so its port
+   * cannot vary between attempts — which makes a listener left over from an
+   * abandoned attempt an outright blocker rather than an idle socket.
+   */
+  const FIXED_PORT = 53187
+
+  it('releases the port when the authorization is aborted', async () => {
+    const abort = new AbortController()
+    const first = runLoopbackAuthorization({
+      expectedState: 'state',
+      port: FIXED_PORT,
+      timeoutMs: 60_000,
+      signal: abort.signal,
+      buildAuthorizationUrl: () => 'https://provider.example/authorize'
+    })
+    const firstSettled = expect(first).rejects.toThrow(/cancelled/)
+
+    abort.abort()
+    await firstSettled
+
+    // Without the release, this second attempt fails with EADDRINUSE for the
+    // rest of the first one's window — which is exactly when a user retries.
+    const abortSecond = new AbortController()
+    const second = runLoopbackAuthorization({
+      expectedState: 'state-2',
+      port: FIXED_PORT,
+      timeoutMs: 60_000,
+      signal: abortSecond.signal,
+      buildAuthorizationUrl: (uri) => `https://provider.example/authorize?r=${uri}`
+    })
+    const secondSettled = expect(second).rejects.toThrow(/cancelled/)
+    abortSecond.abort()
+    await secondSettled
+  })
+
+  it('is already cancelled if the signal arrived aborted', async () => {
+    await expect(
+      runLoopbackAuthorization({
+        expectedState: 'state',
+        timeoutMs: 60_000,
+        signal: AbortSignal.abort(),
+        buildAuthorizationUrl: () => 'https://provider.example/authorize'
+      })
+    ).rejects.toThrow(/cancelled/)
+  })
+})

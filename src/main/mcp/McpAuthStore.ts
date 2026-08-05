@@ -1,5 +1,5 @@
 import { app, safeStorage } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type {
   OAuthClientInformationFull,
@@ -70,7 +70,21 @@ class McpAuthStore {
 
   /** Merge a partial update into the existing record (or start fresh if none exists). */
   update(serverId: string, patch: Partial<McpServerAuthRecord>): void {
-    this.set(serverId, { ...this.get(serverId), ...patch })
+    // `get` answers `null` both for "no record" and for "a record that would
+    // not decrypt", and merging onto the second is a wipe: a keyring that is
+    // locked or late turns `saveTokens` into "forget this server's client
+    // registration and static token too". Unlike `EmailAuthStore`, which keeps
+    // each field separately encrypted and can merge without decrypting
+    // anything, one record here is a single blob — so the difference has to be
+    // checked rather than assumed.
+    const existing = this.get(serverId)
+    if (!existing && this.read()[serverId]) {
+      throw new Error(
+        'Stored credentials for this MCP server could not be read, so they were not replaced. ' +
+          'Unlock the OS credential store and try again.'
+      )
+    }
+    this.set(serverId, { ...existing, ...patch })
   }
 
   clear(serverId: string): void {
@@ -80,18 +94,69 @@ class McpAuthStore {
   }
 
   private read(): RecordStore {
-    if (!this.filePath || !existsSync(this.filePath)) return {}
+    this.assertReady()
+    if (!existsSync(this.filePath)) return {}
     try {
       return JSON.parse(readFileSync(this.filePath, 'utf-8')) as RecordStore
     } catch (error) {
-      log.warn('Failed to read MCP auth store:', error)
+      // Same reasoning as `EmailAuthStore.read`, which this file is supposed to
+      // mirror: falling back to an empty store is right, but returning it
+      // without moving the file aside is destructive — the next `set` or
+      // `clear` writes that emptiness back and takes every *other* server's
+      // tokens with it. There is no second copy.
+      this.quarantine(error)
       return {}
     }
   }
 
+  /** Move an unreadable credential file aside, best effort. */
+  private quarantine(error: unknown): void {
+    const aside = `${this.filePath}.corrupt`
+    try {
+      renameSync(this.filePath, aside)
+      log.warn(`Could not parse MCP credentials; moved to ${aside}.`, error)
+    } catch (renameError) {
+      log.error(
+        'Could not parse MCP credentials and could not move the file aside — the next save ' +
+          'will overwrite it:',
+        renameError
+      )
+    }
+  }
+
   private write(records: RecordStore): void {
+    this.assertReady()
     this.ensureDir(dirname(this.filePath))
-    writeFileSync(this.filePath, JSON.stringify(records, null, 2), 'utf-8')
+    // Temp file plus rename, and `mode: 0o600`, for the same reasons spelled
+    // out in `EmailAuthStore.write`: a crash part-way through a direct write
+    // leaves truncated JSON, and truncated JSON here is every MCP server
+    // needing to be re-authorized.
+    const temporaryPath = `${this.filePath}.${process.pid}.tmp`
+    try {
+      writeFileSync(temporaryPath, JSON.stringify(records, null, 2), {
+        encoding: 'utf-8',
+        mode: 0o600
+      })
+      renameSync(temporaryPath, this.filePath)
+    } catch (error) {
+      try {
+        if (existsSync(temporaryPath)) rmSync(temporaryPath)
+      } catch {
+        /* Best effort: a stray temp file is preferable to masking the error. */
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Refuse to answer before `init()` has run. Reads used to return `{}` from a
+   * path of `''` — a server with stored credentials reporting itself as having
+   * none — and writes failed on an unrelated `ENOENT`.
+   */
+  private assertReady(): void {
+    if (!this.filePath) {
+      throw new Error('The MCP credential store was used before it was initialized.')
+    }
   }
 
   private ensureDir(dir: string): void {

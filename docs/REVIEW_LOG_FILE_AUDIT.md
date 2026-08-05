@@ -4032,7 +4032,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 1   | `src/main/email/providers/oauthClients.ts`                         | 124   | 0      | ✅ done | Refreshes the token every Gmail/Graph request depends on |
 | 2   | `src/main/email/EmailAuthStore.ts`                                 | 155   | 0 → 15 | ✅ done | Persists mail OAuth tokens on disk                       |
 | 3   | `src/main/email/oauth.ts` + `src/main/oauth/loopbackServer.ts`     | 241   | 0 → 12 | ✅ done | The mail authorization flow itself                       |
-| 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0      | ☐       | The same pair for third-party MCP servers                |
+| 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0 → 12 | ✅ done | The same pair for third-party MCP servers                |
 | 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0      | ☐       | Every main→renderer event lands here and fans out        |
 | 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0      | ☐       | Mail state behind the whole Email page                   |
 | 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0      | ☐       | Spawns and supervises a real child process               |
@@ -4732,3 +4732,104 @@ attached its `rejects` assertion _after_ the request that triggers the
 rejection, so the promise was momentarily unhandled and Vitest reported an
 unhandled error for the whole run. The product code was right; the assertion is
 now attached before the request that causes it.
+
+## Round four, 4. `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts` — done
+
+232 lines between them, no tests. Where a third-party MCP server's bearer
+token, its RFC 7591 client registration, and its OAuth tokens live, and the
+flow that obtains them.
+
+The store's own doc comment calls it an "exact mirror of `EmailAuthStore` —
+same file shape, same `safeStorage` encryption". It had stopped being one.
+Round four's file 2 hardened `EmailAuthStore` four ways; none of them had
+reached the copy, which is the same drift this audit keeps finding, in the form
+where a comment asserts a property the code no longer has.
+
+### 1. A corrupt credential file took every server's credentials with it
+
+`read()` caught a parse failure and returned `{}`. The next `set` or `clear`
+wrote that empty store back, so one truncated file cost every MCP server its
+authorization at once — with no second copy anywhere. Now quarantined to
+`<path>.corrupt` first, the same as the settings, conversation, checkpoint and
+email stores.
+
+### 2. A locked keyring turned an update into a wipe
+
+`get()` answers `null` for two different things: no record, and a record that
+would not decrypt. `update()` merged the patch onto that `null`, so with the
+keyring locked or not yet unlocked, `saveTokens` wrote a record containing only
+the new tokens — dropping the client registration and any static token beside
+them.
+
+This is where the mirror genuinely could not be followed: `EmailAuthStore`
+keeps each field separately encrypted and merges _ciphertext_, so it never has
+to decrypt to patch. One record here is a single blob, so the difference has to
+be checked rather than assumed. `update()` now refuses when a record exists but
+would not decrypt, and says why. A first write for a server with no record is
+unaffected — the refusal only applies where something is actually at risk.
+
+### 3. Non-atomic write, no mode, no readiness check
+
+Also all three from the mirror: the file is now written to a temp path and
+renamed into place (truncated JSON here is every MCP server needing
+re-authorization), created `0o600`, and both reads and writes refuse before
+`init()` rather than answering from a path of `''` — which used to report a
+server with stored credentials as having none.
+
+### 4. An abandoned authorization held the port a retry needed
+
+`redirectToAuthorization` assigns `this.pendingCode` and returns. `McpManager`
+only awaits it when the connect failed with `UnauthorizedError` — and its own
+connect timeout is **20 seconds** against this flow's **180**. A server slow
+enough to trip the first leaves the second running with nothing attached to it:
+an unhandled rejection minutes later, exactly the shape fixed for the mail flow
+in file 3.
+
+Worse here than there, because this flow binds a **fixed** port — 53129, which
+has to match the `redirect_uris` registered with the server. The leftover
+listener does not merely idle; it makes the next attempt fail with
+`EADDRINUSE`, and retrying is precisely what a user does after a connect that
+timed out.
+
+`runLoopbackAuthorization` now takes an optional `AbortSignal`, and the
+provider aborts any previous attempt before starting a new one. A handler is
+attached to the pending promise from the start.
+
+### 5. Two smaller ones in the same file
+
+- **`waitForPendingCode` cleared `pendingCode` only on success**, so a failed
+  attempt left a rejected promise in place and the next call re-threw the
+  previous attempt's stale error instead of starting fresh. Cleared before the
+  await now.
+- **The expected `state` preferred the provider's own stored value** over the
+  one actually present in the authorization URL. The URL is what was sent, so
+  it is what the authorization server echoes back; the stored value is now only
+  a fallback for a caller that built the URL without asking for one.
+
+### Deliberate non-changes
+
+- **`set()` throws when `safeStorage` is unavailable**, where `SettingsStore`
+  falls back to plaintext. The asymmetry is right: a provider API key the user
+  pasted is theirs to store however the machine allows, but a third-party
+  server's bearer token is not something to write in the clear as a
+  convenience. On a Linux session with no keyring, MCP credentials simply
+  cannot be stored, and the error says so.
+- **`serverId` is never path-validated** because it is only ever a JSON key
+  here, not a path component.
+
+### Tests
+
+New `McpAuthStore.test.ts` — 10, and 2 added to `loopbackServer.test.ts`
+(20 across the two files this round). First coverage for either.
+
+Six fail against the committed baseline, taken with `git show HEAD:`: the
+quarantine, both halves of the locked-keyring refusal, the readiness check, and
+both fixed-port cases.
+
+**One of my tests claimed more than it did.** I wrote "leaves no partial file
+behind when the write fails" and forced the failure with
+`isEncryptionAvailable() === false` — which makes `set` refuse _before_ writing
+anything, so it passed either way and proved nothing about the temp-file
+rename. Renamed to what it actually checks, and labelled: forcing a failure
+between the write and the rename is not something a unit test can do honestly,
+so the atomicity itself is uncovered.
