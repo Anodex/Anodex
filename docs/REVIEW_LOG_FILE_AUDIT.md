@@ -4035,7 +4035,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0 → 12 | ✅ done | The same pair for third-party MCP servers                |
 | 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0 → 8  | ✅ done | Every main→renderer event lands here and fans out        |
 | 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0 → 21 | ✅ done | Mail state behind the whole Email page                   |
-| 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0      | ☐       | Spawns and supervises a real child process               |
+| 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0 → 17 | ✅ done | Spawns and supervises a real child process               |
 | 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0      | ☐       | The renderer's entire entry point into mail              |
 | 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0      | ☐       | Notifications, toasts, and model lifecycle state         |
 | 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6      | ☐       | Largest remaining store, thinnest coverage per line      |
@@ -5052,3 +5052,105 @@ supersedes it` passed before as well, because the newer load's own success path
 happened to clear the flag — the exit is only stuck when nothing successful
 follows it. And `leaves an already-read thread alone` guards the auto-mark-read
 in `openThread` from firing on threads that do not need it.
+
+## Round four, 7. `src/main/llama/LlamaServerRuntime.ts` — done
+
+365 lines, no tests, and the only place in the app that spawns and supervises a
+real child process — the private llama-server behind local vision. Both defects
+are in what happens when that process does not do what it is told, which is the
+half of a supervisor that never runs in development.
+
+The containment is right and worth recording: loopback-only bind, an ephemeral
+port, a fresh 24-byte key per load, `--parallel 1`, and a manifest whose
+`binaryRelativePath` is checked against a resolved prefix so it cannot point out
+of the runtime directory. None of that needed changing.
+
+### Bugs fixed
+
+**4.7.1 A spawn that never happened was reported five minutes later, as the
+wrong thing.** The child had `stdout`, `stderr` and `exit` listeners and no
+`error` listener.
+
+Node reports a process that could not be spawned — a binary that is not
+executable, or one that vanished between the existence check and the call — as
+an `error` event, not an exit. Two things followed from having no listener for
+it:
+
+- `ChildProcess` is an `EventEmitter`, so an unlistened `error` is rethrown as
+  an uncaught exception. The app's crash handler caught it and filed it as
+  "Unhandled error", detached from the load that caused it.
+- The process never started, so `exitCode` and `signalCode` both stayed `null` —
+  and `waitUntilReady`'s liveness check tests exactly those. It therefore polled
+  a port nothing was listening on, every 300 ms, for the full `STARTUP_TIMEOUT_MS`
+  of five minutes, and then reported _"Timed out while llama.cpp was loading the
+  vision model."_
+
+A failure known in milliseconds, surfaced five minutes later as a slow model
+load. There is now an `error` listener, and `waitUntilReady` checks it each pass
+and fails with the real reason.
+
+**4.7.2 `readModelId` had no timeout, and could hang the load for good.** It was
+the one `fetch` in this file without one — health polls at 2 s, tokenize at
+10 s, and this at nothing.
+
+It runs _after_ `waitUntilReady` has returned, so the five-minute startup budget
+has already been satisfied and released. A server that accepted the connection
+and then went quiet left `start()` awaiting a promise with no deadline and
+nothing left to fail it: the model sits "loading" until the app is restarted.
+
+Now bounded, and degrading rather than throwing — the id is a label, health has
+already passed, and the function already returned `'local-model'` for a non-OK
+response, so a transport failure taking the same path is consistent and strictly
+better than failing a load that had otherwise succeeded.
+
+### Improvement
+
+**The fail-fast health check no longer depends on the wording of its own error.**
+`waitUntilReady` distinguishes "still loading" (503, keep polling) from "this
+will never work" (401 from a key mismatch, 404 from a build without the
+endpoint) — and it did so by re-throwing on
+`error.message.includes('health check returned')`. Rewording that string would
+have silently converted a fail-fast into a five-minute poll, with nothing to
+catch it. It is a `HealthCheckRejected` class now.
+
+### Assessed, not changed
+
+- **`stop()` leaves its `delay(2500)` timer pending** after the race is won by
+  the exit. Electron does not wait on timers to quit and nothing else observes
+  it; making `delay` cancellable would touch every call site to remove a cost
+  that is not paid.
+- **The reserved port is released before llama-server binds it,** so another
+  process could take it in between. That is inherent to reserving a port for
+  something else to use, and the failure is loud — the binary exits, the
+  liveness check catches it, and the load fails with its output attached.
+- **`describeUnexpectedStop()` answers even when nothing was ever started,**
+  reporting "exit unknown". Only reached when a connection has already been lost,
+  so the premise holds for every real caller.
+- **A second `start()` while one is in flight is not guarded** beyond the
+  `await this.stop()` at the top. The callers serialize model loads; adding a
+  lock here would duplicate that.
+- **`recentOutput()` can contain fragments of the rendered prompt** and is
+  documented as log-only. Left as is, with its warning intact.
+
+### Tests
+
+`src/main/llama/__tests__/LlamaServerRuntime.test.ts` — 17 tests, the file's
+first. `node:child_process` is faked so the process's misbehaviour can be
+staged; `electron` and `fetch` likewise.
+
+Three fail against the pre-fix file, baseline from `git show HEAD:`. Two of them
+do not fail so much as **hang** — bounded at 8 s for the run, where the real
+code would have polled for five minutes — which is the defect stated as
+precisely as it can be.
+
+**A false signal caught while writing them.** The first version emitted the
+spawn `error` synchronously after calling `start()`, and both tests failed
+immediately. The cause was the bug itself: at that moment `start` had not yet
+reached `spawn`, so no listener existed, and an unlistened `error` throws. The
+fake now delivers it asynchronously from inside the spawn mock, as Node does.
+
+The remaining fourteen pass either way and are labelled. They hold the
+properties that make this file safe rather than merely working: loopback host, a
+fresh per-load key of the right length, `--parallel 1`, a projector being
+required, an expected stop staying silent while a crash reports itself, and
+`countTokens` returning `null` — never an estimate — when it cannot measure.

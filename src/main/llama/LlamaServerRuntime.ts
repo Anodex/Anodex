@@ -14,6 +14,10 @@ const HEALTH_POLL_MS = 300
 const MAX_DIAGNOSTIC_CHARS = 16_000
 /** Tokenizing is a local, CPU-only call; anything slower than this is a fault, not load. */
 const TOKENIZE_TIMEOUT_MS = 10_000
+/** Reading the model id happens after health has passed, so it should be immediate. */
+const MODEL_ID_TIMEOUT_MS = 10_000
+/** Used when the server will not name its model; it is a label, not an identifier we act on. */
+const FALLBACK_MODEL_ID = 'local-model'
 
 interface RuntimeMarker {
   binaryRelativePath?: string
@@ -120,6 +124,27 @@ export class LlamaServerRuntime {
     }
     child.stdout.on('data', recordOutput)
     child.stderr.on('data', recordOutput)
+
+    /**
+     * A spawn that never happened — the binary is not executable, or vanished
+     * between the existence check and here.
+     *
+     * Node reports that as an `error` event rather than an exit, and this had
+     * no listener for it. Two things followed. `ChildProcess` is an
+     * `EventEmitter`, so an unlistened `error` is rethrown as an uncaught
+     * exception, which the app's crash handler logged as an unrelated
+     * "Unhandled error". And because the process never started, `exitCode` and
+     * `signalCode` both stay null, so `waitUntilReady`'s liveness check never
+     * fired and it polled a port nothing was listening on for the full
+     * five-minute startup timeout — then blamed the model for loading slowly.
+     * A failure known in milliseconds, reported five minutes later as the wrong
+     * thing.
+     */
+    let spawnFailure: Error | undefined
+    child.once('error', (error: Error) => {
+      spawnFailure = error
+      log.error('The local vision runtime could not be started:', error)
+    })
     child.once('exit', (code, signal) => {
       if (this.child === child) {
         this.child = undefined
@@ -136,7 +161,7 @@ export class LlamaServerRuntime {
     const origin = `http://127.0.0.1:${port}`
     const baseUrl = `${origin}/v1`
     try {
-      await this.waitUntilReady(origin, apiKey, child)
+      await this.waitUntilReady(origin, apiKey, child, () => spawnFailure)
       const modelId = await this.readModelId(baseUrl, apiKey)
       this.connection = { baseUrl, origin, apiKey, modelId }
       log.info('Local vision runtime ready on loopback.')
@@ -270,10 +295,17 @@ export class LlamaServerRuntime {
   private async waitUntilReady(
     origin: string,
     apiKey: string,
-    child: ChildProcessWithoutNullStreams
+    child: ChildProcessWithoutNullStreams,
+    spawnFailure: () => Error | undefined
   ): Promise<void> {
     const deadline = Date.now() + STARTUP_TIMEOUT_MS
     while (Date.now() < deadline) {
+      const failed = spawnFailure()
+      if (failed) {
+        throw new Error(
+          `The bundled llama.cpp vision runtime could not be started: ${failed.message}`
+        )
+      }
       if (child.exitCode !== null || child.signalCode !== null) {
         throw new Error('The bundled llama.cpp vision runtime stopped while loading the model.')
       }
@@ -283,26 +315,55 @@ export class LlamaServerRuntime {
           signal: AbortSignal.timeout(2000)
         })
         if (response.ok) return
+        // 503 is llama.cpp saying "still loading the model", which is the whole
+        // reason this polls. Anything else — 401 from a key mismatch, 404 from
+        // a build without the endpoint — will not improve by asking again.
         if (response.status !== 503) {
-          throw new Error(`Vision runtime health check returned HTTP ${response.status}.`)
+          throw new HealthCheckRejected(
+            `Vision runtime health check returned HTTP ${response.status}.`
+          )
         }
       } catch (error) {
-        if (error instanceof Error && error.message.includes('health check returned')) throw error
+        // Rethrown by type rather than by matching on the message, which is
+        // what this used to do: `error.message.includes('health check
+        // returned')`. Rewording the string above would silently have turned a
+        // fail-fast into a five-minute poll, with nothing to catch it.
+        if (error instanceof HealthCheckRejected) throw error
+        // Everything else is the port not accepting connections yet.
       }
       await delay(HEALTH_POLL_MS)
     }
     throw new Error('Timed out while llama.cpp was loading the vision model.')
   }
 
+  /**
+   * The model's own id, or a usable stand-in.
+   *
+   * Bounded and degrading, because by this point health has already answered:
+   * the server is up and the load has succeeded, and the id is a label. This
+   * call previously had no timeout at all — the one fetch in this file without
+   * one — so a server that accepted the connection and never replied hung
+   * `start()` for good, past the startup timeout that had already been
+   * satisfied, leaving the model stuck loading with nothing left to fail it.
+   */
   private async readModelId(baseUrl: string, apiKey: string): Promise<string> {
-    const response = await fetch(`${baseUrl}/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` }
-    })
-    if (!response.ok) return 'local-model'
-    const body = (await response.json()) as { data?: Array<{ id?: string }> }
-    return body.data?.[0]?.id || 'local-model'
+    try {
+      const response = await fetch(`${baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(MODEL_ID_TIMEOUT_MS)
+      })
+      if (!response.ok) return FALLBACK_MODEL_ID
+      const body = (await response.json()) as { data?: Array<{ id?: string }> }
+      return body.data?.[0]?.id || FALLBACK_MODEL_ID
+    } catch (error) {
+      log.warn('Could not read the local vision model id; using a placeholder.', error)
+      return FALLBACK_MODEL_ID
+    }
   }
 }
+
+/** A health response that will not improve by polling — see `waitUntilReady`. */
+class HealthCheckRejected extends Error {}
 
 async function resolveLlamaServerBinary(): Promise<string> {
   const override = process.env.ANODEX_LLAMA_SERVER_PATH?.trim()
