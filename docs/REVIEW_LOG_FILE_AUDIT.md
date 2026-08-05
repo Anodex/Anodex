@@ -4095,9 +4095,9 @@ the section.
 
 ### 1. Composer — two attachment passes racing
 
-_Why not a test:_ renderer tests run under `environment: 'node'` with no DOM. The
-logic was extracted to `intakeAttachments` and unit-tested, but the wiring from
-drop and picker into it is not exercised anywhere.
+_Now also automated_ — `ChatComposer.attach.test.tsx` drives real drop events
+and covers the duplicate-drop race end to end. Kept here because a passing test
+proves the component and the store agree, not that the real app looks right.
 
 1. Open a chat with a workspace, and pick a file big enough that reading it is
    not instant (a few MB).
@@ -4114,8 +4114,9 @@ reading _"A message can carry 10 files. The rest were skipped."_
 
 ### 2. Composer — stopping a reply while typing
 
-_Why not a test:_ keyboard routing through the global shortcut handler and a
-focused textarea has no DOM harness.
+_Why not a test:_ a DOM harness now exists, but this path is still uncovered —
+it runs through the global `document` keydown listener rather than the
+component, and the hint's wording is the only part a test would pin.
 
 1. Send a message that produces a long reply.
 2. While it streams, start typing a follow-up. The Stop button is replaced by
@@ -4128,8 +4129,9 @@ without clearing what was typed.
 
 ### 3. Settings — one provider's form leaking into the next
 
-_Why not a test:_ this is React reconciliation. `renderToStaticMarkup` does one
-render with no state, so neither the bug nor the fix can be observed in a test.
+_Now also automated_ — `ProviderConnectionsPanel.state.test.tsx` reproduces the
+state carry-over against a real DOM. Kept here for the same reason as entry 1,
+and because the API-key dot re-verifying on a switch is still worth a human eye.
 
 1. Settings → AI & Models → provider list.
 2. Select **Google**, set a Daily token cap of `50000`.
@@ -5451,3 +5453,80 @@ after an unreadable file, a file that genuinely is out of date still being
 rewritten, and an interrupted run still being repaired to `partial` on the way
 in. The last two exist because 4.10.3 narrows when a write happens, and the risk
 of narrowing it is that a load which _should_ rewrite quietly stops doing so.
+
+## Interlude — a DOM test environment, and the two gaps it closes
+
+Sequenced deliberately: round four's slots 1–10 needed no DOM, and 11–12 are
+React components. Rather than fold a test-infrastructure change into a file
+review — where a reviewer cannot tell which of the two a failure belongs to —
+it lands here as its own change, and pays for itself immediately by closing the
+two gaps round two had to ship with.
+
+### What was added
+
+`jsdom`, `@testing-library/react` and `@testing-library/dom` as dev
+dependencies, and `src/renderer/test-utils/dom.tsx`.
+
+**Opt-in per file, not a suite-wide switch.** The default stays
+`environment: 'node'`. A file that needs a document says so at the top:
+
+```ts
+// @vitest-environment jsdom
+```
+
+That was the choice worth making carefully. Switching the whole suite would
+give a DOM to ~245 main-process test files that need node APIs and do not want
+one, and cost startup on every run — the two DOM files added here account for
+2.45s of environment time against a 9s suite. Vitest 4 has removed
+`environmentMatchGlobs`, so the alternative was splitting the config into
+projects, which is a larger change to how every test in the repo is discovered.
+The docblock is surgical, self-documenting at the point of use, and reversible.
+
+`test-utils/dom.tsx` exists for one non-obvious reason: this project runs with
+`globals: false`, so `@testing-library/react` never registers its own automatic
+cleanup. Without it, every render in a file stacks in the same document and
+queries start matching the previous test's markup. Importing the helper
+registers the unmount.
+
+Its doc comment also says what the environment is _not_ for: logic that can be
+lifted into a plain module should be, and tested there. That is what
+`intakeAttachments` was extracted for in round two, and it remains the cheaper
+answer — a DOM makes component behaviour testable, it does not make it the
+right place to put behaviour.
+
+### Gap 1 closed — round two §12, the provider form carrying state
+
+The reconciliation fix (keying the shared block for the eight simple cloud
+providers) shipped with **no automated coverage at all** — the only fix in the
+review that did. `renderToStaticMarkup` performs one render with no state and
+no re-render, which is exactly where the defect lived.
+
+`ProviderConnectionsPanel.state.test.tsx` — 5 tests. Verified by removing the
+`key` and watching two of them fail: a cap of 50,000 set on Google still
+showing under xAI, and two providers' distinct caps collapsing into one.
+
+The other three hold what the fix must not break — each provider showing its
+own cap when returned to, an edited cap being written to the provider actually
+on screen (`{ provider: { xai: { dailyTokenCap: 1234 } } }`, not Google's), and
+the four providers with their own slots still switching cleanly.
+
+### Gap 2 closed — round two §11, the composer's drop wiring
+
+§11 fixed two attachment passes racing by lifting the intake into
+`intakeAttachments`, which is unit-tested. What could not be tested was the
+wiring _into_ it — drop and picker each start a pass, which is where the second
+one comes from — because no DOM meant no drop event.
+
+`ChatComposer.attach.test.tsx` — 5 tests, driving real `drop` events with a
+`DataTransfer` carrying `File` objects. Verified by reverting the component's
+`getAttachments: () => attachmentsRef.current` to the state closure it read
+before, and watching the duplicate-drop test fail with two chips sharing one
+`path` — this list's React key, and the only thing its remove button filters on.
+
+### What this does not change
+
+The manual checklist entries for both are updated rather than deleted. An
+automated test proves the store and the component agree; it does not prove the
+real app looks right, and the checklist's job is the second thing. Every other
+entry's stated reason — a misbehaving MCP server, a provider that accepts a
+request and goes silent, a Gmail account — is unaffected by having a DOM.
