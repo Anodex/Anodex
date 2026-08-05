@@ -118,20 +118,35 @@ export const useModelStore = create<ModelState>((set, get) => ({
   loadModel: async (model, overrides) => {
     const settings = useSettingsStore.getState().settings
     set({ pendingPath: model.path })
-    const result = await anodex.models.load({
-      path: model.path,
-      visionProjectorPath: model.visionProjectorPath,
-      contextSize: overrides?.contextSize ?? settings?.model.contextSize,
-      gpuLayers: overrides?.gpuLayers ?? settings?.model.gpuLayers
-    })
-    set({ pendingPath: null })
+    try {
+      const result = await anodex.models.load({
+        path: model.path,
+        visionProjectorPath: model.visionProjectorPath,
+        contextSize: overrides?.contextSize ?? settings?.model.contextSize,
+        gpuLayers: overrides?.gpuLayers ?? settings?.model.gpuLayers
+      })
 
-    if (result.ok) {
-      set({ engine: result.value })
-      void useSettingsStore.getState().update({ lastModelPath: model.path })
-      useUiStore.getState().notify({ kind: 'success', title: 'Model ready', message: model.name })
-    } else {
-      notifyError('Failed to load model', result.error.detail ?? result.error.message)
+      if (result.ok) {
+        set({ engine: result.value })
+        void useSettingsStore.getState().update({ lastModelPath: model.path })
+        useUiStore.getState().notify({ kind: 'success', title: 'Model ready', message: model.name })
+      } else {
+        notifyError('Failed to load model', result.error.detail ?? result.error.message)
+      }
+    } catch (error) {
+      // A rejection at the IPC layer never becomes the handler's own `err`
+      // result, and this is called as `void loadModel(...)` from several
+      // places, so it used to escape as an unhandled rejection with nothing
+      // said to the user.
+      notifyError(
+        'Failed to load model',
+        error instanceof Error ? error.message : 'The request failed.'
+      )
+    } finally {
+      // Cleared whatever happened. This drives the per-card spinner, so leaving
+      // it set on a failure left that model's card spinning for the rest of the
+      // session over a load that had already given up.
+      set({ pendingPath: null })
     }
   },
 
@@ -161,15 +176,45 @@ export const useModelStore = create<ModelState>((set, get) => ({
         [model.id]: { modelId: model.id, receivedBytes: 0, totalBytes: null, status: 'downloading' }
       }
     }))
-    const result = await anodex.models.download(model)
-    if (!result.ok) {
-      notifyError('Failed to download model', result.error.detail ?? result.error.message)
-      return
+
+    /**
+     * Record how the download ended.
+     *
+     * The main process streams progress while a download runs but broadcasts
+     * nothing terminal when one fails — its handler catches and returns an
+     * `err` result instead. So a failure left this entry sitting at
+     * `status: 'downloading'` for the rest of the session, and every card
+     * reading it (`ModelDownloadIcon` on the discover panel, the recommended
+     * strip, and the empty state) went on showing a download in progress that
+     * had already given up.
+     */
+    const settle = (status: ModelDownloadProgress['status'], error?: string): void => {
+      set((s) => {
+        const current = s.downloads[model.id]
+        // A terminal broadcast that arrived first wins: it carries real byte
+        // counts, where this only knows the outcome.
+        if (!current || current.status !== 'downloading') return s
+        return { downloads: { ...s.downloads, [model.id]: { ...current, status, error } } }
+      })
     }
-    await get().refresh()
-    useUiStore
-      .getState()
-      .notify({ kind: 'success', title: 'Model downloaded', message: result.value.name })
+
+    try {
+      const result = await anodex.models.download(model)
+      if (!result.ok) {
+        settle('error', result.error.detail ?? result.error.message)
+        notifyError('Failed to download model', result.error.detail ?? result.error.message)
+        return
+      }
+      settle('done')
+      await get().refresh()
+      useUiStore
+        .getState()
+        .notify({ kind: 'success', title: 'Model downloaded', message: result.value.name })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The request failed.'
+      settle('error', message)
+      notifyError('Failed to download model', message)
+    }
   },
 
   cancelDownload: (modelId) => {

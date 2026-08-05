@@ -147,6 +147,25 @@ function saveNavigationSeenAt(markers: NavigationSeenAt): void {
   }
 }
 
+/**
+ * The sound and desktop notification a toast makes when it settles.
+ *
+ * Shared by `notify` and `resolveToast` so the two cannot drift, and no longer
+ * a bare `kind === 'error' ? 'error' : 'success'` — that gave an `info` toast
+ * the success chime, so "Nothing to compact" and "Model ready" sounded
+ * identical. `info` is a statement, not an outcome: it says its piece on screen
+ * and stays quiet.
+ */
+function announceToast(kind: ToastKind, title: string, message?: string): void {
+  if (kind === 'error') {
+    playChime('error')
+    return
+  }
+  if (kind !== 'success') return
+  playChime('success')
+  notifyDesktop(title, message ?? '')
+}
+
 /** Global, ephemeral UI state: the active view, toasts, and tool approvals. */
 export const useUiStore = create<UiState>((set, get) => ({
   view: 'chat',
@@ -200,7 +219,17 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   resolveConfirmation: (id, response) => {
     if (!get().pendingConfirmations.some((p) => p.id === id)) return
-    void anodex.tools.respondConfirmation(id, response)
+    // The card goes either way — it is answered, and leaving it up would invite
+    // a second click that does nothing. But a rejection here means the main
+    // process never heard the decision and the tool call is still waiting on
+    // it, so it must not vanish silently: previously this was a bare `void`,
+    // and the whole turn would sit blocked with nothing on screen to say why.
+    anodex.tools.respondConfirmation(id, response).catch((error: unknown) => {
+      notifyError(
+        'Could not send that decision',
+        error instanceof Error ? error.message : 'The request failed.'
+      )
+    })
     set((state) => ({
       pendingConfirmations: removePendingConfirmation(state.pendingConfirmations, id)
     }))
@@ -221,8 +250,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
     }, ttl)
 
-    playChime(toast.kind === 'error' ? 'error' : 'success')
-    if (toast.kind === 'success') notifyDesktop(toast.title, toast.message ?? '')
+    announceToast(toast.kind, toast.title, toast.message)
   },
 
   notifyPending: (title, message) => {
@@ -238,8 +266,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     setTimeout(() => {
       set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
     }, ttl)
-    playChime(patch.kind === 'error' ? 'error' : 'success')
-    if (patch.kind === 'success') notifyDesktop(patch.title, patch.message ?? '')
+    announceToast(patch.kind, patch.title, patch.message)
   },
 
   dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))

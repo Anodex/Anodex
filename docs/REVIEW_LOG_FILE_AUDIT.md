@@ -4037,7 +4037,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0 → 21 | ✅ done | Mail state behind the whole Email page                   |
 | 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0 → 17 | ✅ done | Spawns and supervises a real child process               |
 | 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0 → 12 | ✅ done | The renderer's entire entry point into mail              |
-| 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0      | ☐       | Notifications, toasts, and model lifecycle state         |
+| 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0 → 24 | ✅ done | Notifications, toasts, and model lifecycle state         |
 | 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6      | ☐       | Largest remaining store, thinnest coverage per line      |
 | 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0      | ☐       | Drives long unattended investigations                    |
 | 12  | `src/renderer/features/agent/AgentView.tsx` + `AgentRunEditor.tsx` | 1060  | 0      | ☐       | Where an unattended run's limits and tools are chosen    |
@@ -5252,3 +5252,111 @@ untouched, a cancelled dialog costing no fetch, and a failed write coming back
 as a result. The sixth walks `IpcChannel.Email` and asserts a handler exists for
 every channel, because a channel the preload exposes with nothing behind it
 surfaces in the renderer as an unexplained rejection.
+
+## Round four, 9. `src/renderer/stores/uiStore.ts` + `modelStore.ts` — done
+
+498 lines between them, no tests. Toasts, the tool-approval queue, the model
+catalogue and the engine's live state — the two stores almost every other part
+of the renderer reads.
+
+`modelStore`'s two defects are the same shape as the one round four found in
+`emailStore`: a progress flag set before an await and cleared only on the path
+that succeeded. That is three occurrences of one pattern across three renderer
+stores, which makes it worth naming rather than fixing quietly each time.
+
+### Bugs fixed
+
+**4.9.1 A failed model load left its card spinning for the session.**
+
+```ts
+set({ pendingPath: model.path })
+const result = await anodex.models.load({ … })
+set({ pendingPath: null })
+```
+
+`pendingPath` drives the per-card spinner, and the line clearing it sits after
+the await — which a rejection skips entirely. Callers invoke this as
+`void loadModel(...)`, so an IPC-level failure escaped unhandled _and_ left that
+model's card spinning with nothing on screen to say the load had given up. Now
+cleared in a `finally`, with the rejection reported rather than dropped.
+
+**4.9.2 A failed download showed as still downloading, permanently.**
+`downloadModel` writes a `status: 'downloading'` entry, awaits, and on failure
+returns without touching it again:
+
+```ts
+if (!result.ok) {
+  notifyError('Failed to download model', …)
+  return          // ← the entry stays 'downloading'
+}
+```
+
+Nothing else corrects it. The main process streams progress _while_ a download
+runs, but its handler catches failures and returns an `err` result — it
+broadcasts nothing terminal. So the entry sat at `downloading` for the rest of
+the session, and all three places that read it (`ModelDownloadIcon` on the
+discover panel, the recommended strip, the chat empty state) went on showing a
+download in progress that had already stopped.
+
+The outcome is now recorded on the entry, including for a rejection. A terminal
+broadcast that arrived first wins, since it carries real byte counts where this
+only knows how things ended.
+
+**4.9.3 An approval whose answer never arrived vanished silently.**
+`resolveConfirmation` sent the decision as a bare
+`void anodex.tools.respondConfirmation(id, response)` and removed the card
+regardless. A rejection there means the main process never heard the decision
+and the guarded tool call is still waiting on it — so the turn sat blocked with
+nothing on screen to explain why. The card still goes (it has been answered, and
+leaving it invites a second click that does nothing), but the failure is now
+reported.
+
+**4.9.4 An informational toast sounded like a success.**
+
+```ts
+playChime(toast.kind === 'error' ? 'error' : 'success')
+```
+
+Four kinds, two branches. `info` took the `success` chime, so "Nothing to
+compact" and "This chat does not have enough older context to summarize yet"
+were announced with the same sound as "Model ready" and "Model downloaded". An
+`info` toast is a statement, not an outcome; it now says its piece on screen and
+stays quiet. Folded into one `announceToast` helper shared by `notify` and
+`resolveToast`, which had the same two-branch expression duplicated.
+
+### Assessed, not changed
+
+- **Toasts are uncapped.** A fast loop of failures stacks them until their TTLs
+  expire. Bounded in practice by those TTLs and by the fact that the pollers
+  which could loop — `refreshUnreadCount` most of all — are deliberately silent
+  on failure.
+- **A dismissed toast's TTL timer still fires**, filtering an id that is already
+  gone. A no-op on a list that is never long.
+- **`notifyPending` never expires on its own.** That is its contract — it exists
+  for work worth surfacing even if the user navigates away — and every caller
+  resolves it in a `finally`.
+- **`notify` accepts `kind: 'pending'`**, which would auto-dismiss and defeat
+  `notifyPending`'s purpose. No caller does it; narrowing the parameter type
+  would be the real fix and touches every call site.
+- **`loadNavigationSeenAt` writes to `localStorage` during module
+  initialization** when no value exists. A side effect in an initializer, but it
+  is what makes a fresh install start with no unread badges rather than three.
+- **`retryLoadSafely` clears the recovery record before attempting the load**, so
+  a missing model file leaves nothing to retry from. The file is missing either
+  way, and the main process records a fresh recovery if this attempt crashes.
+
+### Tests
+
+`uiStore.test.ts` — 15, and `modelStore.test.ts` — 9. First coverage for both.
+
+Six fail against the pre-fix files, baseline from `git show HEAD:`: the load
+rejection leaving the spinner set, all three download-settling cases, the info
+toast chiming, and the undelivered approval saying nothing.
+
+Eighteen pass either way and are labelled. The ones worth naming are the
+approval queue's own invariants, which nothing else in the tree checks: that it
+is a queue rather than a slot because one turn can raise several approvals at
+once, that answering a card that is no longer pending does nothing, and that a
+confirmation main cancelled on its own is dropped _without_ answering back —
+the distinction its doc comment describes and which a refactor would find easy
+to collapse.
