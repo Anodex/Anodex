@@ -4069,10 +4069,11 @@ quietly editing the checklist.
 
 ### Scope note
 
-These cover round two files 11–13, both cross-cutting email items, and round
-three files 1–2. **Round three files 3–12 were reviewed in a separate session and
-have no manual entries yet** — whoever picks this up should add them from those
-log sections, in this format.
+Entries 1–8 cover round two files 11–13, both cross-cutting email items, and
+round three files 1–2. Entries 9–18 cover round three files 3–12 and the two
+cross-cutting closures, derived from those log sections rather than from having
+done the reviews — so if one reads thin against what its section describes, trust
+the section.
 
 ### 1. Composer — two attachment passes racing
 
@@ -4206,3 +4207,174 @@ having run nothing.
 5. Delete a run while it is mid-turn, then start another.
    **Expected:** the new run starts. A wedged service would refuse with _"Another
    agent run is currently in progress."_
+
+### 9. Scheduler — a run must not overwrite what you type in its chat
+
+_From round three §3, finding 3. Why not a test: the test uses an in-memory
+store and proves the merge; it cannot prove the renderer and the scheduler agree
+about the same file on disk._
+
+1. Create a scheduled task and let it run once so it has a conversation.
+2. Start it again with **Run now**, and while it is working open its chat from
+   the sidebar (the run's toast links straight to it).
+3. Type a message and send it. Rename the conversation too.
+
+**Expected:** when the run finishes, your message, its reply, and the rename are
+all still there. Previously the run wrote back a snapshot taken before you typed
+and erased all three.
+
+### 10. Scheduler — quitting mid-run
+
+_From round three §3, finding 4._
+
+1. Start a scheduled task with **Run now**, then quit Anodex while it is working.
+
+**Expected:** the app exits cleanly with no toast window appearing during
+shutdown and no error dialog. Relaunch and the Scheduler page shows the run
+recorded, with the schedule advanced rather than stuck.
+
+### 11. Scheduler — one bad run must not stop every future one
+
+_From round three §3, finding 1 — the round's most expensive defect. Hard to
+force by hand; this is the cheap proxy._
+
+1. Create two scheduled tasks a few minutes apart and let both fire.
+2. Use **Run now** on one, let it finish, then **Run now** on the other.
+
+**Expected:** the second runs. If it refuses with _"Another scheduled task is
+currently running"_ when nothing is running, the lock has leaked and this needs
+reopening.
+
+### 12. Tools — the workspace confinement holds against a symlink
+
+_From round three §4, finding 1. Why not fully a test: the unit test covers
+`resolveInWorkspace`; this confirms the file tools actually route through it._
+
+Setup, in a terminal, from inside your workspace folder:
+
+```bash
+mkdir -p ../outside
+ln -s ../outside/planted.txt link.txt
+```
+
+`link.txt` now points at a file that **does not exist yet** — that is the case
+that used to slip through.
+
+1. Ask the model to write something to `link.txt`.
+
+**Expected:** refused as outside the workspace. Check `../outside/planted.txt`
+was **not** created. Delete `link.txt` afterwards.
+
+### 13. Tools — a recursive forced delete is recognised however it is spelled
+
+_From round three §4, finding 2._
+
+With permission mode on **Ask**, ask the model to run each of these (let it
+propose the command; do not approve any of them):
+
+- `rm -f -r build`
+- `rm --force --recursive build`
+- `rm -r --force build`
+
+**Expected:** each raises a **destructive** confirmation, the same as `rm -rf`
+does. The first two previously classified as merely sensitive, which auto-runs
+in untethered mode.
+
+### 14. Settings — every connected provider can actually be chosen
+
+_From round three §5, finding 1._
+
+1. Connect any provider other than Anthropic/OpenAI/local — Google, xAI,
+   DeepSeek, Mistral, Groq, OpenRouter, Azure, Kimi or Qwen.
+2. Press **Use for chat**.
+
+**Expected:** it becomes the active provider. It previously threw
+`provider.active must be "local", "anthropic", or "openai"` at this last step,
+after the key had been entered and verified.
+
+### 15. Settings — API keys survive restarts, and a bad settings file is kept
+
+_From round three §5, findings 2 and 3, and the cross-cutting encryption
+closure. The upgrade defect was invisible to the session that caused it, so this
+one needs two restarts._
+
+1. Enter an API key for any cloud provider and confirm it verifies.
+2. Quit and relaunch. Confirm it still verifies. **Quit and relaunch again.**
+
+**Expected:** the key still works on both launches. The defect only showed on
+the launch _after_ the one that migrated.
+
+3. Open `settings.json` in the app's user-data folder and check the stored keys.
+
+**Expected:** every provider's key is stored with an `enc:` prefix, not just
+Anthropic's and OpenAI's. On Linux without gnome-keyring or KWallet they stay
+plaintext by design — the startup log names the backend chosen.
+
+4. With the app closed, corrupt `settings.json` (truncate it mid-object), then
+   launch.
+
+**Expected:** the app starts on defaults **and** the original is preserved
+alongside as `settings.json.corrupt`. It previously overwrote it on the next
+settings change, taking every key and linked mail account with it.
+
+### 16. Agents — a run cannot finish on a plan alone
+
+_From the cross-cutting closure made at the user's direction._
+
+1. Create an agent run whose goal is something it could claim without doing —
+   e.g. "create a file called demo.txt with the text hello".
+2. Watch the transcript for a turn that writes a plan and then calls
+   `finish_goal`.
+
+**Expected:** `finish_goal` is refused with a message about needing real action
+behind a completion claim, and the run continues. A run may only report done
+after a real tool call — writing or ticking a plan no longer counts. Confirm
+`demo.txt` exists when it does report done.
+
+### 17. Unattended runs honour the configured reply ceiling
+
+_From round three §8, finding 2._
+
+1. Settings → AI & Models → set **Max response tokens** high (say 8000) on the
+   cloud provider you will use.
+2. Create a scheduled task or agent run on that provider whose goal produces a
+   long reply ("write a detailed 2000-word summary of …").
+
+**Expected:** the reply runs well past 4096 tokens. Unattended runs previously
+ignored the Settings ceiling entirely and fell back to each provider's own 4096
+default, cutting the final report with nothing saying why.
+
+### 18. A background turn landing in a chat you are actively using
+
+_From the cross-cutting closure. This is the one the earlier fix deliberately
+did not cover._
+
+1. Open the conversation a scheduled task writes into.
+2. Send a message so a reply is **actively streaming**.
+3. While it streams, trigger that scheduled task with **Run now**.
+
+**Expected:** when both finish, the chat holds both your exchange and the
+scheduled run's turn. Neither erases the other. Previously the background turn
+reached disk and was then overwritten by the live copy.
+
+### Findings with no practical manual check
+
+Recorded so nobody spends time inventing one. Each is covered by tests, or was a
+correctness argument rather than a behaviour change:
+
+- The MCP tool-call timeout now cancelling server-side (round three §6.2), and
+  the stale-connection notification guard (§6.3) — both need a deliberately
+  misbehaving MCP server.
+- The compaction summary deadline (§8.1) — needs a provider that accepts a
+  request and goes silent.
+- The compaction report's token arithmetic (§10.1) — developer-facing log output
+  only; nothing user-visible changed.
+- `toolSurface` (§9), `preload` (§11) and `ConversationAssetStore` (§12) had **no
+  live defects**. Nothing to verify beyond the app continuing to work: tools
+  still available on a small-context model, screenshots still rendering, previews
+  still surviving a restart.
+- The Critical Thinking evidence fixes (§7) change which reports are allowed
+  through rather than how any one looks. The observable proxy is that a run with
+  correctly-cited quotations produces a real report instead of falling back to
+  the deterministic one — worth watching for over the next few investigations
+  rather than staging.
