@@ -4027,20 +4027,20 @@ Counts verified against the real test tree, and the mirage check applied a third
 time — every file in the top block is mocked out in some other suite and has no
 dedicated test of its own. **Five of them are credential handling.**
 
-| #   | File                                                               | Lines | Tests | Status  | Why it ranks here                                        |
-| --- | ------------------------------------------------------------------ | ----- | ----- | ------- | -------------------------------------------------------- |
-| 1   | `src/main/email/providers/oauthClients.ts`                         | 124   | 0     | ✅ done | Refreshes the token every Gmail/Graph request depends on |
-| 2   | `src/main/email/EmailAuthStore.ts`                                 | 155   | 0     | ☐       | Persists mail OAuth tokens on disk                       |
-| 3   | `src/main/email/oauth.ts`                                          | 127   | 0     | ☐       | The mail authorization flow itself                       |
-| 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0     | ☐       | The same pair for third-party MCP servers                |
-| 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0     | ☐       | Every main→renderer event lands here and fans out        |
-| 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0     | ☐       | Mail state behind the whole Email page                   |
-| 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0     | ☐       | Spawns and supervises a real child process               |
-| 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0     | ☐       | The renderer's entire entry point into mail              |
-| 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0     | ☐       | Notifications, toasts, and model lifecycle state         |
-| 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6     | ☐       | Largest remaining store, thinnest coverage per line      |
-| 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0     | ☐       | Drives long unattended investigations                    |
-| 12  | `src/renderer/features/agent/AgentView.tsx` + `AgentRunEditor.tsx` | 1060  | 0     | ☐       | Where an unattended run's limits and tools are chosen    |
+| #   | File                                                               | Lines | Tests  | Status  | Why it ranks here                                        |
+| --- | ------------------------------------------------------------------ | ----- | ------ | ------- | -------------------------------------------------------- |
+| 1   | `src/main/email/providers/oauthClients.ts`                         | 124   | 0      | ✅ done | Refreshes the token every Gmail/Graph request depends on |
+| 2   | `src/main/email/EmailAuthStore.ts`                                 | 155   | 0 → 15 | ✅ done | Persists mail OAuth tokens on disk                       |
+| 3   | `src/main/email/oauth.ts`                                          | 127   | 0      | ☐       | The mail authorization flow itself                       |
+| 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0      | ☐       | The same pair for third-party MCP servers                |
+| 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0      | ☐       | Every main→renderer event lands here and fans out        |
+| 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0      | ☐       | Mail state behind the whole Email page                   |
+| 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0      | ☐       | Spawns and supervises a real child process               |
+| 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0      | ☐       | The renderer's entire entry point into mail              |
+| 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0      | ☐       | Notifications, toasts, and model lifecycle state         |
+| 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6      | ☐       | Largest remaining store, thinnest coverage per line      |
+| 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0      | ☐       | Drives long unattended investigations                    |
+| 12  | `src/renderer/features/agent/AgentView.tsx` + `AgentRunEditor.tsx` | 1060  | 0      | ☐       | Where an unattended run's limits and tools are chosen    |
 
 **Revised after ranking, at the user's correction.** The first cut read
 "not UI" as "not renderer" and excluded 40,000 lines on that basis. What the
@@ -4513,3 +4513,114 @@ persists nothing, each account refreshes independently of the others, and the
 two config assertions pin the parameters that decide whether an account survives
 its first hour at all: Google's `access_type=offline` + `prompt=consent`, and
 Microsoft's `offline_access` scope and `localhost` redirect host.
+
+## Round four, 2. `src/main/email/EmailAuthStore.ts` — done
+
+155 lines, no tests, and the only file in the app whose entire purpose is
+holding credentials: OAuth tokens, IMAP passwords, and user-supplied client
+secrets for every linked mailbox. There is no second copy of it anywhere — the
+recovery from losing it is re-linking every account by hand.
+
+The encryption is sound. `safeStorage` per field, base64 on top, `encrypt`
+refusing to write at all when the OS keychain is unavailable rather than falling
+back to plaintext, and `patch` merging the _stored_ entry so refreshing a token
+cannot drop the IMAP password beside it. What this file was missing is
+everything around the encryption — the failure paths.
+
+### Bugs fixed
+
+**4.2.1 An unreadable credential file was silently replaced with an empty one.**
+
+```ts
+try {
+  return JSON.parse(readFileSync(this.filePath, 'utf-8')) as CredentialStore
+} catch (error) {
+  log.warn('Failed to read email auth store:', error)
+  return {}
+}
+```
+
+Returning `{}` is right — the app has to start. Returning it _without moving the
+file aside_ is what made this destructive: the next `setToken`, `clear`, or
+account link takes that empty store, adds one entry, and writes it back over the
+original. Every other account's tokens and passwords are gone, and the only
+record that anything happened is a `log.warn` nobody reads.
+
+This is the same defect round three §5.2 found in `SettingsStore`, one file
+further down the same path, and the house already had the answer three times
+over — `SettingsStore`, `ConversationStore` and `CheckpointStore` all move an
+unparseable file to `<path>.corrupt` before falling back. Now so does this one,
+on the file where the loss is least recoverable.
+
+**4.2.2 The write was not atomic.** `writeFileSync` straight over the live file:
+a crash, a full disk, or a killed process part-way through leaves truncated
+JSON. Truncated JSON is unparseable, which lands in 4.2.1 — so the two compound
+into "every mailbox needs reconnecting" from one badly-timed power cut.
+
+Now written to `<path>.<pid>.tmp` and renamed into place, the idiom
+`CriticalThinkingStore` and `CriticalThinkingEvidenceStore` already use. Rename
+is atomic, so the file is either entirely the old contents or entirely the new
+ones. A failed write removes its own temporary file rather than leaving debris
+next to the real one.
+
+**4.2.3 Using the store before `init()` answered from a path of `''`.**
+`read` guarded `!this.filePath` and returned `{}` — so a linked account would
+report itself as having no credentials, which reads as "not connected" rather
+than as a bug. `write` had no guard at all and failed on an unrelated `ENOENT`
+from `writeFileSync('')`. Both now refuse with a message that says what actually
+happened.
+
+Not currently reachable: `emailAuthStore.init()` runs at `index.ts:114`, and the
+first thing to touch credentials is `emailAccountStore.pruneCredentials()` five
+lines later. Checked rather than assumed, because the fix turns a silent wrong
+answer into a throw, and that is only an improvement if nothing legitimately
+reads early.
+
+### Improvement
+
+**The file is written `mode: 0o600`.** It is the one file in the app that exists
+to hold secrets, and it was being created with the default umask — typically
+world-readable on Linux and macOS. The contents are encrypted and `encrypt`
+refuses to write when they cannot be, so this is defence in depth rather than
+the thing keeping them safe. Ignored on Windows, where DPAPI is what does the
+work.
+
+### Assessed, not changed
+
+- **A credential that will not decrypt is left exactly as it is.** `decrypt`
+  returns `null` and nothing overwrites the stored ciphertext, so a keyring that
+  is locked now can be unlocked later. That is the same failure the round three
+  cross-cutting work had to fix in `SettingsStore`, where an empty read _was_
+  written back; here `patch` merges the raw stored entry, so it was already
+  right. Pinned with a test so it stays right.
+- **`hasCredentials` ignores `clientSecret`,** which is correct: a client secret
+  is half of an OAuth client, not a way into a mailbox.
+- **Reads are unbatched — every call re-reads and re-parses the file.**
+  `accessTokenFor` calls `getToken` on every mail request, so a large thread
+  read parses this file once per message. It is small, the OS caches it, and a
+  cache would need invalidating on external edits; worth revisiting against a
+  measurement rather than a guess.
+- **`clear` and `pruneTo` delete synchronously with no backup.** That is what
+  unlinking an account is supposed to do, and quarantining on delete would leave
+  live tokens on disk after a user asked for them to be gone.
+
+### Tests
+
+`src/main/email/__tests__/EmailAuthStore.test.ts` — 15 tests (one skipped off
+POSIX), the file's first coverage. `safeStorage` is faked with a reversible
+marker so what actually lands on disk can be asserted.
+
+Three fail against the pre-fix file, baseline from `git show HEAD:`: the corrupt
+file being overwritten instead of quarantined, a failed rename leaving the
+previous file damaged and a temporary file behind, and the store answering
+before `init`. The rename failure is fault-injected at `node:fs` — the
+interesting half of an atomic write is what survives a failure, and that cannot
+be staged any other way.
+
+Eleven pass either way and are labelled. They hold the properties that were
+already correct and are easy to break while changing the file underneath them: a
+token never appearing in the clear on disk, the three secrets on one account
+staying independent through a write to any of them, the legacy single-string
+format still being read and rewritten, an undecryptable value being preserved
+rather than cleared, no write of any kind happening when the keychain is
+unavailable, and `pruneTo` not touching the file when nothing is stale.

@@ -1,5 +1,5 @@
 import { app, safeStorage } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createLogger } from '../utils/logger'
 
@@ -133,18 +133,79 @@ class EmailAuthStore {
   }
 
   private read(): CredentialStore {
-    if (!this.filePath || !existsSync(this.filePath)) return {}
+    this.assertReady()
+    if (!existsSync(this.filePath)) return {}
     try {
       return JSON.parse(readFileSync(this.filePath, 'utf-8')) as CredentialStore
     } catch (error) {
-      log.warn('Failed to read email auth store:', error)
+      // Falling back to an empty store is right — the app has to start — but
+      // returning it without moving the file aside was destructive: the next
+      // `setToken`, `clear` or link writes that empty store back over the
+      // original, taking every other account's tokens and passwords with it.
+      // There is no other copy of this file, so the cost is re-linking every
+      // mailbox. Same quarantine the settings, conversation and checkpoint
+      // stores already do, on the one file where it matters most.
+      this.quarantine(error)
       return {}
     }
   }
 
+  /** Move an unreadable credential file aside, best effort. */
+  private quarantine(error: unknown): void {
+    const aside = `${this.filePath}.corrupt`
+    try {
+      renameSync(this.filePath, aside)
+      log.warn(`Could not parse email credentials; moved to ${aside}.`, error)
+    } catch (renameError) {
+      log.error(
+        'Could not parse email credentials and could not move the file aside — the next ' +
+          'save will overwrite it:',
+        renameError
+      )
+    }
+  }
+
   private write(credentials: CredentialStore): void {
+    this.assertReady()
     this.ensureDir(dirname(this.filePath))
-    writeFileSync(this.filePath, JSON.stringify(credentials, null, 2), 'utf-8')
+    // Written to a temporary file and renamed into place, as the Critical
+    // Thinking stores do. A crash or a full disk part-way through a direct
+    // write leaves truncated JSON, and truncated JSON here is every linked
+    // mailbox needing to be reconnected — rename is atomic, so the file is
+    // either the old contents or the new ones.
+    //
+    // `mode: 0o600` because this is the one file in the app whose whole purpose
+    // is holding credentials. The contents are `safeStorage`-encrypted and
+    // `encrypt` refuses to write anything when that is unavailable, so this is
+    // defence in depth rather than the thing keeping them safe. Ignored on
+    // Windows, which is what the DPAPI encryption is for.
+    const temporaryPath = `${this.filePath}.${process.pid}.tmp`
+    try {
+      writeFileSync(temporaryPath, JSON.stringify(credentials, null, 2), {
+        encoding: 'utf-8',
+        mode: 0o600
+      })
+      renameSync(temporaryPath, this.filePath)
+    } catch (error) {
+      try {
+        if (existsSync(temporaryPath)) rmSync(temporaryPath)
+      } catch {
+        /* Best effort: a stray temp file is preferable to masking the error. */
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Refuse to work before `init()` has run rather than answering from a path of
+   * `''`. Reads previously returned `{}` — a linked account reporting itself as
+   * having no credentials — and writes failed on an unrelated `ENOENT` from
+   * `writeFileSync('')`.
+   */
+  private assertReady(): void {
+    if (!this.filePath) {
+      throw new Error('The email credential store was used before it was initialized.')
+    }
   }
 
   private ensureDir(dir: string): void {
