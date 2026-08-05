@@ -4038,7 +4038,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0 → 17 | ✅ done | Spawns and supervises a real child process               |
 | 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0 → 12 | ✅ done | The renderer's entire entry point into mail              |
 | 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0 → 24 | ✅ done | Notifications, toasts, and model lifecycle state         |
-| 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6      | ☐       | Largest remaining store, thinnest coverage per line      |
+| 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6 → 21 | ✅ done | Largest remaining store, thinnest coverage per line      |
 | 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0      | ☐       | Drives long unattended investigations                    |
 | 12  | `src/renderer/features/agent/AgentView.tsx` + `AgentRunEditor.tsx` | 1060  | 0      | ☐       | Where an unattended run's limits and tools are chosen    |
 
@@ -5360,3 +5360,94 @@ once, that answering a card that is no longer pending does nothing, and that a
 confirmation main cancelled on its own is dropped _without_ answering back —
 the distinction its doc comment describes and which a refactor would find easy
 to collapse.
+
+## Round four, 10. `src/main/criticalThinking/CriticalThinkingStore.ts` — done
+
+491 lines holding every Critical Thinking investigation: its plan, its research
+state, its sources and its finished report. Ranked here as the largest remaining
+store with the thinnest coverage per line, and its normalization half turned out
+to be the sound part — a careful, defensive upgrade path for persisted runs,
+bounding text, rejecting `javascript:` sources, and repairing invalid policy
+numbers field by field. Every defect is in the loading and writing around it.
+
+The write path was already right: temp file plus atomic rename, a coalescing
+writer so a burst of progress updates collapses into one write, and a retained
+snapshot that a failed write re-queues rather than drops.
+
+### Bugs fixed
+
+**4.10.1 An unreadable run file was silently replaced with an empty one.**
+
+```ts
+} catch (error) {
+  log.warn('Failed to parse Critical Thinking runs, starting fresh:', error)
+  return []
+}
+```
+
+`ensureCache` caches that empty list, and the next `create`, `update` or
+`delete` persists it straight over the original. Every past investigation and
+every finished report, gone, with a `log.warn` as the only record.
+
+**This is the fourth file in this codebase found doing exactly that** —
+`SettingsStore` in round three, `EmailAuthStore` earlier in round four, and the
+pattern the conversation and checkpoint stores had already established the fix
+for. Quarantine to `<path>.corrupt` before falling back, so starting empty
+costs nothing that cannot be recovered by hand.
+
+**4.10.2 One malformed run cost every other run in the file.** Normalization ran
+as a single `parsed.map(normalizeCriticalThinkingRun)`, and that function
+reaches into nested shapes it has not validated — `run.plan?.steps.map(...)`
+throws outright if `steps` is a string. One entry like that threw out of the
+whole map, landed in the catch above, and started empty. Each run is now
+normalized in its own `try`, so a bad entry costs itself and is logged; the
+others load.
+
+**4.10.3 The "has anything changed?" guard was true every time.**
+
+```ts
+if (reconciled.some((run, index) => run !== parsed[index])) this.persist(reconciled)
+```
+
+`normalizeCriticalThinkingRun` always returns a fresh object (`{ ...run, … }`),
+so `reconciled[index]` is never identical to `parsed[index]` and the condition
+held for any file with a run in it. The guard read as "only write when the load
+actually repaired something" and in fact rewrote the entire file on every
+launch.
+
+Not destructive — the write is atomic and the content is equivalent — but it is
+dead logic that misrepresents what the code does, it costs a full serialization
+and write of a file that can carry long reports at every startup, and on a
+read-only or permission-denied store it manufactures a `lastWriteError` that the
+next `flush()` throws. Now compared against the bytes actually read from disk.
+
+### Assessed, not changed
+
+- **`flush()` throws on a stale `lastWriteError`** even when nothing is pending.
+  Defensible: the error means state was not persisted, and the retained snapshot
+  is re-queued so the next flush genuinely retries and clears it on success.
+- **`delete` silently no-ops for an unknown id.** Idempotent deletion is the
+  friendlier contract and the caller has already checked.
+- **`create` does not bound `question`.** `CriticalThinkingService.start`
+  enforces `MAX_QUESTION_CHARS` before it gets here, which is the right layer —
+  the store's job is to persist what it is given.
+- **`normalizeCriticalThinkingRun` is exported taking `CriticalThinkingRun`
+  while being called with unvalidated records.** The type is a convenient lie at
+  that boundary; making it `unknown` would ripple through the whole normalization
+  chain. 4.10.2 makes the lie survivable, which is the practical fix.
+
+### Tests
+
+`CriticalThinkingStore.test.ts` — 6 added (21 total).
+
+Three fail against the pre-fix file, baseline from `git show HEAD:`: the corrupt
+file being overwritten rather than quarantined, one bad entry taking a good one
+with it, and the redundant launch rewrite. The rewrite pair is asserted through
+`utimes` — the file's modification time is pinned to a known past date before
+`init`, so "was this written?" is a fact rather than a race.
+
+Three pass either way and are labelled: the store still opening on an empty list
+after an unreadable file, a file that genuinely is out of date still being
+rewritten, and an interrupted run still being repaired to `partial` on the way
+in. The last two exist because 4.10.3 narrows when a write happens, and the risk
+of narrowing it is that a load which _should_ rewrite quietly stops doing so.

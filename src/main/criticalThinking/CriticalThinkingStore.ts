@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
@@ -120,18 +120,56 @@ export class CriticalThinkingStore {
 
   private load(): CriticalThinkingRun[] {
     if (!existsSync(this.filePath)) return []
+    let raw: string
     try {
-      const parsedValue: unknown = JSON.parse(readFileSync(this.filePath, 'utf-8'))
+      raw = readFileSync(this.filePath, 'utf-8')
+      const parsedValue: unknown = JSON.parse(raw)
       if (!Array.isArray(parsedValue)) throw new Error('Critical Thinking store must be an array.')
-      const parsed = parsedValue.filter(isRecord) as unknown as CriticalThinkingRun[]
-      const reconciled = reconcileInterruptedCriticalThinkingRuns(
-        parsed.map(normalizeCriticalThinkingRun)
-      )
-      if (reconciled.some((run, index) => run !== parsed[index])) this.persist(reconciled)
+      // Normalized one run at a time. A single malformed entry — a `plan.steps`
+      // that is not an array, say — used to throw out of the whole `map` and
+      // land in the catch below, which starts empty: one bad run cost every
+      // other investigation in the file. Now it costs itself.
+      const parsed = parsedValue.filter(isRecord)
+      const normalized = parsed.flatMap((run) => {
+        try {
+          return [normalizeCriticalThinkingRun(run as unknown as CriticalThinkingRun)]
+        } catch (error) {
+          log.warn('Dropping an unreadable Critical Thinking run:', error)
+          return []
+        }
+      })
+      const reconciled = reconcileInterruptedCriticalThinkingRuns(normalized)
+      // Compared against the bytes on disk rather than by object identity.
+      // `normalizeCriticalThinkingRun` always returns a fresh object, so the
+      // previous `run !== parsed[index]` was true for every run on every
+      // launch — a guard that read as "only write when something changed" and
+      // in fact rewrote the whole file each time the app started.
+      if (JSON.stringify(reconciled, null, 2) !== raw) this.persist(reconciled)
       return reconciled
     } catch (error) {
-      log.warn('Failed to parse Critical Thinking runs, starting fresh:', error)
+      // Falling back to empty is right — the feature has to open. Doing it
+      // without moving the file aside was destructive: `ensureCache` caches the
+      // empty list and the next `create`/`update`/`delete` persists it straight
+      // over the original, taking every past investigation with it. Same
+      // quarantine the settings, conversation, checkpoint and email-credential
+      // stores already do.
+      this.quarantine(error)
       return []
+    }
+  }
+
+  /** Move an unreadable run file aside, best effort. */
+  private quarantine(error: unknown): void {
+    const aside = `${this.filePath}.corrupt`
+    try {
+      renameSync(this.filePath, aside)
+      log.warn(`Could not parse Critical Thinking runs; moved to ${aside}.`, error)
+    } catch (renameError) {
+      log.error(
+        'Could not parse Critical Thinking runs and could not move the file aside — the next ' +
+          'save will overwrite it:',
+        renameError
+      )
     }
   }
 

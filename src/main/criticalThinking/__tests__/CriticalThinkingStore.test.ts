@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -221,5 +221,105 @@ describe('CriticalThinkingStore persistence', () => {
     await store.flush()
     const persisted: unknown = JSON.parse(await readFile(join(directory, 'runs.json'), 'utf8'))
     expect(persisted).toEqual([expect.objectContaining({ id: run.id, question: 'Retry me' })])
+  })
+})
+
+describe('CriticalThinkingStore loading', () => {
+  async function storeDirectory(contents?: string): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), 'anodex-critical-load-'))
+    temporaryDirectories.push(directory)
+    if (contents !== undefined) await writeFile(join(directory, 'runs.json'), contents, 'utf8')
+    return directory
+  }
+
+  /**
+   * The regression, and the fourth file in this codebase found doing it:
+   * falling back to empty on an unreadable file without moving that file aside,
+   * so the next write persists the empty list straight over it. Here that is
+   * every past investigation and its report.
+   */
+  it('moves an unreadable run file aside instead of overwriting it', async () => {
+    const truncated = '[{"id":"critical_old","question":"Half a fi'
+    const directory = await storeDirectory(truncated)
+
+    const store = new CriticalThinkingStore()
+    store.init(directory)
+    store.create({ question: 'New investigation', provider: 'local', model: null })
+    await store.flush()
+
+    expect(await readFile(join(directory, 'runs.json.corrupt'), 'utf8')).toBe(truncated)
+    const persisted = JSON.parse(
+      await readFile(join(directory, 'runs.json'), 'utf8')
+    ) as CriticalThinkingRun[]
+    expect(persisted.map((run) => run.question)).toEqual(['New investigation'])
+  })
+
+  it('still opens on an empty list so the feature is usable', async () => {
+    const store = new CriticalThinkingStore()
+    store.init(await storeDirectory('not json at all'))
+
+    expect(store.list()).toEqual([])
+  })
+
+  /**
+   * One entry with, say, a `plan.steps` that is not an array used to throw out
+   * of the whole `map`, land in the catch, and start empty — one bad run cost
+   * every other investigation in the file.
+   */
+  it('drops only the run it cannot read', async () => {
+    const good = normalizeCriticalThinkingRun({ ...makeRun('completed'), id: 'critical_good' })
+    const directory = await storeDirectory(
+      JSON.stringify([{ id: 'critical_bad', plan: { steps: 'not-an-array' } }, good])
+    )
+
+    const store = new CriticalThinkingStore()
+    store.init(directory)
+
+    expect(store.list().map((run) => run.id)).toEqual(['critical_good'])
+  })
+
+  it('rewrites a file that is not already in its normalized form', async () => {
+    // Compact JSON from an older build: same meaning, different bytes.
+    const directory = await storeDirectory(JSON.stringify([makeRun('completed')]))
+    const before = new Date(2020, 0, 1)
+    await utimes(join(directory, 'runs.json'), before, before)
+
+    const store = new CriticalThinkingStore()
+    store.init(directory)
+    await store.flush()
+
+    expect((await stat(join(directory, 'runs.json'))).mtime.getTime()).toBeGreaterThan(
+      before.getTime()
+    )
+  })
+
+  /**
+   * `normalizeCriticalThinkingRun` always returns a fresh object, so the old
+   * `run !== parsed[index]` check was true for every run on every launch — a
+   * guard that read as "only write when something changed" and rewrote the
+   * whole file each time the app started.
+   */
+  it('leaves an already-normalized file alone on launch', async () => {
+    const settled = normalizeCriticalThinkingRun(makeRun('completed'))
+    const directory = await storeDirectory(JSON.stringify([settled], null, 2))
+    const before = new Date(2020, 0, 1)
+    await utimes(join(directory, 'runs.json'), before, before)
+
+    const store = new CriticalThinkingStore()
+    store.init(directory)
+    await store.flush()
+
+    expect((await stat(join(directory, 'runs.json'))).mtime.getTime()).toBe(before.getTime())
+  })
+
+  it('still repairs an interrupted run on the way in', async () => {
+    const directory = await storeDirectory(
+      JSON.stringify([normalizeCriticalThinkingRun(makeRun('researching'))], null, 2)
+    )
+
+    const store = new CriticalThinkingStore()
+    store.init(directory)
+
+    expect(store.list()[0]).toMatchObject({ status: 'partial' })
   })
 })
