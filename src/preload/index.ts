@@ -245,7 +245,7 @@ const api: AnodexApi = {
   },
   email: {
     getStatus: () => ipcRenderer.invoke(IpcChannel.Email.getStatus),
-    openWebmail: () => ipcRenderer.invoke(IpcChannel.Email.openWebmail),
+    openWebmail: (accountId) => ipcRenderer.invoke(IpcChannel.Email.openWebmail, accountId),
     discover: (address) => ipcRenderer.invoke(IpcChannel.Email.discover, address),
     connectOAuth: (request) => ipcRenderer.invoke(IpcChannel.Email.connectOAuth, request),
     connectPassword: (request) => ipcRenderer.invoke(IpcChannel.Email.connectPassword, request),

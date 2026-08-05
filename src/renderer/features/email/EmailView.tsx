@@ -232,7 +232,9 @@ export function EmailView(): JSX.Element {
     // layer does not — and this is called as `void handleOpenWebmail()`, so
     // one escaped as an unhandled rejection with nothing said to the user.
     try {
-      const result = await anodex.email.openWebmail()
+      // Scoped to the account on screen; the handler falls back to the primary
+      // when nothing is selected.
+      const result = await anodex.email.openWebmail(activeAccountId ?? undefined)
       if (!result.ok) {
         notifyError('Could not open webmail', result.error.detail ?? result.error.message)
       }

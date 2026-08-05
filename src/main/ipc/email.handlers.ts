@@ -1,5 +1,6 @@
 import { dialog, ipcMain, shell } from 'electron'
 import { writeFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type {
@@ -27,20 +28,45 @@ const WEBMAIL_URLS: Record<string, string> = {
   microsoft: 'https://outlook.live.com/mail/'
 }
 
+/**
+ * A sender-supplied attachment name reduced to something safe to suggest.
+ *
+ * Takes the last path segment under both separator conventions — a Windows
+ * build must not treat `..\evil.txt` as a plain name just because POSIX
+ * `basename` does not split on a backslash — and falls back when what is left
+ * is empty, a dot entry, or a bare Windows drive.
+ */
+function suggestedFileName(filename: string): string {
+  const lastSegment = basename(String(filename ?? '').replace(/\\/g, '/')).trim()
+  const unusable =
+    !lastSegment || lastSegment === '.' || lastSegment === '..' || /^[A-Za-z]:$/.test(lastSegment)
+  return unusable ? 'attachment' : lastSegment
+}
+
 export function registerEmailHandlers(): void {
   ipcMain.handle(IpcChannel.Email.getStatus, () => ok(emailService.getStatus()))
 
   ipcMain.handle(IpcChannel.Email.listAccounts, () => ok(emailService.listAccounts()))
 
-  ipcMain.handle(IpcChannel.Email.openWebmail, async () => {
+  ipcMain.handle(IpcChannel.Email.openWebmail, async (_event, accountId?: string) => {
     try {
       const status = emailService.getStatus()
-      const url = WEBMAIL_URLS[status.provider]
+      // Scoped to the account being viewed. `status.provider` is the *primary*
+      // account's — the fields around it say so — and this used to read it with
+      // no account at all, so a Gmail primary alongside an Outlook secondary
+      // opened Gmail however carefully the reader had selected Outlook first.
+      // With an IMAP primary it refused outright, naming a provider the reader
+      // was not looking at.
+      const account = accountId
+        ? status.accounts.find((candidate) => candidate.id === accountId)
+        : undefined
+      const provider = account?.provider ?? status.provider
+      const url = WEBMAIL_URLS[provider]
       if (!url) {
         return err(
           'email.no-webmail',
           'That account has no web interface Anodex can open.',
-          `Provider: ${status.provider}`
+          `Provider: ${provider}`
         )
       }
       await shell.openExternal(url)
@@ -249,8 +275,16 @@ export function registerEmailHandlers(): void {
       try {
         // Ask before fetching: a cancelled dialog should cost nothing, and the
         // user picking the destination is what makes writing a file here safe.
+        //
+        // The suggested name is reduced to its last segment first. `filename`
+        // is chosen by whoever sent the mail, and it was being handed to
+        // `defaultPath` whole — so an attachment named `..\..\settings.json`,
+        // or an absolute path, opened the dialog pointed somewhere the reader
+        // never navigated to. They still have to press Save, but the dialog is
+        // meant to be where they choose the destination, not where a sender
+        // does.
         const { canceled, filePath } = await dialog.showSaveDialog({
-          defaultPath: request.filename,
+          defaultPath: suggestedFileName(request.filename),
           title: 'Save attachment'
         })
         if (canceled || !filePath) return ok({ path: null })

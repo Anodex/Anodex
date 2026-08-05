@@ -777,7 +777,8 @@ export interface AnodexApi {
   }
   email: {
     getStatus(): Promise<Result<EmailConnectionStatus>>
-    openWebmail(): Promise<Result<void>>
+    /** Opens the given account's webmail, or the primary account's when omitted. */
+    openWebmail(accountId?: string): Promise<Result<void>>
     discover(address: string): Promise<Result<EmailAutoconfig>>
     connectOAuth(request: EmailConnectOAuthRequest): Promise<Result<EmailConnectionStatus>>
     connectPassword(request: EmailConnectPasswordRequest): Promise<Result<EmailConnectionStatus>>

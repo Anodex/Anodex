@@ -4036,7 +4036,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0 → 8  | ✅ done | Every main→renderer event lands here and fans out        |
 | 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0 → 21 | ✅ done | Mail state behind the whole Email page                   |
 | 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0 → 17 | ✅ done | Spawns and supervises a real child process               |
-| 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0      | ☐       | The renderer's entire entry point into mail              |
+| 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0 → 12 | ✅ done | The renderer's entire entry point into mail              |
 | 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0      | ☐       | Notifications, toasts, and model lifecycle state         |
 | 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6      | ☐       | Largest remaining store, thinnest coverage per line      |
 | 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0      | ☐       | Drives long unattended investigations                    |
@@ -5154,3 +5154,101 @@ properties that make this file safe rather than merely working: loopback host, a
 fresh per-load key of the right length, `--parallel 1`, a projector being
 required, an expected stop staying silent while a crash reports itself, and
 `countTokens` returning `null` — never an estimate — when it cannot measure.
+
+## Round four, 8. `src/main/ipc/email.handlers.ts` — done
+
+294 lines, no tests, and the entire surface the renderer reaches mail through:
+twenty-one channels, every one of them a `try` → `ok(...)` / `catch` →
+`err(...)`. That uniformity is the file's strength and it is genuinely correct —
+no handler throws across the bridge, every failure carries a code, a sentence
+for the user and a detail for the log, and the two enhancement channels
+(`loadRemoteImages`, `digestThreads`) deliberately degrade to a usable value
+instead of an error.
+
+Both defects are in the small part of the file that is _not_ that pattern — the
+two handlers that make a decision of their own.
+
+### Bugs fixed
+
+**4.8.1 "Open webmail" opened the wrong mailbox.**
+
+```ts
+const status = emailService.getStatus()
+const url = WEBMAIL_URLS[status.provider]
+```
+
+`status.provider` is the **primary** account's — the fields around it in
+`EmailConnectionStatus` say so explicitly (`address` is documented as "Primary
+account's address"). The handler took no account id, and the view called it with
+none, so the button ignored which mailbox was on screen entirely.
+
+With a Gmail primary and an Outlook account added second, selecting Outlook and
+pressing Open webmail opened **Gmail**. With an IMAP primary it refused for
+every account — _"That account has no web interface Anodex can open. Provider:
+imap"_ — naming a provider the reader was not looking at.
+
+The handler now takes an optional account id and resolves that account's own
+provider from `status.accounts`, falling back to the primary when none is
+given. `AnodexApi.openWebmail` and the preload bridge were widened to match, and
+`EmailView` passes the store's `activeAccountId`.
+
+**4.8.2 A sender chose where the Save dialog opened.**
+
+```ts
+const { canceled, filePath } = await dialog.showSaveDialog({
+  defaultPath: request.filename,
+  ...
+```
+
+`filename` is attachment metadata — chosen by whoever sent the mail — and it was
+handed to `defaultPath` whole. An attachment named `../../../.bashrc`, or
+`..\..\AppData\Roaming\Anodex\settings.json`, or an absolute path, opened the
+dialog pointed at somewhere the reader never navigated to, with that name
+pre-filled.
+
+The user still has to press Save, which is what keeps this a hazard rather than
+a hole — but the dialog exists so that _they_ choose the destination, and a
+sender was choosing it for them. Reduced to a last path segment first, splitting
+on both separator conventions: a Windows build must not treat `..\evil.txt` as
+an ordinary name simply because POSIX `basename` does not split on a backslash.
+A name that reduces to nothing usable — empty, `.`, `..`, or a bare drive letter
+— falls back to `attachment`.
+
+### Assessed, not changed
+
+- **`saveAttachment` fetches only after the dialog is accepted**, so cancelling
+  costs no mailbox round trip. Already right, and now pinned — it is the kind of
+  ordering a later refactor silently inverts.
+- **`showSaveDialog` is called without a parent window**, so it is not modal to
+  the window that asked. Cosmetic on every platform Anodex targets, and threading
+  a `BrowserWindow` through would mean plumbing `event.sender` into a handler
+  that otherwise ignores its event.
+- **Only `loadRemoteImages` validates its argument** (`Array.isArray`), while
+  twenty other handlers trust their payload's declared type. The renderer is our
+  own code and `ipcContract.test.ts` already proves every channel is reachable
+  only through the bridge; adding runtime shape checks to twenty handlers is a
+  different project, and every one of them is inside a `try` that turns a bad
+  payload into a reported error rather than a crash.
+- **`digestThreads`' catch returns `outcome: 'failed'` rather than an error
+  result**, which reads oddly next to its neighbours until you see why: the list
+  has no other way to tell a failed pass from an inbox with nothing left to
+  summarize. That distinction is exactly what round four's `emailStore` review
+  found the renderer relying on.
+
+### Tests
+
+`src/main/ipc/__tests__/email.handlers.test.ts` — 12 tests, the file's first.
+`ipcMain` is faked so each handler can be captured at registration and invoked
+directly.
+
+Six fail against the pre-fix file, baseline from `git show HEAD:`: the secondary
+account opening the primary's webmail, an IMAP primary blocking a webmail
+account, the refusal naming the wrong provider, and all three filename
+reductions.
+
+Six pass either way. Five are guards — the primary-account fallback, a browser
+failure reported rather than thrown, an ordinary filename passing through
+untouched, a cancelled dialog costing no fetch, and a failed write coming back
+as a result. The sixth walks `IpcChannel.Email` and asserts a handler exists for
+every channel, because a channel the preload exposes with nothing behind it
+surfaces in the renderer as an unexplained rejection.
