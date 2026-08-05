@@ -4039,7 +4039,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0 → 12 | ✅ done | The renderer's entire entry point into mail              |
 | 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0 → 24 | ✅ done | Notifications, toasts, and model lifecycle state         |
 | 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6 → 21 | ✅ done | Largest remaining store, thinnest coverage per line      |
-| 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0      | ☐       | Drives long unattended investigations                    |
+| 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0 → 8  | ✅ done | Drives long unattended investigations                    |
 | 12  | `src/renderer/features/agent/AgentView.tsx` + `AgentRunEditor.tsx` | 1060  | 0      | ☐       | Where an unattended run's limits and tools are chosen    |
 
 **Revised after ranking, at the user's correction.** The first cut read
@@ -5530,3 +5530,87 @@ automated test proves the store and the component agree; it does not prove the
 real app looks right, and the checklist's job is the second thing. Every other
 entry's stated reason — a misbehaving MCP server, a provider that accepts a
 request and goes silent, a Gmail account — is unaffected by having a DOM.
+
+## Round four, 11. `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` — done
+
+791 lines, no tests, and the first file reviewed with the DOM environment in
+place — which is what made its main defect findable at all. It lives entirely
+in a re-render, so `renderToStaticMarkup` could never have reached it.
+
+The presentation logic here is careful and was left alone: a `partial` run that
+produced a report is badged "Complete with gaps" rather than an alarm, every
+step's termination reason is translated into a sentence a user can act on
+(`stopReasonLabel`), and `useReportFirstLight` only flares for a report it
+actually watched arrive rather than one that was already there.
+
+### Bugs fixed
+
+**4.11.1 A store broadcast threw away the plan a reviewer was editing.**
+
+```ts
+useEffect(() => {
+  setDraftPlan(selected?.plan ? clonePlan(selected.plan) : null)
+  setCopied(false)
+}, [selected?.id, selected?.plan])
+```
+
+The intent is "seed the editable draft when the run being reviewed changes".
+The dependency does not say that. `criticalThinkingStore.setRuns` replaces the
+whole `runs` array with freshly deserialized objects on every `runsChanged`
+broadcast, and `selected` is a `useMemo` over that array — so `selected.plan`
+gets a new identity every broadcast whether or not the plan changed, and the
+effect reseeds the draft from the server copy.
+
+While a plan sits in review those broadcasts do not stop. A run in
+`needs-review` holds no lock in `CriticalThinkingService`, so a second
+investigation can be started and run underneath it, and research broadcasts on
+a throttled 150 ms cadence — roughly seven times a second, each one discarding
+whatever the reviewer had typed into a step.
+
+Now keyed on the run id only while a plan exists, so a plan _appearing_ (the
+planning-to-review transition, `null` → an object) still seeds and a plan merely
+re-sent does not.
+
+**4.11.2 A refused clipboard did nothing at all.** `copyReport` awaited
+`navigator.clipboard.writeText` with no catch, and is invoked as
+`void copyReport()`. The clipboard refuses for ordinary reasons — a denied
+permission, a window that is not focused — and the result was an unhandled
+rejection plus a button that appeared to do nothing, after a run that may have
+spent an hour producing that text. Reported now.
+
+### Assessed, not changed
+
+- **A run in `needs-review` does not count as active**, so `anotherRunActive`
+  lets a second investigation start while one awaits approval — and approving
+  the first then fails with "Another Critical Thinking run is already active."
+  A real hole, but whether a plan awaiting review should block new work is a
+  product decision rather than a defect in this file. 4.11.1 at least makes the
+  situation survivable: the reviewer's edits now stay put.
+- **`approvePlan` only refuses when _every_ step is blank**, so a plan with some
+  empty steps is approved with them. `normalizePlan` on the main side is where
+  that belongs, and it already filters.
+- **The `setTimeout` resetting `copied` after 1800 ms is never cleared.** React
+  18 makes a state update on an unmounted component a no-op, and the value it
+  writes is the same one the seeding effect writes.
+- **`exportPdf` serializes `reportRef.current.innerHTML`.** Two elements carry
+  that ref — the live-writing card and the finished-report card — but only ever
+  one is mounted, so the ref resolves unambiguously.
+
+### Tests
+
+`CriticalThinkingView.test.tsx` — 8 tests, the file's first, and the first in
+the project written against a real DOM for a defect rather than to close a
+known gap.
+
+Three fail against the pre-fix file, baseline from `git show HEAD:`: an edited
+step title being reverted by a broadcast, an added step disappearing the same
+way, and the refused clipboard staying silent. The broadcast is simulated the
+way IPC delivers one — the same runs re-spread into new objects — which is
+precisely what the old dependency could not tell apart from a real change.
+
+Five pass either way and are labelled. Three of them exist because the fix
+narrows _when_ seeding happens, and the risk of narrowing it is that a seed
+which should happen stops: the editor still seeds on first render, still seeds
+when a plan first arrives for a run already on screen, and still reseeds when a
+different run is selected. The other two cover approval carrying the edited plan
+rather than the server's, and a successful copy.

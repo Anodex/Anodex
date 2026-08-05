@@ -205,10 +205,31 @@ export function CriticalThinkingView(): JSX.Element {
   const [exportingPdf, setExportingPdf] = useState(false)
   const reportRef = useRef<HTMLDivElement>(null)
 
+  /**
+   * Seed the editable draft when the run being reviewed changes, or when its
+   * plan first arrives — and at no other time.
+   *
+   * This used to depend on `selected?.plan` itself. Every `runsChanged`
+   * broadcast replaces the whole `runs` array with freshly deserialized objects
+   * (see `criticalThinkingStore.setRuns`), so that dependency changed identity
+   * on every broadcast even when the plan was untouched, and reseeded the draft
+   * from the server copy. While a plan sits in review the broadcasts do not
+   * stop: a run in `needs-review` holds no lock, so a second investigation can
+   * be started and running underneath, and its progress broadcasts arrive
+   * roughly seven times a second. Every one of them threw away whatever the
+   * reviewer had typed.
+   *
+   * Keyed on the id only while a plan exists, so a plan appearing (`null` → an
+   * object, the planning-to-review transition) still seeds, and a plan merely
+   * re-sent does not.
+   */
+  const planSeedKey = selected?.plan ? selected.id : null
   useEffect(() => {
     setDraftPlan(selected?.plan ? clonePlan(selected.plan) : null)
     setCopied(false)
-  }, [selected?.id, selected?.plan])
+    // `selected.plan` is deliberately not a dependency — see above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, planSeedKey])
 
   const anotherRunActive = runs.some((run) => isActiveStatus(run.status))
   const modelReady = isChatReady(settings, engine.status)
@@ -273,7 +294,20 @@ export function CriticalThinkingView(): JSX.Element {
 
   const copyReport = async (): Promise<void> => {
     if (!selected?.report) return
-    await navigator.clipboard.writeText(selected.report)
+    try {
+      await navigator.clipboard.writeText(selected.report)
+    } catch (error) {
+      // The clipboard can refuse — a denied permission, a window that is not
+      // focused. This is called as `void copyReport()`, so a rejection used to
+      // leave an unhandled rejection and a button that simply did nothing,
+      // after a run that may have taken an hour to produce the text.
+      notify({
+        kind: 'error',
+        title: 'Could not copy the report',
+        message: error instanceof Error ? error.message : 'The clipboard refused the request.'
+      })
+      return
+    }
     setCopied(true)
     notify({ kind: 'success', title: 'Report copied' })
     setTimeout(() => setCopied(false), 1800)
