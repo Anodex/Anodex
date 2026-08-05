@@ -16,6 +16,7 @@ import { useMcpStore } from '../stores/mcpStore'
 import { useDiagnosticsStore } from '../stores/diagnosticsStore'
 import { useStartupStore } from '../stores/startupStore'
 import { useUiStore } from '../stores/uiStore'
+import { deferredModelRestore } from './deferredRestore'
 import { TokenBatcher } from './tokenBatcher'
 
 /**
@@ -72,7 +73,6 @@ export function useAnodexBridge(): void {
     // Owning the timer here — cancelled on cleanup — makes a re-mount a no-op
     // instead of a second real load.
     let cancelled = false
-    let restoreTimer: ReturnType<typeof setTimeout> | undefined
 
     void hydrate()
       .then(() => {
@@ -82,7 +82,7 @@ export function useAnodexBridge(): void {
         // loading must never block app entry; the model status chip in the
         // sidebar carries any load still in flight).
         useStartupStore.getState().setReady()
-        restoreTimer = setTimeout(() => void restoreLastModel(), STARTUP_MODEL_LOAD_DELAY_MS)
+        deferredModelRestore.schedule(() => void restoreLastModel(), STARTUP_MODEL_LOAD_DELAY_MS)
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -222,12 +222,31 @@ export function useAnodexBridge(): void {
     const offDiagnosticEntry = anodex.diagnostics.onEntry((entry) => {
       useDiagnosticsStore.getState().ingest([entry])
     })
-    void anodex.diagnostics.list().then((entries) => {
-      if (cancelled) return
-      useDiagnosticsStore.getState().ingest(entries)
-    })
+    void anodex.diagnostics
+      .list()
+      .then((entries) => {
+        if (cancelled) return
+        useDiagnosticsStore.getState().ingest(entries)
+      })
+      // Every other startup call is inside `hydrate`, which has a catch. This
+      // one runs beside the subscriptions, so a failure here had nowhere to go.
+      .catch(() => {
+        /* The live subscription above still carries anything new. */
+      })
+    // Alt-tabbing repeatedly used to start a full mailbox load each time. The
+    // store's own revision guard keeps the *state* consistent, but every one of
+    // those still went out to IMAP or Graph — so a slow account was hammered by
+    // nothing more than switching windows. Skipping while one is in flight
+    // costs no freshness: the request already running returns the same thing.
+    let emailRefresh: Promise<void> | null = null
     const refreshEmailOnFocus = (): void => {
-      void useEmailStore.getState().load()
+      if (emailRefresh) return
+      emailRefresh = useEmailStore
+        .getState()
+        .load()
+        .finally(() => {
+          emailRefresh = null
+        })
     }
     window.addEventListener('focus', refreshEmailOnFocus)
     // Clicking a scheduled-task toast asks the main window to open the
@@ -244,7 +263,7 @@ export function useAnodexBridge(): void {
 
     return () => {
       cancelled = true
-      if (restoreTimer) clearTimeout(restoreTimer)
+      deferredModelRestore.cancel()
       if (tokenFlushHandle !== null) cancelAnimationFrame(tokenFlushHandle)
       offStream()
       offThinkingStream()
@@ -311,7 +330,7 @@ export async function retryStartup(): Promise<void> {
   try {
     await hydrate()
     useStartupStore.getState().setReady()
-    setTimeout(() => void restoreLastModel(), STARTUP_MODEL_LOAD_DELAY_MS)
+    deferredModelRestore.schedule(() => void restoreLastModel(), STARTUP_MODEL_LOAD_DELAY_MS)
   } catch (error) {
     useStartupStore
       .getState()

@@ -4033,7 +4033,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 2   | `src/main/email/EmailAuthStore.ts`                                 | 155   | 0 → 15 | ✅ done | Persists mail OAuth tokens on disk                       |
 | 3   | `src/main/email/oauth.ts` + `src/main/oauth/loopbackServer.ts`     | 241   | 0 → 12 | ✅ done | The mail authorization flow itself                       |
 | 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0 → 12 | ✅ done | The same pair for third-party MCP servers                |
-| 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0      | ☐       | Every main→renderer event lands here and fans out        |
+| 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0 → 8  | ✅ done | Every main→renderer event lands here and fans out        |
 | 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0      | ☐       | Mail state behind the whole Email page                   |
 | 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0      | ☐       | Spawns and supervises a real child process               |
 | 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0      | ☐       | The renderer's entire entry point into mail              |
@@ -4833,3 +4833,97 @@ anything, so it passed either way and proved nothing about the temp-file
 rename. Renamed to what it actually checks, and labelled: forcing a failure
 between the write and the rename is not something a unit test can do honestly,
 so the atomicity itself is uncovered.
+
+## Round four, 5. `src/renderer/hooks/useAnodexBridge.ts` — done
+
+370 lines, no tests. Every main→renderer event arrives here and fans out to
+fourteen stores, and it owns the one-time startup hydration.
+
+It is careful work — sixteen subscriptions all unsubscribed, the animation-frame
+handle cancelled, the focus listener removed, and a long comment explaining why
+token, thinking-token and tool-activity events are coalesced into one commit per
+frame. Three defects, and the first is the interesting one because the file
+already documents the lesson it breaks.
+
+### 1. The bug this file describes fixing, still present in the sibling path
+
+The mount effect carries a comment worth quoting, because it is the whole
+finding:
+
+> an untracked `setTimeout` scheduled inside `hydrate()` used to survive the
+> first mount's cleanup, so the delayed `restoreLastModel()` call fired twice —
+> the actual cause of both the duplicate "model ready" toast and, almost
+> certainly, the intermittent native startup crash (two concurrent `loadModel()`
+> calls racing to allocate the same GPU/model resources).
+
+That was fixed by having the effect own its timer and cancel it. **`retryStartup`
+was left scheduling a bare `setTimeout` that nothing can cancel** — the same
+call, the same three-second delay, to the same single-model engine.
+
+It is narrower than the original: the overlay's "Try again" only exists after
+hydrate has failed, so the mount path's timer was never set, and the error panel
+stops rendering once a retry begins. What remains is real all the same — a retry
+that succeeds seconds before the window closes still starts a model load into a
+shutting-down app, and nothing can call it off.
+
+Both paths now share one owned handle (`DeferredRestore`), where scheduling
+again replaces whatever was pending. A duplicate schedule is a no-op instead of
+a second real load, wherever it comes from.
+
+### 2. The diagnostics backlog could reject with nowhere to go
+
+Every other startup call sits inside `hydrate()`, which has a `.catch`. The
+diagnostics replay runs beside the subscriptions as
+`void anodex.diagnostics.list().then(…)` with no catch, so an IPC failure there
+became an unhandled rejection — the same shape as the two fixed in files 3 and 4
+this round. Caught now; the live subscription beside it still carries anything
+new.
+
+### 3. Alt-tabbing hammered the mailbox
+
+`window.addEventListener('focus', …)` started a full `emailStore.load()` on
+every focus, with nothing coalescing them. The store's own `loadRevision` guard
+keeps the resulting _state_ consistent — a stale response is discarded — but it
+does not stop the requests: every switch back to Anodex went out to IMAP or
+Graph again.
+
+Skipped now while one is already in flight, which costs no freshness at all
+since the request already running returns the same thing.
+
+### Deliberate non-changes
+
+- **`hydrate()` itself runs twice under StrictMode's dev-only
+  mount/cleanup/re-mount.** The `cancelled` flag belongs to one effect instance,
+  so it suppresses the first run's _continuation_ but not the second run's body:
+  fourteen store loads happen twice in development. It is wasteful rather than
+  wrong, the loads are idempotent, and StrictMode does not run in production —
+  which is precisely the environment the comment says it exists to expose bugs
+  in. Serialising it would mean a module-level lock on startup, which is a
+  worse trade than a duplicated dev-only load.
+- **Every scheduler and agent broadcast triggers a full `refreshConversations()`**,
+  which re-reads every conversation from disk. An agent run broadcasts once per
+  turn. That is the cost of the renderer learning about work it did not start,
+  and it is what round three's background-turn fix depends on; making it
+  incremental needs the main process to say _which_ conversation changed, which
+  is the store-wide change already recorded and closed against `preserveInFlight`.
+- **The toast handler resolves its conversation from current store state** and
+  falls back to `setActive(null)` when it is not found, which would deactivate a
+  project. Reachable only if the click beats the refresh the same broadcast
+  triggers, by seconds.
+
+### Tests
+
+New `deferredRestore.ts` with `deferredRestore.test.ts` — 8. The hook itself
+cannot be exercised: renderer tests run under `environment: 'node'` with no
+jsdom, the wall recorded twice already in this audit. So the timer was extracted
+into a module of its own, following `tokenBatcher.ts`'s precedent, and tested
+directly — schedule, early, replace, cancel, double-schedule, and idempotent
+cancel.
+
+**Seven of the eight cannot fail against a baseline, because the file they test
+did not exist.** That is stated rather than dressed up. The eighth is a
+structural guard in the style of `ipcContract.test.ts` — it reads the bridge as
+source text and asserts no bare `setTimeout` schedules a restore, and that both
+paths go through the shared handle. That one _does_ fail against the committed
+bridge, which is the only automated proof available here that the wiring
+changed.
