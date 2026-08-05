@@ -2,6 +2,14 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { runLoopbackAuthorization } from '../oauth/loopbackServer'
 
 const AUTH_TIMEOUT_MS = 120_000
+/**
+ * How long a token exchange or refresh waits. Far shorter than the
+ * authorization window above, which is bounded by a person clicking through a
+ * browser; this one is a single machine-to-machine POST.
+ */
+const TOKEN_REQUEST_TIMEOUT_MS = 30_000
+/** Provider error bodies are for diagnosis, not for reproducing in full. */
+const MAX_ERROR_BODY_CHARS = 500
 
 export interface OAuthTokens {
   accessToken: string
@@ -106,13 +114,29 @@ async function exchange(
   const response = await fetch(config.tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params
+    body: params,
+    // Node's fetch has no timeout of its own. A token endpoint that accepts
+    // the connection and never answers would otherwise hang here forever —
+    // and `accessTokenFor` now coalesces concurrent refreshes onto one call,
+    // so every mail request in flight would wait behind this single one.
+    signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS)
   })
   if (!response.ok) {
-    throw new Error(`OAuth token request failed (${response.status}): ${await response.text()}`)
+    // Bounded: a provider that answers a token request with an HTML error page
+    // would otherwise put the whole page into an Error message, which is then
+    // logged and shown.
+    throw new Error(
+      `OAuth token request failed (${response.status}): ${truncate(await response.text())}`
+    )
   }
 
   const payload = (await response.json()) as TokenResponse
+  if (typeof payload.access_token !== 'string' || !payload.access_token) {
+    // Some providers answer 200 with an error body. Storing the missing field
+    // would send `Bearer undefined` on every request until the user noticed
+    // and re-linked the account.
+    throw new Error('The OAuth token response did not include an access token.')
+  }
   return {
     accessToken: payload.access_token,
     refreshToken: payload.refresh_token,
@@ -120,6 +144,13 @@ async function exchange(
     scope: payload.scope ?? config.scopes.join(' '),
     tokenType: payload.token_type ?? 'Bearer'
   }
+}
+
+function truncate(body: string): string {
+  const normalized = body.replace(/\s+/g, ' ').trim()
+  return normalized.length > MAX_ERROR_BODY_CHARS
+    ? `${normalized.slice(0, MAX_ERROR_BODY_CHARS)}…`
+    : normalized
 }
 
 function base64Url(buffer: Buffer): string {

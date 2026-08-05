@@ -4031,7 +4031,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | --- | ------------------------------------------------------------------ | ----- | ------ | ------- | -------------------------------------------------------- |
 | 1   | `src/main/email/providers/oauthClients.ts`                         | 124   | 0      | ✅ done | Refreshes the token every Gmail/Graph request depends on |
 | 2   | `src/main/email/EmailAuthStore.ts`                                 | 155   | 0 → 15 | ✅ done | Persists mail OAuth tokens on disk                       |
-| 3   | `src/main/email/oauth.ts`                                          | 127   | 0      | ☐       | The mail authorization flow itself                       |
+| 3   | `src/main/email/oauth.ts` + `src/main/oauth/loopbackServer.ts`     | 241   | 0 → 12 | ✅ done | The mail authorization flow itself                       |
 | 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0      | ☐       | The same pair for third-party MCP servers                |
 | 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0      | ☐       | Every main→renderer event lands here and fans out        |
 | 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0      | ☐       | Mail state behind the whole Email page                   |
@@ -4624,3 +4624,111 @@ staying independent through a write to any of them, the legacy single-string
 format still being read and rewritten, an undecryptable value being preserved
 rather than cleared, no write of any kind happening when the keychain is
 unavailable, and `pruneTo` not touching the file when nothing is stale.
+
+## Round four, 3. `src/main/email/oauth.ts` — done
+
+127 lines, no tests. The authorization-code-with-PKCE flow behind linking a
+mailbox, and the token exchange every later refresh goes through.
+
+Read alongside `src/main/oauth/loopbackServer.ts` (114 lines, **also no tests**),
+which owns the redirect half and is shared with round four's file 4 — the MCP
+OAuth client uses the identical function. Three of the five defects are in that
+shared file, so fixing them here serves both.
+
+The PKCE construction itself is correct and was checked first: a 32-byte random
+verifier, an S256 challenge, correct base64url (padding stripped, `+/`
+replaced), and `state` on every request.
+
+### 1. Anything on the machine could cancel an authorization in progress
+
+`loopbackServer` checked the `error` parameter **before** it checked `state`:
+
+```ts
+if (error) { … reject(new Error(`Authorization failed: ${error}`)) }
+if (!code || incomingState !== options.expectedState) { /* ignored */ }
+```
+
+So the state guard covered the success path and not the failure path — against
+a doc comment one screen above promising that "a stray or replayed request
+can't break a real in-flight authorization".
+
+That port is open on loopback for two minutes and is reachable by anything on
+the machine, including a page open in the user's browser (`fetch` with
+`mode: 'no-cors'` still delivers the request), and the port range is small
+enough to scan. A single unauthenticated `GET /?error=access_denied` aborted
+the flow.
+
+`state` is now checked before anything is acted on, `error` included. A genuine
+denial still fails fast, because RFC 6749 §4.1.2.1 requires the authorization
+server to echo `state` back on the error redirect. Confirmed by test: an
+`?error=` with no state is ignored and the real callback still completes; the
+same error _with_ the state still rejects.
+
+### 2. A browser that would not open left a rejection to surface two minutes later
+
+`runLoopbackAuthorization` built its promise, then `await shell.openExternal(…)`,
+then awaited the promise. When `openExternal` rejected — headless, sandboxed, no
+browser — the function threw at the second step, and nothing was ever attached
+to the first. Its own timeout then fired **two minutes later**, rejecting an
+abandoned promise: an unhandled rejection with no remaining connection to the
+call that caused it, reported by the app's own crash handlers.
+
+The server also stayed bound for that whole two minutes, listening for a
+callback that could no longer arrive.
+
+Both fixed: a handler is attached to the promise from the start, and a failure
+to open the browser cancels the flow and closes the port immediately.
+
+### 3–5. The token exchange
+
+- **No timeout.** Node's `fetch` has none, so a token endpoint that accepted the
+  connection and never answered would hang forever. That got worse this round:
+  file 1 changed `accessTokenFor` to coalesce concurrent refreshes onto a single
+  call, so every mail request in flight would queue behind the one hung refresh.
+  Bounded at 30 seconds — a machine-to-machine POST, not the two-minute window
+  that waits on a person clicking through a browser.
+- **A 200 with no `access_token` was stored anyway.** `TokenResponse` types the
+  field as required, which is a compile-time claim about somebody else's server;
+  some providers answer errors with a 200 body. The result was `Bearer undefined`
+  on every request until the user noticed and re-linked the mailbox. Now refused
+  outright.
+- **The whole error body went into the `Error` message.** A provider answering
+  with an HTML page put the entire page into a message that is logged and shown.
+  Bounded to 500 characters, whitespace collapsed.
+
+### Deliberate non-changes
+
+- **`scope` falls back to the scopes that were requested** when the provider
+  omits it, so a partially-granted consent is recorded as though it were full.
+  Nothing currently reads the stored scope to decide what to attempt — a call
+  that exceeds the grant fails at the API instead, with the provider's own
+  message. Recording the requested set is wrong in principle and harmless in
+  practice; changing it means deciding what the app should _do_ with a short
+  grant, which is a feature.
+- **`server.close()` leaves established keep-alive connections to drain**
+  rather than calling `closeAllConnections()`. Forcing them shut on the success
+  path would cut the browser off mid-response, so the user would see a
+  connection error instead of "Connected. You can return to Anodex." One
+  connection per authorization, closed by the browser moments later.
+- **A non-compliant provider that omits `state` on an error redirect** now waits
+  out the two-minute timeout instead of failing immediately. That is the cost of
+  fix 1, and it is the right side to err on: a slow failure for a
+  spec-violating server, against any local process being able to cancel a real
+  authorization.
+
+### Tests
+
+New `oauth.test.ts` — 6, and new `loopbackServer.test.ts` — 6, the first
+coverage either file has had. The loopback tests start a real server on
+127.0.0.1 and drive it with real requests, because what is being tested is
+precisely what it does with a request that did not come from the authorization
+server.
+
+**Six of the twelve fail against the committed baseline**, one per fix, checked
+with `git show HEAD:` rather than a hand-made revert.
+
+**One of them was my own test's fault first.** The genuine-provider-error case
+attached its `rejects` assertion _after_ the request that triggers the
+rejection, so the promise was momentarily unhandled and Vitest reported an
+unhandled error for the whole run. The product code was right; the assertion is
+now attached before the request that causes it.

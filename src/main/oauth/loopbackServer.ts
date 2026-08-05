@@ -11,12 +11,20 @@ export const DEFAULT_OAUTH_TIMEOUT_MS = 120_000
  * browser, and resolves with the callback's query params once a request with
  * a matching `state` arrives.
  *
- * A callback with an `error` param fails the promise immediately. A callback
- * with a missing/mismatched `state` is shown an error page but does *not*
- * fail the promise — the server keeps listening, so a stray or replayed
- * request can't break a real in-flight authorization. Only a genuine timeout
- * (or an `error` param) rejects. The server always closes itself, on success,
- * failure, or timeout.
+ * `state` is checked before anything else, and a callback that does not carry
+ * the expected value is shown an error page but does *not* fail the promise —
+ * the server keeps listening, so a stray or replayed request can't break a
+ * real in-flight authorization. That has to cover the `error` param too: this
+ * port is reachable by anything on the machine for as long as it is open, and
+ * the range is small enough to scan, so an unauthenticated `?error=` used to be
+ * enough for any local process — or any page open in the user's browser — to
+ * cancel an authorization in progress. A genuine provider denial still fails
+ * fast, because RFC 6749 §4.1.2.1 requires the authorization server to echo
+ * `state` back on the error redirect.
+ *
+ * Only a matching-state `error`, or a timeout, rejects. The server always
+ * closes itself: on success, failure, timeout, or a browser that would not
+ * open.
  *
  * Originally Gmail-specific (see `EmailService.ts`'s `waitForOAuthCode`);
  * extracted so the MCP OAuth client (`src/main/mcp/oauth.ts`) can reuse the
@@ -48,38 +56,65 @@ export async function runLoopbackAuthorization(options: {
   const { server, port } = await createLoopbackServer(options.port)
   const redirectUri = `http://${options.redirectHost ?? '127.0.0.1'}:${port}`
 
+  let stop = (): void => {}
+  let cancel = (_reason: Error): void => {}
+
   const paramsPromise = new Promise<URLSearchParams>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      server.close()
+      stop()
       reject(new Error('Timed out waiting for authorization.'))
     }, options.timeoutMs ?? DEFAULT_OAUTH_TIMEOUT_MS)
+    stop = () => {
+      clearTimeout(timeout)
+      server.close()
+    }
+    cancel = (reason) => {
+      stop()
+      reject(reason)
+    }
 
     server.on('request', (req, res) => {
       const url = new URL(req.url ?? '/', redirectUri)
-      const incomingState = url.searchParams.get('state')
       const error = url.searchParams.get('error')
       const code = url.searchParams.get('code')
 
-      if (error) {
-        sendOAuthResponse(res, 'Authorization was cancelled.')
-        clearTimeout(timeout)
-        server.close()
-        reject(new Error(`Authorization failed: ${error}`))
+      // Before anything is acted on, including `error` — see this function's
+      // doc comment for why the failure path needs the same proof of origin
+      // the success path does.
+      if (url.searchParams.get('state') !== options.expectedState) {
+        sendOAuthResponse(res, 'Invalid authorization response.')
         return
       }
-      if (!code || incomingState !== options.expectedState) {
+      if (error) {
+        sendOAuthResponse(res, 'Authorization was cancelled.')
+        cancel(new Error(`Authorization failed: ${error}`))
+        return
+      }
+      if (!code) {
         sendOAuthResponse(res, 'Invalid authorization response.')
         return
       }
 
       sendOAuthResponse(res, 'Connected. You can return to Anodex.')
-      clearTimeout(timeout)
-      server.close()
+      stop()
       resolve(url.searchParams)
     })
   })
+  // Nothing awaits `paramsPromise` until the end of this function, and the
+  // browser step in between can fail. Without a handler attached from the
+  // start, that abandoned promise's own timeout rejection surfaced as an
+  // unhandled rejection two minutes after the call that caused it. Attaching
+  // one here does not stop the `await` below seeing the same rejection.
+  paramsPromise.catch(() => {})
 
-  await shell.openExternal(options.buildAuthorizationUrl(redirectUri).toString())
+  try {
+    await shell.openExternal(options.buildAuthorizationUrl(redirectUri).toString())
+  } catch (error) {
+    // The flow is over; the port must not stay open for the rest of the timeout.
+    cancel(error instanceof Error ? error : new Error(String(error)))
+    throw error
+  }
+
   const params = await paramsPromise
   return { params, redirectUri }
 }
