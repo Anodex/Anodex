@@ -4034,7 +4034,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 3   | `src/main/email/oauth.ts` + `src/main/oauth/loopbackServer.ts`     | 241   | 0 → 12 | ✅ done | The mail authorization flow itself                       |
 | 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0 → 12 | ✅ done | The same pair for third-party MCP servers                |
 | 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0 → 8  | ✅ done | Every main→renderer event lands here and fans out        |
-| 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0      | ☐       | Mail state behind the whole Email page                   |
+| 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0 → 21 | ✅ done | Mail state behind the whole Email page                   |
 | 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0      | ☐       | Spawns and supervises a real child process               |
 | 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0      | ☐       | The renderer's entire entry point into mail              |
 | 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0      | ☐       | Notifications, toasts, and model lifecycle state         |
@@ -4927,3 +4927,128 @@ source text and asserts no bare `setTimeout` schedules a restore, and that both
 paths go through the shared handle. That one _does_ fail against the committed
 bridge, which is the only automated proof available here that the wiring
 changed.
+
+## Round four, 6. `src/renderer/stores/emailStore.ts` — done
+
+369 lines, no tests, and the state behind the whole Email page. The first
+renderer file reviewed under the corrected reading of "not UI" — it is plain
+state with no DOM, so everything that matters here could be driven directly
+rather than reasoned about.
+
+Three of the four findings are in how in-flight work is cancelled and resumed,
+which is what this store mostly does: it carries three separate revision
+counters for exactly that reason.
+
+### Bugs fixed
+
+**4.6.1 One failed page load disabled "Load more" for the rest of the session.**
+
+```ts
+loadMore: async () => {
+  if (get().loadingMore || !get().hasMore) return
+  set({ loadingMore: true, limit: get().limit + PAGE_SIZE })
+  await get().load()
+}
+```
+
+`load` cleared `loadingMore` in the object it sets on success — and it has four
+other exits that never reach it: a failed `getStatus`, an account with nothing
+connected, a load superseded by a newer one, and its own `catch`. Any of those
+leaves the flag stuck `true`.
+
+That flag is doing two jobs. It is this action's own re-entry guard, so every
+later call returns at the first line; and it is the button's `disabled` in
+`EmailView.tsx:445`, with the label `loadingMore ? 'Loading…' : 'Load more'`.
+So the visible result is a permanently greyed-out button reading "Loading…"
+over an inbox with more mail in it, and nothing short of a reload clears it.
+
+Fixed by giving the flag one owner: `loadMore` sets it and clears it in a
+`finally`, and `load` no longer touches it.
+
+**4.6.2 Closing a conversation did not cancel the fetch still loading it.**
+`openThread` guards against being superseded with `openRevision`, but
+`closeThread` only reset the visible state:
+
+```ts
+closeThread: () => set({ openThreadId: null, openMessages: [], openLoading: false }),
+```
+
+The revision was unchanged, so a fetch already in flight passed its own check on
+return and wrote its messages into a store with no thread open. `openMessages`
+then held a closed conversation until something replaced it — and since
+`openThread` sets `openMessages: []` before awaiting, the next open showed
+nothing wrong; but a re-open of the _same_ thread while its first fetch was
+still running could paint the stale copy. `closeThread` now bumps the revision,
+which is what "cancel" means everywhere else in this file.
+
+**4.6.3 The digest loop could spin forever, hanging the page.** Its stopping
+condition asked whether the response contained anything:
+
+```ts
+if (digests.length === 0 && abandonedThreadIds.length === 0) return
+```
+
+A response that resolved _nothing in the pending set_ — a digest or an abandoned
+id naming a thread outside the current listing — satisfies that check while
+leaving `pending` exactly as it was. The next iteration recomputes the same
+pending set, sends the identical request, and gets the identical answer.
+
+This is not a hypothetical shape. Writing the test for it crashed the test
+worker: 77 seconds of spinning against the pre-fix file before V8 gave up. In
+the app that is the renderer wedged in a loop issuing IPC calls as fast as they
+return.
+
+Progress is now measured against what the pass actually asked about — at least
+one pending thread must come back either digested or abandoned — rather than
+against the response being non-empty.
+
+_On reachability:_ every path that changes the thread list also bumps
+`digestRevision`, so the main process would have to answer with an id that was
+not requested for this to fire today. It is hardening rather than a live defect,
+and it is worth having because the failure mode is a hung tab rather than a
+wrong digest.
+
+### Improvement
+
+**A failed load is no longer silent.** `load`'s `catch` set `status: null`,
+which the view renders as "no mail connected" — so an IPC rejection was
+indistinguishable from a machine that has never linked an account, with nothing
+written down anywhere. Now logged. Deliberately not a toast: this runs on a
+timer as well as on demand, and a transient failure the user did not provoke
+should not interrupt them.
+
+### Assessed, not changed
+
+- **`busyThreadId` is a single slot, not a set.** Two overlapping flag calls —
+  opening an unread thread auto-marks it read while the user stars another — end
+  with the first to finish clearing the marker for both. The spinner is briefly
+  wrong on one row; tracking a set would be more state than the symptom costs.
+- **`refreshUnreadCount` writes `status` outside `loadRevision`,** so a
+  background poll can overwrite a fresher status from a load that is still
+  running. Both write the same shape from the same source moments apart, and
+  giving the poll a revision of its own would make it cancellable, which is not
+  what a background badge refresh wants.
+- **`load` conflates "no accounts" with "could not reach the main process"**,
+  both as `status: null`. Distinguishing them properly is a state-shape change
+  and a view change; the log line above makes it answerable in the meantime.
+- **A failed load leaves `limit` already incremented,** so a retry asks for the
+  larger page. Harmless, and arguably right — the user did ask for more.
+
+### Tests
+
+`src/renderer/stores/__tests__/emailStore.test.ts` — 21 tests, the store's
+first coverage.
+
+Four fail against the pre-fix file, with the baseline taken from
+`git show HEAD:`. Two of them had to be run in isolation: the digest-loop test
+does not fail against the pre-fix code so much as hang it, taking the worker
+down with it and leaving every other result in that run unreported — the same
+shape of false signal round three recorded three times, arriving from the
+opposite direction. Per-`describe` runs pinned the other two.
+
+The remaining seventeen pass either way and are labelled. Two are worth naming
+because they look like regression tests and are not: `recovers when a newer load
+supersedes it` passed before as well, because the newer load's own success path
+happened to clear the flag — the exit is only stuck when nothing successful
+follows it. And `leaves an already-read thread alone` guards the auto-mark-read
+in `openThread` from firing on threads that do not need it.

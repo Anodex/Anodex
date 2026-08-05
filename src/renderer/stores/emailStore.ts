@@ -152,8 +152,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // means the mailbox is exhausted.
         hasMore: threads.length >= limit,
         unreadCount: unreadCountResult.ok ? unreadCountResult.value : 0,
-        loaded: true,
-        loadingMore: false
+        loaded: true
       })
       if (!threadsResult.ok) {
         notifyError(
@@ -164,7 +163,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // Deliberately not awaited: the list is already on screen and useful,
       // and a digest pass involves a mailbox fetch and a model call per thread.
       void get().loadDigests()
-    } catch {
+    } catch (error) {
+      // An IPC-level rejection, which never becomes a handler's own error
+      // result. The view renders `status: null` as "no mail connected", so this
+      // path makes a transient failure indistinguishable from an empty setup —
+      // logged rather than silent so it is at least answerable from
+      // diagnostics, since the alternative is a toast for something the user
+      // did nothing to provoke.
+      console.error('Failed to load mail:', error)
       if (revision === loadRevision) {
         set({ status: null, threads: [], unreadCount: 0, loaded: true })
       }
@@ -219,7 +225,18 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   loadMore: async () => {
     if (get().loadingMore || !get().hasMore) return
     set({ loadingMore: true, limit: get().limit + PAGE_SIZE })
-    await get().load()
+    try {
+      await get().load()
+    } finally {
+      // Cleared here rather than inside `load`, which has four exits that never
+      // reached the one place it used to be unset: a failed status call, an
+      // account with nothing connected, a load superseded by a newer one, and
+      // the catch. Any of those left the flag stuck true, and since it is both
+      // this function's own guard and the button's `disabled`, "Load more" was
+      // dead for the rest of the session reading "Loading…". Whoever sets the
+      // flag clears it.
+      set({ loadingMore: false })
+    }
   },
 
   search: async (query) => {
@@ -248,7 +265,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     if (thread.unread) void get().applyFlag(thread, 'mark_read')
   },
 
-  closeThread: () => set({ openThreadId: null, openMessages: [], openLoading: false }),
+  // Bumping the revision cancels a fetch still in flight for the thread being
+  // closed. Without it, the reply landed after the pane had gone and wrote its
+  // messages into a store that no longer had a thread open — leaving
+  // `openMessages` holding a closed conversation until something else replaced
+  // it, and the next open briefly showing the previous thread's mail.
+  closeThread: () => {
+    openRevision += 1
+    set({ openThreadId: null, openMessages: [], openLoading: false })
+  },
 
   applyFlag: async (thread, action) => {
     set({ busyThreadId: thread.id })
@@ -350,15 +375,21 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           }
         }))
 
-        // Stopping conditions, in the order they matter. A pass that neither
-        // produced nor abandoned anything made no progress, so looping on it
-        // would spin — but it is only worth reporting when the pass says
-        // something actually went wrong.
+        // Stopping conditions, in the order they matter. A pass that resolved
+        // none of what it asked about made no progress, so looping on it would
+        // spin — but it is only worth reporting when the pass says something
+        // actually went wrong.
         if (outcome !== 'ok') {
           set({ digestBlocked: outcome })
           return
         }
-        if (digests.length === 0 && abandonedThreadIds.length === 0) return
+        // Progress is measured against the threads this pass actually asked
+        // about, not against the response being non-empty. A reply that named
+        // only threads outside the current listing would leave `pending`
+        // unchanged and satisfy a bare length check, and the loop would send
+        // the identical request forever.
+        const resolved = new Set([...digests.map((item) => item.threadId), ...abandonedThreadIds])
+        if (!pending.some((thread) => resolved.has(thread.id))) return
       }
     } finally {
       // Only the newest pass owns the flag; a superseded one bowing out must
