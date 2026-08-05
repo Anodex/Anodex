@@ -101,9 +101,25 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       ? settings.provider.active
       : 'local'
 
+  /**
+   * Only a provider this install can actually authenticate as.
+   *
+   * A retry seed carries the provider of a run created months ago, and the key
+   * behind it may have been removed since — leaving the select showing a value
+   * absent from its own options, and `Start run` creating a run that fails on
+   * its first turn. The same is true of the globally active provider, which the
+   * Settings panel can leave selected after a key is cleared.
+   */
+  const usableProvider = (candidate: RunProvider | undefined): RunProvider | undefined =>
+    candidate && providerOptions.some((option) => option.value === candidate)
+      ? candidate
+      : undefined
+
   const [goal, setGoal] = useState(seed?.goal ?? '')
   const [projectId, setProjectId] = useState<string | null>(seed?.projectId ?? null)
-  const [provider, setProvider] = useState<RunProvider>(seed?.provider ?? globalActiveAsRunProvider)
+  const [provider, setProvider] = useState<RunProvider>(
+    usableProvider(seed?.provider) ?? usableProvider(globalActiveAsRunProvider) ?? 'local'
+  )
   const [model, setModel] = useState(() => {
     if (seed?.provider === 'anthropic') return seed.model ?? DEFAULT_ANTHROPIC_MODEL
     if (seed?.provider === 'openai') return seed.model ?? DEFAULT_OPENAI_MODEL
@@ -210,7 +226,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const handleSave = async (): Promise<void> => {
     if (!canSave || saving) return
     setSaving(true)
-    await createRun({
+    const run = await createRun({
       goal: goal.trim(),
       projectId,
       provider,
@@ -225,7 +241,12 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       )
     })
     setSaving(false)
-    onClose()
+    // Only on success. `agentStore.create` reports its own failure and returns
+    // null, and this used to close regardless — so a refusal took the goal, the
+    // budgets and every tool selection with it. The likeliest refusal is
+    // "Another agent run is currently in progress", which is a matter of
+    // waiting a moment, and the form the user had just filled in was gone.
+    if (run) onClose()
   }
 
   return (
@@ -386,8 +407,8 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
                 format={formatDuration}
               />
               <p className={styles.hint}>
-                Stops on its own after this much wall-clock time (max {MAX_MAX_DURATION_MINUTES}{' '}
-                minutes).
+                Stops on its own after this much time spent working (max {MAX_MAX_DURATION_MINUTES}{' '}
+                minutes). Waiting for you to approve its plan does not count against it.
               </p>
             </div>
           </>

@@ -4040,7 +4040,7 @@ dedicated test of its own. **Five of them are credential handling.**
 | 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0 → 24 | ✅ done | Notifications, toasts, and model lifecycle state         |
 | 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6 → 21 | ✅ done | Largest remaining store, thinnest coverage per line      |
 | 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0 → 8  | ✅ done | Drives long unattended investigations                    |
-| 12  | `src/renderer/features/agent/AgentView.tsx` + `AgentRunEditor.tsx` | 1060  | 0      | ☐       | Where an unattended run's limits and tools are chosen    |
+| 12  | `src/renderer/features/agent/AgentView.tsx` + `AgentRunEditor.tsx` | 1060  | 0 → 12 | ✅ done | Where an unattended run's limits and tools are chosen    |
 
 **Revised after ranking, at the user's correction.** The first cut read
 "not UI" as "not renderer" and excluded 40,000 lines on that basis. What the
@@ -5614,3 +5614,118 @@ which should happen stops: the editor still seeds on first render, still seeds
 when a plan first arrives for a run already on screen, and still reseeds when a
 different run is selected. The other two cover approval carrying the edited plan
 rather than the server's, and a successful copy.
+
+## Round four, 12. `AgentView.tsx` + `AgentRunEditor.tsx` — done
+
+1,060 lines between them, no tests: the list a user watches unattended runs
+from, and the form that decides what one is allowed to do and for how long.
+
+The first finding is one I introduced earlier in this same round, which is the
+argument for reading a file rather than trusting that a change was complete.
+
+### Bugs fixed
+
+**4.12.1 The run card measured a budget I had already moved.** Round four §2
+changed the duration budget from wall clock to time actually spent working, and
+updated `AgentRunConversation`'s Time gauge to read `activeElapsedMs`. There is
+a second consumer, and it was missed:
+
+```ts
+// AgentView.tsx, BudgetMeters
+const elapsedMinutes = (Date.now() - run.createdAt) / 60_000
+```
+
+So the card in the run list went on measuring wall clock. A run created ninety
+minutes ago that had worked for two showed `90/30 min` — a meter pinned full
+over a run that had barely started, disagreeing with the gauge in the run's own
+log and with the budget that decides when it actually stops. The
+`needs-review` wait it was the whole point of §2 to stop charging was charged
+here in full.
+
+This is exactly the failure §2's own log entry warned about — that the wiring
+was untested — arriving from the direction I had not looked.
+
+**4.12.2 A refused run took the whole form with it.** `agentStore.create`
+reports its own failure and returns `null`; `handleSave` ignored the return and
+closed unconditionally:
+
+```ts
+await createRun({ … })
+setSaving(false)
+onClose()
+```
+
+So a refusal dismissed the editor and discarded the goal, both budgets, the
+project scope and every tool checkbox. The likeliest refusal is "Another agent
+run is currently in progress" — a matter of waiting a moment — and the user had
+to configure the whole run again. Now closed only on success.
+
+**4.12.3 A retry could name a provider the install can no longer authenticate
+as.** `provider` was seeded straight from `seed?.provider`, which comes from a
+run created arbitrarily long ago. Remove that API key since and the select shows
+a value absent from its own options, and `Start run` creates a run that fails on
+its first turn. The seed is now validated against the options actually offered,
+falling back to local — and the same guard covers the globally active provider,
+which Settings can leave selected after a key is cleared.
+
+**4.12.4 The time budget's own hint still said "wall-clock time".** Stale from
+§2. It now says what the budget measures, and that waiting for plan approval is
+not charged against it.
+
+### Assessed, not changed
+
+- **A project-only tool stays in `enabledTools` after the project is cleared**,
+  rendering unchecked while still held in state. Harmless: `handleSave` filters
+  against `availableTools`, so it is never sent — and keeping it means
+  re-selecting the project restores the user's choices rather than silently
+  dropping them. Pinned with a test.
+- **`handleDelete` clears `selectedRunId` before awaiting the delete**, so a
+  failed delete bounces the user out of the run's log for nothing. One click to
+  return, against a race that would need the delete to fail.
+- **`AwayBand` counts statuses through a literal object.** Type-safe today —
+  TypeScript rejects a `status` with no key — and it would surface as `NaN`
+  rather than silently, so the failure would be loud.
+
+### Tests
+
+`AgentView.test.tsx` — 4, and `AgentRunEditor.test.tsx` — 8. First coverage for
+both.
+
+Six fail against the pre-fix files, baseline from `git show HEAD:`: the card
+measuring wall clock (and its in-flight-segment sibling), an unlimited run's
+counts, the form closing on a refusal, the stale provider seed, and the
+wall-clock wording.
+
+Six pass either way and are labelled. The two worth naming hold what these
+fixes must not break: a seeded provider that _is_ still usable is kept rather
+than reset to local, and a run started with no project still carries the tools
+it can legitimately use while dropping the ones it cannot.
+
+## Round four — closed
+
+All twelve done, plus the DOM environment that slots 11 and 12 needed. The suite
+went from 2,596 to 2,752 tests.
+
+**What the round found.** Credentials came first and earned it: an OAuth refresh
+that fired once per message in a thread, and a credential file that replaced
+itself with an empty one on a parse failure. Two shapes then recurred across
+unrelated files:
+
+- **A flag set before an await and cleared only on success** — `loadingMore` in
+  `emailStore`, `pendingPath` and the download entry in `modelStore`. Three
+  occurrences in three stores, each leaving a control dead for the session.
+- **Falling back to empty without moving the unreadable file aside** —
+  `EmailAuthStore` and `CriticalThinkingStore` here, after `SettingsStore` in
+  round three. Four files, one pattern, and the fix had been in the tree since
+  round one.
+
+**The most expensive single defect** was the OAuth stampede: reading one
+twelve-message thread on an expired session sent twelve refreshes redeeming the
+same token, and Entra invalidates a refresh token the moment it is redeemed — so
+the account read as broken while nothing about it was.
+
+**On method.** Two defects this round were mine, from earlier in the same round:
+the bookkeeping that could have wedged the agent service (caught before commit)
+and the budget meter above (caught by reading the file). Both argue the same
+thing — that finishing a change is not the same as finishing the files it
+touches.

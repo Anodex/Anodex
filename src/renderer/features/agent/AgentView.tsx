@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AgentRun, AgentRunStatus } from '@shared/agentRun.types'
+import { activeElapsedMs, type AgentRun, type AgentRunStatus } from '@shared/agentRun.types'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { useArrival } from '../../components/ui/useArrival'
@@ -67,7 +67,13 @@ function useElapsedTick(active: boolean): void {
  */
 function BudgetMeters({ run }: { run: AgentRun }): JSX.Element {
   useElapsedTick(run.status === 'running')
-  const elapsedMinutes = (Date.now() - run.createdAt) / 60_000
+  // The same reading `AgentRunService` stops the run on, and the same one
+  // `AgentRunConversation`'s Time gauge shows. Round four §2 moved the duration
+  // budget onto time actually spent working and updated the gauge; this second
+  // consumer was missed, so the card went on measuring `now - createdAt` — it
+  // climbed while a run sat unapproved in `needs-review`, and disagreed with
+  // both the budget and the other view of the same run.
+  const elapsedMinutes = activeElapsedMs(run) / 60_000
 
   const meters = run.limitsEnabled
     ? [
