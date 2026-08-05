@@ -4027,27 +4027,45 @@ Counts verified against the real test tree, and the mirage check applied a third
 time — every file in the top block is mocked out in some other suite and has no
 dedicated test of its own. **Five of them are credential handling.**
 
-| #   | File                                                     | Lines | Tests | Status | Why it ranks here                                                |
-| --- | -------------------------------------------------------- | ----- | ----- | ------ | ---------------------------------------------------------------- |
-| 1   | `src/main/email/providers/oauthClients.ts`               | 124   | 0     | ☐      | Refreshes the token every Gmail/Graph request depends on         |
-| 2   | `src/main/email/EmailAuthStore.ts`                       | 155   | 0     | ☐      | Persists mail OAuth tokens on disk                               |
-| 3   | `src/main/email/oauth.ts`                                | 127   | 0     | ☐      | The mail authorization flow itself                               |
-| 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts` | 232   | 0     | ☐      | The same pair for third-party MCP servers                        |
-| 5   | `src/main/llama/LlamaServerRuntime.ts`                   | 365   | 0     | ☐      | Spawns and supervises a real child process                       |
-| 6   | `src/main/ipc/email.handlers.ts`                         | 294   | 0     | ☐      | The renderer's entire entry point into mail                      |
-| 7   | `src/main/criticalThinking/CriticalThinkingStore.ts`     | 491   | 6     | ☐      | Largest remaining store, thinnest coverage per line              |
-| 8   | `src/main/projects/ProjectStore.ts`                      | 264   | 4     | ☐      | Project records every workspace path is resolved against         |
-| 9   | `src/main/memory/MemoryStore.ts`                         | 333   | 18    | ☐      | Cross-chat memory; has leaked between chats before               |
-| 10  | `src/main/vision/imageInputs.ts`                         | 289   | 8     | ☐      | Decodes untrusted image bytes into prompts                       |
-| 11  | `src/main/email/mime.ts`                                 | 256   | 20    | ☐      | Builds every outgoing message; last unread part of the send path |
-| 12  | `src/main/tools/workspaceContext.ts`                     | 296   | 17    | ☐      | Injected into every prompt, on every turn                        |
+| #   | File                                                               | Lines | Tests | Status  | Why it ranks here                                        |
+| --- | ------------------------------------------------------------------ | ----- | ----- | ------- | -------------------------------------------------------- |
+| 1   | `src/main/email/providers/oauthClients.ts`                         | 124   | 0     | ✅ done | Refreshes the token every Gmail/Graph request depends on |
+| 2   | `src/main/email/EmailAuthStore.ts`                                 | 155   | 0     | ☐       | Persists mail OAuth tokens on disk                       |
+| 3   | `src/main/email/oauth.ts`                                          | 127   | 0     | ☐       | The mail authorization flow itself                       |
+| 4   | `src/main/mcp/McpAuthStore.ts` + `src/main/mcp/oauth.ts`           | 232   | 0     | ☐       | The same pair for third-party MCP servers                |
+| 5   | `src/renderer/hooks/useAnodexBridge.ts`                            | 370   | 0     | ☐       | Every main→renderer event lands here and fans out        |
+| 6   | `src/renderer/stores/emailStore.ts`                                | 369   | 0     | ☐       | Mail state behind the whole Email page                   |
+| 7   | `src/main/llama/LlamaServerRuntime.ts`                             | 365   | 0     | ☐       | Spawns and supervises a real child process               |
+| 8   | `src/main/ipc/email.handlers.ts`                                   | 294   | 0     | ☐       | The renderer's entire entry point into mail              |
+| 9   | `src/renderer/stores/uiStore.ts` + `modelStore.ts`                 | 498   | 0     | ☐       | Notifications, toasts, and model lifecycle state         |
+| 10  | `src/main/criticalThinking/CriticalThinkingStore.ts`               | 491   | 6     | ☐       | Largest remaining store, thinnest coverage per line      |
+| 11  | `src/renderer/features/critical-thinking/CriticalThinkingView.tsx` | 791   | 0     | ☐       | Drives long unattended investigations                    |
+| 12  | `src/renderer/features/agent/AgentView.tsx` + `AgentRunEditor.tsx` | 1060  | 0     | ☐       | Where an unattended run's limits and tools are chosen    |
+
+**Revised after ranking, at the user's correction.** The first cut read
+"not UI" as "not renderer" and excluded 40,000 lines on that basis. What the
+user meant was the _decorative_ files — the constellation, the startup
+animation — not the renderer's functional half. Of the 25 largest renderer
+files only four are decorative, and **two of those were already reviewed**:
+round one spent slots 10 and 11 on `ChatCircuit` (1,007 lines) and
+`startupEngine` (824). So the renderer's state layer — 6,125 lines across
+stores, lib and hooks, of which only `chatStore` had been read — was the real
+gap, and slots 5, 6, 9, 11 and 12 now go to it.
+
+**Sequencing note.** Slots 1–10 need no DOM. Slots 11–12 are components, and
+renderer tests currently run under `environment: 'node'` with no jsdom — the
+wall that left round two file 12's fix with no automated coverage. A DOM test
+environment goes in as its own change before slot 11, not folded into a review,
+so the two are judged separately; the two existing gaps (round two §11 wiring,
+§12 reconciliation) get closed retroactively with it.
 
 **Why this order.** 1–4 are credentials: 638 lines holding and refreshing the
 user's mail and MCP tokens, with no direct test anywhere between them. A defect
 there is not a wrong answer, it is a token leaked, dropped, or refreshed into the
-wrong account. 5–6 are a child process and an IPC boundary, both untested. 7–9
-are persistence with coverage thin enough that a regression would land silently.
-10–12 are read on every turn.
+wrong account. 5–9 are the seams either side of the IPC boundary — the bridge
+that fans every main-process event into renderer state, the two stores behind
+the pages that act on them, a child process, and mail's entry point — all
+untested. 10–12 are the surfaces that drive long unattended work.
 
 **Deliberately not on the list.** `toolCallFallback.ts` (377/52),
 `huggingFaceCatalog.ts` (434/39), `compaction.ts` (388/29), `rollingSummary.ts`
@@ -4378,3 +4396,120 @@ correctness argument rather than a behaviour change:
   correctly-cited quotations produces a real report instead of falling back to
   the deterministic one — worth watching for over the next few investigations
   rather than staging.
+
+## Round four, 1. `src/main/email/providers/oauthClients.ts` — done
+
+124 lines, no tests, and the module every Gmail and Graph request passes through
+to get a bearer token. Ranked first because a defect here does not produce a
+wrong answer — it produces a dead session, and the recovery costs the user a
+re-link of their mailbox.
+
+Read alongside `oauth.ts`, which owns the token exchange it calls.
+
+### Bugs fixed
+
+**4.1.1 Reading one thread started one refresh per message in it.**
+`accessTokenFor` checked expiry and refreshed inline, with nothing coordinating
+concurrent callers:
+
+```ts
+if (tokens.expiresAt > Date.now() + 60_000) return tokens.accessToken
+…
+const refreshed = await refreshOAuthTokens(config, tokens.refreshToken)
+emailAuthStore.setToken(account.id, refreshed)
+```
+
+Correct for one caller. There is never one caller. Both adapters open a thread
+the same way —
+
+```ts
+// GmailAdapter.getThreadMessages, and MicrosoftAdapter.getThreadMessages
+return Promise.all(messages.map((message) => …))
+```
+
+— and every one of those fetches calls `accessTokenFor`. So opening a
+twelve-message thread on an expired token fired **twelve simultaneous refreshes,
+each redeeming the same refresh token.**
+
+That is not merely wasteful. Entra rotates refresh tokens and invalidates the
+previous one the moment it is redeemed, so the first request through would kill
+the token the other eleven were still spending — they come back
+`invalid_grant`, and the account reads as broken while nothing about it is.
+Google rotates under some client configurations too. The failure is worst
+exactly where it is least visible: a background scheduled task reading mail
+after an hour idle is the most likely thing to hit it, and nobody is watching.
+
+Refreshes are now single-flight per account through `inFlightRefreshes`. Callers
+arriving during one join it rather than starting their own; the entry clears when
+it settles, so the next expiry refreshes normally and a failed attempt can be
+retried immediately rather than being cached as broken. One refresh means one
+write, so nothing can persist a token another caller has already rotated away.
+
+**4.1.2 An IMAP account would have been sent to Google's token endpoint.**
+
+```ts
+const provider = account.provider === 'microsoft' ? 'microsoft' : 'gmail'
+```
+
+`EmailProvider` is `'gmail' | 'microsoft' | 'imap'`, so this filed anything that
+was not Microsoft under Google. Nothing routes an IMAP account here today —
+those authenticate with a password — but this is credential code, and the
+failure mode of the default branch is posting one account's credentials to
+another provider's token URL. Replaced with `oauthProviderFor`, which names both
+OAuth providers and refuses the third explicitly.
+
+### Improvements
+
+**A refresh failure now says which kind it was.** Every failure previously
+surfaced as the raw `OAuth token request failed (400): {…}` from `exchange`.
+`invalid_grant` is the one refresh failure that never recovers on its own — the
+token has been revoked, expired, or rotated away — and it is the only case where
+"reconnect the account" is the right instruction. A dropped network connection
+got the same treatment, sending someone to redo a link that was never broken.
+The two are now distinguished, matching the two errors either side of them which
+already name the account and the recovery.
+
+**The expiry margin is a named constant** with the arithmetic written down:
+`oauth.ts` already backs `expiresAt` off 30 seconds from the provider's stated
+value, so the effective margin is 90 seconds, not the 60 the bare literal
+suggested.
+
+### Assessed, not changed
+
+- **`refreshOAuthTokens` already carries a missing refresh token forward.**
+  Google usually omits `refresh_token` on renewal, meaning "keep the one you
+  have", and dropping it would strand the account at the next expiry.
+  `oauth.ts:96` does `tokens.refreshToken ?? refreshToken` with a comment saying
+  exactly that. Checked rather than assumed, because it is the classic defect in
+  this shape of code and it would have been invisible until the second expiry.
+- **The refresh is not retried on a transient failure.** The caller's request
+  fails, and the next one refreshes again from scratch — which is the right
+  granularity, since a retry loop here would sit inside whatever request
+  triggered it.
+- **`builtInClientId` reads `process.env` on every call** rather than caching.
+  Deliberate per its own doc comment, so a packaged build can inject client ids
+  without a rebuild, and the cost is negligible next to a network round trip.
+- **A revoked account is never marked as such.** `invalid_grant` now tells the
+  user to reconnect, but the account still shows as linked until they do.
+  Flipping stored state from inside a token read is a larger change than it
+  looks — it would need to survive a transient failure being misread as
+  permanent — and the message is what actually gets them to the fix.
+
+### Tests
+
+`src/main/email/providers/__tests__/oauthClients.test.ts` — 15 tests, the first
+this module has had.
+
+Four fail against the pre-fix file, with the baseline taken from
+`git show HEAD:` rather than rebuilt by hand (the lesson round three recorded
+three separate times): twelve concurrent callers producing twelve refreshes
+instead of one, both halves of the failure-message split, and the IMAP account
+being treated as Google.
+
+Eleven pass either way and are labelled. They are what holds the new behaviour
+in place rather than padding — a token with time left still avoids the network
+entirely, a settled refresh does not poison the next one, a failed refresh
+persists nothing, each account refreshes independently of the others, and the
+two config assertions pin the parameters that decide whether an account survives
+its first hour at all: Google's `access_type=offline` + `prompt=consent`, and
+Microsoft's `offline_access` scope and `localhost` redirect host.
