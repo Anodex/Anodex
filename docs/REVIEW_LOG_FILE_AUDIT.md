@@ -5729,3 +5729,91 @@ the bookkeeping that could have wedged the agent service (caught before commit)
 and the budget meter above (caught by reading the file). Both argue the same
 thing — that finishing a change is not the same as finishing the files it
 touches.
+
+---
+
+## Round five — the next twelve
+
+Ranked 2026-08-05, after round four closed. Counts verified against the real
+test tree.
+
+The character of this round is different from the last four. The main process
+is now substantially read: what remains there is well covered relative to its
+blast radius. **The unreviewed surface is now overwhelmingly the renderer** —
+and with the DOM environment in place it is finally reviewable properly, which
+is what makes this the right time.
+
+| #   | File                                                                    | Lines | Tests | Status | Why it ranks here                                                |
+| --- | ----------------------------------------------------------------------- | ----- | ----- | ------ | ---------------------------------------------------------------- |
+| 1   | `renderer/stores/projectStore.ts` + `mcpStore.ts` + `schedulerStore.ts` | 416   | 0     | ☐      | The last three untested stores; completes the state layer        |
+| 2   | `renderer/features/chat/MessageList.tsx` + `MessageBubble.tsx`          | 912   | 0     | ☐      | Every message a user reads is rendered here                      |
+| 3   | `renderer/components/sidebar/ChatRow.tsx`                               | 598   | 0     | ☐      | Delete, rename and archive a conversation live here              |
+| 4   | `renderer/features/workspace-dock/panels/GitPanel.tsx`                  | 441   | 0     | ☐      | Runs real git operations against the user's repo                 |
+| 5   | `renderer/features/settings/pages/email/EmailSettings.tsx`              | 533   | 0     | ☐      | Links and unlinks mail accounts; credential-adjacent             |
+| 6   | `main/memory/MemoryStore.ts`                                            | 333   | 18    | ☐      | Cross-chat memory; has leaked between chats before               |
+| 7   | `renderer/features/settings/pages/ai-models/AiModelsSettings.tsx`       | 624   | 0     | ☐      | The page the provider panel sits in, and model management        |
+| 8   | `renderer/features/scheduler/SchedulerView.tsx`                         | 464   | 0     | ☐      | Where unattended schedules are created and edited                |
+| 9   | `renderer/components/Sidebar.tsx`                                       | 467   | 0     | ☐      | Navigation, project switching, conversation list                 |
+| 10  | `renderer/features/agent/AgentRunConversation.tsx`                      | 426   | 0     | ☐      | The transcript of an unattended run, and its plan approval       |
+| 11  | `main/tools/workspaceContext.ts`                                        | 296   | 17    | ☐      | Injected into every prompt, on every turn                        |
+| 12  | `main/email/mime.ts`                                                    | 256   | 20    | ☐      | Builds every outgoing message; last unread part of the send path |
+
+**Why this order.** 1 completes the renderer state layer, where round four found
+the same defect three times — the remaining three stores have never been read.
+2–5 are the surfaces that destroy or send something: a message the user reads, a
+conversation they can delete, git operations, and mail accounts. 6 is the one
+main-process store with a history of leaking across chats. 7–10 are large
+unattended-work surfaces. 11–12 are read or written on every turn and every send.
+
+**Deliberately not on the list.** `ChatConstellation.tsx` (895) and `Icon.tsx`
+(574) are decorative, per the user's standing instruction. `shared/*.types.ts`
+(1,426 across three files) are largely declarations, and the behaviour that
+lives in them — `isRemovableSetting`, `activeElapsedMs` — is already covered
+where it is used.
+
+---
+
+## Alongside round five — prompt caching for the cloud providers
+
+Not a file review, and not a defect: a cost decision worth taking deliberately.
+Recorded here because the question that surfaced it ("how efficient is Anodex
+with tokens?") deserves an answer that outlives the conversation.
+
+**What Anodex already does well**, all verified in the tree rather than assumed:
+
+- `ReadCoverageTracker` (194 lines) stops a run re-reading file ranges it has
+  already seen, across turns.
+- The loop guard blocks repeated identical tool calls, and can abort a turn.
+- Tool results are capped, and the cap _shrinks as the context fills_ —
+  `clampModelResultCap` against a live budget, re-measured each cloud round from
+  the provider's own reported usage (`cloudToolResultBudget`).
+- `toolSurface` puts the tail of the catalog behind a three-tool
+  discover/describe/call gateway when the full schemas will not fit, rather than
+  truncating them.
+- History is bounded by a rolling summary and manual compaction, and measured
+  with the model's **real tokenizer** (`/tokenize` on the vision runtime), never
+  a character estimate — `countTokens` returns `null` rather than guess.
+- Critical Thinking keeps evidence outside the transcript entirely.
+
+**The gap.** No prompt caching is configured for any cloud provider — there is
+no `cache_control` anywhere in `AnthropicProvider`, `OpenAiProvider` or
+`OpenAiCompatibleProvider`. `AnthropicProvider.ts:149` states the consequence
+plainly in its own comment: _"every tool round re-sends and re-bills the whole
+conversation"_.
+
+That is the expensive shape. A turn's system prompt and tool schemas are fixed
+for the whole turn, the history grows only at the end, and a tool-using turn
+runs several rounds — so the same large prefix is paid for once per round. On
+Anthropic, marking that prefix with `cache_control` bills cache reads at a
+fraction of input price. The saving scales with exactly the thing Anodex does
+most: multi-round tool use.
+
+**Why it is a decision and not a fix.** Cache writes cost more than ordinary
+input, and the entry has a short TTL — so caching a prefix that is never reused
+is a small loss, and the win depends on round counts and turn cadence that
+should be measured rather than assumed. It also differs per provider: Anthropic
+is explicit `cache_control` blocks, OpenAI caches automatically above a size
+threshold with nothing to configure, and the compatible endpoints vary.
+
+The honest next step is a measurement — token counts per turn by round, which
+`tokenActivityStore` already records — before wiring anything.
