@@ -26,7 +26,8 @@ import xAiLogo from '../../../../assets/providers/xai.svg'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
-import { SelectControl, TextControl, ToggleControl } from '../../controls'
+import { SelectControl, SegmentedControl, TextControl, ToggleControl } from '../../controls'
+import { DEFAULT_REPLAY_CAP_FRACTION } from '@shared/contextBudget'
 import { ApiKeyField } from './ApiKeyField'
 import styles from './AiModelsSettings.module.css'
 
@@ -588,12 +589,42 @@ export function ProviderConnectionsPanel({
                 </div>
                 <div className={styles.providerFields}>
                   {/* No API key, model id, or daily cap here — nothing local is
-                      billed, so the reply ceiling is the only setting. */}
+                      billed, so the reply ceiling and the context replay mode
+                      are the only settings. */}
                   <MaxResponseTokensRow
                     isLocal
                     value={settings.provider.local.maxResponseTokens}
                     onCommit={(tokens) =>
                       void onUpdate({ provider: { local: { maxResponseTokens: tokens } } })
+                    }
+                  />
+                  <SettingRow
+                    label="Context recall"
+                    description={
+                      settings.provider.local.replayCapFraction === null
+                        ? 'Full recall replays the whole conversation into the rebuilt context, so a session reset starts near the compaction trigger with little room to refill.'
+                        : 'Headroom replays only 40% of the history budget verbatim and summarizes the rest, so the context meter resets low and refills turn by turn — opencode-style.'
+                    }
+                    control={
+                      <SegmentedControl
+                        value={
+                          settings.provider.local.replayCapFraction === null ? 'full' : 'headroom'
+                        }
+                        options={[
+                          { label: 'Full recall', value: 'full' },
+                          { label: 'Headroom', value: 'headroom' }
+                        ]}
+                        onChange={(mode) =>
+                          void onUpdate({
+                            provider: {
+                              local: {
+                                replayCapFraction:
+                                  mode === 'headroom' ? DEFAULT_REPLAY_CAP_FRACTION : null
+                              }
+                            }
+                          })
+                        }
+                      />
                     }
                   />
                 </div>

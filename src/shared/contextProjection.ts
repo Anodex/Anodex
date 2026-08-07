@@ -8,7 +8,6 @@ import {
 } from './contextBudget'
 import { buildCompactionSystemPrompt } from './contextPrompt'
 import { messageToHistoryTurn } from './chatSanitizer'
-
 /**
  * Conservative character/token estimate used in the renderer, where the real
  * model tokenizer is not available. The main process still uses exact model
@@ -25,6 +24,8 @@ export interface ProjectedContextUsage {
   historyTokens: number
   toolSchemaTokens: number
   reservedTokens: number
+  /** Token ceiling the selected history may reach; `historyTokens` sits under it. */
+  historyBudgetTokens: number
   activeToolCount: number
   deferredToolCount: number
   toolRoutingApplied: boolean
@@ -57,20 +58,33 @@ export function estimateProjectedContextUsage({
   conversation,
   contextSize,
   systemPrompt,
-  fixedContext
+  fixedContext,
+  replayCapFraction
 }: {
   conversation: Conversation
   contextSize: number
   systemPrompt?: string
   /** Exact local wrapper/tokenizer accounting from the latest turn, when available. */
   fixedContext?: ContextBudgetUsage
+  /**
+   * Fraction of the history budget the engine's Headroom mode replays
+   * verbatim (see `LocalProviderSettings.replayCapFraction` /
+   * `DEFAULT_REPLAY_CAP_FRACTION`). Must mirror the engine's
+   * `historyBudgetTokens` cap or this projection would report the greedy
+   * replay while the engine actually replays far less — the very divergence
+   * that would stop the meter from resetting honestly.
+   */
+  replayCapFraction?: number | null
 }): ProjectedContextUsage {
   const seeded = seedProjectedHistory(systemPrompt, conversation)
   const exactFixed = fixedContext?.contextSize === contextSize ? fixedContext : undefined
   const reservedTokens = exactFixed?.reservedTokens ?? reservedNonHistoryTokens(contextSize)
   const systemTokens = exactFixed?.systemTokens ?? estimateTokens(seeded.systemPrompt ?? '')
   const toolSchemaTokens = exactFixed?.toolSchemaTokens ?? 0
-  const historyBudget = Math.max(0, contextSize - systemTokens - toolSchemaTokens - reservedTokens)
+  let historyBudget = Math.max(0, contextSize - systemTokens - toolSchemaTokens - reservedTokens)
+  if (replayCapFraction != null && Number.isFinite(replayCapFraction)) {
+    historyBudget = Math.floor(historyBudget * replayCapFraction)
+  }
   const split = splitProjectedHistory(seeded.history, historyBudget)
   const historyTokens = split.recent.reduce((sum, turn) => sum + estimateTurnTokens(turn), 0)
   const usedTokens = Math.min(
@@ -84,6 +98,7 @@ export function estimateProjectedContextUsage({
     pct: Math.min(100, Math.round((usedTokens / contextSize) * 100)),
     systemTokens,
     historyTokens,
+    historyBudgetTokens: historyBudget,
     toolSchemaTokens,
     reservedTokens,
     activeToolCount: exactFixed?.activeToolCount ?? 0,

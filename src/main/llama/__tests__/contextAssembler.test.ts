@@ -3,11 +3,13 @@ import type { ChatHistoryTurn } from '@shared/chat.types'
 import {
   assembleModelContext,
   boundHistoryForStatelessProvider,
+  historyBudgetTokens,
   MAX_MODEL_TOOL_RESULT_CHARS,
   projectHistoryForModel,
   rememberToolCallForModel,
   seedContextFromSnapshot
 } from '../contextAssembler'
+import { reservedNonHistoryTokens } from '@shared/contextBudget'
 
 const countTokens = (text: string): number => text.length
 
@@ -74,6 +76,74 @@ describe('assembleModelContext', () => {
     expect(assembled.history).toEqual(history)
     expect(assembled.removedTurns).toBe(0)
     expect(assembled.summarized).toBe(false)
+  })
+
+  it('caps the replay budget by fraction (Headroom mode) and drops the overflow', async () => {
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'A'.repeat(220) },
+      { role: 'assistant', content: 'B'.repeat(250) },
+      { role: 'user', content: 'C'.repeat(220) },
+      { role: 'assistant', content: 'D'.repeat(250) }
+    ]
+    const summarize = (transcript: string): Promise<string> =>
+      Promise.resolve(`Fixed summary: ${transcript.length} chars`)
+
+    const greedy = await assembleModelContext({
+      systemPrompt: 'system',
+      history,
+      contextSize: 2_000,
+      countTokens,
+      summarizeOlderTurns: summarize
+    })
+    const capped = await assembleModelContext({
+      systemPrompt: 'system',
+      history,
+      contextSize: 2_000,
+      countTokens,
+      replayCapFraction: 0.4,
+      summarizeOlderTurns: summarize
+    })
+
+    expect(greedy.history.length).toBe(history.length)
+    expect(capped.removedTurns).toBeGreaterThan(0)
+    expect(capped.summarized).toBe(true)
+    expect(capped.report.historyBudgetTokens).toBeLessThan(greedy.report.historyBudgetTokens)
+    expect(capped.history.length).toBeLessThan(greedy.history.length)
+    expect(capped.report.historyTokens).toBeLessThanOrEqual(capped.report.historyBudgetTokens)
+  })
+
+  it('applies the replay cap exactly once to the shared history budget', () => {
+    const uncapped = historyBudgetTokens('system', 2_000, countTokens, 0, null)
+    const capped = historyBudgetTokens('system', 2_000, countTokens, 0, 0.4)
+    expect(capped).toBe(Math.floor(uncapped * 0.4))
+    expect(uncapped).toBe(2_000 - countTokens('system') - reservedNonHistoryTokens(2_000))
+  })
+
+  it('treats an omitted or null cap as greedy (Full recall)', async () => {
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' }
+    ]
+    const summarize = () => Promise.resolve('summary')
+
+    const omitted = await assembleModelContext({
+      systemPrompt: 'system',
+      history,
+      contextSize: 2_000,
+      countTokens,
+      summarizeOlderTurns: summarize
+    })
+    const nullCap = await assembleModelContext({
+      systemPrompt: 'system',
+      history,
+      contextSize: 2_000,
+      countTokens,
+      replayCapFraction: null,
+      summarizeOlderTurns: summarize
+    })
+
+    expect(nullCap.report.historyBudgetTokens).toBe(omitted.report.historyBudgetTokens)
+    expect(nullCap.history).toEqual(omitted.history)
   })
 
   it('reserves active tool-schema tokens before selecting verbatim history', async () => {

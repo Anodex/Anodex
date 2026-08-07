@@ -159,6 +159,17 @@ export interface GenerateParams {
    * native KV state from an earlier phase with the same durable run id.
    */
   sessionMode?: 'conversation' | 'isolated'
+  /**
+   * Fraction of the history budget this generation's session rebuild may
+   * replay verbatim; the rest is summarized by the normal compaction path.
+   * `null`/omitted = Full recall (the historical greedy behaviour, which the
+   * cloud/stateless transports also always use). Only the node-llama-cpp
+   * engine reads this — set by `runGeneration` from
+   * `provider.local.replayCapFraction` so a Headroom-mode session starts low
+   * in the KV cache and the meter honestly refills. See
+   * `DEFAULT_REPLAY_CAP_FRACTION` in `contextBudget.ts`.
+   */
+  replayCapFraction?: number | null
   options?: GenerationOptions
   /**
    * Use this model id instead of the globally configured one for this call
@@ -768,7 +779,8 @@ class LlamaService extends EventEmitter {
       params.context,
       toolSchemaReserveTokens,
       'onLoad',
-      params.sessionMode === 'isolated'
+      params.sessionMode === 'isolated',
+      params.replayCapFraction
     )
 
     // Proactive compaction: if this ongoing session's native KV cache is
@@ -1784,7 +1796,8 @@ class LlamaService extends EventEmitter {
     context: ConversationContext | null | undefined,
     toolSchemaReserveTokens: number,
     compactionReason: HistoryCompactionEvent['reason'] = 'onLoad',
-    forceRebuild = false
+    forceRebuild = false,
+    replayCapFraction?: number | null
   ): Promise<LlamaChatSession> {
     // This must happen before the same-conversation fast path. The session's
     // strategy is reused, but the enabled/MCP tool surface can change between
@@ -1820,7 +1833,8 @@ class LlamaService extends EventEmitter {
       systemPrompt,
       history,
       context,
-      toolSchemaReserveTokens
+      toolSchemaReserveTokens,
+      replayCapFraction
     )
     if (compacted.removedTurns > 0) {
       this.emit('historyCompacted', {
@@ -1886,7 +1900,8 @@ class LlamaService extends EventEmitter {
     systemPrompt: string | undefined,
     history: ChatHistoryTurn[],
     context: ConversationContext | null | undefined,
-    toolSchemaReserveTokens = 0
+    toolSchemaReserveTokens = 0,
+    replayCapFraction?: number | null
   ): Promise<{
     systemPrompt: string | undefined
     history: ChatHistoryTurn[]
@@ -1912,6 +1927,7 @@ class LlamaService extends EventEmitter {
       contextSize: this.contextSize,
       countTokens,
       toolSchemaReserveTokens,
+      replayCapFraction,
       summarizeOlderTurns: (transcript, previousSummary) =>
         this.summarizeHistoryForCompaction(transcript, previousSummary)
     })
@@ -2013,7 +2029,9 @@ class LlamaService extends EventEmitter {
       params.history,
       params.context,
       toolSchemaReserveTokens,
-      reason
+      reason,
+      false,
+      params.replayCapFraction
     )
   }
 

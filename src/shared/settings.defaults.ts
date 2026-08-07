@@ -89,8 +89,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     provider: {
       active: 'local',
-      // Off by default: see LocalProviderSettings.maxResponseTokens.
-      local: { maxResponseTokens: null },
+      // Off by default: see LocalProviderSettings.maxResponseTokens. Full
+      // recall (`replayCapFraction: null`) is the historical greedy behaviour.
+      local: { maxResponseTokens: null, replayCapFraction: null },
       anthropic: {
         apiKey: '',
         model: DEFAULT_ANTHROPIC_MODEL,

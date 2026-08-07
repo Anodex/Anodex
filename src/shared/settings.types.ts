@@ -246,18 +246,28 @@ export interface AzureProviderSettings {
 
 /**
  * The local engine's own provider settings. It has no API key, model id, or
- * daily cap — nothing here is billed — so `maxResponseTokens` is the only
- * field, and it defaults to `null` (off).
+ * daily cap — nothing here is billed — so the reply ceiling and the context
+ * replay mode are the only fields, and both default to `null` (off).
  *
- * Off is the right default locally because a user-set ceiling can only ever
- * *lower* what `resolveLocalOutputBudget` already measured this turn has room
- * for, and there is no cost to bound in exchange. A ceiling set too low does
- * not degrade gracefully: a tool call cut short mid-arguments cannot be parsed
- * and loses the whole turn. It stays configurable for anyone who wants to cap
- * reply length deliberately.
+ * Off is the right default for the reply ceiling locally because a user-set
+ * ceiling can only ever *lower* what `resolveLocalOutputBudget` already
+ * measured this turn has room for, and there is no cost to bound in exchange.
+ * A ceiling set too low does not degrade gracefully: a tool call cut short
+ * mid-arguments cannot be parsed and loses the whole turn. It stays
+ * configurable for anyone who wants to cap reply length deliberately.
  */
 export interface LocalProviderSettings {
   maxResponseTokens: number | null
+  /**
+   * Replay ceiling for the local engine's model-facing history. `null` is Full
+   * recall — the historical greedy behaviour, where history fills the whole
+   * context budget and a rebuilt session starts near the compaction trigger.
+   * A fraction (see `DEFAULT_REPLAY_CAP_FRACTION`) is Headroom mode: only that
+   * share of the budget replays verbatim, older turns are summarized instead,
+   * and the context meter resets low and refills — opencode-style. Only the
+   * node-llama-cpp engine reads this; cloud/stateless providers stay greedy.
+   */
+  replayCapFraction: number | null
 }
 
 export interface ProviderSettings {

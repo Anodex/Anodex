@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Conversation } from '../conversation.types'
-import { MAX_MODEL_TOOL_RESULT_CHARS } from '../contextBudget'
+import { MAX_MODEL_TOOL_RESULT_CHARS, reservedNonHistoryTokens } from '../contextBudget'
 import { estimateProjectedContextUsage, planManualContextCompaction } from '../contextProjection'
 
 function conversation(messages: Conversation['messages']): Conversation {
@@ -174,6 +174,55 @@ describe('estimateProjectedContextUsage', () => {
     expect(hugeUsage.historyTokens - shortUsage.historyTokens).toBeLessThan(
       MAX_MODEL_TOOL_RESULT_CHARS
     )
+  })
+
+  it('mirrors the engine Headroom cap on the projected history budget', () => {
+    const usage = estimateProjectedContextUsage({
+      conversation: conversation([
+        { id: 'm1', role: 'user', content: 'a'.repeat(400), createdAt: 1 },
+        { id: 'm2', role: 'assistant', content: 'b'.repeat(400), createdAt: 2 },
+        { id: 'm3', role: 'user', content: 'latest', createdAt: 3 }
+      ]),
+      contextSize: 2_000,
+      systemPrompt: 'system',
+      replayCapFraction: 0.4
+    })
+
+    const greedy = estimateProjectedContextUsage({
+      conversation: conversation([
+        { id: 'm1', role: 'user', content: 'a'.repeat(400), createdAt: 1 },
+        { id: 'm2', role: 'assistant', content: 'b'.repeat(400), createdAt: 2 },
+        { id: 'm3', role: 'user', content: 'latest', createdAt: 3 }
+      ]),
+      contextSize: 2_000,
+      systemPrompt: 'system'
+    })
+
+    expect(usage.historyBudgetTokens).toBe(Math.floor(greedy.historyBudgetTokens * 0.4))
+    expect(usage.historyBudgetTokens).toBeLessThan(greedy.historyBudgetTokens)
+    expect(greedy.historyBudgetTokens).toBe(
+      2_000 - greedy.systemTokens - reservedNonHistoryTokens(2_000)
+    )
+  })
+
+  it('treats a null replay cap as greedy full recall', () => {
+    const capped = estimateProjectedContextUsage({
+      conversation: conversation([
+        { id: 'm1', role: 'user', content: 'hi', createdAt: 1 },
+        { id: 'm2', role: 'assistant', content: 'hello', createdAt: 2 }
+      ]),
+      contextSize: 2_000,
+      replayCapFraction: null
+    })
+    const greedy = estimateProjectedContextUsage({
+      conversation: conversation([
+        { id: 'm1', role: 'user', content: 'hi', createdAt: 1 },
+        { id: 'm2', role: 'assistant', content: 'hello', createdAt: 2 }
+      ]),
+      contextSize: 2_000
+    })
+
+    expect(capped.historyBudgetTokens).toBe(greedy.historyBudgetTokens)
   })
 })
 

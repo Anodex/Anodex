@@ -317,6 +317,27 @@ describe('validatePatch', () => {
     )
   })
 
+  it('accepts null and in-range fractions for the local replay cap', () => {
+    expect(() => validatePatch({ provider: { local: { replayCapFraction: null } } })).not.toThrow()
+    expect(() => validatePatch({ provider: { local: { replayCapFraction: 0.4 } } })).not.toThrow()
+    expect(() => validatePatch({ provider: { local: { replayCapFraction: 0.01 } } })).not.toThrow()
+  })
+
+  it('rejects out-of-range or malformed local replay caps', () => {
+    expect(() => validatePatch({ provider: { local: { replayCapFraction: 0 } } })).toThrow(
+      /replayCapFraction/
+    )
+    expect(() => validatePatch({ provider: { local: { replayCapFraction: 1 } } })).toThrow(
+      /replayCapFraction/
+    )
+    expect(() => validatePatch({ provider: { local: { replayCapFraction: -0.2 } } })).toThrow(
+      /replayCapFraction/
+    )
+    expect(() => validatePatch({ provider: { local: { replayCapFraction: 2 } } })).toThrow(
+      /replayCapFraction/
+    )
+  })
+
   it('accepts null as the vision projector removal sentinel', () => {
     expect(() =>
       validatePatch({ visionProjectorPaths: { 'C:\\models\\qwen.gguf': null } })

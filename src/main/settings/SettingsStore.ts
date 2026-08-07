@@ -653,6 +653,12 @@ export function validatePatch(patch: SettingsPatch): void {
       throw new Error(`provider.${name}.maxResponseTokens must be null or a positive number`)
     }
   }
+  const replayCap = patch.provider?.local?.replayCapFraction
+  if (replayCap !== undefined && replayCap !== null) {
+    if (!isFiniteNumber(replayCap) || replayCap <= 0 || replayCap >= 1) {
+      throw new Error('provider.local.replayCapFraction must be null or a number between 0 and 1')
+    }
+  }
   if (generation?.turnTimeLimitMinutes !== undefined && generation.turnTimeLimitMinutes !== null) {
     if (
       !isFiniteNumber(generation.turnTimeLimitMinutes) ||

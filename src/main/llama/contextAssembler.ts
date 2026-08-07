@@ -95,6 +95,16 @@ export interface ModelContextAssemblyInput {
    * `compaction.ts`; 0 (the default) preserves the prior behaviour.
    */
   messageFramingTokens?: number
+  /**
+   * Fraction of the history budget the replay may keep verbatim; the rest is
+   * summarized/dropped. `null`/omitted keeps the historical greedy behaviour
+   * (history fills the whole budget). Headroom mode passes a fraction (see
+   * `DEFAULT_REPLAY_CAP_FRACTION` in `contextBudget.ts`) so a rebuilt session
+   * starts well below the compaction trigger and has room to refill. The
+   * node-llama-cpp engine sets this; `boundHistoryForStatelessProvider` never
+   * does, so cloud/stateless transports stay greedy.
+   */
+  replayCapFraction?: number | null
 }
 
 /**
@@ -112,14 +122,16 @@ export async function assembleModelContext({
   summarizeOlderTurns,
   toolSchemaReserveTokens = 0,
   summaryChunkTokenBudget,
-  messageFramingTokens = 0
+  messageFramingTokens = 0,
+  replayCapFraction
 }: ModelContextAssemblyInput): Promise<ModelContextAssembly> {
   const projectedHistory = projectHistoryForModel(history)
   const initialBudget = historyBudgetTokens(
     systemPrompt,
     contextSize,
     countTokens,
-    toolSchemaReserveTokens
+    toolSchemaReserveTokens,
+    replayCapFraction
   )
   const split = splitHistoryByTokenBudget(
     projectedHistory,
@@ -157,7 +169,8 @@ export async function assembleModelContext({
         projectedSystemPrompt,
         contextSize,
         countTokens,
-        toolSchemaReserveTokens
+        toolSchemaReserveTokens,
+        replayCapFraction
       )
       const finalSplit = splitHistoryByTokenBudget(
         projectedRecent,
@@ -189,7 +202,8 @@ export async function assembleModelContext({
     projectedSystemPrompt,
     contextSize,
     countTokens,
-    toolSchemaReserveTokens
+    toolSchemaReserveTokens,
+    replayCapFraction
   )
   const removedTurns = older.length
 
@@ -433,19 +447,30 @@ export function rememberToolCallForModel(call: ToolCall): string {
   return body ? `${projected.title}\n${body}` : projected.title
 }
 
-function historyBudgetTokens(
+/**
+ * Token ceiling history replay may fill for the given window. After
+ * system/reserved/tool-schema subtraction, an optional `replayCapFraction`
+ * (Headroom mode) keeps only that share for verbatim replay — the rest must be
+ * summarized or dropped. `null`/omitted is the historical greedy behaviour.
+ * Exported so the exact cap maths can be unit-tested against the shared
+ * `estimateProjectedContextUsage` mirror.
+ */
+export function historyBudgetTokens(
   systemPrompt: string | undefined,
   contextSize: number,
   countTokens: (text: string) => number,
-  toolSchemaReserveTokens = 0
+  toolSchemaReserveTokens = 0,
+  replayCapFraction?: number | null
 ): number {
-  return Math.max(
-    0,
+  const budget =
     contextSize -
-      countTokens(systemPrompt ?? '') -
-      reservedNonHistoryTokens(contextSize) -
-      Math.max(0, toolSchemaReserveTokens)
-  )
+    countTokens(systemPrompt ?? '') -
+    reservedNonHistoryTokens(contextSize) -
+    Math.max(0, toolSchemaReserveTokens)
+  if (replayCapFraction != null && Number.isFinite(replayCapFraction)) {
+    return Math.max(0, Math.floor(budget * replayCapFraction))
+  }
+  return Math.max(0, budget)
 }
 
 /**

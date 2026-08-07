@@ -24,6 +24,11 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const systemPrompt = useSettingsStore((s) => s.settings?.assistantStyle.globalStyle)
   const providers = useSettingsStore((s) => s.settings?.provider)
 
+  const replayCapFraction = useMemo(
+    () => (providerActive === 'local' ? (providers?.local.replayCapFraction ?? null) : undefined),
+    [providerActive, providers]
+  )
+
   /**
    * The reply ceiling the active provider is configured with, if any. Off is
    * the common case — and the default on local models — so everything this
@@ -68,9 +73,10 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
       conversation,
       contextSize,
       systemPrompt,
-      fixedContext
+      fixedContext,
+      replayCapFraction
     })
-  }, [conversation, contextSize, systemPrompt, fixedContext])
+  }, [conversation, contextSize, systemPrompt, fixedContext, replayCapFraction])
 
   if (!info) return null
 

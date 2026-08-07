@@ -88,6 +88,42 @@
   transform: translateX(20px);
 }
 
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.segment {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.segment:hover {
+  color: var(--text);
+}
+
+.segmentOn {
+  color: var(--text);
+  background: var(--bg-input);
+}
+
+.segment:focus-visible {
+  outline: 1px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
 .text {
   width: 100%;
   max-width: 260px;

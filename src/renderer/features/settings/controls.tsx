@@ -100,6 +100,38 @@ export function ToggleControl({ checked, onChange, ariaLabel }: ToggleControlPro
   )
 }
 
+interface SegmentedControlProps {
+  value: string
+  options: Option[]
+  onChange: (value: string) => void
+  ariaLabel?: string
+}
+
+/** A mutually exclusive segmented button group for two-to-a-few choices. */
+export function SegmentedControl({
+  value,
+  options,
+  onChange,
+  ariaLabel
+}: SegmentedControlProps): JSX.Element {
+  return (
+    <div className={styles.segmented} role="radiogroup" aria-label={ariaLabel}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={option.value === value}
+          className={`${styles.segment} ${option.value === value ? styles.segmentOn : ''}`}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 interface TextControlProps {
   value: string
   onChange: (value: string) => void

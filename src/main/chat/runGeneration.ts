@@ -533,6 +533,10 @@ export async function runGeneration(
       prompt: request.prompt,
       images: request.images,
       sessionMode: io.sessionMode,
+      // Only the node-llama-cpp engine reads this (it rebuilds its session's
+      // KV cache). Cloud/stateless transports bound their own history and stay
+      // greedy by design — see `LocalProviderSettings.replayCapFraction`.
+      replayCapFraction: settings.provider.local?.replayCapFraction ?? null,
       options: withConfiguredReplyCeiling(request.options, effectiveProviderId),
       modelOverride: io.providerOverride?.model,
       maxProviderRounds: executionPolicy.maxProviderRounds,
