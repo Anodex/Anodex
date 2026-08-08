@@ -224,6 +224,81 @@ describe('estimateProjectedContextUsage', () => {
 
     expect(capped.historyBudgetTokens).toBe(greedy.historyBudgetTokens)
   })
+
+  it('charges for thinking tokens that occupy the KV cache', () => {
+    const userTurn = { id: 'm1', role: 'user' as const, content: 'hard problem', createdAt: 1 }
+    const plain = estimateProjectedContextUsage({
+      conversation: conversation([
+        userTurn,
+        { id: 'm2', role: 'assistant' as const, content: 'Short answer.', createdAt: 2 }
+      ]),
+      contextSize: 4_000
+    })
+    const withThinking = estimateProjectedContextUsage({
+      conversation: conversation([
+        userTurn,
+        {
+          id: 'm2',
+          role: 'assistant' as const,
+          content: 'Short answer.',
+          thinking: 'r'.repeat(4_000),
+          createdAt: 2
+        }
+      ]),
+      contextSize: 4_000
+    })
+
+    expect(withThinking.historyTokens).toBeGreaterThan(plain.historyTokens + 900)
+  })
+
+  it('never opens the kept slice with an orphaned assistant reply', () => {
+    // `a`'s 250-token cost exceeds the 108-token budget, so the walk keeps
+    // only `answer` + `latest` — the engine (and this mirror) then drops the
+    // leading assistant reply since it answers a question the model can no
+    // longer see.
+    const usage = estimateProjectedContextUsage({
+      conversation: conversation([
+        { id: 'm1', role: 'user', content: 'x'.repeat(1_000), createdAt: 1 },
+        { id: 'm2', role: 'assistant', content: 'answer', createdAt: 2 },
+        { id: 'm3', role: 'user', content: 'latest', createdAt: 3 }
+      ]),
+      contextSize: 620
+    })
+
+    expect(usage.recentTurns).toBe(1)
+    expect(usage.omittedTurns).toBe(2)
+    expect(usage.historyTokens).toBe(2)
+  })
+
+  it('caps a single oversized kept turn to the budget', () => {
+    const usage = estimateProjectedContextUsage({
+      conversation: conversation([
+        {
+          id: 'm1',
+          role: 'assistant' as const,
+          content: 'Done.',
+          createdAt: 1,
+          toolCalls: [
+            {
+              id: 't1',
+              name: 'read_file',
+              kind: 'read',
+              title: 'Read file',
+              status: 'success',
+              result: 'x'.repeat(2_000)
+            }
+          ]
+        }
+      ]),
+      contextSize: 620
+    })
+
+    expect(usage.recentTurns).toBe(1)
+    expect(usage.historyTokens).toBeGreaterThan(0)
+    // Uncapped, the tool result alone would cost ~300 tokens; the cap trims it
+    // to a "result omitted" notice so the projected replay actually fits.
+    expect(usage.historyTokens).toBeLessThan(50)
+  })
 })
 
 describe('planManualContextCompaction', () => {

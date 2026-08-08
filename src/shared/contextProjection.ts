@@ -1,6 +1,7 @@
-import type { ChatHistoryTurn, ContextBudgetUsage } from './chat.types'
+import type { ChatHistoryTurn, ChatMessage, ContextBudgetUsage } from './chat.types'
 import type { ConversationContext } from './context.types'
 import type { Conversation } from './conversation.types'
+import type { ToolCall } from './tools.types'
 import {
   MANUAL_COMPACTION_RECENT_TURNS,
   MAX_MODEL_TOOL_RESULT_CHARS,
@@ -137,6 +138,25 @@ export function planManualContextCompaction(
   }
 }
 
+/**
+ * Build a history turn for the projection only. Unlike `messageToHistoryTurn`
+ * (which feeds the engine's replay and compaction and deliberately stays
+ * content-only), this folds the message's `thinking` text into `content` so
+ * the meter charges for the reasoning tokens that genuinely occupy the KV
+ * cache — a reused session retains everything generated last turn, thinking
+ * included. Thinking is never scanned for tool-call payloads (see
+ * `chatSanitizer.ts`), so it is appended after sanitization, mirroring how the
+ * engine treats the separate thinking stream.
+ */
+function messageToProjectionTurn(message: ChatMessage): ChatHistoryTurn {
+  const turn = messageToHistoryTurn(message)
+  if (!message.thinking) return turn
+  return {
+    ...turn,
+    content: turn.content ? `${turn.content}\n${message.thinking}` : message.thinking
+  }
+}
+
 function seedProjectedHistory(
   systemPrompt: string | undefined,
   conversation: Conversation
@@ -147,7 +167,7 @@ function seedProjectedHistory(
   snapshotTurns: number
   snapshotApplied: boolean
 } {
-  const history = conversation.messages.map(messageToHistoryTurn)
+  const history = conversation.messages.map(messageToProjectionTurn)
   const seeded = seedHistoryFromContext(history, conversation.context)
   return {
     systemPrompt: seeded.summary
@@ -195,6 +215,22 @@ function seedHistoryFromContext(
   }
 }
 
+/**
+ * Split history into turns that fit within `budgetTokens` (kept verbatim,
+ * newest-first while walking, then reversed to oldest-first) and older turns
+ * that don't — a deliberate mirror of the engine's
+ * `splitHistoryByTokenBudget` (`compaction.ts`) so the meter's `historyTokens`
+ * agrees with what the engine actually replays. The three behaviors that keep
+ * them in lockstep:
+ *
+ * - The newest turn is always kept, even if it alone exceeds the budget.
+ * - The kept slice never opens with an orphaned assistant reply — a leading
+ *   assistant turn that answers a user question already cut off is dropped
+ *   into the older/summarized half instead.
+ * - A single kept turn that alone exceeds the budget is capped in place
+ *   (`capSingleTurnToBudget`), the same way the engine shrinks an oversized
+ *   turn so a rebuilt session still fits.
+ */
 function splitProjectedHistory(
   history: ChatHistoryTurn[],
   budgetTokens: number
@@ -210,9 +246,21 @@ function splitProjectedHistory(
     keepIndices.unshift(i)
   }
 
+  // Mirror the engine's cut alignment: never down to nothing, and a single
+  // kept turn stays even if it is an assistant one (an orphan is a smaller
+  // problem than an empty history).
+  while (keepIndices.length > 1 && history[keepIndices[0]].role === 'assistant') {
+    keepIndices.shift()
+  }
+
   const firstKeptIndex = keepIndices[0] ?? history.length
+  const recent = keepIndices.map((i) => history[i])
+  if (recent.length === 1) {
+    recent[0] = capSingleTurnToBudget(recent[0], budgetTokens)
+  }
+
   return {
-    recent: keepIndices.map((i) => history[i]),
+    recent,
     older: history.slice(0, firstKeptIndex)
   }
 }
@@ -220,10 +268,42 @@ function splitProjectedHistory(
 function estimateTurnTokens(turn: ChatHistoryTurn): number {
   let total = estimateTokens(turn.content)
   for (const call of turn.toolCalls ?? []) {
-    if (call.status !== 'success' && call.status !== 'error') continue
-    total += estimateTokens(compactToolText(call.result ?? call.detail ?? ''))
+    total += estimateTurnToolCallTokens(call)
   }
   return total
+}
+
+function estimateTurnToolCallTokens(call: ToolCall): number {
+  if (call.status !== 'success' && call.status !== 'error') return 0
+  return estimateTokens(compactToolText(call.result ?? call.detail ?? ''))
+}
+
+/**
+ * Mirror of the engine's `capTurnToTokenBudget` (`compaction.ts`): a single
+ * oversized kept turn has its tool-call results trimmed — oldest first, since
+ * the most recent calls are most likely to matter — until the whole turn fits
+ * `budgetTokens`. Content is never touched, and a call already cheaper than
+ * the replacement notice is skipped. Kept internally consistent with
+ * `estimateTurnTokens` so the meter reports the same capped cost it charges.
+ */
+function capSingleTurnToBudget(turn: ChatHistoryTurn, budgetTokens: number): ChatHistoryTurn {
+  if (!turn.toolCalls?.length) return turn
+
+  const callCosts = turn.toolCalls.map((call) => estimateTurnToolCallTokens(call))
+  let total = estimateTokens(turn.content) + callCosts.reduce((sum, cost) => sum + cost, 0)
+  if (total <= budgetTokens) return turn
+
+  const notice = '(result omitted to fit context)'
+  const noticeCost = estimateTokens(notice)
+  const toolCalls = [...turn.toolCalls]
+  for (let i = 0; i < toolCalls.length && total > budgetTokens; i++) {
+    const call = toolCalls[i]
+    if (!call.result && !call.detail) continue
+    if (callCosts[i] <= noticeCost) continue // already cheaper than the notice would be
+    total += noticeCost - callCosts[i]
+    toolCalls[i] = { ...call, result: notice, detail: notice }
+  }
+  return { ...turn, toolCalls }
 }
 
 function compactToolText(text: string): string {
