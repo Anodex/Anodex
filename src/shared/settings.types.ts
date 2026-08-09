@@ -262,12 +262,12 @@ export interface LocalProviderSettings {
    * Replay ceiling for the local engine's model-facing history. `null` is Full
    * recall — the historical greedy behaviour, where history fills the whole
    * context budget and a rebuilt session starts near the compaction trigger.
-   * A fraction (see `DEFAULT_REPLAY_CAP_FRACTION`) is Headroom mode: only that
-   * share of the budget replays verbatim, older turns are summarized instead,
-   * and the context meter resets low and refills — opencode-style. Only the
-   * node-llama-cpp engine reads this; cloud/stateless providers stay greedy.
+   * A fraction (see `DEFAULT_RECALL_WINDOW_FRACTION`) is the bounded recall
+   * window: only that share of the budget replays verbatim, while older turns
+   * are summarized instead. This is an internal migration seam; the user
+   * does not select between separate context systems.
    */
-  replayCapFraction: number | null
+  recallWindowFraction: number | null
 }
 
 export interface ProviderSettings {

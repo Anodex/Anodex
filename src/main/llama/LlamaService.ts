@@ -161,15 +161,10 @@ export interface GenerateParams {
   sessionMode?: 'conversation' | 'isolated'
   /**
    * Fraction of the history budget this generation's session rebuild may
-   * replay verbatim; the rest is summarized by the normal compaction path.
-   * `null`/omitted = Full recall (the historical greedy behaviour, which the
-   * cloud/stateless transports also always use). Only the node-llama-cpp
-   * engine reads this — set by `runGeneration` from
-   * `provider.local.replayCapFraction` so a Headroom-mode session starts low
-   * in the KV cache and the meter honestly refills. See
-   * `DEFAULT_REPLAY_CAP_FRACTION` in `contextBudget.ts`.
+   * replay verbatim; the rest is summarized by the Context Ledger compaction
+   * path. Legacy null values are normalized before reaching the engine.
    */
-  replayCapFraction?: number | null
+  recallWindowFraction?: number | null
   options?: GenerationOptions
   /**
    * Use this model id instead of the globally configured one for this call
@@ -780,7 +775,7 @@ class LlamaService extends EventEmitter {
       toolSchemaReserveTokens,
       'onLoad',
       params.sessionMode === 'isolated',
-      params.replayCapFraction
+      params.recallWindowFraction
     )
 
     // Proactive compaction: if this ongoing session's native KV cache is
@@ -1797,7 +1792,7 @@ class LlamaService extends EventEmitter {
     toolSchemaReserveTokens: number,
     compactionReason: HistoryCompactionEvent['reason'] = 'onLoad',
     forceRebuild = false,
-    replayCapFraction?: number | null
+    recallWindowFraction?: number | null
   ): Promise<LlamaChatSession> {
     // This must happen before the same-conversation fast path. The session's
     // strategy is reused, but the enabled/MCP tool surface can change between
@@ -1834,7 +1829,7 @@ class LlamaService extends EventEmitter {
       history,
       context,
       toolSchemaReserveTokens,
-      replayCapFraction
+      recallWindowFraction
     )
     if (compacted.removedTurns > 0) {
       this.emit('historyCompacted', {
@@ -1901,7 +1896,7 @@ class LlamaService extends EventEmitter {
     history: ChatHistoryTurn[],
     context: ConversationContext | null | undefined,
     toolSchemaReserveTokens = 0,
-    replayCapFraction?: number | null
+    recallWindowFraction?: number | null
   ): Promise<{
     systemPrompt: string | undefined
     history: ChatHistoryTurn[]
@@ -1927,7 +1922,7 @@ class LlamaService extends EventEmitter {
       contextSize: this.contextSize,
       countTokens,
       toolSchemaReserveTokens,
-      replayCapFraction,
+      recallWindowFraction,
       summarizeOlderTurns: (transcript, previousSummary) =>
         this.summarizeHistoryForCompaction(transcript, previousSummary)
     })
@@ -2031,7 +2026,7 @@ class LlamaService extends EventEmitter {
       toolSchemaReserveTokens,
       reason,
       false,
-      params.replayCapFraction
+      params.recallWindowFraction
     )
   }
 
@@ -2328,7 +2323,7 @@ class LlamaService extends EventEmitter {
     const fileInfo = await nlc.readGgufFileInfo(path)
     const insights = await nlc.GgufInsights.from(fileInfo)
 
-    // Headroom reserved for the OS/app (RAM) and display buffers/driver
+    // Memory headroom reserved for the OS/app and display buffers/driver
     // overhead (VRAM) — same split `modelRecommendation.ts` uses so the
     // catalog-based and per-file recommendations stay consistent.
     const reservedRamBytes = 3 * 1024 ** 3

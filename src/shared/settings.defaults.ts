@@ -10,6 +10,7 @@ import { DEFAULT_OPENROUTER_MODEL } from './openrouterModels'
 import { DEFAULT_KIMI_MODEL } from './kimiModels'
 import { DEFAULT_QWEN_MODEL } from './qwenModels'
 import { DEFAULT_KEYBOARD_SHORTCUTS } from './keyboardShortcuts'
+import { DEFAULT_RECALL_WINDOW_FRACTION } from './contextBudget'
 
 /**
  * Default settings, parameterised by the platform-specific models directory
@@ -89,9 +90,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     provider: {
       active: 'local',
-      // Off by default: see LocalProviderSettings.maxResponseTokens. Full
-      // recall (`replayCapFraction: null`) is the historical greedy behaviour.
-      local: { maxResponseTokens: null, replayCapFraction: null },
+      // Off by default: see LocalProviderSettings.maxResponseTokens. The
+      // context ledger uses its balanced recall policy automatically.
+      local: { maxResponseTokens: null, recallWindowFraction: DEFAULT_RECALL_WINDOW_FRACTION },
       anthropic: {
         apiKey: '',
         model: DEFAULT_ANTHROPIC_MODEL,

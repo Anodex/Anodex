@@ -5,6 +5,7 @@ import type { AppSettings, DeepPartial, SettingsPatch } from '@shared/settings.t
 import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
+import { DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
 import {
   DEFAULT_KEYBOARD_SHORTCUTS,
   isBindableShortcut,
@@ -86,9 +87,12 @@ class SettingsStore {
       }
       // Merge over defaults so missing/added fields are always populated.
       const merged = deepMerge(defaults, raw)
-      const migrated = migrateLegacyMaxTokens(
-        migrateLegacyGmailAccount(
-          migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+      const migrated = migrateLegacyContextReplay(
+        migrateLegacyMaxTokens(
+          migrateLegacyGmailAccount(
+            migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+            raw
+          ),
           raw
         ),
         raw
@@ -102,12 +106,16 @@ class SettingsStore {
         raw.appearance?.themeMode !== undefined || raw.appearance?.presetTheme !== undefined
       const legacyEmailFieldsPresent =
         raw.email?.provider !== undefined || raw.email?.gmail !== undefined
+      const legacyContextReplayPresent =
+        (raw.provider?.local as { replayCapFraction?: unknown } | undefined)?.replayCapFraction !==
+        undefined
       if (
         raw.ui?.systemPrompt !== undefined ||
         legacyThemeFieldsPresent ||
         legacyEmailFieldsPresent ||
         (raw.generation as { maxTokens?: number } | undefined)?.maxTokens !== undefined ||
-        retired.changed
+        retired.changed ||
+        legacyContextReplayPresent
       ) {
         try {
           // `persist` encrypts what it is given, and `migrated` still holds the
@@ -155,6 +163,43 @@ class SettingsStore {
 
   private ensureDir(dir: string): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  }
+}
+
+/**
+ * Retire the public context-policy switch. The engine now owns one Context
+ * Ledger policy: balanced recall, which leaves room for the next
+ * interaction after a rebuild. A legacy numeric custom fraction is retained
+ * for continuity, while the old `null` greedy value is migrated to the
+ * balanced default. The new field remains an internal compatibility seam until
+ * a later settings-schema cleanup removes it completely.
+ */
+export function migrateLegacyContextReplay(
+  settings: AppSettings,
+  raw: DeepPartial<AppSettings> & {
+    provider?: { local?: { replayCapFraction?: number | null } }
+  }
+): AppSettings {
+  const legacy = raw.provider?.local?.replayCapFraction
+  if (legacy === undefined) return settings
+
+  const local = { ...settings.provider.local } as AppSettings['provider']['local'] & {
+    replayCapFraction?: number | null
+  }
+  delete local.replayCapFraction
+
+  return {
+    ...settings,
+    provider: {
+      ...settings.provider,
+      local: {
+        ...local,
+        recallWindowFraction:
+          legacy !== null && Number.isFinite(legacy) && legacy > 0 && legacy < 1
+            ? legacy
+            : DEFAULT_RECALL_WINDOW_FRACTION
+      }
+    }
   }
 }
 
@@ -653,10 +698,12 @@ export function validatePatch(patch: SettingsPatch): void {
       throw new Error(`provider.${name}.maxResponseTokens must be null or a positive number`)
     }
   }
-  const replayCap = patch.provider?.local?.replayCapFraction
+  const replayCap = patch.provider?.local?.recallWindowFraction
   if (replayCap !== undefined && replayCap !== null) {
     if (!isFiniteNumber(replayCap) || replayCap <= 0 || replayCap >= 1) {
-      throw new Error('provider.local.replayCapFraction must be null or a number between 0 and 1')
+      throw new Error(
+        'provider.local.recallWindowFraction must be null or a number between 0 and 1'
+      )
     }
   }
   if (generation?.turnTimeLimitMinutes !== undefined && generation.turnTimeLimitMinutes !== null) {

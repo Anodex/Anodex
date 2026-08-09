@@ -3,6 +3,7 @@ import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import { estimateProjectedContextUsage } from '@shared/contextProjection'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
+import { DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -24,8 +25,11 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const systemPrompt = useSettingsStore((s) => s.settings?.assistantStyle.globalStyle)
   const providers = useSettingsStore((s) => s.settings?.provider)
 
-  const replayCapFraction = useMemo(
-    () => (providerActive === 'local' ? (providers?.local.replayCapFraction ?? null) : undefined),
+  const recallWindowFraction = useMemo(
+    () =>
+      providerActive === 'local'
+        ? (providers?.local.recallWindowFraction ?? DEFAULT_RECALL_WINDOW_FRACTION)
+        : undefined,
     [providerActive, providers]
   )
 
@@ -74,9 +78,9 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
       contextSize,
       systemPrompt,
       fixedContext,
-      replayCapFraction
+      recallWindowFraction
     })
-  }, [conversation, contextSize, systemPrompt, fixedContext, replayCapFraction])
+  }, [conversation, contextSize, systemPrompt, fixedContext, recallWindowFraction])
 
   if (!info) return null
 

@@ -32,20 +32,19 @@ export const MAX_RESERVED_NON_HISTORY_TOKENS = 8192
 export const MANUAL_COMPACTION_RECENT_TURNS = 6
 
 /**
- * Fraction of the history budget a Headroom-mode session may replay verbatim.
+ * Fraction of the history budget the balanced Context Ledger policy may replay verbatim.
  *
- * Full recall (the default) lets history replay fill the whole budget, so a
- * rebuilt session sits near the compaction trigger and there is almost no room
- * to refill. Headroom caps the replay at this fraction of the budget: older
- * turns are summarized (the existing rolling-fold path) instead of replayed,
- * the rebuilt KV cache starts low, and the meter/projection honestly resets and
+ * The retired greedy policy let history fill the whole budget, so a rebuilt
+ * session sat near the compaction trigger with almost no room to refill. The
+ * balanced policy caps replay at this fraction: older turns are summarized
+ * instead of replayed, the rebuilt KV cache starts low, and the meter resets
  * refills turn by turn — the opencode-style context-epoch behaviour. Shared so
  * the engine and the renderer's projection meter can never disagree about what
  * the replay ceiling is.
  *
  * `null` (in settings) means no cap — the historical greedy behaviour.
  */
-export const DEFAULT_REPLAY_CAP_FRACTION = 0.4
+export const DEFAULT_RECALL_WINDOW_FRACTION = 0.4
 
 /**
  * Maximum remembered output per past tool call when rebuilding model context.

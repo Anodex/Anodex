@@ -61,11 +61,10 @@ describe('tic-tac-toe chat transcript regression', () => {
 
     expect(usage.snapshotApplied).toBe(true)
     expect(usage.snapshotTurns).toBe(2)
-    // Both post-boundary turns are assistant turns; the projection mirrors the
-    // engine's splitter and drops the leading one (m3) into the older half so
-    // the kept slice never opens with an orphaned assistant reply.
-    expect(usage.recentTurns).toBe(1)
-    expect(usage.omittedTurns).toBe(1)
+    // The post-boundary assistant/tool messages are one active interaction in
+    // the ledger projection, so they remain together even under pressure.
+    expect(usage.recentTurns).toBe(2)
+    expect(usage.omittedTurns).toBe(0)
     expect(usage.totalTurns).toBe(4)
   })
 })

@@ -71,7 +71,7 @@ import {
 const log = createLogger('llama:vision')
 const DEFAULT_MAX_TOKENS = 4096
 const MAX_TOOL_ROUNDS = 20
-/** Headroom kept clear of the context limit, mirroring the text path's reserve. */
+/** Memory kept clear of the context limit, mirroring the text path's reserve. */
 const RESERVED_TOKENS = 512
 /**
  * How many times one turn may recover from a tool call that was cut off before

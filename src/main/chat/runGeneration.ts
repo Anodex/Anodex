@@ -11,7 +11,8 @@ import type { WebSource } from '@shared/webSources.types'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
-import type { ConversationContext } from '@shared/context.types'
+import { withLedgerRevision, type ConversationContext } from '@shared/context.types'
+import { reconcileContextSignals } from '@shared/contextSignals'
 import type { CheckpointSummary } from '@shared/checkpoint.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import type { PermissionMode, ProviderSettings } from '@shared/settings.types'
@@ -19,7 +20,7 @@ import type { GenerationOptions } from '@shared/chat.types'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
-import { cloudContextWindowTokens } from '@shared/contextBudget'
+import { cloudContextWindowTokens, DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
 import { composeSystemPrompt } from '@shared/prompts'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
@@ -446,19 +447,41 @@ export async function runGeneration(
       ? buildActiveSkillContext(skillStore.list(workspaceRoot), activeProject.pinnedSkillNames)
       : null
 
+  const projectRules = composeProjectRules(
+    activeProject?.instructions,
+    activeProject?.githubRepository
+  )
+  const workspaceContext =
+    hasWorkspaceTools && workspaceRoot
+      ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null, request.prompt)
+      : null
   const systemPrompt = composeSystemPrompt({
     hasWorkspaceTools,
     hasProject: Boolean(activeProject),
     assistantStyle: settings.assistantStyle.globalStyle,
-    projectRules: composeProjectRules(activeProject?.instructions, activeProject?.githubRepository),
+    projectRules,
     activeSkillContext,
-    workspaceContext:
-      hasWorkspaceTools && workspaceRoot
-        ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null, request.prompt)
-        : null,
+    workspaceContext,
     memoryContext: memory?.text ?? null,
     transcriptRecallContext: transcriptRecall?.text ?? null
   })
+
+  // Signal reconciliation is a pre-turn operation. The provider sees one
+  // stable context for the complete turn; a later change is recorded for the
+  // next turn instead of mutating an in-flight prompt.
+  const contextReconciliation = reconcileContextSignals(
+    request.context,
+    {
+      'assistant-style': settings.assistantStyle.globalStyle,
+      'project-rules': projectRules,
+      'active-skills': activeSkillContext,
+      'workspace-scope': workspaceRoot ? `${workspaceRoot}:${activeProject?.id ?? ''}` : null,
+      'provider-model': `${effectiveProviderId}:${modelDescriptor?.id ?? 'unresolved'}`
+    },
+    Date.now(),
+    randomUUID()
+  )
+  const activeContext = contextReconciliation.context
 
   // The local engine applies persisted-snapshot seeding, real-tokenizer
   // budget splitting, and summarization internally (`LlamaService.generate`
@@ -482,7 +505,7 @@ export async function runGeneration(
     const bounded = await boundHistoryForStatelessProvider(
       systemPrompt,
       request.history,
-      request.context,
+      activeContext,
       bounding.contextWindowTokens,
       bounding.summarize,
       bounding.summaryChunkTokenBudget,
@@ -507,16 +530,15 @@ export async function runGeneration(
       // has no renderer to persist the snapshot the event above carries, so
       // hand it back directly too.
       if (bounded.summarized && bounded.summary && bounded.compactedThroughMessageId) {
-        contextUpdate = {
-          activeSnapshot: {
-            id: randomUUID(),
-            createdAt: Date.now(),
-            reason: 'proactive',
-            throughMessageId: bounded.compactedThroughMessageId,
-            removedTurns: bounded.omittedTurns,
-            summary: bounded.summary
-          }
-        }
+        const createdAt = Date.now()
+        contextUpdate = withLedgerRevision(activeContext, {
+          id: randomUUID(),
+          createdAt,
+          cause: 'pressure',
+          throughMessageId: bounded.compactedThroughMessageId,
+          coveredTurns: bounded.omittedTurns,
+          continuityDigest: bounded.summary
+        })
       }
     }
   }
@@ -528,15 +550,16 @@ export async function runGeneration(
       conversationId: request.conversationId,
       messageId: request.messageId,
       systemPrompt: boundedSystemPrompt,
-      context: request.context,
+      context: activeContext,
       history: boundedHistory,
       prompt: request.prompt,
       images: request.images,
       sessionMode: io.sessionMode,
       // Only the node-llama-cpp engine reads this (it rebuilds its session's
       // KV cache). Cloud/stateless transports bound their own history and stay
-      // greedy by design — see `LocalProviderSettings.replayCapFraction`.
-      replayCapFraction: settings.provider.local?.replayCapFraction ?? null,
+      // Local replay uses the bounded Context Ledger recall window.
+      recallWindowFraction:
+        settings.provider.local?.recallWindowFraction ?? DEFAULT_RECALL_WINDOW_FRACTION,
       options: withConfiguredReplyCeiling(request.options, effectiveProviderId),
       modelOverride: io.providerOverride?.model,
       maxProviderRounds: executionPolicy.maxProviderRounds,
@@ -646,7 +669,7 @@ export async function runGeneration(
     transcriptRecallUsed: transcriptRecall?.results,
     webSources: webSourceRegistry.list(),
     webSearchAttempted: webSourceRegistry.attempted,
-    context: contextUpdate,
+    context: contextUpdate ?? (contextReconciliation.changed ? activeContext : undefined),
     checkpoint:
       activeProject && workspaceRoot
         ? (checkpointStore.getSummary(workspaceRoot, request.conversationId, request.messageId) ??

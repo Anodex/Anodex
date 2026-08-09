@@ -176,7 +176,7 @@ describe('estimateProjectedContextUsage', () => {
     )
   })
 
-  it('mirrors the engine Headroom cap on the projected history budget', () => {
+  it('mirrors the engine recall-window cap on the projected history budget', () => {
     const usage = estimateProjectedContextUsage({
       conversation: conversation([
         { id: 'm1', role: 'user', content: 'a'.repeat(400), createdAt: 1 },
@@ -185,7 +185,7 @@ describe('estimateProjectedContextUsage', () => {
       ]),
       contextSize: 2_000,
       systemPrompt: 'system',
-      replayCapFraction: 0.4
+      recallWindowFraction: 0.4
     })
 
     const greedy = estimateProjectedContextUsage({
@@ -212,7 +212,7 @@ describe('estimateProjectedContextUsage', () => {
         { id: 'm2', role: 'assistant', content: 'hello', createdAt: 2 }
       ]),
       contextSize: 2_000,
-      replayCapFraction: null
+      recallWindowFraction: null
     })
     const greedy = estimateProjectedContextUsage({
       conversation: conversation([

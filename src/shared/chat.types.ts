@@ -370,6 +370,8 @@ export interface ChatResult {
   stopReason?: GenerationStopReason
   /** See `GenerateOutcome.stopDetail`'s doc comment in `LlamaService.ts`. */
   stopDetail?: string
+  /** Updated Context Ledger admitted at the safe boundary before this turn. */
+  context?: ConversationContext
   /** Exact fixed-context/tool accounting reported by the local engine for this turn. */
   contextBudget?: ContextBudgetUsage
   /** Memory entries that were retrieved and injected into context for this turn, if any. */

@@ -64,14 +64,14 @@ describe('splitHistoryByTokenBudget', () => {
     expect(result.older).toEqual([history[0], history[1]])
   })
 
-  it('always keeps at least the newest turn, even if it alone exceeds the budget', () => {
+  it('keeps the active user-led interaction even if it exceeds the budget', () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'short' },
       { role: 'assistant', content: 'x'.repeat(1000) }
     ]
     const result = splitHistoryByTokenBudget(history, 10, countTokens)
-    expect(result.recent).toEqual([history[1]])
-    expect(result.older).toEqual([history[0]])
+    expect(result.recent).toEqual(history)
+    expect(result.older).toEqual([])
   })
 
   it("counts tool-call results toward a turn's token cost", () => {
@@ -93,14 +93,14 @@ describe('splitHistoryByTokenBudget', () => {
       }
     ]
     // Budget fits the assistant turn's own text but not its tool result too —
-    // the newest (only) turn is still kept, but with its tool result capped
-    // (see the dedicated capping tests below), so the older user turn is the
-    // only thing that ends up in `older`.
+    // the active interaction is still kept, but with its tool result capped
+    // (see the dedicated capping tests below), so the user request is never
+    // separated from the response it caused.
     const result = splitHistoryByTokenBudget(history, 20, countTokens)
-    expect(result.recent).toHaveLength(1)
-    expect(result.recent[0].content).toBe('done')
-    expect(result.recent[0].toolCalls?.[0].result).not.toContain('y'.repeat(100))
-    expect(result.older).toEqual([history[0]])
+    expect(result.recent).toHaveLength(2)
+    expect(result.recent[1].content).toBe('done')
+    expect(result.recent[1].toolCalls?.[0].result).not.toContain('y'.repeat(100))
+    expect(result.older).toEqual([])
   })
 
   it("caps an oversized newest turn's tool results in place instead of leaving it oversized", () => {
@@ -162,12 +162,17 @@ describe('splitHistoryByTokenBudget', () => {
       }
     ]
 
-    // Budget sized to fit both turns if the title were free ('older' + 'ok' +
-    // 'x' + the newline = 9), but not once the title is charged.
+    // Budget sized to fit the interaction if the title were free, but not
+    // once the title is charged. The interaction remains intact; its title is
+    // deliberately allowed to exceed the tiny synthetic budget because text
+    // content is never discarded by the safety cap.
     const budget = 20
     expect(title.length).toBeGreaterThan(budget)
     const result = splitHistoryByTokenBudget(history, budget, countTokens)
-    expect(result.older).toEqual([history[0]])
+    expect(result.older).toEqual([])
+    expect(result.recent[0]).toEqual(history[0])
+    expect(result.recent[1].content).toBe(history[1].content)
+    expect(result.recent[1].toolCalls?.[0].result).toBe('(result omitted to fit context)')
   })
 
   it('charges per-message framing when the caller knows its transport pays it', () => {

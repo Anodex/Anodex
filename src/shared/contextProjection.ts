@@ -1,5 +1,5 @@
 import type { ChatHistoryTurn, ChatMessage, ContextBudgetUsage } from './chat.types'
-import type { ConversationContext } from './context.types'
+import { currentLedgerRevision, type ConversationContext } from './context.types'
 import type { Conversation } from './conversation.types'
 import type { ToolCall } from './tools.types'
 import {
@@ -60,7 +60,7 @@ export function estimateProjectedContextUsage({
   contextSize,
   systemPrompt,
   fixedContext,
-  replayCapFraction
+  recallWindowFraction
 }: {
   conversation: Conversation
   contextSize: number
@@ -68,14 +68,13 @@ export function estimateProjectedContextUsage({
   /** Exact local wrapper/tokenizer accounting from the latest turn, when available. */
   fixedContext?: ContextBudgetUsage
   /**
-   * Fraction of the history budget the engine's Headroom mode replays
-   * verbatim (see `LocalProviderSettings.replayCapFraction` /
-   * `DEFAULT_REPLAY_CAP_FRACTION`). Must mirror the engine's
+   * Fraction of the history budget the Context Ledger replays
+   * verbatim (see `DEFAULT_RECALL_WINDOW_FRACTION`). Must mirror the engine's
    * `historyBudgetTokens` cap or this projection would report the greedy
    * replay while the engine actually replays far less — the very divergence
    * that would stop the meter from resetting honestly.
    */
-  replayCapFraction?: number | null
+  recallWindowFraction?: number | null
 }): ProjectedContextUsage {
   const seeded = seedProjectedHistory(systemPrompt, conversation)
   const exactFixed = fixedContext?.contextSize === contextSize ? fixedContext : undefined
@@ -83,8 +82,8 @@ export function estimateProjectedContextUsage({
   const systemTokens = exactFixed?.systemTokens ?? estimateTokens(seeded.systemPrompt ?? '')
   const toolSchemaTokens = exactFixed?.toolSchemaTokens ?? 0
   let historyBudget = Math.max(0, contextSize - systemTokens - toolSchemaTokens - reservedTokens)
-  if (replayCapFraction != null && Number.isFinite(replayCapFraction)) {
-    historyBudget = Math.floor(historyBudget * replayCapFraction)
+  if (recallWindowFraction != null && Number.isFinite(recallWindowFraction)) {
+    historyBudget = Math.floor(historyBudget * recallWindowFraction)
   }
   const split = splitProjectedHistory(seeded.history, historyBudget)
   const historyTokens = split.recent.reduce((sum, turn) => sum + estimateTurnTokens(turn), 0)
@@ -189,8 +188,8 @@ function seedHistoryFromContext(
   removedTurns: number
   applied: boolean
 } {
-  const snapshot = context?.activeSnapshot
-  if (!snapshot?.summary || !snapshot.throughMessageId) {
+  const revision = currentLedgerRevision(context)
+  if (!revision?.continuityDigest || !revision.throughMessageId) {
     return {
       history,
       removedTurns: 0,
@@ -198,7 +197,7 @@ function seedHistoryFromContext(
     }
   }
 
-  const boundaryIndex = history.findIndex((turn) => turn.id === snapshot.throughMessageId)
+  const boundaryIndex = history.findIndex((turn) => turn.id === revision.throughMessageId)
   if (boundaryIndex < 0) {
     return {
       history,
@@ -209,10 +208,33 @@ function seedHistoryFromContext(
 
   return {
     history: history.slice(boundaryIndex + 1),
-    summary: snapshot.summary,
-    removedTurns: snapshot.removedTurns,
+    summary: revision.continuityDigest,
+    removedTurns: revision.coveredTurns,
     applied: true
   }
+}
+
+interface ProjectedHistoryGroup {
+  start: number
+  cost: number
+}
+
+function groupProjectedHistory(history: ChatHistoryTurn[]): ProjectedHistoryGroup[] {
+  const groups: ProjectedHistoryGroup[] = []
+  let start = 0
+  for (let i = 1; i < history.length; i++) {
+    if (history[i].role !== 'user') continue
+    groups.push({
+      start,
+      cost: history.slice(start, i).reduce((sum, turn) => sum + estimateTurnTokens(turn), 0)
+    })
+    start = i
+  }
+  groups.push({
+    start,
+    cost: history.slice(start).reduce((sum, turn) => sum + estimateTurnTokens(turn), 0)
+  })
+  return groups
 }
 
 /**
@@ -237,26 +259,20 @@ function splitProjectedHistory(
 ): { recent: ChatHistoryTurn[]; older: ChatHistoryTurn[] } {
   if (history.length === 0) return { recent: [], older: [] }
 
+  const groups = groupProjectedHistory(history)
   let total = 0
-  const keepIndices: number[] = []
-  for (let i = history.length - 1; i >= 0; i--) {
-    const cost = estimateTurnTokens(history[i])
-    if (total + cost > budgetTokens && keepIndices.length > 0) break
-    total += cost
-    keepIndices.unshift(i)
+  let firstKeptGroup = groups.length - 1
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const group = groups[i]
+    if (total + group.cost > budgetTokens && i !== groups.length - 1) break
+    total += group.cost
+    firstKeptGroup = i
   }
 
-  // Mirror the engine's cut alignment: never down to nothing, and a single
-  // kept turn stays even if it is an assistant one (an orphan is a smaller
-  // problem than an empty history).
-  while (keepIndices.length > 1 && history[keepIndices[0]].role === 'assistant') {
-    keepIndices.shift()
-  }
-
-  const firstKeptIndex = keepIndices[0] ?? history.length
-  const recent = keepIndices.map((i) => history[i])
-  if (recent.length === 1) {
-    recent[0] = capSingleTurnToBudget(recent[0], budgetTokens)
+  const firstKeptIndex = groups[firstKeptGroup].start
+  let recent = history.slice(firstKeptIndex)
+  if (groups[firstKeptGroup].cost > budgetTokens) {
+    recent = capProjectedHistoryToBudget(recent, budgetTokens)
   }
 
   return {
@@ -275,7 +291,8 @@ function estimateTurnTokens(turn: ChatHistoryTurn): number {
 
 function estimateTurnToolCallTokens(call: ToolCall): number {
   if (call.status !== 'success' && call.status !== 'error') return 0
-  return estimateTokens(compactToolText(call.result ?? call.detail ?? ''))
+  const body = call.result ?? call.detail ?? ''
+  return estimateTokens(body ? `${call.title}\n${compactToolText(body)}` : call.title)
 }
 
 /**
@@ -286,30 +303,35 @@ function estimateTurnToolCallTokens(call: ToolCall): number {
  * the replacement notice is skipped. Kept internally consistent with
  * `estimateTurnTokens` so the meter reports the same capped cost it charges.
  */
-function capSingleTurnToBudget(turn: ChatHistoryTurn, budgetTokens: number): ChatHistoryTurn {
-  if (!turn.toolCalls?.length) return turn
-
-  const callCosts = turn.toolCalls.map((call) => estimateTurnToolCallTokens(call))
-  let total = estimateTokens(turn.content) + callCosts.reduce((sum, cost) => sum + cost, 0)
-  if (total <= budgetTokens) return turn
+function capProjectedHistoryToBudget(
+  turns: ChatHistoryTurn[],
+  budgetTokens: number
+): ChatHistoryTurn[] {
+  let total = turns.reduce((sum, turn) => sum + estimateTurnTokens(turn), 0)
+  if (total <= budgetTokens) return turns
 
   const notice = '(result omitted to fit context)'
   const noticeCost = estimateTokens(notice)
-  const toolCalls = [...turn.toolCalls]
-  for (let i = 0; i < toolCalls.length && total > budgetTokens; i++) {
-    const call = toolCalls[i]
-    if (!call.result && !call.detail) continue
-    if (callCosts[i] <= noticeCost) continue // already cheaper than the notice would be
-    total += noticeCost - callCosts[i]
-    toolCalls[i] = { ...call, result: notice, detail: notice }
+  const capped = turns.map((turn) =>
+    turn.toolCalls ? { ...turn, toolCalls: [...turn.toolCalls] } : { ...turn }
+  )
+  for (const turn of capped) {
+    for (const [index, call] of (turn.toolCalls ?? []).entries()) {
+      if (total <= budgetTokens) return capped
+      if (!call.result && !call.detail) continue
+      const callCost = estimateTurnToolCallTokens(call)
+      if (callCost <= noticeCost) continue
+      total += noticeCost - callCost
+      turn.toolCalls![index] = { ...call, result: notice, detail: notice }
+    }
   }
-  return { ...turn, toolCalls }
+  return capped
 }
 
 function compactToolText(text: string): string {
   return text.length <= MAX_MODEL_TOOL_RESULT_CHARS
     ? text
-    : text.slice(0, MAX_MODEL_TOOL_RESULT_CHARS)
+    : `${text.slice(0, MAX_MODEL_TOOL_RESULT_CHARS).trimEnd()}…`
 }
 
 function estimateTokens(text: string): number {

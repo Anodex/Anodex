@@ -26,8 +26,7 @@ import xAiLogo from '../../../../assets/providers/xai.svg'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
-import { SelectControl, SegmentedControl, TextControl, ToggleControl } from '../../controls'
-import { DEFAULT_REPLAY_CAP_FRACTION } from '@shared/contextBudget'
+import { SelectControl, TextControl, ToggleControl } from '../../controls'
 import { ApiKeyField } from './ApiKeyField'
 import styles from './AiModelsSettings.module.css'
 
@@ -598,35 +597,10 @@ export function ProviderConnectionsPanel({
                       void onUpdate({ provider: { local: { maxResponseTokens: tokens } } })
                     }
                   />
-                  <SettingRow
-                    label="Context recall"
-                    description={
-                      settings.provider.local.replayCapFraction === null
-                        ? 'Full recall replays the whole conversation into the rebuilt context, so a session reset starts near the compaction trigger with little room to refill.'
-                        : 'Headroom replays only 40% of the history budget verbatim and summarizes the rest, so the context meter resets low and refills turn by turn — opencode-style.'
-                    }
-                    control={
-                      <SegmentedControl
-                        value={
-                          settings.provider.local.replayCapFraction === null ? 'full' : 'headroom'
-                        }
-                        options={[
-                          { label: 'Full recall', value: 'full' },
-                          { label: 'Headroom', value: 'headroom' }
-                        ]}
-                        onChange={(mode) =>
-                          void onUpdate({
-                            provider: {
-                              local: {
-                                replayCapFraction:
-                                  mode === 'headroom' ? DEFAULT_REPLAY_CAP_FRACTION : null
-                              }
-                            }
-                          })
-                        }
-                      />
-                    }
-                  />
+                  <p className={styles.providerLocalDescription}>
+                    Context Ledger: Anodex keeps the active interaction together, summarizes older
+                    work when needed, and preserves room for the next turn.
+                  </p>
                 </div>
               </>
             )}

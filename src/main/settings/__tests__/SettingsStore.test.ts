@@ -9,6 +9,7 @@ import {
   LEGACY_GMAIL_ACCOUNT_ID,
   migrateLegacyAssistantStyle,
   migrateLegacyGmailAccount,
+  migrateLegacyContextReplay,
   migrateLegacyMaxTokens,
   migrateLegacyThemeMode,
   stripRetiredGeneralSettings,
@@ -318,23 +319,29 @@ describe('validatePatch', () => {
   })
 
   it('accepts null and in-range fractions for the local replay cap', () => {
-    expect(() => validatePatch({ provider: { local: { replayCapFraction: null } } })).not.toThrow()
-    expect(() => validatePatch({ provider: { local: { replayCapFraction: 0.4 } } })).not.toThrow()
-    expect(() => validatePatch({ provider: { local: { replayCapFraction: 0.01 } } })).not.toThrow()
+    expect(() =>
+      validatePatch({ provider: { local: { recallWindowFraction: null } } })
+    ).not.toThrow()
+    expect(() =>
+      validatePatch({ provider: { local: { recallWindowFraction: 0.4 } } })
+    ).not.toThrow()
+    expect(() =>
+      validatePatch({ provider: { local: { recallWindowFraction: 0.01 } } })
+    ).not.toThrow()
   })
 
   it('rejects out-of-range or malformed local replay caps', () => {
-    expect(() => validatePatch({ provider: { local: { replayCapFraction: 0 } } })).toThrow(
-      /replayCapFraction/
+    expect(() => validatePatch({ provider: { local: { recallWindowFraction: 0 } } })).toThrow(
+      /recallWindowFraction/
     )
-    expect(() => validatePatch({ provider: { local: { replayCapFraction: 1 } } })).toThrow(
-      /replayCapFraction/
+    expect(() => validatePatch({ provider: { local: { recallWindowFraction: 1 } } })).toThrow(
+      /recallWindowFraction/
     )
-    expect(() => validatePatch({ provider: { local: { replayCapFraction: -0.2 } } })).toThrow(
-      /replayCapFraction/
+    expect(() => validatePatch({ provider: { local: { recallWindowFraction: -0.2 } } })).toThrow(
+      /recallWindowFraction/
     )
-    expect(() => validatePatch({ provider: { local: { replayCapFraction: 2 } } })).toThrow(
-      /replayCapFraction/
+    expect(() => validatePatch({ provider: { local: { recallWindowFraction: 2 } } })).toThrow(
+      /recallWindowFraction/
     )
   })
 
@@ -655,6 +662,29 @@ describe('migrateLegacyMaxTokens', () => {
 
     expect(migrated.provider.anthropic.maxResponseTokens).toBeNull()
     expect(migrated.provider.local.maxResponseTokens).toBeNull()
+  })
+})
+
+describe('migrateLegacyContextReplay', () => {
+  it('moves the retired greedy default to balanced recall', () => {
+    const migrated = migrateLegacyContextReplay(baseSettings(), {
+      provider: { local: { replayCapFraction: null } }
+    })
+
+    expect(migrated.provider.local.recallWindowFraction).toBe(0.4)
+  })
+
+  it('retains an explicitly configured bounded fraction for continuity', () => {
+    const migrated = migrateLegacyContextReplay(baseSettings(), {
+      provider: { local: { replayCapFraction: 0.25 } }
+    })
+
+    expect(migrated.provider.local.recallWindowFraction).toBe(0.25)
+  })
+
+  it('does not change settings that never used the retired field', () => {
+    const settings = baseSettings()
+    expect(migrateLegacyContextReplay(settings, {})).toBe(settings)
   })
 })
 

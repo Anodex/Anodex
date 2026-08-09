@@ -173,6 +173,40 @@ export interface HistorySplit {
   older: ChatHistoryTurn[]
 }
 
+interface HistoryGroup {
+  start: number
+  cost: number
+}
+
+/** Keep each user request together with all assistant/tool messages it caused. */
+function groupHistoryByUserTurn(
+  history: ChatHistoryTurn[],
+  countTokens: (text: string) => number,
+  messageFramingTokens: number
+): HistoryGroup[] {
+  const groups: HistoryGroup[] = []
+  let start = 0
+
+  for (let i = 1; i < history.length; i++) {
+    if (history[i].role !== 'user') continue
+    groups.push({
+      start,
+      cost: history
+        .slice(start, i)
+        .reduce((total, turn) => total + turnTokenCost(turn, countTokens, messageFramingTokens), 0)
+    })
+    start = i
+  }
+
+  groups.push({
+    start,
+    cost: history
+      .slice(start)
+      .reduce((total, turn) => total + turnTokenCost(turn, countTokens, messageFramingTokens), 0)
+  })
+  return groups
+}
+
 /**
  * Text one past tool call contributes to a turn's replay cost.
  *
@@ -214,15 +248,14 @@ export function turnTokenCost(
 }
 
 /**
- * Split history into turns that fit within `budgetTokens` (kept verbatim,
- * newest-first while walking, then reversed to oldest-first) and older turns
- * that don't. `countTokens` is injected so this stays unit-testable without a
- * real model loaded.
+ * Split history into user-led interaction groups that fit within
+ * `budgetTokens` and older messages that don't. `countTokens` is injected so
+ * this stays unit-testable without a real model loaded.
  *
  * The newest turn is always kept, even if it alone exceeds `budgetTokens` —
  * dropping the turn the user is actively in the middle of would be worse
- * than a tight fit. But if that single turn is capped in place (see
- * `capTurnToTokenBudget`) when it's the *only* kept turn, so the rebuilt
+ * than a tight fit. But if that single interaction is capped in place (see
+ * `capHistoryToTokenBudget`) when it's the *only* kept interaction, so the rebuilt
  * session is guaranteed to actually fit. Without this, an outsized turn
  * (observed directly: 35 tool calls in one exchange, each with a real
  * result) stays oversized through every subsequent "successful" compaction —
@@ -238,13 +271,14 @@ export function splitHistoryByTokenBudget(
 ): HistorySplit {
   if (history.length === 0) return { recent: [], older: [] }
 
+  const groups = groupHistoryByUserTurn(history, countTokens, messageFramingTokens)
   let total = 0
-  const keepIndices: number[] = []
-  for (let i = history.length - 1; i >= 0; i--) {
-    const cost = turnTokenCost(history[i], countTokens, messageFramingTokens)
-    if (total + cost > budgetTokens && keepIndices.length > 0) break
-    total += cost
-    keepIndices.unshift(i)
+  let firstKeptGroup = groups.length - 1
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const group = groups[i]
+    if (total + group.cost > budgetTokens && i !== groups.length - 1) break
+    total += group.cost
+    firstKeptGroup = i
   }
 
   // Align the cut to a user turn. The walk above stops wherever the budget runs
@@ -256,14 +290,10 @@ export function splitHistoryByTokenBudget(
   //
   // Never down to nothing: a single kept turn stays even if it is an assistant
   // one, because an orphan is a smaller problem than an empty history.
-  while (keepIndices.length > 1 && history[keepIndices[0]].role === 'assistant') {
-    keepIndices.shift()
-  }
-
-  const firstKeptIndex = keepIndices[0] ?? history.length
-  const recent = keepIndices.map((i) => history[i])
-  if (recent.length === 1) {
-    recent[0] = capTurnToTokenBudget(recent[0], budgetTokens, countTokens)
+  const firstKeptIndex = groups[firstKeptGroup].start
+  let recent = history.slice(firstKeptIndex)
+  if (groups[firstKeptGroup].cost > budgetTokens) {
+    recent = capHistoryToTokenBudget(recent, budgetTokens, countTokens, messageFramingTokens)
   }
 
   return {
@@ -281,28 +311,34 @@ export function splitHistoryByTokenBudget(
  * would be more damaging than losing an old tool result the UI transcript
  * still has in full anyway (only the model-facing replay copy is capped).
  */
-function capTurnToTokenBudget(
-  turn: ChatHistoryTurn,
+function capHistoryToTokenBudget(
+  turns: ChatHistoryTurn[],
   budgetTokens: number,
-  countTokens: (text: string) => number
-): ChatHistoryTurn {
-  if (!turn.toolCalls?.length) return turn
-
-  const callCosts = turn.toolCalls.map((call) => countTokens(toolCallCostText(call)))
-  let total = countTokens(turn.content) + callCosts.reduce((sum, cost) => sum + cost, 0)
-  if (total <= budgetTokens) return turn
+  countTokens: (text: string) => number,
+  messageFramingTokens: number
+): ChatHistoryTurn[] {
+  let total = turns.reduce(
+    (sum, turn) => sum + turnTokenCost(turn, countTokens, messageFramingTokens),
+    0
+  )
+  if (total <= budgetTokens) return turns
 
   const notice = '(result omitted to fit context)'
   const noticeCost = countTokens(notice)
-  const toolCalls = [...turn.toolCalls]
-  for (let i = 0; i < toolCalls.length && total > budgetTokens; i++) {
-    const call = toolCalls[i]
-    if (!call.result && !call.detail) continue
-    if (callCosts[i] <= noticeCost) continue // already cheaper than the notice would be
-    total += noticeCost - callCosts[i]
-    toolCalls[i] = { ...call, result: notice, detail: notice }
+  const capped = turns.map((turn) =>
+    turn.toolCalls ? { ...turn, toolCalls: [...turn.toolCalls] } : { ...turn }
+  )
+  for (const turn of capped) {
+    for (const [index, call] of (turn.toolCalls ?? []).entries()) {
+      if (total <= budgetTokens) return capped
+      if (!call.result && !call.detail) continue
+      const callCost = countTokens(toolCallCostText(call))
+      if (callCost <= noticeCost) continue
+      total += noticeCost - callCost
+      turn.toolCalls![index] = { ...call, result: notice, detail: notice }
+    }
   }
-  return { ...turn, toolCalls }
+  return capped
 }
 
 /**

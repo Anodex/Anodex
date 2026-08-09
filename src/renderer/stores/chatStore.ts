@@ -8,6 +8,7 @@ import type {
   RestoreCheckpointResult
 } from '@shared/checkpoint.types'
 import type { Conversation, EmailThreadLink } from '@shared/conversation.types'
+import { contextLedgerCauseFromSnapshotReason, withLedgerRevision } from '@shared/context.types'
 import { TOOL_CATALOG, type ToolActivityEvent, type ToolCall } from '@shared/tools.types'
 import { err } from '@shared/result'
 import { stripToolCallText } from '@shared/toolCallText'
@@ -725,6 +726,9 @@ export const useChatStore = create<ChatState>()(
             message.checkpoint = result.value.checkpoint
           }
           if (result.value.thinking) message.thinking = result.value.thinking
+          if (result.value.context) {
+            convo.context = result.value.context
+          }
         } else {
           // A failed turn has no authoritative final reply to fall back on
           // (unlike the ok branch's `result.value.content`), so any text still
@@ -965,12 +969,14 @@ export const useChatStore = create<ChatState>()(
       set((state) => {
         const convo = state.conversations.find((c) => c.id === compacted.conversationId)
         if (!convo) return
-        convo.context = {
-          activeSnapshot: {
-            id: createId('ctx'),
-            ...compacted.snapshot
-          }
-        }
+        convo.context = withLedgerRevision(convo.context, {
+          id: createId('ctx'),
+          createdAt: compacted.snapshot.createdAt,
+          cause: 'manual',
+          throughMessageId: compacted.snapshot.throughMessageId,
+          coveredTurns: compacted.snapshot.removedTurns,
+          continuityDigest: compacted.snapshot.summary
+        })
         convo.updatedAt = Date.now()
       })
       const updated = get().conversations.find((c) => c.id === compacted.conversationId)
@@ -1096,16 +1102,14 @@ export const useChatStore = create<ChatState>()(
       set((state) => {
         const convo = state.conversations.find((c) => c.id === event.conversationId)
         if (!convo) return
-        convo.context = {
-          activeSnapshot: {
-            id: createId('ctx'),
-            createdAt: event.createdAt,
-            reason: event.reason,
-            throughMessageId,
-            removedTurns: event.removedTurns,
-            summary
-          }
-        }
+        convo.context = withLedgerRevision(convo.context, {
+          id: createId('ctx'),
+          createdAt: event.createdAt,
+          cause: contextLedgerCauseFromSnapshotReason(event.reason),
+          throughMessageId,
+          coveredTurns: event.removedTurns,
+          continuityDigest: summary
+        })
         convo.updatedAt = Date.now()
       })
 

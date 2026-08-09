@@ -1,5 +1,5 @@
 import type { ChatHistoryTurn } from '@shared/chat.types'
-import type { ConversationContext } from '@shared/context.types'
+import { currentLedgerRevision, type ConversationContext } from '@shared/context.types'
 import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { MAX_MODEL_TOOL_RESULT_CHARS } from '@shared/contextBudget'
@@ -96,15 +96,11 @@ export interface ModelContextAssemblyInput {
    */
   messageFramingTokens?: number
   /**
-   * Fraction of the history budget the replay may keep verbatim; the rest is
-   * summarized/dropped. `null`/omitted keeps the historical greedy behaviour
-   * (history fills the whole budget). Headroom mode passes a fraction (see
-   * `DEFAULT_REPLAY_CAP_FRACTION` in `contextBudget.ts`) so a rebuilt session
-   * starts well below the compaction trigger and has room to refill. The
-   * node-llama-cpp engine sets this; `boundHistoryForStatelessProvider` never
-   * does, so cloud/stateless transports stay greedy.
+   * Fraction of the history budget the Context Ledger may keep verbatim; the
+   * rest is summarized or dropped. The bounded recall window starts a rebuilt
+   * session below the compaction trigger so it has room to refill.
    */
-  replayCapFraction?: number | null
+  recallWindowFraction?: number | null
 }
 
 /**
@@ -123,7 +119,7 @@ export async function assembleModelContext({
   toolSchemaReserveTokens = 0,
   summaryChunkTokenBudget,
   messageFramingTokens = 0,
-  replayCapFraction
+  recallWindowFraction
 }: ModelContextAssemblyInput): Promise<ModelContextAssembly> {
   const projectedHistory = projectHistoryForModel(history)
   const initialBudget = historyBudgetTokens(
@@ -131,7 +127,7 @@ export async function assembleModelContext({
     contextSize,
     countTokens,
     toolSchemaReserveTokens,
-    replayCapFraction
+    recallWindowFraction
   )
   const split = splitHistoryByTokenBudget(
     projectedHistory,
@@ -170,7 +166,7 @@ export async function assembleModelContext({
         contextSize,
         countTokens,
         toolSchemaReserveTokens,
-        replayCapFraction
+        recallWindowFraction
       )
       const finalSplit = splitHistoryByTokenBudget(
         projectedRecent,
@@ -203,7 +199,7 @@ export async function assembleModelContext({
     contextSize,
     countTokens,
     toolSchemaReserveTokens,
-    replayCapFraction
+    recallWindowFraction
   )
   const removedTurns = older.length
 
@@ -238,23 +234,23 @@ export function seedContextFromSnapshot(
   history: ChatHistoryTurn[],
   context: ConversationContext | null | undefined
 ): SnapshotSeededContext {
-  const snapshot = context?.activeSnapshot
-  if (!snapshot?.summary || !snapshot.throughMessageId) {
+  const revision = currentLedgerRevision(context)
+  if (!revision?.continuityDigest || !revision.throughMessageId) {
     return { systemPrompt, history: projectHistoryForModel(history), applied: false }
   }
 
   const projectedHistory = projectHistoryForModel(history)
-  const boundaryIndex = projectedHistory.findIndex((turn) => turn.id === snapshot.throughMessageId)
+  const boundaryIndex = projectedHistory.findIndex((turn) => turn.id === revision.throughMessageId)
   if (boundaryIndex < 0) {
     return { systemPrompt, history: projectedHistory, applied: false }
   }
 
   return {
-    systemPrompt: buildCompactionSystemPrompt(systemPrompt, snapshot.summary),
+    systemPrompt: buildCompactionSystemPrompt(systemPrompt, revision.continuityDigest),
     history: projectedHistory.slice(boundaryIndex + 1),
     applied: true,
-    summary: snapshot.summary,
-    throughMessageId: snapshot.throughMessageId
+    summary: revision.continuityDigest,
+    throughMessageId: revision.throughMessageId
   }
 }
 
@@ -449,9 +445,9 @@ export function rememberToolCallForModel(call: ToolCall): string {
 
 /**
  * Token ceiling history replay may fill for the given window. After
- * system/reserved/tool-schema subtraction, an optional `replayCapFraction`
- * (Headroom mode) keeps only that share for verbatim replay — the rest must be
- * summarized or dropped. `null`/omitted is the historical greedy behaviour.
+ * system/reserved/tool-schema subtraction, an optional `recallWindowFraction`
+ * keeps only that share for verbatim replay; the rest must be summarized or
+ * dropped. Legacy null/omitted values are normalized before generation.
  * Exported so the exact cap maths can be unit-tested against the shared
  * `estimateProjectedContextUsage` mirror.
  */
@@ -460,15 +456,15 @@ export function historyBudgetTokens(
   contextSize: number,
   countTokens: (text: string) => number,
   toolSchemaReserveTokens = 0,
-  replayCapFraction?: number | null
+  recallWindowFraction?: number | null
 ): number {
   const budget =
     contextSize -
     countTokens(systemPrompt ?? '') -
     reservedNonHistoryTokens(contextSize) -
     Math.max(0, toolSchemaReserveTokens)
-  if (replayCapFraction != null && Number.isFinite(replayCapFraction)) {
-    return Math.max(0, Math.floor(budget * replayCapFraction))
+  if (recallWindowFraction != null && Number.isFinite(recallWindowFraction)) {
+    return Math.max(0, Math.floor(budget * recallWindowFraction))
   }
   return Math.max(0, budget)
 }

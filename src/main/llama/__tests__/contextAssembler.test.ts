@@ -78,7 +78,7 @@ describe('assembleModelContext', () => {
     expect(assembled.summarized).toBe(false)
   })
 
-  it('caps the replay budget by fraction (Headroom mode) and drops the overflow', async () => {
+  it('caps the recall window by fraction and drops the overflow', async () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'A'.repeat(220) },
       { role: 'assistant', content: 'B'.repeat(250) },
@@ -100,7 +100,7 @@ describe('assembleModelContext', () => {
       history,
       contextSize: 2_000,
       countTokens,
-      replayCapFraction: 0.4,
+      recallWindowFraction: 0.4,
       summarizeOlderTurns: summarize
     })
 
@@ -119,7 +119,7 @@ describe('assembleModelContext', () => {
     expect(uncapped).toBe(2_000 - countTokens('system') - reservedNonHistoryTokens(2_000))
   })
 
-  it('treats an omitted or null cap as greedy (Full recall)', async () => {
+  it('treats an omitted or null recall window as uncapped for compatibility', async () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'hello' }
@@ -138,7 +138,7 @@ describe('assembleModelContext', () => {
       history,
       contextSize: 2_000,
       countTokens,
-      replayCapFraction: null,
+      recallWindowFraction: null,
       summarizeOlderTurns: summarize
     })
 
@@ -352,8 +352,11 @@ describe('boundHistoryForStatelessProvider', () => {
 
     const bounded = await boundHistoryForStatelessProvider(undefined, history, null, 1_000)
 
-    expect(bounded.omittedTurns).toBe(1)
-    expect(bounded.history).toEqual([history[1]])
+    // The request and its latest response form one active interaction. Even
+    // when that interaction exceeds the synthetic budget, the ledger keeps it
+    // together rather than replaying an orphaned response.
+    expect(bounded.omittedTurns).toBe(0)
+    expect(bounded.history).toEqual(history)
     expect(bounded.summarized).toBe(false)
   })
 
