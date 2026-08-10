@@ -888,7 +888,7 @@ describe('LlamaVisionService.generate', () => {
     expect(mocks.requests).toHaveLength(2)
   })
 
-  it('carries the most recent history images, not the oldest', async () => {
+  it('carries only explicitly pinned history images', async () => {
     // MAX_VISION_IMAGES is 4. Six pictures in history means two must be left
     // behind, and the two that should go are the ones nobody is talking about
     // any more. Rendering walks history forwards, so spending the budget as it
@@ -899,7 +899,13 @@ describe('LlamaVisionService.generate', () => {
       role: 'user' as const,
       content: `turn ${i}`,
       attachments: [
-        { kind: 'image' as const, path: `img${i}.png`, name: `img${i}.png`, sizeBytes: 1 }
+        {
+          kind: 'image' as const,
+          path: `img${i}.png`,
+          name: `img${i}.png`,
+          sizeBytes: 1,
+          visionContextPinned: i >= 2
+        }
       ]
     }))
 

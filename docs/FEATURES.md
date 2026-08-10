@@ -137,6 +137,8 @@ Key capabilities:
 - File picker attachments.
 - Internal file drag from the Files panel into chat.
 - Attachment chips with size and truncation information.
+- Images are scoped to the message that introduced them; choose **Keep for follow-ups** on an
+  image when it should remain available to a vision model in later messages.
 - Built-in slash commands: `/test`, `/review`, `/refactor`, and `/summarize`.
 - Relevant skill suggestions directly in the composer.
 - Permission mode control from the composer.

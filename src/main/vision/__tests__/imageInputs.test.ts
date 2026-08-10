@@ -12,7 +12,7 @@ import {
   LOCAL_VISION_MIME_TYPES,
   readVisionImage,
   readVisionImageBuffer,
-  reopenRecentHistoryImages
+  reopenPinnedHistoryImages
 } from '../imageInputs'
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
@@ -91,12 +91,12 @@ describe('vision image inputs', () => {
     expect(() => enqueueVisualInput(queue, webp)).toThrow(/cannot inspect image\/webp/)
   })
 
-  it('reopens the newest historical image without persisting its bytes', async () => {
+  it('reopens a pinned historical image without persisting its bytes', async () => {
     const path = join(workspace, 'history.png')
     const bytes = Buffer.concat([PNG_SIGNATURE, Buffer.from('history')])
     await writeFile(path, bytes)
 
-    const selected = await reopenRecentHistoryImages(
+    const selected = await reopenPinnedHistoryImages(
       [
         {
           role: 'user',
@@ -107,7 +107,8 @@ describe('vision image inputs', () => {
               name: 'history.png',
               kind: 'image',
               mimeType: 'image/png',
-              sizeBytes: bytes.length
+              sizeBytes: bytes.length,
+              visionContextPinned: true
             }
           ]
         }
@@ -116,6 +117,33 @@ describe('vision image inputs', () => {
     )
 
     expect(selected.get(0)?.[0].dataUrl).toMatch(/^data:image\/png;base64,/)
+  })
+
+  it('leaves unpinned historical images out of later vision requests', async () => {
+    const path = join(workspace, 'one-turn.png')
+    const bytes = Buffer.concat([PNG_SIGNATURE, Buffer.from('one turn')])
+    await writeFile(path, bytes)
+
+    const selected = await reopenPinnedHistoryImages(
+      [
+        {
+          role: 'user',
+          content: 'Earlier',
+          attachments: [
+            {
+              path,
+              name: 'one-turn.png',
+              kind: 'image',
+              mimeType: 'image/png',
+              sizeBytes: bytes.length
+            }
+          ]
+        }
+      ],
+      1
+    )
+
+    expect(selected.size).toBe(0)
   })
 
   it('bounds tool-produced visual inputs across a response', () => {

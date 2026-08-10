@@ -81,6 +81,8 @@ export function contextLedgerCauseFromSnapshotReason(
 export interface ConversationContext {
   /** The active Anodex Context Ledger revision. */
   ledger?: ContextLedger
+  /** Immutable locally stored summaries created by each context compaction. */
+  compactionHistory?: ConversationContextSnapshot[]
   /** Compatibility form retained while older conversations and callers migrate. */
   activeSnapshot?: ConversationContextSnapshot
 }
@@ -110,6 +112,44 @@ export function currentLedgerRevision(
 }
 
 /**
+ * All durable compaction summaries in chronological order.
+ *
+ * Conversations created before revision history existed have no stored list,
+ * but their current snapshot is still a real compaction record and should be
+ * visible to the user. It is projected into the list here without rewriting
+ * the conversation merely because it was opened.
+ */
+export function contextCompactionHistory(
+  context: ConversationContext | null | undefined
+): ConversationContextSnapshot[] {
+  const history = context?.compactionHistory ?? []
+  const active = context?.activeSnapshot
+  if (
+    !isCompactionSnapshot(active) ||
+    history.some(
+      (snapshot) =>
+        snapshot.id === active.id ||
+        (snapshot.throughMessageId === active.throughMessageId &&
+          snapshot.removedTurns === active.removedTurns &&
+          snapshot.summary === active.summary)
+    )
+  ) {
+    return history
+  }
+  return [...history, active]
+}
+
+function isCompactionSnapshot(
+  snapshot: ConversationContextSnapshot | undefined
+): snapshot is ConversationContextSnapshot {
+  return Boolean(snapshot && snapshot.removedTurns > 0 && snapshot.summary.trim())
+}
+
+function recordsCompaction(cause: ContextLedgerCause): boolean {
+  return cause === 'pressure' || cause === 'recovery' || cause === 'manual'
+}
+
+/**
  * Write the new ledger and its compatibility snapshot together. Keeping both
  * forms synchronized makes the migration reversible and lets older renderer
  * surfaces continue to display compaction markers during rollout.
@@ -127,6 +167,17 @@ export function withLedgerRevision(
         : revision.cause === 'startup'
           ? 'onLoad'
           : 'proactive'
+  const nextSnapshot: ConversationContextSnapshot = {
+    id: revision.id,
+    createdAt: revision.createdAt,
+    reason,
+    throughMessageId: revision.throughMessageId,
+    removedTurns: revision.coveredTurns,
+    summary: revision.continuityDigest
+  }
+  const compactionHistory = recordsCompaction(revision.cause)
+    ? appendCompactionSnapshot(contextCompactionHistory(context), nextSnapshot)
+    : context?.compactionHistory
   return {
     ...(context ?? {}),
     ledger: {
@@ -134,13 +185,15 @@ export function withLedgerRevision(
       ...(previous ?? {}),
       current: revision
     },
-    activeSnapshot: {
-      id: revision.id,
-      createdAt: revision.createdAt,
-      reason,
-      throughMessageId: revision.throughMessageId,
-      removedTurns: revision.coveredTurns,
-      summary: revision.continuityDigest
-    }
+    ...(compactionHistory ? { compactionHistory } : {}),
+    activeSnapshot: nextSnapshot
   }
+}
+
+function appendCompactionSnapshot(
+  snapshots: ConversationContextSnapshot[],
+  nextSnapshot: ConversationContextSnapshot
+): ConversationContextSnapshot[] {
+  const withoutCurrent = snapshots.filter((snapshot) => snapshot.id !== nextSnapshot.id)
+  return [...withoutCurrent, nextSnapshot]
 }

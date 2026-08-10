@@ -41,7 +41,7 @@ import {
   createVisualInputQueue,
   drainVisualInputs,
   MAX_VISION_IMAGES,
-  reopenRecentHistoryImages,
+  reopenPinnedHistoryImages,
   selectCurrentVisionImages
 } from '../vision/imageInputs'
 
@@ -140,7 +140,7 @@ class OpenAiProvider implements LlmProvider {
 
     const currentImages = selectCurrentVisionImages(params.images)
     assertCloudVisionCompatible(currentImages)
-    const historyImages = await reopenRecentHistoryImages(
+    const historyImages = await reopenPinnedHistoryImages(
       params.history,
       MAX_VISION_IMAGES - currentImages.length
     )

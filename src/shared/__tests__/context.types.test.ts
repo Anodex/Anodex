@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   contextLedgerCauseFromSnapshotReason,
+  contextCompactionHistory,
   currentLedgerRevision,
   withLedgerRevision,
   type ConversationContextSnapshot
@@ -50,6 +51,10 @@ describe('Context Ledger compatibility', () => {
     expect(currentLedgerRevision(context)?.id).toBe('ledger-2')
     expect(context.activeSnapshot?.id).toBe('ledger-2')
     expect(context.activeSnapshot?.reason).toBe('proactive')
+    expect(contextCompactionHistory(context).map((snapshot) => snapshot.id)).toEqual([
+      'snapshot-1',
+      'ledger-2'
+    ])
   })
 
   it('preserves future ledger metadata while advancing the current revision', () => {
@@ -83,5 +88,46 @@ describe('Context Ledger compatibility', () => {
     expect(context.ledger?.turnNotes).toHaveLength(1)
     expect(context.ledger?.current.id).toBe('ledger-2')
     expect(context.activeSnapshot?.reason).toBe('manual')
+    expect(contextCompactionHistory(context)).toHaveLength(1)
+  })
+
+  it('projects a pre-history active compaction into the visible revision list', () => {
+    expect(contextCompactionHistory({ activeSnapshot: legacySnapshot })).toEqual([legacySnapshot])
+  })
+
+  it('does not add startup reconciliation to compaction history', () => {
+    const context = withLedgerRevision(undefined, {
+      id: 'ledger-startup',
+      createdAt: 100,
+      cause: 'startup',
+      throughMessageId: null,
+      coveredTurns: 0,
+      continuityDigest: ''
+    })
+
+    expect(contextCompactionHistory(context)).toEqual([])
+  })
+
+  it('does not show a signal-only revision as a second compaction', () => {
+    const compacted = withLedgerRevision(undefined, {
+      id: 'ledger-compaction',
+      createdAt: 100,
+      cause: 'pressure',
+      throughMessageId: 'message-4',
+      coveredTurns: 4,
+      continuityDigest: 'The first four turns were condensed.'
+    })
+    const reconciled = withLedgerRevision(compacted, {
+      id: 'ledger-signal-refresh',
+      createdAt: 200,
+      cause: 'reconciliation',
+      throughMessageId: 'message-4',
+      coveredTurns: 4,
+      continuityDigest: 'The first four turns were condensed.'
+    })
+
+    expect(contextCompactionHistory(reconciled).map((snapshot) => snapshot.id)).toEqual([
+      'ledger-compaction'
+    ])
   })
 })

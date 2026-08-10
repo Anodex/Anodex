@@ -960,12 +960,10 @@ export class LlamaVisionService {
       .filter(isValidVisionImageInput)
       .slice(0, MAX_VISION_IMAGES)
 
-    // Chosen before rendering, walking the history backwards. The render pass
-    // below goes forwards, so spending the budget as it went handed every slot
-    // to the *oldest* pictures in the conversation and dropped the ones just
-    // being discussed — the opposite of what a follow-up question needs. The
-    // cloud transports get this right via `reopenRecentHistoryImages`; the name
-    // is the whole point.
+    // Historical images are selected only when explicitly pinned. Selection
+    // walks backwards to give the newest retained images priority, while the
+    // rendering pass below still preserves their chronological order. Cloud
+    // transports use the same pinned-image policy.
     const carriedImages = new Set<string>()
     let remainingImages = MAX_VISION_IMAGES - currentImages.length
     for (
@@ -975,7 +973,9 @@ export class LlamaVisionService {
     ) {
       const attachments = boundedHistory[turnIndex].attachments ?? []
       for (let index = attachments.length - 1; index >= 0 && remainingImages > 0; index--) {
-        if (attachments[index].kind !== 'image') continue
+        if (attachments[index].kind !== 'image' || !attachments[index].visionContextPinned) {
+          continue
+        }
         carriedImages.add(`${turnIndex}:${index}`)
         remainingImages -= 1
       }

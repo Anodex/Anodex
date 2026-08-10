@@ -81,6 +81,12 @@ export interface ChatAttachment {
   kind?: 'text' | 'image'
   /** Persisted for image rehydration; image bytes are deliberately not stored in chat JSON. */
   mimeType?: string
+  /**
+   * Keep this image available to vision models on later turns. Images are
+   * otherwise scoped to the message that introduced them, keeping ordinary
+   * follow-up requests text-first and their context budget predictable.
+   */
+  visionContextPinned?: boolean
 }
 
 /** Content read from a dropped/dragged file, for the composer to attach to the next message. */
@@ -229,7 +235,10 @@ export interface ChatHistoryTurn {
   content: string
   /** Tool calls made during this (assistant) turn, retained for memory. */
   toolCalls?: ToolCall[]
-  /** Attachment metadata lets vision providers reopen user-selected images on later turns. */
+  /**
+   * Attachment metadata lets vision providers reopen images explicitly pinned
+   * for later visual follow-ups. Unpinned images belong to their original turn.
+   */
   attachments?: ChatAttachment[]
 }
 

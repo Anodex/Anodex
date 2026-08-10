@@ -52,7 +52,19 @@ describe('MessageAttachments', () => {
 
     expect(html).toContain('Loading image')
     expect(html).toContain('robot.png')
+    expect(html).toContain('Keep for follow-ups')
     expect(html).toContain('notes.txt')
+  })
+
+  it('marks an opted-in image as kept for visual follow-ups', () => {
+    const html = renderToStaticMarkup(
+      <MessageAttachments
+        messageId="message-1"
+        attachments={[{ ...IMAGE_ATTACHMENT, visionContextPinned: true }]}
+      />
+    )
+
+    expect(html).toContain('Kept for follow-ups')
   })
 
   it('reopens an absolute image attachment directly', async () => {

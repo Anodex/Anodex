@@ -53,7 +53,10 @@
   animation: settle 220ms var(--ease-out) backwards;
 }
 
-.summaryMeta {
+.summaryHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
   font-size: var(--text-xs);
   color: var(--text-faint);
 }
@@ -63,6 +66,12 @@
   font-size: var(--text-sm);
   color: var(--text-muted);
   white-space: pre-wrap;
+}
+
+.summaryNote {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
 }
 
 /*

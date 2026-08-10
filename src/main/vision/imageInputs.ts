@@ -213,10 +213,14 @@ export function selectCurrentVisionImages(
 }
 
 /**
- * Reopen the newest available historical images up to `limit`, returning them
- * keyed by their original turn index so providers can preserve chronology.
+ * Reopen only images the person explicitly kept for visual follow-ups. This
+ * avoids repeatedly charging a vision model for unrelated screenshots merely
+ * because they happened earlier in the chat.
+ *
+ * The newest pinned images win when the limit is reached; the returned map
+ * remains keyed by original turn index so transports can preserve chronology.
  */
-export async function reopenRecentHistoryImages(
+export async function reopenPinnedHistoryImages(
   history: readonly ChatHistoryTurn[],
   limit: number
 ): Promise<Map<number, ChatImageInput[]>> {
@@ -232,7 +236,7 @@ export async function reopenRecentHistoryImages(
       attachmentIndex--
     ) {
       const attachment = attachments[attachmentIndex]
-      if (attachment.kind !== 'image') continue
+      if (attachment.kind !== 'image' || !attachment.visionContextPinned) continue
       const image = await reopenChatImage(attachment)
       if (!image) continue
       const turnImages = selected.get(turnIndex) ?? []

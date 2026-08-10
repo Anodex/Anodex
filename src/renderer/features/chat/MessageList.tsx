@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
-import type { ConversationContext } from '@shared/context.types'
+import {
+  contextCompactionHistory,
+  type ConversationContext,
+  type ConversationContextSnapshot
+} from '@shared/context.types'
 import { CompactionMarker } from './CompactionMarker'
 import { MessageBubble } from './MessageBubble'
 import { FileTypeIcon } from '../../components/FileTypeIcon'
@@ -28,15 +32,26 @@ interface UserMarker {
   editedFiles: string[]
 }
 
+interface CompactionReveal {
+  snapshotId: string
+  request: number
+}
+
 /** Scrollable transcript that follows streaming output unless the user scrolls up. */
 export function MessageList({
   messages,
-  context
+  context,
+  compactionReveal = null
 }: {
   messages: ChatMessage[]
   context?: ConversationContext | null
+  /** The revision selected from the header's Context Revision History. */
+  compactionReveal?: CompactionReveal | null
 }): JSX.Element {
-  const compactionThroughId = context?.activeSnapshot?.throughMessageId ?? null
+  const compactionSnapshotsByBoundary = useMemo(
+    () => snapshotsByBoundary(contextCompactionHistory(context)),
+    [context]
+  )
   // Messages are only ever appended, so the streaming reply (if any) is
   // always last — no need to scan the whole conversation for it, and doing
   // it once here (instead of inside every MessageBubble) avoids an
@@ -50,6 +65,7 @@ export function MessageList({
   const containerRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const compactionMarkerRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const stickToBottom = useRef(true)
   /** Last observed transcript height, so a viewport change isn't mistaken for new content. */
   const lastInnerHeight = useRef(0)
@@ -244,6 +260,14 @@ export function MessageList({
     node.scrollIntoView({ block: 'start', behavior: 'smooth' })
   }
 
+  useEffect(() => {
+    if (!compactionReveal) return
+    const marker = compactionMarkerRefs.current[compactionReveal.snapshotId]
+    if (!marker) return
+    stickToBottom.current = false
+    marker.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [compactionReveal])
+
   return (
     <div className={styles.scrollWrap}>
       <div className={styles.scroll} ref={containerRef} onScroll={handleScroll}>
@@ -268,9 +292,21 @@ export function MessageList({
                   visualComparison={visualComparisons.get(message.id) ?? null}
                 />
               </div>
-              {context?.activeSnapshot && message.id === compactionThroughId && (
-                <CompactionMarker snapshot={context.activeSnapshot} />
-              )}
+              {compactionSnapshotsByBoundary.get(message.id)?.map((snapshot) => (
+                <div
+                  key={snapshot.id}
+                  ref={(node) => {
+                    compactionMarkerRefs.current[snapshot.id] = node
+                  }}
+                >
+                  <CompactionMarker
+                    snapshot={snapshot}
+                    revealRequest={
+                      compactionReveal?.snapshotId === snapshot.id ? compactionReveal.request : 0
+                    }
+                  />
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -305,6 +341,19 @@ export function MessageList({
       )}
     </div>
   )
+}
+
+function snapshotsByBoundary(
+  snapshots: ConversationContextSnapshot[]
+): Map<string, ConversationContextSnapshot[]> {
+  const grouped = new Map<string, ConversationContextSnapshot[]>()
+  for (const snapshot of snapshots) {
+    if (!snapshot.throughMessageId) continue
+    const atBoundary = grouped.get(snapshot.throughMessageId) ?? []
+    atBoundary.push(snapshot)
+    grouped.set(snapshot.throughMessageId, atBoundary)
+  }
+  return grouped
 }
 
 interface UserScrollRailProps {

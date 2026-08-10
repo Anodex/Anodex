@@ -5,6 +5,7 @@ import { ExpandableImage } from '../../components/ui/ExpandableImage'
 import { formatBytes } from '../../lib/format'
 import { loadAttachmentImage } from './loadAttachmentImage'
 import { relocateMessageAttachment } from './relocateMessageAttachment'
+import { updateImageVisionContext } from './visionContextAttachment'
 import styles from './MessageAttachments.module.css'
 
 export function MessageAttachments({
@@ -57,6 +58,8 @@ function InlineImageAttachment({
   const [attempt, setAttempt] = useState(0)
   const [locating, setLocating] = useState(false)
   const [locateError, setLocateError] = useState('')
+  const [visionContextUpdating, setVisionContextUpdating] = useState(false)
+  const [visionContextError, setVisionContextError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -78,6 +81,18 @@ function InlineImageAttachment({
     const result = await relocateMessageAttachment(messageId, attachment.path)
     if (result.status === 'error') setLocateError(result.message)
     setLocating(false)
+  }
+
+  const toggleVisionContext = async (): Promise<void> => {
+    setVisionContextUpdating(true)
+    setVisionContextError('')
+    const result = await updateImageVisionContext(
+      messageId,
+      attachment.path,
+      !attachment.visionContextPinned
+    )
+    if (result.status === 'error') setVisionContextError(result.message)
+    setVisionContextUpdating(false)
   }
 
   return (
@@ -122,7 +137,29 @@ function InlineImageAttachment({
       <figcaption className={styles.caption}>
         <span className={styles.captionName}>{attachment.name}</span>
         <span className={styles.fileSize}>{formatBytes(attachment.sizeBytes)}</span>
+        <button
+          type="button"
+          className={`${styles.visionContextButton} ${
+            attachment.visionContextPinned ? styles.visionContextButtonActive : ''
+          }`}
+          onClick={() => void toggleVisionContext()}
+          disabled={visionContextUpdating}
+          title={
+            attachment.visionContextPinned
+              ? 'Stop including this image in later visual follow-ups'
+              : 'Keep this image available for later visual follow-ups'
+          }
+        >
+          {visionContextUpdating
+            ? 'Saving…'
+            : attachment.visionContextPinned
+              ? 'Kept for follow-ups'
+              : 'Keep for follow-ups'}
+        </button>
       </figcaption>
+      {visionContextError && (
+        <span className={styles.visionContextError}>{visionContextError}</span>
+      )}
     </figure>
   )
 }
