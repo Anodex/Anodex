@@ -37,6 +37,7 @@ import {
 interface LlamaServiceTestAccess {
   status: string
   context: unknown
+  contextSequence: { nextTokenIndex: number } | undefined
   contextSize: number | undefined
   model: unknown
   llama:
@@ -82,6 +83,7 @@ function resetLlamaServiceState(): void {
   const access = asTestAccess()
   access.status = 'unloaded'
   access.context = undefined
+  access.contextSequence = undefined
   access.contextSize = undefined
   access.model = undefined
   access.llama = undefined
@@ -537,6 +539,68 @@ describe('LlamaService.generate() context-shift recovery', () => {
     expect(outcome.generationDiagnostics?.unfinishedFunctionName).toBe('web_search')
     expect(outcome.generationDiagnostics?.unfinishedFunctionParameterChars).toBe(7_000)
     expect(outcome.generationDiagnostics?.completedToolCalls).toBe(0)
+  })
+
+  it('stops at a safe native checkpoint after a completed tool result crowds the context', async () => {
+    // node-llama-cpp does not expose a callback between accepting a function
+    // result and beginning its next decoder pass. This fixture mirrors that
+    // boundary: the real handler settles first, then the next callback sees
+    // the native sequence above the early checkpoint. The service must stop
+    // with a recoverable context limit and dispose the stale native session;
+    // boundedChatRunner already carries the emitted tool result into the next
+    // fresh context epoch.
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    access.contextSequence = { nextTokenIndex: 0 }
+    const dispose = vi.fn()
+    const promptWithMeta = vi.fn(
+      async (
+        _prompt: unknown,
+        options: {
+          functions?: Record<string, { handler: (params: unknown) => unknown }>
+          signal?: AbortSignal
+          onResponseChunk?: (chunk: unknown) => void
+        }
+      ) => {
+        await Promise.resolve(
+          options.functions?.web_search?.handler({ query: 'native checkpoint' })
+        ).catch(() => null)
+        // Simulates node-llama-cpp resuming decoding after it has accepted
+        // that completed function result into the current context.
+        access.contextSequence!.nextTokenIndex = 6_000
+        options.onResponseChunk?.({
+          type: undefined,
+          segmentType: undefined,
+          text: 'This token should not be needed before compaction.',
+          tokens: [1]
+        })
+        expect(options.signal?.aborted).toBe(true)
+        return { response: [], responseText: '', stopReason: 'abort' }
+      }
+    )
+    access.session = {
+      promptWithMeta,
+      dispose,
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+
+    const activityStatuses: string[] = []
+    const outcome = await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'test-message',
+      history: [],
+      prompt: 'search for the checkpoint behavior',
+      onToken: () => {},
+      tools: webOnlyTools((call) => activityStatuses.push(call.status))
+    })
+
+    expect(promptWithMeta).toHaveBeenCalledOnce()
+    expect(activityStatuses).toContain('error')
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('context-limit')
+    expect(outcome.content).toBe('')
+    expect(dispose).toHaveBeenCalledOnce()
   })
 
   describe('reasoning/output channel budget (P0-B)', () => {

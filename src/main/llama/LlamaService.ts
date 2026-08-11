@@ -137,6 +137,17 @@ const log = createLogger('llama')
  */
 const MAX_FALLBACK_ROUNDS = 8
 
+/**
+ * Native function calling happens inside one opaque `LlamaChatSession` loop,
+ * rather than as visible provider rounds. Once a completed tool result has
+ * pushed the KV cache this close to its ceiling, stop at the first safe
+ * decoder callback and let `boundedChatRunner` continue from its durable tool
+ * history. This matches the early-boundary policy used by the stateless vision
+ * transport without trying to mutate node-llama-cpp's private in-flight
+ * history.
+ */
+const NATIVE_TOOL_CHECKPOINT_RATIO = 0.72
+
 /** The dynamically-imported `node-llama-cpp` module (ESM-only). */
 type LlamaModule = typeof import('node-llama-cpp')
 
@@ -722,6 +733,18 @@ class LlamaService extends EventEmitter {
     // context accounting for this turn is measured below (`contextBudget`) —
     // before that, tools fall back to their own existing disk-oriented caps.
     const modelResultBudgetBox: { current: ModelToolResultBudget | null } = { current: null }
+    // A tool's terminal activity event happens while node-llama-cpp is still
+    // resolving the function handler. It is too early to abort there: the
+    // library has not yet appended that result to its in-flight history. Arm a
+    // checkpoint here, then request it from the next decoder callback, which
+    // only runs after the completed result has been handed back to the native
+    // loop. The bounded outer runner independently retains the emitted tool
+    // call before it starts the fresh context epoch.
+    const nativeToolCheckpoint = {
+      pending: false,
+      requested: false,
+      request: null as (() => void) | null
+    }
     // Streams provisional "running" cards while the model is still generating
     // a write/edit call's params (see PendingToolCallTracker's doc comment).
     const pendingToolCalls = new PendingToolCallTracker()
@@ -739,6 +762,7 @@ class LlamaService extends EventEmitter {
       params,
       (call) => {
         hadAnyToolAttempt = true
+        if (call.status !== 'running') nativeToolCheckpoint.pending = true
         if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
         if (call.status !== 'running') diagnostics.recordToolCallSettled()
         // Denied calls are excluded — that's a user decision, not a signal
@@ -949,6 +973,26 @@ class LlamaService extends EventEmitter {
       if (loopGuardAborted) return 'loop-guard'
       return terminalStopReason
     }
+    nativeToolCheckpoint.request = () => {
+      if (
+        !nativeToolCheckpoint.pending ||
+        nativeToolCheckpoint.requested ||
+        !this.contextSize ||
+        (this.contextSequence?.nextTokenIndex ?? 0) <
+          Math.floor(this.contextSize * NATIVE_TOOL_CHECKPOINT_RATIO)
+      ) {
+        return
+      }
+
+      nativeToolCheckpoint.requested = true
+      terminalStopReason = 'context-limit'
+      log.info('Stopping native tool loop at a safe context checkpoint', {
+        usedTokens: this.contextSequence?.nextTokenIndex ?? 0,
+        contextSize: this.contextSize,
+        thresholdTokens: Math.floor(this.contextSize * NATIVE_TOOL_CHECKPOINT_RATIO)
+      })
+      genController.abort()
+    }
     // Index within the current round's content where a fabricated user turn
     // begins, once detected — everything from here on is dropped.
     let fabricatedTurnCut: number | null = null
@@ -1057,6 +1101,8 @@ class LlamaService extends EventEmitter {
           // `edit_file` without a `path` argument once it stopped seeing the schema.
           documentFunctionParams: functions != null ? true : undefined,
           onResponseChunk: (chunk: LlamaChatResponseChunk) => {
+            nativeToolCheckpoint.request?.()
+            if (nativeToolCheckpoint.requested) return
             recordGeneratedTokens(chunk.tokens.length)
             if (chunk.type === 'segment') {
               roundSegment += chunk.text
@@ -1086,6 +1132,8 @@ class LlamaService extends EventEmitter {
           // (and its running animation) only exists for that final blink.
           onFunctionCallParamsChunk: functions
             ? (chunk: LlamaChatResponseFunctionCallParamsChunk) => {
+                nativeToolCheckpoint.request?.()
+                if (nativeToolCheckpoint.requested) return
                 // node-llama-cpp does not include function-argument tokens in
                 // `onResponseChunk`, and a completed call can reset its own
                 // remaining `maxTokens` to zero (which the library interprets
@@ -1265,6 +1313,7 @@ class LlamaService extends EventEmitter {
         })
 
         if (meta.stopReason === 'abort') {
+          if (nativeToolCheckpoint.requested) this.disposeSession()
           visibleContent = appendRoundText(visibleContent, roundContent)
           stopped = true
           break
@@ -1425,6 +1474,7 @@ class LlamaService extends EventEmitter {
       // whatever content was already produced, matching the graceful path
       // below rather than surfacing a confusing raw abort error.
       if (params.signal?.aborted || genController.signal.aborted) {
+        if (nativeToolCheckpoint.requested) this.disposeSession()
         log.info('Generation stopped by an abort signal')
         return {
           content: visibleContent,

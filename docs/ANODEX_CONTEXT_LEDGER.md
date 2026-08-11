@@ -89,6 +89,13 @@ replaced with a short recovery receipt before they are resent. The file or comma
 result remains available through the transcript and normal workspace tools; the
 full payload is not repeatedly charged against the model context.
 
+Text-only local models retain their native KV cache instead of resending a
+message array. When a completed native tool result crosses the early context
+checkpoint, Anodex ends the native loop only after that result is safely handed
+back to the decoder. The next bounded cycle rebuilds from the compacted history,
+including the completed tool receipt and visible plan, rather than repeating the
+tool action.
+
 Visible plans remain separate from compacted transcript history. Repeating an
 identical `write_plan` call preserves existing progress rather than resetting its
 rows. Before a normal response ends with unfinished plan rows, Anodex makes one
