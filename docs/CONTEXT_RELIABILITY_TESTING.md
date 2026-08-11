@@ -13,13 +13,12 @@ Run from the repository root:
 npm run test
 npm run typecheck
 npm run lint
+npm run format:check
 npm run build
 npm run test:e2e
 ```
 
-Expected: every command exits successfully. `format:check` currently reports a
-known repository-wide backlog of files; all files in this reliability change are
-formatted.
+Expected: every command exits successfully.
 
 ## Test 1: Bounded Tool-Heavy Project Chat
 
@@ -41,11 +40,16 @@ five strengths, five risks, and exact supporting file paths.
 Pass criteria:
 
 - The UI remains responsive.
-- Logs report an effective local output cap no larger than 2,048 tokens for
-  this 8K tool-enabled turn, while the context popover explains the clamp.
+- Logs report an effective local output cap derived from the measured fixed prompt,
+  active tools, and a bounded function-call safety reserve. It must not fall back
+  to the old fixed quarter-context (2,048-token at 8K) ceiling when more measured
+  room is available.
 - Repeated exact/alternating calls are blocked instead of looping indefinitely.
 - Oversized, omitted, and non-finite `read_file_range.endLine` values are treated
   as the same effective 200-line range, and results state the next start line.
+- A recoverable tool, token, time, or context stop begins a bounded continuation
+  cycle when the preceding cycle made durable progress; the reply remains one
+  assistant message and completed tool work is not repeated.
 - The turn finishes or stops with a specific limit message within 15 minutes.
 - A limit is not labeled as a user Stop.
 - Any streamed partial answer remains in persisted message content after a limit.
@@ -53,6 +57,24 @@ Pass criteria:
   GPU-backed mid-turn summary generations.
 - Reaching the effective output cap is labeled as an output-token limit with
   partial text preserved, not as a successful completion or context crash.
+
+## Test 1b: Visible Plan and Long-Payload Recovery
+
+1. In a project chat, ask the assistant to create a moderately long HTML artifact
+   and explain a separate build issue.
+2. Let it use a multi-step visible plan and, if necessary, write the artifact in
+   several small file calls or shell append commands.
+
+Pass criteria:
+
+- Repeated identical `write_plan` calls preserve completed/in-progress rows rather
+  than resetting them to pending.
+- A normal final response with an unfinished visible plan gets one plan-only
+  reconciliation pass; only work actually completed is ticked off.
+- Long completed file or shell payloads do not make fixed context usage grow on
+  every following provider round. Logs may report completed-payload compaction.
+- A structural build diagnosis without a completed build/test/type-check/lint
+  command is explicitly labeled an inspection finding, not a verified fix.
 
 ## Test 2: Full Critical Thinking Run
 

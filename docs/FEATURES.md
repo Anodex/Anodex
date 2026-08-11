@@ -132,7 +132,8 @@ Key capabilities:
 - Desktop notifications and toast summaries.
 - Automatic chat title generation.
 - Context meter and manual context compaction.
-- Automatic context compaction when local context gets too full.
+- Automatic context compaction and bounded continuation that preserve completed
+  tool work instead of treating a recoverable limit as a failed task.
 - Drag-and-drop attachments.
 - File picker attachments.
 - Internal file drag from the Files panel into chat.
@@ -299,7 +300,8 @@ resized, collapsed, or floated on narrower screens.
 
 Panels include:
 
-- Plan: current assistant plan and task progress.
+- Plan: current assistant plan and task progress, protected from duplicate-plan
+  resets and reconciled before a normal task completion.
 - Changes: active change proposals and task status.
 - Checkpoints: snapshots created by assistant file edits.
 - Git: repository status, branches, commits, push/publish actions.

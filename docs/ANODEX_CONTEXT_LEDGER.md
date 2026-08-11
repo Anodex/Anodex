@@ -44,6 +44,11 @@ kept locally for inspection. Only the active digest is sent to the model.
    tool results are evidence; unsupported assistant prose is not promoted to a
    fact. An assistant's image description is retained only when the relevant
    user turn records an image attachment.
+9. A new digest replaces the prior digest after folding its newly omitted turns;
+   summaries never grow by concatenating one compaction marker after another.
+10. Completed tool work survives a recoverable provider stop. The next bounded
+    cycle receives its compact receipt, shares its repeated-call guard, and may
+    continue without replaying the completed side effect.
 
 ## Lifecycle
 
@@ -68,6 +73,27 @@ transcript + context signals
 
 The renderer may show a projected meter, but the main process makes the final
 budget decision using the active provider's tokenizer and fixed prompt costs.
+
+## Bounded recovery under active work
+
+Compaction is not a failed task by itself. When a provider reaches a recoverable
+tool, token, time, or context boundary after making durable progress, Anodex starts
+a fresh bounded cycle for the same assistant message. It carries forward the active
+ledger, visible plan, read coverage, web-source ids, and loop guard. A cycle that
+only repeats earlier work does not continue indefinitely, and a distant hard cap
+remains as a final circuit breaker.
+
+For vision transports, the active turn is also measured before every provider
+round. Completed file-write bodies and long inline shell-command payloads are
+replaced with a short recovery receipt before they are resent. The file or command
+result remains available through the transcript and normal workspace tools; the
+full payload is not repeatedly charged against the model context.
+
+Visible plans remain separate from compacted transcript history. Repeating an
+identical `write_plan` call preserves existing progress rather than resetting its
+rows. Before a normal response ends with unfinished plan rows, Anodex makes one
+non-visible reconciliation pass that can only call `update_plan_step`; it cannot
+perform another workspace action or create a replacement plan.
 
 ## Grounded continuity
 
