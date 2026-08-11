@@ -20,6 +20,7 @@ import { showImageTool } from './imageDisplayTools'
 import { inspectVisualTool } from './visualInspectionTools'
 import {
   editFileTool,
+  appendFileTool,
   writeFileTool,
   patchFileTool,
   deleteFileTool,
@@ -103,6 +104,7 @@ const VISUAL_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
  */
 const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   write_file: writeFileTool,
+  append_file: appendFileTool,
   edit_file: editFileTool,
   patch_file: patchFileTool,
   delete_file: deleteFileTool,

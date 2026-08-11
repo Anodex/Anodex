@@ -10,8 +10,9 @@ import type { GenerationStopReason } from '@shared/chat.types'
  * instruction not to build a second, subtly different notion of "recoverable"
  * for chat.
  *
- * `'loop-guard'`: the guard's state is per-generation, so a fresh cycle starts
- * clean. `'no-progress'`, `'context-limit'`, `'context-shift-limit'`,
+ * `'loop-guard'`: a caller may share the guard across bounded continuation
+ * cycles, so this stop is treated as a deliberate terminal loop signal by
+ * that runner. `'no-progress'`, `'context-limit'`, `'context-shift-limit'`,
  * `'rounds-exhausted'`, `'tool-limit'`, `'token-limit'`, `'time-limit'`,
  * `'yielded'`: every one of these is a soft, bounded ceiling — the next cycle
  * can rebuild from compacted, persisted history and keep going. Every other

@@ -115,7 +115,7 @@ class OpenAiProvider implements LlmProvider {
           turnGate: { approved: false },
           // Fresh every generation call, same reasoning as `turnGate` above —
           // see `ToolRuntimeContext.loopGuard`'s doc comment.
-          loopGuard: createLoopGuardState(),
+          loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
           // Fresh every generation call, same reasoning as `turnGate` above —
           // see `ToolRuntimeContext.progress`'s doc comment.
           progress: { madeChange: false },

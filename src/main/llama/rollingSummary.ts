@@ -61,8 +61,7 @@ export const FALLBACK_DIGEST_MAX_TOKENS = 400
 export const ROLLING_SUMMARY_TOKEN_CEILING =
   MAX_COMPACTION_SUMMARY_TOKENS + FALLBACK_DIGEST_MAX_TOKENS
 
-/** Same separator `mergeContextSummaries` (contextAssembler.ts) already uses,
- *  so digests read consistently wherever summaries surface in the UI. */
+/** Separator used only when deterministic fallback digests must be appended. */
 const APPEND_SEPARATOR = '\n\nAdditional compacted context:\n'
 
 const TRUNCATION_SUFFIX = '… (truncated)'

@@ -7,6 +7,8 @@ import { classifyCommandRisk } from './permissions'
 const COMMAND_TIMEOUT_MS = 60_000
 const MAX_COMMAND_TIMEOUT_MS = 5 * 60_000
 const MAX_OUTPUT_BYTES = 1024 * 1024
+const MAX_COMMAND_TITLE_CHARS = 360
+const COMMAND_TITLE_OMISSION = ' [long command payload omitted]'
 
 /**
  * Command execution is approval-gated, but not OS-sandboxed: the shell starts
@@ -51,7 +53,10 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
       runGuardedTool(ctx, {
         name: 'run_command',
         kind: 'command',
-        title: `Run: ${args.command}`,
+        // The approval detail retains the whole command, but the transcript
+        // title is replayed to the model. A here-string can otherwise turn a
+        // one-line activity label into thousands of context characters.
+        title: commandTitle(args.command),
         args,
         confirmDetail: describeCommand(args.command, ctx.commandShell, args.timeoutMs),
         risk: classifyCommandRisk(args.command),
@@ -179,6 +184,15 @@ function runShell(
 function normalizeTimeout(timeoutMs?: number): number {
   if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) return COMMAND_TIMEOUT_MS
   return Math.max(1_000, Math.min(Math.floor(timeoutMs), MAX_COMMAND_TIMEOUT_MS))
+}
+
+function commandTitle(command: string): string {
+  const normalized = command.replace(/\s+/g, ' ').trim()
+  const prefix = 'Run: '
+  const maxCommandChars =
+    MAX_COMMAND_TITLE_CHARS - prefix.length - COMMAND_TITLE_OMISSION.length - 1
+  if (normalized.length <= maxCommandChars) return `${prefix}${normalized}`
+  return `${prefix}${normalized.slice(0, maxCommandChars).trimEnd()}…${COMMAND_TITLE_OMISSION}`
 }
 
 function describeCommand(command: string, shell?: string, timeoutMs?: number): string {

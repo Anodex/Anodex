@@ -4,11 +4,13 @@ import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from './runGeneration'
 import { isRecoverableGenerationStop } from './recoverableStop'
 import { createReadCoverageTracker } from '../tools/readCoverage'
+import { createLoopGuardState } from '../tools/loopGuard'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import {
   describeUnverifiedPathClaims,
   findUnverifiedPathClaims
 } from '../tools/pathClaimVerification'
+import { parseRunCommandVerification } from '../tools/commandTools'
 import { projectStore } from '../projects/ProjectStore'
 
 /**
@@ -25,17 +27,18 @@ const CHAT_CONTINUE_PROMPT =
   'and stop.'
 
 /**
- * Cross-cycle wall-clock ceiling, matching the live-test budget in
- * `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md` (Test A: "final report
- * within 15 minutes, or durable Pause"). Deliberately NOT a per-cycle budget
- * — `DEFAULT_INTERACTIVE_BUDGET.maxDurationMs` in `GenerationBudget.ts`
- * already bounds a single cycle to 15 minutes on its own; this instead caps
- * how long the *whole* bounded reply (however many cycles) is allowed to run
- * before no further cycle may start. A cycle already in flight when the
- * deadline passes still finishes (or hits its own ceiling) normally — this
- * only gates *starting another one*.
+ * One non-visible final pass for a response that ended with unfinished visible
+ * plan rows. The only registered tool is `update_plan_step`, so this cannot
+ * turn a plan correction into more workspace work or a new plan reset.
  */
-const TOTAL_WALL_CLOCK_MS = 15 * 60_000
+const PLAN_RECONCILIATION_PROMPT =
+  'Before the response ends, reconcile the current visible work plan with the work already completed. ' +
+  'Use update_plan_step to mark only steps the completed work proves are finished. Do not change files, ' +
+  'run commands, create a new plan, or claim unfinished work is complete. If no status can be updated ' +
+  'honestly, reply exactly PLAN_UNCHANGED.'
+
+const BUILD_OR_TEST_COMMAND =
+  /\b(?:npm|pnpm|yarn|bun|npx|vitest|jest|tsc|eslint|pytest|cargo|gradle|mvn|dotnet|go)\b/i
 
 /**
  * At most this many `runGeneration()` calls total for one bounded reply — a
@@ -43,7 +46,10 @@ const TOTAL_WALL_CLOCK_MS = 15 * 60_000
  * barely-progressing cycles can't loop indefinitely just because each one
  * individually finishes quickly.
  */
-const MAX_CYCLES = 5
+// A normal long task can compact several times while it is still making new
+// tool progress. The cross-cycle no-progress guard is the primary stop; this
+// is only a distant final failsafe against a pathological endless run.
+const MAX_CYCLES = 24
 
 /**
  * Wraps `runGeneration()` in an outer continuation loop, so a single request
@@ -78,13 +84,13 @@ export async function runBoundedChatGeneration(
   request: ChatRequest,
   io: RunGenerationIo
 ): Promise<RunGenerationResult> {
-  const deadline = Date.now() + TOTAL_WALL_CLOCK_MS
   // One tracker for the whole bounded reply, shared by every cycle's read
   // tools — see `ReadCoverageTracker`'s doc comment. This is what actually
   // stops a later cycle from re-reading territory an earlier cycle already
   // covered, independent of whether the model itself still remembers doing
   // so (a compaction summary between cycles may not preserve that fact).
   const readCoverage = createReadCoverageTracker()
+  const loopGuard = io.loopGuard ?? createLoopGuardState()
   // Same resolution `runGeneration` itself uses internally — needed here too
   // so the final reply can be checked against real disk/coverage state (see
   // `findUnverifiedPathClaims`), not just handed straight to the caller.
@@ -96,6 +102,10 @@ export async function runBoundedChatGeneration(
   let history: ChatHistoryTurn[] = request.history
   let prompt = request.prompt
   let context = request.context ?? undefined
+  // Plan state is separate from compacted transcript history. Carry the latest
+  // tool-emitted snapshot into every continuation cycle so a fresh context
+  // epoch can still update the same visible plan.
+  let currentPlan = request.plan ?? null
   let combinedContent = ''
   let combinedThinking = ''
   let totalTokens = 0
@@ -107,9 +117,17 @@ export async function runBoundedChatGeneration(
   // One registry for the whole reply, not one per cycle: the citation ids the
   // model writes have to mean the same page from the first cycle to the last.
   const webSources = new WebSourceRegistry()
+  // A compaction cycle is a new provider turn, but it is still the same user
+  // request. Keep a small whole-reply ledger so a model cannot make an old
+  // read/command look like fresh progress simply because the context epoch
+  // changed.
+  const seenToolActivity = new Set<string>()
+  const seenCycleContent = new Set<string>()
+  const completedToolCalls = new Map<string, ToolCall>()
+  let latestCycleToolCalls: ToolCall[] | undefined
 
   for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
-    let madeProgressThisCycle = false
+    let novelToolActivityThisCycle = false
     // Keyed by call id, same shape/reasoning as `AgentRunService.runTurn`'s
     // `toolCallsById`: a call's *latest* status (running → terminal)
     // overwrites the earlier one, and `Map` insertion order still reflects
@@ -117,13 +135,22 @@ export async function runBoundedChatGeneration(
     // below, carrying only the tool calls it actually made.
     const toolCallsById = new Map<string, ToolCall>()
     const result = await runGeneration(
-      { ...request, history, prompt, context },
+      { ...request, history, prompt, context, plan: currentPlan },
       {
         ...io,
         readCoverage,
+        loopGuard,
         webSources,
         onActivity: (call) => {
-          if (call.status === 'success') madeProgressThisCycle = true
+          if (call.status !== 'running') {
+            const activityKey = toolActivityKey(call)
+            if (!seenToolActivity.has(activityKey)) {
+              seenToolActivity.add(activityKey)
+              novelToolActivityThisCycle = true
+            }
+            completedToolCalls.set(`${cycle}:${call.id}`, call)
+          }
+          if (call.plan) currentPlan = call.plan
           toolCallsById.set(call.id, call)
           io.onActivity?.(call)
         }
@@ -143,14 +170,21 @@ export async function runBoundedChatGeneration(
     if (result.transcriptRecallUsed) transcriptRecallUsed.push(...result.transcriptRecallUsed)
     if (result.context) context = result.context
 
-    if (result.content.trim().length > 0) madeProgressThisCycle = true
+    const cycleToolCalls = toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined
+    latestCycleToolCalls = cycleToolCalls
+
+    const normalizedContent = normalizeCycleContent(result.content)
+    const novelVisibleContent =
+      normalizedContent.length > 0 && !seenCycleContent.has(normalizedContent)
+    if (normalizedContent.length > 0) seenCycleContent.add(normalizedContent)
+    const madeProgressThisCycle = novelToolActivityThisCycle || novelVisibleContent
 
     const canContinue =
       result.stopped &&
       isRecoverableGenerationStop(result.stopReason) &&
+      result.stopReason !== 'loop-guard' &&
       madeProgressThisCycle &&
       cycle < MAX_CYCLES - 1 &&
-      Date.now() < deadline &&
       !io.signal?.aborted
 
     if (!canContinue) break
@@ -164,7 +198,6 @@ export async function runBoundedChatGeneration(
     // exactly the field the chat/session-rebuild path already relies on to
     // let a resumed conversation "remember" past tool output — see its doc
     // comment in `tools.types.ts`.
-    const cycleToolCalls = toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined
     history = [
       ...history,
       { role: 'user', content: prompt },
@@ -180,6 +213,55 @@ export async function runBoundedChatGeneration(
   // The loop always runs at least once, so `last` is always assigned —
   // TypeScript can't see that through the `for` loop, hence the assertion.
   const finalResult = last as RunGenerationResult
+
+  // A natural-looking final answer with an untouched plan is a visible trust
+  // failure: the user sees “Done” beside rows that say pending. Ask once for
+  // a reconciliation, but constrain that extra model pass to status updates
+  // and deliberately discard its prose so the user receives one reply, not a
+  // confusing second mini-answer.
+  let planReconciliationAttempted = false
+  if (canReconcilePlan(currentPlan, finalResult, io)) {
+    planReconciliationAttempted = true
+    try {
+      const reconciliationHistory = [
+        ...history,
+        { role: 'user' as const, content: prompt },
+        sanitizeHistoryTurn({
+          role: 'assistant',
+          content: finalResult.content,
+          toolCalls: latestCycleToolCalls
+        })
+      ]
+      const reconciliation = await runGeneration(
+        {
+          ...request,
+          history: reconciliationHistory,
+          prompt: PLAN_RECONCILIATION_PROMPT,
+          context,
+          plan: currentPlan
+        },
+        {
+          ...io,
+          enabledTools: new Set(['update_plan_step']),
+          onToken: undefined,
+          onThinkingToken: undefined,
+          onActivity: (call) => {
+            if (call.status !== 'running') completedToolCalls.set(`plan:${call.id}`, call)
+            if (call.plan) currentPlan = call.plan
+            io.onActivity?.(call)
+          }
+        }
+      )
+      totalTokens += reconciliation.stats.tokens
+      totalDurationMs += reconciliation.stats.durationMs
+      if (reconciliation.context) context = reconciliation.context
+    } catch {
+      // The already-completed user task stays intact if this bookkeeping-only
+      // pass cannot run (for example, a provider disconnects just afterward).
+      // The final note below makes the remaining plan state explicit instead.
+    }
+  }
+
   const stats: GenerationStats = {
     tokens: totalTokens,
     durationMs: totalDurationMs,
@@ -197,7 +279,15 @@ export async function runBoundedChatGeneration(
     readCoverage
   )
   const unverifiedNote = describeUnverifiedPathClaims(unverifiedPaths)
-  const finalContent = unverifiedNote ? `${combinedContent}${unverifiedNote}` : combinedContent
+  const buildVerificationNote = describeMissingBuildVerification(combinedContent, [
+    ...completedToolCalls.values()
+  ])
+  const planReconciliationNote = describeUnfinishedPlan(
+    currentPlan,
+    planReconciliationAttempted,
+    combinedContent
+  )
+  const finalContent = `${combinedContent}${unverifiedNote ?? ''}${buildVerificationNote ?? ''}${planReconciliationNote ?? ''}`
 
   return {
     ...finalResult,
@@ -211,4 +301,83 @@ export async function runBoundedChatGeneration(
     webSearchAttempted: webSources.attempted,
     context
   }
+}
+
+/**
+ * Identifies completed work without retaining full tool output in the
+ * cross-cycle ledger. Titles include the effective command/path for the
+ * workspace tools; the short result suffix distinguishes a real changed read
+ * from a repeated read after a mutation.
+ */
+function toolActivityKey(call: ToolCall): string {
+  return JSON.stringify({
+    name: call.name,
+    title: call.title,
+    status: call.status,
+    touchedPaths: call.touchedPaths?.slice().sort(),
+    result: call.result?.slice(0, 512),
+    detail: call.status === 'error' || call.status === 'denied' ? call.detail : undefined
+  })
+}
+
+function normalizeCycleContent(content: string): string {
+  return content.trim().replace(/\s+/g, ' ')
+}
+
+function canReconcilePlan(
+  plan: ChatRequest['plan'] | null | undefined,
+  result: RunGenerationResult,
+  io: RunGenerationIo
+): boolean {
+  return Boolean(
+    !result.stopped &&
+    !io.signal?.aborted &&
+    plan?.steps.some((step) => step.status !== 'completed') &&
+    (io.enabledTools == null || io.enabledTools.has('update_plan_step'))
+  )
+}
+
+function describeUnfinishedPlan(
+  plan: ChatRequest['plan'] | null | undefined,
+  reconciliationAttempted: boolean,
+  content: string
+): string | null {
+  if (!reconciliationAttempted || !plan || !claimsTaskCompletion(content)) return null
+  const unfinished = plan.steps.filter((step) => step.status !== 'completed')
+  if (unfinished.length === 0) return null
+  return (
+    '\n\nPlan status: this reply reported completion, but the following visible plan step(s) could not be ' +
+    `confirmed as complete and remain open: ${unfinished.map((step) => step.title).join('; ')}.`
+  )
+}
+
+function claimsTaskCompletion(content: string): boolean {
+  if (/\b(?:not done|not complete|incomplete|cannot complete|can't complete)\b/i.test(content)) {
+    return false
+  }
+  return /\b(?:done|completed|finished|all set|implemented|fixed|created)\b/i.test(content)
+}
+
+function describeMissingBuildVerification(content: string, toolCalls: ToolCall[]): string | null {
+  if (!looksLikeBuildDiagnosis(content) || hasBuildOrTestVerification(toolCalls)) return null
+  return (
+    '\n\nBuild verification note: no build, test, type-check, or lint command completed in this task. ' +
+    'Treat the structural diagnosis as an inspection finding, not a verified fix.'
+  )
+}
+
+function looksLikeBuildDiagnosis(content: string): boolean {
+  return (
+    /\b(?:build|compile|typecheck|test suite)\b/i.test(content) &&
+    /\b(?:fix|fixed|cause|because|problem|issue|diagnos\w*|won't run|will not run|can't run)\b/i.test(
+      content
+    )
+  )
+}
+
+function hasBuildOrTestVerification(toolCalls: ToolCall[]): boolean {
+  return toolCalls.some((call) => {
+    const verification = parseRunCommandVerification(call)
+    return verification !== null && BUILD_OR_TEST_COMMAND.test(verification.command)
+  })
 }

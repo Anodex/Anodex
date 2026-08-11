@@ -13,7 +13,11 @@ import {
   splitHistoryByTokenBudget,
   turnTokenCost
 } from './compaction'
-import { foldIntoRollingSummary, type RollingSummarizer } from './rollingSummary'
+import {
+  foldIntoRollingSummary,
+  ROLLING_SUMMARY_TOKEN_CEILING,
+  type RollingSummarizer
+} from './rollingSummary'
 
 /**
  * Maximum remembered output per past tool call when rebuilding model context.
@@ -28,6 +32,8 @@ export { MAX_MODEL_TOOL_RESULT_CHARS } from '@shared/contextBudget'
 
 const TOOL_RESULT_TRUNCATION_NOTICE =
   '\n\n[Anodex truncated this older tool result for context. Re-read or rerun it if exact detail is needed.]'
+const MAX_MODEL_TOOL_TITLE_CHARS = 360
+const TOOL_TITLE_TRUNCATION_NOTICE = '… [Anodex omitted the rest of this tool label for context.]'
 
 export interface ModelContextReport {
   /** Full sanitized turns before budget splitting. */
@@ -51,10 +57,12 @@ export interface ModelContextAssembly {
   history: ChatHistoryTurn[]
   removedTurns: number
   summarized: boolean
-  /** New summary created during this assembly, excluding any previously persisted snapshot. */
+  /** Complete replacement summary after folding the prior snapshot and new overflow. */
   summary?: string
   /** Last original message represented by `summary`, if known. */
   compactedThroughMessageId?: string | null
+  /** True when a legacy oversized snapshot was rebased before replay. */
+  summaryRebased: boolean
   report: ModelContextReport
 }
 
@@ -101,6 +109,11 @@ export interface ModelContextAssemblyInput {
    * session below the compaction trigger so it has room to refill.
    */
   recallWindowFraction?: number | null
+  /**
+   * Existing durable summary for history removed before this assembly. New
+   * overflow is folded into it as one replacement summary, never appended.
+   */
+  initialSummary?: string
 }
 
 /**
@@ -119,11 +132,21 @@ export async function assembleModelContext({
   toolSchemaReserveTokens = 0,
   summaryChunkTokenBudget,
   messageFramingTokens = 0,
-  recallWindowFraction
+  recallWindowFraction,
+  initialSummary
 }: ModelContextAssemblyInput): Promise<ModelContextAssembly> {
   const projectedHistory = projectHistoryForModel(history)
+  const normalizedInitialSummary = await rebaseOversizedSummary(
+    initialSummary,
+    countTokens,
+    summarizeOlderTurns,
+    summaryChunkTokenBudget
+  )
+  const initialSystemPrompt = normalizedInitialSummary
+    ? buildCompactionSystemPrompt(systemPrompt, normalizedInitialSummary)
+    : systemPrompt
   const initialBudget = historyBudgetTokens(
-    systemPrompt,
+    initialSystemPrompt,
     contextSize,
     countTokens,
     toolSchemaReserveTokens,
@@ -138,12 +161,17 @@ export async function assembleModelContext({
 
   let older = split.older
   let projectedRecent = split.recent
-  let summary = await summarizeTurns(older, summarizeOlderTurns, countTokens, {
-    chunkTokenBudget: summaryChunkTokenBudget
-  })
+  let summary = normalizedInitialSummary
+  if (older.length > 0) {
+    const folded = await summarizeTurns(older, summarizeOlderTurns, countTokens, {
+      previousSummary: summary,
+      chunkTokenBudget: summaryChunkTokenBudget
+    })
+    if (folded) summary = folded
+  }
   let projectedSystemPrompt = summary
     ? buildCompactionSystemPrompt(systemPrompt, summary)
-    : systemPrompt
+    : initialSystemPrompt
 
   if (summary) {
     // If the summary itself pushes some "recent" turns out of budget, fold
@@ -207,14 +235,15 @@ export async function assembleModelContext({
     systemPrompt: projectedSystemPrompt,
     history: projectedRecent,
     removedTurns,
-    summarized: summary !== null,
+    summarized: summary !== undefined,
     summary: summary ?? undefined,
     compactedThroughMessageId: summary ? lastTurnId(older) : undefined,
+    summaryRebased: normalizedInitialSummary !== initialSummary,
     report: {
       originalTurns: projectedHistory.length,
       recentTurns: projectedRecent.length,
       removedTurns,
-      summarized: summary !== null,
+      summarized: summary !== undefined,
       historyBudgetTokens: finalBudget,
       historyTokens: historyTokens(projectedRecent, countTokens, messageFramingTokens),
       systemTokens: countTokens(projectedSystemPrompt ?? '')
@@ -261,10 +290,14 @@ export interface CloudBoundedContext {
   omittedTurns: number
   /** Whether `omittedTurns` were actually condensed into a summary, vs. just dropped. */
   summarized: boolean
-  /** New summary created this call, if any (excludes a previously persisted snapshot). */
+  /** Complete replacement summary after folding the prior snapshot and new overflow. */
   summary?: string
   /** Last original message represented by `summary`, if known. */
   compactedThroughMessageId?: string | null
+  /** Total original turns covered by the returned summary. */
+  coveredTurns?: number
+  /** True when a legacy oversized snapshot was rebased before replay. */
+  summaryRebased?: boolean
 }
 
 /**
@@ -305,7 +338,12 @@ export async function boundHistoryForStatelessProvider(
   contextWindowTokens: number,
   summarizeOlderTurns?: RollingSummarizer,
   summaryChunkTokenBudget: number = CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET,
-  options?: { toolSchemaReserveTokens?: number; messageFramingTokens?: number }
+  options?: {
+    toolSchemaReserveTokens?: number
+    messageFramingTokens?: number
+    /** Keep the stateless transport's replay window aligned with the local engine. */
+    recallWindowFraction?: number | null
+  }
 ): Promise<CloudBoundedContext> {
   const seeded = seedContextFromSnapshot(systemPrompt, history, context)
   const toolSchemaReserveTokens = options?.toolSchemaReserveTokens ?? 0
@@ -316,7 +354,8 @@ export async function boundHistoryForStatelessProvider(
       seeded.systemPrompt,
       contextWindowTokens,
       estimateTokensApprox,
-      toolSchemaReserveTokens
+      toolSchemaReserveTokens,
+      options?.recallWindowFraction
     )
     const split = splitHistoryByTokenBudget(
       seeded.history,
@@ -333,24 +372,32 @@ export async function boundHistoryForStatelessProvider(
   }
 
   const assembled = await assembleModelContext({
-    systemPrompt: seeded.systemPrompt,
+    // `seeded.systemPrompt` already contains the old digest. Pass the base
+    // prompt and digest separately so new overflow is folded into that digest
+    // as a replacement, instead of creating two summaries to concatenate.
+    systemPrompt,
     history: seeded.history,
     contextSize: contextWindowTokens,
     countTokens: estimateTokensApprox,
     summarizeOlderTurns,
     summaryChunkTokenBudget,
     toolSchemaReserveTokens,
-    messageFramingTokens
+    messageFramingTokens,
+    recallWindowFraction: options?.recallWindowFraction,
+    initialSummary: seeded.summary
   })
+  const priorCoveredTurns = seeded.applied ? (currentLedgerRevision(context)?.coveredTurns ?? 0) : 0
 
   return {
     systemPrompt: assembled.systemPrompt,
     history: assembled.history,
     omittedTurns: assembled.removedTurns,
     summarized: assembled.summarized,
-    summary: mergeContextSummaries(seeded.summary, assembled.summary),
+    summary: assembled.summary,
     compactedThroughMessageId:
-      assembled.compactedThroughMessageId ?? seeded.throughMessageId ?? null
+      assembled.compactedThroughMessageId ?? seeded.throughMessageId ?? null,
+    coveredTurns: priorCoveredTurns + assembled.removedTurns,
+    summaryRebased: assembled.summaryRebased
   }
 }
 
@@ -365,21 +412,11 @@ function estimateTokensApprox(text: string): number {
 }
 
 /**
- * Combine the prior context epoch summary with a newly compacted chunk.
+ * Fold a prior context epoch summary into newly compacted turns.
  * Shared by the local engine and `boundHistoryForStatelessProvider` — both fold
  * a persisted snapshot's summary together with whatever gets freshly
  * compacted in the same turn.
- */
-export function mergeContextSummaries(
-  previous: string | undefined,
-  next: string | undefined
-): string | undefined {
-  if (!previous) return next
-  if (!next) return previous
-  return `${previous}\n\nAdditional compacted context:\n${next}`
-}
-
-/**
+ *
  * Fold `turns` into a bounded rolling summary via `foldIntoRollingSummary`,
  * chunking so no single summarizer call receives more transcript than its
  * small dedicated context can hold — the old single-call version handed the
@@ -415,6 +452,30 @@ async function summarizeTurns(
   return folded ?? null
 }
 
+/**
+ * Older builds persisted a summary by concatenating every compaction. Re-fold
+ * an oversized legacy value through the normal rolling primitive before it
+ * reaches the model. Starting from no previous summary is intentional: this
+ * entire value is source material, not a prefix to preserve verbatim.
+ */
+async function rebaseOversizedSummary(
+  summary: string | undefined,
+  countTokens: (text: string) => number,
+  summarize: RollingSummarizer,
+  chunkTokenBudget: number | undefined
+): Promise<string | undefined> {
+  if (!summary?.trim() || countTokens(summary) <= ROLLING_SUMMARY_TOKEN_CEILING) return summary
+  return foldIntoRollingSummary({
+    items: [summary],
+    previousSummary: undefined,
+    renderTranscript: (items) => items.join('\n\n'),
+    itemTranscriptCost: (item) => countTokens(item),
+    countTokens,
+    summarize,
+    chunkTokenBudget
+  })
+}
+
 /** Sanitize transcript text and bound remembered tool output before model replay. */
 export function projectHistoryForModel(history: ChatHistoryTurn[]): ChatHistoryTurn[] {
   return history.map((rawTurn) => {
@@ -431,6 +492,7 @@ export function projectHistoryForModel(history: ChatHistoryTurn[]): ChatHistoryT
 export function projectToolCallForModel(call: ToolCall): ToolCall {
   return {
     ...call,
+    title: truncateToolTitle(call.title),
     result: call.result ? truncateToolText(call.result) : call.result,
     detail: call.detail && !call.result ? truncateToolText(call.detail) : call.detail
   }
@@ -495,6 +557,12 @@ function truncateToolText(text: string): string {
   const normalized = text.replace(/\r\n/g, '\n')
   if (normalized.length <= MAX_MODEL_TOOL_RESULT_CHARS) return normalized
   return `${normalized.slice(0, MAX_MODEL_TOOL_RESULT_CHARS).trimEnd()}${TOOL_RESULT_TRUNCATION_NOTICE}`
+}
+
+function truncateToolTitle(title: string): string {
+  if (title.length <= MAX_MODEL_TOOL_TITLE_CHARS) return title
+  const keepChars = MAX_MODEL_TOOL_TITLE_CHARS - TOOL_TITLE_TRUNCATION_NOTICE.length
+  return `${title.slice(0, keepChars).trimEnd()}${TOOL_TITLE_TRUNCATION_NOTICE}`
 }
 
 function lastTurnId(turns: ChatHistoryTurn[]): string | null {

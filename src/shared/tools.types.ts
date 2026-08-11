@@ -301,6 +301,13 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'append_file',
+    kind: 'write',
+    description:
+      'Append a short text chunk to an existing file. Use for long files after write_file. Approval depends on permission mode. Requires an open project.',
+    requiresProject: true
+  },
+  {
     name: 'edit_file',
     kind: 'write',
     description:

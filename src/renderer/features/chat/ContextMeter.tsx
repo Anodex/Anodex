@@ -85,6 +85,7 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   if (!info) return null
 
   const level = info.pct >= 90 ? 'high' : info.pct >= 70 ? 'mid' : 'low'
+  const willCompactBeforeNextReply = providerActive === 'local' && info.pct === 100
   const unusedTokens = Math.max(0, info.contextSize - info.usedTokens)
   const summary = [
     `projected ${info.usedTokens.toLocaleString()} / ${info.contextSize.toLocaleString()} tokens`,
@@ -107,6 +108,9 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   }
   if (responseCap !== undefined) {
     summary.push(`replies capped at ${responseCap.toLocaleString()} tokens`)
+  }
+  if (willCompactBeforeNextReply) {
+    summary.push('full context will condense before the next reply')
   }
 
   // Stacked breakdown of the same projection the tooltip describes: system
@@ -155,6 +159,8 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
           <span className={styles.labelMuted}> · max {formatTokenCount(responseCap)}</span>
         )}
       </span>
+
+      {willCompactBeforeNextReply && <span className={styles.fullLabel}>Full - compacts next</span>}
 
       <div id={detailsId} className={styles.popover} role="tooltip">
         <div className={styles.popoverHeader}>
@@ -207,6 +213,12 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
           <span>Unused window</span>
           <strong>{unusedTokens.toLocaleString()}</strong>
         </div>
+
+        {willCompactBeforeNextReply && (
+          <div className={styles.popoverNote}>
+            <span>Full context. Older turns will condense before the next reply.</span>
+          </div>
+        )}
 
         {(info.snapshotApplied || info.omittedTurns > 0) && (
           <div className={styles.popoverNote}>

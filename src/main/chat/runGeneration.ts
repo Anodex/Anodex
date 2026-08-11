@@ -11,7 +11,12 @@ import type { WebSource } from '@shared/webSources.types'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
-import { withLedgerRevision, type ConversationContext } from '@shared/context.types'
+import type { LoopGuardState } from '../tools/loopGuard'
+import {
+  currentLedgerRevision,
+  withLedgerRevision,
+  type ConversationContext
+} from '@shared/context.types'
 import { reconcileContextSignals } from '@shared/contextSignals'
 import type { CheckpointSummary } from '@shared/checkpoint.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
@@ -113,6 +118,8 @@ export interface RunGenerationIo {
    * scoped tracker is used instead, with no cross-call effect.
    */
   readCoverage?: ReadCoverageTracker
+  /** Shared across bounded continuation cycles so repeated tool investigations cannot reset the loop guard. */
+  loopGuard?: LoopGuardState
 }
 
 export interface RunGenerationResult {
@@ -411,7 +418,8 @@ export async function runGeneration(
           io.onActivity?.(call)
         },
         confirm: io.confirm,
-        readCoverage: io.readCoverage
+        readCoverage: io.readCoverage,
+        loopGuard: io.loopGuard
       }
     : undefined
 
@@ -465,6 +473,9 @@ export async function runGeneration(
     memoryContext: memory?.text ?? null,
     transcriptRecallContext: transcriptRecall?.text ?? null
   })
+  const modelSystemPrompt = [systemPrompt, renderCurrentPlan(request.plan)]
+    .filter((part): part is string => Boolean(part))
+    .join('\n\n')
 
   // Signal reconciliation is a pre-turn operation. The provider sees one
   // stable context for the complete turn; a later change is recorded for the
@@ -494,7 +505,7 @@ export async function runGeneration(
   // project activity recording). Turns that still don't fit after a failed
   // or degenerate summary are just omitted, and the renderer is notified
   // either way so it's visible rather than a silent context loss.
-  let boundedSystemPrompt: string | undefined = systemPrompt
+  let boundedSystemPrompt: string | undefined = modelSystemPrompt
   let boundedHistory = request.history
   let contextUpdate: ConversationContext | undefined
   // `tools != null`, not `hasWorkspaceTools`: tool schemas are registered
@@ -503,7 +514,7 @@ export async function runGeneration(
   const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io, tools != null)
   if (bounding) {
     const bounded = await boundHistoryForStatelessProvider(
-      systemPrompt,
+      modelSystemPrompt,
       request.history,
       activeContext,
       bounding.contextWindowTokens,
@@ -511,7 +522,14 @@ export async function runGeneration(
       bounding.summaryChunkTokenBudget,
       {
         toolSchemaReserveTokens: bounding.toolSchemaReserveTokens,
-        messageFramingTokens: bounding.messageFramingTokens
+        messageFramingTokens: bounding.messageFramingTokens,
+        // Vision/llama-server is stateless: it must use the same bounded
+        // replay window as the text engine or a rebuilt epoch immediately
+        // fills back up with the whole retained transcript.
+        recallWindowFraction:
+          effectiveProviderId === 'local'
+            ? (settings.provider.local?.recallWindowFraction ?? DEFAULT_RECALL_WINDOW_FRACTION)
+            : undefined
       }
     )
     boundedSystemPrompt = bounded.systemPrompt
@@ -520,6 +538,7 @@ export async function runGeneration(
       chatEvents.emitHistoryCompacted({
         conversationId: request.conversationId,
         removedTurns: bounded.omittedTurns,
+        coveredTurns: bounded.coveredTurns,
         reason: 'proactive',
         summarized: bounded.summarized,
         summary: bounded.summary,
@@ -536,10 +555,30 @@ export async function runGeneration(
           createdAt,
           cause: 'pressure',
           throughMessageId: bounded.compactedThroughMessageId,
-          coveredTurns: bounded.omittedTurns,
+          coveredTurns: bounded.coveredTurns ?? bounded.omittedTurns,
           continuityDigest: bounded.summary
         })
       }
+    }
+    // Repair a legacy concatenated snapshot even when this turn did not need
+    // to remove additional history. Otherwise the smaller digest would be
+    // used once, then the oversized persisted source would return at restart.
+    if (
+      bounded.summaryRebased &&
+      bounded.summary &&
+      bounded.compactedThroughMessageId &&
+      !contextUpdate
+    ) {
+      const createdAt = Date.now()
+      contextUpdate = withLedgerRevision(activeContext, {
+        id: randomUUID(),
+        createdAt,
+        cause: 'pressure',
+        throughMessageId: bounded.compactedThroughMessageId,
+        coveredTurns:
+          bounded.coveredTurns ?? currentLedgerRevision(activeContext)?.coveredTurns ?? 0,
+        continuityDigest: bounded.summary
+      })
     }
   }
 
@@ -678,6 +717,26 @@ export async function runGeneration(
     fabricationDetected: outcome.fabricationDetected,
     thinking: outcome.thinking
   }
+}
+
+/**
+ * Plans are durable conversation state, not disposable transcript history.
+ * Include the current snapshot in the fresh model epoch so compaction can
+ * drop old plan-tool messages without making the model forget its active step.
+ * The renderer receives the same snapshot from tool activity and keeps the
+ * Workspace Dock live.
+ */
+function renderCurrentPlan(
+  plan: NonNullable<ChatRequest['plan']> | null | undefined
+): string | null {
+  if (!plan || plan.steps.length === 0) return null
+  const lines = plan.steps.map((step, index) => `${index + 1}. [${step.status}] ${step.title}`)
+  return [
+    'Current visible work plan (the Workspace Dock shows this same plan):',
+    `Title: ${plan.title}`,
+    ...lines,
+    'Use update_plan_step with the 1-based step number to mark work in progress or completed.'
+  ].join('\n')
 }
 
 function composeProjectRules(

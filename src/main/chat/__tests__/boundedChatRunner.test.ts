@@ -75,6 +75,89 @@ describe('runBoundedChatGeneration', () => {
     expect(outcome.stats.tokens).toBe(10)
   })
 
+  it('reconciles an unfinished visible plan in one tool-restricted final pass', async () => {
+    const plan = {
+      title: 'Build the feature',
+      steps: [
+        { id: 'step-1', title: 'Implement it', status: 'in_progress' as const },
+        { id: 'step-2', title: 'Verify it', status: 'pending' as const }
+      ],
+      updatedAt: 1
+    }
+    const completedPlan = {
+      ...plan,
+      steps: plan.steps.map((step) => ({ ...step, status: 'completed' as const })),
+      updatedAt: 2
+    }
+    const activities: ToolCall[] = []
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockResolvedValueOnce(
+        result({ content: 'Done.', stats: { tokens: 10, durationMs: 100, tokensPerSecond: 100 } })
+      )
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'plan-complete',
+          name: 'update_plan_step',
+          kind: 'plan',
+          title: 'Update plan step 2',
+          status: 'success',
+          plan: completedPlan
+        })
+        return Promise.resolve(
+          result({
+            content: 'PLAN_UNCHANGED',
+            stats: { tokens: 2, durationMs: 20, tokensPerSecond: 100 }
+          })
+        )
+      })
+
+    const outcome = await runBoundedChatGeneration(
+      baseRequest({ plan }),
+      baseIo({ onActivity: (call) => activities.push(call) })
+    )
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain(
+      'reconcile the current visible work plan'
+    )
+    expect(mockedRunGeneration.mock.calls[1][1].enabledTools).toEqual(new Set(['update_plan_step']))
+    expect(outcome.content).toBe('Done.')
+    expect(outcome.stats.tokens).toBe(12)
+    expect(activities.at(-1)?.plan?.steps.every((step) => step.status === 'completed')).toBe(true)
+  })
+
+  it('warns when a build diagnosis was not verified by a build or test command', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockResolvedValueOnce(
+      result({ content: 'Build issue: this structural fix will make it run.' })
+    )
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).toContain('Build verification note')
+    expect(outcome.content).toContain('not a verified fix')
+  })
+
+  it('does not warn when a build command actually completed', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'build-1',
+        name: 'run_command',
+        kind: 'command',
+        title: 'Run: npm run build',
+        detail: 'exit 0',
+        status: 'success'
+      })
+      return Promise.resolve(result({ content: 'Build issue: the fix is verified.' }))
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).not.toContain('Build verification note')
+  })
+
   it('automatically continues after a recoverable stop that made real progress', async () => {
     mockedRunGeneration.mockReset()
     mockedRunGeneration
@@ -161,6 +244,43 @@ describe('runBoundedChatGeneration', () => {
       name: 'read_file_range',
       result: 'export const x = 1'
     })
+  })
+
+  it('carries the latest visible plan into the next continuation epoch', async () => {
+    const plan = {
+      title: 'Build the feature',
+      steps: [
+        { id: 'step-1', title: 'Implement it', status: 'in_progress' as const },
+        { id: 'step-2', title: 'Verify it', status: 'pending' as const }
+      ],
+      updatedAt: 1
+    }
+
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'plan-1',
+          name: 'write_plan',
+          kind: 'plan',
+          title: 'Create plan',
+          status: 'success',
+          plan
+        } as unknown as ToolCall)
+        return Promise.resolve(
+          result({
+            content: 'Started the implementation.',
+            stopped: true,
+            stopReason: 'context-limit',
+            stats: { tokens: 40, durationMs: 400, tokensPerSecond: 100 }
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Finished verification.' }))
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration.mock.calls[1][0].plan).toEqual(plan)
   })
 
   it('continues progress via a real tool call even when no visible text streamed yet', async () => {
@@ -259,8 +379,17 @@ describe('runBoundedChatGeneration', () => {
 
   it('caps the number of cycles even when every cycle keeps making progress', async () => {
     mockedRunGeneration.mockReset()
-    mockedRunGeneration.mockImplementation(() =>
-      Promise.resolve(
+    let cycleNumber = 0
+    mockedRunGeneration.mockImplementation((_request, io: RunGenerationIo) => {
+      cycleNumber += 1
+      io.onActivity?.({
+        id: `call-${cycleNumber}`,
+        name: 'read_file',
+        kind: 'read',
+        title: `Read src/file-${cycleNumber}.ts`,
+        status: 'success'
+      })
+      return Promise.resolve(
         result({
           content: 'more work',
           stopped: true,
@@ -268,15 +397,41 @@ describe('runBoundedChatGeneration', () => {
           stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 }
         })
       )
-    )
+    })
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    // 5 cycles total (MAX_CYCLES): every one reported recoverable + progress,
+    // 24 cycles total (MAX_CYCLES): every one reported recoverable + progress,
     // so only the hard cycle cap itself ends the loop.
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(5)
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(24)
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('tool-limit')
+  })
+
+  it('stops a continuation when the next cycle only repeats prior work', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementation((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'same-call',
+        name: 'run_command',
+        kind: 'command',
+        title: 'Run npm test',
+        status: 'success'
+      })
+      return Promise.resolve(
+        result({
+          content: 'I am still investigating the same issue.',
+          stopped: true,
+          stopReason: 'rounds-exhausted',
+          stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 }
+        })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    expect(outcome.stopReason).toBe('rounds-exhausted')
   })
 
   it('forwards a later cycle onActivity/onToken through to the caller-supplied io', async () => {

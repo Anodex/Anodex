@@ -110,6 +110,39 @@ describe('resolveLocalOutputBudget', () => {
     ).toBe(5_173)
   })
 
+  it("caps a reply to the next turn's replay allocation", () => {
+    // The 32K story-chat failure: the current prompt had 8,284 tokens of
+    // immediate headroom, but only 40% of its 8,324-token history pool could
+    // be replayed. Allowing a 7.5K reply made the newest turn too large to
+    // carry forward, pinning context at 100%.
+    const result = resolveLocalOutputBudget({
+      contextSize: 32_768,
+      inputLimitTokens: 32_256,
+      fixedTokens: 23_972,
+      promptTokens: 40,
+      recallWindowFraction: 0.4,
+      requestedMaxTokens: undefined,
+      hasFunctions: true
+    })
+
+    expect(result.effectiveMaxTokens).toBe(3_289)
+    expect(result.clamped).toBe(true)
+  })
+
+  it('leaves legacy greedy replay uncapped by the replay policy', () => {
+    const result = resolveLocalOutputBudget({
+      contextSize: 32_768,
+      inputLimitTokens: 32_256,
+      fixedTokens: 23_972,
+      promptTokens: 40,
+      recallWindowFraction: null,
+      requestedMaxTokens: undefined,
+      hasFunctions: true
+    })
+
+    expect(result.effectiveMaxTokens).toBe(7_516)
+  })
+
   it('turns an omitted or unlimited request into a safe finite ceiling', () => {
     expect(
       resolveLocalOutputBudget({

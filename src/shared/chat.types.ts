@@ -324,6 +324,8 @@ export interface ChatThinkingStreamChunk {
 export interface HistoryCompactionEvent {
   conversationId: string
   removedTurns: number
+  /** Total original turns covered by the replacement summary, when known. */
+  coveredTurns?: number
   reason: 'onLoad' | 'proactive' | 'reactive'
   /** Whether the removed turns were actually condensed into a summary, vs. just dropped. */
   summarized: boolean

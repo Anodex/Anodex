@@ -3,6 +3,7 @@ import {
   contextLedgerCauseFromSnapshotReason,
   contextCompactionHistory,
   currentLedgerRevision,
+  mergeConversationContext,
   withLedgerRevision,
   type ConversationContextSnapshot
 } from '../context.types'
@@ -128,6 +129,49 @@ describe('Context Ledger compatibility', () => {
 
     expect(contextCompactionHistory(reconciled).map((snapshot) => snapshot.id)).toEqual([
       'ledger-compaction'
+    ])
+  })
+
+  it('keeps live revisions when the final result only carries its active snapshot', () => {
+    const live = withLedgerRevision(
+      { activeSnapshot: legacySnapshot },
+      {
+        id: 'renderer-event',
+        createdAt: 200,
+        cause: 'pressure',
+        throughMessageId: 'message-8',
+        coveredTurns: 8,
+        continuityDigest: 'The parser now supports streaming.'
+      }
+    )
+    const finalContext = {
+      ledger: {
+        version: 1 as const,
+        current: {
+          id: 'main-result',
+          createdAt: 201,
+          cause: 'pressure' as const,
+          throughMessageId: 'message-8',
+          coveredTurns: 8,
+          continuityDigest: 'The parser now supports streaming.'
+        }
+      },
+      activeSnapshot: {
+        id: 'main-result',
+        createdAt: 201,
+        reason: 'proactive' as const,
+        throughMessageId: 'message-8',
+        removedTurns: 8,
+        summary: 'The parser now supports streaming.'
+      }
+    }
+
+    const merged = mergeConversationContext(live, finalContext)
+
+    expect(merged.activeSnapshot?.id).toBe('main-result')
+    expect(contextCompactionHistory(merged).map((snapshot) => snapshot.id)).toEqual([
+      'snapshot-1',
+      'main-result'
     ])
   })
 })

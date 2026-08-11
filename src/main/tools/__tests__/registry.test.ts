@@ -25,6 +25,7 @@ function linkedGmail(): EmailSettings {
 
 const PROJECT_WORKSPACE_TOOLS = [
   'write_file',
+  'append_file',
   'edit_file',
   'patch_file',
   'delete_file',

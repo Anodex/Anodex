@@ -8,7 +8,11 @@ import type {
   RestoreCheckpointResult
 } from '@shared/checkpoint.types'
 import type { Conversation, EmailThreadLink } from '@shared/conversation.types'
-import { contextLedgerCauseFromSnapshotReason, withLedgerRevision } from '@shared/context.types'
+import {
+  contextLedgerCauseFromSnapshotReason,
+  mergeConversationContext,
+  withLedgerRevision
+} from '@shared/context.types'
 import { TOOL_CATALOG, type ToolActivityEvent, type ToolCall } from '@shared/tools.types'
 import { err } from '@shared/result'
 import { stripToolCallText } from '@shared/toolCallText'
@@ -727,7 +731,7 @@ export const useChatStore = create<ChatState>()(
           }
           if (result.value.thinking) message.thinking = result.value.thinking
           if (result.value.context) {
-            convo.context = result.value.context
+            convo.context = mergeConversationContext(convo.context, result.value.context)
           }
         } else {
           // A failed turn has no authoritative final reply to fall back on
@@ -1107,7 +1111,7 @@ export const useChatStore = create<ChatState>()(
           createdAt: event.createdAt,
           cause: contextLedgerCauseFromSnapshotReason(event.reason),
           throughMessageId,
-          coveredTurns: event.removedTurns,
+          coveredTurns: event.coveredTurns ?? event.removedTurns,
           continuityDigest: summary
         })
         convo.updatedAt = Date.now()
@@ -1124,7 +1128,7 @@ export const useChatStore = create<ChatState>()(
       // something from many turns back. `onLoad` (rebuilding an
       // already-compacted session on conversation switch) isn't new
       // information and would just be noise, so it's excluded.
-      if (event.reason === 'proactive' || event.reason === 'reactive') {
+      if (event.removedTurns > 0 && (event.reason === 'proactive' || event.reason === 'reactive')) {
         useUiStore.getState().notify({
           kind: 'info',
           title: 'Chat context compacted',

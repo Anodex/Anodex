@@ -139,6 +139,29 @@ export function contextCompactionHistory(
   return [...history, active]
 }
 
+/**
+ * Combines a live renderer context with the authoritative context returned at
+ * generation completion.
+ *
+ * Compaction notifications can arrive before the final result. Replacing the
+ * renderer's state with that result used to lose revisions when the returned
+ * context held only its current snapshot. Keep the provider-facing context
+ * from `incoming`, but merge the inspection-only local revision history.
+ */
+export function mergeConversationContext(
+  existing: ConversationContext | null | undefined,
+  incoming: ConversationContext
+): ConversationContext {
+  const history = mergeCompactionHistory(
+    contextCompactionHistory(existing),
+    contextCompactionHistory(incoming)
+  )
+  return {
+    ...incoming,
+    ...(history.length > 0 ? { compactionHistory: history } : {})
+  }
+}
+
 function isCompactionSnapshot(
   snapshot: ConversationContextSnapshot | undefined
 ): snapshot is ConversationContextSnapshot {
@@ -196,4 +219,21 @@ function appendCompactionSnapshot(
 ): ConversationContextSnapshot[] {
   const withoutCurrent = snapshots.filter((snapshot) => snapshot.id !== nextSnapshot.id)
   return [...withoutCurrent, nextSnapshot]
+}
+
+function mergeCompactionHistory(
+  existing: ConversationContextSnapshot[],
+  incoming: ConversationContextSnapshot[]
+): ConversationContextSnapshot[] {
+  const merged = new Map<string, ConversationContextSnapshot>()
+  for (const snapshot of [...existing, ...incoming]) {
+    // The live event and final result may use different revision IDs for the
+    // same generated digest. Its boundary and digest identify that compaction
+    // more reliably than the transport-specific ID.
+    const key = [snapshot.throughMessageId ?? '', snapshot.removedTurns, snapshot.summary].join(
+      '\u0000'
+    )
+    merged.set(key, snapshot)
+  }
+  return [...merged.values()].sort((a, b) => a.createdAt - b.createdAt)
 }

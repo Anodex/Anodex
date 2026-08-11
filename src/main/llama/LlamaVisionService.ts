@@ -135,12 +135,20 @@ const IMAGE_TOKEN_ESTIMATE = 768
 /**
  * Output room below which a round is not worth sending.
  *
- * Matches `MIN_FUNCTION_OUTPUT_TOKENS` in `localOutputBudget.ts`: that module
- * refuses to clamp a tool-enabled turn below this because anything less cannot
- * hold a usable call, and the same threshold decides here whether there is
- * still a turn to run at all.
+ * A 512-token ceiling is technically enough for a tiny call, but it is not
+ * enough to safely emit JSON for a normal coding tool after the model's hidden
+ * reasoning. Sending such a round is what allowed a large `write_file` call to
+ * be cut off and replayed as the same malformed request. Stop earlier so the
+ * bounded chat runner can rebuild the turn with compacted history.
  */
-const MIN_VIABLE_OUTPUT_TOKENS = 512
+const MIN_VIABLE_OUTPUT_TOKENS = 4096
+/**
+ * Start a fresh stateless context epoch before the active turn becomes
+ * difficult to recover. The outer bounded chat runner will summarize the
+ * completed cycle and replay the original task with the summary plus a small
+ * recent tail, matching the provider-boundary compaction used by cloud chats.
+ */
+const PROACTIVE_COMPACTION_FRACTION = 0.72
 /**
  * Most recent tool results left untouched when reclaiming in-turn room. The
  * model is actively reasoning from these; the older ones it has already acted
@@ -148,7 +156,7 @@ const MIN_VIABLE_OUTPUT_TOKENS = 512
  */
 const PROTECTED_RECENT_TOOL_RESULTS = 2
 /** Tools the bypass nudge names by name; it only fires when one is registered. */
-const EDIT_TOOL_NAMES = ['write_file', 'edit_file', 'patch_file']
+const EDIT_TOOL_NAMES = ['write_file', 'append_file', 'edit_file', 'patch_file']
 
 function hasEditTool(toolFunctions: Record<string, ToolFunction>): boolean {
   return EDIT_TOOL_NAMES.some((name) => name in toolFunctions)
@@ -171,11 +179,12 @@ interface PendingToolCall {
  * worse than none here. Note two deliberate differences from the text path's
  * `measureContextBudget`:
  *
- * - `systemTokens` covers the system message *and* replayed history — including
+ * - `fixedTokens` covers the system message, replayed history, and tool-call
  *   the arguments of every tool call made so far this turn. This transport
  *   re-sends the entire conversation every round (there is no KV-cache session
  *   to inherit it), so all of that is genuinely fixed input for the turn rather
- *   than something a context-shift strategy can evict.
+ *   than something a context-shift strategy can evict. `systemTokens` remains
+ *   system-only so the renderer can show compactable history separately.
  * - What `/tokenize` structurally cannot measure — the chat template's
  *   per-message framing and the projector's per-image embedding cost — is
  *   *added* as an estimate rather than omitted. Omitting it under-counts, and
@@ -295,9 +304,10 @@ export class LlamaVisionService {
     /**
      * Set when the turn ran out of room for a usable reply before sending one:
      * `'fixed'` if the turn's own fixed input never fit, `'in-turn'` if this
-     * turn's accumulated tool traffic consumed the window.
+     * turn's accumulated tool traffic consumed the window, or `'proactive'`
+     * when the same traffic crossed the early compaction checkpoint.
      */
-    let contextExhausted: 'fixed' | 'in-turn' | null = null
+    let contextExhausted: 'fixed' | 'in-turn' | 'proactive' | null = null
 
     const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
     const requestedMaxTokens = params.options?.maxTokens
@@ -310,6 +320,23 @@ export class LlamaVisionService {
       if (params.signal?.aborted) {
         stopped = true
         break
+      }
+
+      // Once a write or long inline shell payload has completed, its durable
+      // effect (the file or command result) is the source of truth. Keeping
+      // it in every following request makes a long build pay for the same
+      // bytes twice. Keep the two newest file edits intact so the model can
+      // still see immediate work; long shell bodies can be dropped right away
+      // because their completed result remains paired with the call.
+      const proactivelyCompactedPayloads = reclaimExecutedToolArguments(messages, {
+        keepChars: 0,
+        protectRecent: PROTECTED_RECENT_TOOL_RESULTS
+      })
+      if (proactivelyCompactedPayloads > 0) {
+        log.debug('Compacted completed tool payloads before measuring the next round', {
+          round,
+          compacted: proactivelyCompactedPayloads
+        })
       }
 
       // Sized against what this round's prompt actually leaves room for. When
@@ -345,6 +372,27 @@ export class LlamaVisionService {
             fixedTokensAfter: measured?.fixedTokens
           })
         }
+      }
+      // This transport re-sends the complete exchange on every round. Once
+      // the accumulated exchange crosses the proactive threshold, stop at a
+      // safe boundary while the newest tool result is complete. The bounded
+      // chat runner can now summarize this cycle and start a fresh stateless
+      // epoch instead of waiting until the next model call is truncated.
+      const proactiveLimitTokens = Math.floor(inputLimitTokens * PROACTIVE_COMPACTION_FRACTION)
+      if (
+        round > 0 &&
+        measured &&
+        measured.fixedTokens >= proactiveLimitTokens &&
+        inputLimitTokens - measured.fixedTokens >= MIN_VIABLE_OUTPUT_TOKENS
+      ) {
+        contextExhausted = 'proactive'
+        log.info('Stopping the vision turn early for proactive context compaction', {
+          round,
+          fixedTokens: measured.fixedTokens,
+          proactiveLimitTokens,
+          inputLimitTokens
+        })
+        break
       }
       // Sending a request the prompt has already outgrown cannot produce a
       // usable reply: llama-server truncates the prompt to fit, cuts the model
@@ -391,6 +439,11 @@ export class LlamaVisionService {
           contextSize: this.contextSize,
           inputLimitTokens,
           fixedTokens: measured.fixedTokens,
+          promptTokens: measured.promptTokens,
+          // Only the first round carries the user-led interaction that must
+          // fit into the next replay window. Later rounds are bounded by their
+          // own in-turn tool-result reclaim policy.
+          recallWindowFraction: round === 0 ? params.recallWindowFraction : null,
           requestedMaxTokens,
           hasFunctions: toolFunctions != null
         })
@@ -749,7 +802,7 @@ export class LlamaVisionService {
           ? 'runtime-stalled'
           : contextExhausted === 'fixed'
             ? 'fixed-context-limit'
-            : contextExhausted === 'in-turn'
+            : contextExhausted === 'in-turn' || contextExhausted === 'proactive'
               ? 'context-limit'
               : toolCallsTruncated
                 ? 'tool-call-truncated'
@@ -779,12 +832,20 @@ export class LlamaVisionService {
     prompt: string
   ): Promise<MeasuredInput | null> {
     const conversationText = messages.map(messageCostText).filter(Boolean).join('\n')
-    const [conversationTokens, promptTokens, toolSchemaTokens] = await Promise.all([
-      this.runtime.countTokens(conversationText),
-      this.runtime.countTokens(prompt),
-      tools ? this.runtime.countTokens(JSON.stringify(tools)) : Promise.resolve(0)
-    ])
-    if (conversationTokens === null || promptTokens === null || toolSchemaTokens === null) {
+    const systemMessage = messages[0]?.role === 'system' ? messageCostText(messages[0]) : ''
+    const [conversationTokens, promptTokens, toolSchemaTokens, systemMessageTokens] =
+      await Promise.all([
+        this.runtime.countTokens(conversationText),
+        this.runtime.countTokens(prompt),
+        tools ? this.runtime.countTokens(JSON.stringify(tools)) : Promise.resolve(0),
+        systemMessage ? this.runtime.countTokens(systemMessage) : Promise.resolve(0)
+      ])
+    if (
+      conversationTokens === null ||
+      promptTokens === null ||
+      toolSchemaTokens === null ||
+      systemMessageTokens === null
+    ) {
       return null
     }
     // Everything `/tokenize` structurally cannot see: the chat template's own
@@ -796,12 +857,19 @@ export class LlamaVisionService {
       messages.reduce((total, message) => total + imagePartCount(message), 0) * IMAGE_TOKEN_ESTIMATE
     // `messages` already ends with the current prompt, so subtract it back out
     // to keep `promptTokens` an incremental figure and `fixedTokens` a total.
-    const systemTokens = Math.max(0, conversationTokens + untokenizable - promptTokens)
+    // Keep the public system count separate from replayed history. The total
+    // still includes every message below, but the renderer uses systemTokens
+    // to calculate how much history compaction can actually remove.
+    const systemTokens = Math.max(
+      0,
+      systemMessageTokens + (systemMessage ? MESSAGE_FRAMING_TOKENS : 0)
+    )
+    const fixedTokens = Math.max(0, conversationTokens + untokenizable - promptTokens)
     return {
       systemTokens,
       promptTokens,
       toolSchemaTokens,
-      fixedTokens: systemTokens + promptTokens + toolSchemaTokens
+      fixedTokens: fixedTokens + toolSchemaTokens
     }
   }
 
@@ -915,8 +983,8 @@ export class LlamaVisionService {
       beforeTool: params.tools.beforeTool,
       plan: { current: params.tools.plan },
       turnGate: { approved: false },
-      loopGuard: createLoopGuardState(),
-      // Fresh every generation call, matching the text and cloud model paths.
+      loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
+      // Reuse a caller-owned guard across bounded continuation cycles when supplied.
       progress: { madeChange: false },
       modelResultBudget,
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
@@ -946,13 +1014,13 @@ export class LlamaVisionService {
 
   private async buildMessages(params: GenerateParams): Promise<ChatCompletionMessageParam[]> {
     const messages: ChatCompletionMessageParam[] = []
-    const snapshot = params.context?.activeSnapshot?.summary?.trim()
-    const system = [
-      params.systemPrompt?.trim(),
-      snapshot ? `Earlier conversation summary:\n${snapshot}` : ''
-    ]
-      .filter(Boolean)
-      .join('\n\n')
+    // The caller has already rebuilt the active context epoch and folded any
+    // persisted snapshot into `params.systemPrompt`. Re-adding
+    // `params.context.activeSnapshot` here duplicated the summary on every
+    // vision request, spending tokens twice and making compaction appear not
+    // to reset. The durable context remains on the request for reconciliation;
+    // this transport must render the already-assembled prompt exactly once.
+    const system = params.systemPrompt?.trim() ?? ''
     if (system) messages.push({ role: 'system', content: system })
 
     const boundedHistory = boundHistory(projectHistoryForModel(params.history), this.contextSize)
@@ -1017,9 +1085,9 @@ function truncatedToolCallGuidance(preview: string | undefined): string {
     'Your previous tool call was cut off before its arguments were complete, so it could not be run',
     preview ? ` (it ended at: ${preview}).` : '.',
     ' Nothing was written and nothing changed.',
-    ' Do not repeat that call as-is. If you were writing a long file, split the work:',
-    ' create it with a small first write_file call, then extend it with follow-up edits,',
-    ' keeping every single call short. Otherwise, answer without the tool call.'
+    ' Do not repeat that call as-is. If you were writing a long file, use a small first',
+    ' write_file call followed by short append_file calls. Keep every content payload under',
+    ' 4000 characters. Otherwise, answer without the tool call.'
   ].join('')
 }
 
@@ -1082,7 +1150,95 @@ function reclaimToolResultRoom(messages: ChatCompletionMessageParam[], tier: Rec
     } as ChatCompletionMessageParam
     reclaimed += 1
   }
+  // Tool results are not the only large part of an in-progress exchange. A
+  // successful write or shell command also leaves its JSON arguments in the
+  // preceding assistant tool-call message. If a model embeds a file body in a
+  // write or a here-string command, trimming only the matching result still
+  // leaves the payload occupying the context forever. Preserve a valid call
+  // record and replace the executed payload with a recovery instruction.
+  return reclaimed + reclaimExecutedToolArguments(messages, tier)
+}
+
+const RECLAIMED_WRITE_ARGUMENT_MARKER =
+  '[content omitted after execution; read the file if the exact text is needed]'
+const RECLAIMED_COMMAND_ARGUMENT_MARKER =
+  '[long command payload omitted after execution; inspect its result or rerun a focused command if needed]'
+const MAX_RETAINED_EXECUTED_COMMAND_CHARS = 480
+
+function reclaimExecutedToolArguments(
+  messages: ChatCompletionMessageParam[],
+  tier: ReclaimTier
+): number {
+  const candidates: Array<{
+    name: string
+    toolCall: { function?: { name?: string; arguments?: string } }
+  }> = []
+  const completedToolCallIds = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== 'tool') continue
+    const toolCallId = (message as { tool_call_id?: unknown }).tool_call_id
+    if (typeof toolCallId === 'string') completedToolCallIds.add(toolCallId)
+  }
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    const toolCalls = (
+      message as {
+        tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>
+      }
+    ).tool_calls
+    for (const toolCall of toolCalls ?? []) {
+      const name = toolCall.function?.name
+      const argumentsText = toolCall.function?.arguments
+      if (
+        (name === 'write_file' || name === 'append_file' || name === 'run_command') &&
+        completedToolCallIds.has(toolCall.id ?? '') &&
+        typeof argumentsText === 'string' &&
+        argumentsText.length > RECLAIMED_WRITE_ARGUMENT_MARKER.length
+      ) {
+        candidates.push({ name, toolCall })
+      }
+    }
+  }
+
+  let reclaimed = 0
+  for (const [index, { name, toolCall }] of candidates.entries()) {
+    // The freshest file edits remain exact for immediate follow-up work. Long
+    // shell bodies are different: a command's output records what happened,
+    // while its source payload is not useful context after it has executed.
+    if (name !== 'run_command' && index >= candidates.length - tier.protectRecent) continue
+    const argumentsText = toolCall.function?.arguments
+    if (!argumentsText) continue
+    try {
+      const parsed = JSON.parse(argumentsText) as Record<string, unknown>
+      const compacted = compactExecutedToolArguments(name, parsed)
+      if (!compacted) continue
+      if (compacted.length >= argumentsText.length) continue
+      toolCall.function!.arguments = compacted
+      reclaimed += 1
+    } catch {
+      // An incomplete call is handled by the parse-recovery path; only valid,
+      // already-executed calls are safe to rewrite during room reclamation.
+    }
+  }
   return reclaimed
+}
+
+function compactExecutedToolArguments(
+  name: string,
+  parsed: Record<string, unknown>
+): string | null {
+  if (name === 'write_file' || name === 'append_file') {
+    if (typeof parsed.content !== 'string') return null
+    return JSON.stringify({ ...parsed, content: RECLAIMED_WRITE_ARGUMENT_MARKER })
+  }
+  if (name === 'run_command' && typeof parsed.command === 'string') {
+    if (parsed.command.length <= MAX_RETAINED_EXECUTED_COMMAND_CHARS) return null
+    return JSON.stringify({
+      ...parsed,
+      command: `${parsed.command.slice(0, MAX_RETAINED_EXECUTED_COMMAND_CHARS).trimEnd()}… ${RECLAIMED_COMMAND_ARGUMENT_MARKER}`
+    })
+  }
+  return null
 }
 
 interface ReclaimTier {

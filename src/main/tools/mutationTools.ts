@@ -10,6 +10,13 @@ import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
 const PREVIEW_CHARS = 400
 const MAX_PATCH_REPLACEMENTS = 20
 /**
+ * Keep one model-generated write small enough that a tool call can finish and
+ * the next continuation round still has room. Larger new files are assembled
+ * with append_file, which also gives compaction a sequence of bounded tool
+ * results instead of one giant JSON argument.
+ */
+export const MAX_FILE_WRITE_CONTENT_CHARS = 4_000
+/**
  * Files larger than this don't get a stored diff: a full before/after copy of
  * a huge file would bloat persisted conversation JSON for a diff that's hard
  * to read in the chat UI anyway.
@@ -30,12 +37,16 @@ export function diffOrUndefined(
 /** write_file - create or overwrite a text file. */
 export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: 'Create or overwrite a text file within the workspace.',
+    description: `Create or overwrite a text file within the workspace. The content payload is limited to ${MAX_FILE_WRITE_CONTENT_CHARS} characters; for a longer new file, write the first chunk and use append_file for the remaining chunks.`,
     params: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'File path relative to the workspace root.' },
-        content: { type: 'string', description: 'The full contents to write.' }
+        content: {
+          type: 'string',
+          maxLength: MAX_FILE_WRITE_CONTENT_CHARS,
+          description: `The first or complete file contents, no more than ${MAX_FILE_WRITE_CONTENT_CHARS} characters. Use append_file for the rest of a long file.`
+        }
       },
       required: ['path', 'content']
     } as const,
@@ -51,6 +62,12 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
           touch: { path: args.path, action: 'write' }
         },
         async () => {
+          if (args.content.length > MAX_FILE_WRITE_CONTENT_CHARS) {
+            throw new Error(
+              `write_file content was ${args.content.length} characters; the limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. ` +
+                'Write a short first chunk, then use append_file for the remaining content.'
+            )
+          }
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
           const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
           const beforeExists = await access(file)
@@ -88,6 +105,66 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
                 afterEncoding: 'utf8'
               }
             ]
+          }
+        }
+      )
+  })
+
+/** append_file - append text to an existing UTF-8 text file. */
+export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
+  define({
+    description: `Append text to an existing UTF-8 file within the workspace. Each content payload is limited to ${MAX_FILE_WRITE_CONTENT_CHARS} characters. Use this for long new files after a small write_file call.`,
+    params: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path relative to the workspace root.' },
+        content: {
+          type: 'string',
+          maxLength: MAX_FILE_WRITE_CONTENT_CHARS,
+          description: `Text to append to the end of the file, no more than ${MAX_FILE_WRITE_CONTENT_CHARS} characters.`
+        }
+      },
+      required: ['path', 'content']
+    } as const,
+    handler: (args: { path: string; content: string }) =>
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'append_file',
+          kind: 'write',
+          title: `Append to ${args.path}`,
+          args,
+          risk: 'safe',
+          touch: { path: args.path, action: 'write' }
+        },
+        async () => {
+          if (args.content.length > MAX_FILE_WRITE_CONTENT_CHARS) {
+            throw new Error(
+              `append_file content was ${args.content.length} characters; the limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. ` +
+                'Split the remaining content into another short append_file call.'
+            )
+          }
+          const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
+          const { text: beforeText, buffer: beforeBuffer } = await readEditableText(
+            file,
+            relativePath
+          )
+          const afterText = beforeText + args.content
+          return {
+            confirmDetail: `Append ${args.content.length} characters to ${args.path}:\n\n${preview(args.content)}`,
+            confirmDiff: diffOrUndefined(relativePath, beforeText, afterText),
+            data: { file, relativePath, beforeText, beforeBuffer, afterText }
+          }
+        },
+        async ({ file, relativePath, beforeText, beforeBuffer, afterText }) => {
+          await assertFileStateUnchanged(file, beforeBuffer, 'append')
+          await writeFile(file, afterText, 'utf-8')
+          return {
+            modelResult: `Appended ${args.content.length} characters to ${relativePath}.`,
+            detail: `${args.content.length} chars`,
+            diff: diffOrUndefined(relativePath, beforeText, afterText),
+            checkpointChanges: [{ path: relativePath, before: beforeText, after: afterText }]
           }
         }
       )

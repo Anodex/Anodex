@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ToolCall, ToolConfirmRequest } from '@shared/tools.types'
 import {
+  appendFileTool,
   deleteFileTool,
   editFileTool,
   moveFileTool,
@@ -319,6 +320,7 @@ describe('write_file diff capture', () => {
   })
 
   it('omits the diff for files larger than the size cap', async () => {
+    await writeFile(join(workspace, 'huge.txt'), 'x'.repeat(60_000))
     const ctx = createMockContext(workspace)
     const capture = captureCalls<ToolCall>()
     ctx.emit = capture.emit
@@ -326,10 +328,82 @@ describe('write_file diff capture', () => {
       handler: (args: { path: string; content: string }) => Promise<string>
     }
 
-    await tool.handler({ path: 'huge.txt', content: 'x'.repeat(60_000) })
+    await tool.handler({ path: 'huge.txt', content: 'replacement' })
 
     const success = capture.calls.find((c) => c.status === 'success')
     expect(success?.diff).toBeUndefined()
+  })
+
+  it('rejects an oversized model write before touching the workspace', async () => {
+    const ctx = createMockContext(workspace)
+    const capture = captureCalls<ToolCall>()
+    ctx.emit = capture.emit
+    const tool = writeFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; content: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: 'too-large.html', content: 'x'.repeat(4_001) })
+
+    expect(result).toContain('use append_file')
+    expect(capture.calls.find((call) => call.status === 'error')?.result).toContain('4000')
+    await expect(readFile(join(workspace, 'too-large.html'), 'utf-8')).rejects.toThrow()
+  })
+})
+
+describe('append_file', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-append-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  it('appends a chunk to an existing UTF-8 file', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'first')
+    const ctx = createMockContext(workspace)
+    const tool = appendFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; content: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: 'a.txt', content: ' second' })
+
+    expect(result).toContain('Appended')
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('first second')
+  })
+
+  it('rejects an oversized append so long files stay split across tool calls', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'first')
+    const ctx = createMockContext(workspace)
+    const tool = appendFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; content: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: 'a.txt', content: 'x'.repeat(4_001) })
+
+    expect(result).toContain('Split the remaining content')
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('first')
+  })
+
+  it('does not append when the file changes while approval is pending', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'first')
+    const ctx = {
+      ...createMockContext(workspace),
+      confirm: async () => {
+        await writeFile(join(workspace, 'a.txt'), 'user change')
+        return { approved: true }
+      }
+    }
+    const tool = appendFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; content: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: 'a.txt', content: ' assistant' })
+
+    expect(result).toContain('changed since this append was proposed')
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('user change')
   })
 })
 

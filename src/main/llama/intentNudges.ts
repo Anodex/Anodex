@@ -35,7 +35,7 @@ export const INTENT_NUDGE_PROMPT =
 export const TOOL_BYPASS_NUDGE_PROMPT =
   'You provided code or file-edit instructions in chat instead of applying the change. ' +
   'In this project chat, do not hand the user code to copy. Read the relevant file if ' +
-  'needed, then call write_file, edit_file, or patch_file to make the change for real. ' +
+  'needed, then call write_file, append_file, edit_file, or patch_file to make the change for real. ' +
   'If the user asked to see an interactive HTML result, call preview_html. If the user asked ' +
   'for a visual before/after comparison and inspect_visual is available, call inspect_visual ' +
   'on a path, edit that same file in place, then call inspect_visual on the same path again — ' +

@@ -74,6 +74,13 @@
   color: var(--text-faint);
 }
 
+.fullLabel {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  color: var(--danger);
+  white-space: nowrap;
+}
+
 .popover {
   position: absolute;
   right: 0;

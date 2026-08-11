@@ -78,6 +78,32 @@ describe('AI plan tools', () => {
       expect(ctx.plan.current?.steps).toHaveLength(1)
     })
 
+    it('preserves progress when a model repeats the identical plan', async () => {
+      const ctx = context()
+      const write = writePlanTool(createMockDefine(), ctx) as unknown as {
+        handler: WritePlanHandler
+      }
+      const update = updatePlanStepTool(createMockDefine(), ctx) as unknown as {
+        handler: UpdateStepHandler
+      }
+
+      await write.handler({ title: 'Fix the bug', steps: ['Inspect it', 'Verify it'] })
+      const originalStepId = ctx.plan.current?.steps[0].id
+      await update.handler({ stepNumber: 1, status: 'completed' })
+      const result = await write.handler({
+        title: 'Fix the bug',
+        steps: ['Inspect it', 'Verify it']
+      })
+
+      expect(result).toContain('progress was preserved')
+      expect(result).toContain('[completed] Inspect it')
+      expect(ctx.plan.current?.steps[0]).toMatchObject({
+        id: originalStepId,
+        status: 'completed'
+      })
+      expect(ctx.plan.current?.steps[1].status).toBe('pending')
+    })
+
     it('rejects an empty step list instead of creating a zero-step plan', async () => {
       const ctx = context()
       const tool = writePlanTool(createMockDefine(), ctx) as unknown as {

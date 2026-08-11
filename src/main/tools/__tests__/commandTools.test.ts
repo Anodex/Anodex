@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ToolConfirmRequest } from '@shared/tools.types'
 import { parseRunCommandVerification, runCommandTool } from '../commandTools'
-import { createMockContext, createMockDefine } from './test-helpers'
+import { captureCalls, createMockContext, createMockDefine } from './test-helpers'
 
 describe('run_command', () => {
   let workspace: string
@@ -178,6 +178,29 @@ describe('run_command', () => {
 
     expect(requests[0]?.detail).toContain('Shell: custom-shell')
     expect(requests[0]?.detail).toContain('Timeout: 120000 ms')
+  })
+
+  it('bounds a long command in the transcript while preserving it for approval', async () => {
+    const requests: ToolConfirmRequest[] = []
+    const { calls, emit } = captureCalls()
+    const command = `echo ${'x'.repeat(2_000)}`
+    const ctx = {
+      ...createMockContext(workspace),
+      emit,
+      confirm: (request: ToolConfirmRequest) => {
+        requests.push(request)
+        return Promise.resolve({ approved: false })
+      }
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string }) => Promise<string>
+    }
+
+    await tool.handler({ command })
+
+    expect(requests[0]?.detail).toContain(command)
+    expect(calls[0]?.title.length).toBeLessThanOrEqual(360)
+    expect(calls[0]?.title).toContain('long command payload omitted')
   })
 
   it('classifies an obviously destructive command with the destructive risk badge', async () => {

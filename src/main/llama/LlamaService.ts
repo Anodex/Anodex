@@ -33,7 +33,7 @@ import type {
   HistoryCompactionEvent,
   ChatUserFile
 } from '@shared/chat.types'
-import type { ConversationContext } from '@shared/context.types'
+import { currentLedgerRevision, type ConversationContext } from '@shared/context.types'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { Plan } from '@shared/plan.types'
@@ -47,7 +47,7 @@ import { planManualContextCompaction } from '@shared/contextProjection'
 import { environmentDateFromPrompt } from '@shared/prompts'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
-import { createLoopGuardState } from '../tools/loopGuard'
+import { createLoopGuardState, type LoopGuardState } from '../tools/loopGuard'
 import {
   computeModelToolResultBudget,
   type ModelToolResultBudget
@@ -55,7 +55,6 @@ import {
 import { confirmRacingAbort } from '../tools/confirmRacingAbort'
 import {
   assembleModelContext,
-  mergeContextSummaries,
   rememberToolCallForModel,
   seedContextFromSnapshot
 } from './contextAssembler'
@@ -225,6 +224,8 @@ export interface GenerateParams {
      * with no cross-call effect.
      */
     readCoverage?: ReadCoverageTracker
+    /** Optional caller-owned guard shared across bounded continuation cycles. */
+    loopGuard?: LoopGuardState
   }
 }
 
@@ -329,6 +330,8 @@ class LlamaService extends EventEmitter {
   private activeContextShiftHandler?: () => void
   private session?: LlamaChatSession
   private activeConversationId?: string
+  /** Ledger revision represented by the live native session's clean epoch. */
+  private activeContextEpochId: string | null = null
   /**
    * Calendar date baked into the live session's system prompt, or null when it
    * has none (see `ensureSession`). Never `undefined`, so the reuse check below
@@ -812,6 +815,8 @@ class LlamaService extends EventEmitter {
       contextSize: measuredContextBudget.contextSize,
       inputLimitTokens: measuredContextBudget.inputLimitTokens,
       fixedTokens: measuredContextBudget.fixedTokens,
+      promptTokens: measuredContextBudget.promptTokens,
+      recallWindowFraction: params.recallWindowFraction,
       requestedMaxTokens: params.options?.maxTokens,
       hasFunctions: functions != null
     })
@@ -1658,9 +1663,8 @@ class LlamaService extends EventEmitter {
     // single-call path handed this entire transcript to the summarizer's
     // 4,096-token context at once, which a long conversation exceeds.
     // Seeding with the prior epoch's summary makes this a bounded
-    // replacement-style update instead of the old unbounded
-    // `mergeContextSummaries` concatenation across successive manual
-    // compactions.
+    // replacement-style update, never an unbounded concatenation across
+    // successive manual compactions.
     const countTokens = (text: string): number =>
       this.model ? this.model.tokenize(text).length : this.visionService.countPromptTokens(text)
     const release = await this.acquireModelLock()
@@ -1803,7 +1807,8 @@ class LlamaService extends EventEmitter {
       !forceRebuild &&
       this.session &&
       this.activeConversationId === conversationId &&
-      environmentDate === this.activeEnvironmentDate
+      environmentDate === this.activeEnvironmentDate &&
+      (currentLedgerRevision(context)?.id ?? null) === (this.activeContextEpochId ?? null)
     ) {
       return this.session
     }
@@ -1831,10 +1836,11 @@ class LlamaService extends EventEmitter {
       toolSchemaReserveTokens,
       recallWindowFraction
     )
-    if (compacted.removedTurns > 0) {
+    if (compacted.removedTurns > 0 || compacted.summaryRebased) {
       this.emit('historyCompacted', {
         conversationId,
         removedTurns: compacted.removedTurns,
+        coveredTurns: compacted.coveredTurns,
         reason: compactionReason,
         summarized: compacted.summarized,
         summary: compacted.summary,
@@ -1880,6 +1886,7 @@ class LlamaService extends EventEmitter {
 
     this.activeConversationId = conversationId
     this.activeEnvironmentDate = environmentDate
+    this.activeContextEpochId = currentLedgerRevision(context)?.id ?? null
     return this.session
   }
 
@@ -1904,8 +1911,13 @@ class LlamaService extends EventEmitter {
     summarized: boolean
     summary?: string
     compactedThroughMessageId?: string | null
+    coveredTurns?: number
+    summaryRebased?: boolean
   }> {
     const seeded = seedContextFromSnapshot(systemPrompt, history, context)
+    const priorCoveredTurns = seeded.applied
+      ? (currentLedgerRevision(context)?.coveredTurns ?? 0)
+      : 0
     if (!this.contextSize || !this.model) {
       return {
         systemPrompt: seeded.systemPrompt,
@@ -1917,12 +1929,13 @@ class LlamaService extends EventEmitter {
 
     const countTokens = (text: string): number => this.model!.tokenize(text).length
     const assembled = await assembleModelContext({
-      systemPrompt: seeded.systemPrompt,
+      systemPrompt,
       history: seeded.history,
       contextSize: this.contextSize,
       countTokens,
       toolSchemaReserveTokens,
       recallWindowFraction,
+      initialSummary: seeded.summary,
       summarizeOlderTurns: (transcript, previousSummary) =>
         this.summarizeHistoryForCompaction(transcript, previousSummary)
     })
@@ -1932,7 +1945,11 @@ class LlamaService extends EventEmitter {
         systemPrompt: assembled.systemPrompt,
         history: assembled.history,
         removedTurns: 0,
-        summarized: false
+        summarized: assembled.summarized,
+        summary: assembled.summary,
+        compactedThroughMessageId: seeded.throughMessageId ?? null,
+        coveredTurns: priorCoveredTurns,
+        summaryRebased: assembled.summaryRebased
       }
     }
 
@@ -1947,9 +1964,11 @@ class LlamaService extends EventEmitter {
       history: assembled.history,
       removedTurns: assembled.removedTurns,
       summarized: assembled.summarized,
-      summary: mergeContextSummaries(seeded.summary, assembled.summary),
+      summary: assembled.summary,
       compactedThroughMessageId:
-        assembled.compactedThroughMessageId ?? seeded.throughMessageId ?? null
+        assembled.compactedThroughMessageId ?? seeded.throughMessageId ?? null,
+      coveredTurns: priorCoveredTurns + assembled.removedTurns,
+      summaryRebased: assembled.summaryRebased
     }
   }
 
@@ -2218,7 +2237,7 @@ class LlamaService extends EventEmitter {
       turnGate: { approved: false },
       // Fresh every generation call, same reasoning as `turnGate` above — see
       // `ToolRuntimeContext.loopGuard`'s doc comment.
-      loopGuard: createLoopGuardState(),
+      loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
       // Fresh every generation call, same reasoning as `turnGate` above — see
       // `ToolRuntimeContext.progress`'s doc comment.
       progress: { madeChange: false },
@@ -2388,6 +2407,7 @@ class LlamaService extends EventEmitter {
     this.session = undefined
     this.activeConversationId = undefined
     this.activeEnvironmentDate = null
+    this.activeContextEpochId = null
   }
 
   /**

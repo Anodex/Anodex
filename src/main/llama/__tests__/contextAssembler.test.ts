@@ -41,6 +41,31 @@ describe('projectHistoryForModel', () => {
       MAX_MODEL_TOOL_RESULT_CHARS + 200
     )
   })
+
+  it('bounds an old oversized tool label as well as its result', () => {
+    const history: ChatHistoryTurn[] = [
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          {
+            id: 't1',
+            name: 'run_command',
+            kind: 'command',
+            title: `Run: Add-Content output.html ${'x'.repeat(4_000)}`,
+            status: 'success',
+            result: 'Exit code 0'
+          }
+        ]
+      }
+    ]
+
+    const projected = projectHistoryForModel(history)
+    const title = projected[0].toolCalls?.[0].title ?? ''
+
+    expect(title.length).toBeLessThanOrEqual(360)
+    expect(title).toContain('omitted the rest of this tool label')
+  })
 })
 
 describe('rememberToolCallForModel', () => {
@@ -417,6 +442,112 @@ describe('boundHistoryForStatelessProvider', () => {
     expect(bounded.systemPrompt).toContain('Summary of earlier conversation')
     expect(bounded.history).toEqual([history[2]])
     expect(bounded.omittedTurns).toBe(0)
+  })
+
+  it('folds new overflow into the active snapshot as one replacement summary', async () => {
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'original request' },
+      { id: 'm2', role: 'assistant', content: 'original response' },
+      { id: 'm3', role: 'user', content: 'A'.repeat(2_000) },
+      { id: 'm4', role: 'assistant', content: 'B'.repeat(2_000) },
+      { id: 'm5', role: 'user', content: 'latest request' }
+    ]
+    const calls: Array<{ transcript: string; previous?: string }> = []
+
+    const bounded = await boundHistoryForStatelessProvider(
+      'system',
+      history,
+      {
+        activeSnapshot: {
+          id: 'ctx1',
+          createdAt: 1,
+          reason: 'onLoad',
+          throughMessageId: 'm2',
+          removedTurns: 2,
+          summary: 'Snapshot of the original exchange.'
+        }
+      },
+      900,
+      (transcript, previous) => {
+        calls.push({ transcript, previous })
+        return Promise.resolve('Replacement summary covering old and new work.')
+      }
+    )
+
+    expect(calls[0].previous).toBe('Snapshot of the original exchange.')
+    expect(bounded.summary).toBe('Replacement summary covering old and new work.')
+    expect(bounded.summary).not.toContain('Additional compacted context')
+    expect(bounded.coveredTurns).toBe(4)
+  })
+
+  it('rebases an oversized legacy concatenated snapshot before replay', async () => {
+    const legacySummary = Array.from(
+      { length: 20 },
+      (_, index) => `Old compaction ${index}: ${'x'.repeat(700)}`
+    ).join('\n\nAdditional compacted context:\n')
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'old request' },
+      { id: 'm2', role: 'assistant', content: 'old response' },
+      { id: 'm3', role: 'user', content: 'latest request' }
+    ]
+    let summaryCalls = 0
+
+    const bounded = await boundHistoryForStatelessProvider(
+      'system',
+      history,
+      {
+        activeSnapshot: {
+          id: 'legacy',
+          createdAt: 1,
+          reason: 'proactive',
+          throughMessageId: 'm2',
+          removedTurns: 2,
+          summary: legacySummary
+        }
+      },
+      32_768,
+      () => {
+        summaryCalls += 1
+        return Promise.resolve(`Rebased summary ${summaryCalls}`)
+      }
+    )
+
+    expect(summaryCalls).toBeGreaterThan(0)
+    expect(bounded.summaryRebased).toBe(true)
+    expect(bounded.summary).toMatch(/^Rebased summary/)
+    expect(bounded.systemPrompt).not.toContain('Old compaction 0')
+    expect(bounded.coveredTurns).toBe(2)
+  })
+
+  it('applies the replay cap to stateless transports as well as the local session', async () => {
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'A'.repeat(2_000) },
+      { id: 'm2', role: 'assistant', content: 'B'.repeat(2_000) },
+      { id: 'm3', role: 'user', content: 'latest request' },
+      { id: 'm4', role: 'assistant', content: 'latest answer' }
+    ]
+
+    const uncapped = await boundHistoryForStatelessProvider(
+      'system',
+      history,
+      null,
+      2_000,
+      undefined,
+      undefined,
+      { recallWindowFraction: null }
+    )
+    const capped = await boundHistoryForStatelessProvider(
+      'system',
+      history,
+      null,
+      2_000,
+      undefined,
+      undefined,
+      { recallWindowFraction: 0.25 }
+    )
+
+    expect(capped.omittedTurns).toBeGreaterThan(uncapped.omittedTurns)
+    expect(capped.history.at(-1)).toEqual(history.at(-1))
   })
 
   it('summarizes overflow via the supplied summarizer instead of dropping it', async () => {

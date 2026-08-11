@@ -2,6 +2,10 @@ export interface LocalOutputBudgetInput {
   contextSize: number
   inputLimitTokens: number
   fixedTokens: number
+  /** Current user request tokens already included in `fixedTokens`. */
+  promptTokens?: number
+  /** Share of the next window reserved for verbatim replay; null disables it. */
+  recallWindowFraction?: number | null
   requestedMaxTokens: number | undefined
   hasFunctions: boolean
 }
@@ -40,7 +44,8 @@ const MIN_FUNCTION_OUTPUT_TOKENS = 512
  * flat quarter of the whole context, which could throw away most of a
  * turn's actual headroom regardless of how large the fixed prompt was.
  * Tool-less replies can use all measured space before the context-shift
- * reserve.
+ * reserve. When the Context Ledger has a bounded recall window, the ceiling
+ * also keeps this request plus its reply small enough to replay next turn.
  */
 export function resolveLocalOutputBudget(input: LocalOutputBudgetInput): LocalOutputBudget {
   const availableTokens = Math.max(1, input.inputLimitTokens - input.fixedTokens)
@@ -53,15 +58,37 @@ export function resolveLocalOutputBudget(input: LocalOutputBudgetInput): LocalOu
         )
       )
     : availableTokens
+  const replaySafeCeiling = replaySafeOutputCeiling(input)
+  const boundedCeiling =
+    replaySafeCeiling === undefined ? safeCeiling : Math.min(safeCeiling, replaySafeCeiling)
   const requested = normalizeRequestedMaxTokens(input.requestedMaxTokens)
   const effectiveMaxTokens =
-    requested === undefined ? safeCeiling : Math.min(requested, safeCeiling)
+    requested === undefined ? boundedCeiling : Math.min(requested, boundedCeiling)
 
   return {
     requestedMaxTokens: requested,
     effectiveMaxTokens,
     clamped: requested === undefined || requested > effectiveMaxTokens
   }
+}
+
+/**
+ * Keep the newest user-led interaction inside the same recall allocation that
+ * `historyBudgetTokens()` uses during the next session rebuild. Without this,
+ * a reply could fit the current native context yet be too large to retain
+ * verbatim later, pinning the meter at 100% until a failed context shift.
+ */
+function replaySafeOutputCeiling(input: LocalOutputBudgetInput): number | undefined {
+  const fraction = input.recallWindowFraction
+  if (fraction == null || !Number.isFinite(fraction)) return undefined
+
+  // `fixedTokens` includes this prompt. Add it back to get the replayable
+  // history pool (system + tools are excluded), then reserve the prompt inside
+  // that pool before granting space to the reply.
+  const promptTokens = Math.max(0, input.promptTokens ?? 0)
+  const replayPool = Math.max(0, input.inputLimitTokens - input.fixedTokens + promptTokens)
+  const replayBudget = Math.max(0, Math.floor(replayPool * fraction))
+  return Math.max(1, replayBudget - promptTokens)
 }
 
 /**

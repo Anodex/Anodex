@@ -596,7 +596,10 @@ describe('LlamaVisionService.generate', () => {
     // context has to be loaded at that size for the fixture to mean anything —
     // against the 8,192 default those 30k tokens do not fit at all, and the
     // turn is now stopped before a doomed request rather than clamped.
-    mocks.countTokens = (text) => (text.includes('Build a website.') ? 30_000 : 10)
+    // The conversation measurement includes the current prompt, so keep the
+    // prompt cheap and model a large fixed history separately.
+    mocks.countTokens = (text) =>
+      text === 'Build a website.' || text.startsWith('[') ? 10 : 26_000
     mocks.rounds.push({ chunks: [textChunk('ok', 'stop')] })
 
     const outcome = await (
@@ -686,6 +689,33 @@ describe('LlamaVisionService.generate', () => {
     // ~8,000 characters of arguments is ~2,000 tokens under this tokenizer.
     // Before the fix the drop was only the 2-character result.
     expect(first - second).toBeGreaterThan(1_500)
+  })
+
+  it('reclaims a completed long shell-command payload before the next vision round', async () => {
+    mocks.toolFunctions = {
+      run_command: {
+        description: 'Run a command.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('Exit code 0')
+      }
+    }
+    const argumentsText = JSON.stringify({
+      command: `Add-Content output.html @"\n${'x'.repeat(6_000)}\n"@`
+    })
+    mocks.rounds.push({ chunks: [toolCallChunk('run_command', argumentsText)] })
+    mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+    await (await service(32_768)).generate(params({ tools: withTools }))
+
+    const secondRequest = mocks.requests[1].messages as Array<{
+      tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>
+    }>
+    const commandCall = secondRequest
+      .flatMap((message) => message.tool_calls ?? [])
+      .find((call) => call.function?.name === 'run_command')
+    const compacted = JSON.parse(commandCall?.function?.arguments ?? '{}') as { command?: string }
+    expect(compacted.command).toContain('long command payload omitted after execution')
+    expect(compacted.command?.length).toBeLessThan(800)
   })
 
   it('charges for images the tokenizer cannot see', async () => {
@@ -781,7 +811,9 @@ describe('LlamaVisionService.generate', () => {
     // and tool schemas are what do not fit. Continuing cannot help, and
     // reporting it as the recoverable `context-limit` would send the user after
     // the wrong thing — and let a caller retry a turn that can never start.
-    mocks.countTokens = () => 9_000
+    // Keep the current prompt cheap and make the fixed conversation input too
+    // large for this small context window.
+    mocks.countTokens = (text) => (text === 'Build a website.' ? 10 : 9_000)
     mocks.rounds.push({ chunks: [textChunk('unreachable', 'stop')] })
 
     const outcome = await (await service(8_192)).generate(params({ tools: withTools }))
@@ -830,6 +862,27 @@ describe('LlamaVisionService.generate', () => {
     for (const message of sent) {
       for (const made of message.tool_calls ?? []) expect(answered.has(made.id)).toBe(true)
     }
+  })
+
+  it('stops at a safe proactive boundary before the hard context limit', async () => {
+    mocks.toolFunctions = {
+      read_file: {
+        description: 'Read.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('z'.repeat(48_000))
+      }
+    }
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', 'call_0')] })
+    // This response must never be requested: the completed tool result above
+    // already crossed the proactive checkpoint threshold, so the outer chat
+    // runner should compact and replay the task in a fresh context epoch.
+    mocks.rounds.push({ chunks: [textChunk('unreachable', 'stop')] })
+
+    const outcome = await (await service(16_384)).generate(params({ tools: withTools }))
+
+    expect(outcome.stopReason).toBe('context-limit')
+    expect(mocks.requests).toHaveLength(1)
   })
 
   it('escalates only as far as it must to make the prompt fit', async () => {

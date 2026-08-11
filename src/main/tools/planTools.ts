@@ -43,19 +43,35 @@ export const writePlanTool: ToolFactory = (define, ctx) =>
         run() {
           const title = args.title.trim()
           if (!title) throw new Error('A plan needs a non-empty title.')
-          const steps: PlanStep[] = args.steps
+          const stepTitles = args.steps
             .map((stepTitle) => stepTitle.trim())
             .filter((stepTitle) => stepTitle.length > 0)
             .slice(0, MAX_STEPS)
-            .map((stepTitle) => ({
-              id: randomUUID(),
-              title: truncate(stepTitle, MAX_TITLE_CHARS),
-              status: 'pending'
-            }))
           // An empty plan is never useful — for a plan-reviewed agent run
           // specifically, it would otherwise enter `needs-review` with
           // nothing for the user to actually approve.
-          if (steps.length === 0) throw new Error('A plan needs at least one step.')
+          if (stepTitles.length === 0) throw new Error('A plan needs at least one step.')
+
+          // Local models can re-emit the same native call after seeing its
+          // result. Replacing an identical plan used to reset every completed
+          // row back to pending. A changed plan may still replace the old one;
+          // an exact repeat is an idempotent reminder of current progress.
+          const current = ctx.plan.current
+          if (current && isSamePlan(current, title, stepTitles)) {
+            return Promise.resolve({
+              modelResult:
+                `That identical plan is already active; its progress was preserved:\n${renderPlan(current)}\n\n` +
+                'Do not call write_plan again. Continue with update_plan_step using these same 1-based numbers.',
+              detail: 'Existing plan preserved',
+              plan: current
+            })
+          }
+
+          const steps: PlanStep[] = stepTitles.map((stepTitle) => ({
+            id: randomUUID(),
+            title: truncate(stepTitle, MAX_TITLE_CHARS),
+            status: 'pending'
+          }))
           const plan: Plan = { title, steps, updatedAt: Date.now() }
           ctx.plan.current = plan
           // Echo the numbered steps and the exact follow-up call back to the
@@ -139,6 +155,20 @@ export const updatePlanStepTool: ToolFactory = (define, ctx) =>
         }
       })
   })
+
+function isSamePlan(current: Plan, title: string, stepTitles: string[]): boolean {
+  return (
+    current.title === title &&
+    current.steps.length === stepTitles.length &&
+    current.steps.every(
+      (step, index) => step.title === truncate(stepTitles[index], MAX_TITLE_CHARS)
+    )
+  )
+}
+
+function renderPlan(plan: Plan): string {
+  return plan.steps.map((step, index) => `${index + 1}. [${step.status}] ${step.title}`).join('\n')
+}
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text

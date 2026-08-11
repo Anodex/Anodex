@@ -15,12 +15,23 @@ interface MeterMocks {
   contextSize: number | undefined
   maxResponseTokens: number | null
   activeProvider: string
+  conversation: {
+    id: string
+    messages: { id: string; role: 'user' | 'assistant'; content: string; createdAt: number }[]
+  }
 }
 
 const mocks = vi.hoisted<MeterMocks>(() => ({
   contextSize: 32768,
   maxResponseTokens: null,
-  activeProvider: 'local'
+  activeProvider: 'local',
+  conversation: {
+    id: 'c1',
+    messages: [
+      { id: 'm1', role: 'user', content: 'Build a website.', createdAt: 1 },
+      { id: 'm2', role: 'assistant', content: 'Working on it.', createdAt: 2 }
+    ]
+  }
 }))
 
 function fakeStore(getState: () => unknown) {
@@ -30,15 +41,7 @@ function fakeStore(getState: () => unknown) {
 vi.mock('../../../stores/chatStore', () => ({
   useChatStore: fakeStore(() => ({
     activeId: 'c1',
-    conversations: [
-      {
-        id: 'c1',
-        messages: [
-          { id: 'm1', role: 'user', content: 'Build a website.', createdAt: 1 },
-          { id: 'm2', role: 'assistant', content: 'Working on it.', createdAt: 2 }
-        ]
-      }
-    ]
+    conversations: [mocks.conversation]
   }))
 }))
 
@@ -70,6 +73,13 @@ beforeEach(() => {
   mocks.contextSize = 32768
   mocks.maxResponseTokens = null
   mocks.activeProvider = 'local'
+  mocks.conversation = {
+    id: 'c1',
+    messages: [
+      { id: 'm1', role: 'user', content: 'Build a website.', createdAt: 1 },
+      { id: 'm2', role: 'assistant', content: 'Working on it.', createdAt: 2 }
+    ]
+  }
 })
 
 describe('ContextMeter reply ceiling', () => {
@@ -116,6 +126,21 @@ describe('ContextMeter reply ceiling', () => {
     const html = render()
 
     expect(html).toContain('replies capped at 2,048 tokens')
+  })
+
+  it('explains a full local window as pending compaction instead of a dead end', () => {
+    mocks.conversation = {
+      id: 'c1',
+      messages: [
+        { id: 'm1', role: 'user', content: 'Write a long story.', createdAt: 1 },
+        { id: 'm2', role: 'assistant', content: 'x'.repeat(160_000), createdAt: 2 }
+      ]
+    }
+
+    const html = render()
+
+    expect(html).toContain('Full - compacts next')
+    expect(html).toContain('Older turns will condense before the next reply.')
   })
 
   it('renders nothing at all when no context window is known', () => {
