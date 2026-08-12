@@ -5,6 +5,9 @@ import { detectToolCallText } from './toolCallText'
 
 const KNOWN_TOOL_NAMES = new Set(TOOL_CATALOG.map((tool) => tool.name))
 
+export const INTERRUPTED_GENERATION_MESSAGE =
+  'Anodex was closed before this reply finished. The text and completed work above were preserved.'
+
 export function sanitizeAssistantContent(text: string): string {
   return stripKnownToolCallPayloads(text).text
 }
@@ -65,6 +68,38 @@ export function sanitizeConversationTranscript(conversation: Conversation): {
     const result = sanitizeMessageTranscript(message)
     if (result.changed) changed = true
     return result.message
+  })
+
+  return changed
+    ? { conversation: { ...conversation, messages }, changed }
+    : { conversation, changed }
+}
+
+/**
+ * A streaming flag only has meaning while its renderer and main-process
+ * generation are both alive. If it reached disk, the app exited before that
+ * generation could settle, so leaving it live on the next launch traps the
+ * composer in its queued-message state with no generation left to stop.
+ */
+export function reconcileInterruptedConversation(conversation: Conversation): {
+  conversation: Conversation
+  changed: boolean
+} {
+  let changed = false
+  const messages = conversation.messages.map((message) => {
+    if (!message.streaming) return message
+    changed = true
+    const toolCalls = message.toolCalls?.map(settleInterruptedToolCall)
+    const blocks = message.blocks?.map((block) =>
+      block.type === 'tool' ? { ...block, call: settleInterruptedToolCall(block.call) } : block
+    )
+    return {
+      ...message,
+      streaming: false,
+      error: message.error ?? INTERRUPTED_GENERATION_MESSAGE,
+      toolCalls,
+      blocks
+    }
   })
 
   return changed
@@ -149,6 +184,12 @@ function sanitizeToolCall(
     return { call, changed: false }
   }
   return { call: { ...call, preview }, changed: true }
+}
+
+function settleInterruptedToolCall(call: ToolCall): ToolCall {
+  return call.status === 'running'
+    ? { ...call, status: 'error', detail: 'Interrupted when Anodex closed.' }
+    : call
 }
 
 function stripKnownToolCallPayloads(text: string): { text: string; changed: boolean } {

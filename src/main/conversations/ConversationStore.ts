@@ -2,7 +2,10 @@ import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { Conversation, ConversationState } from '@shared/conversation.types'
-import { sanitizeConversationTranscript } from '@shared/chatSanitizer'
+import {
+  reconcileInterruptedConversation,
+  sanitizeConversationTranscript
+} from '@shared/chatSanitizer'
 import { abortGeneration } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
 import { conversationAssetStore } from './ConversationAssetStore'
@@ -327,12 +330,13 @@ class ConversationStore {
         ...conversation,
         archived: conversation.archived ?? false
       }
-      const normalized = sanitizeConversationTranscript(withDefaults)
-      if (normalized.changed) {
+      const sanitized = sanitizeConversationTranscript(withDefaults)
+      const normalized = reconcileInterruptedConversation(sanitized.conversation)
+      if (sanitized.changed || normalized.changed) {
         try {
           writeFileSync(filePath, JSON.stringify(normalized.conversation, null, 2), 'utf-8')
         } catch (error) {
-          log.warn('Failed to rewrite sanitized conversation:', filePath, error)
+          log.warn('Failed to rewrite normalized conversation:', filePath, error)
         }
       }
       conversationAssetStore.pruneConversation(normalized.conversation)

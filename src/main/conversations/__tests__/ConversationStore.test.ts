@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { INTERRUPTED_GENERATION_MESSAGE } from '@shared/chatSanitizer'
 import type { Conversation } from '@shared/conversation.types'
 
 const h = vi.hoisted(() => ({
@@ -159,6 +160,58 @@ describe('ConversationStore persistence', () => {
     conversationStore.init()
 
     expect(conversationStore.getState().activeConversationId).toBeNull()
+  })
+
+  it('settles a reply left streaming when the previous app session closed', () => {
+    conversationStore.save(
+      conversation({
+        messages: [
+          { id: 'u1', role: 'user', content: 'Continue.', createdAt: 1 },
+          {
+            id: 'a1',
+            role: 'assistant',
+            content: 'Partial reply',
+            createdAt: 2,
+            streaming: true,
+            toolCalls: [
+              {
+                id: 'tool-1',
+                name: 'read_file',
+                kind: 'read',
+                title: 'Read app.ts',
+                status: 'running'
+              }
+            ],
+            blocks: [
+              {
+                type: 'tool',
+                call: {
+                  id: 'tool-1',
+                  name: 'read_file',
+                  kind: 'read',
+                  title: 'Read app.ts',
+                  status: 'running'
+                }
+              }
+            ]
+          }
+        ]
+      })
+    )
+
+    conversationStore.init()
+
+    const message = conversationStore.list()[0].messages[1]
+    expect(message.streaming).toBe(false)
+    expect(message.error).toBe(INTERRUPTED_GENERATION_MESSAGE)
+    expect(message.toolCalls?.[0]).toMatchObject({
+      status: 'error',
+      detail: 'Interrupted when Anodex closed.'
+    })
+    expect(message.blocks?.[0]).toMatchObject({
+      type: 'tool',
+      call: { status: 'error', detail: 'Interrupted when Anodex closed.' }
+    })
   })
 })
 
