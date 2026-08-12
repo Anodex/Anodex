@@ -24,6 +24,7 @@ import { formatBytes } from '../../lib/format'
 import {
   applySkillSuggestion,
   getAppliedSkillName,
+  getSlashSkillSuggestions,
   getSkillSuggestions
 } from '../../lib/skillSuggestions'
 import { ContextMeter } from './ContextMeter'
@@ -33,7 +34,8 @@ import {
   expandSlashCommand,
   getSlashCommandSuggestions,
   SLASH_COMMAND_HINT,
-  type SlashCommandName
+  type SlashCommandName,
+  type SlashCommandSuggestion
 } from '../../lib/slashCommands'
 import { suggestionFromPlan } from '../../lib/replaySuggestions'
 import styles from './ChatComposer.module.css'
@@ -51,6 +53,9 @@ const PERMISSION_MODES: PermissionMode[] = ['ask', 'full', 'untethered']
 
 /** Matches `useGlobalKeyboardShortcuts`' own fallback for settings-not-loaded-yet. */
 const DEFAULT_STOP_SHORTCUT = DEFAULT_KEYBOARD_SHORTCUTS.stopGeneration
+
+type SlashPickerOption =
+  { kind: 'command'; command: SlashCommandSuggestion } | { kind: 'skill'; skill: SkillSummary }
 
 function permissionIcon(mode: PermissionMode): IconName {
   if (mode === 'untethered') return 'unlock-keyhole'
@@ -76,6 +81,7 @@ export function ChatComposer(): JSX.Element {
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [activeSlashIndex, setActiveSlashIndex] = useState(0)
+  const [slashPickerDismissed, setSlashPickerDismissed] = useState(false)
   const [compacting, setCompacting] = useState(false)
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [dismissedSkillName, setDismissedSkillName] = useState<string | null>(null)
@@ -86,6 +92,7 @@ export function ChatComposer(): JSX.Element {
   const [permOpen, setPermOpen] = useState(false)
   const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const slashMenuRef = useRef<HTMLDivElement>(null)
   const permMenuRef = useRef<HTMLDivElement>(null)
   /**
    * The attachment list is mirrored in a ref because `attachFiles` awaits an
@@ -177,9 +184,20 @@ export function ChatComposer(): JSX.Element {
   }, [activeConversation, generating])
   const canCompact = localReady && !generating && !compacting && hasCompactableHistory
   const slashSuggestions = useMemo(() => getSlashCommandSuggestions(text), [text])
-  const showSlashSuggestions = ready && slashSuggestions.length > 0
+  const slashSkillSuggestions = useMemo(
+    () => getSlashSkillSuggestions(skills, text, { limit: 8, pinnedSkillNames }),
+    [skills, text, pinnedSkillNames]
+  )
+  const slashPickerOptions = useMemo<SlashPickerOption[]>(
+    () => [
+      ...slashSuggestions.map((command) => ({ kind: 'command' as const, command })),
+      ...slashSkillSuggestions.map((skill) => ({ kind: 'skill' as const, skill }))
+    ],
+    [slashSuggestions, slashSkillSuggestions]
+  )
+  const showSlashSuggestions = ready && !slashPickerDismissed && slashPickerOptions.length > 0
   const selectedSlashSuggestion =
-    slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)]
+    slashPickerOptions[Math.min(activeSlashIndex, slashPickerOptions.length - 1)]
   const skillSuggestions = useMemo(
     () =>
       ready && !showSlashSuggestions
@@ -226,6 +244,13 @@ export function ChatComposer(): JSX.Element {
     setDismissedSkillName(null)
   }, [text])
 
+  // A slash remains in the draft when the user clicks away, but the picker is
+  // deliberately transient. Any new edit makes the current slash prefix
+  // eligible to open it again.
+  useEffect(() => {
+    setSlashPickerDismissed(false)
+  }, [text])
+
   useEffect(() => {
     setDismissedReplaySuggestionKey(null)
   }, [activeConversation?.id, replaySuggestionKey])
@@ -252,6 +277,15 @@ export function ChatComposer(): JSX.Element {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [permOpen])
+
+  useEffect(() => {
+    if (!showSlashSuggestions) return
+    function dismissSlashPickerOnOutsideClick(event: MouseEvent): void {
+      if (!slashMenuRef.current?.contains(event.target as Node)) setSlashPickerDismissed(true)
+    }
+    document.addEventListener('mousedown', dismissSlashPickerOnOutsideClick)
+    return () => document.removeEventListener('mousedown', dismissSlashPickerOnOutsideClick)
+  }, [showSlashSuggestions])
 
   const togglePermMenu = (): void => {
     setPermOpen((value) => !value)
@@ -283,6 +317,22 @@ export function ChatComposer(): JSX.Element {
       textareaRef.current?.focus()
       autoGrow()
     })
+  }
+
+  const selectSlashSkill = (skillName: string): void => {
+    // The slash is a picker trigger, not part of the request. Selecting a
+    // skill leaves a clean, explicit instruction ready for the user's prompt.
+    setText(applySkillSuggestion(skillName, ''))
+    setActiveSlashIndex(0)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      autoGrow()
+    })
+  }
+
+  const selectSlashSuggestion = (suggestion: SlashPickerOption): void => {
+    if (suggestion.kind === 'command') selectSlashCommand(suggestion.command.name)
+    else selectSlashSkill(suggestion.skill.name)
   }
 
   const applySuggestedSkill = (skillName: string): void => {
@@ -344,19 +394,19 @@ export function ChatComposer(): JSX.Element {
     if (showSlashSuggestions) {
       if (event.key === 'ArrowDown') {
         event.preventDefault()
-        setActiveSlashIndex((index) => (index + 1) % slashSuggestions.length)
+        setActiveSlashIndex((index) => (index + 1) % slashPickerOptions.length)
         return
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault()
         setActiveSlashIndex(
-          (index) => (index - 1 + slashSuggestions.length) % slashSuggestions.length
+          (index) => (index - 1 + slashPickerOptions.length) % slashPickerOptions.length
         )
         return
       }
       if ((event.key === 'Tab' || event.key === 'Enter') && selectedSlashSuggestion) {
         event.preventDefault()
-        selectSlashCommand(selectedSlashSuggestion.name)
+        selectSlashSuggestion(selectedSlashSuggestion)
         return
       }
       if (event.key === 'Escape') {
@@ -526,8 +576,15 @@ export function ChatComposer(): JSX.Element {
         )}
 
         {showSlashSuggestions && (
-          <div className={styles.commandMenu} role="listbox" aria-label="Slash commands">
-            <div className={styles.commandMenuHeader}>Slash commands</div>
+          <div
+            ref={slashMenuRef}
+            className={styles.commandMenu}
+            role="listbox"
+            aria-label="Commands and skills"
+          >
+            {slashSuggestions.length > 0 && (
+              <div className={styles.commandMenuHeader}>Commands</div>
+            )}
             {slashSuggestions.map((command, index) => (
               <button
                 key={command.name}
@@ -535,15 +592,41 @@ export function ChatComposer(): JSX.Element {
                 className={`${styles.commandItem} ${index === activeSlashIndex ? styles.commandItemActive : ''}`}
                 onMouseDown={(event) => {
                   event.preventDefault()
-                  selectSlashCommand(command.name)
+                  selectSlashSuggestion({ kind: 'command', command })
                 }}
                 role="option"
                 aria-selected={index === activeSlashIndex}
               >
+                <Icon name={command.icon} className={styles.commandIcon} size={16} />
                 <span className={styles.commandName}>/{command.name}</span>
                 <span className={styles.commandDescription}>{command.description}</span>
               </button>
             ))}
+            {slashSkillSuggestions.length > 0 && (
+              <div className={styles.commandMenuHeader}>Skills</div>
+            )}
+            {slashSkillSuggestions.map((skill, index) => {
+              const optionIndex = slashSuggestions.length + index
+              return (
+                <button
+                  key={`${skill.scope}:${skill.name}`}
+                  type="button"
+                  className={`${styles.commandItem} ${optionIndex === activeSlashIndex ? styles.commandItemActive : ''}`}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    selectSlashSuggestion({ kind: 'skill', skill })
+                  }}
+                  role="option"
+                  aria-selected={optionIndex === activeSlashIndex}
+                >
+                  <Icon name="skill" className={styles.commandIcon} size={16} />
+                  <span className={styles.commandName}>{skill.name}</span>
+                  <span className={styles.commandDescription}>
+                    {skill.description || `${skill.scope} skill`}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         )}
 
@@ -723,7 +806,7 @@ export function ChatComposer(): JSX.Element {
           )}
         </div>
       </div>
-      <div className={styles.hint}>
+      <div className={styles.hint} hidden>
         {generating
           ? `Enter to queue for after this reply · Shift+Enter for a new line${stopHint} · ${SLASH_COMMAND_HINT}`
           : `Enter to send · Shift+Enter for a new line · ${

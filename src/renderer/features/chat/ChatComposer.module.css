@@ -177,9 +177,12 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-width: 420px;
+  width: 100%;
+  max-height: min(360px, 45vh);
+  box-sizing: border-box;
   margin-bottom: var(--space-2);
   padding: var(--space-2);
+  overflow-y: auto;
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -199,7 +202,7 @@
 
 .commandItem {
   display: grid;
-  grid-template-columns: 96px 1fr;
+  grid-template-columns: 18px minmax(96px, 0.45fr) minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
   width: 100%;
@@ -212,10 +215,19 @@
   cursor: pointer;
 }
 
+.commandIcon {
+  color: var(--text-faint);
+}
+
 .commandItem:hover,
 .commandItemActive {
   color: var(--text);
   background: var(--bg-surface-2);
+}
+
+.commandItem:hover .commandIcon,
+.commandItemActive .commandIcon {
+  color: var(--accent);
 }
 
 .commandName {

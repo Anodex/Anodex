@@ -76,6 +76,16 @@ export type IconName =
   | 'plan'
   | 'memory'
   | 'insight'
+  | 'slash-goal'
+  | 'slash-continue'
+  | 'slash-plan'
+  | 'slash-next'
+  | 'slash-test'
+  | 'slash-review'
+  | 'slash-refactor'
+  | 'slash-summarize'
+  | 'slash-custom'
+  | 'skill'
   | 'external-link'
 
 const GLYPHS: Record<IconName, ReactNode> = {
@@ -534,6 +544,87 @@ const GLYPHS: Record<IconName, ReactNode> = {
         fill="currentColor"
         stroke="none"
       />
+    </>
+  ),
+  /* Slash-picker commands are intentionally distinct from the navigation
+     glyphs. Their simpler, directional silhouettes stay legible in the dense
+     command menu and give each workflow an immediate visual cue. */
+  'slash-goal': (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v2M22 12h-2M12 22v-2M2 12h2" />
+    </>
+  ),
+  'slash-continue': (
+    <>
+      <path d="M5 7v5h5" />
+      <path d="M5.4 12a7 7 0 1 0 2.1-5" />
+      <path d="m13 8 5 4-5 4" />
+    </>
+  ),
+  'slash-plan': (
+    <>
+      <circle cx="6" cy="18" r="2" />
+      <circle cx="18" cy="6" r="2" />
+      <path d="M8 18c4 0 2-8 8-8" />
+      <path d="M11 6h4M11 10h2" />
+    </>
+  ),
+  'slash-next': (
+    <>
+      <path d="M4 12h13" />
+      <path d="m13 7 5 5-5 5" />
+      <path d="M20 5v14" />
+    </>
+  ),
+  'slash-test': (
+    <>
+      <path d="M9 3h6M10 3v6l-5.2 8.3A2.5 2.5 0 0 0 6.9 21h10.2a2.5 2.5 0 0 0 2.1-3.7L14 9V3" />
+      <path d="M8 16h8" />
+      <path d="m10 13 1.5 1.5L14 12" />
+    </>
+  ),
+  'slash-review': (
+    <>
+      <path d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+      <path d="M13 3v6h6" />
+      <circle cx="10" cy="14" r="3" />
+      <path d="m12.2 16.2 2.3 2.3" />
+    </>
+  ),
+  'slash-refactor': (
+    <>
+      <circle cx="6" cy="5" r="2" />
+      <circle cx="18" cy="7" r="2" />
+      <circle cx="18" cy="18" r="2" />
+      <path d="M6 7v8a3 3 0 0 0 3 3h7" />
+      <path d="M8 5h5a3 3 0 0 1 3 3" />
+    </>
+  ),
+  'slash-summarize': (
+    <>
+      <path d="M5 5h14M5 10h14M5 15h9" />
+      <path d="m16 17 3 3 3-3" />
+      <path d="M19 20v-7" />
+    </>
+  ),
+  /* Reserved for user-defined shortcuts. A bracketed slash reads as a command
+     without borrowing the terminal icon, which represents shell execution. */
+  'slash-custom': (
+    <>
+      <path d="M4 5a2 2 0 0 1 2-2h10l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5z" />
+      <path d="M14 3v5h6" />
+      <path d="m9 10-2 2 2 2M15 10l2 2-2 2M13 9l-2 6" />
+    </>
+  ),
+  /* A small open book with a star at its fold: reusable instructions, not a
+     model capability or a generic file. */
+  skill: (
+    <>
+      <path d="M12 7c-1.6-1.7-3.8-2.3-7-2.3v12.1c3.2 0 5.4.6 7 2.2 1.6-1.6 3.8-2.2 7-2.2V4.7c-3.2 0-5.4.6-7 2.3z" />
+      <path d="M12 7v12" />
+      <path d="m12 3 .65 1.85L14.5 5.5l-1.85.65L12 8l-.65-1.85L9.5 5.5l1.85-.65L12 3z" />
     </>
   ),
   /* Open in a separate window: a pane with the corner opened out into an arrow

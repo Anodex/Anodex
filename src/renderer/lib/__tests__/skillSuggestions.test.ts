@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { SkillSummary } from '@shared/skill.types'
-import { applySkillSuggestion, getAppliedSkillName, getSkillSuggestions } from '../skillSuggestions'
+import {
+  applySkillSuggestion,
+  getAppliedSkillName,
+  getSkillSuggestions,
+  getSlashSkillSuggestions
+} from '../skillSuggestions'
 
 const SKILLS: SkillSummary[] = [
   {
@@ -72,6 +77,33 @@ describe('applySkillSuggestion', () => {
     const text = 'Use the `code-review` skill for this request.\n\nlook at the sidebar'
 
     expect(applySkillSuggestion('code-review', text)).toBe(text)
+  })
+})
+
+describe('getSlashSkillSuggestions', () => {
+  it('lists available skills when the composer contains only a slash', () => {
+    expect(getSlashSkillSuggestions(SKILLS, '/').map((skill) => skill.name)).toEqual([
+      'code-review',
+      'release-checklist',
+      'songwriting'
+    ])
+  })
+
+  it('filters skills by a partial name or keyword', () => {
+    expect(getSlashSkillSuggestions(SKILLS, '/rel').map((skill) => skill.name)).toEqual([
+      'release-checklist'
+    ])
+    expect(getSlashSkillSuggestions(SKILLS, '/bugs').map((skill) => skill.name)).toEqual([
+      'code-review'
+    ])
+  })
+
+  it('does not offer skills once the slash command has arguments', () => {
+    expect(getSlashSkillSuggestions(SKILLS, '/review the sidebar')).toEqual([])
+  })
+
+  it('dismisses the picker as soon as whitespace follows the slash', () => {
+    expect(getSlashSkillSuggestions(SKILLS, '/ ')).toEqual([])
   })
 })
 

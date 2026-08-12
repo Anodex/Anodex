@@ -33,7 +33,8 @@ describe('expandSlashCommand', () => {
 
 describe('getSlashCommandSuggestions', () => {
   it('returns all commands when the user starts a slash command', () => {
-    expect(getSlashCommandSuggestions('/').map((command) => command.name)).toEqual([
+    const commands = getSlashCommandSuggestions('/')
+    expect(commands.map((command) => command.name)).toEqual([
       'goal',
       'continue',
       'plan',
@@ -42,6 +43,16 @@ describe('getSlashCommandSuggestions', () => {
       'review',
       'refactor',
       'summarize'
+    ])
+    expect(commands.map((command) => command.icon)).toEqual([
+      'slash-goal',
+      'slash-continue',
+      'slash-plan',
+      'slash-next',
+      'slash-test',
+      'slash-review',
+      'slash-refactor',
+      'slash-summarize'
     ])
   })
 
@@ -61,6 +72,10 @@ describe('getSlashCommandSuggestions', () => {
 
   it('does not show suggestions once the user adds command arguments', () => {
     expect(getSlashCommandSuggestions('/review current diff')).toEqual([])
+  })
+
+  it('dismisses the picker as soon as whitespace follows the slash', () => {
+    expect(getSlashCommandSuggestions('/ ')).toEqual([])
   })
 
   it('does not show suggestions for ordinary messages', () => {
