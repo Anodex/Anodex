@@ -121,6 +121,14 @@ export function expandSlashCommand(text: string): SlashCommandExpansion | null {
   }
 }
 
+/** Return the user-written outcome from `/goal <outcome>`, if one was supplied. */
+export function goalFromSlashCommand(text: string): string | null {
+  const trimmed = text.trim()
+  const match = /^\/goal(?:\s+([\s\S]*))?$/.exec(trimmed)
+  const goal = match?.[1]?.trim()
+  return goal || null
+}
+
 function toSuggestion(name: SlashCommandName): SlashCommandSuggestion {
   const command = SLASH_COMMANDS[name]
   return {

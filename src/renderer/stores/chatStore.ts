@@ -110,6 +110,13 @@ interface ChatState {
    */
   clearReplaySuggestion: (conversationId: string) => void
   /**
+   * Store the focused outcome selected with `/goal` on the active chat. A
+   * fresh chat is created first when the composer has not been used yet.
+   */
+  setConversationGoal: (title: string) => string | null
+  /** Remove the active goal marker without changing the chat or its plan. */
+  clearConversationGoal: () => void
+  /**
    * Copies a conversation's history into a new, ordinary chat and selects it.
    * Used to carry a scheduled task's run log into a chat the user can actually
    * reply in, without turning the log itself into a conversation. Returns the
@@ -381,6 +388,37 @@ export const useChatStore = create<ChatState>()(
       if (!changed) return
       const conversation = get().conversations.find((item) => item.id === conversationId)
       if (conversation) void persistConversation(conversation)
+    },
+
+    setConversationGoal: (title) => {
+      const trimmed = title.trim()
+      if (!trimmed) return null
+      const conversationId = get().activeId ?? get().newConversation()
+      const now = Date.now()
+      let saved: Conversation | null = null
+      set((state) => {
+        const conversation = state.conversations.find((item) => item.id === conversationId)
+        if (!conversation) return
+        conversation.goal = { title: trimmed, createdAt: now }
+        conversation.updatedAt = now
+        saved = conversation
+      })
+      if (saved) void persistConversation(saved)
+      return conversationId
+    },
+
+    clearConversationGoal: () => {
+      const conversationId = get().activeId
+      if (!conversationId) return
+      let saved: Conversation | null = null
+      set((state) => {
+        const conversation = state.conversations.find((item) => item.id === conversationId)
+        if (!conversation?.goal) return
+        conversation.goal = undefined
+        conversation.updatedAt = Date.now()
+        saved = conversation
+      })
+      if (saved) void persistConversation(saved)
     },
 
     openEmailThreadConversation: (accountId, threadId, details) => {

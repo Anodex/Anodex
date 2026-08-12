@@ -56,10 +56,6 @@ short record so it does not reappear as a future task.
 
 ## Product improvements to explore
 
-- **Visible task goals.** When someone sets a `/goal`, show a compact, distinctive goal icon
-  and the active goal in the chat header and Workspace Dock, with clear progress and completion
-  states. The marker should stay visible while the goal is active, be easy to reopen for context,
-  and avoid competing with the existing plan UI.
 - **Structured computer-use control.** Add a Codex-style `ComputerControlService` in which a vision-capable model emits typed actions (`screenshot`, `click`, `double_click`, `drag`, `scroll`, `keypress`, `type`, and `wait`), Anodex validates and executes them, and a fresh screenshot is returned for the next step. Roll this out in phases: browser/project testing with stable DOM targets, Anodex-owned surfaces with reliable element targets, then explicitly enabled Windows desktop control. Require a visible control session, application and window allowlists, step/time budgets, pause/stop, action previews, approval for consequential actions, protection for password and secret fields, and a complete action/screenshot audit trail. Keep the executor provider-neutral so local vision and future cloud computer-use models can share it.
 - **Interactive vision navigation.** `inspect_visual` now samples up to three named HTML sections and lets the model request a particular section by id, so a visual review no longer sees only the header or a partial target area. The next step is a bounded, durable visual session with explicit `scroll` and `page` actions, viewport identity, post-scroll screenshots, a larger session-level image budget delivered in focused batches, and nested-target capture. Preserve position between visual steps, detect clipped or nested scroll containers, and add regression coverage for sticky headers, lazy-loaded content, nested scrolling, and screenshots taken after scrolling.
 
@@ -106,6 +102,7 @@ These are complete capabilities, not action items:
   draft-to-editor handoff.
 - Built-in slash commands, semantic workspace code search, structured project checks,
   and AI-assisted Git commit summaries.
+- Persistent `/goal` markers above the composer, with plan-backed progress and completion state.
 - In-app model discovery/downloads, hardware recommendations, reliability scoring,
   token activity, and the Workspace Dock.
 

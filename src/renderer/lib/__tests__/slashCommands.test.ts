@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   completeSlashCommand,
   expandSlashCommand,
+  goalFromSlashCommand,
   getSlashCommandSuggestions
 } from '../slashCommands'
 
@@ -28,6 +29,18 @@ describe('expandSlashCommand', () => {
 
   it('ignores ordinary messages', () => {
     expect(expandSlashCommand('please summarize this')).toBeNull()
+  })
+})
+
+describe('goalFromSlashCommand', () => {
+  it('keeps the user-written goal separate from the generated instruction', () => {
+    expect(goalFromSlashCommand('/goal Make recommendations fit this computer')).toBe(
+      'Make recommendations fit this computer'
+    )
+  })
+
+  it('requires a goal description', () => {
+    expect(goalFromSlashCommand('/goal')).toBeNull()
   })
 })
 

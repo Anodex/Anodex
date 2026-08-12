@@ -19,6 +19,8 @@ const getPathForFile = vi.fn<(file: File) => string>()
 const notifyError = vi.fn()
 const sendMessage = vi.fn()
 const clearReplaySuggestion = vi.fn()
+const setConversationGoal = vi.fn()
+const clearConversationGoal = vi.fn()
 let activeConversation: Record<string, unknown>
 
 const settings = createDefaultSettings('/models')
@@ -50,6 +52,8 @@ vi.mock('../../../stores/chatStore', () => ({
       pendingComposerText: null,
       setPendingComposerText: vi.fn(),
       clearReplaySuggestion,
+      setConversationGoal,
+      clearConversationGoal,
       compactConversation: vi.fn()
     })
 }))
@@ -176,6 +180,39 @@ describe('composer chrome', () => {
 
     await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull())
     expect(input).toHaveProperty('value', '/')
+  })
+
+  it('stores a /goal outcome and keeps it visible above the composer', () => {
+    activeConversation = {
+      id: 'c1',
+      messages: [],
+      projectId: null,
+      goal: { title: 'Make recommendations fit this computer', createdAt: 1 },
+      plan: {
+        title: 'Recommendation work',
+        updatedAt: 1,
+        steps: [
+          { id: 'one', title: 'Inspect hardware', status: 'completed' },
+          { id: 'two', title: 'Rank models', status: 'in_progress' }
+        ]
+      }
+    }
+    render(<ChatComposer />)
+
+    expect(screen.getByText('Make recommendations fit this computer')).toBeDefined()
+    expect(screen.getByText('1/2 steps')).toBeDefined()
+    fireEvent.click(screen.getByLabelText('Stop goal'))
+    expect(clearConversationGoal).toHaveBeenCalledTimes(1)
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: '/goal Keep this chat focused' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(setConversationGoal).toHaveBeenCalledWith('Keep this chat focused')
+    expect(sendMessage).toHaveBeenCalledWith(
+      'Set a focused goal for this task, create or update a concise visible plan, then begin the first unfinished step.\n\nAdditional context from the user:\nKeep this chat focused',
+      []
+    )
   })
 })
 

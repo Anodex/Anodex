@@ -16,6 +16,11 @@ export interface Conversation {
   archivedAt?: number
   /** The assistant's current self-tracked task plan for this conversation, if any. */
   plan?: Plan | null
+  /**
+   * The focused outcome the user set with `/goal`. It stays with the chat so
+   * the composer can keep the task visible while work and its plan progress.
+   */
+  goal?: ConversationGoal
   /** Durable model-context snapshot for older turns; the UI transcript stays complete. */
   context?: ConversationContext | null
   /**
@@ -42,6 +47,11 @@ export interface ConversationReplaySuggestion {
   /** The completed assistant reply this suggestion was generated from. */
   messageId: string
   text: string
+  createdAt: number
+}
+
+export interface ConversationGoal {
+  title: string
   createdAt: number
 }
 

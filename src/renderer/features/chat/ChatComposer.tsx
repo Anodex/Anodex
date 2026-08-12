@@ -13,12 +13,13 @@ import { MAX_ATTACHMENTS } from '../../lib/attachments'
 import { ContextMeter } from './ContextMeter'
 import { ToolConfirmCard } from './ToolConfirmCard'
 import { suggestionFromPlan } from '../../lib/replaySuggestions'
-import { expandSlashCommand } from '../../lib/slashCommands'
+import { expandSlashCommand, goalFromSlashCommand } from '../../lib/slashCommands'
 import { ComposerAttachments } from './composer/ComposerAttachments'
 import { ComposerPendingQueue } from './composer/ComposerPendingQueue'
 import { ComposerPermissionMenu } from './composer/ComposerPermissionMenu'
 import { ComposerSkillHint } from './composer/ComposerSkillHint'
 import { ComposerSlashPicker } from './composer/ComposerSlashPicker'
+import { ComposerGoalBar } from './composer/ComposerGoalBar'
 import { useComposerAttachments } from './composer/useComposerAttachments'
 import { useComposerSlashPicker } from './composer/useComposerSlashPicker'
 import styles from './ChatComposer.module.css'
@@ -55,6 +56,8 @@ export function ChatComposer(): JSX.Element {
   const pendingComposerText = useChatStore((state) => state.pendingComposerText)
   const setPendingComposerText = useChatStore((state) => state.setPendingComposerText)
   const clearReplaySuggestion = useChatStore((state) => state.clearReplaySuggestion)
+  const setConversationGoal = useChatStore((state) => state.setConversationGoal)
+  const clearConversationGoal = useChatStore((state) => state.clearConversationGoal)
   const compactConversation = useChatStore((state) => state.compactConversation)
   const engine = useModelStore((state) => state.engine)
   const settings = useSettingsStore((state) => state.settings)
@@ -162,6 +165,9 @@ export function ChatComposer(): JSX.Element {
       )
       return
     }
+    const goal = goalFromSlashCommand(text)
+    if (goal) setConversationGoal(goal)
+
     if (generating) {
       if (!canQueue) return
       const value = expandSlashCommand(text)?.expandedText ?? text
@@ -249,6 +255,14 @@ export function ChatComposer(): JSX.Element {
           />
         )}
       </div>
+
+      {activeConversation?.goal && (
+        <ComposerGoalBar
+          goal={activeConversation.goal}
+          plan={activeConversation.plan}
+          onStop={clearConversationGoal}
+        />
+      )}
 
       <div className={`${styles.inputShell} ${!ready ? styles.disabled : ''}`}>
         {showReplaySuggestion && replaySuggestion && (
