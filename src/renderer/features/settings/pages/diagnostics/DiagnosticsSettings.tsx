@@ -433,7 +433,32 @@ function SupportBundleDialog({
             <span>{preview.logLineCount} redacted log lines</span>
             <span>{preview.redactionCount} sensitive values removed</span>
           </div>
-          <pre className={styles.bundlePreview}>{preview.content}</pre>
+          <div className={styles.bundleContents}>
+            <section>
+              <Icon name="activity" size={15} />
+              <div>
+                <strong>What&apos;s included</strong>
+                <span>
+                  App version, hardware, local model status, recent diagnostics, and a redacted log
+                  excerpt.
+                </span>
+              </div>
+            </section>
+            <section>
+              <Icon name="shield-check" size={15} />
+              <div>
+                <strong>What stays out</strong>
+                <span>
+                  Chats, workspace files, attachments, credentials, URLs, email addresses, and full
+                  local paths.
+                </span>
+              </div>
+            </section>
+            <details className={styles.bundleDetails}>
+              <summary>Show redacted report preview</summary>
+              <pre className={styles.bundlePreview}>{preview.content}</pre>
+            </details>
+          </div>
         </>
       ) : null}
 
