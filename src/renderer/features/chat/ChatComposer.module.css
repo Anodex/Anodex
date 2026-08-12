@@ -301,18 +301,17 @@
   gap: var(--space-2);
   min-width: 0;
   margin-bottom: var(--space-2);
-  padding: 6px var(--space-2) 6px var(--space-3);
+  padding: 6px var(--space-3);
   color: var(--text-muted);
-  background: var(--bg-surface);
+  background: var(--bg-surface-2);
   border: 1px solid var(--border);
-  border-left: 2px solid var(--accent-violet);
   border-radius: var(--radius-md);
   font-size: var(--text-xs);
 }
 
 .goalBar > svg {
   flex-shrink: 0;
-  color: var(--accent-violet);
+  color: var(--accent);
 }
 
 .goalLabel {
@@ -344,34 +343,6 @@
 
 .goalComplete {
   color: var(--success);
-}
-
-.goalStop {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  margin: -3px 0 -3px var(--space-1);
-  color: var(--text-faint);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    color var(--transition-fast),
-    background var(--transition-fast);
-}
-
-.goalStop:hover {
-  color: var(--danger);
-  background: var(--bg-surface-2);
-}
-
-.goalStop:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: 1px;
 }
 
 /* One shell holds the textarea and every send-time control (attach, model,

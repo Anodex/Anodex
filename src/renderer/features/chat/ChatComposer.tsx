@@ -197,6 +197,11 @@ export function ChatComposer(): JSX.Element {
     }
   }
 
+  const stopGoalAndGeneration = (): void => {
+    clearConversationGoal()
+    void stopGeneration()
+  }
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (slashPicker.handleKeyDown(event)) return
 
@@ -257,11 +262,7 @@ export function ChatComposer(): JSX.Element {
       </div>
 
       {activeConversation?.goal && (
-        <ComposerGoalBar
-          goal={activeConversation.goal}
-          plan={activeConversation.plan}
-          onStop={clearConversationGoal}
-        />
+        <ComposerGoalBar goal={activeConversation.goal} plan={activeConversation.plan} />
       )}
 
       <div className={`${styles.inputShell} ${!ready ? styles.disabled : ''}`}>
@@ -337,7 +338,7 @@ export function ChatComposer(): JSX.Element {
           {generating && !hasContent ? (
             <button
               className={`${styles.action} ${styles.stop}`}
-              onClick={() => void stopGeneration()}
+              onClick={stopGoalAndGeneration}
               title="Stop generating"
               aria-label="Stop generating"
             >

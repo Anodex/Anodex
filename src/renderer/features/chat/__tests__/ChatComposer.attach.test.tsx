@@ -21,6 +21,7 @@ const sendMessage = vi.fn()
 const clearReplaySuggestion = vi.fn()
 const setConversationGoal = vi.fn()
 const clearConversationGoal = vi.fn()
+const stopGeneration = vi.fn()
 let activeConversation: Record<string, unknown>
 
 const settings = createDefaultSettings('/models')
@@ -48,7 +49,7 @@ vi.mock('../../../stores/chatStore', () => ({
       sendMessage,
       queueMessage: vi.fn(),
       removeQueuedMessage: vi.fn(),
-      stopGeneration: vi.fn(),
+      stopGeneration,
       pendingComposerText: null,
       setPendingComposerText: vi.fn(),
       clearReplaySuggestion,
@@ -201,8 +202,6 @@ describe('composer chrome', () => {
 
     expect(screen.getByText('Make recommendations fit this computer')).toBeDefined()
     expect(screen.getByText('1/2 steps')).toBeDefined()
-    fireEvent.click(screen.getByLabelText('Stop goal'))
-    expect(clearConversationGoal).toHaveBeenCalledTimes(1)
 
     const input = screen.getByRole('textbox')
     fireEvent.change(input, { target: { value: '/goal Keep this chat focused' } })
@@ -213,6 +212,21 @@ describe('composer chrome', () => {
       'Set a focused goal for this task, create or update a concise visible plan, then begin the first unfinished step.\n\nAdditional context from the user:\nKeep this chat focused',
       []
     )
+  })
+
+  it('uses the composer stop button to clear an active goal', () => {
+    activeConversation = {
+      id: 'c1',
+      messages: [{ id: 'm1', streaming: true }],
+      projectId: null,
+      goal: { title: 'Finish the migration', createdAt: 1 }
+    }
+    render(<ChatComposer />)
+
+    fireEvent.click(screen.getByLabelText('Stop generating'))
+
+    expect(clearConversationGoal).toHaveBeenCalledTimes(1)
+    expect(stopGeneration).toHaveBeenCalledTimes(1)
   })
 })
 

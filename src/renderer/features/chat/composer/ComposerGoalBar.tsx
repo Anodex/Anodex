@@ -6,7 +6,6 @@ import styles from '../ChatComposer.module.css'
 interface ComposerGoalBarProps {
   goal: ConversationGoal
   plan?: Plan | null
-  onStop: () => void
 }
 
 function goalProgress(plan?: Plan | null): string {
@@ -17,7 +16,7 @@ function goalProgress(plan?: Plan | null): string {
 }
 
 /** A persistent, compact reminder of the outcome currently guiding this chat. */
-export function ComposerGoalBar({ goal, plan, onStop }: ComposerGoalBarProps): JSX.Element {
+export function ComposerGoalBar({ goal, plan }: ComposerGoalBarProps): JSX.Element {
   const progress = goalProgress(plan)
   const complete = progress === 'Complete'
 
@@ -32,15 +31,6 @@ export function ComposerGoalBar({ goal, plan, onStop }: ComposerGoalBarProps): J
         {complete && <Icon name="check" size={12} />}
         {progress}
       </span>
-      <button
-        type="button"
-        className={styles.goalStop}
-        onClick={onStop}
-        title="Stop goal"
-        aria-label="Stop goal"
-      >
-        <Icon name="close" size={13} />
-      </button>
     </div>
   )
 }
