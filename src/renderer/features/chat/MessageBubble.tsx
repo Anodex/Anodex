@@ -11,14 +11,19 @@ import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
 import { MessageSources } from './MessageSources'
-import { ThinkingIndicator } from './ThinkingIndicator'
+import { LiveActivityIndicator } from './LiveActivityIndicator'
 import { TurnRecap } from './TurnRecap'
 import { CheckpointDialog } from './CheckpointDialog'
 import { EditMessageDialog } from './EditMessageDialog'
 import { RegenerateDialog } from './RegenerateDialog'
 import type { RegenerateTarget } from './messageEdit'
 import { MessageAttachments } from './MessageAttachments'
-import { buildRenderSegments, groupSegmentsForTimeline, messageBlocks } from './taskPhase'
+import {
+  buildRenderSegments,
+  groupSegmentsForTimeline,
+  liveActivityLabel,
+  messageBlocks
+} from './taskPhase'
 import type { VisualComparisonPair } from './visualComparisonPair'
 import styles from './MessageBubble.module.css'
 
@@ -157,17 +162,18 @@ export function MessageBubble({
   }
 
   const segments = buildRenderSegments(messageBlocks(message))
-  const showThinking = message.streaming && segments.length === 0
+  const showInitialActivity = message.streaming && segments.length === 0
   const lastSegment = segments[segments.length - 1]
   const timeline = groupSegmentsForTimeline(segments)
-  // The tail of a streaming message should always carry a live signal. A text
-  // tail gets the caret below; a tool group with a running call animates
-  // itself. But once a tool group settles and the model is generating its
-  // next step, nothing on screen moves — resurface the thinking indicator.
-  const showTailThinking =
-    message.streaming &&
-    lastSegment?.type === 'toolGroup' &&
-    !lastSegment.calls.some((call) => call.status === 'running')
+  // The tail of a streaming message always carries an unobtrusive live status.
+  // Tool names come from actual activity events; other labels describe only
+  // the observable generation state, not unexposed model reasoning.
+  const tailActivityLabel =
+    message.streaming && lastSegment
+      ? lastSegment.type === 'text'
+        ? 'Writing response'
+        : liveActivityLabel(message.toolCalls ?? [], false)
+      : null
 
   // First light: 'waiting' until this mount sees the thinking indicator,
   // 'armed' until the first words replace it, 'active' for the ~1.2s arrival,
@@ -178,14 +184,14 @@ export function MessageBubble({
   )
   const hasSegments = segments.length > 0
   useEffect(() => {
-    if (lightPhase === 'waiting' && showThinking) setLightPhase('armed')
-    if (lightPhase === 'armed' && !showThinking && hasSegments) {
+    if (lightPhase === 'waiting' && showInitialActivity) setLightPhase('armed')
+    if (lightPhase === 'armed' && !showInitialActivity && hasSegments) {
       setLightPhase('active')
       const timer = setTimeout(() => setLightPhase('done'), 1300)
       return () => clearTimeout(timer)
     }
     return undefined
-  }, [lightPhase, showThinking, hasSegments])
+  }, [lightPhase, showInitialActivity, hasSegments])
   const showFooter =
     isUser || (message.stats && !message.streaming) || showCopy || showSkillDraft || showCheckpoint
 
@@ -221,8 +227,8 @@ export function MessageBubble({
             <TranscriptRecallCard results={message.transcriptRecallUsed} />
           </div>
         )}
-        {showThinking ? (
-          <ThinkingIndicator />
+        {showInitialActivity ? (
+          <LiveActivityIndicator label={liveActivityLabel(message.toolCalls ?? [], false)} />
         ) : (
           <div className={styles.segments}>
             {timeline.map((block, index) => {
@@ -258,12 +264,11 @@ export function MessageBubble({
             })}
           </div>
         )}
-        {showTailThinking && (
-          <div className={styles.tailThinking}>
-            <ThinkingIndicator />
+        {tailActivityLabel && (
+          <div className={styles.tailActivity}>
+            <LiveActivityIndicator label={tailActivityLabel} />
           </div>
         )}
-        {message.streaming && lastSegment?.type === 'text' && <span className={styles.caret} />}
 
         {!isUser && (
           <MessageSources

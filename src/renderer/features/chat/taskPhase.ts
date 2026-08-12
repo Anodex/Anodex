@@ -180,3 +180,18 @@ export function currentTaskPhase(toolCalls: ToolCall[], hasContent: boolean): Ta
   }
   return hasContent ? 'responding' : null
 }
+
+/**
+ * A concise status for the live indicator beneath a streaming reply. Running
+ * tool titles are emitted by Anodex itself, so they describe real work rather
+ * than guessing at hidden model reasoning.
+ */
+export function liveActivityLabel(toolCalls: ToolCall[], hasContent: boolean): string {
+  const running = [...toolCalls].reverse().find((call) => call.status === 'running')
+  if (running) return running.title.trim() || TASK_PHASE_LABEL[phaseForCall(running, false)]
+  return hasContent
+    ? 'Writing response'
+    : toolCalls.length > 0
+      ? 'Preparing next step'
+      : 'Preparing response'
+}

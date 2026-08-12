@@ -219,121 +219,60 @@
   margin-bottom: var(--space-3);
 }
 
-/* Streaming "thinking" label — shimmer sweep across a cycling phrase.
-   Used by ThinkingIndicator, which shares this module. */
-.thinking {
-  display: inline-block;
-  padding: var(--space-1) 0;
-  font-weight: 500;
-  background-image: linear-gradient(
-    90deg,
-    var(--text-faint) 0%,
-    var(--text-faint) 35%,
-    var(--text) 50%,
-    var(--text-faint) 65%,
-    var(--text-faint) 100%
-  );
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 1.8s linear infinite;
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* The indicator resurfacing at the tail of a streaming message, after a
-   settled tool group (see MessageBubble's `showTailThinking`). */
-.tailThinking {
+/* Live status is intentionally more subdued than answer text. Its passing
+   highlight makes active work clear without turning it into transcript prose. */
+.tailActivity {
   margin-top: var(--space-2);
 }
 
-/* Composed thinking indicator: breathing sparkle + shimmer + phrase crossfade. */
-.thinkingRow {
+.liveActivity {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: 18px;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: var(--text-faint);
+  user-select: none;
 }
 
-.thinkingSparkle {
+.liveActivity > :first-child {
   flex-shrink: 0;
-  color: var(--accent);
-  transform-origin: center;
-  animation: sparkleBreathe 2.6s var(--ease) infinite;
+  opacity: 0.55;
 }
 
-.thinkingStack {
-  position: relative;
+.liveActivityText {
   display: inline-block;
-  overflow: hidden;
+  font-weight: 500;
+  background-image: linear-gradient(
+    100deg,
+    var(--text-faint) 0%,
+    var(--text-faint) 36%,
+    color-mix(in srgb, var(--text) 72%, var(--accent)) 50%,
+    var(--text-faint) 64%,
+    var(--text-faint) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: activitySweep 2.25s linear infinite;
 }
 
-/* The shimmer (.thinking) must sit on the span holding the text directly —
-   Chromium does not paint clip-to-text backgrounds on absolutely-positioned
-   descendants, which would render the phrase invisible. */
-.phraseIn {
-  animation: phraseIn 240ms var(--ease-out) both;
-}
-
-.phraseOut {
-  position: absolute;
-  top: 0;
-  left: 0;
-  animation: phraseOut 240ms var(--ease) both;
-}
-
-@keyframes sparkleBreathe {
-  0%,
-  100% {
-    transform: scale(0.82) rotate(0deg);
-    opacity: 0.65;
-  }
-  50% {
-    transform: scale(1) rotate(12deg);
-    opacity: 1;
-  }
-}
-
-@keyframes phraseIn {
+@keyframes activitySweep {
   from {
-    opacity: 0;
-    transform: translateY(9px);
+    background-position: 200% 0;
   }
-}
-
-@keyframes phraseOut {
   to {
-    opacity: 0;
-    transform: translateY(-9px);
+    background-position: -20% 0;
   }
 }
 
-/* Streaming caret: an eased breathe instead of a hard terminal blink. */
-.caret {
-  display: inline-block;
-  width: 7px;
-  height: 15px;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  background: var(--accent);
-  border-radius: 1px;
-  animation: caretBreathe 1.1s var(--ease) infinite;
-}
-
-@keyframes caretBreathe {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.25;
+@media (prefers-reduced-motion: reduce) {
+  .liveActivityText {
+    color: var(--text-faint);
+    background: none;
+    animation: none;
   }
 }
 

@@ -6,6 +6,7 @@ import {
   currentTaskPhase,
   groupSegmentsForTimeline,
   groupToolCallsByPhase,
+  liveActivityLabel,
   messageBlocks
 } from '../taskPhase'
 
@@ -63,6 +64,23 @@ describe('currentTaskPhase', () => {
   it('reports responding once tool calls are done and text is streaming', () => {
     const calls = [call({ kind: 'read', status: 'success' })]
     expect(currentTaskPhase(calls, true)).toBe('responding')
+  })
+})
+
+describe('liveActivityLabel', () => {
+  it('uses the current running tool title instead of a guessed model state', () => {
+    expect(
+      liveActivityLabel(
+        [call({ title: 'Read src/renderer/features/chat/MessageBubble.tsx', status: 'running' })],
+        false
+      )
+    ).toBe('Read src/renderer/features/chat/MessageBubble.tsx')
+  })
+
+  it('uses only conservative labels when no tool reports the current work', () => {
+    expect(liveActivityLabel([], false)).toBe('Preparing response')
+    expect(liveActivityLabel([call({ status: 'success' })], false)).toBe('Preparing next step')
+    expect(liveActivityLabel([], true)).toBe('Writing response')
   })
 })
 
