@@ -1,8 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
-import type { SkillSummary } from '@shared/skill.types'
-import type { PermissionMode } from '@shared/settings.types'
-import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import { useChatStore, type PendingMessage } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
@@ -11,168 +8,91 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { isChatReady } from '../../lib/chatReadiness'
 import { COMPOSER_INPUT_ATTR } from '../../hooks/useGlobalKeyboardShortcuts'
-import { Icon, type IconName } from '../../components/Icon'
-import { FileTypeIcon } from '../../components/FileTypeIcon'
-import { anodex } from '../../lib/anodex'
-import {
-  ANODEX_FILE_DRAG_TYPE,
-  intakeAttachments,
-  MAX_ATTACHMENTS,
-  type ComposerAttachment
-} from '../../lib/attachments'
-import { formatBytes } from '../../lib/format'
-import {
-  applySkillSuggestion,
-  getAppliedSkillName,
-  getSlashSkillSuggestions,
-  getSkillSuggestions
-} from '../../lib/skillSuggestions'
+import { Icon } from '../../components/Icon'
+import { MAX_ATTACHMENTS } from '../../lib/attachments'
 import { ContextMeter } from './ContextMeter'
 import { ToolConfirmCard } from './ToolConfirmCard'
-import {
-  completeSlashCommand,
-  expandSlashCommand,
-  getSlashCommandSuggestions,
-  SLASH_COMMAND_HINT,
-  type SlashCommandName,
-  type SlashCommandSuggestion
-} from '../../lib/slashCommands'
 import { suggestionFromPlan } from '../../lib/replaySuggestions'
+import { expandSlashCommand } from '../../lib/slashCommands'
+import { ComposerAttachments } from './composer/ComposerAttachments'
+import { ComposerPendingQueue } from './composer/ComposerPendingQueue'
+import { ComposerPermissionMenu } from './composer/ComposerPermissionMenu'
+import { ComposerSkillHint } from './composer/ComposerSkillHint'
+import { ComposerSlashPicker } from './composer/ComposerSlashPicker'
+import { useComposerAttachments } from './composer/useComposerAttachments'
+import { useComposerSlashPicker } from './composer/useComposerSlashPicker'
 import styles from './ChatComposer.module.css'
 
 const MAX_TEXTAREA_HEIGHT = 200
-// Stable reference for the no-queue case — a fresh `[]` literal in the
-// selector would give useSyncExternalStore a new snapshot on every call,
-// which React treats as "state changed every render" and throws "Maximum
-// update depth exceeded".
+// Stable reference for the no-queue case. A new empty array on each selector
+// pass would look like a changed external-store snapshot to React.
 const EMPTY_QUEUE: PendingMessage[] = []
 const EMPTY_SKILL_NAMES: string[] = []
 
-/** Order matters: least → most permissive, mirroring the Settings page. */
-const PERMISSION_MODES: PermissionMode[] = ['ask', 'full', 'untethered']
-
-/** Matches `useGlobalKeyboardShortcuts`' own fallback for settings-not-loaded-yet. */
-const DEFAULT_STOP_SHORTCUT = DEFAULT_KEYBOARD_SHORTCUTS.stopGeneration
-
-type SlashPickerOption =
-  { kind: 'command'; command: SlashCommandSuggestion } | { kind: 'skill'; skill: SkillSummary }
-
-function permissionIcon(mode: PermissionMode): IconName {
-  if (mode === 'untethered') return 'unlock-keyhole'
-  if (mode === 'full') return 'shield-check'
-  return 'shield-question'
-}
-
-function permissionLabel(mode: PermissionMode): string {
-  if (mode === 'untethered') return 'Untethered'
-  if (mode === 'full') return 'Full'
-  return 'Ask'
-}
-
-function permissionDescription(mode: PermissionMode): string {
-  if (mode === 'untethered') return 'auto-runs safe and sensitive actions'
-  if (mode === 'full') return 'auto-runs safe edits and asks before risky actions'
-  return 'asks before writes and shell commands'
-}
-
-/** Auto-growing message input with send / stop controls and drag-and-drop file attachments. */
+/**
+ * The composer coordinates chat state and lays out focused composer modules.
+ * See `composer/` for attachments, pending messages, permission controls, and
+ * slash-command/skill discovery.
+ */
 export function ChatComposer(): JSX.Element {
   const [text, setText] = useState('')
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
-  const [dragActive, setDragActive] = useState(false)
-  const [activeSlashIndex, setActiveSlashIndex] = useState(0)
-  const [slashPickerDismissed, setSlashPickerDismissed] = useState(false)
   const [compacting, setCompacting] = useState(false)
-  const [skills, setSkills] = useState<SkillSummary[]>([])
-  const [dismissedSkillName, setDismissedSkillName] = useState<string | null>(null)
   const [dismissedReplaySuggestionKey, setDismissedReplaySuggestionKey] = useState<string | null>(
     null
   )
-  const [queueExpanded, setQueueExpanded] = useState(false)
-  const [permOpen, setPermOpen] = useState(false)
-  const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const slashMenuRef = useRef<HTMLDivElement>(null)
-  const permMenuRef = useRef<HTMLDivElement>(null)
-  /**
-   * The attachment list is mirrored in a ref because `attachFiles` awaits an
-   * IPC read per file, and every one of those awaits is a window for a second
-   * pass to start — a second drop, or the file picker, neither of which waits
-   * for the first to finish. Both passes then derive their bookkeeping from
-   * the `attachments` closure as it was before either added anything, so the
-   * caps are enforced twice against the same starting point (drop ten, drop
-   * ten again, get twenty) and the same file dropped twice clears both passes'
-   * duplicate checks. That last one is the damaging case: `path` is this
-   * list's React key and the only thing `removeAttachment` filters on, so two
-   * entries sharing a path render as duplicate keys and removing either one
-   * removes both. The ref is written synchronously on every commit, so a pass
-   * resuming after an await sees what the other has already added.
-   */
-  const attachmentsRef = useRef<ComposerAttachment[]>([])
 
-  const setAttachmentList = (
-    update: (current: ComposerAttachment[]) => ComposerAttachment[]
-  ): void => {
-    attachmentsRef.current = update(attachmentsRef.current)
-    setAttachments(attachmentsRef.current)
-  }
-
-  const activeConversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
-  const sendMessage = useChatStore((s) => s.sendMessage)
-  const queueMessage = useChatStore((s) => s.queueMessage)
-  const removeQueuedMessage = useChatStore((s) => s.removeQueuedMessage)
-  const pendingQueue = useChatStore((s) =>
-    s.activeId ? (s.pendingMessages[s.activeId] ?? EMPTY_QUEUE) : EMPTY_QUEUE
+  const activeConversation = useChatStore((state) =>
+    state.conversations.find((conversation) => conversation.id === state.activeId)
   )
-  const stopGeneration = useChatStore((s) => s.stopGeneration)
-  const pendingComposerText = useChatStore((s) => s.pendingComposerText)
-  const setPendingComposerText = useChatStore((s) => s.setPendingComposerText)
-  const clearReplaySuggestion = useChatStore((s) => s.clearReplaySuggestion)
-  const compactConversation = useChatStore((s) => s.compactConversation)
-  const engine = useModelStore((s) => s.engine)
-  const settings = useSettingsStore((s) => s.settings)
-  const updateSettings = useSettingsStore((s) => s.update)
-  const permissionMode = settings?.general.permissionMode ?? 'ask'
-  // Typing while a reply streams replaces the Stop button with Queue (see the
-  // send controls below), so at exactly the moment a user is most likely to
-  // want to interrupt — they are already writing the correction — the only way
-  // out is the keyboard. Name it here rather than leave them hunting, and read
-  // the real binding so a remapped shortcut is not advertised as Escape.
-  const stopShortcut = settings?.keyboard.shortcuts.stopGeneration ?? DEFAULT_STOP_SHORTCUT
-  const stopHint = stopShortcut ? ` · ${stopShortcut} to stop` : ''
-  const projects = useProjectStore((s) => s.projects)
+  const sendMessage = useChatStore((state) => state.sendMessage)
+  const queueMessage = useChatStore((state) => state.queueMessage)
+  const removeQueuedMessage = useChatStore((state) => state.removeQueuedMessage)
+  const pendingQueue = useChatStore((state) =>
+    state.activeId ? (state.pendingMessages[state.activeId] ?? EMPTY_QUEUE) : EMPTY_QUEUE
+  )
+  const stopGeneration = useChatStore((state) => state.stopGeneration)
+  const pendingComposerText = useChatStore((state) => state.pendingComposerText)
+  const setPendingComposerText = useChatStore((state) => state.setPendingComposerText)
+  const clearReplaySuggestion = useChatStore((state) => state.clearReplaySuggestion)
+  const compactConversation = useChatStore((state) => state.compactConversation)
+  const engine = useModelStore((state) => state.engine)
+  const settings = useSettingsStore((state) => state.settings)
+  const updateSettings = useSettingsStore((state) => state.update)
+  const projects = useProjectStore((state) => state.projects)
+
   const activeProject = projects.find((project) => project.id === activeConversation?.projectId)
   const pinnedSkillNames = activeProject?.pinnedSkillNames ?? EMPTY_SKILL_NAMES
-
-  // Provider-aware: the Anthropic provider needs no loaded local model, only
-  // a configured API key (see `isChatReady`). `localReady` is kept separate
-  // because manual context compaction is always a local-engine feature (see
-  // `chatStore.compactConversation`), regardless of which provider is active.
+  const permissionMode = settings?.general.permissionMode ?? 'ask'
   const ready = isChatReady(settings, engine.status)
   const localReady = engine.status === 'ready'
   const localVision = settings?.provider.active === 'local' && Boolean(engine.vision)
   const cloudVision =
     settings?.provider.active === 'anthropic' || settings?.provider.active === 'openai'
   const visionAvailable = localVision || cloudVision
-  // Driven off the active conversation's own streaming message rather than
-  // the local engine's `generating` flag, which the Anthropic provider never
-  // touches — this way Send/Stop toggles correctly for either provider.
-  const generating = activeConversation?.messages.some((m) => m.streaming) ?? false
-  const hasContent = text.trim().length > 0 || attachments.length > 0
+  const generating = activeConversation?.messages.some((message) => message.streaming) ?? false
+
+  const autoGrow = (): void => {
+    const input = textareaRef.current
+    if (!input) return
+    input.style.height = 'auto'
+    input.style.height = `${Math.min(input.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`
+  }
+
+  const attachments = useComposerAttachments({ ready, visionAvailable })
+  const slashPicker = useComposerSlashPicker({
+    projectId: activeConversation?.projectId,
+    text,
+    setText,
+    ready,
+    pinnedSkillNames,
+    textareaRef,
+    autoGrow
+  })
+
+  const hasContent = text.trim().length > 0 || attachments.attachments.length > 0
   const canSend = ready && !generating && hasContent
-  // While generating, Enter/Send queues a comment instead of sending
-  // immediately — the model can't be steered mid-turn, so it's held until the
-  // current reply finishes rather than firing a second overlapping request.
   const canQueue = ready && generating && hasContent
-  // Mirrors the real eligibility check `compactConversation` sends to the main
-  // process (via `planManualContextCompaction`), instead of a raw message-count
-  // heuristic that ignores an already-applied snapshot — that heuristic could
-  // leave the button enabled with nothing actually left to compact.
-  //
-  // Skipped entirely while generating: the store gives the active conversation
-  // a new object reference on every streamed token (see `appendToken`), which
-  // would otherwise defeat this memo and re-run the full-history scan on every
-  // token — for a value that's already forced to `false` below regardless.
   const hasCompactableHistory = useMemo(() => {
     if (!activeConversation || generating) return false
     return (
@@ -183,33 +103,6 @@ export function ChatComposer(): JSX.Element {
     )
   }, [activeConversation, generating])
   const canCompact = localReady && !generating && !compacting && hasCompactableHistory
-  const slashSuggestions = useMemo(() => getSlashCommandSuggestions(text), [text])
-  const slashSkillSuggestions = useMemo(
-    () => getSlashSkillSuggestions(skills, text, { limit: 8, pinnedSkillNames }),
-    [skills, text, pinnedSkillNames]
-  )
-  const slashPickerOptions = useMemo<SlashPickerOption[]>(
-    () => [
-      ...slashSuggestions.map((command) => ({ kind: 'command' as const, command })),
-      ...slashSkillSuggestions.map((skill) => ({ kind: 'skill' as const, skill }))
-    ],
-    [slashSuggestions, slashSkillSuggestions]
-  )
-  const showSlashSuggestions = ready && !slashPickerDismissed && slashPickerOptions.length > 0
-  const selectedSlashSuggestion =
-    slashPickerOptions[Math.min(activeSlashIndex, slashPickerOptions.length - 1)]
-  const skillSuggestions = useMemo(
-    () =>
-      ready && !showSlashSuggestions
-        ? getSkillSuggestions(skills, text, { limit: 2, pinnedSkillNames })
-        : [],
-    [ready, showSlashSuggestions, skills, text, pinnedSkillNames]
-  )
-  const appliedSkillName = getAppliedSkillName(text)
-  const visibleSkillSuggestion =
-    skillSuggestions.find(
-      (skill) => skill.name !== dismissedSkillName && skill.name !== appliedSkillName
-    ) ?? null
   const planReplaySuggestion = useMemo(
     () => suggestionFromPlan(activeConversation?.plan),
     [activeConversation?.plan]
@@ -225,39 +118,11 @@ export function ChatComposer(): JSX.Element {
     ready &&
     !generating &&
     text.length === 0 &&
-    attachments.length === 0 &&
+    attachments.attachments.length === 0 &&
     replaySuggestion &&
     replaySuggestionKey !== dismissedReplaySuggestionKey
   )
 
-  useEffect(() => {
-    let cancelled = false
-    void anodex.skills.list(activeConversation?.projectId ?? null).then((result) => {
-      if (!cancelled) setSkills(result)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [activeConversation?.projectId])
-
-  useEffect(() => {
-    setDismissedSkillName(null)
-  }, [text])
-
-  // A slash remains in the draft when the user clicks away, but the picker is
-  // deliberately transient. Any new edit makes the current slash prefix
-  // eligible to open it again.
-  useEffect(() => {
-    setSlashPickerDismissed(false)
-  }, [text])
-
-  useEffect(() => {
-    setDismissedReplaySuggestionKey(null)
-  }, [activeConversation?.id, replaySuggestionKey])
-
-  // Another view (the Email page's Reply button) queued an instruction for the
-  // composer. Adopt it once and clear the queue so it can't reappear on a later
-  // render or leak into the next conversation.
   useEffect(() => {
     if (pendingComposerText === null) return
     setText(pendingComposerText)
@@ -266,78 +131,14 @@ export function ChatComposer(): JSX.Element {
   }, [pendingComposerText, setPendingComposerText])
 
   useEffect(() => {
-    if (pendingQueue.length === 0) setQueueExpanded(false)
-  }, [pendingQueue.length])
-
-  useEffect(() => {
-    if (!permOpen) return
-    function handleClickOutside(event: MouseEvent): void {
-      if (!permMenuRef.current?.contains(event.target as Node)) setPermOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [permOpen])
-
-  useEffect(() => {
-    if (!showSlashSuggestions) return
-    function dismissSlashPickerOnOutsideClick(event: MouseEvent): void {
-      if (!slashMenuRef.current?.contains(event.target as Node)) setSlashPickerDismissed(true)
-    }
-    document.addEventListener('mousedown', dismissSlashPickerOnOutsideClick)
-    return () => document.removeEventListener('mousedown', dismissSlashPickerOnOutsideClick)
-  }, [showSlashSuggestions])
-
-  const togglePermMenu = (): void => {
-    setPermOpen((value) => !value)
-  }
-
-  const selectPermissionMode = (mode: PermissionMode): void => {
-    void updateSettings({ general: { permissionMode: mode } })
-    setPermOpen(false)
-  }
+    setDismissedReplaySuggestionKey(null)
+  }, [activeConversation?.id, replaySuggestionKey])
 
   const resetHeight = (): void => {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
-  const autoGrow = (): void => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`
-  }
-
-  const expandComposerText = (value: string): string =>
-    expandSlashCommand(value)?.expandedText ?? value
-
-  const selectSlashCommand = (command: SlashCommandName): void => {
-    setText(completeSlashCommand(text, command))
-    setActiveSlashIndex(0)
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus()
-      autoGrow()
-    })
-  }
-
-  const selectSlashSkill = (skillName: string): void => {
-    // The slash is a picker trigger, not part of the request. Selecting a
-    // skill leaves a clean, explicit instruction ready for the user's prompt.
-    setText(applySkillSuggestion(skillName, ''))
-    setActiveSlashIndex(0)
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus()
-      autoGrow()
-    })
-  }
-
-  const selectSlashSuggestion = (suggestion: SlashPickerOption): void => {
-    if (suggestion.kind === 'command') selectSlashCommand(suggestion.command.name)
-    else selectSlashSkill(suggestion.skill.name)
-  }
-
-  const applySuggestedSkill = (skillName: string): void => {
-    setText((current) => applySkillSuggestion(skillName, current))
-    setDismissedSkillName(skillName)
+  const focusComposer = (): void => {
     requestAnimationFrame(() => {
       textareaRef.current?.focus()
       autoGrow()
@@ -347,14 +148,14 @@ export function ChatComposer(): JSX.Element {
   const acceptReplaySuggestion = (): void => {
     if (!replaySuggestion) return
     setText(replaySuggestion)
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus()
-      autoGrow()
-    })
+    focusComposer()
   }
 
   const submit = (): void => {
-    if (attachments.some((attachment) => attachment.kind === 'image') && !visionAvailable) {
+    if (
+      attachments.attachments.some((attachment) => attachment.kind === 'image') &&
+      !visionAvailable
+    ) {
       notifyError(
         'Vision model required',
         'Load a local model with its matching mmproj projector, or select an image-capable cloud model.'
@@ -363,19 +164,19 @@ export function ChatComposer(): JSX.Element {
     }
     if (generating) {
       if (!canQueue) return
-      const value = expandComposerText(text)
-      const pendingAttachments = attachments
+      const value = expandSlashCommand(text)?.expandedText ?? text
+      const pendingAttachments = attachments.attachments
       setText('')
-      setAttachmentList(() => [])
+      attachments.clearAttachments()
       resetHeight()
       queueMessage(value, pendingAttachments)
       return
     }
     if (!canSend) return
-    const value = expandComposerText(text)
-    const pendingAttachments = attachments
+    const value = expandSlashCommand(text)?.expandedText ?? text
+    const pendingAttachments = attachments.attachments
     setText('')
-    setAttachmentList(() => [])
+    attachments.clearAttachments()
     resetHeight()
     void sendMessage(value, pendingAttachments)
   }
@@ -391,275 +192,61 @@ export function ChatComposer(): JSX.Element {
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (showSlashSuggestions) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        setActiveSlashIndex((index) => (index + 1) % slashPickerOptions.length)
-        return
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        setActiveSlashIndex(
-          (index) => (index - 1 + slashPickerOptions.length) % slashPickerOptions.length
-        )
-        return
-      }
-      if ((event.key === 'Tab' || event.key === 'Enter') && selectedSlashSuggestion) {
-        event.preventDefault()
-        selectSlashSuggestion(selectedSlashSuggestion)
-        return
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        setText('')
-        setActiveSlashIndex(0)
-        return
-      }
-    }
+    if (slashPicker.handleKeyDown(event)) return
 
     if (event.key === 'Tab' && showReplaySuggestion) {
       event.preventDefault()
       acceptReplaySuggestion()
       return
     }
-
     if (event.key === 'Escape' && showReplaySuggestion && replaySuggestionKey) {
       event.preventDefault()
       setDismissedReplaySuggestionKey(replaySuggestionKey)
       return
     }
-
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       submit()
     }
   }
 
-  const removeAttachment = (path: string): void => {
-    setAttachmentList((prev) => prev.filter((a) => a.path !== path))
-  }
-
-  const attachFiles = (candidates: { path: string; name: string }[]): Promise<void> =>
-    intakeAttachments(candidates, {
-      getAttachments: () => attachmentsRef.current,
-      commit: setAttachmentList,
-      readFile: (path) => anodex.attachments.readFile(path),
-      notifyError,
-      visionAvailable
-    })
-
-  const handleDragEnter = (event: DragEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    dragCounter.current += 1
-    setDragActive(true)
-  }
-
-  const handleDragOver = (event: DragEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-  }
-
-  const handleDragLeave = (event: DragEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    dragCounter.current = Math.max(0, dragCounter.current - 1)
-    if (dragCounter.current === 0) setDragActive(false)
-  }
-
-  const handleDrop = (event: DragEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    dragCounter.current = 0
-    setDragActive(false)
-    if (!ready) return
-
-    const internalPayload = event.dataTransfer.getData(ANODEX_FILE_DRAG_TYPE)
-    if (internalPayload) {
-      try {
-        const { path, name } = JSON.parse(internalPayload) as { path: string; name: string }
-        void anodex.workspace.getAbsolutePath(path).then((resolved) => {
-          if (resolved.ok) void attachFiles([{ path: resolved.value, name }])
-          else notifyError('Could not attach file', resolved.error.message)
-        })
-      } catch {
-        /* Malformed internal drag payload — ignore. */
-      }
-      return
-    }
-
-    const dropped = Array.from(event.dataTransfer.files)
-      .map((file) => ({ path: anodex.system.getPathForFile(file), name: file.name }))
-      .filter((candidate) => candidate.path)
-    if (dropped.length > 0) void attachFiles(dropped)
-  }
-
-  const handleAttachClick = async (): Promise<void> => {
-    if (!ready) return
-    const picked = await anodex.attachments.pickFiles()
-    if (picked.length > 0) void attachFiles(picked)
-  }
-
   return (
     <div
-      className={`${styles.composer} ${dragActive ? styles.dragActive : ''}`}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      className={`${styles.composer} ${attachments.dragActive ? styles.dragActive : ''}`}
+      onDragEnter={attachments.handleDragEnter}
+      onDragOver={attachments.handleDragOver}
+      onDragLeave={attachments.handleDragLeave}
+      onDrop={attachments.handleDrop}
     >
       <div className={styles.composerTop}>
         <ToolConfirmCard />
-
-        {pendingQueue.length > 0 && activeConversation && (
-          <div className={styles.pendingWrap}>
-            <button
-              type="button"
-              className={styles.pendingSummary}
-              onClick={() => setQueueExpanded((value) => !value)}
-              aria-expanded={queueExpanded}
-            >
-              <Icon name="clock" size={12} />
-              <span className={styles.pendingSummaryText}>
-                {pendingQueue.length} message{pendingQueue.length === 1 ? '' : 's'} queued
-              </span>
-              <Icon
-                name="chevron-down"
-                size={12}
-                className={`${styles.pendingChevron} ${queueExpanded ? styles.pendingChevronOpen : ''}`}
-              />
-            </button>
-
-            {queueExpanded && (
-              <div className={styles.pendingQueue}>
-                {pendingQueue.map((item) => (
-                  <div key={item.id} className={styles.pendingItem}>
-                    <Icon name="clock" size={12} />
-                    <span className={styles.pendingText}>
-                      {item.text || `${item.attachments.length} file(s) attached`}
-                    </span>
-                    <button
-                      type="button"
-                      className={styles.pendingRemove}
-                      onClick={() => removeQueuedMessage(activeConversation.id, item.id)}
-                      aria-label="Remove queued message"
-                      title="Remove — won't be sent"
-                    >
-                      <Icon name="close" size={11} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        {activeConversation && (
+          <ComposerPendingQueue
+            conversationId={activeConversation.id}
+            messages={pendingQueue}
+            onRemove={removeQueuedMessage}
+          />
         )}
-
-        {attachments.length > 0 && (
-          <div className={styles.attachments}>
-            {attachments.map((attachment) => (
-              <div key={attachment.path} className={styles.attachment} title={attachment.path}>
-                {attachment.kind === 'image' ? (
-                  <img className={styles.attachmentThumbnail} src={attachment.dataUrl} alt="" />
-                ) : (
-                  <FileTypeIcon fileName={attachment.name} size={13} />
-                )}
-                <span className={styles.attachmentName}>{attachment.name}</span>
-                <span className={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</span>
-                <button
-                  type="button"
-                  className={styles.attachmentRemove}
-                  onClick={() => removeAttachment(attachment.path)}
-                  aria-label={`Remove ${attachment.name}`}
-                  title="Remove"
-                >
-                  <Icon name="close" size={11} />
-                </button>
-              </div>
-            ))}
-          </div>
+        <ComposerAttachments
+          attachments={attachments.attachments}
+          onRemove={attachments.removeAttachment}
+        />
+        {slashPicker.showSlashPicker && (
+          <ComposerSlashPicker
+            commands={slashPicker.slashCommands}
+            skills={slashPicker.slashSkills}
+            activeIndex={slashPicker.activeIndex}
+            onSelectCommand={slashPicker.selectCommand}
+            onSelectSkill={slashPicker.selectSkill}
+            onDismiss={slashPicker.dismissSlashPicker}
+          />
         )}
-
-        {showSlashSuggestions && (
-          <div
-            ref={slashMenuRef}
-            className={styles.commandMenu}
-            role="listbox"
-            aria-label="Commands and skills"
-          >
-            {slashSuggestions.length > 0 && (
-              <div className={styles.commandMenuHeader}>Commands</div>
-            )}
-            {slashSuggestions.map((command, index) => (
-              <button
-                key={command.name}
-                type="button"
-                className={`${styles.commandItem} ${index === activeSlashIndex ? styles.commandItemActive : ''}`}
-                onMouseDown={(event) => {
-                  event.preventDefault()
-                  selectSlashSuggestion({ kind: 'command', command })
-                }}
-                role="option"
-                aria-selected={index === activeSlashIndex}
-              >
-                <Icon name={command.icon} className={styles.commandIcon} size={16} />
-                <span className={styles.commandName}>/{command.name}</span>
-                <span className={styles.commandDescription}>{command.description}</span>
-              </button>
-            ))}
-            {slashSkillSuggestions.length > 0 && (
-              <div className={styles.commandMenuHeader}>Skills</div>
-            )}
-            {slashSkillSuggestions.map((skill, index) => {
-              const optionIndex = slashSuggestions.length + index
-              return (
-                <button
-                  key={`${skill.scope}:${skill.name}`}
-                  type="button"
-                  className={`${styles.commandItem} ${optionIndex === activeSlashIndex ? styles.commandItemActive : ''}`}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    selectSlashSuggestion({ kind: 'skill', skill })
-                  }}
-                  role="option"
-                  aria-selected={optionIndex === activeSlashIndex}
-                >
-                  <Icon name="skill" className={styles.commandIcon} size={16} />
-                  <span className={styles.commandName}>{skill.name}</span>
-                  <span className={styles.commandDescription}>
-                    {skill.description || `${skill.scope} skill`}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-
-        {visibleSkillSuggestion && !generating && (
-          <div className={styles.skillHint}>
-            <Icon name="sparkle" size={13} />
-            <span className={styles.skillHintText}>
-              Relevant {visibleSkillSuggestion.scope} skill:{' '}
-              <strong>{visibleSkillSuggestion.name}</strong>
-            </span>
-            <button
-              type="button"
-              className={styles.skillHintAction}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                applySuggestedSkill(visibleSkillSuggestion.name)
-              }}
-            >
-              Use
-            </button>
-            <button
-              type="button"
-              className={styles.skillHintDismiss}
-              aria-label="Dismiss skill suggestion"
-              title="Dismiss"
-              onMouseDown={(event) => {
-                event.preventDefault()
-                setDismissedSkillName(visibleSkillSuggestion.name)
-              }}
-            >
-              <Icon name="close" size={11} />
-            </button>
-          </div>
+        {slashPicker.visibleSkillSuggestion && !generating && (
+          <ComposerSkillHint
+            skill={slashPicker.visibleSkillSuggestion}
+            onUse={slashPicker.useSuggestedSkill}
+            onDismiss={slashPicker.dismissSkillSuggestion}
+          />
         )}
       </div>
 
@@ -681,7 +268,7 @@ export function ChatComposer(): JSX.Element {
           placeholder={
             showReplaySuggestion
               ? ''
-              : dragActive
+              : attachments.dragActive
                 ? 'Drop to attach…'
                 : ready
                   ? 'Message Anodex…'
@@ -692,14 +279,10 @@ export function ChatComposer(): JSX.Element {
                       : 'Load a model from the Models tab to start chatting'
           }
           onChange={(event) => {
-            // This also invalidates an in-flight generated suggestion. Plan
-            // suggestions remain derived from the visible plan, but optional
-            // AI copy must never return after the user has started drafting.
             if (event.target.value.length > 0 && activeConversation) {
               clearReplaySuggestion(activeConversation.id)
             }
             setText(event.target.value)
-            setActiveSlashIndex(0)
             autoGrow()
           }}
           onKeyDown={handleKeyDown}
@@ -709,55 +292,18 @@ export function ChatComposer(): JSX.Element {
           <button
             type="button"
             className={styles.ghostAction}
-            onClick={() => void handleAttachClick()}
-            disabled={!ready || attachments.length >= MAX_ATTACHMENTS}
+            onClick={() => void attachments.handleAttachClick()}
+            disabled={!ready || attachments.attachments.length >= MAX_ATTACHMENTS}
             title={visionAvailable ? 'Attach files or images' : 'Attach files'}
             aria-label={visionAvailable ? 'Attach files or images' : 'Attach files'}
           >
             <Icon name="paperclip" size={15} />
           </button>
 
-          <div className={styles.permMenu} ref={permMenuRef}>
-            <button
-              type="button"
-              className={`${styles.permTrigger} ${styles[`permActive${permissionLabel(permissionMode)}`]}`}
-              onClick={togglePermMenu}
-              title={`Permission mode: ${permissionLabel(permissionMode)} — ${permissionDescription(permissionMode)}`}
-              aria-label={`Permission mode: ${permissionLabel(permissionMode)}`}
-              aria-haspopup="menu"
-              aria-expanded={permOpen}
-            >
-              <Icon name={permissionIcon(permissionMode)} size={14} />
-            </button>
-
-            {permOpen && (
-              <div className={styles.permDropdown} role="menu" aria-label="Permission mode">
-                {PERMISSION_MODES.map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={permissionMode === mode}
-                    className={styles.permItem}
-                    onClick={() => selectPermissionMode(mode)}
-                  >
-                    <Icon
-                      name={permissionIcon(mode)}
-                      size={14}
-                      className={styles[`permItemIcon${permissionLabel(mode)}`]}
-                    />
-                    <span className={styles.permItemText}>
-                      <span className={styles.permItemLabel}>{permissionLabel(mode)}</span>
-                      <span className={styles.permItemDesc}>{permissionDescription(mode)}</span>
-                    </span>
-                    {permissionMode === mode && (
-                      <Icon name="check" size={13} className={styles.permItemCheck} />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <ComposerPermissionMenu
+            mode={permissionMode}
+            onSelect={(mode) => void updateSettings({ general: { permissionMode: mode } })}
+          />
 
           <div className={styles.meterSlot}>
             <ContextMeter className={styles.contextMeter} />
@@ -805,17 +351,6 @@ export function ChatComposer(): JSX.Element {
             </button>
           )}
         </div>
-      </div>
-      <div className={styles.hint} hidden>
-        {generating
-          ? `Enter to queue for after this reply · Shift+Enter for a new line${stopHint} · ${SLASH_COMMAND_HINT}`
-          : `Enter to send · Shift+Enter for a new line · ${
-              visionAvailable ? 'Drag or attach files and images' : 'Drag or attach a file'
-            } · ${
-              settings?.provider.active === 'local'
-                ? 'Responses are generated locally'
-                : 'Images are sent to the selected cloud provider'
-            } · ${SLASH_COMMAND_HINT}`}
       </div>
     </div>
   )

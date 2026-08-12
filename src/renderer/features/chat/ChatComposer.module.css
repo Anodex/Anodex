@@ -576,23 +576,6 @@
   width: 100%;
 }
 
-.hint {
-  margin-top: var(--space-2);
-  text-align: center;
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-}
-
-/* On a short window every row of chrome competes with the transcript for
-   space. The hint line is the lowest-priority row here — drop it first,
-   mirroring how the sidebar collapses to a rail before the chat gets
-   crowded horizontally (see AppShell's SIDEBAR_COLLAPSE_BREAKPOINT). */
-@media (max-height: 640px) {
-  .hint {
-    display: none;
-  }
-}
-
 @keyframes composerMenuIn {
   from {
     opacity: 0;

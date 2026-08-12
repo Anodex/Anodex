@@ -157,13 +157,25 @@ describe('dropping files onto the composer', () => {
   })
 })
 
-describe('the composer hint', () => {
-  it('names the key that stops a reply, which is the only way out while typing', () => {
+describe('composer chrome', () => {
+  it('does not render the retired instruction line below the composer', () => {
     render(<ChatComposer />)
 
-    // Not generating: the hint explains sending.
-    expect(document.body.textContent).toContain('Enter to send')
-    expect(document.body.textContent).not.toContain('to stop')
+    expect(document.body.textContent).not.toContain('Enter to send')
+    expect(document.body.textContent).not.toContain('Enter to queue for after this reply')
+  })
+
+  it('dismisses the slash picker when the user clicks away without clearing the draft', async () => {
+    render(<ChatComposer />)
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: '/' } })
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeDefined())
+
+    fireEvent.mouseDown(document.body)
+
+    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull())
+    expect(input).toHaveProperty('value', '/')
   })
 })
 

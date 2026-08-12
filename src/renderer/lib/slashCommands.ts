@@ -95,8 +95,6 @@ export interface SlashCommandExpansion {
   expandedText: string
 }
 
-export const SLASH_COMMAND_HINT = 'Shortcuts: /goal, /continue, /plan, /next, /test, /review'
-
 function isSlashCommandName(value: string): value is SlashCommandName {
   return value in SLASH_COMMANDS
 }
