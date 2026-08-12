@@ -56,6 +56,7 @@ const api: AnodexApi = {
       subscribe<ChatThinkingStreamChunk>(IpcChannel.Chat.thinkingStream, listener),
     summarize: (text, maxWords) => ipcRenderer.invoke(IpcChannel.Chat.summarize, text, maxWords),
     title: (request) => ipcRenderer.invoke(IpcChannel.Chat.title, request),
+    replaySuggestion: (request) => ipcRenderer.invoke(IpcChannel.Chat.replaySuggestion, request),
     onHistoryCompacted: (listener) =>
       subscribe<HistoryCompactionEvent>(IpcChannel.Chat.historyCompacted, listener)
   },

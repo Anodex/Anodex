@@ -18,6 +18,8 @@ const pickFiles = vi.fn<() => Promise<{ path: string; name: string }[]>>()
 const getPathForFile = vi.fn<(file: File) => string>()
 const notifyError = vi.fn()
 const sendMessage = vi.fn()
+const clearReplaySuggestion = vi.fn()
+let activeConversation: Record<string, unknown>
 
 const settings = createDefaultSettings('/models')
 
@@ -38,7 +40,7 @@ vi.mock('../../../stores/uiStore', () => ({ notifyError }))
 vi.mock('../../../stores/chatStore', () => ({
   useChatStore: (select: (state: unknown) => unknown) =>
     select({
-      conversations: [{ id: 'c1', messages: [], projectId: null }],
+      conversations: [activeConversation],
       activeId: 'c1',
       pendingMessages: {},
       sendMessage,
@@ -47,6 +49,7 @@ vi.mock('../../../stores/chatStore', () => ({
       stopGeneration: vi.fn(),
       pendingComposerText: null,
       setPendingComposerText: vi.fn(),
+      clearReplaySuggestion,
       compactConversation: vi.fn()
     })
 }))
@@ -88,6 +91,7 @@ function dropFile(name: string): void {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  activeConversation = { id: 'c1', messages: [], projectId: null }
   getPathForFile.mockImplementation((file: File) => `/dropped/${file.name}`)
   readFile.mockResolvedValue(textFile())
 })
@@ -160,5 +164,72 @@ describe('the composer hint', () => {
     // Not generating: the hint explains sending.
     expect(document.body.textContent).toContain('Enter to send')
     expect(document.body.textContent).not.toContain('to stop')
+  })
+})
+
+describe('composer replay suggestions', () => {
+  it('shows the first unfinished plan step and accepts it with Tab without sending', () => {
+    activeConversation = {
+      id: 'c1',
+      messages: [],
+      projectId: null,
+      plan: {
+        title: 'Build replay suggestions',
+        updatedAt: 1,
+        steps: [
+          { id: 'one', title: 'Phase 1: Foundations', status: 'completed' },
+          { id: 'two', title: 'Phase 2: Composer replay', status: 'pending' }
+        ]
+      }
+    }
+    render(<ChatComposer />)
+
+    expect(screen.getByText('Start working on Phase 2: Composer replay.')).toBeDefined()
+    const input = screen.getByRole('textbox')
+    fireEvent.keyDown(input, { key: 'Tab' })
+
+    expect((input as HTMLTextAreaElement).value).toBe('Start working on Phase 2: Composer replay.')
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('lets Escape dismiss a suggestion without clearing the composer', () => {
+    activeConversation = {
+      id: 'c1',
+      messages: [],
+      projectId: null,
+      replaySuggestion: {
+        messageId: 'm1',
+        text: 'Review the changed files and run focused tests.',
+        createdAt: 1
+      }
+    }
+    render(<ChatComposer />)
+
+    const input = screen.getByRole('textbox')
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.queryByText('Review the changed files and run focused tests.')).toBeNull()
+    expect((input as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('invalidates generated copy when the user starts typing', () => {
+    activeConversation = {
+      id: 'c1',
+      messages: [],
+      projectId: null,
+      replaySuggestion: {
+        messageId: 'm1',
+        text: 'Review the changed files and run focused tests.',
+        createdAt: 1
+      }
+    }
+    render(<ChatComposer />)
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Actually, focus on tests.' }
+    })
+
+    expect(clearReplaySuggestion).toHaveBeenCalledWith('c1')
+    expect(screen.queryByText('Review the changed files and run focused tests.')).toBeNull()
   })
 })

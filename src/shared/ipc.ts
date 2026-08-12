@@ -22,6 +22,7 @@ import type {
   ChatCompactRequest,
   ChatCompactResult,
   ChatRequest,
+  ChatReplaySuggestionRequest,
   ChatResult,
   ChatStreamChunk,
   ChatThinkingStreamChunk,
@@ -171,6 +172,8 @@ export const IpcChannel = {
     summarize: 'chat:summarize',
     /** A short generated title for a conversation's first user/assistant turn. */
     title: 'chat:title',
+    /** A short, optional next request for the composer after a reply finishes. */
+    replaySuggestion: 'chat:replay-suggestion',
     /** main → renderer broadcast when older conversation turns were summarized to fit context. */
     historyCompacted: 'chat:history-compacted'
   },
@@ -525,6 +528,8 @@ export interface AnodexApi {
     summarize(text: string, maxWords: number): Promise<string | null>
     /** Best-effort local title for a finished first turn; `null` if it failed. */
     title(request: ChatTitleRequest): Promise<string | null>
+    /** Best-effort local follow-up suggestion for composer ghost text; `null` if it failed. */
+    replaySuggestion(request: ChatReplaySuggestionRequest): Promise<string | null>
     /** Fires when older conversation turns were summarized to fit the model's context window. */
     onHistoryCompacted(listener: (event: HistoryCompactionEvent) => void): () => void
   }

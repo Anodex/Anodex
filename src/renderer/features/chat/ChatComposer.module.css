@@ -287,6 +287,7 @@
    permission mode, context meter, send) so the state a message goes out with
    is visible where you type it. */
 .inputShell {
+  position: relative;
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xl);
@@ -307,6 +308,8 @@
 }
 
 .textarea {
+  position: relative;
+  z-index: 1;
   display: block;
   width: 100%;
   min-height: 24px;
@@ -319,6 +322,43 @@
   border: none;
   outline: none;
   resize: none;
+}
+
+/* A composer-only suggestion: it sits underneath the empty textarea so typing
+   replaces it naturally. It is never part of the textarea value or transcript. */
+.replaySuggestion {
+  position: absolute;
+  z-index: 0;
+  top: var(--space-3);
+  right: var(--space-4);
+  left: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  color: var(--text-faint);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.replaySuggestion span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replaySuggestion kbd {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.25;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 .inputBottom {

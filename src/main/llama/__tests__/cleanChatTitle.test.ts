@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanChatTitle } from '../LlamaService'
+import { cleanChatTitle, cleanReplaySuggestion } from '../LlamaService'
 
 describe('cleanChatTitle', () => {
   it('accepts a well-formed title as-is', () => {
@@ -97,5 +97,28 @@ describe('cleanChatTitle', () => {
     expect(cleanChatTitle("Here's a thinking process: 1. Identify the subject")).toBeNull()
     expect(cleanChatTitle('Let me think about what to call this')).toBeNull()
     expect(cleanChatTitle('The user wants a title for their chat')).toBeNull()
+  })
+})
+
+describe('cleanReplaySuggestion', () => {
+  it('keeps one concise user-facing follow-up', () => {
+    expect(cleanReplaySuggestion('Run the focused tests for the composer changes.')).toBe(
+      'Run the focused tests for the composer changes.'
+    )
+  })
+
+  it('rejects empty, sentinel, and reasoning-like outputs', () => {
+    expect(cleanReplaySuggestion('NONE')).toBeNull()
+    expect(cleanReplaySuggestion('Let me think about the next step.')).toBeNull()
+    expect(cleanReplaySuggestion('')).toBeNull()
+  })
+
+  it('drops markdown and caps an overlong response to one short request', () => {
+    expect(cleanReplaySuggestion('**Continue with the next plan step.**')).toBe(
+      'Continue with the next plan step.'
+    )
+    expect(
+      cleanReplaySuggestion(Array.from({ length: 20 }, (_, index) => `word${index}`).join(' '))
+    ).toBe(Array.from({ length: 16 }, (_, index) => `word${index}`).join(' '))
   })
 })

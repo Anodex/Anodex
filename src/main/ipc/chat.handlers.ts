@@ -1,7 +1,12 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
-import type { ChatCompactRequest, ChatRequest, ChatTitleRequest } from '@shared/chat.types'
+import type {
+  ChatCompactRequest,
+  ChatReplaySuggestionRequest,
+  ChatRequest,
+  ChatTitleRequest
+} from '@shared/chat.types'
 import { llamaService } from '../llama/LlamaService'
 import { isDroppedStreamMessage } from '../llama/droppedStreamError'
 import { requestToolConfirmation } from './tools.handlers'
@@ -135,5 +140,9 @@ export function registerChatHandlers(): void {
 
   ipcMain.handle(IpcChannel.Chat.title, (_event, request: ChatTitleRequest) =>
     llamaService.generateChatTitle(request)
+  )
+
+  ipcMain.handle(IpcChannel.Chat.replaySuggestion, (_event, request: ChatReplaySuggestionRequest) =>
+    llamaService.generateReplaySuggestion(request)
   )
 }

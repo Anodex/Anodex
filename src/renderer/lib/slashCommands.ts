@@ -1,4 +1,5 @@
-export type SlashCommandName = 'test' | 'review' | 'refactor' | 'summarize'
+export type SlashCommandName =
+  'goal' | 'continue' | 'plan' | 'next' | 'test' | 'review' | 'refactor' | 'summarize'
 
 interface SlashCommandSpec {
   label: string
@@ -13,6 +14,30 @@ export interface SlashCommandSuggestion {
 }
 
 const SLASH_COMMANDS: Record<SlashCommandName, SlashCommandSpec> = {
+  goal: {
+    label: 'Set goal',
+    description: 'Create a focused goal and visible work plan.',
+    prompt:
+      'Set a focused goal for this task, create or update a concise visible plan, then begin the first unfinished step.'
+  },
+  continue: {
+    label: 'Continue work',
+    description: 'Resume from the latest completed work.',
+    prompt:
+      'Continue the current task from the latest completed work. Reuse the visible plan and real tool results; do not repeat completed steps.'
+  },
+  plan: {
+    label: 'Review plan',
+    description: 'Review the current plan and next unfinished step.',
+    prompt:
+      'Review the current visible plan. Mark only verified completed steps complete, identify the next unfinished step, and continue if it is clear.'
+  },
+  next: {
+    label: 'Do next step',
+    description: 'Carry out the next useful task action.',
+    prompt:
+      'Identify the next unfinished plan step or most useful next action, then carry it out. Do not repeat work already completed.'
+  },
   test: {
     label: 'Run tests',
     description: 'Find and run the most relevant tests.',
@@ -39,7 +64,16 @@ const SLASH_COMMANDS: Record<SlashCommandName, SlashCommandSpec> = {
   }
 }
 
-const SLASH_COMMAND_ORDER: SlashCommandName[] = ['test', 'review', 'refactor', 'summarize']
+const SLASH_COMMAND_ORDER: SlashCommandName[] = [
+  'goal',
+  'continue',
+  'plan',
+  'next',
+  'test',
+  'review',
+  'refactor',
+  'summarize'
+]
 
 export interface SlashCommandExpansion {
   command: SlashCommandName
@@ -72,7 +106,7 @@ export function expandSlashCommand(text: string): SlashCommandExpansion | null {
   }
 }
 
-export const SLASH_COMMAND_HINT = 'Shortcuts: /test, /review, /refactor, /summarize'
+export const SLASH_COMMAND_HINT = 'Shortcuts: /goal, /continue, /plan, /next, /test, /review'
 
 function toSuggestion(name: SlashCommandName): SlashCommandSuggestion {
   const command = SLASH_COMMANDS[name]

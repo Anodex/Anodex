@@ -306,6 +306,12 @@ export interface ChatTitleRequest {
   editedFiles?: string[]
 }
 
+/** Input for a short, optional composer follow-up suggestion after a reply completes. */
+export interface ChatReplaySuggestionRequest {
+  userPrompt: string
+  assistantReply: string
+}
+
 /** A single streamed token (or token group) for an in-flight assistant reply. */
 export interface ChatStreamChunk {
   conversationId: string

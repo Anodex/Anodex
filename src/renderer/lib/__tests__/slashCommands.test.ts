@@ -34,6 +34,10 @@ describe('expandSlashCommand', () => {
 describe('getSlashCommandSuggestions', () => {
   it('returns all commands when the user starts a slash command', () => {
     expect(getSlashCommandSuggestions('/').map((command) => command.name)).toEqual([
+      'goal',
+      'continue',
+      'plan',
+      'next',
       'test',
       'review',
       'refactor',
@@ -46,6 +50,13 @@ describe('getSlashCommandSuggestions', () => {
       'review',
       'refactor'
     ])
+  })
+
+  it('offers plan-aware workflow shortcuts', () => {
+    const expansion = expandSlashCommand('/continue')
+    expect(expansion?.command).toBe('continue')
+    expect(expansion?.expandedText).toContain('latest completed work')
+    expect(getSlashCommandSuggestions('/pl').map((command) => command.name)).toEqual(['plan'])
   })
 
   it('does not show suggestions once the user adds command arguments', () => {

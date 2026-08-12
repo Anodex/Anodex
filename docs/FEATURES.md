@@ -140,7 +140,11 @@ Key capabilities:
 - Attachment chips with size and truncation information.
 - Images are scoped to the message that introduced them; choose **Keep for follow-ups** on an
   image when it should remain available to a vision model in later messages.
-- Built-in slash commands: `/test`, `/review`, `/refactor`, and `/summarize`.
+- Built-in slash commands: `/goal`, `/continue`, `/plan`, `/next`, `/test`, `/review`, `/refactor`,
+  and `/summarize`.
+- A Tab-completable next-action suggestion in the empty composer: unfinished plan steps take priority;
+  otherwise Anodex generates and caches one short follow-up from the completed reply. Suggestions are
+  never added to chat history or model context unless the user accepts and sends them.
 - Relevant skill suggestions directly in the composer.
 - Permission mode control from the composer.
 

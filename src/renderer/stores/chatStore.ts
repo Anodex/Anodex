@@ -40,6 +40,7 @@ import { buildMessageEditBranch, buildRegenerateTarget } from '../features/chat/
 import { describeGenerationStop } from '../features/chat/generationStopMessages'
 import { withEmailThreadContext } from '../features/chat/emailThreadContext'
 import { conversationUserFiles } from '../features/chat/conversationUserFiles'
+import { suggestionFromPlan } from '../lib/replaySuggestions'
 
 export type { Conversation }
 
@@ -102,6 +103,12 @@ interface ChatState {
    */
   pendingComposerText: string | null
   setPendingComposerText: (text: string | null) => void
+  /**
+   * Invalidate the optional AI follow-up for a completed reply. The composer
+   * calls this as soon as the user begins drafting, so a background
+   * suggestion request can never reappear over their work.
+   */
+  clearReplaySuggestion: (conversationId: string) => void
   /**
    * Copies a conversation's history into a new, ordinary chat and selects it.
    * Used to carry a scheduled task's run log into a chat the user can actually
@@ -196,6 +203,21 @@ interface ChatState {
 
 const DEFAULT_TITLE = 'New chat'
 const pendingToolPayloadByMessage = new Map<string, string>()
+// Follow-up copy is generated after a reply settles. This transient revision
+// makes a response from that background request harmless if the user begins a
+// new draft (or sends/edits a turn) before it comes back.
+const replaySuggestionRevisionByConversation = new Map<string, number>()
+
+function invalidateReplaySuggestion(conversationId: string): void {
+  replaySuggestionRevisionByConversation.set(
+    conversationId,
+    (replaySuggestionRevisionByConversation.get(conversationId) ?? 0) + 1
+  )
+}
+
+function replaySuggestionRevision(conversationId: string): number {
+  return replaySuggestionRevisionByConversation.get(conversationId) ?? 0
+}
 
 /**
  * Lays a freshly-loaded conversation list over the current one, keeping any
@@ -347,6 +369,20 @@ export const useChatStore = create<ChatState>()(
 
     setPendingComposerText: (text) => set({ pendingComposerText: text }),
 
+    clearReplaySuggestion: (conversationId) => {
+      invalidateReplaySuggestion(conversationId)
+      let changed = false
+      set((state) => {
+        const conversation = state.conversations.find((item) => item.id === conversationId)
+        if (!conversation?.replaySuggestion) return
+        conversation.replaySuggestion = undefined
+        changed = true
+      })
+      if (!changed) return
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+      if (conversation) void persistConversation(conversation)
+    },
+
     openEmailThreadConversation: (accountId, threadId, details) => {
       // `conversations` holds only live chats — archiving or deleting removes
       // an entry — so a hit here is by definition a chat the user can still
@@ -431,6 +467,7 @@ export const useChatStore = create<ChatState>()(
         // origin — that flag is what keeps scheduled run logs out of the
         // sidebar's chat list, and this copy belongs there.
         origin: undefined,
+        replaySuggestion: undefined,
         archived: false,
         archivedAt: undefined
       }
@@ -568,6 +605,7 @@ export const useChatStore = create<ChatState>()(
 
       const conversationId = conversationIdOverride ?? get().activeId ?? get().newConversation()
       if (!conversationId) return
+      invalidateReplaySuggestion(conversationId)
       const existing = get().conversations.find((c) => c.id === conversationId)
       const projectId = existing?.projectId ?? null
       const history = (existing?.messages ?? []).map(messageToHistoryTurn)
@@ -581,6 +619,10 @@ export const useChatStore = create<ChatState>()(
         const convo = state.conversations.find((c) => c.id === conversationId)
         if (!convo) return
         const now = Date.now()
+        // A follow-up suggestion belongs to the completed reply immediately
+        // before it. The moment the user starts a new turn it becomes stale,
+        // even if the next reply has not arrived yet.
+        convo.replaySuggestion = undefined
         convo.messages.push({
           id: createId('m'),
           role: 'user',
@@ -802,6 +844,24 @@ export const useChatStore = create<ChatState>()(
         })
       }
 
+      // An unfinished visible plan produces a deterministic suggestion in the
+      // composer, so do not spend a model call second-guessing it. Without a
+      // plan, cache one isolated, tool-free follow-up for this exact completed
+      // reply. It remains UI metadata until the user explicitly accepts it.
+      if (
+        result.ok &&
+        !result.value.stopped &&
+        finalConvo &&
+        !suggestionFromPlan(finalConvo.plan)
+      ) {
+        void generateConversationReplaySuggestion({
+          conversationId,
+          assistantMessageId: assistantId,
+          userPrompt: trimmed,
+          assistantReply: result.value.content
+        })
+      }
+
       // Drain the next queued comment, if any, into a fresh turn on this same
       // conversation — regardless of whether it's still the active tab, and
       // regardless of ok/error/stopped, since a manual Stop only ends the
@@ -825,6 +885,7 @@ export const useChatStore = create<ChatState>()(
       if (!conversation || !branch || (!trimmed && !branch.target.attachments?.length)) {
         return { status: 'failed' }
       }
+      invalidateReplaySuggestion(conversation.id)
       if (conversation.messages.some((message) => message.streaming)) {
         useUiStore.getState().notify({
           kind: 'info',
@@ -880,6 +941,7 @@ export const useChatStore = create<ChatState>()(
         if (!current) return
         current.messages = branch.retainedMessages
         if (branch.clearContext) current.context = null
+        current.replaySuggestion = undefined
         current.updatedAt = updatedAt
         state.pendingMessages[conversation.id] = []
       })
@@ -1313,6 +1375,50 @@ async function generateConversationTitle({
   const nextConversation = useChatStore
     .getState()
     .conversations.find((c) => c.id === conversationId)
+  if (nextConversation) await persistConversation(nextConversation)
+}
+
+async function generateConversationReplaySuggestion({
+  conversationId,
+  assistantMessageId,
+  userPrompt,
+  assistantReply
+}: {
+  conversationId: string
+  assistantMessageId: string
+  userPrompt: string
+  assistantReply: string
+}): Promise<void> {
+  const expectedRevision = replaySuggestionRevision(conversationId)
+  const text = await anodex.chat.replaySuggestion({ userPrompt, assistantReply }).catch(() => null)
+  if (!text) return
+
+  const current = useChatStore.getState().conversations.find((c) => c.id === conversationId)
+  // A queued follow-up may have started while the isolated suggestion call was
+  // waiting for the model lock. Never attach stale copy to a newer turn.
+  if (
+    !current ||
+    replaySuggestionRevision(conversationId) !== expectedRevision ||
+    current.messages.at(-1)?.id !== assistantMessageId ||
+    current.messages.some((message) => message.streaming) ||
+    suggestionFromPlan(current.plan)
+  ) {
+    return
+  }
+
+  useChatStore.setState((state) => {
+    const conversation = state.conversations.find((item) => item.id === conversationId)
+    if (!conversation || conversation.messages.at(-1)?.id !== assistantMessageId) return
+    conversation.replaySuggestion = {
+      messageId: assistantMessageId,
+      text,
+      createdAt: Date.now()
+    }
+  })
+
+  const nextConversation = useChatStore
+    .getState()
+    .conversations.find((conversation) => conversation.id === conversationId)
   if (nextConversation) await persistConversation(nextConversation)
 }
 

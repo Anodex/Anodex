@@ -26,6 +26,7 @@ import type {
   ContextBudgetUsage,
   ChatHistoryTurn,
   ChatImageInput,
+  ChatReplaySuggestionRequest,
   ChatTitleRequest,
   GenerationStopReason,
   GenerationOptions,
@@ -1639,6 +1640,40 @@ class LlamaService extends EventEmitter {
   }
 
   /**
+   * Generate one optional follow-up the composer can offer after a reply. This
+   * uses the same isolated summary path as titles and toast summaries, so it
+   * cannot change the active chat session, appear in the transcript, or expose
+   * workspace tools. A null result intentionally leaves the composer quiet.
+   */
+  async generateReplaySuggestion(request: ChatReplaySuggestionRequest): Promise<string | null> {
+    if (!this.canSummarize()) return null
+
+    const release = await this.acquireModelLock()
+    try {
+      const context = renderReplaySuggestionContext(request)
+      const prompt =
+        'Write one concise next request the user could send after this completed assistant reply. ' +
+        'It must be a practical continuation, not a summary or a claim that work is done. ' +
+        'Use an imperative sentence of at most 16 words. Do not use slash commands, markdown, ' +
+        'quotes, a preamble, or more than one sentence. If no useful next request is clear, reply ' +
+        'exactly NONE.\n\n' +
+        context
+      const finalText = this.visionService.active
+        ? await this.visionService.completeText(prompt, { maxTokens: 64, temperature: 0.2 })
+        : await this.runSummaryPrompt(await this.ensureSummarySequence(2048), prompt, {
+            maxTokens: 64,
+            temperature: 0.2
+          })
+      return cleanReplaySuggestion(finalText)
+    } catch (error) {
+      log.warn('Replay suggestion generation failed:', error)
+      return null
+    } finally {
+      release()
+    }
+  }
+
+  /**
    * One plain sentence describing what an email thread wants, for the row it
    * occupies in the inbox list — the digest that replaces a raw provider
    * snippet (which is just the first few words of the newest message, quoted
@@ -2663,6 +2698,12 @@ function renderTitleContext(request: ChatTitleRequest): string {
   return `<conversation>\nUser: ${userPrompt}\nAssistant: ${assistantReply}${attachments}${editedFiles}\n</conversation>`
 }
 
+function renderReplaySuggestionContext(request: ChatReplaySuggestionRequest): string {
+  const userPrompt = truncateForTitlePrompt(request.userPrompt)
+  const assistantReply = truncateForTitlePrompt(request.assistantReply)
+  return `<completed_turn>\nUser request: ${userPrompt}\nAssistant reply: ${assistantReply}\n</completed_turn>`
+}
+
 function truncateForTitlePrompt(text: string): string {
   const cleaned = text.replace(/\s+/g, ' ').trim()
   return cleaned.length > 900 ? `${cleaned.slice(0, 900)}...` : cleaned
@@ -2764,6 +2805,27 @@ export function cleanChatTitle(raw: string): string | null {
       .replace(/[,;:]+$/, '')
       .trim() || null
   )
+}
+
+/** Normalize a one-sentence composer suggestion and reject model narration or instruction echoes. */
+export function cleanReplaySuggestion(raw: string): string | null {
+  const candidate = answerLines(raw)
+    .filter((line) => !REASONING_MONOLOGUE_RE.test(line))
+    .find((line) => !REASONING_PREAMBLE_RE.test(line))
+  if (!candidate) return null
+
+  const cleaned = firstSentenceOf(candidate)
+    .replace(/^suggestion\s*:\s*/i, '')
+    .replace(/^[*_]{1,3}|[*_]{1,3}$/g, '')
+    .replace(/^['"\s]+|['"\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned || /^(?:none|no(?:ne)? available)$/i.test(cleaned)) return null
+  if (INSTRUCTION_ECHO_RE.test(cleaned) || REASONING_MONOLOGUE_RE.test(cleaned)) return null
+
+  const words = cleaned.split(' ').slice(0, 16)
+  const suggestion = words.join(' ').slice(0, 180).trim()
+  return suggestion.length >= 6 ? suggestion : null
 }
 
 function defaultContextShiftReserve(contextSize: number): number {

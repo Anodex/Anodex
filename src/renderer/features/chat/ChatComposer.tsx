@@ -35,6 +35,7 @@ import {
   SLASH_COMMAND_HINT,
   type SlashCommandName
 } from '../../lib/slashCommands'
+import { suggestionFromPlan } from '../../lib/replaySuggestions'
 import styles from './ChatComposer.module.css'
 
 const MAX_TEXTAREA_HEIGHT = 200
@@ -78,6 +79,9 @@ export function ChatComposer(): JSX.Element {
   const [compacting, setCompacting] = useState(false)
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [dismissedSkillName, setDismissedSkillName] = useState<string | null>(null)
+  const [dismissedReplaySuggestionKey, setDismissedReplaySuggestionKey] = useState<string | null>(
+    null
+  )
   const [queueExpanded, setQueueExpanded] = useState(false)
   const [permOpen, setPermOpen] = useState(false)
   const dragCounter = useRef(0)
@@ -116,6 +120,7 @@ export function ChatComposer(): JSX.Element {
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const pendingComposerText = useChatStore((s) => s.pendingComposerText)
   const setPendingComposerText = useChatStore((s) => s.setPendingComposerText)
+  const clearReplaySuggestion = useChatStore((s) => s.clearReplaySuggestion)
   const compactConversation = useChatStore((s) => s.compactConversation)
   const engine = useModelStore((s) => s.engine)
   const settings = useSettingsStore((s) => s.settings)
@@ -187,6 +192,25 @@ export function ChatComposer(): JSX.Element {
     skillSuggestions.find(
       (skill) => skill.name !== dismissedSkillName && skill.name !== appliedSkillName
     ) ?? null
+  const planReplaySuggestion = useMemo(
+    () => suggestionFromPlan(activeConversation?.plan),
+    [activeConversation?.plan]
+  )
+  const generatedReplaySuggestion = activeConversation?.replaySuggestion
+  const replaySuggestion = planReplaySuggestion ?? generatedReplaySuggestion?.text ?? null
+  const replaySuggestionKey = planReplaySuggestion
+    ? `plan:${activeConversation?.plan?.updatedAt ?? 0}:${planReplaySuggestion}`
+    : generatedReplaySuggestion
+      ? `model:${generatedReplaySuggestion.messageId}:${generatedReplaySuggestion.createdAt}`
+      : null
+  const showReplaySuggestion = Boolean(
+    ready &&
+    !generating &&
+    text.length === 0 &&
+    attachments.length === 0 &&
+    replaySuggestion &&
+    replaySuggestionKey !== dismissedReplaySuggestionKey
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -201,6 +225,10 @@ export function ChatComposer(): JSX.Element {
   useEffect(() => {
     setDismissedSkillName(null)
   }, [text])
+
+  useEffect(() => {
+    setDismissedReplaySuggestionKey(null)
+  }, [activeConversation?.id, replaySuggestionKey])
 
   // Another view (the Email page's Reply button) queued an instruction for the
   // composer. Adopt it once and clear the queue so it can't reappear on a later
@@ -260,6 +288,15 @@ export function ChatComposer(): JSX.Element {
   const applySuggestedSkill = (skillName: string): void => {
     setText((current) => applySkillSuggestion(skillName, current))
     setDismissedSkillName(skillName)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      autoGrow()
+    })
+  }
+
+  const acceptReplaySuggestion = (): void => {
+    if (!replaySuggestion) return
+    setText(replaySuggestion)
     requestAnimationFrame(() => {
       textareaRef.current?.focus()
       autoGrow()
@@ -328,6 +365,18 @@ export function ChatComposer(): JSX.Element {
         setActiveSlashIndex(0)
         return
       }
+    }
+
+    if (event.key === 'Tab' && showReplaySuggestion) {
+      event.preventDefault()
+      acceptReplaySuggestion()
+      return
+    }
+
+    if (event.key === 'Escape' && showReplaySuggestion && replaySuggestionKey) {
+      event.preventDefault()
+      setDismissedReplaySuggestionKey(replaySuggestionKey)
+      return
     }
 
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -532,6 +581,12 @@ export function ChatComposer(): JSX.Element {
       </div>
 
       <div className={`${styles.inputShell} ${!ready ? styles.disabled : ''}`}>
+        {showReplaySuggestion && replaySuggestion && (
+          <div className={styles.replaySuggestion} aria-hidden="true">
+            <span>{replaySuggestion}</span>
+            <kbd>Tab</kbd>
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           {...{ [COMPOSER_INPUT_ATTR]: '' }}
@@ -541,17 +596,25 @@ export function ChatComposer(): JSX.Element {
           disabled={!ready}
           spellCheck={true}
           placeholder={
-            dragActive
-              ? 'Drop to attach…'
-              : ready
-                ? 'Message Anodex…'
-                : settings?.provider.active === 'anthropic'
-                  ? 'Add a Claude API key in Settings → AI & Models to start chatting'
-                  : settings?.provider.active === 'openai'
-                    ? 'Add an OpenAI API key in Settings → AI & Models to start chatting'
-                    : 'Load a model from the Models tab to start chatting'
+            showReplaySuggestion
+              ? ''
+              : dragActive
+                ? 'Drop to attach…'
+                : ready
+                  ? 'Message Anodex…'
+                  : settings?.provider.active === 'anthropic'
+                    ? 'Add a Claude API key in Settings → AI & Models to start chatting'
+                    : settings?.provider.active === 'openai'
+                      ? 'Add an OpenAI API key in Settings → AI & Models to start chatting'
+                      : 'Load a model from the Models tab to start chatting'
           }
           onChange={(event) => {
+            // This also invalidates an in-flight generated suggestion. Plan
+            // suggestions remain derived from the visible plan, but optional
+            // AI copy must never return after the user has started drafting.
+            if (event.target.value.length > 0 && activeConversation) {
+              clearReplaySuggestion(activeConversation.id)
+            }
             setText(event.target.value)
             setActiveSlashIndex(0)
             autoGrow()

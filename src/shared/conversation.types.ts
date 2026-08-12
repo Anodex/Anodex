@@ -18,6 +18,12 @@ export interface Conversation {
   plan?: Plan | null
   /** Durable model-context snapshot for older turns; the UI transcript stays complete. */
   context?: ConversationContext | null
+  /**
+   * A best-effort follow-up shown as composer ghost text after a completed reply.
+   * It is conversation UI state only: never appended to messages or sent back to
+   * a model unless the user explicitly accepts and sends it.
+   */
+  replaySuggestion?: ConversationReplaySuggestion
   /** Set when every turn in this chat came from an automated scheduled task or agent run, not the user. */
   origin?: 'scheduled' | 'agent'
   /**
@@ -30,6 +36,13 @@ export interface Conversation {
    * is created on the next handoff.
    */
   emailThread?: EmailThreadLink
+}
+
+export interface ConversationReplaySuggestion {
+  /** The completed assistant reply this suggestion was generated from. */
+  messageId: string
+  text: string
+  createdAt: number
 }
 
 /**
