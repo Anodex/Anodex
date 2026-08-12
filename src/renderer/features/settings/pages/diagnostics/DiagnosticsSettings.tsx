@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { AppSettings, DiagnosticEntry, DiagnosticLogFile } from '@shared/settings.types'
+import type { SupportBundlePreview } from '@shared/supportBundle.types'
 import { anodex } from '../../../../lib/anodex'
 import { useDiagnosticsStore } from '../../../../stores/diagnosticsStore'
 import { Icon } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
+import { Overlay } from '../../../../components/ui/Overlay'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, ToggleControl } from '../../controls'
 import pageStyles from '../../SettingsPage.module.css'
@@ -46,6 +48,11 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
 
   const [filter, setFilter] = useState<DiagnosticEntry['severity'] | 'all'>('all')
   const [logFile, setLogFile] = useState<DiagnosticLogFile | null>(null)
+  const [bundlePreview, setBundlePreview] = useState<SupportBundlePreview | null>(null)
+  const [bundleLoading, setBundleLoading] = useState(false)
+  const [bundleSaving, setBundleSaving] = useState(false)
+  const [bundleError, setBundleError] = useState<string | null>(null)
+  const [bundleSavedPath, setBundleSavedPath] = useState<string | null>(null)
 
   // Re-read on every visit (and after each new entry) so the size shown is
   // current rather than whatever it was when the app started.
@@ -69,6 +76,38 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
     URL.revokeObjectURL(url)
   }
 
+  const openSupportBundle = async (): Promise<void> => {
+    setBundlePreview(null)
+    setBundleError(null)
+    setBundleSavedPath(null)
+    setBundleLoading(true)
+    try {
+      const result = await anodex.diagnostics.getSupportBundlePreview()
+      if (result.ok) setBundlePreview(result.value)
+      else setBundleError(result.error.message)
+    } finally {
+      setBundleLoading(false)
+    }
+  }
+
+  const saveSupportBundle = async (): Promise<void> => {
+    setBundleError(null)
+    setBundleSaving(true)
+    try {
+      const result = await anodex.diagnostics.saveSupportBundle()
+      if (result.ok) setBundleSavedPath(result.value.path)
+      else setBundleError(result.error.message)
+    } finally {
+      setBundleSaving(false)
+    }
+  }
+
+  const closeSupportBundle = (): void => {
+    setBundlePreview(null)
+    setBundleError(null)
+    setBundleSavedPath(null)
+  }
+
   return (
     <div className={pageStyles.page}>
       <header className={`${pageStyles.pageHeader} ${styles.pageHeader}`}>
@@ -80,15 +119,25 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
             including failures that happened before this window opened.
           </p>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={entries.length === 0}
-          iconLeft={<Icon name="download" size={14} />}
-          onClick={handleExport}
-        >
-          Export log
-        </Button>
+        <div className={styles.headerActions}>
+          <Button
+            variant="secondary"
+            size="sm"
+            iconLeft={<Icon name="shield-question" size={14} />}
+            onClick={() => void openSupportBundle()}
+          >
+            Support bundle
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={entries.length === 0}
+            iconLeft={<Icon name="download" size={14} />}
+            onClick={handleExport}
+          >
+            Export log
+          </Button>
+        </div>
       </header>
 
       <div className={styles.summaryGrid} aria-label="Diagnostics summary">
@@ -314,7 +363,97 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
           </ul>
         )}
       </section>
+
+      {(bundleLoading || bundlePreview || bundleError || bundleSavedPath) && (
+        <SupportBundleDialog
+          preview={bundlePreview}
+          loading={bundleLoading}
+          saving={bundleSaving}
+          error={bundleError}
+          savedPath={bundleSavedPath}
+          onClose={closeSupportBundle}
+          onSave={() => void saveSupportBundle()}
+        />
+      )}
     </div>
+  )
+}
+
+function SupportBundleDialog({
+  preview,
+  loading,
+  saving,
+  error,
+  savedPath,
+  onClose,
+  onSave
+}: {
+  preview: SupportBundlePreview | null
+  loading: boolean
+  saving: boolean
+  error: string | null
+  savedPath: string | null
+  onClose: () => void
+  onSave: () => void
+}): JSX.Element {
+  return (
+    <Overlay onClose={onClose} ariaLabel="Support bundle" cardClassName={styles.bundleDialog}>
+      <header className={styles.bundleHead}>
+        <div>
+          <span>Local diagnostics</span>
+          <h2>Support bundle</h2>
+          <p>Review the redacted report before choosing where to save it. Nothing is sent.</p>
+        </div>
+        <button
+          type="button"
+          className={styles.bundleClose}
+          onClick={onClose}
+          aria-label="Close support bundle"
+        >
+          <Icon name="close" size={16} />
+        </button>
+      </header>
+
+      {loading ? (
+        <div className={styles.bundleLoading}>Preparing a redacted report…</div>
+      ) : error ? (
+        <div className={styles.bundleError}>{error}</div>
+      ) : savedPath ? (
+        <div className={styles.bundleSaved}>
+          <Icon name="check" size={16} />
+          <div>
+            <strong>Support bundle saved</strong>
+            <span>{savedPath}</span>
+          </div>
+        </div>
+      ) : preview ? (
+        <>
+          <div className={styles.bundleSummary}>
+            <span>{preview.diagnosticsCount} diagnostic entries</span>
+            <span>{preview.logLineCount} redacted log lines</span>
+            <span>{preview.redactionCount} sensitive values removed</span>
+          </div>
+          <pre className={styles.bundlePreview}>{preview.content}</pre>
+        </>
+      ) : null}
+
+      <footer className={styles.bundleFoot}>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          {savedPath ? 'Done' : 'Cancel'}
+        </Button>
+        {!loading && !error && !savedPath && preview && (
+          <Button
+            variant="primary"
+            size="sm"
+            loading={saving}
+            iconLeft={<Icon name="download" size={14} />}
+            onClick={onSave}
+          >
+            Save bundle
+          </Button>
+        )}
+      </footer>
+    </Overlay>
   )
 }
 

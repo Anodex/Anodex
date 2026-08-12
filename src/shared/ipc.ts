@@ -44,6 +44,7 @@ import type {
 import type { Conversation, ConversationState } from './conversation.types'
 import type { BackupResult, ConversationExportFormat } from './backup.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
+import type { SupportBundleExportResult, SupportBundlePreview } from './supportBundle.types'
 import type {
   ToolActivityEvent,
   ToolConfirmRequest,
@@ -319,7 +320,11 @@ export const IpcChannel = {
     /** main → renderer broadcast of a newly recorded main-process warning/error. */
     entry: 'diagnostics:entry',
     getLogFile: 'diagnostics:get-log-file',
-    revealLogFile: 'diagnostics:reveal-log-file'
+    revealLogFile: 'diagnostics:reveal-log-file',
+    /** Build a redacted, local support-report preview. */
+    getSupportBundlePreview: 'diagnostics:get-support-bundle-preview',
+    /** Open a save dialog and write a fresh redacted support report. */
+    saveSupportBundle: 'diagnostics:save-support-bundle'
   },
   Stats: {
     getUsageProfile: 'stats:get-usage-profile',
@@ -718,6 +723,10 @@ export interface AnodexApi {
     getLogFile(): Promise<DiagnosticLogFile>
     /** Show the log file in the OS file manager. */
     revealLogFile(): Promise<void>
+    /** A redacted, inspectable local support report. */
+    getSupportBundlePreview(): Promise<Result<SupportBundlePreview>>
+    /** Writes a fresh redacted report only after the user chooses a location. */
+    saveSupportBundle(): Promise<Result<SupportBundleExportResult>>
   }
   stats: {
     /** All-time token-generation activity, independent of individual conversations. */

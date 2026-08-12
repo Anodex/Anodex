@@ -188,7 +188,10 @@ const api: AnodexApi = {
     list: () => ipcRenderer.invoke(IpcChannel.Diagnostics.list),
     onEntry: (listener) => subscribe<DiagnosticEntry>(IpcChannel.Diagnostics.entry, listener),
     getLogFile: () => ipcRenderer.invoke(IpcChannel.Diagnostics.getLogFile),
-    revealLogFile: () => ipcRenderer.invoke(IpcChannel.Diagnostics.revealLogFile)
+    revealLogFile: () => ipcRenderer.invoke(IpcChannel.Diagnostics.revealLogFile),
+    getSupportBundlePreview: () =>
+      ipcRenderer.invoke(IpcChannel.Diagnostics.getSupportBundlePreview),
+    saveSupportBundle: () => ipcRenderer.invoke(IpcChannel.Diagnostics.saveSupportBundle)
   },
   stats: {
     getUsageProfile: () => ipcRenderer.invoke(IpcChannel.Stats.getUsageProfile),
