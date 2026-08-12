@@ -20,7 +20,8 @@ export type RecommendedModelUse = 'coding' | 'general' | 'agentic-coding'
  * (see `ModelLogo.tsx`) — `'other'` is the honest fallback for anything else,
  * rather than guessing or approximating a brand mark.
  */
-export type ModelFamily = 'meta' | 'qwen' | 'mistral' | 'google' | 'deepseek' | 'other'
+export type ModelFamily =
+  'meta' | 'qwen' | 'mistral' | 'google' | 'deepseek' | 'microsoft' | 'other'
 
 export interface RecommendedModel {
   id: string
@@ -61,6 +62,8 @@ export interface RecommendedModel {
   supportsTools?: boolean
   /** Whether the model exposes useful reasoning/thinking traces locally. */
   supportsThinking?: boolean
+  /** Native context limit published by the model provider, when verified. */
+  nativeContextTokens?: number
   /** False for experimental models that should only appear behind advanced UI. */
   stable?: boolean
   /** False hides a catalog entry from the default recommendation path. */
@@ -146,23 +149,24 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     recommended: true
   },
   {
-    id: 'qwen2.5-coder-7b-q4',
-    name: 'Qwen2.5 Coder 7B',
+    id: 'qwen3-8b-q4',
+    name: 'Qwen3 8B',
     family: 'qwen',
     tier: '7b',
-    description: 'Higher-quality coding help for machines with more memory to spare.',
+    description:
+      'A modern all-rounder for coding, reasoning, and tool-driven work, with optional thinking mode.',
     approxSize: '4.7 GB',
     minRam: '16 GB',
     minRamGb: 16,
     idealRamGb: 24,
-    downloadUrl:
-      'https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf',
-    tags: ['coding', 'quality'],
-    primaryUse: 'coding',
+    downloadUrl: 'https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf',
+    tags: ['coding', 'tools', 'thinking'],
+    primaryUse: 'agentic-coding',
     qualityRank: 5,
     speedRank: 4,
     supportsTools: true,
-    supportsThinking: false,
+    supportsThinking: true,
+    nativeContextTokens: 32768,
     stable: true,
     recommended: true
   },
@@ -188,23 +192,50 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     recommended: true
   },
   {
-    id: 'gemma-2-9b-it-q4',
-    name: 'Gemma 2 9B Instruct',
+    id: 'gemma-3-4b-it-q4',
+    name: 'Gemma 3 4B IT',
     family: 'google',
-    tier: '7b',
-    description: "Google's well-regarded general model, a step up in quality from the 7B class.",
-    approxSize: '5.8 GB',
-    minRam: '20 GB',
-    minRamGb: 20,
-    idealRamGb: 30,
+    tier: '3b',
+    description:
+      'A compact multimodal generalist for image understanding and long-document chat on modest hardware.',
+    approxSize: '3.2 GB',
+    minRam: '16 GB',
+    minRamGb: 16,
+    idealRamGb: 20,
     downloadUrl:
-      'https://huggingface.co/bartowski/gemma-2-9b-it-GGUF/resolve/main/gemma-2-9b-it-Q4_K_M.gguf',
-    tags: ['chat', 'general'],
+      'https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf',
+    visionProjectorUrl:
+      'https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/mmproj-model-f16.gguf',
+    visionProjectorFileName: 'gemma-3-4b-it-mmproj-model-f16.gguf',
+    tags: ['vision', 'long context', 'general'],
     primaryUse: 'general',
-    qualityRank: 6,
-    speedRank: 4,
+    qualityRank: 4,
+    speedRank: 5,
     supportsTools: false,
     supportsThinking: false,
+    nativeContextTokens: 131072,
+    stable: true,
+    recommended: true
+  },
+  {
+    id: 'phi-4-q4-k-s',
+    name: 'Phi-4',
+    family: 'microsoft',
+    tier: '14b',
+    description:
+      'A Microsoft general-reasoning model for math, code, and detailed instruction following.',
+    approxSize: '8.4 GB',
+    minRam: '32 GB',
+    minRamGb: 32,
+    idealRamGb: 48,
+    downloadUrl: 'https://huggingface.co/microsoft/phi-4-gguf/resolve/main/phi-4-Q4_K_S.gguf',
+    tags: ['reasoning', 'general', 'code'],
+    primaryUse: 'general',
+    qualityRank: 7,
+    speedRank: 3,
+    supportsTools: false,
+    supportsThinking: false,
+    nativeContextTokens: 16384,
     stable: true,
     recommended: true
   },
@@ -364,6 +395,7 @@ export function inferModelFamily(name: string): ModelFamily {
   const n = name.toLowerCase()
   if (n.includes('qwen')) return 'qwen'
   if (n.includes('deepseek')) return 'deepseek'
+  if (n.includes('phi')) return 'microsoft'
   if (n.includes('gemma')) return 'google'
   if (n.includes('mistral') || n.includes('mixtral') || n.includes('codestral')) return 'mistral'
   if (n.includes('llama')) return 'meta'

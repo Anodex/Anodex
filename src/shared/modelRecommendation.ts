@@ -89,12 +89,33 @@ export function contextSizeFor(model: RecommendedModel, ramGb: number, vramGb = 
   }
 }
 
-export function recommendModel(hardware: HardwareProfile): ModelRecommendation {
+/**
+ * A hard gate for automatic recommendations. `minRamGb` is deliberately a
+ * comfort floor, not just the bare model-file size: if a machine misses it,
+ * Anodex must not surface the model as a safe default. Models that explicitly
+ * require a GPU are similarly withheld unless the machine has qualifying
+ * dedicated or unified graphics memory.
+ */
+export function isModelHardwareCompatible(
+  model: RecommendedModel,
+  hardware: HardwareProfile
+): boolean {
+  const ramGb = bytesToGb(hardware.ramBytes)
+  if (ramGb < model.minRamGb) return false
+  if (!model.requiresGpuRecommended) return true
+
+  const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
+  const minimumGpuGb = model.minVramGb ?? 4
+  return hardware.unified || vramGb >= minimumGpuGb
+}
+
+export function recommendModel(hardware: HardwareProfile): ModelRecommendation | null {
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
   const hasDedicatedGpu = !hardware.unified && vramGb >= 4
 
-  const model = pickBestModel(ramGb, vramGb, hasDedicatedGpu)
+  const model = pickBestModel(ramGb, vramGb, hasDedicatedGpu, hardware.unified)
+  if (!model) return null
   const contextSize = contextSizeFor(model, ramGb, hasDedicatedGpu ? vramGb : 0)
 
   return {
@@ -111,14 +132,23 @@ function bytesToGb(bytes: number): number {
   return Math.max(0, bytes / GB)
 }
 
-function pickBestModel(ramGb: number, vramGb: number, hasDedicatedGpu: boolean): RecommendedModel {
+function pickBestModel(
+  ramGb: number,
+  vramGb: number,
+  hasDedicatedGpu: boolean,
+  unified: boolean
+): RecommendedModel | null {
   const candidates = RECOMMENDED_MODELS.filter(
-    (model) => model.recommended !== false && ramGb >= model.minRamGb
+    (model) =>
+      model.recommended !== false &&
+      isModelHardwareCompatible(model, {
+        ramBytes: ramGb * GB,
+        vramBytes: vramGb ? vramGb * GB : null,
+        unified
+      })
   )
 
-  if (candidates.length === 0) {
-    return [...RECOMMENDED_MODELS].sort((a, b) => a.minRamGb - b.minRamGb)[0]
-  }
+  if (candidates.length === 0) return null
 
   return candidates.reduce((best, model) => {
     return scoreModel(model, ramGb, vramGb, hasDedicatedGpu) >

@@ -82,6 +82,14 @@ export function RecommendedModelStrip({
           <Spinner size={16} />
           <span>Detecting hardware…</span>
         </div>
+      ) : slots.length === 0 ? (
+        <div className={styles.hardwareLoading}>
+          <Icon name="cpu" size={16} />
+          <span>
+            No model in the built-in catalog fits this computer safely. Add a smaller GGUF only if
+            you know it is suitable for this hardware.
+          </span>
+        </div>
       ) : (
         <div className={styles.recGrid}>
           {slots.map((slot) => {

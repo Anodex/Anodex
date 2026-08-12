@@ -261,10 +261,7 @@ describe('buildRecommendedSlots — Best Agent', () => {
     // poor one for 14B should be enough to flip that ranking, even though 7B
     // still trails 14B on the static catalog score alone.
     const hw = hardware({ ramBytes: 64 * GB, vramBytes: 16 * GB, gpu: 'Test GPU' })
-    const installedModels = [
-      installedFor('qwen2.5-coder-14b-q4'),
-      installedFor('qwen2.5-coder-7b-q4')
-    ]
+    const installedModels = [installedFor('qwen2.5-coder-14b-q4'), installedFor('qwen3-8b-q4')]
 
     const withoutReliability = buildRecommendedSlots(hw, null, {
       installedModels,
@@ -276,12 +273,10 @@ describe('buildRecommendedSlots — Best Agent', () => {
 
     const reliability = new Map([
       ['installed-qwen2.5-coder-14b-q4', reliabilityRecord(20, 'installed-qwen2.5-coder-14b-q4')],
-      ['installed-qwen2.5-coder-7b-q4', reliabilityRecord(95, 'installed-qwen2.5-coder-7b-q4')]
+      ['installed-qwen3-8b-q4', reliabilityRecord(95, 'installed-qwen3-8b-q4')]
     ])
     const withReliability = buildRecommendedSlots(hw, null, { installedModels, reliability })
-    expect(withReliability.find((slot) => slot.id === 'agent')?.model.id).toBe(
-      'qwen2.5-coder-7b-q4'
-    )
+    expect(withReliability.find((slot) => slot.id === 'agent')?.model.id).toBe('qwen3-8b-q4')
   })
 })
 
@@ -306,6 +301,10 @@ describe('reliabilityScoreForRecommended', () => {
 })
 
 describe('buildRecommendedSlots — slot set', () => {
+  it('shows no automatic recommendation when every model exceeds the machine profile', () => {
+    expect(buildRecommendedSlots(hardware({ ramBytes: 3 * GB }), null)).toEqual([])
+  })
+
   it('no longer includes a Low RAM slot', () => {
     const slots = buildRecommendedSlots(hardware({ ramBytes: 32 * GB }), null)
     expect(slots.find((slot) => slot.id === 'low-ram')).toBeUndefined()
@@ -318,6 +317,30 @@ describe('buildRecommendedSlots — slot set', () => {
     )
     const ids = slots.map((slot) => slot.model.id)
     expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('uses distinct model families when a slot has a compatible alternative', () => {
+    const slots = buildRecommendedSlots(
+      hardware({ ramBytes: 64 * GB, vramBytes: 16 * GB, gpu: 'Test GPU' }),
+      null
+    )
+    const families = slots.map((slot) => slot.model.family)
+    const repeated = families.filter((family, index) => families.indexOf(family) !== index)
+
+    // Qwen is allowed to repeat when it is the only catalog family with
+    // verified local tool support. Every other family should appear once.
+    expect(repeated.every((family) => family === 'qwen')).toBe(true)
+  })
+
+  it('does not call a tiny model the fastest option on a powerful computer', () => {
+    const slots = buildRecommendedSlots(
+      hardware({ ramBytes: 64 * GB, vramBytes: 16 * GB, gpu: 'Test GPU' }),
+      null
+    )
+    const fastest = slots.find((slot) => slot.id === 'fastest')
+
+    expect(fastest).toBeDefined()
+    expect(['14b', '32b', '70b']).toContain(fastest?.model.tier)
   })
 })
 

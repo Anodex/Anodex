@@ -3,7 +3,7 @@ import type { HardwareInfo } from '@shared/system.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
 import { RECOMMENDED_MODELS, recommendedModelFileName } from '@shared/recommendedModels'
 import type { ModelRecommendation } from '@shared/modelRecommendation'
-import { contextSizeFor } from '@shared/modelRecommendation'
+import { contextSizeFor, isModelHardwareCompatible } from '@shared/modelRecommendation'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import { computeReliabilityScore } from '@shared/modelReliability.types'
 
@@ -34,6 +34,29 @@ export function bytesToGb(bytes: number): number {
 
 export function clampScore(score: number): number {
   return Math.max(0, Math.min(100, score))
+}
+
+const TIER_WEIGHT = {
+  '1b': 1,
+  '3b': 3,
+  '7b': 7,
+  '14b': 14,
+  '32b': 32,
+  '70b': 70
+} as const
+
+/**
+ * A "Fastest" card should still be useful for the detected machine. On a
+ * workstation that can comfortably run larger models, a 1B or 3B model is
+ * fast but needlessly weak, so retain enough capability for the card to be a
+ * practical daily driver. Small machines retain access to their fitting tier.
+ */
+function fastestAppropriateCandidates(
+  candidates: { model: RecommendedModel; score: number }[]
+): { model: RecommendedModel; score: number }[] {
+  const largestTier = Math.max(...candidates.map((candidate) => TIER_WEIGHT[candidate.model.tier]))
+  const minimumTier = largestTier >= 32 ? 14 : largestTier >= 14 ? 7 : largestTier >= 7 ? 3 : 1
+  return candidates.filter((candidate) => TIER_WEIGHT[candidate.model.tier] >= minimumTier)
 }
 
 export function basename(path: string): string {
@@ -194,22 +217,28 @@ export function buildRecommendedSlots(
   catalog: RecommendedModel[] = RECOMMENDED_MODELS
 ): RecommendedSlot[] {
   const allCandidates = catalog.filter((model) => model.recommended !== false)
-  // Only "Large Context" used to filter by RAM eligibility — every other slot
-  // could recommend a model that doesn't even meet its own stated minimum RAM
-  // (e.g. "Best Coding" suggesting a 7B model needing 16 GB on an 8 GB
-  // machine). Filter globally instead, falling back to the full catalog only
-  // if literally nothing fits (mirrors `modelRecommendation.ts`'s own
-  // `pickBestModel` so there's still something to suggest on very old hardware).
-  const ramGb = hardware ? bytesToGb(hardware.ramBytes) : null
-  const eligibleCandidates =
-    ramGb === null ? allCandidates : allCandidates.filter((model) => ramGb >= model.minRamGb)
-  const candidates = eligibleCandidates.length > 0 ? eligibleCandidates : allCandidates
+  // Every card shares this strict eligibility gate. A model that misses its
+  // catalog RAM or explicit GPU requirement must never appear as a safe
+  // automatic choice; if nothing fits, the strip explains that rather than
+  // suggesting an oversized fallback.
+  const candidates = hardware
+    ? allCandidates.filter((model) =>
+        isModelHardwareCompatible(model, {
+          ramBytes: hardware.ramBytes,
+          vramBytes: hardware.vramBytes,
+          unified: hardware.unifiedMemory
+        })
+      )
+    : allCandidates
+  if (candidates.length === 0) return []
   const scored = candidates
     .map((model) => ({ model, score: scoreRecommendedModel(model, hardware) }))
     .sort((a, b) => b.score - a.score)
   const byScore = scored.map((entry) => entry.model)
+  const speedCandidates = fastestAppropriateCandidates(scored)
 
   const used = new Set<string>()
+  const usedFamilies = new Set<string>()
   /**
    * Picks the first model in `rank()`'s order that no earlier slot has
    * already claimed. `rank()` must list ITS OWN best-fit candidates first and
@@ -227,9 +256,11 @@ export function buildRecommendedSlots(
     note: string,
     rank: () => RecommendedModel[]
   ): RecommendedSlot | null => {
-    const model = rank().find((candidate) => !used.has(candidate.id))
+    const unused = rank().filter((candidate) => !used.has(candidate.id))
+    const model = unused.find((candidate) => !usedFamilies.has(candidate.family)) ?? unused[0]
     if (!model) return null
     used.add(model.id)
+    usedFamilies.add(model.family)
     return {
       id,
       label,
@@ -313,7 +344,7 @@ export function buildRecommendedSlots(
     'Fastest',
     'Best choice when quick responses matter more than maximum quality.',
     () =>
-      [...scored]
+      [...speedCandidates]
         .sort((a, b) => (b.model.speedRank ?? 0) - (a.model.speedRank ?? 0) || b.score - a.score)
         .map((entry) => entry.model)
   )

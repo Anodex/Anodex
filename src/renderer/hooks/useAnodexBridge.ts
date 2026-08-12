@@ -380,6 +380,7 @@ async function autoConfigureFromHardware(): Promise<void> {
       vramBytes: hw.vramBytes,
       unified: hw.unifiedMemory
     })
+    if (!rec) return
     await useSettingsStore.getState().update({
       model: { contextSize: rec.contextSize, gpuLayers: rec.gpuLayers, autoConfigured: true }
     })

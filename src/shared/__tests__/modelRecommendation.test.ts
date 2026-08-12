@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { recommendModel } from '../modelRecommendation'
+import {
+  isModelHardwareCompatible,
+  recommendModel as findRecommendedModel,
+  type HardwareProfile
+} from '../modelRecommendation'
 import { RECOMMENDED_MODELS } from '../recommendedModels'
 
 const GB = 1024 ** 3
 
 function recommendedModelMinRam(modelId: string): number {
   return RECOMMENDED_MODELS.find((model) => model.id === modelId)!.minRamGb
+}
+
+function recommendModel(hardware: HardwareProfile) {
+  const recommendation = findRecommendedModel(hardware)
+  if (!recommendation) throw new Error('Expected a compatible recommendation')
+  return recommendation
 }
 
 describe('recommendModel', () => {
@@ -26,7 +36,7 @@ describe('recommendModel', () => {
   it('recommends a 7B coding model on 16 GB RAM', () => {
     const rec = recommendModel({ ramBytes: 16 * GB, vramBytes: null, unified: false })
     expect(rec.tier).toBe('7b')
-    expect(rec.modelId).toBe('qwen2.5-coder-7b-q4')
+    expect(rec.modelId).toBe('qwen3-8b-q4')
     expect(rec.contextSize).toBe(8192)
   })
 
@@ -157,5 +167,20 @@ describe('recommendModel', () => {
     expect(rec.modelId).toBe('llama-3.2-1b-q4')
     expect(rec.rationale).toContain('general chat')
     expect(rec.rationale).not.toContain('coder model')
+  })
+
+  it('does not recommend an oversized model below the smallest supported hardware profile', () => {
+    expect(findRecommendedModel({ ramBytes: 3 * GB, vramBytes: null, unified: false })).toBeNull()
+  })
+
+  it('withholds GPU-recommended models when their graphics-memory requirement is unavailable', () => {
+    const model = RECOMMENDED_MODELS.find((candidate) => candidate.id === 'llama-3.3-70b-q4')!
+
+    expect(
+      isModelHardwareCompatible(model, { ramBytes: 128 * GB, vramBytes: null, unified: false })
+    ).toBe(false)
+    expect(
+      isModelHardwareCompatible(model, { ramBytes: 128 * GB, vramBytes: 48 * GB, unified: false })
+    ).toBe(true)
   })
 })

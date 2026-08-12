@@ -69,6 +69,7 @@ describe('inferModelFamily', () => {
     expect(inferModelFamily('Codestral-22B-v0.1-Q4_K_M.gguf')).toBe('mistral')
     expect(inferModelFamily('gemma-2-9b-it-Q4_K_M.gguf')).toBe('google')
     expect(inferModelFamily('DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf')).toBe('deepseek')
+    expect(inferModelFamily('Phi-4-Q4_K_S.gguf')).toBe('microsoft')
   })
 
   it('falls back to "other" for an unrecognized name', () => {
