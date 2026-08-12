@@ -60,6 +60,46 @@ describe('ChatImagePreview', () => {
     expect(html).toContain('Open result.png fullscreen')
   })
 
+  it('renders every section of a multi-section visual inspection', () => {
+    const html = renderToStaticMarkup(
+      <ChatImagePreview
+        preview={{
+          kind: 'image',
+          title: 'Rendered page.html (4 sections)',
+          path: 'page.html',
+          dataUrl: 'data:image/png;base64,dG9w',
+          mimeType: 'image/png',
+          sections: [
+            {
+              title: 'Section 1 of 4',
+              dataUrl: 'data:image/png;base64,dG9w',
+              mimeType: 'image/png'
+            },
+            {
+              title: 'Section 2 of 4',
+              dataUrl: 'data:image/png;base64,bWlk',
+              mimeType: 'image/png'
+            },
+            {
+              title: 'Section 3 of 4',
+              dataUrl: 'data:image/png;base64,bG93',
+              mimeType: 'image/png'
+            },
+            {
+              title: 'Section 4 of 4',
+              dataUrl: 'data:image/png;base64,Ym90dG9t',
+              mimeType: 'image/png'
+            }
+          ]
+        }}
+      />
+    )
+
+    expect(html).toContain('Section 1 of 4')
+    expect(html).toContain('Section 4 of 4')
+    expect(html).toContain('data:image/png;base64,Ym90dG9t')
+  })
+
   it('shows a successful inspected screenshot without requiring expansion', () => {
     const html = renderToStaticMarkup(
       <ToolCallCard

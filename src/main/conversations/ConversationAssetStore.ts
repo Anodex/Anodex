@@ -270,6 +270,16 @@ function addPreviewAssetId(
   ) {
     ids.add(preview.asset.id)
   }
+  if (preview?.kind === 'image') {
+    for (const section of preview.sections ?? []) {
+      if (
+        section.asset?.conversationId === conversationId &&
+        SAFE_ASSET_ID.test(section.asset.id)
+      ) {
+        ids.add(section.asset.id)
+      }
+    }
+  }
 }
 
 function decodeImageDataUrl(image: ChatImageInput): Buffer {

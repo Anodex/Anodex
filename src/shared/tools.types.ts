@@ -74,7 +74,17 @@ export type ToolCallPreview =
       mimeType: string
       /** Durable, sandboxed reference used to reopen the exact inspected pixels later. */
       asset?: VisualPreviewAssetRef
+      /** Additional viewport captures belonging to one multi-section visual inspection. */
+      sections?: VisualPreviewSection[]
     }
+
+/** A separately stored viewport capture from a single visual inspection. */
+export interface VisualPreviewSection {
+  title: string
+  dataUrl?: string
+  mimeType: string
+  asset?: VisualPreviewAssetRef
+}
 
 export interface VisualPreviewAssetRef {
   conversationId: string
@@ -220,7 +230,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'inspect_visual',
     kind: 'read',
     description:
-      'Capture a workspace image or HTML screenshot; to compare, screenshot the same path, edit that file in place, then screenshot the same path again — never rename or copy it to make a "before".',
+      'Capture a workspace image or up to three primary HTML sections; pass a section id to inspect one named page section precisely. To compare, inspect the same path, edit that file in place, then inspect it again — never rename or copy it to make a "before".',
     requiresProject: true
   },
   {

@@ -140,9 +140,15 @@ function sanitizeToolCall(
   if (mode === 'history' || !call.preview.asset) {
     return { call: { ...call, preview: undefined }, changed: true }
   }
-  if (!call.preview.dataUrl) return { call, changed: false }
-  const { dataUrl: _dataUrl, ...durablePreview } = call.preview
-  return { call: { ...call, preview: durablePreview }, changed: true }
+  const { dataUrl: _dataUrl, sections, ...durablePreview } = call.preview
+  const durableSections = sections?.map(({ dataUrl: _sectionDataUrl, ...section }) => section)
+  const preview = durableSections
+    ? { ...durablePreview, sections: durableSections }
+    : durablePreview
+  if (!call.preview.dataUrl && !sections?.some((section) => section.dataUrl)) {
+    return { call, changed: false }
+  }
+  return { call: { ...call, preview }, changed: true }
 }
 
 function stripKnownToolCallPayloads(text: string): { text: string; changed: boolean } {

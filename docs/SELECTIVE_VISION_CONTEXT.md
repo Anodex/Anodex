@@ -21,8 +21,10 @@ budget first. Pinned historical images only fill the unused slots.
 
 `inspect_visual` is separate from attachment recall. When the model intentionally asks to inspect
 a workspace image or rendered HTML page, the captured pixels are supplied only to the next tool
-round of that response. The tool result remains a compact textual record in conversation history;
-the pixels are not silently replayed later.
+round of that response. An initial long-HTML inspection samples up to three named page sections,
+including the page's earliest sections; it leaves room for the model to request one specific
+section by its HTML id when an area needs a closer check. The tool result remains a compact textual
+record in conversation history; the pixels are not silently replayed later.
 
 ## Persistence and compatibility
 
