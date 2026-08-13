@@ -30,6 +30,7 @@ import { appendRoundText } from '@shared/roundText'
 import { providerUsageStore } from './ProviderUsageStore'
 import type { LlmProvider } from './LlmProvider'
 import { anthropicUserContent, cloudCompatibleImages } from './cloudVisionContent'
+import { createTurnProgress } from '../tools/turnProgress'
 import {
   assertCloudVisionCompatible,
   CLOUD_VISION_MIME_TYPES,
@@ -113,7 +114,7 @@ class AnthropicProvider implements LlmProvider {
           loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
           // Fresh every generation call, same reasoning as `turnGate` above —
           // see `ToolRuntimeContext.progress`'s doc comment.
-          progress: { madeChange: false },
+          progress: createTurnProgress(),
           // Sized from the model's real window and this turn's own reported
           // usage each round — see `cloudRoundBudget.ts`. Left permanently
           // null (as this did) every tool falls back to its own disk-oriented

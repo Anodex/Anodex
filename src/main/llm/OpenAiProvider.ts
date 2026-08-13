@@ -35,6 +35,7 @@ import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import type { LlmProvider } from './LlmProvider'
 import { cloudCompatibleImages, openAiUserContent } from './cloudVisionContent'
+import { createTurnProgress } from '../tools/turnProgress'
 import {
   assertCloudVisionCompatible,
   CLOUD_VISION_MIME_TYPES,
@@ -118,7 +119,7 @@ class OpenAiProvider implements LlmProvider {
           loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
           // Fresh every generation call, same reasoning as `turnGate` above —
           // see `ToolRuntimeContext.progress`'s doc comment.
-          progress: { madeChange: false },
+          progress: createTurnProgress(),
           // Sized from the model's real window and this turn's own reported
           // usage each round — see `cloudRoundBudget.ts`. Left permanently
           // null (as this did) every tool falls back to its own disk-oriented

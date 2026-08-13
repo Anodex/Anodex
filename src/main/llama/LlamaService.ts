@@ -96,6 +96,7 @@ import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
+import { createTurnProgress } from '../tools/turnProgress'
 import {
   buildCompactionSummaryPrompt,
   buildCompactionUpdatePrompt,
@@ -2342,7 +2343,7 @@ class LlamaService extends EventEmitter {
       loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
       // Fresh every generation call, same reasoning as `turnGate` above — see
       // `ToolRuntimeContext.progress`'s doc comment.
-      progress: { madeChange: false },
+      progress: createTurnProgress(),
       // Same box pattern as `abortBox`/`signalBox` above — this generation's
       // real context accounting isn't measured until after this method
       // returns (see `contextBudget` below), so it fills in slightly later.

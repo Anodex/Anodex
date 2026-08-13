@@ -58,6 +58,7 @@ import {
   STALLED_INTENT_NUDGE_PROMPT,
   TOOL_BYPASS_NUDGE_PROMPT
 } from './intentNudges'
+import { createTurnProgress } from '../tools/turnProgress'
 import {
   createVisualInputQueue,
   drainVisualInputs,
@@ -985,7 +986,7 @@ export class LlamaVisionService {
       turnGate: { approved: false },
       loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
       // Reuse a caller-owned guard across bounded continuation cycles when supplied.
-      progress: { madeChange: false },
+      progress: createTurnProgress(),
       modelResultBudget,
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
       visualInputs,

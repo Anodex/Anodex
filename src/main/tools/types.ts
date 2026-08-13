@@ -8,6 +8,7 @@ import type { LoopGuardState } from './loopGuard'
 import type { ToolArtifact, ToolArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ModelToolResultBudget } from './modelResultBudget'
 import type { ReadCoverageTracker } from './readCoverage'
+import type { TurnProgress } from './turnProgress'
 import type { WebSourceRegistry } from './WebSourceRegistry'
 import type { VisualInputQueue } from '../vision/imageInputs'
 
@@ -108,7 +109,7 @@ export interface ToolRuntimeContext {
    * out its goal, so `write_plan`/`update_plan_step` must not be able to
    * satisfy this on their own.
    */
-  progress: { madeChange: boolean }
+  progress: TurnProgress
   /**
    * Read-only projection of this turn's active context budget, for sizing
    * tool results — a mutable box (same pattern as `plan`/`turnGate` above)

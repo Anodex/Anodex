@@ -3,6 +3,7 @@ import { finishGoalTool } from '../agentTools'
 import { runGuardedTool, runReadTool } from '../helpers'
 import type { ToolRuntimeContext } from '../types'
 import { createMockContext, createMockDefine, captureCalls } from './test-helpers'
+import { recordCompletedCall } from '../turnProgress'
 
 type FinishGoalHandler = (args: { summary: string }) => Promise<string>
 
@@ -167,5 +168,67 @@ describe('finish_goal — planning is not doing', () => {
     )
 
     expect(await tool.handler({ summary: 'Built the feature.' })).toContain('Run finished.')
+  })
+})
+
+/**
+ * A run summary asserting that something now renders is a claim about pixels,
+ * and only a screenshot taken after the last change can support it. In chat
+ * `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef` an inspection ran at the very start
+ * of the turn, the file was edited afterwards, and success was reported off
+ * the stale screenshot.
+ */
+describe('finish_goal — visual claims need post-change evidence', () => {
+  function finishGoal(ctx: ReturnType<typeof context>): {
+    handler: (args: { summary: string }) => Promise<string>
+  } {
+    return finishGoalTool(createMockDefine(), ctx)
+  }
+
+  it('refuses when the only inspection preceded the last edit', async () => {
+    const ctx = context()
+    recordCompletedCall(ctx.progress, { name: 'inspect_visual', kind: 'read' })
+    recordCompletedCall(ctx.progress, { name: 'edit_file', kind: 'write' })
+
+    const result = await finishGoal(ctx).handler({
+      summary: 'Fixed the sandbox — the canvas now renders correctly.'
+    })
+
+    expect(result).toContain('no visual inspection has run since the last change')
+    expect(result).toContain('inspect_visual')
+  })
+
+  it('accepts when an inspection followed the last edit', async () => {
+    const ctx = context()
+    recordCompletedCall(ctx.progress, { name: 'edit_file', kind: 'write' })
+    recordCompletedCall(ctx.progress, { name: 'inspect_visual', kind: 'read' })
+
+    const result = await finishGoal(ctx).handler({
+      summary: 'Fixed the sandbox — the canvas now renders correctly.'
+    })
+
+    expect(result).toContain('Run finished')
+  })
+
+  it('accepts a non-visual completion claim without any inspection', async () => {
+    const ctx = context()
+    recordCompletedCall(ctx.progress, { name: 'edit_file', kind: 'write' })
+
+    const result = await finishGoal(ctx).handler({
+      summary: 'Renamed the helper and updated its call sites.'
+    })
+
+    expect(result).toContain('Run finished')
+  })
+
+  it('accepts an honest report that it could not be verified', async () => {
+    const ctx = context()
+    recordCompletedCall(ctx.progress, { name: 'edit_file', kind: 'write' })
+
+    const result = await finishGoal(ctx).handler({
+      summary: 'Changed the canvas setup, but this is unverified — I could not confirm it renders.'
+    })
+
+    expect(result).toContain('Run finished')
   })
 })

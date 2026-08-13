@@ -11,6 +11,7 @@ import {
   findUnverifiedPathClaims
 } from '../tools/pathClaimVerification'
 import { parseRunCommandVerification } from '../tools/commandTools'
+import { claimsVisualSuccess } from '../tools/visualVerification'
 import { projectStore } from '../projects/ProjectStore'
 
 /**
@@ -390,16 +391,6 @@ function describeMissingBuildVerification(content: string, toolCalls: ToolCall[]
 const MUTATING_TOOL_KINDS = new Set(['write', 'command'])
 
 /**
- * Words that only make sense as claims about what a page *looks like* once
- * rendered — as opposed to claims about source code, which static reading can
- * legitimately support.
- */
-const VISUAL_SUBJECT =
-  /\b(?:canvas|render(?:s|ed|ing)?|page|screen|display(?:s|ed)?|visual|ui|sandbox|animation|scene)\b/i
-const VISUAL_SUCCESS =
-  /\b(?:now works?|now renders?|now displays?|is working|is fixed|fixed it|working correctly|displays? correctly|renders? correctly|verified|confirmed)\b/i
-
-/**
  * A correction appended when a reply claims a visual fix that no screenshot
  * taken after the last edit actually supports.
  *
@@ -440,17 +431,6 @@ function describeMissingVisualVerification(content: string, toolCalls: ToolCall[
     `${reason}. Treat that as untested. Call inspect_visual on the affected page — using its ` +
     `sectionId for the specific section in question — after the final edit before relying on it.`
   )
-}
-
-function claimsVisualSuccess(content: string): boolean {
-  if (
-    /\b(?:not verified|unverified|could not confirm|couldn't confirm|still broken|not yet)\b/i.test(
-      content
-    )
-  ) {
-    return false
-  }
-  return VISUAL_SUBJECT.test(content) && VISUAL_SUCCESS.test(content)
 }
 
 function looksLikeBuildDiagnosis(content: string): boolean {

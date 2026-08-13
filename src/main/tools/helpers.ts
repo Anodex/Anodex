@@ -16,6 +16,7 @@ import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
 import { clampModelResultCap } from './modelResultBudget'
+import { recordCompletedCall } from './turnProgress'
 
 /** Truncated tool output retained for cross-session memory. */
 const MAX_REMEMBERED_RESULT = 2000
@@ -264,21 +265,17 @@ function normalizeTouchPath(ctx: ToolRuntimeContext, path: string): string {
 }
 
 /**
- * Marks `ctx.progress` once a tool call that did real work succeeds — see
- * `ToolRuntimeContext.progress`'s doc comment.
+ * Records a successful tool call in `ctx.progress` — see `TurnProgress` in
+ * `turnProgress.ts` for what is tracked and why.
  *
- * `read` and `plan` kinds are both excluded, and for the same reason. Reading
- * is not doing, and neither is writing down what you intend to do: an agent
- * run exists to carry out the goal it was given, so `write_plan` and
- * `update_plan_step` describing the work must not let `finish_goal` declare
- * the work done. Before this, a run could write a plan, tick a step, and
- * finish without touching a file. `finish_goal` is `plan`-kind itself, which
- * is what already stopped it satisfying its own precondition.
+ * Every successful call is recorded, not just changes: the ledger needs the
+ * ordering of reads too, because `inspect_visual` is a `read` and the whole
+ * point is knowing whether it ran *after* the last change. Which kinds count
+ * as "real work" for `finish_goal`'s purposes is decided inside
+ * `recordCompletedCall`, not here.
  */
 function markProgress(ctx: ToolRuntimeContext, spec: { name: string; kind: ToolKind }): void {
-  if (spec.kind !== 'read' && spec.kind !== 'plan') {
-    ctx.progress.madeChange = true
-  }
+  recordCompletedCall(ctx.progress, spec)
 }
 
 /**

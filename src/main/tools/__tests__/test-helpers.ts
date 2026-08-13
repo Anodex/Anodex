@@ -2,6 +2,7 @@ import type { DefineChatSessionFunction, WorkspaceToolContext } from '../types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import { createLoopGuardState } from '../loopGuard'
 import { createReadCoverageTracker } from '../readCoverage'
+import { createTurnProgress } from '../turnProgress'
 
 /**
  * A minimal mock for `node-llama-cpp`'s `defineChatSessionFunction`.
@@ -42,7 +43,7 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     plan: { current: null },
     turnGate: { approved: false },
     loopGuard: createLoopGuardState(),
-    progress: { madeChange: false },
+    progress: createTurnProgress(),
     modelResultBudget: { current: null },
     readCoverage: createReadCoverageTracker(),
     emit: () => {},
