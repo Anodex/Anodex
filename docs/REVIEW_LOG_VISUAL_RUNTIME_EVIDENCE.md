@@ -19,26 +19,28 @@
 
 ## Status board
 
-| ID   | Change                                                                            | Status                                            |
-| ---- | --------------------------------------------------------------------------------- | ------------------------------------------------- |
-| P0.2 | Structural external-asset policy (import maps + declared assets + host denylist)  | DONE                                              |
-| P0.1 | Loopback inspection server (workspace-confined, ephemeral, torn down)             | DONE                                              |
-| P0.3 | Runtime diagnostics from HTML inspection (console/errors/network/canvas/WebGL)    | DONE                                              |
-| P0.4 | Wire P0.1–P0.3 into `inspect_visual` + surface diagnostics to the model           | DONE                                              |
-| P1.1 | Semantic loop-guard key (paraphrase-resistant)                                    | DONE                                              |
-| P1.2 | Escalating read-coverage refusal                                                  | DONE                                              |
-| P1.3 | Platform-aware command guard (Windows `grep`, `findstr \|`, empty-result warning) | DONE                                              |
-| P2.1 | Plan state machine (no reversal, no no-op churn)                                  | DONE                                              |
-| P2.2 | Visual-verification gate in `boundedChatRunner`                                   | DONE                                              |
-| P2.3 | Skip plan reconciliation when the cycle did no real work                          | DONE                                              |
-| P4.1 | `LlamaService` channel boundary (stop promoting bulk thinking to content)         | DONE                                              |
-| —    | `/goal` verification stopgap (not P3)                                             | DONE                                              |
-| P3.2 | Gate `finish_goal` on post-change visual evidence                                 | DONE                                              |
-| —    | Re-run the real fixture and resolve H1–H4                                         | BLOCKED on the user — needs the app running       |
-| P3.1 | `/goal` starts a bounded goal run in chat                                         | NOT STARTED — now unblocked, see "Remaining work" |
-| P3.3 | Goal bar live state + stop control                                                | NOT STARTED                                       |
+| ID   | Change                                                                            | Status                                      |
+| ---- | --------------------------------------------------------------------------------- | ------------------------------------------- |
+| P0.2 | Structural external-asset policy (import maps + declared assets + host denylist)  | DONE                                        |
+| P0.1 | Loopback inspection server (workspace-confined, ephemeral, torn down)             | DONE                                        |
+| P0.3 | Runtime diagnostics from HTML inspection (console/errors/network/canvas/WebGL)    | DONE                                        |
+| P0.4 | Wire P0.1–P0.3 into `inspect_visual` + surface diagnostics to the model           | DONE                                        |
+| P1.1 | Semantic loop-guard key (paraphrase-resistant)                                    | DONE                                        |
+| P1.2 | Escalating read-coverage refusal                                                  | DONE                                        |
+| P1.3 | Platform-aware command guard (Windows `grep`, `findstr \|`, empty-result warning) | DONE                                        |
+| P2.1 | Plan state machine (no reversal, no no-op churn)                                  | DONE                                        |
+| P2.2 | Visual-verification gate in `boundedChatRunner`                                   | DONE                                        |
+| P2.3 | Skip plan reconciliation when the cycle did no real work                          | DONE                                        |
+| P4.1 | `LlamaService` channel boundary (stop promoting bulk thinking to content)         | DONE                                        |
+| —    | `/goal` verification stopgap (not P3)                                             | DONE                                        |
+| P3.2 | Gate `finish_goal` on post-change visual evidence                                 | DONE                                        |
+| P3.1 | `/goal` starts a bounded goal run in chat                                         | DONE                                        |
+| P3.3 | Goal bar live state + stop control                                                | DONE                                        |
+| G.1  | Toolchain detection so checks work outside Node projects                          | DONE                                        |
+| —    | Re-run the real fixture and resolve H1–H4                                         | BLOCKED on the user — needs the app running |
+| —    | Live-verify the goal run and goal bar in the app                                  | BLOCKED on the user — needs the app running |
 
-Test count: **2,997 passing, 1 skipped** across 270 files, up from 2,935 at the
+Test count: **3,034 passing, 1 skipped** across 272 files, up from 2,935 at the
 base commit. Typecheck and lint clean.
 
 ## Why this order
@@ -224,7 +226,56 @@ regression** — an existing test caught me doing it:
 Ordering uses a counter rather than timestamps: two calls can share a
 millisecond, and only precedence matters.
 
-### P3 — remaining `/goal` semantics (steps 1 and 3)
+### `a39e269` — `/goal` becomes a real bounded run (P3.1, P3.3, DONE)
+
+| File                                                   | Change                                                                                                           |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `src/shared/chat.types.ts`                             | `ChatRequest.goal` — presence switches the turn into a goal run. `ChatResult.goalOutcome` reports what happened. |
+| `src/shared/conversation.types.ts`                     | `ConversationGoal` gains `status` / `summary` / `blockedReason`.                                                 |
+| `src/main/tools/types.ts`, `registry.ts`               | `ToolRuntimeContext.goalRun` registers `finish_goal`.                                                            |
+| `src/main/chat/boundedChatRunner.ts`                   | Goal loop, goal-aware continue prompt, outcome reporting.                                                        |
+| `src/renderer/.../ComposerGoalBar.tsx`, `chatStore.ts` | Live status, Stop/Clear controls.                                                                                |
+
+Design points that must survive future edits:
+
+- **`goalRun` is separate from `enabledTools`.** A chat goal run needs the whole
+  toolset _plus_ `finish_goal`; expressing that as a restricted set would mean
+  enumerating every tool by name and silently dropping new ones.
+- **A refused `finish_goal` is a continue signal, not an ending.** Only a
+  _successful_ call terminates the run. Treating the evidence gate's refusal as
+  terminal would convert a recoverable "go and verify it" into a dead run.
+- **Three independent bounds**: 40 cycles, a 30-minute total wall clock
+  (`GenerationBudget` only bounds one cycle — 40 x 15 min is 10 hours), and the
+  pre-existing no-progress rule.
+- **The bar reports the goal, not the plan.** Step counts are the model's own
+  bookkeeping and said nothing about whether the goal was met; they are now only
+  a fallback when no outcome exists yet.
+- **Unfinished is styled `--text`, deliberately not `--danger`.** "Ran out of
+  steps, say continue" is incomplete, not broken.
+
+### `6cced6c` — project-type generality (G.1, DONE)
+
+`run_project_check` looked for npm scripts and then fell back to `npm test` /
+`npm run <kind>` unconditionally, so every check in a Python, Rust, Go, C#, or
+Java project ran npm in a directory npm knows nothing about. Since verification
+is what stops Anodex claiming unproven fixes, a verification tool that only
+worked for one ecosystem removed that safeguard for every other project type.
+
+`projectToolchain.ts` detects Node, Rust, Go, Python, .NET, Maven, Gradle,
+CMake, and Make, mapping each to its conventional commands — including where
+type checking _is_ compilation (`cargo check`, `go build`, `dotnet build`) and
+where no standard command exists. Node reads real `package.json` scripts rather
+than assuming them. A mixed repo reports every toolchain found. Unresolved
+checks fail honestly, naming what was detected.
+
+**Design principle to preserve.** Verification gates are conditional on the
+_claim_, not the project type. `claimsVisualSuccess` only fires when a reply
+asserts something about rendered output, so a Python CLI or Rust service never
+gets a "call inspect_visual" correction it could not satisfy. There is a
+regression test for exactly this in `visualVerification.test.ts` — keep it green
+when touching those patterns.
+
+### P3 — original specification (now implemented; kept for rationale)
 
 The defect: `/goal` sets a persistent goal marker that reads as "keep working
 until done", but expands to a single interactive turn with no completion
