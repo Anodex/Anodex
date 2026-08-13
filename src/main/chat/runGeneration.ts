@@ -140,6 +140,11 @@ export interface RunGenerationResult {
   /** Web pages this turn searched up or fetched, in the order the model first saw them. */
   webSources?: WebSource[]
   /**
+   * Outcome of a goal run, when this reply was one — see `ChatRequest.goal`.
+   * Absent for an ordinary turn.
+   */
+  goalOutcome?: { status: 'finished' | 'unfinished'; summary?: string; blockedReason?: string }
+  /**
    * True if any web tool ran this turn, regardless of what it returned. With an
    * empty `webSources` this is the "looked and found nothing" case, which the
    * source list alone cannot express.
@@ -381,6 +386,10 @@ export async function runGeneration(
           confirmBeforeSaving: settings.memory.confirmBeforeSaving
         },
         plan: request.plan ?? null,
+        // A standing `/goal` on this chat, or an Agent run's explicit toolset,
+        // makes this a goal-directed run — which is what registers
+        // `finish_goal`. See `ToolRuntimeContext.goalRun`.
+        goalRun: Boolean(request.goal?.trim()) || io.enabledTools != null,
         enabledTools: io.enabledTools ?? null,
         // Interactive chats use the persisted opt-out list. Headless runs
         // already have an explicit allowlist, so their behavior stays stable

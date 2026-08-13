@@ -111,6 +111,17 @@ export interface ToolRuntimeContext {
    */
   progress: TurnProgress
   /**
+   * Whether this turn is a goal-directed run — an Agent run, or an interactive
+   * chat with a standing `/goal` (see `ChatRequest.goal`). Registers
+   * `finish_goal`, which is how such a run ends itself.
+   *
+   * Kept separate from `enabledTools` rather than folded into it: chat goal
+   * runs need the *whole* toolset plus `finish_goal`, and expressing that
+   * through a restricted set would mean enumerating every tool name and
+   * silently losing new ones as they are added.
+   */
+  goalRun: boolean
+  /**
    * Read-only projection of this turn's active context budget, for sizing
    * tool results — a mutable box (same pattern as `plan`/`turnGate` above)
    * because the real, measured value isn't known until after the engine has

@@ -240,6 +240,23 @@ describe('buildTools', () => {
     expect(tools).not.toHaveProperty('finish_goal')
   })
 
+  /**
+   * A chat goal run (`/goal`) needs the *whole* toolset plus `finish_goal`.
+   * Expressing that through a restricted `enabledTools` set would mean listing
+   * every tool by name and quietly dropping new ones as they are added, so
+   * `goalRun` is a separate switch.
+   */
+  it('registers finish_goal for a chat goal run without restricting the toolset', () => {
+    const ctx = { ...createMockContext('/workspace'), enabledTools: null, goalRun: true }
+    const tools = buildTools(createMockDefine(), ctx)
+
+    expect(tools).toHaveProperty('finish_goal')
+    // Still unrestricted — ordinary chat tools are present alongside it, which
+    // a restricted `enabledTools` set would have had to enumerate.
+    expect(tools).toHaveProperty('read_file')
+    expect(tools).toHaveProperty('list_directory')
+  })
+
   it('registers finish_goal only for a restricted run that explicitly opts into it', () => {
     const withoutIt = {
       ...createMockContext('/workspace'),

@@ -262,7 +262,13 @@ export function ChatComposer(): JSX.Element {
       </div>
 
       {activeConversation?.goal && (
-        <ComposerGoalBar goal={activeConversation.goal} plan={activeConversation.plan} />
+        <ComposerGoalBar
+          goal={activeConversation.goal}
+          plan={activeConversation.plan}
+          running={generating}
+          onStop={() => void stopGeneration()}
+          onClear={clearConversationGoal}
+        />
       )}
 
       <div className={`${styles.inputShell} ${!ready ? styles.disabled : ''}`}>

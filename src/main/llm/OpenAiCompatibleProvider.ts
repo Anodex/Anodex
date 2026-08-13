@@ -169,6 +169,7 @@ export async function runChatCompletionsLoop(
         imageGeneration,
         email: params.tools.email,
         memory: params.tools.memory,
+        goalRun: params.tools.goalRun,
         enabledTools: params.tools.enabledTools ?? null,
         disabledTools: params.tools.disabledTools,
         mcpTools: params.tools.mcpTools,

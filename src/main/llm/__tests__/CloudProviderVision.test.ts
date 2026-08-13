@@ -235,6 +235,7 @@ function toolParams(): NonNullable<GenerateParams['tools']> {
     },
     memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false },
     plan: null,
+    goalRun: false,
     disabledTools: new Set(),
     mcpTools: [],
     onActivity: vi.fn(),

@@ -399,7 +399,10 @@ export const useChatStore = create<ChatState>()(
       set((state) => {
         const conversation = state.conversations.find((item) => item.id === conversationId)
         if (!conversation) return
-        conversation.goal = { title: trimmed, createdAt: now }
+        // A fresh goal starts `active`: setting one immediately sends a turn,
+        // and that turn is a goal run. The outcome overwrites this when it
+        // lands — see `goalOutcome` handling in `sendMessage`.
+        conversation.goal = { title: trimmed, createdAt: now, status: 'active', updatedAt: now }
         conversation.updatedAt = now
         saved = conversation
       })
@@ -712,6 +715,10 @@ export const useChatStore = create<ChatState>()(
             sizeBytes: attachment.sizeBytes
           })),
         plan: existing?.plan ?? null,
+        // Only an unfinished goal drives a goal run. Sending a finished one
+        // would restart autonomy on the next ordinary message in the chat,
+        // which is not what the user asked for by setting it once.
+        goal: existing?.goal?.status === 'finished' ? null : (existing?.goal?.title ?? null),
         options: settings
           ? {
               temperature: settings.generation.temperature,
@@ -793,6 +800,19 @@ export const useChatStore = create<ChatState>()(
               message.error = note.error
               if (note.errorKind) message.errorKind = note.errorKind
               else failureNote = note.error
+            }
+          }
+          // Reflect what the goal run actually achieved on the goal bar. The
+          // bar previously showed plan-step progress, which said nothing about
+          // whether the goal itself was met — the mismatch this whole change
+          // exists to fix.
+          if (result.value.goalOutcome && convo.goal) {
+            convo.goal = {
+              ...convo.goal,
+              status: result.value.goalOutcome.status,
+              summary: result.value.goalOutcome.summary,
+              blockedReason: result.value.goalOutcome.blockedReason,
+              updatedAt: Date.now()
             }
           }
           if (result.value.memoryUsed?.length) message.memoryUsed = result.value.memoryUsed

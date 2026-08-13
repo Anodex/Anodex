@@ -278,13 +278,16 @@ export function buildTools(
     tools.remember_fact = rememberFactTool(define, ctx)
   }
 
-  // finish_goal only exists for a restricted run that explicitly opts into it
-  // (`AgentRunService` always does) — interactive chat's `enabledTools` is
-  // always `null` (unrestricted), so this never registers there, and nothing
-  // else can reach it without deliberately including 'finish_goal' in a
-  // headless run's tool set (it's not in `TOOL_CATALOG`, so no picker UI
-  // ever offers it).
-  if (ctx.enabledTools !== null && isEnabled('finish_goal')) {
+  // finish_goal exists only for a goal-directed run: a restricted run that
+  // explicitly includes it in `enabledTools` (`AgentRunService` always does),
+  // or a turn that set `goalRun` — an interactive chat with a standing
+  // `/goal`. An ordinary chat turn has neither, so this never registers there,
+  // and it is not in `TOOL_CATALOG`, so no picker UI ever offers it.
+  //
+  // The two conditions are separate on purpose. A chat goal run needs the
+  // whole toolset *plus* `finish_goal`; expressing that as a restricted set
+  // would mean listing every tool by name and quietly dropping new ones.
+  if ((ctx.goalRun || ctx.enabledTools !== null) && isEnabled('finish_goal')) {
     tools.finish_goal = finishGoalTool(define, ctx)
   }
 

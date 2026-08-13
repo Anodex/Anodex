@@ -50,9 +50,32 @@ export interface ConversationReplaySuggestion {
   createdAt: number
 }
 
+/**
+ * How a goal run ended, or that it is still going.
+ *
+ * `/goal` used to set a marker that read as "keep working until done" while
+ * running a single interactive turn — a mismatch users acted on (the driving
+ * incident's user wrote "don't stop till its done and completely working" and
+ * got one turn). A goal now drives a real bounded run, so the marker has to be
+ * able to say what actually happened.
+ */
+export type ConversationGoalStatus =
+  /** A run is in flight. */
+  | 'active'
+  /** The model called `finish_goal` and the evidence gate accepted it. */
+  | 'finished'
+  /** The run ended without finishing — budget exhausted, stopped, or blocked. */
+  | 'unfinished'
+
 export interface ConversationGoal {
   title: string
   createdAt: number
+  status: ConversationGoalStatus
+  /** The model's own account of the outcome, from `finish_goal`, when it finished. */
+  summary?: string
+  /** Why an unfinished run stopped, for the goal bar to show. */
+  blockedReason?: string
+  updatedAt?: number
 }
 
 /**

@@ -141,6 +141,7 @@ function webOnlyTools(onActivity: NonNullable<GenerateParams['tools']>['onActivi
     memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: false },
     plan: null,
     enabledTools: new Set(['web_search']),
+    goalRun: false,
     disabledTools: new Set<string>(),
     mcpTools: [],
     onActivity,

@@ -53,6 +53,42 @@ const BUILD_OR_TEST_COMMAND =
 const MAX_CYCLES = 24
 
 /**
+ * Cycle ceiling for a goal run (`ChatRequest.goal`), which continues on
+ * *unfinished work* rather than only on a recoverable stop and so needs its own
+ * bound. Higher than `MAX_CYCLES` because finishing a real goal legitimately
+ * takes more turns than recovering from a budget stop, but still finite: a goal
+ * that cannot be reached in this many cycles is reported unfinished rather than
+ * run forever.
+ */
+const GOAL_MAX_CYCLES = 40
+
+/**
+ * Wall-clock ceiling across every cycle of one goal run.
+ *
+ * `GenerationBudget` bounds a single cycle; without a total, forty cycles of
+ * fifteen minutes each is ten hours. This is the number that makes an
+ * unattended goal run safe to start, so it is deliberately conservative — the
+ * user can always say "continue".
+ */
+const GOAL_MAX_TOTAL_MS = 30 * 60_000
+
+/**
+ * Continuation nudge for a goal run. Unlike `CHAT_CONTINUE_PROMPT`, this turn
+ * *does* have a standing goal and a termination tool, so it names both — the
+ * same shape as Agent's `CONTINUE_PROMPT` in `agentPrompts.ts`.
+ */
+function goalContinuePrompt(goal: string): string {
+  return (
+    `Continue working toward this goal: ${goal}\n\n` +
+    'Do not repeat work already done above — reuse the tool results and text already produced in ' +
+    'this reply. Take the next concrete action. When the goal is genuinely met, call finish_goal ' +
+    'with a summary of the outcome; a claim that something renders or works needs a visual ' +
+    'inspection taken after your last change to support it. If you are blocked and cannot make ' +
+    'further progress, call finish_goal and say plainly what is blocking you.'
+  )
+}
+
+/**
  * Wraps `runGeneration()` in an outer continuation loop, so a single request
  * (Project Chat's `Chat.send`, or any other `runGeneration` caller) can make
  * bounded progress across multiple provider turns instead of stopping dead
@@ -127,7 +163,18 @@ export async function runBoundedChatGeneration(
   const completedToolCalls = new Map<string, ToolCall>()
   let latestCycleToolCalls: ToolCall[] | undefined
 
-  for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
+  // A standing `/goal` turns this into a goal run: it keeps taking cycles
+  // while real progress continues, and ends when the model calls `finish_goal`
+  // (which the evidence gate in `agentTools.ts` can refuse) rather than after
+  // one pass. See `ChatRequest.goal`.
+  const goal = request.goal?.trim() || null
+  const goalDeadline = goal ? Date.now() + GOAL_MAX_TOTAL_MS : null
+  const cycleCeiling = goal ? GOAL_MAX_CYCLES : MAX_CYCLES
+  let goalFinished = false
+  let goalBlockedReason: string | null = null
+  let goalSummary: string | undefined
+
+  for (let cycle = 0; cycle < cycleCeiling; cycle++) {
     let novelToolActivityThisCycle = false
     // Keyed by call id, same shape/reasoning as `AgentRunService.runTurn`'s
     // `toolCallsById`: a call's *latest* status (running → terminal)
@@ -180,15 +227,45 @@ export async function runBoundedChatGeneration(
     if (normalizedContent.length > 0) seenCycleContent.add(normalizedContent)
     const madeProgressThisCycle = novelToolActivityThisCycle || novelVisibleContent
 
-    const canContinue =
+    // Only a *successful* finish_goal ends the run. A refusal from the
+    // evidence gate (`agentTools.ts`) arrives as an error, which must read as
+    // "go and verify it, then try again" — treating it as terminal would turn
+    // a recoverable correction into a dead run.
+    if (cycleToolCalls?.some((call) => call.name === 'finish_goal' && call.status === 'success')) {
+      goalFinished = true
+      goalSummary = cycleToolCalls.find((call) => call.name === 'finish_goal')?.detail
+      break
+    }
+
+    const recoveredStop =
       result.stopped &&
       isRecoverableGenerationStop(result.stopReason) &&
-      result.stopReason !== 'loop-guard' &&
+      result.stopReason !== 'loop-guard'
+    // A goal run also continues through a *clean* finish that did not call
+    // finish_goal — that is the autonomy. It still requires real progress, so
+    // a cycle that achieved nothing stops here rather than looping.
+    const goalStillOpen = goal !== null && !result.stopped
+    const withinGoalDeadline = goalDeadline === null || Date.now() < goalDeadline
+
+    const canContinue =
+      (recoveredStop || goalStillOpen) &&
       madeProgressThisCycle &&
-      cycle < MAX_CYCLES - 1 &&
+      cycle < cycleCeiling - 1 &&
+      withinGoalDeadline &&
       !io.signal?.aborted
 
-    if (!canContinue) break
+    if (!canContinue) {
+      if (goal !== null && !goalFinished) {
+        goalBlockedReason = describeGoalStop({
+          aborted: Boolean(io.signal?.aborted),
+          outOfTime: !withinGoalDeadline,
+          outOfCycles: cycle >= cycleCeiling - 1,
+          madeProgress: madeProgressThisCycle,
+          stopped: result.stopped
+        })
+      }
+      break
+    }
 
     // Without `toolCalls` here, a session rebuild between cycles (proactive
     // or reactive mid-turn compaction, or simply a different conversationId
@@ -208,7 +285,7 @@ export async function runBoundedChatGeneration(
         toolCalls: cycleToolCalls
       })
     ]
-    prompt = CHAT_CONTINUE_PROMPT
+    prompt = goal ? goalContinuePrompt(goal) : CHAT_CONTINUE_PROMPT
   }
 
   // The loop always runs at least once, so `last` is always assigned —
@@ -297,6 +374,12 @@ export async function runBoundedChatGeneration(
     ...finalResult,
     content: finalContent,
     stats,
+    goalOutcome:
+      goal === null
+        ? undefined
+        : goalFinished
+          ? { status: 'finished', summary: goalSummary }
+          : { status: 'unfinished', blockedReason: goalBlockedReason ?? undefined },
     thinking: combinedThinking || undefined,
     fabricationDetected: fabricationDetectedAnyCycle,
     memoryUsed: memoryUsed.length > 0 ? memoryUsed : undefined,
@@ -389,6 +472,31 @@ function describeMissingBuildVerification(content: string, toolCalls: ToolCall[]
 
 /** Tool kinds that can change what a page renders. */
 const MUTATING_TOOL_KINDS = new Set(['write', 'command'])
+
+/**
+ * Why a goal run ended without `finish_goal`. Shown on the goal bar, so it has
+ * to distinguish "you stopped it" from "it ran out of room" from "it could not
+ * make further progress" — those call for completely different responses from
+ * the user.
+ */
+function describeGoalStop(reason: {
+  aborted: boolean
+  outOfTime: boolean
+  outOfCycles: boolean
+  madeProgress: boolean
+  stopped: boolean
+}): string {
+  if (reason.aborted) return 'Stopped by you.'
+  if (reason.outOfTime) return 'Reached the time budget for one goal run. Say "continue" to resume.'
+  if (reason.outOfCycles) {
+    return 'Reached the step budget for one goal run. Say "continue" to resume.'
+  }
+  if (!reason.madeProgress) {
+    return 'The last step made no new progress, so it stopped rather than repeat itself.'
+  }
+  if (reason.stopped) return 'The turn hit a generation limit before the goal was met.'
+  return 'Ended without reporting the goal complete.'
+}
 
 /**
  * A correction appended when a reply claims a visual fix that no screenshot

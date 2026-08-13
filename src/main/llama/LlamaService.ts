@@ -217,6 +217,12 @@ export interface GenerateParams {
     memory: { crossChatEnabled: boolean; personalEnabled: boolean; confirmBeforeSaving: boolean }
     /** The conversation's current plan, if any, so plan tools can continue it across turns. */
     plan: Plan | null
+    /**
+     * Whether this is a goal-directed run, which registers `finish_goal` —
+     * see `ToolRuntimeContext.goalRun`. Separate from `enabledTools` because a
+     * chat goal run needs the whole toolset plus that one extra tool.
+     */
+    goalRun: boolean
     /** Restricts which tools get registered at all; null = unrestricted (normal chat). */
     enabledTools?: Set<string> | null
     /** Built-in tools disabled in normal interactive chats. */
@@ -2324,6 +2330,7 @@ class LlamaService extends EventEmitter {
       webSearch: params.tools.webSearch,
       email: params.tools.email,
       memory: params.tools.memory,
+      goalRun: params.tools.goalRun,
       enabledTools: params.tools.enabledTools ?? null,
       disabledTools: params.tools.disabledTools,
       mcpTools: params.tools.mcpTools,

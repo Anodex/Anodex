@@ -257,6 +257,129 @@ describe('runBoundedChatGeneration', () => {
     expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
   })
 
+  /**
+   * P3.1: a standing `/goal` turns the reply into a bounded goal run that keeps
+   * taking cycles while real progress continues, instead of stopping after one.
+   * The driving incident's user wrote "don't stop till its done and completely
+   * working" and got a single turn.
+   */
+  describe('goal runs', () => {
+    const goalRequest = (): ChatRequest => baseRequest({ goal: 'Fix the sandbox' })
+
+    function cycle(calls: ToolCall[], content: string, stopped = false): void {
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        for (const call of calls) io.onActivity?.(call)
+        return Promise.resolve(
+          result({
+            content,
+            stopped,
+            stats: { tokens: 5, durationMs: 50, tokensPerSecond: 100 }
+          })
+        )
+      })
+    }
+
+    const edit = (id: string): ToolCall => ({
+      id,
+      name: 'edit_file',
+      kind: 'write',
+      title: `Edit ${id}`,
+      status: 'success'
+    })
+    const finish = (summary: string): ToolCall => ({
+      id: 'finish-1',
+      name: 'finish_goal',
+      kind: 'plan',
+      title: 'Finish goal',
+      status: 'success',
+      detail: summary
+    })
+
+    it('keeps taking cycles on a clean finish that did not call finish_goal', async () => {
+      mockedRunGeneration.mockReset()
+      cycle([edit('a')], 'Made a change.')
+      cycle([edit('b')], 'Made another.')
+      cycle([edit('c'), finish('Sandbox renders.')], 'Done.')
+
+      const outcome = await runBoundedChatGeneration(goalRequest(), baseIo())
+
+      expect(mockedRunGeneration).toHaveBeenCalledTimes(3)
+      expect(outcome.goalOutcome).toEqual({ status: 'finished', summary: 'Sandbox renders.' })
+    })
+
+    it('does not continue an ordinary turn that has no goal', async () => {
+      mockedRunGeneration.mockReset()
+      cycle([edit('a')], 'Made a change.')
+
+      await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(mockedRunGeneration).toHaveBeenCalledOnce()
+    })
+
+    it('uses a goal-aware continuation prompt naming the goal and finish_goal', async () => {
+      mockedRunGeneration.mockReset()
+      cycle([edit('a')], 'Step one.')
+      cycle([edit('b'), finish('Done.')], 'Finished.')
+
+      await runBoundedChatGeneration(goalRequest(), baseIo())
+
+      const continuation = mockedRunGeneration.mock.calls[1][0].prompt
+      expect(continuation).toContain('Fix the sandbox')
+      expect(continuation).toContain('finish_goal')
+      expect(continuation).toContain('visual inspection')
+    })
+
+    /**
+     * The caution recorded in the work log: a finish_goal REFUSAL from the
+     * evidence gate arrives as an error, and must read as "go and verify it",
+     * not as a terminal outcome. Treating it as terminal would turn a
+     * recoverable correction into a dead run.
+     */
+    it('treats a refused finish_goal as a continue signal, not an ending', async () => {
+      mockedRunGeneration.mockReset()
+      const refused: ToolCall = {
+        id: 'finish-refused',
+        name: 'finish_goal',
+        kind: 'plan',
+        title: 'Finish goal',
+        status: 'error',
+        detail: 'no visual inspection has run since the last change'
+      }
+      cycle([edit('a'), refused], 'Tried to finish.')
+      cycle([edit('b'), finish('Verified.')], 'Now done.')
+
+      const outcome = await runBoundedChatGeneration(goalRequest(), baseIo())
+
+      expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+      expect(outcome.goalOutcome?.status).toBe('finished')
+    })
+
+    it('stops and reports unfinished when a cycle makes no progress', async () => {
+      mockedRunGeneration.mockReset()
+      cycle([edit('a')], 'Did something.')
+      cycle([], '')
+
+      const outcome = await runBoundedChatGeneration(goalRequest(), baseIo())
+
+      expect(outcome.goalOutcome?.status).toBe('unfinished')
+      expect(outcome.goalOutcome?.blockedReason).toContain('no new progress')
+    })
+
+    it('reports a user stop distinctly from running out of room', async () => {
+      mockedRunGeneration.mockReset()
+      cycle([edit('a')], 'Did something.')
+      const controller = new AbortController()
+      controller.abort()
+
+      const outcome = await runBoundedChatGeneration(
+        goalRequest(),
+        baseIo({ signal: controller.signal })
+      )
+
+      expect(outcome.goalOutcome?.blockedReason).toBe('Stopped by you.')
+    })
+  })
+
   it('warns when a build diagnosis was not verified by a build or test command', async () => {
     mockedRunGeneration.mockReset()
     mockedRunGeneration.mockResolvedValueOnce(

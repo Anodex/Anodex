@@ -280,6 +280,15 @@ export interface ChatRequest {
   options?: GenerationOptions
   /** The conversation's current plan, if any, so plan tools can continue it across turns. */
   plan?: Plan | null
+  /**
+   * The standing goal for this chat, when one is set with `/goal`.
+   *
+   * Presence of this switches the turn into a **goal run**: `finish_goal` is
+   * registered, and the bounded runner keeps taking cycles while real progress
+   * continues instead of stopping after one. Absent (the normal case), nothing
+   * changes — an ordinary chat turn runs exactly as before.
+   */
+  goal?: string | null
 }
 
 /** Request to manually compact a conversation into a durable context snapshot. */
@@ -399,6 +408,12 @@ export interface ChatResult {
   webSources?: WebSource[]
   /** See `ChatMessage.webSearchAttempted`'s doc comment. */
   webSearchAttempted?: boolean
+  /**
+   * Outcome of a goal run, when this turn was one (see `ChatRequest.goal`).
+   * Absent for an ordinary turn. `blockedReason` explains an `unfinished`
+   * outcome — budget exhausted, stopped, or no further progress possible.
+   */
+  goalOutcome?: { status: 'finished' | 'unfinished'; summary?: string; blockedReason?: string }
   /** Restorable snapshot for file changes made by this assistant turn. */
   checkpoint?: CheckpointSummary
   /** See `ChatMessage.thinking`'s doc comment. */
