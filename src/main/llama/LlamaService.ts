@@ -76,6 +76,7 @@ import {
 } from './toolCallFallback'
 import { stripLeakedChannelTokens, stripSubstantialCodeFences } from '@shared/toolCallText'
 import { PendingToolCallTracker } from './pendingToolCalls'
+import { appendThinking, shouldPromoteThinkingToAnswer } from './thinkingChannel'
 import {
   GenerationDiagnosticsTracker,
   type LocalGenerationDiagnostics
@@ -719,6 +720,10 @@ class LlamaService extends EventEmitter {
     // fabricated-outcome check below, which must not fire when a real
     // interaction actually happened this turn.
     let hadAnyToolAttempt = false
+    // Running count of tool activity, so a single round can tell whether it
+    // produced any of its own — see the thinking-promotion decision below,
+    // which must not fire for a round whose visible artifact is a tool card.
+    let toolActivityCount = 0
     // Mirrors every `modelReliabilityStore.recordFabrication()` call below,
     // but per-turn and returned to the caller (see `GenerateOutcome.
     // fabricationDetected`'s doc comment) rather than only aggregated into
@@ -763,6 +768,7 @@ class LlamaService extends EventEmitter {
       params,
       (call) => {
         hadAnyToolAttempt = true
+        toolActivityCount++
         if (call.status !== 'running') nativeToolCheckpoint.pending = true
         if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
         if (call.status !== 'running') diagnostics.recordToolCallSettled()
@@ -1032,6 +1038,9 @@ class LlamaService extends EventEmitter {
       for (let round = 0; ; round++) {
         let roundContent = ''
         let roundSegment = ''
+        // Snapshot so this round can tell whether it produced tool activity of
+        // its own, independent of earlier rounds.
+        const toolActivityBeforeRound = toolActivityCount
         const promptOptions = {
           temperature: params.options?.temperature,
           topP: params.options?.topP,
@@ -1284,16 +1293,24 @@ class LlamaService extends EventEmitter {
         // somehow complete without emitting a callback.
         roundContent = roundContent || meta.responseText
         if (roundSegment.trim()) {
-          if (!roundContent.trim()) {
-            // Some reasoning/think-tagged models emit only thought segments
-            // with no visible answer. Surface those instead of an empty bubble.
-            roundContent = roundSegment.trim()
-          } else {
+          const segment = roundSegment.trim()
+          if (roundContent.trim()) {
             // A genuine visible answer AND real thinking both happened this
             // round — keep them separate instead of losing the reasoning.
-            thinkingText = thinkingText
-              ? `${thinkingText}\n\n${roundSegment.trim()}`
-              : roundSegment.trim()
+            thinkingText = appendThinking(thinkingText, segment)
+          } else if (
+            shouldPromoteThinkingToAnswer(segment, toolActivityCount > toolActivityBeforeRound)
+          ) {
+            // Some reasoning/think-tagged models emit a short answer inside
+            // their thought segment and nothing outside it. Surface that
+            // instead of an empty bubble.
+            roundContent = segment
+          } else {
+            // Reasoning without an answer. Keeping it in the thinking channel
+            // is the whole point of having two channels — promoting it is what
+            // put 74,779 characters of "Let me…" self-talk into the user's
+            // reply in chat `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef`.
+            thinkingText = appendThinking(thinkingText, segment)
           }
         }
         // A chat template's own hidden-reasoning boundary marker (e.g.

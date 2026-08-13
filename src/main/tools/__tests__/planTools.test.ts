@@ -232,3 +232,67 @@ describe('AI plan tools', () => {
     })
   })
 })
+
+/**
+ * Reproduces the plan churn that closed chat
+ * `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef`: of eleven tool calls in the final
+ * reply, seven were plan updates — three identical `step 2 → in_progress`
+ * writes in a row, and a `completed → in_progress` reversal of step 1.
+ */
+describe('plan step transitions', () => {
+  function tools(ctx: ToolRuntimeContext): {
+    write: { handler: WritePlanHandler }
+    update: { handler: UpdateStepHandler }
+  } {
+    return {
+      write: writePlanTool(createMockDefine(), ctx),
+      update: updatePlanStepTool(createMockDefine(), ctx)
+    }
+  }
+
+  it('refuses a repeated identical status update', async () => {
+    const ctx = context()
+    const { write, update } = tools(ctx)
+    await write.handler({ title: 'Plan', steps: ['Diagnose', 'Fix'] })
+
+    await update.handler({ stepNumber: 2, status: 'in_progress' })
+    const repeat = await update.handler({ stepNumber: 2, status: 'in_progress' })
+
+    expect(repeat).toContain('already marked in_progress')
+    expect(repeat).toContain('not progress')
+  })
+
+  it('refuses to reopen a completed step', async () => {
+    const ctx = context()
+    const { write, update } = tools(ctx)
+    await write.handler({ title: 'Plan', steps: ['Diagnose', 'Fix'] })
+    await update.handler({ stepNumber: 1, status: 'completed' })
+
+    const reopen = await update.handler({ stepNumber: 1, status: 'in_progress' })
+
+    expect(reopen).toContain('cannot be reopened')
+    expect(ctx.plan.current?.steps[0].status).toBe('completed')
+  })
+
+  it('still allows pending to completed without a separate start call', async () => {
+    const ctx = context()
+    const { write, update } = tools(ctx)
+    await write.handler({ title: 'Plan', steps: ['Quick step'] })
+
+    const result = await update.handler({ stepNumber: 1, status: 'completed' })
+
+    expect(result).toContain('marked completed')
+    expect(ctx.plan.current?.steps[0].status).toBe('completed')
+  })
+
+  it('leaves the ordinary in_progress to completed path intact', async () => {
+    const ctx = context()
+    const { write, update } = tools(ctx)
+    await write.handler({ title: 'Plan', steps: ['Step'] })
+
+    await update.handler({ stepNumber: 1, status: 'in_progress' })
+    const done = await update.handler({ stepNumber: 1, status: 'completed' })
+
+    expect(done).toContain('All steps are now complete')
+  })
+})

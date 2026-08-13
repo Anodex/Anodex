@@ -92,9 +92,20 @@ describe('runBoundedChatGeneration', () => {
     const activities: ToolCall[] = []
     mockedRunGeneration.mockReset()
     mockedRunGeneration
-      .mockResolvedValueOnce(
-        result({ content: 'Done.', stats: { tokens: 10, durationMs: 100, tokensPerSecond: 100 } })
-      )
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        // Reconciliation presupposes that work happened — it exists to close
+        // the gap between finished work and a plan that still says pending.
+        io.onActivity?.({
+          id: 'edit-1',
+          name: 'edit_file',
+          kind: 'write',
+          title: 'Edit src/feature.ts',
+          status: 'success'
+        })
+        return Promise.resolve(
+          result({ content: 'Done.', stats: { tokens: 10, durationMs: 100, tokensPerSecond: 100 } })
+        )
+      })
       .mockImplementationOnce((_request, io: RunGenerationIo) => {
         io.onActivity?.({
           id: 'plan-complete',
@@ -125,6 +136,125 @@ describe('runBoundedChatGeneration', () => {
     expect(outcome.content).toBe('Done.')
     expect(outcome.stats.tokens).toBe(12)
     expect(activities.at(-1)?.plan?.steps.every((step) => step.status === 'completed')).toBe(true)
+  })
+
+  /**
+   * The central honesty gate for chat `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef`:
+   * the model was asked to "confirm by using vision", inspected once at the
+   * START of the turn, then edited the file and reported success without ever
+   * looking again. A screenshot taken before an edit says nothing about the
+   * state after it.
+   */
+  describe('visual verification gate', () => {
+    function replyWith(calls: ToolCall[], content: string): void {
+      mockedRunGeneration.mockReset()
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        for (const call of calls) io.onActivity?.(call)
+        return Promise.resolve(
+          result({ content, stats: { tokens: 5, durationMs: 50, tokensPerSecond: 100 } })
+        )
+      })
+    }
+
+    const inspect = (id: string): ToolCall => ({
+      id,
+      name: 'inspect_visual',
+      kind: 'read',
+      title: 'Inspect index.html',
+      status: 'success'
+    })
+    const edit = (id: string): ToolCall => ({
+      id,
+      name: 'edit_file',
+      kind: 'write',
+      title: 'Edit js/universe-sandbox.js',
+      status: 'success'
+    })
+
+    it('flags a visual claim whose only inspection came before the last edit', async () => {
+      replyWith(
+        [inspect('look-1'), edit('edit-1')],
+        'I found the bug and fixed it — the canvas now renders correctly.'
+      )
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.content).toContain('Visual verification note')
+      expect(outcome.content).toContain('BEFORE the last change')
+      expect(outcome.content).toContain('sectionId')
+    })
+
+    it('accepts a visual claim inspected after the last edit', async () => {
+      replyWith(
+        [inspect('look-1'), edit('edit-1'), inspect('look-2')],
+        'Fixed — the canvas now renders correctly.'
+      )
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.content).not.toContain('Visual verification note')
+    })
+
+    it('flags a visual claim with no inspection at all', async () => {
+      replyWith([edit('edit-1')], 'The sandbox is fixed and the scene displays correctly.')
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.content).toContain('no successful visual inspection ran')
+    })
+
+    it('stays quiet when the reply already admits it is unverified', async () => {
+      replyWith(
+        [edit('edit-1')],
+        'I changed the canvas setup, but this is unverified — I could not confirm it renders.'
+      )
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.content).not.toContain('Visual verification note')
+    })
+
+    it('stays quiet for a reply making no visual claim', async () => {
+      replyWith([edit('edit-1')], 'Renamed the helper and updated its call sites.')
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.content).not.toContain('Visual verification note')
+    })
+  })
+
+  it('skips plan reconciliation when the reply produced no real work', async () => {
+    const plan = {
+      title: 'Fix the sandbox',
+      steps: [
+        { id: 'step-1', title: 'Diagnose', status: 'in_progress' as const },
+        { id: 'step-2', title: 'Verify', status: 'pending' as const }
+      ],
+      updatedAt: 1
+    }
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      // Only plan bookkeeping — exactly the turn shape that used to invite one
+      // more status-only generation on top of the churn.
+      io.onActivity?.({
+        id: 'plan-1',
+        name: 'update_plan_step',
+        kind: 'plan',
+        title: 'Update plan step 1',
+        status: 'success',
+        plan
+      })
+      return Promise.resolve(
+        result({
+          content: 'Made progress.',
+          stats: { tokens: 5, durationMs: 50, tokensPerSecond: 100 }
+        })
+      )
+    })
+
+    await runBoundedChatGeneration(baseRequest({ plan }), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
   })
 
   it('warns when a build diagnosis was not verified by a build or test command', async () => {

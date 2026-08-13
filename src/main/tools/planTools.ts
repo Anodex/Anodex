@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Plan, PlanStep } from '@shared/plan.types'
+import type { Plan, PlanStep, PlanStepStatus } from '@shared/plan.types'
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
 
@@ -135,6 +135,9 @@ export const updatePlanStepTool: ToolFactory = (define, ctx) =>
                 `The steps are:\n${numbered}`
             )
           }
+          const rejection = rejectIllegalTransition(step.status, args.status, args.stepNumber)
+          if (rejection) return Promise.resolve(rejection)
+
           step.status = args.status
           plan.updatedAt = Date.now()
           const completed = plan.steps.filter((planStep) => planStep.status === 'completed').length
@@ -155,6 +158,60 @@ export const updatePlanStepTool: ToolFactory = (define, ctx) =>
         }
       })
   })
+
+/**
+ * Reject a plan-status write that cannot represent real progress, returning
+ * the model-facing result to send instead — or null when the transition is
+ * legitimate and should be applied.
+ *
+ * Plan steps previously accepted any write at all, which produced the churn
+ * that closed chat `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef`: eleven tool calls
+ * of which seven were plan updates, including three identical
+ * `step 2 → in_progress` writes in a row and a `completed → in_progress`
+ * reversal of step 1. None of it reflected work; it filled the transcript with
+ * activity that looked like progress.
+ *
+ * Two rules, both narrow:
+ *
+ * - **No-ops are refused.** Re-marking a step with the status it already holds
+ *   cannot convey anything. Refusing (rather than silently succeeding) also
+ *   denies the model a way to manufacture tool activity that satisfies
+ *   progress checks without doing work.
+ * - **Completion is not reversible.** Going back to `in_progress` from
+ *   `completed` says the earlier completion was wrong, which is a claim about
+ *   the work, not a status update. The plan is the user's view of what is
+ *   done; silently un-finishing a step degrades it.
+ *
+ * `pending → completed` stays legal: short steps are frequently finished
+ * without a separate "starting now" call, and forcing one would be bookkeeping
+ * for its own sake.
+ */
+function rejectIllegalTransition(
+  current: PlanStepStatus,
+  next: 'in_progress' | 'completed',
+  stepNumber: number
+): { modelResult: string; detail: string } | null {
+  if (current === next) {
+    return {
+      modelResult:
+        `Step ${stepNumber} is already marked ${next}; nothing changed. Repeating a status ` +
+        'update is not progress — carry out the step, then report the result.',
+      detail: 'No change'
+    }
+  }
+
+  if (current === 'completed' && next === 'in_progress') {
+    return {
+      modelResult:
+        `Step ${stepNumber} is already completed and cannot be reopened. If that completion ` +
+        'was wrong, say so directly in your reply rather than rewriting the plan — the user ' +
+        'is reading these rows as a record of what is actually done.',
+      detail: 'Reopening a completed step is not allowed'
+    }
+  }
+
+  return null
+}
 
 function isSamePlan(current: Plan, title: string, stepTitles: string[]): boolean {
   return (

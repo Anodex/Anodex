@@ -220,7 +220,7 @@ export async function runBoundedChatGeneration(
   // and deliberately discard its prose so the user receives one reply, not a
   // confusing second mini-answer.
   let planReconciliationAttempted = false
-  if (canReconcilePlan(currentPlan, finalResult, io)) {
+  if (canReconcilePlan(currentPlan, finalResult, io, [...completedToolCalls.values()])) {
     planReconciliationAttempted = true
     try {
       const reconciliationHistory = [
@@ -282,12 +282,15 @@ export async function runBoundedChatGeneration(
   const buildVerificationNote = describeMissingBuildVerification(combinedContent, [
     ...completedToolCalls.values()
   ])
+  const visualVerificationNote = describeMissingVisualVerification(combinedContent, [
+    ...completedToolCalls.values()
+  ])
   const planReconciliationNote = describeUnfinishedPlan(
     currentPlan,
     planReconciliationAttempted,
     combinedContent
   )
-  const finalContent = `${combinedContent}${unverifiedNote ?? ''}${buildVerificationNote ?? ''}${planReconciliationNote ?? ''}`
+  const finalContent = `${combinedContent}${unverifiedNote ?? ''}${buildVerificationNote ?? ''}${visualVerificationNote ?? ''}${planReconciliationNote ?? ''}`
 
   return {
     ...finalResult,
@@ -324,14 +327,31 @@ function normalizeCycleContent(content: string): string {
   return content.trim().replace(/\s+/g, ' ')
 }
 
+/**
+ * Whether the bookkeeping-only reconciliation pass should run.
+ *
+ * The `toolCalls` condition is what stops this pass amplifying a turn that
+ * achieved nothing. Reconciliation exists to close the gap between a finished
+ * piece of work and a plan whose rows still say pending — it presupposes that
+ * work happened. In chat `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef` the final
+ * reply made one edit and then spent seven of eleven calls rewriting plan
+ * statuses, and inviting one more status-only generation on top of that made
+ * the churn worse rather than better. If the reply produced no successful
+ * non-plan tool call, there is by definition nothing new for a status update
+ * to honestly reflect, and the "unfinished plan" note below is the truthful
+ * outcome instead.
+ */
 function canReconcilePlan(
   plan: ChatRequest['plan'] | null | undefined,
   result: RunGenerationResult,
-  io: RunGenerationIo
+  io: RunGenerationIo,
+  toolCalls: ToolCall[]
 ): boolean {
+  const didRealWork = toolCalls.some((call) => call.status === 'success' && call.kind !== 'plan')
   return Boolean(
     !result.stopped &&
     !io.signal?.aborted &&
+    didRealWork &&
     plan?.steps.some((step) => step.status !== 'completed') &&
     (io.enabledTools == null || io.enabledTools.has('update_plan_step'))
   )
@@ -364,6 +384,73 @@ function describeMissingBuildVerification(content: string, toolCalls: ToolCall[]
     '\n\nBuild verification note: no build, test, type-check, or lint command completed in this task. ' +
     'Treat the structural diagnosis as an inspection finding, not a verified fix.'
   )
+}
+
+/** Tool kinds that can change what a page renders. */
+const MUTATING_TOOL_KINDS = new Set(['write', 'command'])
+
+/**
+ * Words that only make sense as claims about what a page *looks like* once
+ * rendered — as opposed to claims about source code, which static reading can
+ * legitimately support.
+ */
+const VISUAL_SUBJECT =
+  /\b(?:canvas|render(?:s|ed|ing)?|page|screen|display(?:s|ed)?|visual|ui|sandbox|animation|scene)\b/i
+const VISUAL_SUCCESS =
+  /\b(?:now works?|now renders?|now displays?|is working|is fixed|fixed it|working correctly|displays? correctly|renders? correctly|verified|confirmed)\b/i
+
+/**
+ * A correction appended when a reply claims a visual fix that no screenshot
+ * taken after the last edit actually supports.
+ *
+ * This is the central honesty gate for the failure in chat
+ * `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef`. The model was asked to "confirm by
+ * using vision", called `inspect_visual` once at the *start* of the turn, then
+ * edited the file and reported progress without ever looking again. A
+ * screenshot taken before an edit says nothing about the state after it, so
+ * the ordering — not merely the presence — of the inspection is what matters.
+ *
+ * Deliberately a correction rather than a hard refusal, matching
+ * `findUnverifiedPathClaims` and `describeMissingBuildVerification`: the useful
+ * partial work still reaches the user, with the unsupported part named. A hard
+ * block would discard honest progress along with the overclaim.
+ */
+function describeMissingVisualVerification(content: string, toolCalls: ToolCall[]): string | null {
+  if (!claimsVisualSuccess(content)) return null
+
+  const lastMutationIndex = toolCalls.findLastIndex(
+    (call) => call.status === 'success' && MUTATING_TOOL_KINDS.has(call.kind)
+  )
+  const inspectedAfterLastChange = toolCalls.some(
+    (call, index) =>
+      call.name === 'inspect_visual' && call.status === 'success' && index > lastMutationIndex
+  )
+  if (inspectedAfterLastChange) return null
+
+  const inspectedAtAll = toolCalls.some(
+    (call) => call.name === 'inspect_visual' && call.status === 'success'
+  )
+  const reason =
+    lastMutationIndex >= 0 && inspectedAtAll
+      ? 'the only successful visual inspection in this reply happened BEFORE the last change was made, so it cannot show the result of that change'
+      : 'no successful visual inspection ran in this reply'
+
+  return (
+    `\n\nVisual verification note: this reply reports that something now renders or works, but ` +
+    `${reason}. Treat that as untested. Call inspect_visual on the affected page — using its ` +
+    `sectionId for the specific section in question — after the final edit before relying on it.`
+  )
+}
+
+function claimsVisualSuccess(content: string): boolean {
+  if (
+    /\b(?:not verified|unverified|could not confirm|couldn't confirm|still broken|not yet)\b/i.test(
+      content
+    )
+  ) {
+    return false
+  }
+  return VISUAL_SUBJECT.test(content) && VISUAL_SUCCESS.test(content)
 }
 
 function looksLikeBuildDiagnosis(content: string): boolean {
