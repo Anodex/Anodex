@@ -38,8 +38,121 @@ const PLAN_RECONCILIATION_PROMPT =
   'run commands, create a new plan, or claim unfinished work is complete. If no status can be updated ' +
   'honestly, reply exactly PLAN_UNCHANGED.'
 
-const BUILD_OR_TEST_COMMAND =
-  /\b(?:npm|pnpm|yarn|bun|npx|vitest|jest|tsc|eslint|pytest|cargo|gradle|mvn|dotnet|go)\b/i
+/**
+ * Commands that count as having actually built, tested, type-checked, or
+ * linted something — across every ecosystem Anodex might be pointed at, not
+ * just JavaScript.
+ *
+ * This gates `describeMissingBuildVerification`, which appends "no build,
+ * test, type-check, or lint command completed in this task" to a reply that
+ * diagnoses a build problem. Getting the list wrong is not a cosmetic miss: a
+ * C++ developer whose `make test` passed, or a Ruby developer whose `rspec`
+ * ran green, was told their verified fix was unverified. That is Anodex's own
+ * honesty machinery producing a false accusation, and it fired only for
+ * non-JavaScript projects — precisely the users least served by the rest of
+ * the tooling.
+ *
+ * Grouped by ecosystem so a missing entry is easy to spot and add. Erring
+ * toward inclusion is right here: a false *negative* (a real verification not
+ * recognized) actively misinforms, while a false positive merely omits a note.
+ */
+const BUILD_OR_TEST_TOOLS = [
+  // JavaScript / TypeScript
+  'npm',
+  'pnpm',
+  'yarn',
+  'bun',
+  'npx',
+  'deno',
+  'vitest',
+  'jest',
+  'mocha',
+  'jasmine',
+  'playwright',
+  'cypress',
+  'tsc',
+  'eslint',
+  'biome',
+  // Python
+  'pytest',
+  'unittest',
+  'tox',
+  'nox',
+  'mypy',
+  'pyright',
+  'ruff',
+  'pylint',
+  'flake8',
+  'poetry',
+  'hatch',
+  // Rust
+  'cargo',
+  'rustc',
+  'clippy',
+  // Go
+  'go',
+  'gofmt',
+  'golangci-lint',
+  // JVM
+  'gradle',
+  'gradlew',
+  'mvn',
+  'maven',
+  'ant',
+  'sbt',
+  'lein',
+  // .NET
+  'dotnet',
+  'msbuild',
+  'nunit',
+  'xunit',
+  // C / C++ and general native build systems
+  'make',
+  'cmake',
+  'ctest',
+  'ninja',
+  'meson',
+  'bazel',
+  'buck',
+  'clang',
+  'gcc',
+  // Apple platforms
+  'swift',
+  'xcodebuild',
+  'xcrun',
+  // Ruby
+  'rake',
+  'rspec',
+  'minitest',
+  'bundle',
+  // PHP
+  'composer',
+  'phpunit',
+  'pest',
+  // Dart / Flutter
+  'dart',
+  'flutter',
+  // Others
+  'zig',
+  'mix',
+  'stack',
+  'cabal',
+  'nimble',
+  'crystal',
+  'scons'
+]
+
+/**
+ * `clang++`/`g++` are matched separately: `+` is not a word character, so a
+ * trailing word boundary after them would never match.
+ */
+const BUILD_OR_TEST_COMMAND = new RegExp(
+  // String.raw, not a plain template literal: `\b` in a normal template
+  // literal is the backspace escape, so the pattern would silently lose every
+  // word boundary and match substrings inside unrelated words.
+  String.raw`(?:\b(?:${BUILD_OR_TEST_TOOLS.join('|')})\b|\b(?:clang|g)\+\+)`,
+  'i'
+)
 
 /**
  * At most this many `runGeneration()` calls total for one bounded reply — a
@@ -82,9 +195,10 @@ function goalContinuePrompt(goal: string): string {
     `Continue working toward this goal: ${goal}\n\n` +
     'Do not repeat work already done above — reuse the tool results and text already produced in ' +
     'this reply. Take the next concrete action. When the goal is genuinely met, call finish_goal ' +
-    'with a summary of the outcome; a claim that something renders or works needs a visual ' +
-    'inspection taken after your last change to support it. If you are blocked and cannot make ' +
-    'further progress, call finish_goal and say plainly what is blocking you.'
+    'with a summary of the outcome — backed by evidence gathered after your last change, not ' +
+    "before it: a passing test or build for code, a command's real output for behavior, a visual " +
+    'inspection for anything that renders. If you are blocked and cannot make further progress, ' +
+    'call finish_goal and say plainly what is blocking you.'
   )
 }
 

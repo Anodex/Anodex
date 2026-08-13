@@ -133,20 +133,38 @@ function runCheck(
   })
 }
 
+/**
+ * Label a command by what kind of check it is. Covers the common tools across
+ * ecosystems, not just the JavaScript ones — a Python project's `mypy` is a
+ * type check and its `ruff` is a linter, and reporting either as "custom"
+ * makes the structured result less useful than the raw output it replaced.
+ *
+ * Order matters, because several commands legitimately contain more than one
+ * of these words. Linters are named most specifically, so they match first:
+ * `ruff check .` is a lint run, but a type-check rule matching the bare word
+ * "check" would otherwise claim it. `cargo check` then falls through to
+ * typecheck, which is what it is.
+ */
 function inferKind(command: string): ProjectCheckKind {
-  if (/\b(typecheck|tsc)\b/i.test(command)) return 'typecheck'
-  if (/\blint\b/i.test(command)) return 'lint'
-  if (/\bbuild\b/i.test(command)) return 'build'
-  if (/\b(test|vitest|jest|playwright)\b/i.test(command)) return 'test'
+  if (/\b(lint|clippy|ruff|pylint|flake8|eslint|biome|vet|gofmt)\b/i.test(command)) return 'lint'
+  if (/\b(typecheck|type-check|tsc|mypy|pyright|check)\b/i.test(command)) return 'typecheck'
+  if (/\b(build|compile|package|assemble)\b/i.test(command)) return 'build'
+  if (/\b(test|vitest|jest|mocha|pytest|ctest|rspec|phpunit|xunit|nunit)\b/i.test(command)) {
+    return 'test'
+  }
   return 'custom'
 }
 
 function extractFailureHints(output: string): string[] {
   if (!output.trim()) return []
   const hintPatterns = [
-    /\b(error|failed|failure|fatal|exception|traceback)\b/i,
-    /\b\w+\.(?:ts|tsx|js|jsx|py|rs|go|java|css|md):\d+:\d+/i,
-    /^\s*[✖×]\s+/
+    /\b(error|failed|failure|fatal|exception|traceback|panic|assert)\b/i,
+    // A `file:line:col` reference, in any language Anodex might be pointed at.
+    // The extension list was JS/Python/Rust/Go/Java only, so a C++, C#, Swift,
+    // Kotlin, Ruby, or shader compiler error carrying no "error" keyword was
+    // dropped from the hints entirely.
+    /\b[\w-]+\.(?:[cm]?[jt]sx?|py|rs|go|java|kt|kts|cs|fs|swift|m|mm|c|cc|cpp|cxx|h|hh|hpp|rb|php|lua|dart|ex|exs|hs|scala|clj|zig|nim|gd|sh|sql|css|scss|html|vue|svelte|json|ya?ml|toml|md):\d+(?::\d+)?/i,
+    /^\s*[✖×✗]\s+/
   ]
   return output
     .split('\n')

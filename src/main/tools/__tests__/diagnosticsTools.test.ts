@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ToolConfirmRequest } from '@shared/tools.types'
 import { runProjectCheckTool } from '../diagnosticsTools'
 import { createMockContext, createMockDefine } from './test-helpers'
@@ -92,5 +92,53 @@ describe('run_project_check', () => {
     } finally {
       await rm(workspace, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * The structured result labels each check and extracts failure hints. Both
+ * were JS-shaped: `typecheck` only recognized `tsc`, `lint` only the literal
+ * word, and the file:line pattern covered five extensions — so a C++, C#,
+ * Swift, or Ruby error carrying no "error" keyword was dropped entirely.
+ */
+describe('run_project_check across ecosystems', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-check-kinds-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  async function runWith(command: string): Promise<{ kind: string; failureHints: string[] }> {
+    const tool = runProjectCheckTool(
+      createMockDefine(),
+      createMockContext(workspace)
+    ) as unknown as {
+      handler: (args: { kind: string; command: string }) => Promise<string>
+    }
+    const raw = await tool.handler({ kind: 'custom', command })
+    return JSON.parse(raw) as { kind: string; failureHints: string[] }
+  }
+
+  it.each([
+    ['mypy .', 'typecheck'],
+    ['cargo check', 'typecheck'],
+    ['cargo clippy', 'lint'],
+    ['ruff check .', 'lint'],
+    ['go vet ./...', 'lint'],
+    ['pytest', 'test'],
+    ['ctest', 'test'],
+    ['bundle exec rspec', 'test'],
+    ['mvn package', 'build'],
+    ['gradle assemble', 'build']
+  ])('labels %s as %s', async (command, expected) => {
+    // `echo` stands in for the real tool: only the command text decides the
+    // label, and this keeps the test free of every toolchain being installed.
+    const result = await runWith(`echo running ${command}`)
+
+    expect(result.kind).toBe(expected)
   })
 })

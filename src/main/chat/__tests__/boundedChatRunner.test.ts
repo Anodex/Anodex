@@ -380,6 +380,63 @@ describe('runBoundedChatGeneration', () => {
     })
   })
 
+  /**
+   * Anodex is a general-purpose coding assistant. The build-verification note
+   * used to recognize only JavaScript tooling plus a handful of others, so a
+   * C++ developer whose `make test` passed, or a Ruby developer whose `rspec`
+   * ran green, was told their verified fix was unverified — Anodex's own
+   * honesty machinery producing a false accusation, for non-JS projects only.
+   */
+  describe('build verification across ecosystems', () => {
+    async function replyAfter(command: string): Promise<string> {
+      mockedRunGeneration.mockReset()
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'check-1',
+          name: 'run_command',
+          kind: 'command',
+          title: `Run: ${command}`,
+          status: 'success',
+          detail: 'exit 0'
+        })
+        return Promise.resolve(
+          result({
+            content: 'The build failure is fixed and the test suite compiles.',
+            stats: { tokens: 5, durationMs: 50, tokensPerSecond: 100 }
+          })
+        )
+      })
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+      return outcome.content
+    }
+
+    it.each([
+      ['C/C++ make', 'make test'],
+      ['CMake/CTest', 'ctest --output-on-failure'],
+      ['Ninja', 'ninja test'],
+      ['Python ruff', 'ruff check .'],
+      ['Python mypy', 'mypy .'],
+      ['Swift', 'swift test'],
+      ['Flutter', 'flutter test'],
+      ['Xcode', 'xcodebuild test'],
+      ['Ruby rake', 'rake test'],
+      ['Ruby rspec', 'bundle exec rspec'],
+      ['PHP', 'phpunit'],
+      ['Deno', 'deno test'],
+      ['Zig', 'zig build test'],
+      ['MSBuild', 'msbuild /t:Build'],
+      ['g++', 'g++ -c main.cpp'],
+      ['Gradle', 'gradle test'],
+      ['Cargo', 'cargo test']
+    ])('accepts %s as real verification', async (_label, command) => {
+      expect(await replyAfter(command)).not.toContain('Build verification note')
+    })
+
+    it('still warns when nothing that verifies anything ran', async () => {
+      expect(await replyAfter('ls -la')).toContain('Build verification note')
+    })
+  })
+
   it('warns when a build diagnosis was not verified by a build or test command', async () => {
     mockedRunGeneration.mockReset()
     mockedRunGeneration.mockResolvedValueOnce(
