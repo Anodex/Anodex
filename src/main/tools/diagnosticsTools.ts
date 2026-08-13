@@ -1,9 +1,9 @@
 import { exec } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import type { WorkspaceToolFactory } from './types'
-import { resolveInWorkspace } from './workspace'
 import { runGuardedTool } from './helpers'
 import { classifyCommandRisk } from './permissions'
+import { describeUnresolvedCheck, detectToolchain } from './projectToolchain'
 
 const DEFAULT_TIMEOUT_MS = 120_000
 const MAX_TIMEOUT_MS = 10 * 60_000
@@ -71,6 +71,16 @@ export const runProjectCheckTool: WorkspaceToolFactory = (define, ctx) =>
       })
   })
 
+/**
+ * Work out what to actually run for a check.
+ *
+ * This used to look for npm scripts and then fall back to `npm test` /
+ * `npm run <kind>` unconditionally, so every check in a Python, Rust, Go, C#,
+ * or Java project ran npm in a directory npm knows nothing about. Verification
+ * is how Anodex stops itself claiming unproven fixes, so a verification tool
+ * that only worked for one ecosystem removed that safeguard everywhere else.
+ * Detection now covers the common toolchains — see `projectToolchain.ts`.
+ */
 async function resolveCheckCommand(
   workspaceRoot: string,
   kind: ProjectCheckKind,
@@ -80,28 +90,13 @@ async function resolveCheckCommand(
   if (explicit) return explicit
   if (kind === 'custom') throw new Error('command is required for a custom project check.')
 
-  const packageJson = await readPackageJson(workspaceRoot)
-  const scripts = packageJson?.scripts ?? {}
-  if (scripts[kind]) return kind === 'test' ? 'npm test' : `npm run ${kind}`
-
-  const fallbacks: Record<Exclude<ProjectCheckKind, 'custom'>, string> = {
-    test: 'npm test',
-    typecheck: 'npm run typecheck',
-    lint: 'npm run lint',
-    build: 'npm run build'
-  }
-  return fallbacks[kind]
-}
-
-async function readPackageJson(
-  workspaceRoot: string
-): Promise<{ scripts?: Record<string, string> } | null> {
-  try {
-    const path = resolveInWorkspace(workspaceRoot, 'package.json')
-    return JSON.parse(await readFile(path, 'utf-8')) as { scripts?: Record<string, string> }
-  } catch {
-    return null
-  }
+  const entries = await readdir(workspaceRoot).catch(() => [] as string[])
+  const detection = await detectToolchain(workspaceRoot, entries)
+  const command = detection.chosen?.commands[kind]
+  // An honest failure naming what was detected beats a confidently wrong
+  // command that fails with an unrelated packaging error.
+  if (!command) throw new Error(describeUnresolvedCheck(kind, detection))
+  return command
 }
 
 function runCheck(
