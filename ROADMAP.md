@@ -42,15 +42,8 @@ short record so it does not reappear as a future task.
 
 ## Next product work
 
-- **First-run success path** — guide a new user from an empty install to a working
-  model, project, and first useful result without requiring deep settings knowledge.
-- **Model capability guidance** — make model strengths and tradeoffs (coding, tools,
-  long context, speed, and reliability) easy to compare when choosing a model.
 - **Project health** — bring git state, recent checks, active plans, changed files,
   and scheduled or agent activity together in the Workspace Dock.
-- **Conversation-to-work artifacts** — let users promote useful chat outcomes into
-  durable plans, implementation notes, decision records, release notes, or project
-  instructions.
 - **Support bundle** — produce a redacted local diagnostic bundle with app version,
   hardware, model, logs, and recent failures for hands-on support.
 
@@ -64,8 +57,11 @@ short record so it does not reappear as a future task.
   - Preserve a separate unsent draft and its staged attachments for each chat across chat switches and restarts.
   - Let people edit and reorder messages queued behind an active response.
   - Finish the slash picker's assistive-technology wiring: expose whether it is open, connect it to the composer input, and announce the active option.
-- **Optional spoken replies.** Add a speaker action to completed assistant replies, with a chat-level **Read replies automatically** toggle for people who want hands-free use. It should remain off by default and never read hidden thoughts, tool calls, approvals, or streaming partials. Include pause, resume, stop, speed, voice selection, and **Read selection** for a highlighted passage; stop playback when the user begins a new request. The first-quality path should be a purpose-made Anodex voice: an original designed voice or a professionally licensed and consented voice-actor model, behind an explicit TTS-provider setting. Keep local/open models as a separate privacy-first option, and treat operating-system voices as an optional fallback rather than the default.
-- **Commercial-grade Anodex speech architecture.** Build a provider-neutral `SpeechService` boundary owned by Anodex before selecting a production model. Anodex should own text normalization, safe reply filtering, sentence chunking, streaming playback, pause/resume/stop, caching, voice settings, automatic-read policy, and provider health/error handling. Keep the neural model replaceable behind that boundary so a model license, vendor, or quality decision never becomes the product architecture. For a sellable release, use only a model and runtime whose commercial redistribution terms are verified; keep required notices and attribution; avoid copyleft dependencies in the shipped runtime unless counsel approves them; and maintain a provenance record for model weights, datasets, prompts, recordings, and generated voice assets. The initial voice should be an original designed voice or a voice actor with written rights covering AI training, commercial use, redistribution, derivative voices, termination, and geographic/language scope. Validate the full chain with counsel before public distribution. Long term, evaluate fine-tuning or training an Anodex-owned model only after usage data, GPU budget, and quality tests justify that investment.
+- **Anodex Voice.** Give completed assistant replies a speaker action and a chat-level **Read replies automatically** toggle for hands-free use. It remains off by default and never reads hidden thoughts, tool calls, approvals, or streaming partials. Include pause, resume, stop, speed, **Read selection**, and stop playback as soon as the user begins a new request.
+
+  This is an Anodex feature end to end: ship an original, purpose-designed Anodex voice and an Anodex-controlled speech runtime. Do not use operating-system voices, browser speech synthesis, a generic third-party default voice, or a fallback that changes the product's voice. The first voice must be either trained from Anodex-owned recordings or performed by a voice actor with written, explicit rights covering AI training, commercial use, redistribution, derivative voices, termination, geography, and language scope.
+
+  Build a provider-neutral `SpeechService` boundary so the model can improve without changing chat or playback. Anodex owns reply filtering, text normalization, sentence chunking, streaming playback, pause/resume/stop, caching, voice settings, automatic-read policy, and health/error handling. The neural runtime remains replaceable behind that boundary, but every shipped voice and runtime must have verified commercial redistribution terms, required notices, and a provenance record for weights, datasets, recordings, prompts, and generated assets. Validate the complete rights chain with counsel before public distribution.
 
 - **Batch file-change review** — let people review multiple proposed changes in one
   clear surface rather than approving a sequence of individual modals.

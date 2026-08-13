@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, mkdir, utimes } from 'node:fs/promises'
+import { mkdtemp, writeFile, mkdir, rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1045,5 +1045,118 @@ describe('AI file tools', () => {
       expect(result).toContain('Every remaining line was already read earlier this task.')
       expect(result).not.toContain('Next startLine')
     })
+  })
+})
+
+/**
+ * The refusal used to be uniformly worded, return `success`, and cost nothing
+ * to ignore — in chat `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef` the model
+ * re-requested already-served ranges eleven consecutive times.
+ *
+ * Every request below uses a DIFFERENT already-covered range, which is the
+ * incident's real shape (500-699, 470-669, 1-200, 200-399 …). Varying the
+ * arguments defeats the exact-fingerprint loop guard entirely, so this ladder
+ * is the only thing standing between the model and an unbounded read loop.
+ */
+describe('read_file_range coverage refusal escalation', () => {
+  let workspace: string
+
+  /** Distinct sub-ranges of a file already read in full — all zero-yield. */
+  const COVERED_RANGES = [
+    { startLine: 1, endLine: 20 },
+    { startLine: 5, endLine: 25 },
+    { startLine: 10, endLine: 30 },
+    { startLine: 15, endLine: 35 },
+    { startLine: 20, endLine: 40 },
+    { startLine: 25, endLine: 45 },
+    { startLine: 30, endLine: 50 }
+  ]
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-refusal-'))
+    await writeFile(
+      join(workspace, 'big.js'),
+      Array.from({ length: 60 }, (_, index) => `line ${index + 1}`).join('\n')
+    )
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  function rangeTool(ctx: ReturnType<typeof createMockContext>): {
+    handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+  } {
+    return readFileRangeTool(createMockDefine(), ctx)
+  }
+
+  it('names concrete alternatives on the second refusal', async () => {
+    const ctx = createMockContext(workspace)
+    const tool = rangeTool(ctx)
+    await tool.handler({ path: 'big.js', startLine: 1, endLine: 60 })
+
+    const first = await tool.handler({ path: 'big.js', ...COVERED_RANGES[0] })
+    const second = await tool.handler({ path: 'big.js', ...COVERED_RANGES[1] })
+
+    expect(first).toContain('Try a different range or file instead')
+    expect(second).toContain('search_files')
+    expect(second).toContain('code_outline')
+  })
+
+  it('reports the third refusal as an error, not a success', async () => {
+    const ctx = createMockContext(workspace)
+    const tool = rangeTool(ctx)
+    await tool.handler({ path: 'big.js', startLine: 1, endLine: 60 })
+
+    let result = ''
+    for (const range of COVERED_RANGES.slice(0, 3)) {
+      result = await tool.handler({ path: 'big.js', ...range })
+    }
+
+    // `runReadTool` converts a thrown error into an `Error:`-prefixed result
+    // and emits the call with an `error` status.
+    expect(result).toContain('Error:')
+    expect(result).toContain('Re-reading is not making progress')
+  })
+
+  it('aborts generation once refusals reach the abort threshold', async () => {
+    const abortGeneration = vi.fn()
+    const ctx = { ...createMockContext(workspace), abortGeneration }
+    const tool = rangeTool(ctx)
+    await tool.handler({ path: 'big.js', startLine: 1, endLine: 60 })
+
+    for (const range of COVERED_RANGES.slice(0, 6)) {
+      await tool.handler({ path: 'big.js', ...range })
+    }
+
+    expect(abortGeneration).toHaveBeenCalled()
+  })
+
+  it('does not abort before the threshold', async () => {
+    const abortGeneration = vi.fn()
+    const ctx = { ...createMockContext(workspace), abortGeneration }
+    const tool = rangeTool(ctx)
+    await tool.handler({ path: 'big.js', startLine: 1, endLine: 60 })
+
+    for (const range of COVERED_RANGES.slice(0, 4)) {
+      await tool.handler({ path: 'big.js', ...range })
+    }
+
+    expect(abortGeneration).not.toHaveBeenCalled()
+  })
+
+  it('resets the escalation after a real mutation reopens the file', async () => {
+    const ctx = createMockContext(workspace)
+    const tool = rangeTool(ctx)
+    await tool.handler({ path: 'big.js', startLine: 1, endLine: 60 })
+    for (const range of COVERED_RANGES.slice(0, 3)) {
+      await tool.handler({ path: 'big.js', ...range })
+    }
+
+    ctx.readCoverage.noteMutation(join(workspace, 'big.js'))
+    const afterMutation = await tool.handler({ path: 'big.js', startLine: 1, endLine: 20 })
+
+    expect(afterMutation).not.toContain('Error:')
+    expect(afterMutation).toContain('line 1')
   })
 })

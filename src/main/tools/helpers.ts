@@ -167,7 +167,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
     return limitMessage
   }
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
+  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec), spec.args)
   if (loopGuard.blocked) {
     // Only claim generation is stopping when something can actually stop it —
     // cloud providers (Anthropic/OpenAI) don't wire abortGeneration at all
@@ -304,7 +304,7 @@ export async function runGuardedTool(
     return limitMessage
   }
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec))
+  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec), spec.args)
   if (loopGuard.blocked) {
     // See the identical comment in runReadTool above — only claim generation
     // is stopping when abortGeneration actually exists to do it.

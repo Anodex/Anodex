@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TEXT_EXT } from '@shared/textFileExtensions'
-import type { WorkspaceToolFactory } from './types'
+import type { ToolRuntimeContext, WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
 import { clampModelResultCap } from './modelResultBudget'
@@ -434,10 +434,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // re-serving (and re-growing context with) covered territory.
           const gaps = ctx.readCoverage.uncovered(file, normalized.startLine, normalized.endLine)
           if (gaps.length === 0) {
-            return {
-              modelResult: `[${normalized.path}: lines ${normalized.startLine}-${normalized.endLine} were already read earlier this task — no new content here.]\nTry a different range or file instead.`,
-              detail: 'Already read earlier this task'
-            }
+            return coverageRefusalResponse(ctx, normalized)
           }
           // A genuinely new range, but this file alone has already consumed
           // its fair share of one bounded task's read budget — redirect
@@ -783,4 +780,66 @@ function escapeRegex(text: string): string {
 function countLines(text: string): number {
   if (text.length === 0) return 0
   return text.split('\n').length
+}
+
+/**
+ * Number of ignored coverage refusals before the response stops being a
+ * cooperative note and starts being a failure.
+ *
+ * The original refusal was uniformly worded, returned a `success` status, and
+ * therefore cost nothing to ignore — in chat
+ * `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef` the model re-requested
+ * already-served ranges **eleven consecutive times** while making no progress.
+ * A single politely-worded message repeated eleven times is not feedback; it is
+ * wallpaper. These thresholds turn repetition into escalating consequence.
+ */
+const COVERAGE_REFUSAL_NAME_ALTERNATIVES_AT = 2
+const COVERAGE_REFUSAL_ERROR_AT = 3
+const COVERAGE_REFUSAL_ABORT_AT = 6
+
+/**
+ * What `read_file_range` returns when every requested line was already served
+ * this task. Escalates with the running refusal count (see
+ * `ReadCoverageTracker.recordCoverageRefusal`):
+ *
+ * 1. state the range is already covered;
+ * 2. additionally name the tools that would actually make progress, because
+ *    "try something else" without saying what is easy to ignore;
+ * 3. throw, so the call is emitted with an `error` status rather than
+ *    `success` — a refusal that reports success reads, in the transcript, like
+ *    a completed read;
+ * 4. at the abort threshold, stop the generation, matching how `loopGuard`
+ *    treats a model that keeps issuing a blocked call after being told to stop.
+ */
+function coverageRefusalResponse(
+  ctx: ToolRuntimeContext,
+  normalized: { path: string; startLine: number; endLine: number }
+): { modelResult: string; detail: string } {
+  const count = ctx.readCoverage.recordCoverageRefusal()
+  const range = `lines ${normalized.startLine}-${normalized.endLine}`
+  const header = `[${normalized.path}: ${range} were already read earlier this task — no new content here.]`
+
+  if (count >= COVERAGE_REFUSAL_ERROR_AT) {
+    if (count >= COVERAGE_REFUSAL_ABORT_AT) ctx.abortGeneration?.()
+    throw new Error(
+      `${header} This is repeat request ${count} for already-covered content, and no new ` +
+        'information has been produced by any of them. Re-reading is not making progress. ' +
+        'State what you already know from the content you have been served, then either take a ' +
+        'different action (search_files for an exact symbol, code_outline for structure, ' +
+        'inspect_visual for runtime evidence, run_command to execute something) or tell the ' +
+        'user what is blocking you.'
+    )
+  }
+
+  const alternatives =
+    count >= COVERAGE_REFUSAL_NAME_ALTERNATIVES_AT
+      ? '\nRe-reading has now failed twice. Use search_files to find an exact symbol, ' +
+        'code_outline for structure, or inspect_visual for runtime evidence — reading this ' +
+        'range again cannot return anything new.'
+      : '\nTry a different range or file instead.'
+
+  return {
+    modelResult: `${header}${alternatives}`,
+    detail: 'Already read earlier this task'
+  }
 }

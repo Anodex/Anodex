@@ -36,6 +36,7 @@ export class ReadCoverageTracker {
   private mutatedPaths = new Set<string>()
   private observedMtimes = new Map<string, number>()
   private invalidatedReads = new Set<string>()
+  private coverageRefusals = 0
 
   /**
    * Record that `path` was successfully written, deleted, or moved this task
@@ -54,6 +55,9 @@ export class ReadCoverageTracker {
     this.fullFiles.delete(path)
     this.ranges.delete(path)
     this.readAttempts.delete(path)
+    // Real work happened, so the model is no longer stuck in the read loop the
+    // refusal escalation exists to break. See `recordCoverageRefusal`.
+    this.coverageRefusals = 0
     // The next read observes the post-write mtime as a fresh first sighting
     // instead of comparing it against the pre-write one already stored.
     this.observedMtimes.delete(path)
@@ -162,6 +166,25 @@ export class ReadCoverageTracker {
     const count = (this.readAttempts.get(path) ?? 0) + 1
     this.readAttempts.set(path, count)
     return count
+  }
+
+  /**
+   * Record one more read request that asked for territory already covered,
+   * returning the running total for this task. Counted across all files, not
+   * per file, because what this measures is the model ignoring coverage
+   * feedback rather than any one file being over-read.
+   *
+   * Exists because the refusal used to be uniformly worded, always returned a
+   * `success` status, and cost nothing to ignore — so in the driving incident
+   * it was ignored **eleven consecutive times** while the model re-requested
+   * ranges it had already been served. Escalating the response is what turns
+   * "please stop" into something with consequences; see
+   * `coverageRefusalResponse` in `fileTools.ts` for the ladder. Reset by
+   * `noteMutation`, since doing real work legitimately reopens interest.
+   */
+  recordCoverageRefusal(): number {
+    this.coverageRefusals++
+    return this.coverageRefusals
   }
 }
 

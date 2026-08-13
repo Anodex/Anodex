@@ -16,10 +16,24 @@ export interface LoopGuardState {
   lastKeyCount: number
   recentKeys: string[]
   recentStableReadKeys: string[]
+  /** Recent query-bearing calls, for the paraphrase check — see `semanticRepeatCount`. */
+  recentQueries: QueryObservation[]
+}
+
+/** One search-style call reduced to its meaningful terms. */
+interface QueryObservation {
+  tool: string
+  tokens: string[]
 }
 
 export function createLoopGuardState(): LoopGuardState {
-  return { lastKey: null, lastKeyCount: 0, recentKeys: [], recentStableReadKeys: [] }
+  return {
+    lastKey: null,
+    lastKeyCount: 0,
+    recentKeys: [],
+    recentStableReadKeys: [],
+    recentQueries: []
+  }
 }
 
 /** Calls beyond this many consecutive identical repeats are blocked. */
@@ -46,11 +60,16 @@ export const LOOP_GUARD_ABORT_AFTER = LOOP_GUARD_LIMIT + 3
  * identify the call as precisely as possible (see `loopGuardKey` below) —
  * a coarser key (e.g. just a UI title) will treat calls that are actually
  * different as repeats of each other.
+ *
+ * `args` is optional and used only for the paraphrase check
+ * ({@link semanticRepeatCount}), which catches the case exact fingerprinting
+ * cannot: the same question asked five different ways.
  */
 export function checkLoopGuard(
   state: LoopGuardState,
   name: string,
-  key: string
+  key: string,
+  args?: unknown
 ): { blocked: boolean; shouldAbort: boolean; count: number } {
   const fullKey = `${name}::${key}`
   state.recentKeys.push(fullKey)
@@ -75,12 +94,124 @@ export function checkLoopGuard(
   const interleavedStableReadCount = STABLE_READ_TOOLS.has(name)
     ? state.recentStableReadKeys.filter((key) => key === fullKey).length
     : 1
-  const repeatCount = Math.max(state.lastKeyCount, cycleCount, interleavedStableReadCount)
+  const exactCount = Math.max(state.lastKeyCount, cycleCount, interleavedStableReadCount)
+  const paraphraseCount = semanticRepeatCount(state, name, args)
+
   return {
-    blocked: repeatCount > LOOP_GUARD_LIMIT,
-    shouldAbort: repeatCount >= LOOP_GUARD_ABORT_AFTER,
-    count: repeatCount
+    blocked: Math.max(exactCount, paraphraseCount) > LOOP_GUARD_LIMIT,
+    // Force-abort stays keyed to *exact* repetition only. A paraphrase loop
+    // means the model is still composing new arguments, so blocking the call
+    // and telling it why is enough; killing the generation outright on fuzzy
+    // evidence would be too blunt and could cut off legitimate exploration.
+    shouldAbort: exactCount >= LOOP_GUARD_ABORT_AFTER,
+    count: Math.max(exactCount, paraphraseCount)
   }
+}
+
+/**
+ * How many recent calls asked the same question as this one, ignoring wording.
+ *
+ * Exact-argument fingerprinting is defeated by trivial rephrasing. In the
+ * driving incident the model ran five semantic searches for one symbol —
+ * "updateClickRipples function definition", "…in universe-sandbox",
+ * "…in universe sandbox", "function updateClickRipples definition" — and every
+ * one produced a different fingerprint, so the guard never fired and five tool
+ * calls bought nothing.
+ *
+ * Queries are reduced to their meaningful terms (stop words dropped, sorted,
+ * deduplicated) and compared by *subset relation* rather than equality:
+ * `{updateclickripples}` and `{updateclickripples, universe, sandbox}` are the
+ * same question with more or less qualification, while
+ * `{three, import, failure}` and `{three, render, scene}` are neither a subset
+ * nor a superset of one another and stay distinct. Narrowing or widening a
+ * search that is not returning the answer is the exact behavior worth stopping;
+ * genuinely changing subject is not.
+ *
+ * Returns 1 for anything without a query, leaving the exact check in charge.
+ */
+function semanticRepeatCount(state: LoopGuardState, name: string, args: unknown): number {
+  // Checked before the query test, not after: a mutation or command can
+  // legitimately change what the same search returns, and most of them carry
+  // no query argument at all — returning early on that would mean the window
+  // was never actually cleared by the writes it exists to react to.
+  if (!STABLE_READ_TOOLS.has(name)) state.recentQueries = []
+
+  const tokens = queryTokens(args)
+  if (tokens.length === 0) return 1
+
+  const related = state.recentQueries.filter(
+    (observation) => observation.tool === name && isSubsetOrSuperset(observation.tokens, tokens)
+  )
+  state.recentQueries.push({ tool: name, tokens })
+  if (state.recentQueries.length > LOOP_GUARD_ABORT_AFTER * 3) state.recentQueries.shift()
+
+  // +1 for the attempt being recorded now.
+  return related.length + 1
+}
+
+/** Argument fields that carry a natural-language or pattern query. */
+const QUERY_FIELDS = ['query', 'pattern', 'search', 'text', 'q']
+
+/**
+ * Terms that describe *how* something is being looked for rather than *what*,
+ * so they carry no distinguishing signal between two searches.
+ */
+const QUERY_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'the',
+  'of',
+  'for',
+  'in',
+  'on',
+  'to',
+  'is',
+  'are',
+  'or',
+  'where',
+  'what',
+  'does',
+  'do',
+  'find',
+  'search',
+  'look',
+  'definition',
+  'defined',
+  'define',
+  'function',
+  'method',
+  'variable',
+  'const',
+  'class',
+  'file',
+  'code'
+])
+
+/** Reduce a call's query argument to sorted, deduplicated, meaningful terms. */
+function queryTokens(args: unknown): string[] {
+  if (typeof args !== 'object' || args === null) return []
+  const record = args as Record<string, unknown>
+  const field = QUERY_FIELDS.find((name) => typeof record[name] === 'string')
+  if (!field) return []
+
+  const raw = record[field] as string
+  const tokens = raw
+    // Split camelCase/PascalCase *before* lowercasing — afterwards there is no
+    // case boundary left to split on.
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 1 && !QUERY_STOP_WORDS.has(token))
+
+  return [...new Set(tokens)].sort()
+}
+
+function isSubsetOrSuperset(left: string[], right: string[]): boolean {
+  const [smaller, larger] = left.length <= right.length ? [left, right] : [right, left]
+  if (smaller.length === 0) return false
+  const largerSet = new Set(larger)
+  return smaller.every((token) => largerSet.has(token))
 }
 
 /** Catch A-B-A-B and A-B-C cycles in addition to a single repeated call. */

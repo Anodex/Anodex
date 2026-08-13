@@ -199,3 +199,82 @@ describe('loopGuardMessage', () => {
     expect(aborting.toLowerCase()).toContain('stopped')
   })
 })
+
+/**
+ * Replays the exact search sequence from chat
+ * `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef`, where the model asked for one
+ * symbol five different ways. Every one produced a distinct exact fingerprint,
+ * so the guard never fired and five tool calls bought nothing.
+ */
+describe('paraphrased query loops', () => {
+  const INCIDENT_QUERIES = [
+    'updateClickRipples function definition',
+    'updateClickRipples function definition in universe-sandbox',
+    'updateClickRipples function definition',
+    'updateClickRipples function definition in universe sandbox',
+    'function updateClickRipples definition'
+  ]
+
+  it('blocks the rephrased search the exact fingerprint missed', () => {
+    const state = createLoopGuardState()
+
+    const results = INCIDENT_QUERIES.map((query) =>
+      checkLoopGuard(state, 'search_code', JSON.stringify({ query }), { query })
+    )
+
+    expect(results.slice(0, 3).every((result) => !result.blocked)).toBe(true)
+    expect(results[3].blocked).toBe(true)
+    expect(results[4].blocked).toBe(true)
+  })
+
+  it('does not force-abort on paraphrase evidence alone', () => {
+    const state = createLoopGuardState()
+
+    const results = INCIDENT_QUERIES.map((query) =>
+      checkLoopGuard(state, 'search_code', JSON.stringify({ query }), { query })
+    )
+
+    expect(results.every((result) => !result.shouldAbort)).toBe(true)
+  })
+
+  it('keeps genuinely different searches distinct', () => {
+    const state = createLoopGuardState()
+
+    const queries = [
+      'three module import failure',
+      'webgl context creation',
+      'canvas layout dimensions',
+      'orbit controls damping'
+    ]
+    const results = queries.map((query) =>
+      checkLoopGuard(state, 'search_code', JSON.stringify({ query }), { query })
+    )
+
+    expect(results.every((result) => !result.blocked)).toBe(true)
+  })
+
+  it('starts a fresh window after a mutation, since results can change', () => {
+    const state = createLoopGuardState()
+    const query = 'updateClickRipples definition'
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      checkLoopGuard(state, 'search_code', JSON.stringify({ query, attempt }), { query })
+    }
+    checkLoopGuard(state, 'edit_file', JSON.stringify({ path: 'a.js' }), { path: 'a.js' })
+    const afterEdit = checkLoopGuard(state, 'search_code', JSON.stringify({ query, n: 9 }), {
+      query
+    })
+
+    expect(afterEdit.blocked).toBe(false)
+  })
+
+  it('ignores calls with no query argument', () => {
+    const state = createLoopGuardState()
+
+    const result = checkLoopGuard(state, 'read_file', JSON.stringify({ path: 'a.ts' }), {
+      path: 'a.ts'
+    })
+
+    expect(result.count).toBe(1)
+  })
+})

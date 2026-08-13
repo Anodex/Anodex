@@ -3,6 +3,7 @@ import type { ToolCall } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { runGuardedTool } from './helpers'
 import { classifyCommandRisk } from './permissions'
+import { checkCommandCompatibility, describeEmptySearchResult } from './commandGuidance'
 
 const COMMAND_TIMEOUT_MS = 60_000
 const MAX_COMMAND_TIMEOUT_MS = 5 * 60_000
@@ -61,6 +62,19 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
         confirmDetail: describeCommand(args.command, ctx.commandShell, args.timeoutMs),
         risk: classifyCommandRisk(args.command),
         async run() {
+          // Checked before execution: a command that cannot work in this shell,
+          // or whose pattern syntax is silently wrong for the tool it names,
+          // costs a round trip and — worse — can return output the model reads
+          // as evidence. See `commandGuidance.ts` for the incident behind this.
+          const incompatible = checkCommandCompatibility(
+            args.command,
+            process.platform,
+            ctx.commandShell
+          )
+          if (incompatible) {
+            return { modelResult: incompatible, detail: 'not run: incompatible command' }
+          }
+
           const timeoutMs = normalizeTimeout(args.timeoutMs)
           const { stdout, stderr, code, terminated } = await runShell(
             args.command,
@@ -73,6 +87,11 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
             [stdout.trim(), stderr.trim() && `[stderr]\n${stderr.trim()}`]
               .filter(Boolean)
               .join('\n\n') || '(no output)'
+          // An empty search result is ambiguous between "no matches" and "bad
+          // pattern", and reading it as the former is what sent the driving
+          // incident chasing elements that were present all along.
+          const emptySearchNote =
+            describeEmptySearchResult(args.command, combined, Boolean(terminated)) ?? ''
           // No truncation here: `runGuardedTool`'s own MAX_MODEL_RESULT_CHARS
           // cap already applies to every guarded tool's result uniformly, the
           // same way `runReadTool`'s does for read tools. This tool used to
@@ -82,7 +101,7 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
           // outer truncation note report a meaningless intermediate length
           // instead of the command's real output size.
           return {
-            modelResult: `${describeOutcome(terminated, code, timeoutMs)}\n\n${combined}`,
+            modelResult: `${describeOutcome(terminated, code, timeoutMs)}\n\n${combined}${emptySearchNote}`,
             detail: terminated ? TERMINATION_DETAIL[terminated] : `exit ${code}`
           }
         }
