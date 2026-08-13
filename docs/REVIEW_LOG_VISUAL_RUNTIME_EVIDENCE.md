@@ -19,25 +19,27 @@
 
 ## Status board
 
-| ID   | Change                                                                            | Status                                                 |
-| ---- | --------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| P0.2 | Structural external-asset policy (import maps + declared assets + host denylist)  | DONE                                                   |
-| P0.1 | Loopback inspection server (workspace-confined, ephemeral, torn down)             | DONE                                                   |
-| P0.3 | Runtime diagnostics from HTML inspection (console/errors/network/canvas/WebGL)    | DONE                                                   |
-| P0.4 | Wire P0.1–P0.3 into `inspect_visual` + surface diagnostics to the model           | DONE                                                   |
-| P1.1 | Semantic loop-guard key (paraphrase-resistant)                                    | DONE                                                   |
-| P1.2 | Escalating read-coverage refusal                                                  | DONE                                                   |
-| P1.3 | Platform-aware command guard (Windows `grep`, `findstr \|`, empty-result warning) | DONE                                                   |
-| P2.1 | Plan state machine (no reversal, no no-op churn)                                  | DONE                                                   |
-| P2.2 | Visual-verification gate in `boundedChatRunner`                                   | DONE                                                   |
-| P2.3 | Skip plan reconciliation when the cycle did no real work                          | DONE                                                   |
-| P4.1 | `LlamaService` channel boundary (stop promoting bulk thinking to content)         | DONE                                                   |
-| —    | `/goal` verification stopgap (not P3)                                             | DONE                                                   |
-| —    | Re-run the real fixture and resolve H1–H4                                         | TODO (needs the app running; see "Open verification")  |
-| P3   | `/goal` autonomy                                                                  | NOT STARTED (deliberately last — see "Why this order") |
+| ID   | Change                                                                            | Status                                            |
+| ---- | --------------------------------------------------------------------------------- | ------------------------------------------------- |
+| P0.2 | Structural external-asset policy (import maps + declared assets + host denylist)  | DONE                                              |
+| P0.1 | Loopback inspection server (workspace-confined, ephemeral, torn down)             | DONE                                              |
+| P0.3 | Runtime diagnostics from HTML inspection (console/errors/network/canvas/WebGL)    | DONE                                              |
+| P0.4 | Wire P0.1–P0.3 into `inspect_visual` + surface diagnostics to the model           | DONE                                              |
+| P1.1 | Semantic loop-guard key (paraphrase-resistant)                                    | DONE                                              |
+| P1.2 | Escalating read-coverage refusal                                                  | DONE                                              |
+| P1.3 | Platform-aware command guard (Windows `grep`, `findstr \|`, empty-result warning) | DONE                                              |
+| P2.1 | Plan state machine (no reversal, no no-op churn)                                  | DONE                                              |
+| P2.2 | Visual-verification gate in `boundedChatRunner`                                   | DONE                                              |
+| P2.3 | Skip plan reconciliation when the cycle did no real work                          | DONE                                              |
+| P4.1 | `LlamaService` channel boundary (stop promoting bulk thinking to content)         | DONE                                              |
+| —    | `/goal` verification stopgap (not P3)                                             | DONE                                              |
+| P3.2 | Gate `finish_goal` on post-change visual evidence                                 | DONE                                              |
+| —    | Re-run the real fixture and resolve H1–H4                                         | BLOCKED on the user — needs the app running       |
+| P3.1 | `/goal` starts a bounded goal run in chat                                         | NOT STARTED — now unblocked, see "Remaining work" |
+| P3.3 | Goal bar live state + stop control                                                | NOT STARTED                                       |
 
-Test count at the end of this work: **2,982 passing, 1 skipped** across 269
-files, up from 2,935 at the base commit. Typecheck and lint clean.
+Test count: **2,997 passing, 1 skipped** across 270 files, up from 2,935 at the
+base commit. Typecheck and lint clean.
 
 ## Why this order
 
@@ -195,7 +197,34 @@ shape assertion so future prompt edits do not require a test edit.
 
 ## Remaining work
 
-### P3 — `/goal` semantics (NOT STARTED, deliberately last)
+### `f34730d` — `finish_goal` evidence gate (P3 step 2, DONE)
+
+The prerequisite for autonomy, landed ahead of it. `finish_goal` already
+refused a completion with no real work behind it; it could still accept "the
+canvas now renders correctly" backed by a screenshot taken _before_ the edit
+that supposedly fixed it.
+
+| File                                                                         | Change                                                                                                                                 |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/tools/turnProgress.ts` (new)                                       | `TurnProgress` replaces the bare `{ madeChange }` box, adding a monotonic call counter plus `lastChangeAt` / `lastVisualInspectionAt`. |
+| `src/main/tools/visualVerification.ts` (new)                                 | `claimsVisualSuccess`, extracted from `boundedChatRunner` so one implementation serves both callers.                                   |
+| `src/main/tools/agentTools.ts`                                               | `finish_goal` refuses a visual completion claim without post-change evidence.                                                          |
+| `src/main/tools/helpers.ts`, `types.ts`, 5 provider files, `test-helpers.ts` | Construction centralized on `createTurnProgress()`.                                                                                    |
+
+**The two kind sets are not interchangeable, and conflating them is a real
+regression** — an existing test caught me doing it:
+
+- `madeChange` keeps its original meaning exactly: anything but `read`/`plan`.
+  `fetch_url` is genuine work a goal can need.
+- Render-affecting is narrower — `write`, `command`, `mcp`. A `web` call
+  between an edit and a screenshot must not invalidate that screenshot. `mcp`
+  is included because those tools are opaque to us, and over-demanding fresh
+  evidence is the safe direction for a verification gate.
+
+Ordering uses a counter rather than timestamps: two calls can share a
+millisecond, and only precedence matters.
+
+### P3 — remaining `/goal` semantics (steps 1 and 3)
 
 The defect: `/goal` sets a persistent goal marker that reads as "keep working
 until done", but expands to a single interactive turn with no completion
@@ -210,19 +239,38 @@ runs bounded goal-directed loops, and `agentPrompts.ts` has a goal-aware
 
 Recommended shape:
 
-1. `/goal <text>` starts a bounded goal run in the chat thread: register
-   `finish_goal`, raise the cycle budget, require each cycle to end with either
-   `finish_goal` or a stated blocker.
-2. Gate `finish_goal` on **evidence**, not assertion — for a visual goal, a
-   successful `inspect_visual` after the last mutating call. The predicate is
-   already written and tested as `describeMissingVisualVerification`; extract it
-   rather than duplicating the logic.
-3. Goal bar shows live state (`active` / `blocked` / `finished`) plus a stop
-   control and a visible cap (wall clock + cycles).
+1. **(P3.1, open)** `/goal <text>` starts a bounded goal run in the chat thread:
+   register `finish_goal`, raise the cycle budget, require each cycle to end
+   with either `finish_goal` or a stated blocker.
+2. **(P3.2, DONE in `f34730d`)** Gate `finish_goal` on evidence, not assertion.
+3. **(P3.3, open)** Goal bar shows live state (`active` / `blocked` /
+   `finished`) plus a stop control and a visible cap (wall clock + cycles).
 
-Ship this **only** with step 2 in place. Autonomy without the evidence gate
-raises the blast radius of a model that has already shown it will edit on
-unproven hypotheses.
+Step 2 was the gating prerequisite and is now in place, so step 1 is unblocked.
+
+Concrete starting points for step 1, all of which already exist and should be
+reused rather than rebuilt:
+
+- `ALWAYS_ON_TOOLS` in `AgentRunService.ts` already includes `finish_goal`;
+  interactive chat passes `enabledTools: null` (unrestricted), and
+  `registry.ts` only registers `finish_goal` for a non-null set that names it.
+  That is the switch to flip — chat needs a restricted-but-broad set rather
+  than `null`.
+- `AgentRunService.runTurn` already detects a successful `finish_goal` call
+  (`call.name === 'finish_goal' && call.status === 'success'`) and stops. The
+  same predicate works for a chat goal loop.
+- `CONTINUE_PROMPT` in `agentPrompts.ts` is already goal-and-`finish_goal`
+  aware, unlike `boundedChatRunner`'s deliberately generic
+  `CHAT_CONTINUE_PROMPT`.
+- `MAX_CYCLES` in `boundedChatRunner.ts` is the cycle ceiling to raise, and
+  `interactiveBudgetForContext` in `GenerationBudget.ts` is where a goal-run
+  budget would differ from an ordinary turn's.
+
+Two cautions for whoever builds it. Raising the cycle budget without a visible
+stop control makes a wrong turn expensive and uninterruptible, so ship P3.3
+alongside P3.1 rather than after it. And the loop must treat a `finish_goal`
+_refusal_ (the new evidence gate) as a continue signal, not a terminal error —
+otherwise the gate turns a recoverable "go and verify it" into a dead run.
 
 ### Deferred, needs its own review
 
