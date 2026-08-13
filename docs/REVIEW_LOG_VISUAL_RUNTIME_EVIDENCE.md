@@ -43,6 +43,45 @@
 Test count: **3,034 passing, 1 skipped** across 272 files, up from 2,935 at the
 base commit. Typecheck and lint clean.
 
+## Project-type generality (audited 2026-08-13)
+
+Anodex is a general-purpose coding assistant. Every change on this branch was
+audited for web/JavaScript assumptions; the results are recorded here so the
+audit is not repeated from scratch.
+
+**The governing principle.** Verification gates key off the _claim_, not the
+project type. `claimsVisualSuccess` only fires when a reply asserts something
+about rendered output, so a Python CLI or Rust service is never asked for a
+screenshot it could not produce. `visualVerification.test.ts` locks this in with
+cases for a CLI, a service, a Go build, a data pipeline, a refactor, and docs —
+**keep it green when touching those patterns.**
+
+**Clean by construction** (no project-type assumptions at all): the loop guard's
+paraphrase check, read-coverage escalation, plan state machine, reconciliation
+skip, `turnProgress` ordering, the `LlamaService` channel boundary, and the goal
+run itself. `commandGuidance` is platform-aware (Windows shells) but
+language-agnostic.
+
+**Web-specific but additive, never restrictive**: the inspection server, asset
+policy, and page diagnostics only engage for HTML. They add a verification rung
+for web projects without removing anything elsewhere.
+
+**Four real leaks found and fixed** (`98188f0`, `6cced6c`):
+
+| Leak                                                 | Effect before the fix                                                                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `run_project_check` fell back to npm unconditionally | Every check in a Python/Rust/Go/C#/Java project ran npm in a directory npm knows nothing about                                                   |
+| `BUILD_OR_TEST_COMMAND` recognized mostly JS tooling | A C++ dev whose `make test` passed was told the fix was **unverified** — a false accusation from the honesty machinery, for non-JS projects only |
+| `inferKind` knew only `tsc` and the word "lint"      | `mypy`, `cargo check`, `clippy`, `ruff`, `go vet` all labelled "custom"                                                                          |
+| Failure hints matched 5 file extensions              | C++/C#/Swift/Kotlin/Ruby/Lua compiler errors without an "error" keyword were dropped                                                             |
+
+**Known asymmetry, not yet closed.** Structured runtime evidence (console
+errors, failed requests, canvas/WebGL metrics) exists only for HTML. Native
+apps, games, and CLIs verify through `run_command`, `run_project_check`, and
+`computer_control` screenshots — real, but less structured. If a future change
+wants parity, the shape to copy is `pageDiagnostics.ts`: collect evidence at the
+source and lead the tool result with it.
+
 ## Why this order
 
 The inspection harness is both the fix and the measuring instrument. Until it can
