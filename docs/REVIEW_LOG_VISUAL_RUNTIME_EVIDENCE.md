@@ -32,8 +32,12 @@
 | P2.2 | Visual-verification gate in `boundedChatRunner`                                   | DONE                                                   |
 | P2.3 | Skip plan reconciliation when the cycle did no real work                          | DONE                                                   |
 | P4.1 | `LlamaService` channel boundary (stop promoting bulk thinking to content)         | DONE                                                   |
+| —    | `/goal` verification stopgap (not P3)                                             | DONE                                                   |
 | —    | Re-run the real fixture and resolve H1–H4                                         | TODO (needs the app running; see "Open verification")  |
 | P3   | `/goal` autonomy                                                                  | NOT STARTED (deliberately last — see "Why this order") |
+
+Test count at the end of this work: **2,982 passing, 1 skipped** across 269
+files, up from 2,935 at the base commit. Typecheck and lint clean.
 
 ## Why this order
 
@@ -112,4 +116,121 @@ fixture; only Anodex itself may modify it.
 
 ## Change log
 
-Appended as work lands. Each entry: what changed, why, and what proves it.
+Branch: `fix/visual-runtime-evidence`, from `46b506e`. Tree is green at every
+commit (`npm test`, `npm run typecheck`, `npx eslint src`).
+
+### `2aee64a` — inspection harness (P0)
+
+| File                                          | Change                                                                                                                                                                                       |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/tools/inspectionServer.ts` (new)    | Loopback static server: ephemeral port on `127.0.0.1`, per-inspection UUID token prefix, `GET`/`HEAD` only, every path through `resolveInWorkspace`, `no-store`, sockets destroyed on close. |
+| `src/main/tools/externalAssetPolicy.ts` (new) | Structural declaration parsing + private-address denylist.                                                                                                                                   |
+| `src/main/tools/pageDiagnostics.ts` (new)     | Two-channel runtime evidence collection and formatting.                                                                                                                                      |
+| `src/main/tools/visualInspectionTools.ts`     | `captureHtmlPreviews` serves over HTTP instead of a `data:` URL; injects the collector; records blocked requests; appends diagnostics to the tool result.                                    |
+
+Three details that are load-bearing and easy to regress:
+
+1. **Import-map keys ending in `/` are prefix mappings.** `three/addons/` →
+   `…/examples/jsm/` means `OrbitControls.js` is requested at a URL that appears
+   verbatim nowhere in the document. An exact-URL allowlist alone still blocks
+   it. `DeclaredAssets.prefixes` exists for this.
+2. **The MIME table is not cosmetic.** A browser refuses `<script type="module">`
+   served as `application/octet-stream`. Getting `.js` wrong reproduces the
+   original blank canvas through a new route.
+3. **Declaration is necessary but not sufficient.** A workspace page declares its
+   own URLs, so a purely declaration-based rule would be an SSRF primitive —
+   `http://127.0.0.1:11434`, router admin pages, cloud metadata. Hence
+   `isPrivateNetworkTarget`, with one exception for the inspection server's own
+   origin. Residual DNS-rebinding risk is documented in the module comment and is
+   **not** closed; closing it needs resolution-time filtering.
+
+### `20f42b6` — wasted-effort and evidence honesty (P1)
+
+| File                                      | Change                                                                                                                                                                                    |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/tools/loopGuard.ts`             | Paraphrase check: queries reduced to meaningful terms (camelCase split, stop words dropped, sorted), compared by **subset relation**. Blocks only; force-abort stays on exact repetition. |
+| `src/main/tools/readCoverage.ts`          | `recordCoverageRefusal()` — task-wide counter, reset by `noteMutation`.                                                                                                                   |
+| `src/main/tools/fileTools.ts`             | `coverageRefusalResponse` ladder: note → name alternatives → throw (error status) → abort at 6.                                                                                           |
+| `src/main/tools/commandGuidance.ts` (new) | Pre-execution compatibility/syntax refusal + empty-search-result ambiguity note.                                                                                                          |
+| `src/main/tools/commandTools.ts`          | Wires both guidance checks into `run_command`.                                                                                                                                            |
+| `src/main/tools/helpers.ts`               | Passes `spec.args` to `checkLoopGuard` at both call sites.                                                                                                                                |
+
+Two subtleties worth preserving:
+
+- The semantic window reset must run **before** the no-query early return, or a
+  mutation (which carries no query) never clears it. This was a real bug caught
+  by its own test.
+- POSIX shells on Windows (Git Bash, WSL) genuinely provide coreutils, so the
+  Unix-command redirect must not fire there. `checkCommandCompatibility` is
+  shell-aware, not merely platform-aware.
+
+### `fdcf53e` — verification gate, plan rules, channel boundary (P2, P4)
+
+| File                                      | Change                                                                                                                                                                                                    |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/chat/boundedChatRunner.ts`      | `describeMissingVisualVerification` — flags a visual success claim with no successful `inspect_visual` **after the last mutating call**. `canReconcilePlan` now requires a successful non-plan tool call. |
+| `src/main/tools/planTools.ts`             | `rejectIllegalTransition` — refuses no-ops and `completed → in_progress`. `pending → completed` stays legal.                                                                                              |
+| `src/main/llama/thinkingChannel.ts` (new) | `shouldPromoteThinkingToAnswer` / `appendThinking`.                                                                                                                                                       |
+| `src/main/llama/LlamaService.ts`          | Per-round `toolActivityCount` snapshot; promotion decision routed through the new helper.                                                                                                                 |
+
+**Ordering is the point of the visual gate.** Presence of an `inspect_visual`
+call proves nothing — the incident had one, at position 0, before the edit. The
+check is `index > lastMutationIndex`.
+
+**The thinking fix is structural, never textual.** Phrase-stripping "Let me…"
+was proposed, reviewed, and rejected: those phrases occur in legitimate prose,
+so matching them deletes real answers while leaving the actual cause — a
+deliberate promotion path — in place. Segment _size_ is deliberately not a
+criterion either; a long answer emitted inside think tags is rare but real, and
+refusing it would trade a messy reply for an empty one. Oversized reasoning is a
+budgeting concern owned by the existing `thoughtTokens` sub-budget.
+
+### Uncommitted at time of writing
+
+`src/renderer/lib/slashCommands.ts` — `/goal` expansion now forbids reporting a
+goal met without post-edit `inspect_visual` evidence. This is a **stopgap that
+narrows the harm of the P3 mismatch, not P3 itself**. Its test
+(`ChatComposer.attach.test.tsx`) was loosened from a verbatim string match to a
+shape assertion so future prompt edits do not require a test edit.
+
+## Remaining work
+
+### P3 — `/goal` semantics (NOT STARTED, deliberately last)
+
+The defect: `/goal` sets a persistent goal marker that reads as "keep working
+until done", but expands to a single interactive turn with no completion
+mechanism. The user in the driving incident wrote "don't stop till its done and
+completely working" and received one turn. That is a product mismatch, not a
+bug in any one function.
+
+The machinery already exists and should be reused rather than rebuilt:
+`finish_goal` is a registered tool (Agent-only today), `AgentRunService` already
+runs bounded goal-directed loops, and `agentPrompts.ts` has a goal-aware
+`CONTINUE_PROMPT`.
+
+Recommended shape:
+
+1. `/goal <text>` starts a bounded goal run in the chat thread: register
+   `finish_goal`, raise the cycle budget, require each cycle to end with either
+   `finish_goal` or a stated blocker.
+2. Gate `finish_goal` on **evidence**, not assertion — for a visual goal, a
+   successful `inspect_visual` after the last mutating call. The predicate is
+   already written and tested as `describeMissingVisualVerification`; extract it
+   rather than duplicating the logic.
+3. Goal bar shows live state (`active` / `blocked` / `finished`) plus a stop
+   control and a visible cap (wall clock + cycles).
+
+Ship this **only** with step 2 in place. Autonomy without the evidence gate
+raises the blast radius of a model that has already shown it will edit on
+unproven hypotheses.
+
+### Deferred, needs its own review
+
+- **General background-service tool** (`start_service` / `stop_service` /
+  `read_service_logs`). The inspection-owned server covers the visual case
+  without exposing a general capability. A general one has real lifetime and
+  orphaned-process concerns and should not ride along on this branch.
+- **DNS-rebinding filtering** for the asset policy (see P0 note 3).
+- **Yield-based generation budget** — counting _information returned_ rather
+  than _calls attempted_ in `GenerationBudget.beforeTool`. The P1 ladder covers
+  the read case specifically; the general version is still open.

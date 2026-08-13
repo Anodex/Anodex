@@ -25,8 +25,16 @@ const SLASH_COMMANDS: Record<SlashCommandName, SlashCommandSpec> = {
     label: 'Set goal',
     description: 'Create a focused goal and visible work plan.',
     icon: 'slash-goal',
+    // The trailing verification sentence is a stopgap, not the real fix. `/goal`
+    // sets a persistent goal marker that reads as "keep working until done",
+    // while this expansion is a single interactive turn — a mismatch users act
+    // on (see docs/REVIEW_LOG_VISUAL_RUNTIME_EVIDENCE.md, P3). Until that is
+    // resolved one way or the other, this at least stops a one-turn run from
+    // reporting a goal as met on unverified evidence.
     prompt:
-      'Set a focused goal for this task, create or update a concise visible plan, then begin the first unfinished step.'
+      'Set a focused goal for this task, create or update a concise visible plan, then begin the first unfinished step. ' +
+      'Do not mark a step complete or report the goal as met without evidence that proves it: for anything that ' +
+      'renders, that means running inspect_visual on the affected page after your final edit, not before it.'
   },
   continue: {
     label: 'Continue work',

@@ -17,7 +17,7 @@ const readFile = vi.fn<(path: string) => Promise<unknown>>()
 const pickFiles = vi.fn<() => Promise<{ path: string; name: string }[]>>()
 const getPathForFile = vi.fn<(file: File) => string>()
 const notifyError = vi.fn()
-const sendMessage = vi.fn()
+const sendMessage = vi.fn<(text: string, attachments: unknown[]) => void>()
 const clearReplaySuggestion = vi.fn()
 const setConversationGoal = vi.fn()
 const clearConversationGoal = vi.fn()
@@ -208,10 +208,14 @@ describe('composer chrome', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(setConversationGoal).toHaveBeenCalledWith('Keep this chat focused')
-    expect(sendMessage).toHaveBeenCalledWith(
-      'Set a focused goal for this task, create or update a concise visible plan, then begin the first unfinished step.\n\nAdditional context from the user:\nKeep this chat focused',
-      []
-    )
+    // Asserted by shape rather than verbatim text: the expansion carries the
+    // goal marker and the user's own words through to the model, and pinning
+    // the exact wording here made every prompt revision a test edit.
+    const [expanded, attachments] = sendMessage.mock.calls[0]
+    expect(expanded).toContain('Set a focused goal for this task')
+    expect(expanded).toContain('inspect_visual on the affected page after your final edit')
+    expect(expanded).toContain('Additional context from the user:\nKeep this chat focused')
+    expect(attachments).toEqual([])
   })
 
   it('uses the composer stop button to clear an active goal', () => {
