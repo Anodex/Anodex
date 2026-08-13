@@ -12,7 +12,9 @@ const PNG = Buffer.concat([
 ])
 
 const electronMocks = vi.hoisted(() => ({
-  loadURL: vi.fn<() => Promise<void>>(),
+  // Typed with the `url` argument so tests can assert on (and fetch) the
+  // address the page is actually served from.
+  loadURL: vi.fn<(url: string) => Promise<void>>(),
   capturePage: vi.fn<() => Promise<{ toPNG: () => Buffer }>>(),
   executeJavaScript: vi.fn<(script: string) => Promise<unknown>>(),
   onBeforeRequest: vi.fn(),
@@ -124,7 +126,12 @@ describe('inspect_visual', () => {
     const result = await tool.handler({ path: 'page.html' })
 
     expect(result).toContain('attached to the next model round')
-    expect(electronMocks.loadURL).toHaveBeenCalledWith(expect.stringMatching(/^data:text\/html/))
+    // Served over loopback HTTP, not encoded into a data: URL — a data: URL has
+    // an opaque origin and no base URL, which makes ES modules, import maps,
+    // and relative asset paths impossible to render.
+    expect(electronMocks.loadURL).toHaveBeenCalledWith(
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\//)
+    )
     expect(visualInputs.current[0]).toMatchObject({
       name: 'page.screenshot.png',
       mimeType: 'image/png'
@@ -243,5 +250,101 @@ describe('inspect_visual', () => {
 
     expect(allowed).toHaveBeenCalledWith({ cancel: false })
     expect(blocked).toHaveBeenCalledWith({ cancel: true })
+  })
+
+  /**
+   * The driving incident in one test: a page whose only dependency is declared
+   * inside an import map. The previous attribute-only allowlist was empty for
+   * this page, so every module request was cancelled and the canvas was blank
+   * in every inspection regardless of the project's own code.
+   */
+  it('allows import-map modules and reports what it blocked', async () => {
+    await writeFile(
+      join(workspace, 'page.html'),
+      `<head><script type="importmap">
+      { "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      } }
+      </script></head>
+      <body><canvas id="sandboxCanvas"></canvas>
+      <script type="module" src="js/sandbox.js"></script></body>`
+    )
+    const visualInputs = createVisualInputQueue()
+    const tool = inspectVisualTool(createMockDefine(), {
+      ...createMockContext(workspace),
+      visualInputs
+    }) as unknown as {
+      handler: (args: { path: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ path: 'page.html' })
+
+    const handler = electronMocks.onBeforeRequest.mock.calls[0]?.[1] as (
+      details: { url: string },
+      callback: (result: { cancel: boolean }) => void
+    ) => void
+    const bareSpecifier = vi.fn()
+    const prefixSubmodule = vi.fn()
+    const undeclared = vi.fn()
+    handler(
+      { url: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js' },
+      bareSpecifier
+    )
+    handler(
+      { url: 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js' },
+      prefixSubmodule
+    )
+    handler({ url: 'https://tracker.example.test/beacon.js' }, undeclared)
+
+    expect(bareSpecifier).toHaveBeenCalledWith({ cancel: false })
+    // Resolved through the `three/addons/` prefix mapping — this URL appears
+    // verbatim nowhere in the document.
+    expect(prefixSubmodule).toHaveBeenCalledWith({ cancel: false })
+    expect(undeclared).toHaveBeenCalledWith({ cancel: true })
+    expect(result).toContain('attached to the next model round')
+  })
+
+  it('injects the diagnostics collector into the served document', async () => {
+    await writeFile(join(workspace, 'page.html'), '<head></head><body><main>Hi</main></body>')
+    const visualInputs = createVisualInputQueue()
+    const tool = inspectVisualTool(createMockDefine(), {
+      ...createMockContext(workspace),
+      visualInputs
+    }) as unknown as {
+      handler: (args: { path: string }) => Promise<string>
+    }
+
+    // Fetch while the server is still alive — it is torn down as soon as the
+    // capture finishes (see the teardown test below).
+    let served = ''
+    electronMocks.loadURL.mockImplementation(async (url: string) => {
+      served = await fetch(url).then((response) => response.text())
+    })
+
+    await tool.handler({ path: 'page.html' })
+
+    expect(served).toContain('__anodexDiagnostics')
+    expect(served).toContain('<main>Hi</main>')
+    // The collector must precede page content so an exception thrown during
+    // initial module evaluation is captured rather than missed.
+    expect(served.indexOf('__anodexDiagnostics')).toBeLessThan(served.indexOf('<main>Hi</main>'))
+  })
+
+  it('tears the inspection server down after the capture', async () => {
+    await writeFile(join(workspace, 'page.html'), '<main>Visual result</main>')
+    const visualInputs = createVisualInputQueue()
+    const tool = inspectVisualTool(createMockDefine(), {
+      ...createMockContext(workspace),
+      visualInputs
+    }) as unknown as {
+      handler: (args: { path: string }) => Promise<string>
+    }
+
+    await tool.handler({ path: 'page.html' })
+    const url = electronMocks.loadURL.mock.calls[0]?.[0]
+
+    expect(url).toBeDefined()
+    await expect(fetch(url ?? '')).rejects.toThrow()
   })
 })

@@ -1,21 +1,29 @@
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
 import { BrowserWindow } from 'electron'
 import type { ChatImageInput } from '@shared/chat.types'
 import type { VisualPreviewSection } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { runReadTool } from './helpers'
-import { prepareHtmlPreview } from './previewTools'
-import { resolveInWorkspace } from './workspace'
+import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { enqueueVisualInput, MAX_VISION_IMAGE_BYTES, readVisionImage } from '../vision/imageInputs'
 import { saveVisualPreviewAsset } from './visualPreviewAssets'
+import { createExternalAssetPolicy } from './externalAssetPolicy'
+import { startInspectionServer } from './inspectionServer'
+import {
+  collectConsoleMessages,
+  DIAGNOSTICS_COLLECTOR_SCRIPT,
+  formatPageDiagnostics,
+  readCollectedDiagnostics,
+  type BlockedRequest,
+  type PageDiagnostics
+} from './pageDiagnostics'
 
 const CAPTURE_WIDTH = 1280
 const CAPTURE_HEIGHT = 800
 const RENDER_SETTLE_MS = 500
 const SCROLL_SETTLE_MS = 200
-const MAX_CAPTURE_HTML_CHARS = 8 * 1024 * 1024
-const MAX_CAPTURE_IMAGE_BYTES = 5 * 1024 * 1024
 
 interface PageMetrics {
   scrollHeight: number
@@ -35,6 +43,8 @@ interface ScrollPosition {
 interface HtmlCaptureResult {
   images: ChatImageInput[]
   sectionIds: string[]
+  /** Runtime evidence gathered while the page rendered — see `pageDiagnostics.ts`. */
+  diagnostics: PageDiagnostics
 }
 
 interface CaptureTarget {
@@ -109,8 +119,11 @@ export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
               ? ` Captured the "${sectionId}" section.`
               : ` Captured ${images.length} primary viewport ${images.length === 1 ? 'section' : 'sections'}. Available section ids for a focused follow-up: ${htmlCapture?.sectionIds.join(', ') || 'none detected'}.`
             : ''
+          // Runtime evidence, when there is any, is what actually explains a
+          // broken render — a screenshot can only show that something is wrong.
+          const diagnostics = htmlCapture ? formatPageDiagnostics(htmlCapture.diagnostics) : ''
           return {
-            modelResult: `The visual was captured and attached to the next model round.${htmlCoverage} Inspect every attached section before deciding whether the work is finished.`,
+            modelResult: `The visual was captured and attached to the next model round.${htmlCoverage} Inspect every attached section before deciding whether the work is finished.${diagnostics}`,
             detail: isHtml
               ? `${images.length} HTML ${images.length === 1 ? 'screenshot' : 'screenshots'} attached`
               : 'image attached',
@@ -131,21 +144,19 @@ export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
       })
   })
 
-/** Render the same confined HTML payload used by preview_html into a PNG. */
-export async function captureHtmlPreview(
-  workspaceRoot: string,
-  htmlPath: string,
-  signal?: AbortSignal
-): Promise<ChatImageInput> {
-  const { images } = await captureHtmlPreviews(workspaceRoot, htmlPath, 1, signal)
-  const [image] = images
-  return image
-}
-
 /**
- * Render semantic page sections from the same confined HTML payload used by
- * preview_html. When the page identifies sections, their starts make better
- * inspection targets than evenly spaced page offsets.
+ * Render semantic page sections and collect runtime evidence.
+ *
+ * The page is served over a short-lived loopback HTTP server rather than
+ * encoded into a `data:` URL, so ES modules, import maps, `fetch`, and relative
+ * asset paths all behave exactly as they do in the user's own browser. The
+ * previous `data:` URL approach gave the document an opaque origin and no base
+ * URL, which made a module-driven page impossible to render — and Anodex
+ * reported the resulting blank screenshot to the model as fact. See
+ * `docs/REVIEW_LOG_VISUAL_RUNTIME_EVIDENCE.md`.
+ *
+ * When the page identifies sections, their starts make better inspection
+ * targets than evenly spaced page offsets.
  */
 export async function captureHtmlPreviews(
   workspaceRoot: string,
@@ -154,12 +165,18 @@ export async function captureHtmlPreviews(
   signal?: AbortSignal,
   sectionId?: string
 ): Promise<HtmlCaptureResult> {
-  const { file, content } = await prepareHtmlPreview(workspaceRoot, htmlPath, {
-    maxContentChars: MAX_CAPTURE_HTML_CHARS,
-    maxImageBytes: MAX_CAPTURE_IMAGE_BYTES
-  })
-  const allowedExternalAssets = declaredExternalAssetUrls(content)
+  const file = resolveInWorkspace(workspaceRoot, htmlPath)
+  const relativePath = toWorkspaceRelative(workspaceRoot, file)
+  const source = await readFile(file, 'utf-8')
   if (signal?.aborted) throw abortError()
+
+  const server = await startInspectionServer(workspaceRoot, {
+    transformHtml: (html) => injectDiagnostics(html)
+  })
+  // Built from the page's real declarations, and aware of the origin serving
+  // the page so its own assets are never mistaken for a remote request.
+  const policy = createExternalAssetPolicy(source, { serverOrigin: server.origin })
+  const blockedRequests: BlockedRequest[] = []
 
   const window = new BrowserWindow({
     show: false,
@@ -185,13 +202,20 @@ export async function captureHtmlPreviews(
     {
       urls: ['http://*/*', 'https://*/*', 'file://*/*', 'ftp://*/*', 'ws://*/*', 'wss://*/*']
     },
-    (details, callback) =>
-      callback({ cancel: !allowedExternalAssets.has(stripUrlFragment(details.url)) })
+    (details, callback) => {
+      const decision = policy.decide(details.url)
+      // Recorded rather than silently dropped: a cancelled request that says
+      // nothing is what made the original failure undiagnosable.
+      if (!decision.allowed && decision.reason) {
+        blockedRequests.push({ url: details.url, reason: decision.reason })
+      }
+      callback({ cancel: !decision.allowed })
+    }
   )
+  const consoleEntries = collectConsoleMessages(window.webContents)
 
   try {
-    const dataUrl = `data:text/html;charset=utf-8;base64,${Buffer.from(content).toString('base64')}`
-    await raceAbort(window.loadURL(dataUrl), signal)
+    await raceAbort(window.loadURL(server.urlFor(relativePath)), signal)
     await waitForRender(signal)
     await waitForAnimationFrames(window, signal)
     const metrics = await readPageMetrics(window, signal)
@@ -219,14 +243,66 @@ export async function captureHtmlPreviews(
       })
     }
 
+    // Read after the captures so the measurements describe the frames that
+    // were actually screenshotted.
+    const collected = await readCollectedDiagnostics(window.webContents)
+
     return {
       images,
-      sectionIds: targets.flatMap((target) => (target.sectionId ? [target.sectionId] : []))
+      sectionIds: targets.flatMap((target) => (target.sectionId ? [target.sectionId] : [])),
+      diagnostics: { ...collected, console: consoleEntries, blockedRequests }
     }
   } finally {
     if (!window.isDestroyed()) window.destroy()
+    await server.close()
   }
 }
+
+/**
+ * Inject the diagnostics collector and Anodex's preview scrollbars into a
+ * served document.
+ *
+ * The collector goes as early as possible — immediately after `<head>`, before
+ * any page script — so an exception thrown while the page's own modules
+ * evaluate is captured rather than missed. Everything else about the document
+ * is served byte-for-byte from disk.
+ */
+function injectDiagnostics(html: string): string {
+  const collector = `<script data-anodex-inspection="diagnostics">${DIAGNOSTICS_COLLECTOR_SCRIPT}</script>`
+  const payload = `${collector}\n${INSPECTION_SCROLLBAR_CSS}`
+
+  const headMatch = /<head\b[^>]*>/i.exec(html)
+  if (headMatch) {
+    const at = headMatch.index + headMatch[0].length
+    return `${html.slice(0, at)}\n${payload}${html.slice(at)}`
+  }
+  const htmlMatch = /<html\b[^>]*>/i.exec(html)
+  if (htmlMatch) {
+    const at = htmlMatch.index + htmlMatch[0].length
+    return `${html.slice(0, at)}\n${payload}${html.slice(at)}`
+  }
+  return `${payload}\n${html}`
+}
+
+/**
+ * Thin scrollbars for captured pages, matching `global.css`. Kept in sync with
+ * `previewTools.ts`'s `PREVIEW_SCROLLBAR_CSS` in appearance, but defined here
+ * because inspection no longer routes through the inlining preview pipeline.
+ * Injected first so a page that styles its own scrollbars still wins on
+ * equal-specificity source order.
+ */
+const INSPECTION_SCROLLBAR_CSS = `<style data-anodex-inspection="scrollbars">
+* { scrollbar-width: thin; scrollbar-color: rgba(136, 136, 136, 0.45) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(136, 136, 136, 0.45);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+</style>`
 
 /** Initial page inspection leaves one of the four vision slots for a focused re-inspection. */
 const MAX_INITIAL_VISION_IMAGE_SECTIONS = 3
@@ -244,21 +320,6 @@ function createPreviewSections(
     mimeType: image.mimeType,
     asset: assets[index]
   }))
-}
-
-function declaredExternalAssetUrls(content: string): Set<string> {
-  const assets = new Set<string>()
-  const attributes =
-    /<(?:script|link|img|source)\b[^>]+?\b(?:src|href)=["'](https?:\/\/[^"']+)["'][^>]*>/gi
-  for (const match of content.matchAll(attributes)) {
-    assets.add(stripUrlFragment(match[1]))
-  }
-  return assets
-}
-
-function stripUrlFragment(value: string): string {
-  const fragmentIndex = value.indexOf('#')
-  return fragmentIndex === -1 ? value : value.slice(0, fragmentIndex)
 }
 
 async function scrollDocumentTo(
