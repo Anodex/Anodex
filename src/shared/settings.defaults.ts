@@ -88,6 +88,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       enabled: true,
       disabledTools: []
     },
+    computerControl: {
+      desktopControlEnabled: false
+    },
     provider: {
       active: 'local',
       // Off by default: see LocalProviderSettings.maxResponseTokens. The

@@ -13,6 +13,7 @@ import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { settingsStore } from '../settings/SettingsStore'
 import { sendToWindow } from '../broadcast'
 import { getHardware } from './system.handlers'
+import { computerControlService } from '../computerControl/ComputerControlService'
 
 /** IPC handlers for discovering, adding, and (un)loading local models. */
 export function registerModelHandlers(): void {
@@ -110,6 +111,7 @@ export function registerModelHandlers(): void {
 
   ipcMain.handle(IpcChannel.Models.unload, async () => {
     try {
+      computerControlService.stopAll('model-unloaded')
       return ok(await llamaService.unload())
     } catch (error) {
       return err('models.unload-failed', 'Failed to unload the model.', toErrorMessage(error))

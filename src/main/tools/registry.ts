@@ -18,6 +18,8 @@ import {
 import { previewHtmlTool } from './previewTools'
 import { showImageTool } from './imageDisplayTools'
 import { inspectVisualTool } from './visualInspectionTools'
+import { computerControlTool } from './computerControlTool'
+import { computerControlService } from '../computerControl/ComputerControlService'
 import {
   editFileTool,
   appendFileTool,
@@ -212,6 +214,20 @@ export function buildTools(
     if (ctx.visualInputs) {
       for (const [name, factory] of Object.entries(VISUAL_WORKSPACE_FACTORIES)) {
         if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
+      }
+      // A session is only ever started by the visible renderer for one
+      // interactive conversation; scheduled, agent, and research runs have
+      // no matching session and therefore never receive this tool.
+      if (
+        isEnabled('computer_control') &&
+        // A visible session is started only from interactive chat. Explicitly
+        // reject every restricted/headless run even if one happens to reuse a
+        // conversation id, so scheduler and agent execution can never obtain
+        // a computer-input capability.
+        ctx.enabledTools === null &&
+        computerControlService.hasActiveVisionSession(ctx.conversationId)
+      ) {
+        tools.computer_control = computerControlTool(define, ctx)
       }
     }
     if (ctx.projectId) {

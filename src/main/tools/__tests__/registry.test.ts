@@ -3,6 +3,7 @@ import { TOOL_CATALOG } from '@shared/tools.types'
 import type { EmailSettings } from '@shared/settings.types'
 import { buildTools } from '../registry'
 import { createVisualInputQueue } from '../../vision/imageInputs'
+import { computerControlService } from '../../computerControl/ComputerControlService'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 function linkedGmail(): EmailSettings {
@@ -87,6 +88,7 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
 const VISUAL_WORKSPACE_TOOLS = ['inspect_visual']
+const SESSION_VISUAL_WORKSPACE_TOOLS = ['computer_control']
 /** Needs a vision-capable provider and a linked account, but no workspace. */
 const EMAIL_VISUAL_TOOLS = ['view_email_attachment']
 
@@ -121,6 +123,45 @@ describe('buildTools', () => {
       visualInputs: { current: [], acceptedCount: 0, limit: 4 }
     }
     expect(buildTools(createMockDefine(), withVision)).toHaveProperty('inspect_visual')
+  })
+
+  it('exposes computer control only to the visible interactive conversation, never a headless run', async () => {
+    const conversationId = 'computer-control-visible-test'
+    computerControlService.stopAll('user-stop')
+    await computerControlService.start(conversationId, {
+      describe: () => ({
+        id: 'preview:test',
+        scope: 'single-preview' as const,
+        path: 'test.html',
+        title: 'Test preview',
+        width: 100,
+        height: 100
+      }),
+      capture: () =>
+        Promise.resolve({
+          path: 'test.html',
+          name: 'test.png',
+          mimeType: 'image/png',
+          dataUrl: 'data:image/png;base64,AA==',
+          sizeBytes: 1
+        }),
+      execute: async () => {},
+      isAlive: () => true,
+      close: () => {}
+    })
+    try {
+      const visible = {
+        ...createMockContext('/workspace'),
+        conversationId,
+        visualInputs: createVisualInputQueue()
+      }
+      expect(buildTools(createMockDefine(), visible)).toHaveProperty('computer_control')
+
+      const headless = { ...visible, enabledTools: new Set(['computer_control']) }
+      expect(buildTools(createMockDefine(), headless)).not.toHaveProperty('computer_control')
+    } finally {
+      computerControlService.stopConversation(conversationId, 'user-stop')
+    }
   })
 
   it('registers no workspace tools at all without a workspace root, project or not', () => {
@@ -391,6 +432,7 @@ describe('buildTools', () => {
       ...PROJECT_WORKSPACE_TOOLS,
       ...EMAIL_WORKSPACE_TOOLS,
       ...VISUAL_WORKSPACE_TOOLS,
+      ...SESSION_VISUAL_WORKSPACE_TOOLS,
       ...EMAIL_VISUAL_TOOLS,
       ...PROJECT_READ_ONLY_TOOLS,
       ...GLOBAL_OR_CONDITIONAL_TOOLS
@@ -409,6 +451,7 @@ describe('buildTools', () => {
       ...PROJECT_WORKSPACE_TOOLS,
       ...EMAIL_WORKSPACE_TOOLS,
       ...VISUAL_WORKSPACE_TOOLS,
+      ...SESSION_VISUAL_WORKSPACE_TOOLS,
       ...PROJECT_READ_ONLY_TOOLS
     ])
 

@@ -166,6 +166,16 @@ const api: AnodexApi = {
     refreshHtmlPreviewWindow: (relativePath, html) =>
       ipcRenderer.invoke(IpcChannel.Workspace.refreshHtmlPreviewWindow, relativePath, html)
   },
+  computerControl: {
+    start: (request) => ipcRenderer.invoke(IpcChannel.ComputerControl.start, request),
+    pause: (conversationId) => ipcRenderer.invoke(IpcChannel.ComputerControl.pause, conversationId),
+    resume: (conversationId) =>
+      ipcRenderer.invoke(IpcChannel.ComputerControl.resume, conversationId),
+    stop: (conversationId) => ipcRenderer.invoke(IpcChannel.ComputerControl.stop, conversationId),
+    get: (conversationId) => ipcRenderer.invoke(IpcChannel.ComputerControl.get, conversationId),
+    listDesktopTargets: () => ipcRenderer.invoke(IpcChannel.ComputerControl.listDesktopTargets),
+    onChanged: (listener) => subscribe(IpcChannel.ComputerControl.changed, listener)
+  },
   attachments: {
     readFile: (absolutePath) => ipcRenderer.invoke(IpcChannel.Attachments.readFile, absolutePath),
     pickFiles: () => ipcRenderer.invoke(IpcChannel.Attachments.pickFiles),

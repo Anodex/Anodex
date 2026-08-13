@@ -32,7 +32,9 @@ import { registerMcpHandlers } from './mcp.handlers'
 import { registerGithubHandlers } from './github.handlers'
 import { registerGitHandlers } from './git.handlers'
 import { registerContextMenuHandlers } from '../contextMenu'
+import { registerComputerControlHandlers } from './computerControl.handlers'
 import { mcpManager } from '../mcp/McpManager'
+import { computerControlService } from '../computerControl/ComputerControlService'
 
 /**
  * Register every IPC handler and wire engine state broadcasts.
@@ -68,6 +70,7 @@ export function registerIpcHandlers(): void {
   registerGitHandlers()
   registerMcpHandlers()
   registerContextMenuHandlers()
+  registerComputerControlHandlers()
 
   // Push engine state changes to every open renderer window.
   llamaService.on('state', (state) => {
@@ -93,5 +96,9 @@ export function registerIpcHandlers(): void {
   // Push MCP server connection status changes to every open renderer window.
   mcpManager.on('statusChanged', (state) => {
     broadcastToWindows(IpcChannel.Mcp.statusChanged, state)
+  })
+
+  computerControlService.on('changed', (session) => {
+    broadcastToWindows(IpcChannel.ComputerControl.changed, session)
   })
 }

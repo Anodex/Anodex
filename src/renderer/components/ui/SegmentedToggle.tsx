@@ -9,6 +9,8 @@ interface SegmentedToggleProps<T extends string> {
   value: T
   options: SegmentedToggleOption<T>[]
   onChange: (value: T) => void
+  /** Exact allowlist name for a narrowly controlled Anodex surface. */
+  computerControlTarget?: string
 }
 
 /**
@@ -22,7 +24,8 @@ interface SegmentedToggleProps<T extends string> {
 export function SegmentedToggle<T extends string>({
   value,
   options,
-  onChange
+  onChange,
+  computerControlTarget
 }: SegmentedToggleProps<T>): JSX.Element {
   return (
     <div className={styles.group} role="group">
@@ -32,6 +35,7 @@ export function SegmentedToggle<T extends string>({
           type="button"
           className={styles.segment}
           data-active={option.value === value}
+          data-computer-control-target={computerControlTarget}
           onClick={() => onChange(option.value)}
         >
           {option.label}

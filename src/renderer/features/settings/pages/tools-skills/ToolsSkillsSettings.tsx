@@ -145,6 +145,18 @@ export function ToolsSkillsSettings(): JSX.Element {
             />
           }
         />
+        <SettingRow
+          label="Desktop control"
+          description="Separate opt-in for guarded Windows-only control. You must choose one visible application window, and every AI action still requires your approval."
+          control={
+            <ToggleControl
+              checked={settings.computerControl.desktopControlEnabled}
+              onChange={(value) =>
+                void update({ computerControl: { desktopControlEnabled: value } })
+              }
+            />
+          }
+        />
       </section>
 
       <section className={pageStyles.section}>

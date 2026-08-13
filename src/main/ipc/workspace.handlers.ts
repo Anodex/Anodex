@@ -14,6 +14,7 @@ import {
   refreshHtmlPreviewWindow
 } from '../htmlPreviewWindow'
 import { isImagePath, isLikelyBinary } from './attachments.handlers'
+import { computerControlService } from '../computerControl/ComputerControlService'
 
 /** Files larger than this aren't loaded into the in-app viewer/editor — generous for real
  *  source files, protects textarea/highlight performance against something huge. */
@@ -174,7 +175,7 @@ export function registerWorkspaceHandlers(): void {
       if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
       try {
         const content = await prepareHtmlPreviewSource(root, relativePath, html)
-        openHtmlPreviewWindow(relativePath, title, content)
+        openHtmlPreviewWindow(relativePath, title, content, root)
         return ok(undefined)
       } catch (error) {
         return err(
@@ -196,6 +197,9 @@ export function registerWorkspaceHandlers(): void {
       const root = settingsStore.get().workspace.root
       if (!root) return ok(false)
       try {
+        // A reload replaces the exact document the model was observing. It is
+        // never safe for an existing coordinate session to continue into it.
+        computerControlService.stopTarget(relativePath, 'target-reloaded')
         refreshHtmlPreviewWindow(
           relativePath,
           await prepareHtmlPreviewSource(root, relativePath, html)

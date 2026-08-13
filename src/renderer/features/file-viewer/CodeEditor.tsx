@@ -68,6 +68,7 @@ export function CodeEditor({ value, onChange, language }: CodeEditorProps): JSX.
           />
         </pre>
         <textarea
+          data-computer-control-target="file-viewer-editor"
           className={styles.textarea}
           value={value}
           onChange={(event) => onChange(event.target.value)}

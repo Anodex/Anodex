@@ -9,6 +9,12 @@ import { FileTypeIcon } from '../../components/FileTypeIcon'
 import { formatBytes } from '../../lib/format'
 import { languageForFileName } from '../../lib/highlight'
 import { notifyError, useUiStore } from '../../stores/uiStore'
+import { useChatStore } from '../../stores/chatStore'
+import { useSettingsStore } from '../../stores/settingsStore'
+import type {
+  ComputerControlSession,
+  DesktopControlWindowInfo
+} from '@shared/computerControl.types'
 import { useFileViewer } from './useFileViewer'
 import { CodeEditor } from './CodeEditor'
 import { ImageViewer } from './ImageViewer'
@@ -37,6 +43,10 @@ export function FileViewerPanel(): JSX.Element | null {
   const close = useFileViewer((s) => s.close)
   const notifySaved = useFileViewer((s) => s.notifySaved)
   const notify = useUiStore((s) => s.notify)
+  const activeConversationId = useChatStore((s) => s.activeId)
+  const desktopControlEnabled = useSettingsStore(
+    (state) => state.settings?.computerControl.desktopControlEnabled ?? false
+  )
 
   const [result, setResult] = useState<WorkspaceFileContent | null>(null)
   const [loading, setLoading] = useState(false)
@@ -48,6 +58,12 @@ export function FileViewerPanel(): JSX.Element | null {
   // True when the AI wrote to this file while the buffer had unsaved edits —
   // shown as a non-blocking banner instead of silently clobbering those edits.
   const [externalChangePending, setExternalChangePending] = useState(false)
+  const [controlSession, setControlSession] = useState<ComputerControlSession | null>(null)
+  const [completedControlSession, setCompletedControlSession] =
+    useState<ComputerControlSession | null>(null)
+  const [allowProjectNavigation, setAllowProjectNavigation] = useState(false)
+  const [desktopTargets, setDesktopTargets] = useState<DesktopControlWindowInfo[] | null>(null)
+  const [loadingDesktopTargets, setLoadingDesktopTargets] = useState(false)
 
   const path = node?.path ?? null
   const isDirty = result?.kind === 'text' && value !== originalValue
@@ -126,6 +142,23 @@ export function FileViewerPanel(): JSX.Element | null {
   }, [path, value])
 
   useEffect(() => {
+    return anodex.computerControl.onChanged((session) => {
+      if (
+        session?.target.scope !== 'anodex-file-viewer' &&
+        session?.target.scope !== 'desktop' &&
+        session?.target.path !== path
+      )
+        return
+      if (session.status === 'ended') {
+        setControlSession(null)
+        setCompletedControlSession(session)
+      } else {
+        setControlSession(session)
+      }
+    })
+  }, [path])
+
+  useEffect(() => {
     if (!node) return
     const handleKeyDown = (event: KeyboardEvent): void => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -168,6 +201,78 @@ export function FileViewerPanel(): JSX.Element | null {
     if (!res.ok) notifyError('Could not open a preview window', res.error.message)
   }
 
+  async function handleEnableAiControl(): Promise<void> {
+    if (!path) return
+    const opened = await anodex.workspace.openHtmlPreviewWindow(path, fileName, value)
+    if (!opened.ok) {
+      notifyError('Could not open a preview window', opened.error.message)
+      return
+    }
+    const conversationId = activeConversationId ?? useChatStore.getState().newConversation()
+    const result = await anodex.computerControl.start({
+      conversationId,
+      previewPath: path,
+      scope: allowProjectNavigation ? 'project-preview' : 'single-preview'
+    })
+    if (!result.ok) {
+      notifyError('Could not enable AI control', result.error.message)
+      return
+    }
+    setCompletedControlSession(null)
+    setControlSession(result.value)
+  }
+
+  async function handleEnableFileViewerControl(): Promise<void> {
+    const conversationId = activeConversationId ?? useChatStore.getState().newConversation()
+    const result = await anodex.computerControl.start({
+      conversationId,
+      target: 'file-viewer'
+    })
+    if (!result.ok) {
+      notifyError('Could not enable Anodex UI control', result.error.message)
+      return
+    }
+    setCompletedControlSession(null)
+    setControlSession(result.value)
+  }
+
+  async function handleChooseDesktopTarget(): Promise<void> {
+    setLoadingDesktopTargets(true)
+    const result = await anodex.computerControl.listDesktopTargets()
+    setLoadingDesktopTargets(false)
+    if (!result.ok) {
+      notifyError('Desktop control is unavailable', result.error.message)
+      return
+    }
+    setDesktopTargets(result.value)
+  }
+
+  async function handleEnableDesktopControl(target: DesktopControlWindowInfo): Promise<void> {
+    const conversationId = activeConversationId ?? useChatStore.getState().newConversation()
+    const result = await anodex.computerControl.start({
+      conversationId,
+      target: 'desktop',
+      desktopWindowHandle: target.handle
+    })
+    if (!result.ok) {
+      notifyError('Could not enable desktop control', result.error.message)
+      return
+    }
+    setDesktopTargets(null)
+    setCompletedControlSession(null)
+    setControlSession(result.value)
+  }
+
+  async function handleControl(action: 'pause' | 'resume' | 'stop'): Promise<void> {
+    if (!controlSession) return
+    const result = await anodex.computerControl[action](controlSession.conversationId)
+    if (!result.ok) {
+      notifyError('Could not update AI control', result.error.message)
+      return
+    }
+    setControlSession(result.value)
+  }
+
   return (
     <div className={styles.wrap}>
       <div className={styles.header}>
@@ -180,7 +285,48 @@ export function FileViewerPanel(): JSX.Element | null {
         {isDirty && <span className={styles.dirtyDot} title="Unsaved changes" />}
         <span className={styles.spacer} />
         {result?.kind === 'text' && isHtmlFile(node.name) && (
-          <SegmentedToggle value={mode} options={MODE_OPTIONS} onChange={setMode} />
+          <SegmentedToggle
+            value={mode}
+            options={MODE_OPTIONS}
+            onChange={setMode}
+            computerControlTarget="file-viewer-mode"
+          />
+        )}
+        {result?.kind === 'text' && isHtmlFile(node.name) && !controlSession && (
+          <>
+            <label className={styles.navigationOption}>
+              <input
+                type="checkbox"
+                checked={allowProjectNavigation}
+                onChange={(event) => setAllowProjectNavigation(event.target.checked)}
+              />
+              Follow project page links
+            </label>
+            <button
+              type="button"
+              className={styles.controlButton}
+              onClick={() => void handleEnableAiControl()}
+            >
+              Enable AI control
+            </button>
+            <button
+              type="button"
+              className={styles.surfaceControlButton}
+              onClick={() => void handleEnableFileViewerControl()}
+            >
+              Control this panel
+            </button>
+            {desktopControlEnabled && (
+              <button
+                type="button"
+                className={styles.surfaceControlButton}
+                onClick={() => void handleChooseDesktopTarget()}
+                disabled={loadingDesktopTargets}
+              >
+                {loadingDesktopTargets ? 'Finding windows…' : 'Control desktop'}
+              </button>
+            )}
+          </>
         )}
         {result?.kind === 'text' && isHtmlFile(node.name) && (
           <IconButton
@@ -193,6 +339,7 @@ export function FileViewerPanel(): JSX.Element | null {
         {result?.kind === 'text' && (
           <IconButton
             label="Save file"
+            data-computer-control-target="file-viewer-save"
             icon={<Icon name="save" size={14} />}
             size="sm"
             onClick={() => void handleSave()}
@@ -206,6 +353,39 @@ export function FileViewerPanel(): JSX.Element | null {
           onClick={requestClose}
         />
       </div>
+
+      {controlSession && (
+        <div className={styles.controlStrip} role="status">
+          <span>AI control {controlSession.status === 'paused' ? 'paused' : 'active'}</span>
+          <span>
+            {controlSession.target.scope === 'anodex-file-viewer'
+              ? 'Anodex File Viewer'
+              : controlSession.target.scope === 'desktop'
+                ? controlSession.target.title
+                : fileName}
+          </span>
+          {controlSession.target.scope === 'project-preview' && <span>Project links allowed</span>}
+          <span className={styles.controlBudget}>
+            {controlSession.budget.actionsUsed} / {controlSession.budget.actionLimit} actions
+          </span>
+          {controlSession.status === 'paused' ? (
+            <button type="button" onClick={() => void handleControl('resume')}>
+              Resume
+            </button>
+          ) : (
+            <button type="button" onClick={() => void handleControl('pause')}>
+              Pause
+            </button>
+          )}
+          <button type="button" onClick={() => void handleControl('stop')}>
+            Stop
+          </button>
+        </div>
+      )}
+
+      {(controlSession ?? completedControlSession) && (
+        <ControlAudit session={controlSession ?? completedControlSession!} />
+      )}
 
       {externalChangePending && (
         <div className={styles.externalChangeBanner}>
@@ -281,6 +461,78 @@ export function FileViewerPanel(): JSX.Element | null {
           }}
         />
       )}
+
+      {desktopTargets && (
+        <div className={styles.desktopPickerBackdrop} role="presentation">
+          <section
+            className={styles.desktopPicker}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose a desktop window"
+          >
+            <div>
+              <h2>Choose a desktop window</h2>
+              <p>
+                The AI can act only in the window you choose. Every desktop action needs approval.
+              </p>
+            </div>
+            <div className={styles.desktopTargetList}>
+              {desktopTargets.length === 0 ? (
+                <p>No eligible visible windows were found.</p>
+              ) : (
+                desktopTargets.map((target) => (
+                  <button
+                    key={target.handle}
+                    type="button"
+                    className={styles.desktopTarget}
+                    onClick={() => void handleEnableDesktopControl(target)}
+                  >
+                    <span>{target.title}</span>
+                    <small>{target.processPath.split(/[\\/]/).at(-1)}</small>
+                  </button>
+                ))
+              )}
+            </div>
+            <button
+              type="button"
+              className={styles.desktopPickerCancel}
+              onClick={() => setDesktopTargets(null)}
+            >
+              Cancel
+            </button>
+          </section>
+        </div>
+      )}
     </div>
+  )
+}
+
+function ControlAudit({ session }: { session: ComputerControlSession }): JSX.Element {
+  const isComplete = session.status === 'ended'
+  return (
+    <section className={styles.controlAudit} aria-label="AI control activity">
+      <div className={styles.controlAuditTitle}>
+        {isComplete
+          ? `AI control ended: ${session.endReason?.replace(/-/g, ' ') ?? 'finished'}`
+          : 'AI control activity'}
+      </div>
+      {session.audit.length === 0 ? (
+        <div className={styles.controlAuditEmpty}>Waiting for the model’s first action.</div>
+      ) : (
+        <ol className={styles.controlAuditList}>
+          {session.audit.map((entry) => (
+            <li key={entry.id} className={styles[`controlAudit${entry.status}`]}>
+              {entry.detail}
+              {entry.screenshot && <span>Screenshot saved</span>}
+            </li>
+          ))}
+        </ol>
+      )}
+      {isComplete && (
+        <div className={styles.controlAuditHint}>
+          Screenshots and action cards remain available in this conversation’s chat timeline.
+        </div>
+      )}
+    </section>
   )
 }

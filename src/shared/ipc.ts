@@ -127,6 +127,11 @@ import type {
   UndoCheckpointResult
 } from './checkpoint.types'
 import type { VisualPreviewClearResult, VisualPreviewStorageUsage } from './visualPreview.types'
+import type {
+  ComputerControlSession,
+  DesktopControlWindowInfo,
+  StartComputerControlRequest
+} from './computerControl.types'
 
 export const IpcChannel = {
   Models: {
@@ -292,6 +297,16 @@ export const IpcChannel = {
     prepareHtmlPreview: 'workspace:prepare-html-preview',
     openHtmlPreviewWindow: 'workspace:open-html-preview-window',
     refreshHtmlPreviewWindow: 'workspace:refresh-html-preview-window'
+  },
+  ComputerControl: {
+    start: 'computer-control:start',
+    pause: 'computer-control:pause',
+    resume: 'computer-control:resume',
+    stop: 'computer-control:stop',
+    get: 'computer-control:get',
+    listDesktopTargets: 'computer-control:list-desktop-targets',
+    /** main → renderer state broadcast for a visible control strip. */
+    changed: 'computer-control:changed'
   },
   Attachments: {
     readFile: 'attachments:read-file',
@@ -674,6 +689,15 @@ export interface AnodexApi {
     openHtmlPreviewWindow(relativePath: string, title: string, html: string): Promise<Result<void>>
     /** Push new content into this file's pop-out window, if one is open. */
     refreshHtmlPreviewWindow(relativePath: string, html: string): Promise<Result<boolean>>
+  }
+  computerControl: {
+    start(request: StartComputerControlRequest): Promise<Result<ComputerControlSession>>
+    pause(conversationId: string): Promise<Result<ComputerControlSession | null>>
+    resume(conversationId: string): Promise<Result<ComputerControlSession | null>>
+    stop(conversationId: string): Promise<Result<ComputerControlSession | null>>
+    get(conversationId: string): Promise<ComputerControlSession | null>
+    listDesktopTargets(): Promise<Result<DesktopControlWindowInfo[]>>
+    onChanged(listener: (session: ComputerControlSession | null) => void): () => void
   }
   attachments: {
     /** Read a file dropped/dragged into the composer, by absolute path. Not workspace-sandboxed —

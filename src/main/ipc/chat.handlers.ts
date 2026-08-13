@@ -18,6 +18,7 @@ import {
   releaseGeneration
 } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
+import { computerControlService } from '../computerControl/ComputerControlService'
 
 const log = createLogger('ipc:chat')
 
@@ -28,6 +29,7 @@ const VISION_RUNTIME_STOPPED_MESSAGE =
 /** Abort every in-flight chat generation — called on app quit. */
 export function abortAllChatGenerations(): void {
   abortAllGenerations()
+  computerControlService.stopAll('generation-stopped')
 }
 
 /** IPC handlers for streaming chat generation and stopping it. */
@@ -115,6 +117,7 @@ export function registerChatHandlers(): void {
 
   ipcMain.handle(IpcChannel.Chat.stop, (_event, conversationId: string) => {
     abortGeneration(conversationId)
+    computerControlService.stopConversation(conversationId, 'generation-stopped')
   })
 
   ipcMain.handle(IpcChannel.Chat.compact, async (_event, request: ChatCompactRequest) => {

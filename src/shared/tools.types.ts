@@ -1,6 +1,7 @@
 /** Types for the AI tool system: activity reporting and approval requests. */
 
 import type { Plan } from './plan.types'
+import type { ComputerControlAuditEntry } from './computerControl.types'
 
 /** Category of a tool, used for icons and approval behaviour. */
 export type ToolKind = 'read' | 'write' | 'command' | 'web' | 'plan' | 'mcp'
@@ -39,6 +40,8 @@ export interface ToolCall {
   plan?: Plan
   /** Optional rich preview rendered inside the chat transcript. */
   preview?: ToolCallPreview
+  /** Durable audit metadata for a constrained computer-control action. */
+  computerControl?: ComputerControlAuditEntry
   /**
    * Workspace-relative path(s) this call touched on success, same source as
    * `ProjectMemoryStore`'s file-touch ledger (see `helpers.ts`'s `recordTouch`)
@@ -231,6 +234,13 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'read',
     description:
       'Capture a workspace image or up to three primary HTML sections; pass a section id to inspect one named page section precisely. To compare, inspect the same path, edit that file in place, then inspect it again — never rename or copy it to make a "before".',
+    requiresProject: true
+  },
+  {
+    name: 'computer_control',
+    kind: 'read',
+    description:
+      'Use one typed action in a user-enabled, visible AI-control session. Available only to an active vision chat for its selected Anodex surface, preview, or approved desktop window; successful actions return an audited screenshot.',
     requiresProject: true
   },
   {

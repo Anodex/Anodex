@@ -54,6 +54,7 @@ import { mcpManager } from '../mcp/McpManager'
 import type { ReadCoverageTracker } from '../tools/readCoverage'
 import { chatEvents } from './chatEvents'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
+import { computerControlService } from '../computerControl/ComputerControlService'
 import {
   GenerationBudget,
   interactiveBudgetForContext,
@@ -592,7 +593,12 @@ export async function runGeneration(
       context: activeContext,
       history: boundedHistory,
       prompt: request.prompt,
-      images: request.images,
+      images: [
+        ...(request.images ?? []),
+        ...[computerControlService.takePendingObservation(request.conversationId)].filter(
+          (image): image is NonNullable<typeof image> => image !== null
+        )
+      ],
       sessionMode: io.sessionMode,
       // Only the node-llama-cpp engine reads this (it rebuilds its session's
       // KV cache). Cloud/stateless transports bound their own history and stay

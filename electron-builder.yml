@@ -73,6 +73,10 @@ extraResources:
   # an associated multimodal projector.
   - from: resources/llama-server
     to: llama-server
+  # Native Windows desktop-control helper, prepared only on Windows. Other
+  # platforms receive its README but never expose desktop control.
+  - from: resources/windows-control
+    to: windows-control
   # Sample personal skills, copied into `userData/skills` on first launch by
   # SkillStore.init() so a new install has a working skill library to read,
   # edit, or delete. Never read from here at runtime.

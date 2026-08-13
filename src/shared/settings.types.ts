@@ -161,6 +161,14 @@ export interface ToolSettings {
   disabledTools: string[]
 }
 
+/**
+ * Explicit authorization for a future native desktop-control backend. This is
+ * intentionally separate from ordinary tool permission mode and starts off.
+ */
+export interface ComputerControlSettings {
+  desktopControlEnabled: boolean
+}
+
 export interface AnthropicProviderSettings {
   /** User's Anthropic API key. Stored locally in settings, same as the web search provider keys. */
   apiKey: string
@@ -465,6 +473,7 @@ export interface AppSettings {
   general: GeneralSettings
   workspace: WorkspaceSettings
   tools: ToolSettings
+  computerControl: ComputerControlSettings
   provider: ProviderSettings
   webSearch: WebSearchSettings
   diagnostics: DiagnosticSettings

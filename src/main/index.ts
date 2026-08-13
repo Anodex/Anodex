@@ -34,6 +34,7 @@ import { createLogger } from './utils/logger'
 import { diagnosticsReporter } from './diagnostics/DiagnosticsReporter'
 import { registerCrashHandlers } from './diagnostics/crashHandlers'
 import { finishModelLoad, getLoadRecovery, initLoadSentinel } from './llama/loadSentinel'
+import { computerControlService } from './computerControl/ComputerControlService'
 
 const log = createLogger('main')
 
@@ -152,6 +153,7 @@ if (!app.requestSingleInstanceLock()) {
   // exits — otherwise a loaded model, an in-flight download, or a running
   // generation is just killed mid-operation instead of shut down cleanly.
   app.on('will-quit', () => {
+    computerControlService.stopAll('app-quit')
     abortAllChatGenerations()
     schedulerService.stop()
     agentRunService.stopAll()
