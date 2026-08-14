@@ -3,7 +3,11 @@ import { readdir } from 'node:fs/promises'
 import type { WorkspaceToolFactory } from './types'
 import { runGuardedTool } from './helpers'
 import { classifyCommandRisk } from './permissions'
-import { describeUnresolvedCheck, detectToolchain } from './projectToolchain'
+import {
+  describeUnresolvedCheck,
+  detectToolchain,
+  type ToolchainCheckKind
+} from './projectToolchain'
 
 const DEFAULT_TIMEOUT_MS = 120_000
 const MAX_TIMEOUT_MS = 10 * 60_000
@@ -11,7 +15,12 @@ const MAX_OUTPUT_BYTES = 1024 * 1024
 const OUTPUT_TAIL_CHARS = 3000
 const FAILURE_HINT_LIMIT = 12
 
-type ProjectCheckKind = 'test' | 'typecheck' | 'lint' | 'build' | 'custom'
+/**
+ * This tool's kinds: every check a toolchain can have a conventional command
+ * for, plus `custom`, where the caller supplies the command itself. Derived
+ * from `ToolchainCheckKind` rather than restated, so the two cannot drift.
+ */
+type ProjectCheckKind = ToolchainCheckKind | 'custom'
 
 interface ProjectCheckResult {
   kind: ProjectCheckKind

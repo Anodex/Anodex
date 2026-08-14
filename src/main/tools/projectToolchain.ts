@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { resolveInWorkspace } from './workspace'
 
 /**
@@ -33,7 +33,16 @@ import { resolveInWorkspace } from './workspace'
  * produce confidently wrong commands rather than honest ones.
  */
 
-export type ProjectCheckKind = 'test' | 'typecheck' | 'lint' | 'build'
+/**
+ * The checks a toolchain can have a *conventional* command for.
+ *
+ * Deliberately excludes `run_project_check`'s `custom` kind: "custom" means the
+ * caller supplied the command, so no toolchain can offer one for it. Named
+ * distinctly from that tool's own `ProjectCheckKind` (which is this union plus
+ * `custom`) because two same-named types with different members in adjacent
+ * modules is an easy import to get wrong.
+ */
+export type ToolchainCheckKind = 'test' | 'typecheck' | 'lint' | 'build'
 
 export type ToolchainId =
   'node' | 'python' | 'rust' | 'go' | 'dotnet' | 'maven' | 'gradle' | 'cmake' | 'make'
@@ -43,7 +52,7 @@ export interface Toolchain {
   /** Human-readable name, used in messages to the model. */
   label: string
   /** Conventional command per check kind. Absent where the ecosystem has no standard one. */
-  commands: Partial<Record<ProjectCheckKind, string>>
+  commands: Partial<Record<ToolchainCheckKind, string>>
 }
 
 export interface ToolchainDetection {
@@ -240,22 +249,12 @@ async function readPackageScripts(workspaceRoot: string): Promise<Record<string,
   }
 }
 
-/** Whether a path exists inside the workspace, for callers listing markers themselves. */
-export async function existsInWorkspace(workspaceRoot: string, relative: string): Promise<boolean> {
-  try {
-    await stat(resolveInWorkspace(workspaceRoot, relative))
-    return true
-  } catch {
-    return false
-  }
-}
-
 /**
  * The message returned when no command can be resolved. Names what was
  * detected so the model can act, rather than reporting a bare failure.
  */
 export function describeUnresolvedCheck(
-  kind: ProjectCheckKind,
+  kind: ToolchainCheckKind,
   detection: ToolchainDetection
 ): string {
   if (!detection.chosen) {
