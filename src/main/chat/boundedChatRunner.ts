@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type {
   ChatHistoryTurn,
   ChatRequest,
@@ -18,6 +18,7 @@ import {
 } from '../tools/pathClaimVerification'
 import { parseRunCommandVerification } from '../tools/commandTools'
 import { claimsVisualSuccess } from '../tools/visualVerification'
+import { progressFromSettledCalls } from '../tools/turnProgress'
 import { projectStore } from '../projects/ProjectStore'
 import { withEpochHandoff } from '@shared/context.types'
 
@@ -185,6 +186,24 @@ const GOAL_MAX_CYCLES = 40
 const MAX_CONTEXT_EPOCHS_PER_REPLY = 3
 
 /**
+ * Consecutive post-epoch cycles that may consist only of reading before the run
+ * stops. One is expected and useful — the epoch deliberately dropped evidence
+ * and told the model to reopen it. Two in a row means the reopening has become
+ * the work, which would otherwise ride the whole goal-cycle budget without
+ * producing anything.
+ */
+const MAX_CONSECUTIVE_RECOVERY_ONLY_CYCLES = 2
+
+/**
+ * Files a single epoch may reopen despite existing read coverage.
+ *
+ * Small on purpose. The allowance exists because an epoch drops evidence the
+ * tracker still counts as read; it is not a licence to re-read the workspace,
+ * which is the churn `ReadCoverageTracker` was built to stop.
+ */
+const RECOVERY_READS_PER_EPOCH = 3
+
+/**
  * Wall-clock ceiling across every cycle of one goal run.
  *
  * `GenerationBudget` bounds a single cycle; without a total, forty cycles of
@@ -318,7 +337,7 @@ export async function runBoundedChatGeneration(
         webSources,
         onActivity: (call) => {
           if (call.status !== 'running') {
-            const activityKey = toolActivityKey(call)
+            const activityKey = toolActivityKey(call, contextEpochCount)
             if (!seenToolActivity.has(activityKey)) {
               seenToolActivity.add(activityKey)
               novelToolActivityThisCycle = true
@@ -352,17 +371,20 @@ export async function runBoundedChatGeneration(
     const novelVisibleContent =
       normalizedContent.length > 0 && !seenCycleContent.has(normalizedContent)
     if (normalizedContent.length > 0) seenCycleContent.add(normalizedContent)
+    // "Did nothing but look." Decided by `kind`, not a name list: `read` covers
+    // every read tool — ranges, directory listings, code search, outlines — so a
+    // cycle cannot slip past the guard by mixing one `search_files` in among its
+    // re-reads, which a two-name list allowed.
     const recoveryOnlyCycle = Boolean(
       contextEpoch &&
       cycleToolCalls?.length &&
-      cycleToolCalls.every(
-        (call) => call.name === 'read_file' || call.name === 'read_file_range'
-      ) &&
+      cycleToolCalls.every((call) => call.kind === 'read') &&
       !novelVisibleContent
     )
     recoveryOnlyCycles = recoveryOnlyCycle ? recoveryOnlyCycles + 1 : 0
+    const recoveryChurn = recoveryOnlyCycles >= MAX_CONSECUTIVE_RECOVERY_ONLY_CYCLES
     const madeProgressThisCycle =
-      (novelToolActivityThisCycle || novelVisibleContent) && recoveryOnlyCycles < 2
+      (novelToolActivityThisCycle || novelVisibleContent) && !recoveryChurn
 
     // Only a *successful* finish_goal ends the run. A refusal from the
     // evidence gate (`agentTools.ts`) arrives as an error, which must read as
@@ -389,8 +411,15 @@ export async function runBoundedChatGeneration(
           cause: result.contextEpochCause ?? 'in-turn',
           objective: originalObjective,
           plan: currentPlan,
-          calls: [...completedToolCalls.values()]
+          calls: [...completedToolCalls.values()],
+          priorFixedTokens: result.contextBudget?.fixedTokens
         })
+        // This epoch is about to drop evidence out of the model's active
+        // context while `readCoverage` — which spans the whole reply — still
+        // records it as read. Opening the matching allowance is what makes the
+        // handoff's own "reopen workspace evidence" instruction followable
+        // instead of answered with "already read earlier this task".
+        readCoverage.beginRecoveryEpoch(contextEpoch.recoveryReadAllowance)
         context = withEpochHandoff(context, contextEpoch)
       } else if (nonTerminal) {
         contextRecoveryBlocked = true
@@ -422,6 +451,7 @@ export async function runBoundedChatGeneration(
           outOfTime: !withinGoalDeadline,
           outOfCycles: cycle >= cycleCeiling - 1,
           madeProgress: madeProgressThisCycle,
+          recoveryChurn,
           stopped: result.stopped
         })
       }
@@ -557,8 +587,13 @@ export async function runBoundedChatGeneration(
  * workspace tools; the short result suffix distinguishes a real changed read
  * from a repeated read after a mutation.
  */
-function toolActivityKey(call: ToolCall): string {
+function toolActivityKey(call: ToolCall, epoch: number): string {
   return JSON.stringify({
+    // A context epoch drops evidence the model still needs, and the handoff
+    // explicitly authorizes reopening some of it. Keyed without the epoch, that
+    // authorized re-read produces a key seen before, reads as "no novel tool
+    // activity", and terminates the run on the very action the epoch asked for.
+    epoch,
     name: call.name,
     title: call.title,
     status: call.status,
@@ -574,6 +609,7 @@ function buildContextEpochHandoff(input: {
   objective: string
   plan: ChatRequest['plan'] | null | undefined
   calls: ToolCall[]
+  priorFixedTokens?: number
 }): ContextEpochHandoff {
   const completedTools = input.calls
     .filter(
@@ -585,7 +621,10 @@ function buildContextEpochHandoff(input: {
       name: call.name,
       kind: call.kind,
       status: call.status,
-      touchedPaths: call.touchedPaths?.slice(0, 4)
+      touchedPaths: call.touchedPaths?.slice(0, 4),
+      identity: toolCallIdentity(call),
+      outcome: call.detail?.trim() ? call.detail.trim().slice(0, 120) : undefined,
+      contentHash: writtenContentHash(call)
     }))
   return {
     version: 1,
@@ -596,9 +635,38 @@ function buildContextEpochHandoff(input: {
     objective: input.objective,
     plan: input.plan ?? undefined,
     completedTools,
+    // Derived in `turnProgress.ts` from the same kind sets the live gate uses,
+    // so an epoch can never disagree with `agentTools.ts` about what counts as
+    // work or as a rendering-affecting change.
+    progress: progressFromSettledCalls(input.calls),
+    recoveryReadAllowance: RECOVERY_READS_PER_EPOCH,
+    priorFixedTokens: input.priorFixedTokens,
     verificationNote:
       'Preserve the existing evidence gate: after a rendering-affecting change, inspect the result again before claiming success.'
   }
+}
+
+/**
+ * The one-line identity of a settled call.
+ *
+ * `ToolCall.title` is authoritative — `parseRunCommandVerification` already
+ * parses the command back out of it — and it is a settlement-time snapshot, so
+ * the in-turn argument reclamation that rewrites the provider message array
+ * cannot have truncated it first.
+ */
+function toolCallIdentity(call: ToolCall): string | undefined {
+  const title = call.title?.trim()
+  return title ? title.slice(0, 200) : undefined
+}
+
+/**
+ * Digest of what a successful write actually left on disk, so a resumed epoch
+ * can recognize its own completed work rather than redo it. Deliberately not
+ * the content: the handoff carries facts, and the file itself is still there.
+ */
+function writtenContentHash(call: ToolCall): string | undefined {
+  if (call.status !== 'success' || !call.diff) return undefined
+  return createHash('sha256').update(call.diff.after).digest('hex').slice(0, 12)
 }
 
 function normalizeCycleContent(content: string): string {
@@ -678,12 +746,19 @@ function describeGoalStop(reason: {
   outOfTime: boolean
   outOfCycles: boolean
   madeProgress: boolean
+  recoveryChurn?: boolean
   stopped: boolean
 }): string {
   if (reason.aborted) return 'Stopped by you.'
   if (reason.outOfTime) return 'Reached the time budget for one goal run. Say "continue" to resume.'
   if (reason.outOfCycles) {
     return 'Reached the step budget for one goal run. Say "continue" to resume.'
+  }
+  // Distinct from "made no new progress": the model *did* act, it just spent
+  // consecutive cycles reopening material instead of continuing the task, and
+  // telling the user it did nothing would be untrue.
+  if (reason.recoveryChurn) {
+    return 'After recovering context it kept re-reading the same material instead of continuing, so it stopped.'
   }
   if (!reason.madeProgress) {
     return 'The last step made no new progress, so it stopped rather than repeat itself.'

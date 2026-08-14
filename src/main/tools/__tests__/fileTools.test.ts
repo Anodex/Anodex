@@ -606,6 +606,47 @@ describe('AI file tools', () => {
         expect(repeat).toContain('already read in full earlier this task')
       })
 
+      it('serves a covered file again once after a context epoch, then resumes deduplicating', async () => {
+        // A context epoch drops the file's content out of the model's active
+        // context while this tracker still records it as read, so the handoff's
+        // own "reopen exact evidence" instruction would otherwise be answered
+        // with "already read earlier this task" and the epoch resumes blind.
+        await writeFile(join(workspace, 'whole.txt'), 'a\nb\nc')
+        const ctx = createMockContext(workspace)
+        const tool = readFileTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string }) => Promise<string>
+        }
+
+        await tool.handler({ path: 'whole.txt' })
+        expect(await tool.handler({ path: 'whole.txt' })).toContain('already read in full')
+
+        ctx.readCoverage.beginRecoveryEpoch(2)
+        const recovered = await tool.handler({ path: 'whole.txt' })
+        expect(recovered).toContain('a\nb\nc')
+
+        // One recovery per file per epoch: re-reading restores coverage, and a
+        // second claim would let the same file be re-served indefinitely. By
+        // this point the loop guard also has an opinion about four identical
+        // calls, so assert the invariant that matters — no content — rather
+        // than which guard happened to answer first.
+        expect(await tool.handler({ path: 'whole.txt' })).not.toContain('a\nb\nc')
+      })
+
+      it('reopens a covered line range once after a context epoch', async () => {
+        await writeFile(join(workspace, 'lines.txt'), 'one\ntwo\nthree\nfour')
+        const ctx = createMockContext(workspace)
+        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string; startLine: number; endLine: number }) => Promise<string>
+        }
+
+        await tool.handler({ path: 'lines.txt', startLine: 1, endLine: 4 })
+        const refused = await tool.handler({ path: 'lines.txt', startLine: 1, endLine: 4 })
+        expect(refused).toContain('already read')
+
+        ctx.readCoverage.beginRecoveryEpoch(1)
+        expect(await tool.handler({ path: 'lines.txt', startLine: 1, endLine: 4 })).toContain('one')
+      })
+
       it('skips a file in read_multiple_files that was already read in full', async () => {
         await writeFile(join(workspace, 'a.txt'), 'a')
         await writeFile(join(workspace, 'b.txt'), 'b')

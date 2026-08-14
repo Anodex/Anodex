@@ -170,7 +170,8 @@ const {
   visionToolSchemaReserveTokens,
   minimumViableOutputTokens,
   epochHeadroomTokens,
-  updateVisionPromptUsageCorrection
+  updateVisionPromptUsageCorrection,
+  RESERVED_TOKENS
 } = await import('../LlamaVisionService')
 
 function textChunk(content: string, finish?: string | null): StreamChunk {
@@ -224,6 +225,44 @@ beforeEach(() => {
 })
 
 describe('LlamaVisionService.generate', () => {
+  // The early boundary and the hard stop are derived from the same two terms,
+  // so the gap between them is exactly the headroom. Locking that down across
+  // every supported window is what would have caught the previous arrangement,
+  // where a fixed 72% early limit sat *above* the hard stop below ~15K — making
+  // proactive compaction unreachable on every 4K and 8K vision model — and left
+  // only 349 tokens between them at 16K.
+  it.each([4_096, 8_192, 16_384, 32_768])(
+    'keeps the early boundary a usable distance before the hard stop at %i',
+    (contextSize) => {
+      for (const hasTools of [false, true]) {
+        const inputLimit = contextSize - RESERVED_TOKENS
+        const minimumOutput = minimumViableOutputTokens(contextSize, hasTools)
+        const headroom = epochHeadroomTokens(contextSize, hasTools)
+        const proactiveLimit = Math.max(0, inputLimit - minimumOutput - headroom)
+        const hardStopLimit = inputLimit - minimumOutput
+
+        expect(proactiveLimit).toBeLessThan(hardStopLimit)
+        expect(hardStopLimit - proactiveLimit).toBe(headroom)
+        // A boundary at or below zero would fire on an empty request; a reserve
+        // wider than the window makes every round impossible by arithmetic.
+        expect(proactiveLimit).toBeGreaterThan(0)
+        expect(minimumOutput).toBeLessThan(inputLimit)
+      }
+    }
+  )
+
+  it('leaves a tool-enabled round room to finish one bounded call', () => {
+    // A ceiling below one valid JSON tool call is the truncated-call path that
+    // makes llama-server 500 on its own argument parse — strictly worse than a
+    // clean stop, so the floor rises when tools are registered.
+    for (const contextSize of [4_096, 8_192, 16_384, 32_768]) {
+      expect(minimumViableOutputTokens(contextSize, true)).toBeGreaterThanOrEqual(
+        minimumViableOutputTokens(contextSize, false)
+      )
+      expect(minimumViableOutputTokens(contextSize, true)).toBeGreaterThanOrEqual(1_280)
+    }
+  })
+
   it('derives a tool-aware output floor without making a minimal 4K text request impossible', () => {
     expect(minimumViableOutputTokens(4_096, false)).toBeLessThan(4_096 - 512)
     expect(minimumViableOutputTokens(4_096, true)).toBeGreaterThanOrEqual(1_280)

@@ -186,9 +186,9 @@ export async function runChatCompletionsLoop(
         // Fresh every generation call, same reasoning as `turnGate` above —
         // see `ToolRuntimeContext.loopGuard`'s doc comment.
         loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
-        // Fresh every generation call, same reasoning as `turnGate` above —
-        // see `ToolRuntimeContext.progress`'s doc comment.
-        progress: createTurnProgress(),
+        // Fresh every generation call unless a context epoch carried ordering
+        // forward — see `ToolRuntimeContext.progress` and `TurnProgressSeed`.
+        progress: createTurnProgress(params.tools.progressSeed),
         // Sized from the model's real window and this turn's own reported
         // usage each round — see `cloudRoundBudget.ts`. Left permanently null
         // (as this did) every tool falls back to its own disk-oriented cap,

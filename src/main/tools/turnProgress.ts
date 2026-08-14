@@ -1,4 +1,4 @@
-import type { ToolKind } from '@shared/tools.types'
+import type { ToolCall, ToolKind } from '@shared/tools.types'
 
 /**
  * What one generation turn has actually *done*, as opposed to what the model
@@ -50,13 +50,66 @@ const NON_WORK_KINDS = new Set<ToolKind>(['read', 'plan'])
  */
 const RENDER_AFFECTING_KINDS = new Set<ToolKind>(['write', 'command', 'mcp'])
 
-export function createTurnProgress(): TurnProgress {
-  return {
-    madeChange: false,
-    completedCalls: 0,
-    lastChangeAt: null,
-    lastVisualInspectionAt: null
+/**
+ * Carried ordering from an earlier context epoch of the same bounded reply.
+ *
+ * A context epoch resets the model's request history, not the work already
+ * done. Without a seed the fresh `TurnProgress` says `madeChange: false`, so
+ * `finish_goal` refuses a goal whose work genuinely completed in the previous
+ * epoch and tells the model to "create or edit a file, run a command" — an
+ * instruction to repeat a mutation, produced by the transition itself. Seeding
+ * is what keeps the evidence gate measuring the *task* rather than the epoch.
+ */
+export type TurnProgressSeed = Readonly<TurnProgress>
+
+/**
+ * `completedCalls` is a monotonic sequence, so a seed has to carry the counter
+ * as well as the two sequence values that index into it. Restarting the counter
+ * at zero while seeding `lastChangeAt: 12` would make every new call in this
+ * epoch compare as *older* than the carried change, and
+ * `hasPostChangeVisualEvidence` would then never return true again.
+ */
+export function createTurnProgress(seed?: TurnProgressSeed): TurnProgress {
+  if (!seed) {
+    return {
+      madeChange: false,
+      completedCalls: 0,
+      lastChangeAt: null,
+      lastVisualInspectionAt: null
+    }
   }
+  const completedCalls = Math.max(
+    0,
+    seed.completedCalls,
+    seed.lastChangeAt ?? 0,
+    seed.lastVisualInspectionAt ?? 0
+  )
+  return {
+    madeChange: seed.madeChange,
+    completedCalls,
+    lastChangeAt: seed.lastChangeAt,
+    lastVisualInspectionAt: seed.lastVisualInspectionAt
+  }
+}
+
+/**
+ * Rebuild the ledger from the settled tool calls of a whole bounded reply.
+ *
+ * The bounded runner keeps every settled call in insertion (settlement) order
+ * across continuation cycles, but the live `TurnProgress` lives inside one
+ * generation's tool context and is gone once that generation returns. Deriving
+ * the seed here — rather than in the runner — is what stops the two from
+ * drifting: `NON_WORK_KINDS` and `RENDER_AFFECTING_KINDS` are applied exactly
+ * once, in the same file that defines them, so a kind added to either set
+ * cannot be silently missed by the epoch path.
+ */
+export function progressFromSettledCalls(calls: readonly ToolCall[]): TurnProgress {
+  const progress = createTurnProgress()
+  for (const call of calls) {
+    if (call.status !== 'success') continue
+    recordCompletedCall(progress, call)
+  }
+  return progress
 }
 
 /**

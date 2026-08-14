@@ -301,6 +301,45 @@ export interface ChatRequest {
   contextEpoch?: ContextEpochHandoff
 }
 
+/**
+ * Ordering carried across a context epoch so the completion gate keeps
+ * measuring the task rather than the epoch.
+ *
+ * Mirrors the main process's `TurnProgress`; it lives here because the handoff
+ * crosses the shared type boundary. See `turnProgress.ts` for what each
+ * sequence value means and why the counter has to travel with them.
+ */
+export interface ContextEpochProgress {
+  madeChange: boolean
+  completedCalls: number
+  lastChangeAt: number | null
+  lastVisualInspectionAt: number | null
+}
+
+/** One settled tool call, reduced to what a resumed epoch needs to not repeat it. */
+export interface ContextEpochToolRecord {
+  name: string
+  kind: ToolCall['kind']
+  status: Extract<ToolCall['status'], 'success' | 'error' | 'denied'>
+  touchedPaths?: string[]
+  /**
+   * What this call actually was — the command line for `run_command`, the
+   * target for a write. Captured from the settled `ToolCall` snapshot, which is
+   * taken at settlement and is therefore unaffected by the in-turn argument
+   * reclamation that rewrites the provider message array.
+   *
+   * Without it every command renders as an anonymous `run_command` succeeded,
+   * which is worse than omitting it: the resumed model is told non-idempotent
+   * work happened without being told which work, and cannot tell a completed
+   * `git commit` from a completed `ls`.
+   */
+  identity?: string
+  /** Bounded outcome text, e.g. `exit 0`, so a retry decision has evidence. */
+  outcome?: string
+  /** Digest of written content, so a repeated write can be recognized as redundant. */
+  contentHash?: string
+}
+
 /** A compact, structured continuation checkpoint for one bounded context epoch. */
 export interface ContextEpochHandoff {
   version: 1
@@ -313,12 +352,17 @@ export interface ContextEpochHandoff {
   /** Current visible plan, if the task has one. */
   plan?: Plan | null
   /** Completed tool facts only. Raw result bodies and arguments stay in durable history. */
-  completedTools: Array<{
-    name: string
-    kind: ToolCall['kind']
-    status: Extract<ToolCall['status'], 'success' | 'error' | 'denied'>
-    touchedPaths?: string[]
-  }>
+  completedTools: ContextEpochToolRecord[]
+  /** Seeds the resumed generation's completion/verification gate. */
+  progress: ContextEpochProgress
+  /** Exact re-reads this epoch may spend on evidence it dropped from active context. */
+  recoveryReadAllowance: number
+  /**
+   * Measured fixed input of the epoch this handoff replaces. The next epoch's
+   * first round must come in under it; an epoch that does not shrink is fixed
+   * overhead, not history pressure, and compacting again cannot help.
+   */
+  priorFixedTokens?: number
   /** The next action should satisfy this evidence requirement before completion. */
   verificationNote?: string
 }

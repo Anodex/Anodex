@@ -189,7 +189,11 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
           // comment. Skip the content read and the redundant context growth
           // entirely rather than silently reproducing identical content a
           // second time.
-          if (ctx.readCoverage.isFullyCovered(file)) {
+          // A context epoch may have dropped this file's content out of the
+          // model's active context while the coverage above still records it as
+          // read; `claimRecoveryRead` spends one bounded allowance to serve it
+          // again in that case, and returns false for ordinary repeats.
+          if (ctx.readCoverage.isFullyCovered(file) && !ctx.readCoverage.claimRecoveryRead(file)) {
             return {
               modelResult: `${toWorkspaceRelative(ctx.workspaceRoot, file)} was already read in full earlier this task — nothing new here. Move on to a different file.`,
               detail: 'Already read in full earlier this task'
@@ -432,7 +436,13 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // `ReadCoverageTracker`'s doc comment. Trim the request down to
           // only what's genuinely new before reading content, rather than
           // re-serving (and re-growing context with) covered territory.
-          const gaps = ctx.readCoverage.uncovered(file, normalized.startLine, normalized.endLine)
+          let gaps = ctx.readCoverage.uncovered(file, normalized.startLine, normalized.endLine)
+          // See read_file's identical comment: a context epoch drops evidence
+          // from active context without this tracker forgetting it, so one
+          // bounded recovery claim per file reopens exactly that case.
+          if (gaps.length === 0 && ctx.readCoverage.claimRecoveryRead(file)) {
+            gaps = ctx.readCoverage.uncovered(file, normalized.startLine, normalized.endLine)
+          }
           if (gaps.length === 0) {
             return coverageRefusalResponse(ctx, normalized)
           }
@@ -642,7 +652,10 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
               // Already read in full earlier this bounded task and unchanged
               // since — see `ReadCoverageTracker`'s doc comment. Skip the
               // content read and the redundant context growth entirely.
-              if (ctx.readCoverage.isFullyCovered(file)) {
+              if (
+                ctx.readCoverage.isFullyCovered(file) &&
+                !ctx.readCoverage.claimRecoveryRead(file)
+              ) {
                 results.push(
                   `--- ${relativePath} ---\nAlready read in full earlier this task — nothing new here.`
                 )

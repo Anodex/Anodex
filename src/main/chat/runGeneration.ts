@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
   ChatRequest,
-  ContextEpochHandoff,
   ContextBudgetUsage,
   GenerationStats,
   GenerationStopReason
@@ -28,7 +27,7 @@ import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import { cloudContextWindowTokens, DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
 import { composeSystemPrompt } from '@shared/prompts'
-import { buildContextEpochSystemPrompt } from '@shared/contextPrompt'
+import { buildContextEpochSystemPrompt, capContextEpochHandoff } from '@shared/contextPrompt'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService, type GenerateOutcome, type GenerateParams } from '../llama/LlamaService'
@@ -433,7 +432,12 @@ export async function runGeneration(
         },
         confirm: io.confirm,
         readCoverage: io.readCoverage,
-        loopGuard: io.loopGuard
+        loopGuard: io.loopGuard,
+        // Carry the previous epoch's ordering into this generation's evidence
+        // gate. Without it `finish_goal` sees `madeChange: false` on a task
+        // whose work completed in the previous epoch and demands another
+        // mutation — duplicate work manufactured by the transition itself.
+        progressSeed: request.contextEpoch?.progress
       }
     : undefined
 
@@ -631,6 +635,13 @@ export async function runGeneration(
       modelOverride: io.providerOverride?.model,
       maxProviderRounds: executionPolicy.maxProviderRounds,
       onContextShift: () => execution?.recordContextShift(),
+      // Lets the transport preflight the rebuild against the epoch it replaced.
+      contextEpoch: request.contextEpoch
+        ? {
+            epoch: request.contextEpoch.epoch,
+            priorFixedTokens: request.contextEpoch.priorFixedTokens
+          }
+        : undefined,
       signal: execution.signal,
       tools,
       onToken: (token) => io.onToken?.(token),
@@ -805,44 +816,4 @@ function withConfiguredReplyCeiling(
   const configured = providerMaxResponseTokens(settingsStore.get().provider, providerId)
   if (configured === undefined) return options
   return { ...options, maxTokens: configured }
-}
-
-/**
- * Keep protected checkpoint cost proportional to the real provider window.
- *
- * History is already separately bounded. This cap protects reply room without
- * letting a verbose plan or tool list turn the handoff itself into the next
- * context-limit failure. The values are capacities, not product tiers.
- */
-function capContextEpochHandoff(
-  handoff: ContextEpochHandoff,
-  contextWindowTokens: number | undefined
-): ContextEpochHandoff {
-  const context = Math.max(1, contextWindowTokens ?? 16_384)
-  const maxCharacters = Math.max(512, Math.min(4_000, Math.floor(context * 0.08) * 4))
-  let remaining = maxCharacters
-  const trim = (value: string, limit = remaining): string => {
-    const result = value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 1))}…`
-    remaining = Math.max(0, remaining - result.length)
-    return result
-  }
-  const objective = trim(handoff.objective, Math.min(remaining, Math.max(160, maxCharacters / 3)))
-  const plan = handoff.plan
-    ? {
-        ...handoff.plan,
-        title: trim(handoff.plan.title, Math.min(remaining, 160)),
-        steps: handoff.plan.steps.map((step) => ({
-          ...step,
-          title: trim(step.title, Math.min(remaining, 180))
-        }))
-      }
-    : handoff.plan
-  const completedTools = handoff.completedTools.slice(-12).map((tool) => ({
-    ...tool,
-    touchedPaths: tool.touchedPaths?.slice(0, 4).map((path) => trim(path, Math.min(remaining, 180)))
-  }))
-  const verificationNote = handoff.verificationNote
-    ? trim(handoff.verificationNote, Math.min(remaining, 240))
-    : undefined
-  return { ...handoff, objective, plan, completedTools, verificationNote }
 }

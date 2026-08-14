@@ -51,6 +51,22 @@ function baseIo(overrides: Partial<RunGenerationIo> = {}): RunGenerationIo {
   }
 }
 
+/** Minimal measured budget; only `fixedTokens` matters to the epoch handoff. */
+function budget(fixedTokens: number): NonNullable<RunGenerationResult['contextBudget']> {
+  return {
+    contextSize: 16_384,
+    inputLimitTokens: 15_872,
+    systemTokens: 1_200,
+    promptTokens: 40,
+    toolSchemaTokens: 3_220,
+    fixedTokens,
+    reservedTokens: 512,
+    activeToolCount: 23,
+    deferredToolCount: 37,
+    toolRoutingApplied: true
+  }
+}
+
 function result(overrides: Partial<RunGenerationResult> = {}): RunGenerationResult {
   return {
     content: '',
@@ -687,6 +703,146 @@ describe('runBoundedChatGeneration', () => {
     expect(mockedRunGeneration.mock.calls[1][0].contextEpoch?.epoch).toBe(1)
     expect(mockedRunGeneration.mock.calls[2][0].contextEpoch?.epoch).toBe(2)
     expect(mockedRunGeneration.mock.calls[3][0].contextEpoch?.epoch).toBe(3)
+  })
+
+  it('carries command identity, write hashes and progress ordering into the handoff', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'write-1',
+          name: 'write_file',
+          kind: 'write',
+          title: 'Write src/real.ts',
+          status: 'success',
+          touchedPaths: ['src/real.ts'],
+          diff: { path: 'src/real.ts', before: 'export {}', after: 'export const a = 1' }
+        })
+        io.onActivity?.({
+          id: 'cmd-1',
+          name: 'run_command',
+          kind: 'command',
+          title: 'Run: git commit -m "ship"',
+          detail: 'exit 0',
+          status: 'success'
+        })
+        return Promise.resolve(
+          result({
+            content: 'Committed the change.',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive',
+            contextBudget: budget(11_480)
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Done.' }))
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    const handoff = mockedRunGeneration.mock.calls[1][0].contextEpoch
+    // A resumed epoch that is only told "run_command succeeded" cannot tell a
+    // completed `git commit` from a completed `ls`.
+    expect(handoff?.completedTools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'run_command',
+          identity: 'Run: git commit -m "ship"',
+          outcome: 'exit 0'
+        }),
+        expect.objectContaining({ name: 'write_file' })
+      ])
+    )
+    // A digest of what the write actually left on disk, so a resumed epoch can
+    // recognize its own completed work instead of redoing it.
+    const write = handoff?.completedTools.find((tool) => tool.name === 'write_file')
+    expect(write?.contentHash).toMatch(/^[0-9a-f]{12}$/)
+    // Seeds `finish_goal`'s gate, so a task whose work completed in the previous
+    // epoch is not told to mutate again to prove it happened.
+    expect(handoff?.progress).toEqual({
+      madeChange: true,
+      completedCalls: 2,
+      lastChangeAt: 2,
+      lastVisualInspectionAt: null
+    })
+    expect(handoff?.priorFixedTokens).toBe(11_480)
+    expect(handoff?.recoveryReadAllowance).toBeGreaterThan(0)
+  })
+
+  it('treats an authorized recovery read after an epoch as real progress', async () => {
+    mockedRunGeneration.mockReset()
+    const reread: ToolCall = {
+      id: 'read-1',
+      name: 'read_file',
+      kind: 'read',
+      title: 'Read src/real.ts',
+      status: 'success',
+      result: 'export {}',
+      touchedPaths: ['src/real.ts']
+    }
+    mockedRunGeneration
+      // The same read happens before the epoch...
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.(reread)
+        return Promise.resolve(
+          result({ content: 'Looked at it.', stopped: true, stopReason: 'context-limit' })
+        )
+      })
+      // ...and again after it, which is exactly what the handoff asks for. Keyed
+      // without the epoch this reads as "no novel tool activity" and ends the run.
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.(reread)
+        return Promise.resolve(result({ content: 'Recovered the detail.' }))
+      })
+      // Repeating the same text is not novel, so the goal run winds down here.
+      .mockResolvedValue(result({ content: 'Finished.' }))
+
+    await runBoundedChatGeneration(baseRequest({ goal: 'finish the audit' }), baseIo())
+
+    // The run reached a third cycle: the post-epoch re-read counted as progress
+    // rather than ending the run on the very action the handoff asked for.
+    expect(mockedRunGeneration.mock.calls.length).toBeGreaterThanOrEqual(3)
+    expect(mockedRunGeneration.mock.calls[1][0].contextEpoch?.epoch).toBe(1)
+  })
+
+  it('stops with a recovery-churn reason when an epoch only ever re-reads', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'w',
+        name: 'write_file',
+        kind: 'write',
+        title: 'Write src/real.ts',
+        status: 'success'
+      })
+      return Promise.resolve(
+        result({ content: 'Changed it.', stopped: true, stopReason: 'context-limit' })
+      )
+    })
+    // Every later cycle looks at a different file and says nothing new. Mixing a
+    // search in among the reads must not let it slip past the guard, which is
+    // why the check is by tool kind rather than by tool name.
+    for (const [index, name] of ['read_file', 'search_files', 'read_file_range'].entries()) {
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: `r${index}`,
+          name,
+          kind: 'read',
+          title: `Read pass ${index}`,
+          status: 'success'
+        })
+        return Promise.resolve(result({ content: '' }))
+      })
+    }
+
+    const outcome = await runBoundedChatGeneration(
+      baseRequest({ goal: 'finish the audit' }),
+      baseIo()
+    )
+
+    expect(mockedRunGeneration.mock.calls.length).toBeLessThanOrEqual(3)
+    expect(outcome.goalOutcome).toMatchObject({ status: 'unfinished' })
+    expect(outcome.goalOutcome?.blockedReason).toMatch(/re-reading the same material/i)
   })
 
   it('does not continue after a recoverable stop that made no real progress', async () => {

@@ -73,7 +73,7 @@ const log = createLogger('llama:vision')
 const DEFAULT_MAX_TOKENS = 4096
 const MAX_TOOL_ROUNDS = 20
 /** Memory kept clear of the context limit, mirroring the text path's reserve. */
-const RESERVED_TOKENS = 512
+export const RESERVED_TOKENS = 512
 /**
  * How many times one turn may recover from a tool call that was cut off before
  * its arguments finished.
@@ -199,6 +199,15 @@ const DEFAULT_PROMPT_USAGE_CORRECTION: VisionPromptUsageCorrection = {
  * schemas already use llama-server's tokenizer, so a single scalar correction
  * would incorrectly carry an image-heavy round's error into a later text-only
  * round. Keep framing and image corrections independent and bounded.
+ *
+ * `framingTokensPerMessage` is really a per-message catch-all, not a pure
+ * framing figure: the residual also contains the gap between
+ * `JSON.stringify(tools)` and however the chat template actually renders those
+ * schemas, which is a constant being amortized across the message count. It
+ * re-converges every round because each round relearns from its own message
+ * count, so the practical error stays small — but that is why the `[1, 64]`
+ * bound below is load-bearing rather than cosmetic, and why the image branch
+ * subtracts the learned framing rather than the raw constant.
  */
 export function updateVisionPromptUsageCorrection(
   current: VisionPromptUsageCorrection,
@@ -463,6 +472,31 @@ export class LlamaVisionService {
       // chat runner can now summarize this cycle and start a fresh stateless
       // epoch instead of waiting until the next model call is truncated.
       const proactiveLimitTokens = Math.max(0, inputLimitTokens - minimumOutput - headroom)
+      // Round-zero preflight for a rebuilt epoch. A rebuild is supposed to
+      // arrive smaller than the exchange it replaced; when it does not, the
+      // system prompt, routed schemas, pinned images and handoff are themselves
+      // the problem, and further epochs produce identical requests. Reporting
+      // that as `fixed-context-limit` — which is deliberately not recoverable —
+      // stops the runner spending its remaining recovery budget on rebuilds
+      // that cannot differ, and names the real cause instead of "reached the
+      // epoch recovery limit".
+      if (round === 0 && measured && params.contextEpoch) {
+        const prior = params.contextEpoch.priorFixedTokens
+        const didNotShrink = prior !== undefined && measured.fixedTokens >= prior
+        if (didNotShrink || measured.fixedTokens >= proactiveLimitTokens) {
+          contextExhausted = 'fixed'
+          log.warn('Rebuilt context epoch did not reclaim usable room', {
+            epoch: params.contextEpoch.epoch,
+            fixedTokens: measured.fixedTokens,
+            priorFixedTokens: prior ?? null,
+            proactiveLimitTokens,
+            inputLimitTokens,
+            minimumOutput,
+            headroom
+          })
+          break
+        }
+      }
       if (
         round > 0 &&
         measured &&
@@ -504,16 +538,6 @@ export class LlamaVisionService {
         })
         break
       }
-      // The reply ceiling is the single most common cause of a tool call that
-      // never finished emitting, and it is assembled from three places (the
-      // user's setting, this turn's measured room, and a hard default). Log
-      // all of them so a truncation can be attributed without guesswork.
-      log.debug('Vision round budget', {
-        round,
-        requestedMaxTokens,
-        fixedTokens: measured?.fixedTokens ?? null,
-        contextSize: this.contextSize
-      })
       if (measured) {
         // Tool results run through the same measured accounting the reply does,
         // so a result landing late in a turn can't claim the room the reply
@@ -536,7 +560,6 @@ export class LlamaVisionService {
           hasFunctions: toolFunctions != null
         })
         effectiveMaxTokens = budget.effectiveMaxTokens
-        log.debug('Vision round output ceiling', { round, effectiveMaxTokens })
         if (
           budget.requestedMaxTokens !== undefined &&
           budget.requestedMaxTokens > budget.effectiveMaxTokens
@@ -549,6 +572,32 @@ export class LlamaVisionService {
           })
         }
       }
+      // One matched record per round. Emitting `fixedTokens` and
+      // `effectiveMaxOutputTokens` from separate places is what made the
+      // driving incident's own numbers un-tunable: the 11,480 that tripped the
+      // stop and the 3,967 ceiling came from different rounds, so no threshold
+      // could be derived from them. Everything here is a count, a limit or a
+      // cause — never prompt text, tool output, paths or image data.
+      log.info('Vision context round', {
+        round,
+        epoch: params.contextEpoch?.epoch ?? 0,
+        contextSize: this.contextSize,
+        inputLimitTokens,
+        fixedTokens: measured?.fixedTokens ?? null,
+        toolSchemaTokens: measured?.toolSchemaTokens ?? null,
+        messageCount: measured?.messageCount ?? messages.length,
+        imagePartCount: measured?.imagePartCount ?? null,
+        settledToolCalls: messages.filter((message) => message.role === 'tool').length,
+        activeToolCount: toolSurface.directToolNames.length,
+        deferredToolCount: toolSurface.deferredToolNames.length,
+        minimumOutput,
+        headroom,
+        proactiveLimitTokens,
+        requestedMaxOutputTokens: requestedMaxTokens ?? null,
+        effectiveMaxOutputTokens: effectiveMaxTokens,
+        framingTokensPerMessage: promptUsageCorrection.framingTokensPerMessage,
+        imageTokensPerPart: promptUsageCorrection.imageTokensPerPart
+      })
 
       // Folded into `content` at the top of the next round and once after the
       // loop, so narration before a tool call does not run into the answer
@@ -1106,7 +1155,7 @@ export class LlamaVisionService {
       turnGate: { approved: false },
       loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
       // Reuse a caller-owned guard across bounded continuation cycles when supplied.
-      progress: createTurnProgress(),
+      progress: createTurnProgress(params.tools.progressSeed),
       modelResultBudget,
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
       visualInputs,

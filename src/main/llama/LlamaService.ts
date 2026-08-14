@@ -96,7 +96,7 @@ import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
-import { createTurnProgress } from '../tools/turnProgress'
+import { createTurnProgress, type TurnProgressSeed } from '../tools/turnProgress'
 import {
   buildCompactionSummaryPrompt,
   buildCompactionUpdatePrompt,
@@ -246,7 +246,20 @@ export interface GenerateParams {
     readCoverage?: ReadCoverageTracker
     /** Optional caller-owned guard shared across bounded continuation cycles. */
     loopGuard?: LoopGuardState
+    /**
+     * Ordering carried from a previous context epoch of the same bounded reply
+     * — see `TurnProgressSeed`. Undefined for an ordinary turn, which starts
+     * its ledger empty exactly as before.
+     */
+    progressSeed?: TurnProgressSeed
   }
+  /**
+   * Set when this request is a rebuilt context epoch. The transport uses it for
+   * a first-round preflight: a rebuild that did not come in under
+   * `priorFixedTokens` is fixed-overhead dominance, not history pressure, and
+   * compacting again cannot help.
+   */
+  contextEpoch?: { epoch: number; priorFixedTokens?: number }
 }
 
 export interface GenerateOutcome {
@@ -2352,7 +2365,7 @@ class LlamaService extends EventEmitter {
       loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
       // Fresh every generation call, same reasoning as `turnGate` above — see
       // `ToolRuntimeContext.progress`'s doc comment.
-      progress: createTurnProgress(),
+      progress: createTurnProgress(params.tools.progressSeed),
       // Same box pattern as `abortBox`/`signalBox` above — this generation's
       // real context accounting isn't measured until after this method
       // returns (see `contextBudget` below), so it fills in slightly later.
