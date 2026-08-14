@@ -286,6 +286,8 @@ export interface GenerateOutcome {
    * opposite responses from the user.
    */
   stopDetail?: string
+  /** Structured local context boundary cause; separate from the stable UI stop reason. */
+  contextEpochCause?: 'proactive' | 'in-turn'
   /** Exact fixed prompt/tool-schema accounting from the active local wrapper. */
   contextBudget?: ContextBudgetUsage
   /**

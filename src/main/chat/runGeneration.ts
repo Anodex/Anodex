@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type {
   ChatRequest,
+  ContextEpochHandoff,
   ContextBudgetUsage,
   GenerationStats,
   GenerationStopReason
@@ -27,6 +28,7 @@ import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import { cloudContextWindowTokens, DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
 import { composeSystemPrompt } from '@shared/prompts'
+import { buildContextEpochSystemPrompt } from '@shared/contextPrompt'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService, type GenerateOutcome, type GenerateParams } from '../llama/LlamaService'
@@ -131,6 +133,8 @@ export interface RunGenerationResult {
   stopReason?: GenerationStopReason
   /** See `GenerateOutcome.stopDetail`'s doc comment. */
   stopDetail?: string
+  /** Internal context boundary cause used by the bounded runner; the UI keeps the stable stop reason. */
+  contextEpochCause?: 'proactive' | 'in-turn'
   /** Exact local fixed-context/tool accounting for this turn. */
   contextBudget?: ContextBudgetUsage
   /** Memory entries retrieved and injected into context for this turn, if any. */
@@ -483,7 +487,7 @@ export async function runGeneration(
     memoryContext: memory?.text ?? null,
     transcriptRecallContext: transcriptRecall?.text ?? null
   })
-  const modelSystemPrompt = [systemPrompt, renderCurrentPlan(request.plan)]
+  let modelSystemPrompt = [systemPrompt, renderCurrentPlan(request.plan)]
     .filter((part): part is string => Boolean(part))
     .join('\n\n')
 
@@ -522,6 +526,15 @@ export async function runGeneration(
   // whenever tools are enabled at all — a chat with no workspace folder still
   // carries the user-file, email and web surfaces, and so still pays for them.
   const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io, tools != null)
+  if (request.contextEpoch) {
+    // The handoff is deliberately rendered *before* `boundHistoryForStatelessProvider`
+    // computes its history budget. It is protected from history eviction, but it
+    // is still fixed prompt cost and must be charged exactly once.
+    modelSystemPrompt = buildContextEpochSystemPrompt(
+      modelSystemPrompt,
+      capContextEpochHandoff(request.contextEpoch, bounding?.contextWindowTokens)
+    )
+  }
   if (bounding) {
     const bounded = await boundHistoryForStatelessProvider(
       modelSystemPrompt,
@@ -718,6 +731,7 @@ export async function runGeneration(
     stopped: outcome.stopped,
     stopReason: outcome.stopReason,
     stopDetail: outcome.stopDetail,
+    contextEpochCause: outcome.contextEpochCause,
     contextBudget: outcome.contextBudget,
     memoryUsed: memory?.entries,
     transcriptRecallUsed: transcriptRecall?.results,
@@ -791,4 +805,44 @@ function withConfiguredReplyCeiling(
   const configured = providerMaxResponseTokens(settingsStore.get().provider, providerId)
   if (configured === undefined) return options
   return { ...options, maxTokens: configured }
+}
+
+/**
+ * Keep protected checkpoint cost proportional to the real provider window.
+ *
+ * History is already separately bounded. This cap protects reply room without
+ * letting a verbose plan or tool list turn the handoff itself into the next
+ * context-limit failure. The values are capacities, not product tiers.
+ */
+function capContextEpochHandoff(
+  handoff: ContextEpochHandoff,
+  contextWindowTokens: number | undefined
+): ContextEpochHandoff {
+  const context = Math.max(1, contextWindowTokens ?? 16_384)
+  const maxCharacters = Math.max(512, Math.min(4_000, Math.floor(context * 0.08) * 4))
+  let remaining = maxCharacters
+  const trim = (value: string, limit = remaining): string => {
+    const result = value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 1))}…`
+    remaining = Math.max(0, remaining - result.length)
+    return result
+  }
+  const objective = trim(handoff.objective, Math.min(remaining, Math.max(160, maxCharacters / 3)))
+  const plan = handoff.plan
+    ? {
+        ...handoff.plan,
+        title: trim(handoff.plan.title, Math.min(remaining, 160)),
+        steps: handoff.plan.steps.map((step) => ({
+          ...step,
+          title: trim(step.title, Math.min(remaining, 180))
+        }))
+      }
+    : handoff.plan
+  const completedTools = handoff.completedTools.slice(-12).map((tool) => ({
+    ...tool,
+    touchedPaths: tool.touchedPaths?.slice(0, 4).map((path) => trim(path, Math.min(remaining, 180)))
+  }))
+  const verificationNote = handoff.verificationNote
+    ? trim(handoff.verificationNote, Math.min(remaining, 240))
+    : undefined
+  return { ...handoff, objective, plan, completedTools, verificationNote }
 }

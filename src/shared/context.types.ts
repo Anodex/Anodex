@@ -1,3 +1,5 @@
+import type { ContextEpochHandoff } from './chat.types'
+
 /**
  * Durable summary of the older part of a conversation.
  *
@@ -85,6 +87,16 @@ export interface ConversationContext {
   compactionHistory?: ConversationContextSnapshot[]
   /** Compatibility form retained while older conversations and callers migrate. */
   activeSnapshot?: ConversationContextSnapshot
+  /** Most recent structured recovery handoff, retained for audit and safe resume. */
+  latestEpochHandoff?: ContextEpochHandoff
+}
+
+/** Retain a bounded recovery record without making it part of evictable history. */
+export function withEpochHandoff(
+  context: ConversationContext | null | undefined,
+  handoff: ContextEpochHandoff
+): ConversationContext {
+  return { ...(context ?? {}), latestEpochHandoff: handoff }
 }
 
 /** Translate a legacy snapshot into the Anodex-owned ledger vocabulary. */

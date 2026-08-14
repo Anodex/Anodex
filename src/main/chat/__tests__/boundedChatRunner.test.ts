@@ -628,6 +628,67 @@ describe('runBoundedChatGeneration', () => {
     expect(outcome.content).toBe('Here is the audit.')
   })
 
+  it('passes a protected structured handoff into the next context-recovery cycle', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'write-1',
+          name: 'write_file',
+          kind: 'write',
+          title: 'Write src/recovered.ts',
+          status: 'success',
+          touchedPaths: ['src/recovered.ts']
+        })
+        return Promise.resolve(
+          result({
+            content: 'The first change is complete.',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive'
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Recovered and verified.' }))
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    const resumed = mockedRunGeneration.mock.calls[1][0]
+    expect(resumed.contextEpoch).toMatchObject({
+      version: 1,
+      epoch: 1,
+      cause: 'proactive',
+      objective: 'audit the project',
+      completedTools: [
+        {
+          name: 'write_file',
+          status: 'success',
+          touchedPaths: ['src/recovered.ts']
+        }
+      ]
+    })
+  })
+
+  it('allows three bounded context-recovery handoffs, then stops on the next boundary', async () => {
+    mockedRunGeneration.mockReset()
+    for (let cycle = 1; cycle <= 4; cycle++) {
+      mockedRunGeneration.mockResolvedValueOnce(
+        result({
+          content: `Completed recovery cycle ${cycle}.`,
+          stopped: true,
+          stopReason: 'context-limit'
+        })
+      )
+    }
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(4)
+    expect(mockedRunGeneration.mock.calls[1][0].contextEpoch?.epoch).toBe(1)
+    expect(mockedRunGeneration.mock.calls[2][0].contextEpoch?.epoch).toBe(2)
+    expect(mockedRunGeneration.mock.calls[3][0].contextEpoch?.epoch).toBe(3)
+  })
+
   it('does not continue after a recoverable stop that made no real progress', async () => {
     mockedRunGeneration.mockReset()
     mockedRunGeneration.mockResolvedValueOnce(

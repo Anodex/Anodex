@@ -289,6 +289,38 @@ export interface ChatRequest {
    * changes — an ordinary chat turn runs exactly as before.
    */
   goal?: string | null
+  /**
+   * Ephemeral, Anodex-owned checkpoint for a bounded continuation cycle.
+   *
+   * This is deliberately separate from durable history. `runGeneration` renders
+   * it into the protected system segment before history is budgeted, so ordinary
+   * rolling compaction can never evict or rewrite the facts needed to resume.
+   * It is produced only by the bounded runner after every tool call in the
+   * preceding cycle has settled.
+   */
+  contextEpoch?: ContextEpochHandoff
+}
+
+/** A compact, structured continuation checkpoint for one bounded context epoch. */
+export interface ContextEpochHandoff {
+  version: 1
+  id: string
+  createdAt: number
+  epoch: number
+  cause: 'proactive' | 'in-turn'
+  /** Original user objective, not an automatically generated continuation nudge. */
+  objective: string
+  /** Current visible plan, if the task has one. */
+  plan?: Plan | null
+  /** Completed tool facts only. Raw result bodies and arguments stay in durable history. */
+  completedTools: Array<{
+    name: string
+    kind: ToolCall['kind']
+    status: Extract<ToolCall['status'], 'success' | 'error' | 'denied'>
+    touchedPaths?: string[]
+  }>
+  /** The next action should satisfy this evidence requirement before completion. */
+  verificationNote?: string
 }
 
 /** Request to manually compact a conversation into a durable context snapshot. */

@@ -165,7 +165,13 @@ vi.mock('../../models/ModelReliabilityStore', () => ({
   }
 }))
 
-const { LlamaVisionService, visionToolSchemaReserveTokens } = await import('../LlamaVisionService')
+const {
+  LlamaVisionService,
+  visionToolSchemaReserveTokens,
+  minimumViableOutputTokens,
+  epochHeadroomTokens,
+  updateVisionPromptUsageCorrection
+} = await import('../LlamaVisionService')
 
 function textChunk(content: string, finish?: string | null): StreamChunk {
   return { choices: [{ delta: { content }, finish_reason: finish ?? null }] }
@@ -218,6 +224,33 @@ beforeEach(() => {
 })
 
 describe('LlamaVisionService.generate', () => {
+  it('derives a tool-aware output floor without making a minimal 4K text request impossible', () => {
+    expect(minimumViableOutputTokens(4_096, false)).toBeLessThan(4_096 - 512)
+    expect(minimumViableOutputTokens(4_096, true)).toBeGreaterThanOrEqual(1_280)
+    expect(minimumViableOutputTokens(16_384, true)).toBeGreaterThanOrEqual(
+      minimumViableOutputTokens(16_384, false)
+    )
+    expect(epochHeadroomTokens(16_384, true)).toBeGreaterThan(epochHeadroomTokens(4_096, true))
+  })
+
+  it('keeps image and message-framing prompt corrections independent', () => {
+    const initial = { framingTokensPerMessage: 4, imageTokensPerPart: 768 }
+    const textOnly = updateVisionPromptUsageCorrection(
+      initial,
+      { tokenizedMessageTokens: 1_000, toolSchemaTokens: 200, messageCount: 40, imagePartCount: 0 },
+      1_520
+    )
+    expect(textOnly.framingTokensPerMessage).toBe(8)
+    expect(textOnly.imageTokensPerPart).toBe(768)
+
+    const imageRound = updateVisionPromptUsageCorrection(
+      textOnly,
+      { tokenizedMessageTokens: 1_000, toolSchemaTokens: 200, messageCount: 40, imagePartCount: 4 },
+      9_520
+    )
+    expect(imageRound.framingTokensPerMessage).toBe(8)
+    expect(imageRound.imageTokensPerPart).toBe(2_000)
+  })
   it('streams visible tokens and returns the assembled reply', async () => {
     mocks.rounds.push({ chunks: [textChunk('Hello '), textChunk('world.', 'stop')] })
     const tokens: string[] = []

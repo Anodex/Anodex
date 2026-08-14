@@ -1,4 +1,10 @@
-import type { ChatHistoryTurn, ChatRequest, GenerationStats } from '@shared/chat.types'
+import { randomUUID } from 'node:crypto'
+import type {
+  ChatHistoryTurn,
+  ChatRequest,
+  ContextEpochHandoff,
+  GenerationStats
+} from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from './runGeneration'
@@ -13,6 +19,7 @@ import {
 import { parseRunCommandVerification } from '../tools/commandTools'
 import { claimsVisualSuccess } from '../tools/visualVerification'
 import { projectStore } from '../projects/ProjectStore'
+import { withEpochHandoff } from '@shared/context.types'
 
 /**
  * Nudge prompt for every continuation cycle after the first — deliberately
@@ -174,6 +181,8 @@ const MAX_CYCLES = 24
  * run forever.
  */
 const GOAL_MAX_CYCLES = 40
+/** Context recovery has its own smaller ceiling than ordinary goal cycles. */
+const MAX_CONTEXT_EPOCHS_PER_REPLY = 3
 
 /**
  * Wall-clock ceiling across every cycle of one goal run.
@@ -282,11 +291,15 @@ export async function runBoundedChatGeneration(
   // (which the evidence gate in `agentTools.ts` can refuse) rather than after
   // one pass. See `ChatRequest.goal`.
   const goal = request.goal?.trim() || null
+  const originalObjective = goal ?? request.prompt
   const goalDeadline = goal ? Date.now() + GOAL_MAX_TOTAL_MS : null
   const cycleCeiling = goal ? GOAL_MAX_CYCLES : MAX_CYCLES
   let goalFinished = false
   let goalBlockedReason: string | null = null
   let goalSummary: string | undefined
+  let contextEpoch: ContextEpochHandoff | undefined
+  let contextEpochCount = 0
+  let recoveryOnlyCycles = 0
 
   for (let cycle = 0; cycle < cycleCeiling; cycle++) {
     let novelToolActivityThisCycle = false
@@ -297,7 +310,7 @@ export async function runBoundedChatGeneration(
     // below, carrying only the tool calls it actually made.
     const toolCallsById = new Map<string, ToolCall>()
     const result = await runGeneration(
-      { ...request, history, prompt, context, plan: currentPlan },
+      { ...request, history, prompt, context, plan: currentPlan, contextEpoch },
       {
         ...io,
         readCoverage,
@@ -339,7 +352,17 @@ export async function runBoundedChatGeneration(
     const novelVisibleContent =
       normalizedContent.length > 0 && !seenCycleContent.has(normalizedContent)
     if (normalizedContent.length > 0) seenCycleContent.add(normalizedContent)
-    const madeProgressThisCycle = novelToolActivityThisCycle || novelVisibleContent
+    const recoveryOnlyCycle = Boolean(
+      contextEpoch &&
+      cycleToolCalls?.length &&
+      cycleToolCalls.every(
+        (call) => call.name === 'read_file' || call.name === 'read_file_range'
+      ) &&
+      !novelVisibleContent
+    )
+    recoveryOnlyCycles = recoveryOnlyCycle ? recoveryOnlyCycles + 1 : 0
+    const madeProgressThisCycle =
+      (novelToolActivityThisCycle || novelVisibleContent) && recoveryOnlyCycles < 2
 
     // Only a *successful* finish_goal ends the run. A refusal from the
     // evidence gate (`agentTools.ts`) arrives as an error, which must read as
@@ -355,6 +378,29 @@ export async function runBoundedChatGeneration(
       result.stopped &&
       isRecoverableGenerationStop(result.stopReason) &&
       result.stopReason !== 'loop-guard'
+    const contextRecovery = result.stopReason === 'context-limit'
+    let contextRecoveryBlocked = false
+    if (contextRecovery) {
+      const nonTerminal = cycleToolCalls?.some((call) => call.status === 'running') ?? false
+      if (!nonTerminal && contextEpochCount < MAX_CONTEXT_EPOCHS_PER_REPLY) {
+        contextEpochCount++
+        contextEpoch = buildContextEpochHandoff({
+          epoch: contextEpochCount,
+          cause: result.contextEpochCause ?? 'in-turn',
+          objective: originalObjective,
+          plan: currentPlan,
+          calls: [...completedToolCalls.values()]
+        })
+        context = withEpochHandoff(context, contextEpoch)
+      } else if (nonTerminal) {
+        contextRecoveryBlocked = true
+        goalBlockedReason =
+          'Anodex stopped before every tool call settled, so it did not create an unsafe recovery checkpoint.'
+      } else {
+        contextRecoveryBlocked = true
+        goalBlockedReason = `This task reached its ${MAX_CONTEXT_EPOCHS_PER_REPLY}-epoch recovery limit without completing.`
+      }
+    }
     // A goal run also continues through a *clean* finish that did not call
     // finish_goal — that is the autonomy. It still requires real progress, so
     // a cycle that achieved nothing stops here rather than looping.
@@ -366,11 +412,12 @@ export async function runBoundedChatGeneration(
       madeProgressThisCycle &&
       cycle < cycleCeiling - 1 &&
       withinGoalDeadline &&
-      !io.signal?.aborted
+      !io.signal?.aborted &&
+      !contextRecoveryBlocked
 
     if (!canContinue) {
       if (goal !== null && !goalFinished) {
-        goalBlockedReason = describeGoalStop({
+        goalBlockedReason ??= describeGoalStop({
           aborted: Boolean(io.signal?.aborted),
           outOfTime: !withinGoalDeadline,
           outOfCycles: cycle >= cycleCeiling - 1,
@@ -519,6 +566,39 @@ function toolActivityKey(call: ToolCall): string {
     result: call.result?.slice(0, 512),
     detail: call.status === 'error' || call.status === 'denied' ? call.detail : undefined
   })
+}
+
+function buildContextEpochHandoff(input: {
+  epoch: number
+  cause: ContextEpochHandoff['cause']
+  objective: string
+  plan: ChatRequest['plan'] | null | undefined
+  calls: ToolCall[]
+}): ContextEpochHandoff {
+  const completedTools = input.calls
+    .filter(
+      (call): call is ToolCall & { status: 'success' | 'error' | 'denied' } =>
+        call.status === 'success' || call.status === 'error' || call.status === 'denied'
+    )
+    .slice(-12)
+    .map((call) => ({
+      name: call.name,
+      kind: call.kind,
+      status: call.status,
+      touchedPaths: call.touchedPaths?.slice(0, 4)
+    }))
+  return {
+    version: 1,
+    id: randomUUID(),
+    createdAt: Date.now(),
+    epoch: input.epoch,
+    cause: input.cause,
+    objective: input.objective,
+    plan: input.plan ?? undefined,
+    completedTools,
+    verificationNote:
+      'Preserve the existing evidence gate: after a rendering-affecting change, inspect the result again before claiming success.'
+  }
 }
 
 function normalizeCycleContent(content: string): string {

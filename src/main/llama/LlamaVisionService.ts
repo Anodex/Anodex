@@ -142,14 +142,13 @@ const IMAGE_TOKEN_ESTIMATE = 768
  * be cut off and replayed as the same malformed request. Stop earlier so the
  * bounded chat runner can rebuild the turn with compacted history.
  */
-const MIN_VIABLE_OUTPUT_TOKENS = 4096
+const MIN_TOOL_CALL_OUTPUT_TOKENS = 1_280
 /**
  * Start a fresh stateless context epoch before the active turn becomes
  * difficult to recover. The outer bounded chat runner will summarize the
  * completed cycle and replay the original task with the summary plus a small
  * recent tail, matching the provider-boundary compaction used by cloud chats.
  */
-const PROACTIVE_COMPACTION_FRACTION = 0.72
 /**
  * Most recent tool results left untouched when reclaiming in-turn room. The
  * model is actively reasoning from these; the older ones it has already acted
@@ -161,6 +160,76 @@ const EDIT_TOOL_NAMES = ['write_file', 'append_file', 'edit_file', 'patch_file']
 
 function hasEditTool(toolFunctions: Record<string, ToolFunction>): boolean {
   return EDIT_TOOL_NAMES.some((name) => name in toolFunctions)
+}
+
+/**
+ * The next output must be large enough for the kind of request we are about to
+ * make. A percentage-only reserve lets a tiny tool-enabled window issue a
+ * request that cannot finish one valid JSON call; an absolute 4096-token rule
+ * made small tool-free requests impossible by arithmetic. This derives the
+ * floor from capacity, then raises it to the known bounded write payload when
+ * tools are present.
+ */
+export function minimumViableOutputTokens(contextSize: number, hasTools: boolean): number {
+  const scaled = Math.max(384, Math.min(2_048, Math.floor(contextSize * 0.12)))
+  return hasTools ? Math.max(scaled, MIN_TOOL_CALL_OUTPUT_TOKENS) : scaled
+}
+
+/** Reserve enough room for one bounded result landing before the next round. */
+export function epochHeadroomTokens(contextSize: number, hasTools: boolean): number {
+  if (!hasTools) return Math.max(128, Math.floor(contextSize * 0.02))
+  // Tool results are capped dynamically, but read-oriented tools can still
+  // legitimately consume several thousand tokens. Reserve enough room for a
+  // typical bounded result without forcing a recovery after every two calls.
+  return Math.max(512, Math.min(3_000, Math.floor(contextSize * 0.15)))
+}
+
+export interface VisionPromptUsageCorrection {
+  framingTokensPerMessage: number
+  imageTokensPerPart: number
+}
+
+const DEFAULT_PROMPT_USAGE_CORRECTION: VisionPromptUsageCorrection = {
+  framingTokensPerMessage: MESSAGE_FRAMING_TOKENS,
+  imageTokensPerPart: IMAGE_TOKEN_ESTIMATE
+}
+
+/**
+ * Learn only the un-tokenizable portion of a rendered request. Text and tool
+ * schemas already use llama-server's tokenizer, so a single scalar correction
+ * would incorrectly carry an image-heavy round's error into a later text-only
+ * round. Keep framing and image corrections independent and bounded.
+ */
+export function updateVisionPromptUsageCorrection(
+  current: VisionPromptUsageCorrection,
+  measured: Pick<
+    MeasuredInput,
+    'tokenizedMessageTokens' | 'toolSchemaTokens' | 'messageCount' | 'imagePartCount'
+  >,
+  reportedPromptTokens: number
+): VisionPromptUsageCorrection {
+  const residual =
+    reportedPromptTokens - measured.tokenizedMessageTokens - measured.toolSchemaTokens
+  if (!Number.isFinite(residual) || residual < 0) return current
+  if (measured.imagePartCount === 0 && measured.messageCount > 0) {
+    return {
+      ...current,
+      framingTokensPerMessage: boundedPromptEstimate(residual / measured.messageCount, 1, 64)
+    }
+  }
+  if (measured.imagePartCount > 0) {
+    const imageResidual = residual - measured.messageCount * current.framingTokensPerMessage
+    if (imageResidual < 0) return current
+    return {
+      ...current,
+      imageTokensPerPart: boundedPromptEstimate(imageResidual / measured.imagePartCount, 128, 8_192)
+    }
+  }
+  return current
+}
+
+function boundedPromptEstimate(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, Math.round(value)))
 }
 const defineToolFunction = ((fn) => fn) as DefineChatSessionFunction
 
@@ -198,6 +267,10 @@ interface MeasuredInput {
   promptTokens: number
   toolSchemaTokens: number
   fixedTokens: number
+  /** Exact text-only token count returned by llama-server's tokenizer. */
+  tokenizedMessageTokens: number
+  messageCount: number
+  imagePartCount: number
 }
 
 /**
@@ -313,6 +386,7 @@ export class LlamaVisionService {
     const maxToolRounds = params.maxProviderRounds ?? MAX_TOOL_ROUNDS
     const requestedMaxTokens = params.options?.maxTokens
     let measured: MeasuredInput | null = null
+    let promptUsageCorrection = { ...DEFAULT_PROMPT_USAGE_CORRECTION }
     let effectiveMaxTokens = requestedMaxTokens ?? DEFAULT_MAX_TOKENS
     let toolCallRecoveries = 0
     let fallbackRounds = 0
@@ -344,8 +418,10 @@ export class LlamaVisionService {
       // the runtime can't tokenize, `measured` stays null and the configured
       // ceiling is used unchanged — the pre-measurement behavior — because
       // clamping against a guess truncates replies for no benefit.
-      measured = await this.measureInput(messages, tools, params.prompt)
+      measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
       const inputLimitTokens = Math.max(0, this.contextSize - RESERVED_TOKENS)
+      const minimumOutput = minimumViableOutputTokens(this.contextSize, toolFunctions != null)
+      const headroom = epochHeadroomTokens(this.contextSize, toolFunctions != null)
       // Nothing else bounds growth *within* a turn. History is compacted once,
       // upstream, before the first round; from there every call and every
       // result is appended and never removed, so a long tool-using turn walks
@@ -358,13 +434,20 @@ export class LlamaVisionService {
       // increment that buys room, matching how `contextAssembler`'s
       // `truncateToolText` bounds remembered output rather than dropping it.
       const fitsNow = (input: MeasuredInput | null): boolean =>
-        input === null || inputLimitTokens - input.fixedTokens >= MIN_VIABLE_OUTPUT_TOKENS
+        input === null || inputLimitTokens - input.fixedTokens >= minimumOutput
       if (!fitsNow(measured)) {
         const fixedTokensBefore = measured?.fixedTokens
         for (const tier of RECLAIM_TIERS) {
           if (reclaimToolResultRoom(messages, tier) === 0) continue
-          measured = await this.measureInput(messages, tools, params.prompt)
+          measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
           if (fitsNow(measured)) break
+        }
+        if (!fitsNow(measured) && reclaimEarlierInspectionImages(messages) > 0) {
+          measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
+          log.info('Reclaimed earlier visual inspection inputs from active context', {
+            round,
+            fixedTokensAfter: measured?.fixedTokens ?? null
+          })
         }
         if (measured?.fixedTokens !== fixedTokensBefore) {
           log.info('Reclaimed in-turn room from earlier tool results', {
@@ -379,19 +462,21 @@ export class LlamaVisionService {
       // safe boundary while the newest tool result is complete. The bounded
       // chat runner can now summarize this cycle and start a fresh stateless
       // epoch instead of waiting until the next model call is truncated.
-      const proactiveLimitTokens = Math.floor(inputLimitTokens * PROACTIVE_COMPACTION_FRACTION)
+      const proactiveLimitTokens = Math.max(0, inputLimitTokens - minimumOutput - headroom)
       if (
         round > 0 &&
         measured &&
         measured.fixedTokens >= proactiveLimitTokens &&
-        inputLimitTokens - measured.fixedTokens >= MIN_VIABLE_OUTPUT_TOKENS
+        inputLimitTokens - measured.fixedTokens >= minimumOutput
       ) {
         contextExhausted = 'proactive'
         log.info('Stopping the vision turn early for proactive context compaction', {
           round,
           fixedTokens: measured.fixedTokens,
           proactiveLimitTokens,
-          inputLimitTokens
+          inputLimitTokens,
+          minimumOutput,
+          headroom
         })
         break
       }
@@ -400,7 +485,7 @@ export class LlamaVisionService {
       // off part-way through whatever it was emitting, and 500s on its own
       // parse of the half-written call. Ending here instead keeps the text and
       // completed tool work from the rounds that did fit.
-      if (measured && inputLimitTokens - measured.fixedTokens < MIN_VIABLE_OUTPUT_TOKENS) {
+      if (measured && inputLimitTokens - measured.fixedTokens < minimumOutput) {
         // Two different faults, and conflating them sends the user after the
         // wrong thing. On the first round nothing has accumulated yet, so the
         // *fixed* input — system prompt, project rules, tool schemas — is what
@@ -413,7 +498,9 @@ export class LlamaVisionService {
         log.warn('Stopping the turn: no room left for a usable reply', {
           round,
           fixedTokens: measured.fixedTokens,
-          inputLimitTokens
+          inputLimitTokens,
+          minimumOutput,
+          headroom
         })
         break
       }
@@ -478,6 +565,7 @@ export class LlamaVisionService {
       // runtime fault and a genuine truncation.
       const runtimeOutputBefore = this.runtime.recentOutput()
       const pendingCalls = new Map<number, PendingToolCall>()
+      let reportedPromptTokens: number | undefined
       try {
         const stream = await client.chat.completions.create(
           {
@@ -497,6 +585,9 @@ export class LlamaVisionService {
 
         for await (const chunk of stream) {
           if (chunk.usage?.completion_tokens) outputTokens += chunk.usage.completion_tokens
+          if (typeof chunk.usage?.prompt_tokens === 'number' && chunk.usage.prompt_tokens > 0) {
+            reportedPromptTokens = chunk.usage.prompt_tokens
+          }
           const choice = chunk.choices[0]
           if (!choice) continue
           finishReason = choice.finish_reason ?? finishReason
@@ -603,6 +694,23 @@ export class LlamaVisionService {
         providerError = toStopDetail(described) ?? 'The local runtime gave no reason.'
         log.error('Local vision generation failed mid-turn; keeping the work already done:', error)
         break
+      }
+
+      if (measured && reportedPromptTokens !== undefined) {
+        promptUsageCorrection = updateVisionPromptUsageCorrection(
+          promptUsageCorrection,
+          measured,
+          reportedPromptTokens
+        )
+        log.debug('Calibrated vision prompt estimate from structured usage', {
+          round,
+          reportedPromptTokens,
+          tokenizedMessageTokens: measured.tokenizedMessageTokens,
+          messageCount: measured.messageCount,
+          imagePartCount: measured.imagePartCount,
+          framingTokensPerMessage: promptUsageCorrection.framingTokensPerMessage,
+          imageTokensPerPart: promptUsageCorrection.imageTokensPerPart
+        })
       }
 
       if (outputTokens === 0) {
@@ -814,7 +922,13 @@ export class LlamaVisionService {
                     : tokenLimit
                       ? 'token-limit'
                       : undefined,
-      stopDetail: providerError ?? undefined
+      stopDetail: providerError ?? undefined,
+      contextEpochCause:
+        contextExhausted === 'proactive'
+          ? 'proactive'
+          : contextExhausted === 'in-turn'
+            ? 'in-turn'
+            : undefined
     }
   }
 
@@ -830,7 +944,8 @@ export class LlamaVisionService {
   private async measureInput(
     messages: ChatCompletionMessageParam[],
     tools: ChatCompletionTool[] | undefined,
-    prompt: string
+    prompt: string,
+    correction: VisionPromptUsageCorrection = DEFAULT_PROMPT_USAGE_CORRECTION
   ): Promise<MeasuredInput | null> {
     const conversationText = messages.map(messageCostText).filter(Boolean).join('\n')
     const systemMessage = messages[0]?.role === 'system' ? messageCostText(messages[0]) : ''
@@ -853,9 +968,10 @@ export class LlamaVisionService {
     // per-message framing, and the projector's embedding cost for each image.
     // Both are real prompt tokens on the server, so leaving them out inflates
     // the output ceiling by exactly the amount most likely to overflow.
+    const imageParts = messages.reduce((total, message) => total + imagePartCount(message), 0)
     const untokenizable =
-      messages.length * MESSAGE_FRAMING_TOKENS +
-      messages.reduce((total, message) => total + imagePartCount(message), 0) * IMAGE_TOKEN_ESTIMATE
+      messages.length * correction.framingTokensPerMessage +
+      imageParts * correction.imageTokensPerPart
     // `messages` already ends with the current prompt, so subtract it back out
     // to keep `promptTokens` an incremental figure and `fixedTokens` a total.
     // Keep the public system count separate from replayed history. The total
@@ -870,7 +986,10 @@ export class LlamaVisionService {
       systemTokens,
       promptTokens,
       toolSchemaTokens,
-      fixedTokens: fixedTokens + toolSchemaTokens
+      fixedTokens: fixedTokens + toolSchemaTokens,
+      tokenizedMessageTokens: conversationTokens,
+      messageCount: messages.length,
+      imagePartCount: imageParts
     }
   }
 
@@ -1317,6 +1436,41 @@ function userContent(
   ]
 }
 
+const INSPECTION_IMAGE_PROMPT = 'Inspect this visual output carefully.'
+const RECLAIMED_INSPECTION_MARKER =
+  '[Earlier visual inspection image omitted to make room. Re-inspect the target if exact pixels are needed.]'
+
+/**
+ * Visual inspection images are useful immediately after the matching tool
+ * result, but leaving every screenshot in a stateless request makes image cost
+ * the one in-turn growth category that result reclaim cannot touch. Only the
+ * Anodex-injected inspection messages are eligible; user/pinned attachments
+ * remain governed by their explicit retention policy.
+ */
+function reclaimEarlierInspectionImages(messages: ChatCompletionMessageParam[]): number {
+  const candidates = messages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message }) => {
+      if (message.role !== 'user' || !Array.isArray((message as { content?: unknown }).content)) {
+        return false
+      }
+      return (
+        messageCostText(message).startsWith(INSPECTION_IMAGE_PROMPT) && imagePartCount(message) > 0
+      )
+    })
+  let reclaimed = 0
+  for (const { message, index } of candidates.slice(0, -1)) {
+    const content = (message as { content: Array<{ type?: string; text?: string }> }).content
+    const textParts = content.filter((part) => part.type !== 'image_url')
+    messages[index] = {
+      ...message,
+      content: [...textParts, { type: 'text', text: RECLAIMED_INSPECTION_MARKER }]
+    } as ChatCompletionMessageParam
+    reclaimed++
+  }
+  return reclaimed
+}
+
 /**
  * Last-resort guard on replayed history — **not** this transport's real
  * bounding, which now happens upstream in `runGeneration` via
@@ -1422,7 +1576,10 @@ function estimatedInput(params: GenerateParams, toolCount: number): MeasuredInpu
     systemTokens,
     promptTokens,
     toolSchemaTokens,
-    fixedTokens: systemTokens + promptTokens + toolSchemaTokens
+    fixedTokens: systemTokens + promptTokens + toolSchemaTokens,
+    tokenizedMessageTokens: systemTokens + promptTokens,
+    messageCount: 2,
+    imagePartCount: 0
   }
 }
 
