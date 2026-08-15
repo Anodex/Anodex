@@ -61,6 +61,22 @@
   --motion-medium: 220ms;
   --motion-long: 420ms;
 
+  /* Keyboard focus ring. Follows --accent so a custom theme's ring matches its
+     own palette, which is what the hand-written :focus-visible rules across the
+     app already did individually — this just names the decision once. Not
+     --border-focus: that one is deliberately fixed in every theme (see
+     themes/midnight.css) and is used as a *border* color on inputs, which own
+     their focus look separately. */
+  --focus-ring: var(--accent);
+
+  /* Neutral field an image is judged against — screenshots, attachments, the
+     lightbox, before/after comparisons. Structural rather than themed: an
+     image reads truthfully against a consistent dark backdrop, the same way
+     every OS image viewer does it, so this stays put when the theme changes.
+     Light mode inherits it deliberately; revisit as a design call, not a
+     token cleanup. */
+  --image-canvas: #17191f;
+
   /* Layout */
   --sidebar-width: 248px;
   --topbar-height: 52px;

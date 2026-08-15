@@ -25,7 +25,7 @@
     linear-gradient(45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
     linear-gradient(-45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.025) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.025) 75%), #17191f;
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.025) 75%), var(--image-canvas);
   background-position:
     0 0,
     0 8px,

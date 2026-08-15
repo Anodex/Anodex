@@ -53,7 +53,32 @@ a:hover {
 }
 
 ::selection {
-  background: rgba(79, 140, 255, 0.3);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* Default keyboard focus ring.
+ *
+ * Deliberately element-level (specificity 0,1,1) so any component that already
+ * styles its own :focus-visible — a menu item that fills with --accent, a
+ * resize handle that lights its own edge — keeps winning on class specificity
+ * without needing an override here.
+ *
+ * Text fields are excluded on purpose: they signal focus by changing
+ * border-color (see settings/controls.module.css and the scheduler/git inputs),
+ * and stacking an outline on top of that reads as a doubled border. Containers
+ * focused programmatically via tabindex="-1" are excluded for the same reason —
+ * they suppress outlines by design, and matching their specificity here would
+ * make load order decide the winner. */
+a:focus-visible,
+button:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[role='button']:focus-visible,
+[role='menuitem']:focus-visible,
+[role='tab']:focus-visible,
+[role='switch']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 /* Theme switches cross-dissolve instead of hard-cutting: useTheme wraps the
@@ -90,8 +115,12 @@ a:hover {
   background-clip: padding-box;
 }
 
+/* --text-faint moves the right way in both themes on its own: it is lighter
+   than --border-strong against a dark surface and darker than it against a
+   light one, so the thumb gains contrast on hover either way. The old fixed
+   #404040 only did that in dark mode — in light mode it was a dark smudge. */
 *::-webkit-scrollbar-thumb:hover {
-  background: #404040;
+  background: var(--text-faint);
   background-clip: padding-box;
 }
 
