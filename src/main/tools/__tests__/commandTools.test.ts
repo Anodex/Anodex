@@ -42,6 +42,24 @@ describe('run_command', () => {
     expect(result).toContain('hello')
   })
 
+  it('marks a command rejected before execution as a no-op', async () => {
+    const { calls, emit } = captureCalls()
+    const ctx = {
+      ...createMockContext(workspace),
+      emit,
+      confirm: () => Promise.resolve({ approved: true })
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ command: 'findstr /n "one\\|two" index.html' })
+
+    expect(result).toContain('Nothing was run')
+    expect(calls.at(-1)).toMatchObject({ status: 'success', madeProgress: false })
+    expect(ctx.progress.madeChange).toBe(false)
+  })
+
   it('reports a non-zero exit code without throwing', async () => {
     const ctx = {
       ...createMockContext(workspace),

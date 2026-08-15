@@ -13,9 +13,9 @@ try
     var request = JsonSerializer.Deserialize<Request>(input, options) ?? throw new InvalidOperationException("Missing request.");
     var result = request.Command switch
     {
-        "list-windows" => Result.Ok(Native.ListWindows()),
-        "capture" => Result.Ok(Native.Capture(Native.ParseHandle(request.Handle))),
-        "execute" => Result.Ok(Native.Execute(Native.ParseHandle(request.Handle), request.Action ?? throw new InvalidOperationException("Missing action."))),
+        "list-windows" => Result.Success(Native.ListWindows()),
+        "capture" => Result.Success(Native.Capture(Native.ParseHandle(request.Handle))),
+        "execute" => Result.Success(Native.Execute(Native.ParseHandle(request.Handle), request.Action ?? throw new InvalidOperationException("Missing action."))),
         _ => throw new InvalidOperationException("Unsupported desktop-control command.")
     };
     Console.Out.Write(JsonSerializer.Serialize(result, options));
@@ -37,7 +37,7 @@ sealed record Bounds(int X, int Y, int Width, int Height);
 sealed record CaptureResult(string MimeType, string DataBase64, int Width, int Height);
 sealed record Result(bool Ok, object? Value, string? Error)
 {
-    public static Result Ok(object value) => new(true, value, null);
+    public static Result Success(object value) => new(true, value, null);
     public static Result Fail(string error) => new(false, null, error);
 }
 

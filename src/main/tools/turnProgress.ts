@@ -106,7 +106,7 @@ export function createTurnProgress(seed?: TurnProgressSeed): TurnProgress {
 export function progressFromSettledCalls(calls: readonly ToolCall[]): TurnProgress {
   const progress = createTurnProgress()
   for (const call of calls) {
-    if (call.status !== 'success') continue
+    if (call.status !== 'success' || call.madeProgress === false) continue
     recordCompletedCall(progress, call)
   }
   return progress

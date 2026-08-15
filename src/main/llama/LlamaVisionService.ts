@@ -17,6 +17,7 @@ import { projectHistoryForModel, rememberToolCallForModel } from './contextAssem
 import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { createLoopGuardState } from '../tools/loopGuard'
+import { createToolLoopAbortState } from '../tools/toolLoopAbort'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import { createLogger } from '../utils/logger'
 import { toStopDetail } from '@shared/stopDetail'
@@ -347,22 +348,31 @@ export class LlamaVisionService {
     // is already spent, so one `read_file` late in a turn can claim room the
     // reply needed.
     const modelResultBudgetBox: { current: ModelToolResultBudget | null } = { current: null }
+    const toolLoopAbort = createToolLoopAbortState()
     const allToolFunctions = params.tools
-      ? this.buildToolFunctions(params, visualInputs, modelResultBudgetBox, (call) => {
-          hadAnyToolAttempt = true
-          if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
-          // Denied calls are excluded — a user decision, not a model signal.
-          if (currentModel && (call.status === 'success' || call.status === 'error')) {
-            modelReliabilityStore.recordToolCall(
-              currentModel.id,
-              currentModel.name,
-              call.name,
-              call.status,
-              basename(currentModel.path)
-            )
+      ? this.buildToolFunctions(
+          params,
+          visualInputs,
+          modelResultBudgetBox,
+          () => toolLoopAbort.request(),
+          (call) => {
+            hadAnyToolAttempt = true
+            if (call.kind === 'write' && call.status === 'success' && call.madeProgress !== false) {
+              hadSuccessfulWrite = true
+            }
+            // Denied calls are excluded — a user decision, not a model signal.
+            if (currentModel && (call.status === 'success' || call.status === 'error')) {
+              modelReliabilityStore.recordToolCall(
+                currentModel.id,
+                currentModel.name,
+                call.name,
+                call.status,
+                basename(currentModel.path)
+              )
+            }
+            params.tools?.onActivity(call)
           }
-          params.tools?.onActivity(call)
-        })
+        )
       : undefined
     const toolSurface = this.boundTools(allToolFunctions, params)
     const toolFunctions =
@@ -480,7 +490,12 @@ export class LlamaVisionService {
       // stops the runner spending its remaining recovery budget on rebuilds
       // that cannot differ, and names the real cause instead of "reached the
       // epoch recovery limit".
-      if (round === 0 && measured && params.contextEpoch) {
+      if (
+        round === 0 &&
+        measured &&
+        params.contextEpoch &&
+        params.contextEpoch.cause !== 'loop-guard'
+      ) {
         const prior = params.contextEpoch.priorFixedTokens
         const didNotShrink = prior !== undefined && measured.fixedTokens >= prior
         if (didNotShrink || measured.fixedTokens >= proactiveLimitTokens) {
@@ -885,7 +900,11 @@ export class LlamaVisionService {
           tool_call_id: call.id,
           content: await runTool(toolFunctions, call)
         })
+        if (toolLoopAbort.requested) break
       }
+      // The guard fires inside a tool handler, after the provider response has
+      // already arrived. Refuse the next llama-server round.
+      if (toolLoopAbort.requested) break
       const inspectionImages = drainVisualInputs(visualInputs)
       if (inspectionImages.length > 0) {
         messages.push({
@@ -951,7 +970,8 @@ export class LlamaVisionService {
         toolCallsTruncated ||
         contextExhausted !== null ||
         staleParseFailure ||
-        providerError !== null,
+        providerError !== null ||
+        toolLoopAbort.requested,
       // Ordered most-specific first: an outright failure, a runtime fault and
       // an exhausted context are all diagnoses the coarser reasons would hide.
       stopReason: providerError
@@ -968,9 +988,11 @@ export class LlamaVisionService {
                   ? 'rounds-exhausted'
                   : stopped
                     ? 'user'
-                    : tokenLimit
-                      ? 'token-limit'
-                      : undefined,
+                    : toolLoopAbort.requested
+                      ? 'loop-guard'
+                      : tokenLimit
+                        ? 'token-limit'
+                        : undefined,
       stopDetail: providerError ?? undefined,
       contextEpochCause:
         contextExhausted === 'proactive'
@@ -1129,6 +1151,7 @@ export class LlamaVisionService {
     params: GenerateParams,
     visualInputs: VisualInputQueue,
     modelResultBudget: { current: ModelToolResultBudget | null },
+    abortGeneration: () => void,
     onActivity: (call: ToolCall) => void
   ): Record<string, ToolFunction> | undefined {
     if (!params.tools) return undefined
@@ -1159,6 +1182,7 @@ export class LlamaVisionService {
       modelResultBudget,
       readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
       visualInputs,
+      abortGeneration,
       signal: params.signal,
       emit: onActivity,
       confirm: params.tools.confirm

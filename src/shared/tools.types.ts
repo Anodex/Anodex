@@ -34,6 +34,14 @@ export interface ToolCall {
    */
   result?: string
   status: ToolCallStatus
+  /**
+   * Whether this successful call produced new durable information or changed
+   * state. `false` is used for deliberately successful redirects/no-ops (for
+   * example, a request for a file range already covered earlier in the same
+   * bounded task). Absent means true for backward compatibility with older
+   * persisted conversations.
+   */
+  madeProgress?: boolean
   /** Before/after content for a file write or edit, so the UI can render a diff. */
   diff?: ToolCallDiff
   /** Full snapshot of the conversation's plan after a `write_plan`/`update_plan_step` call. */

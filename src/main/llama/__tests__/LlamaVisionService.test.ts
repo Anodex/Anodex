@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => ({
   toolContext: null as {
     emit: (call: unknown) => void
     modelResultBudget: { current: unknown }
+    abortGeneration?: () => void
   } | null,
   /**
    * Stands in for the tail of llama-server's own stdout. The service compares
@@ -221,6 +222,7 @@ beforeEach(() => {
   mocks.reliability.length = 0
   mocks.now = 0
   mocks.runtimeOutput = 'slot released | stop type = limit'
+  mocks.toolContext = null
   vi.spyOn(Date, 'now').mockImplementation(() => mocks.now)
 })
 
@@ -388,6 +390,28 @@ describe('LlamaVisionService.generate', () => {
 
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('rounds-exhausted')
+  })
+
+  it('honors a tool guard abort before another vision round can consume context', async () => {
+    const handler = vi.fn(() => {
+      mocks.toolContext?.abortGeneration?.()
+      return Promise.resolve('Stop this repeated tool loop.')
+    })
+    mocks.toolFunctions = {
+      read_file: {
+        description: 'Read.',
+        params: { type: 'object' },
+        handler
+      }
+    }
+    mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}')] })
+
+    const outcome = await (await service()).generate(params({ tools: withTools }))
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(mocks.requests).toHaveLength(1)
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('loop-guard')
   })
 
   it('treats an aborted signal as a user stop, not a failure', async () => {

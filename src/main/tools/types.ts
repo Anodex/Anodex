@@ -172,14 +172,13 @@ export interface ToolRuntimeContext {
   /** Return a model-facing limit message to block this call, or null to run it. */
   beforeTool?: (name: string, args: unknown) => string | null
   /**
-   * Force-ends the current generation outright, when the engine supports it
-   * (currently local-only — see `LlamaService`'s `genController`). Called by
+   * Ends the current tool loop when a guard determines that further rounds are
+   * unsafe or useless. The local text engine aborts its opaque native loop;
+   * explicit-round transports (local vision and cloud) latch the request and
+   * refuse to start another provider round. Called by
    * the loop guard once a model keeps repeating an identical call even after
    * being blocked and told to stop (see `LOOP_GUARD_ABORT_AFTER` in
-   * `loopGuard.ts`) — cloud providers don't need this since their explicit
-   * per-round tool loop already bounds worst-case repetition via
-   * `MAX_TOOL_ROUNDS`, unlike the local engine's opaque internal
-   * function-calling loop, which can spin many times within a single round.
+   * `loopGuard.ts`) and by read-coverage escalation after repeated no-op reads.
    */
   abortGeneration?: () => void
   signal?: AbortSignal

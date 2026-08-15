@@ -96,6 +96,19 @@ describe('progressFromSettledCalls', () => {
     })
   })
 
+  it('ignores successful calls that explicitly report no durable progress', () => {
+    const progress = progressFromSettledCalls([
+      call({ name: 'read_file', kind: 'read', madeProgress: false }),
+      call({ name: 'write_plan', kind: 'plan', madeProgress: false })
+    ])
+    expect(progress).toEqual({
+      madeChange: false,
+      completedCalls: 0,
+      lastChangeAt: null,
+      lastVisualInspectionAt: null
+    })
+  })
+
   it('does not let reading or planning count as carrying out the goal', () => {
     const progress = progressFromSettledCalls([
       call({ name: 'read_file', kind: 'read' }),

@@ -204,7 +204,7 @@ async function runAgainstFakeSession(
 }
 
 describe('LlamaService.generate() context-shift recovery', () => {
-  it('forces a fresh native session only for explicitly isolated phases', async () => {
+  it('forces a fresh native session for isolated phases and context epochs', async () => {
     const access = asTestAccess()
     prepareFakeEngine(access)
     const session: NonNullable<LlamaServiceTestAccess['session']> = {
@@ -227,13 +227,21 @@ describe('LlamaService.generate() context-shift recovery', () => {
     })
     await llamaService.generate({
       conversationId: 'test-conversation',
+      messageId: 'epoch-message',
+      history: [],
+      prompt: 'resume from a compact handoff',
+      contextEpoch: { epoch: 1, cause: 'proactive' },
+      onToken: () => {}
+    })
+    await llamaService.generate({
+      conversationId: 'test-conversation',
       messageId: 'ordinary-message',
       history: [],
       prompt: 'ordinary turn',
       onToken: () => {}
     })
 
-    expect(ensureSession.mock.calls.map((call) => call[6])).toEqual([true, false])
+    expect(ensureSession.mock.calls.map((call) => call[6])).toEqual([true, true, false])
   })
 
   it('enforces a requested JSON schema with a local grammar on tool-free turns', async () => {

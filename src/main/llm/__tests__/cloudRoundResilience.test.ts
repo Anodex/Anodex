@@ -33,7 +33,11 @@ const mocks = vi.hoisted(() => ({
   anthropicRequests: [] as Record<string, unknown>[],
   /** `modelResultBudget.current` sampled at each tool invocation, in order. */
   budgetsAtToolTime: [] as Array<ModelToolResultBudget | null>,
-  toolContext: null as { modelResultBudget: { current: ModelToolResultBudget | null } } | null
+  toolContext: null as {
+    modelResultBudget: { current: ModelToolResultBudget | null }
+    abortGeneration?: () => void
+  } | null,
+  abortOnTool: false
 }))
 
 vi.mock('../../settings/SettingsStore', () => ({
@@ -50,7 +54,10 @@ vi.mock('../../settings/SettingsStore', () => ({
 vi.mock('../../tools/registry', () => ({
   buildTools: (
     _define: unknown,
-    ctx: { modelResultBudget: { current: ModelToolResultBudget | null } }
+    ctx: {
+      modelResultBudget: { current: ModelToolResultBudget | null }
+      abortGeneration?: () => void
+    }
   ) => {
     mocks.toolContext = ctx
     return {
@@ -59,6 +66,7 @@ vi.mock('../../tools/registry', () => ({
         params: { type: 'object', properties: {} },
         handler: () => {
           mocks.budgetsAtToolTime.push(ctx.modelResultBudget.current)
+          if (mocks.abortOnTool) ctx.abortGeneration?.()
           return Promise.resolve('file contents')
         }
       }
@@ -178,9 +186,21 @@ beforeEach(() => {
   mocks.anthropicRequests.length = 0
   mocks.budgetsAtToolTime.length = 0
   mocks.toolContext = null
+  mocks.abortOnTool = false
 })
 
 describe.each(providers)('$name provider round resilience', ({ generate }) => {
+  it('honors a tool guard abort before another provider round is billed', async () => {
+    mocks.abortOnTool = true
+    mocks.rounds.push({ toolCall: true })
+
+    const outcome = await generate(params({ tools: withTools, maxProviderRounds: 5 }))
+
+    expect(mocks.openAiRequests.length + mocks.anthropicRequests.length).toBe(1)
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('loop-guard')
+  })
+
   it('bounds the first tool result before any usage has been reported', async () => {
     mocks.rounds.push({ toolCall: true }, { text: 'Done.' })
 

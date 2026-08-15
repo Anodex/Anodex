@@ -182,8 +182,6 @@ const MAX_CYCLES = 24
  * run forever.
  */
 const GOAL_MAX_CYCLES = 40
-/** Context recovery has its own smaller ceiling than ordinary goal cycles. */
-const MAX_CONTEXT_EPOCHS_PER_REPLY = 3
 
 /**
  * Consecutive post-epoch cycles that may consist only of reading before the run
@@ -278,13 +276,18 @@ export async function runBoundedChatGeneration(
     'projectId' in request ? (request.projectId ?? null) : projects.activeProjectId
   const workspaceRoot =
     projects.projects.find((project) => project.id === requestProjectId)?.folderPath ?? null
-  let history: ChatHistoryTurn[] = request.history
+  // A fresh context epoch returns to the persisted history that began this
+  // reply. The compact handoff below carries completed work; replaying the
+  // same reply's full, tool-heavy transcript as well would immediately refill
+  // the window the epoch was created to clear.
+  const baseHistory: ChatHistoryTurn[] = request.history
+  let history: ChatHistoryTurn[] = baseHistory
   let prompt = request.prompt
   let context = request.context ?? undefined
   // Plan state is separate from compacted transcript history. Carry the latest
   // tool-emitted snapshot into every continuation cycle so a fresh context
   // epoch can still update the same visible plan.
-  let currentPlan = request.plan ?? null
+  let currentPlan = activePlan(request.plan)
   let combinedContent = ''
   let combinedThinking = ''
   let totalTokens = 0
@@ -337,14 +340,16 @@ export async function runBoundedChatGeneration(
         webSources,
         onActivity: (call) => {
           if (call.status !== 'running') {
+            completedToolCalls.set(`${cycle}:${call.id}`, call)
+          }
+          if (call.status === 'success' && call.madeProgress !== false) {
             const activityKey = toolActivityKey(call, contextEpochCount)
             if (!seenToolActivity.has(activityKey)) {
               seenToolActivity.add(activityKey)
               novelToolActivityThisCycle = true
             }
-            completedToolCalls.set(`${cycle}:${call.id}`, call)
           }
-          if (call.plan) currentPlan = call.plan
+          if (call.plan) currentPlan = activePlan(call.plan)
           toolCallsById.set(call.id, call)
           io.onActivity?.(call)
         }
@@ -378,7 +383,7 @@ export async function runBoundedChatGeneration(
     const recoveryOnlyCycle = Boolean(
       contextEpoch &&
       cycleToolCalls?.length &&
-      cycleToolCalls.every((call) => call.kind === 'read') &&
+      cycleToolCalls.every(isReadLikeCall) &&
       !novelVisibleContent
     )
     recoveryOnlyCycles = recoveryOnlyCycle ? recoveryOnlyCycles + 1 : 0
@@ -396,19 +401,26 @@ export async function runBoundedChatGeneration(
       break
     }
 
+    // A loop guard that follows real work is a clean epoch boundary, not a
+    // reason to discard the task. Starting another provider round in the same
+    // generation was the bug; a compact outer continuation may resume from
+    // the next action. Error/no-op-only loops remain terminal.
+    const loopGuardRecovery = result.stopReason === 'loop-guard' && novelToolActivityThisCycle
     const recoveredStop =
       result.stopped &&
       isRecoverableGenerationStop(result.stopReason) &&
-      result.stopReason !== 'loop-guard'
-    const contextRecovery = result.stopReason === 'context-limit'
+      (result.stopReason !== 'loop-guard' || loopGuardRecovery)
+    const contextRecovery = result.stopReason === 'context-limit' || loopGuardRecovery
     let contextRecoveryBlocked = false
+    let startedContextEpoch = false
     if (contextRecovery) {
-      const nonTerminal = cycleToolCalls?.some((call) => call.status === 'running') ?? false
-      if (!nonTerminal && contextEpochCount < MAX_CONTEXT_EPOCHS_PER_REPLY) {
+      const unsafeNonTerminal =
+        cycleToolCalls?.some((call) => call.status === 'running' && !isReadLikeCall(call)) ?? false
+      if (!unsafeNonTerminal) {
         contextEpochCount++
         contextEpoch = buildContextEpochHandoff({
           epoch: contextEpochCount,
-          cause: result.contextEpochCause ?? 'in-turn',
+          cause: loopGuardRecovery ? 'loop-guard' : (result.contextEpochCause ?? 'in-turn'),
           objective: originalObjective,
           plan: currentPlan,
           calls: [...completedToolCalls.values()],
@@ -421,13 +433,11 @@ export async function runBoundedChatGeneration(
         // instead of answered with "already read earlier this task".
         readCoverage.beginRecoveryEpoch(contextEpoch.recoveryReadAllowance)
         context = withEpochHandoff(context, contextEpoch)
-      } else if (nonTerminal) {
-        contextRecoveryBlocked = true
-        goalBlockedReason =
-          'Anodex stopped before every tool call settled, so it did not create an unsafe recovery checkpoint.'
+        startedContextEpoch = true
       } else {
         contextRecoveryBlocked = true
-        goalBlockedReason = `This task reached its ${MAX_CONTEXT_EPOCHS_PER_REPLY}-epoch recovery limit without completing.`
+        goalBlockedReason =
+          'Anodex stopped while a tool that could change external state was still running, so it did not create an unsafe recovery checkpoint.'
       }
     }
     // A goal run also continues through a *clean* finish that did not call
@@ -467,15 +477,17 @@ export async function runBoundedChatGeneration(
     // exactly the field the chat/session-rebuild path already relies on to
     // let a resumed conversation "remember" past tool output — see its doc
     // comment in `tools.types.ts`.
-    history = [
-      ...history,
-      { role: 'user', content: prompt },
-      sanitizeHistoryTurn({
-        role: 'assistant',
-        content: result.content,
-        toolCalls: cycleToolCalls
-      })
-    ]
+    history = startedContextEpoch
+      ? baseHistory
+      : [
+          ...history,
+          { role: 'user', content: prompt },
+          sanitizeHistoryTurn({
+            role: 'assistant',
+            content: result.content,
+            toolCalls: cycleToolCalls
+          })
+        ]
     prompt = goal ? goalContinuePrompt(goal) : CHAT_CONTINUE_PROMPT
   }
 
@@ -516,7 +528,7 @@ export async function runBoundedChatGeneration(
           onThinkingToken: undefined,
           onActivity: (call) => {
             if (call.status !== 'running') completedToolCalls.set(`plan:${call.id}`, call)
-            if (call.plan) currentPlan = call.plan
+            if (call.plan) currentPlan = activePlan(call.plan)
             io.onActivity?.(call)
           }
         }
@@ -611,21 +623,20 @@ function buildContextEpochHandoff(input: {
   calls: ToolCall[]
   priorFixedTokens?: number
 }): ContextEpochHandoff {
-  const completedTools = input.calls
-    .filter(
-      (call): call is ToolCall & { status: 'success' | 'error' | 'denied' } =>
-        call.status === 'success' || call.status === 'error' || call.status === 'denied'
-    )
-    .slice(-12)
-    .map((call) => ({
-      name: call.name,
-      kind: call.kind,
-      status: call.status,
-      touchedPaths: call.touchedPaths?.slice(0, 4),
-      identity: toolCallIdentity(call),
-      outcome: call.detail?.trim() ? call.detail.trim().slice(0, 120) : undefined,
-      contentHash: writtenContentHash(call)
-    }))
+  const settledCalls = input.calls.filter(
+    (call): call is ToolCall & { status: 'success' | 'error' | 'denied' } =>
+      call.status === 'success' || call.status === 'error' || call.status === 'denied'
+  )
+  const completedTools = selectContextEpochCalls(settledCalls).map((call) => ({
+    name: call.name,
+    kind: call.kind,
+    status: call.status,
+    ...(call.madeProgress === false ? { madeProgress: false } : {}),
+    touchedPaths: call.touchedPaths?.slice(0, 4),
+    identity: toolCallIdentity(call),
+    outcome: call.detail?.trim() ? call.detail.trim().slice(0, 120) : undefined,
+    contentHash: writtenContentHash(call)
+  }))
   return {
     version: 1,
     id: randomUUID(),
@@ -638,12 +649,69 @@ function buildContextEpochHandoff(input: {
     // Derived in `turnProgress.ts` from the same kind sets the live gate uses,
     // so an epoch can never disagree with `agentTools.ts` about what counts as
     // work or as a rendering-affecting change.
-    progress: progressFromSettledCalls(input.calls),
+    progress: progressFromSettledCalls(input.calls.map(asProgressCall)),
     recoveryReadAllowance: RECOVERY_READS_PER_EPOCH,
     priorFixedTokens: input.priorFixedTokens,
     verificationNote:
       'Preserve the existing evidence gate: after a rendering-affecting change, inspect the result again before claiming success.'
   }
+}
+
+/**
+ * Keep the latest settlements while reserving room for recent durable work.
+ * Error/no-op churn used to evict every earlier mutation from a 12-call
+ * handoff, making the fresh epoch repeat work it had genuinely completed.
+ */
+function selectContextEpochCalls<T extends ToolCall>(calls: readonly T[]): T[] {
+  const durableLimit = 6
+  const recentOtherLimit = 2
+  const durable = (call: T): boolean =>
+    call.status === 'success' &&
+    call.madeProgress !== false &&
+    !isReadLikeCall(call) &&
+    call.kind !== 'plan'
+  const selected = new Set(calls.filter(durable).slice(-durableLimit))
+  for (const call of calls.filter((call) => !durable(call)).slice(-recentOtherLimit)) {
+    selected.add(call)
+  }
+  return calls.filter((call) => selected.has(call))
+}
+
+/** A completed plan is UI history, not active model state for a later request. */
+function activePlan(
+  plan: ChatRequest['plan'] | null | undefined
+): NonNullable<ChatRequest['plan']> | null {
+  if (!plan || plan.steps.length === 0) return null
+  return plan.steps.some((step) => step.status !== 'completed') ? plan : null
+}
+
+/**
+ * Some local models use the shell for ordinary reads. Preserve the command's
+ * approval behavior, but classify its task effect from Anodex's own recorded
+ * title so read-only PowerShell/CLI queries do not masquerade as mutations in
+ * recovery, visual-verification, or progress state.
+ */
+function isReadLikeCall(call: Pick<ToolCall, 'name' | 'kind' | 'title'>): boolean {
+  return call.kind === 'read' || isObservationalRunCommand(call)
+}
+
+function isObservationalRunCommand(call: Pick<ToolCall, 'name' | 'title'>): boolean {
+  if (call.name !== 'run_command' || !call.title.startsWith('Run: ')) return false
+  const command = call.title.slice('Run: '.length).trim()
+  if (
+    /(?:^|[\s;&|])(?:Set-Content|Add-Content|Out-File|Remove-Item|Move-Item|Copy-Item|New-Item|Rename-Item|git\s+(?:add|commit|checkout|switch|reset|restore|clean|merge|rebase|cherry-pick|push|pull))\b|(?:^|\s)(?:>>?|2>)\s*/i.test(
+      command
+    )
+  ) {
+    return false
+  }
+  return /^(?:Get-Content|Select-String|Get-ChildItem|Get-Item|Get-Location|Get-Command|Test-Path|Resolve-Path|Measure-Object|rg|grep|findstr|ls|dir|type|cat|head|tail|pwd|where(?:\.exe)?|which)\b|^git\s+(?:status|diff|log|show|branch|rev-parse)\b/i.test(
+    command
+  )
+}
+
+function asProgressCall(call: ToolCall): ToolCall {
+  return isObservationalRunCommand(call) ? { ...call, kind: 'read' } : call
 }
 
 /**
@@ -693,7 +761,9 @@ function canReconcilePlan(
   io: RunGenerationIo,
   toolCalls: ToolCall[]
 ): boolean {
-  const didRealWork = toolCalls.some((call) => call.status === 'success' && call.kind !== 'plan')
+  const didRealWork = toolCalls.some(
+    (call) => call.status === 'success' && call.madeProgress !== false && call.kind !== 'plan'
+  )
   return Boolean(
     !result.stopped &&
     !io.signal?.aborted &&
@@ -787,7 +857,10 @@ function describeMissingVisualVerification(content: string, toolCalls: ToolCall[
   if (!claimsVisualSuccess(content)) return null
 
   const lastMutationIndex = toolCalls.findLastIndex(
-    (call) => call.status === 'success' && MUTATING_TOOL_KINDS.has(call.kind)
+    (call) =>
+      call.status === 'success' &&
+      MUTATING_TOOL_KINDS.has(call.kind) &&
+      !isObservationalRunCommand(call)
   )
   const inspectedAfterLastChange = toolCalls.some(
     (call, index) =>

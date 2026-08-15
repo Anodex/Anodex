@@ -132,8 +132,11 @@ Key capabilities:
 - Desktop notifications and toast summaries.
 - Automatic chat title generation.
 - Context meter and manual context compaction.
-- Automatic context compaction and bounded continuation that preserve completed
-  tool work instead of treating a recoverable limit as a failed task.
+- Provider-neutral automatic context compaction and bounded continuation for local
+  text, local vision, OpenAI, Anthropic, Azure, and OpenAI-compatible providers.
+  Guarded loops stop before another model round, no-op/error tools do not count as
+  progress, and a compact checkpoint preserves recent durable work while dropping
+  same-reply tool-result bulk before a safe automatic restart.
 - Drag-and-drop attachments.
 - File picker attachments.
 - Internal file drag from the Files panel into chat.
@@ -386,7 +389,9 @@ Key safeguards:
 - Unattended agent and scheduled task runs fail closed on destructive actions.
 - Tool permissions can run in Ask, Full, or Untethered modes.
 - Sensitive actions are gated more strictly than normal writes.
-- Tool loops are guarded against repeated identical calls.
+- Tool loops are guarded against repeated identical calls on every local and cloud
+  transport; an error-only loop stops, while a task that completed real work first can
+  resume from a compact checkpoint without repeating the blocked provider round.
 - User-denied tool calls return an explicit denial result to the model.
 - File-changing tool calls can create checkpoint records.
 - Secrets such as provider keys and MCP credentials use secure storage when

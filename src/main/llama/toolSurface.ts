@@ -356,12 +356,13 @@ function describeDeferredTool(
   name: string,
   offset: number
 ): string {
-  const tool = functions[name]
+  const resolvedName = resolveDeferredToolName(functions, name)
+  const tool = functions[resolvedName]
   if (!tool) return `No deferred tool named "${name}". Use find_available_tool first.`
   const parameters: unknown = tool.params
   const serialized = JSON.stringify(
     {
-      name,
+      name: resolvedName,
       description: tool.description ?? '',
       parameters: parameters ?? { type: 'object', properties: {} }
     },
@@ -383,7 +384,8 @@ async function callDeferredTool(
   name: string,
   argumentsJson: string
 ): Promise<unknown> {
-  const tool = functions[name]
+  const resolvedName = resolveDeferredToolName(functions, name)
+  const tool = functions[resolvedName]
   if (!tool) throw new Error(`No deferred tool named "${name}". Use find_available_tool first.`)
 
   let args: unknown
@@ -399,11 +401,19 @@ async function callDeferredTool(
   const validationError = validateAgainstSchema(args, schema)
   if (validationError) {
     throw new Error(
-      `Arguments for "${name}" do not match its schema: ${validationError} ` +
+      `Arguments for "${resolvedName}" do not match its schema: ${validationError} ` +
         'Call describe_available_tool and try again.'
     )
   }
   return await tool.handler(args)
+}
+
+/** Recover a known name from harmless wrapper punctuation emitted by weaker local models. */
+function resolveDeferredToolName(functions: Record<string, ToolFunction>, name: string): string {
+  const trimmed = name.trim()
+  if (functions[trimmed]) return trimmed
+  const unwrapped = trimmed.replace(/^[`"'<>]+|[`"'<>]+$/g, '')
+  return functions[unwrapped] ? unwrapped : trimmed
 }
 
 function stringArgument(value: unknown): string {

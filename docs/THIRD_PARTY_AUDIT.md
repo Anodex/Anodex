@@ -52,7 +52,7 @@ kind of thing that changes in a minor version.
 
 ### The runtime
 
-- **Electron 40** — MIT. Bundles Chromium (BSD-3-Clause plus a large third-party set) and
+- **Electron 43** — MIT. Bundles Chromium (BSD-3-Clause plus a large third-party set) and
   Node.js (MIT). electron-builder already ships `LICENSE.electron.txt` and
   `LICENSES.chromium.html` into the build. This is currently the only place we are compliant
   by default.

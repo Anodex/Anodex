@@ -869,6 +869,18 @@ Continue automatically only when:
 - the next action differs from the failed action;
 - no user Stop occurred.
 
+The implemented provider contract applies this consistently to local text, local
+vision, OpenAI Responses, Anthropic Messages, and the shared OpenAI-compatible Chat
+Completions path. A tool guard raised inside an explicit provider loop is latched and
+must prevent the next provider request. Successful redirects/no-ops are recorded for
+the transcript but do not satisfy the durable-progress gate. If a loop guard follows
+real work, the chat runner may cross a bounded context-epoch boundary with a compact
+handoff; error/no-op-only loops remain terminal. A fresh epoch returns to the reply's
+persisted starting history instead of replaying the raw tool-heavy cycle it replaced.
+Handoff selection reserves space for recent mutations and commands so late failure
+churn cannot evict completed work, while observational shell reads and completed plans
+are shed.
+
 Pause instead of looping when:
 
 - no durable progress was made;

@@ -19,6 +19,7 @@ import {
 } from '../llama/compaction'
 import { buildTools } from '../tools/registry'
 import { createLoopGuardState } from '../tools/loopGuard'
+import { createToolLoopAbortState } from '../tools/toolLoopAbort'
 import { createReadCoverageTracker } from '../tools/readCoverage'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import type { ModelToolResultBudget } from '../tools/modelResultBudget'
@@ -155,6 +156,7 @@ export async function runChatCompletionsLoop(
   const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, CLOUD_VISION_MIME_TYPES)
   const contextWindowTokens = cloudContextWindowTokens(providerId, model)
   const modelResultBudgetBox: { current: ModelToolResultBudget | null } = { current: null }
+  const toolLoopAbort = createToolLoopAbortState()
 
   const toolFunctions = params.tools
     ? buildTools(defineToolFunction, {
@@ -198,6 +200,7 @@ export async function runChatCompletionsLoop(
         // bounded multi-cycle/multi-turn task; otherwise a fresh one.
         readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
         visualInputs,
+        abortGeneration: () => toolLoopAbort.request(),
         signal: params.signal,
         emit: params.tools.onActivity,
         confirm: params.tools.confirm
@@ -328,8 +331,10 @@ export async function runChatCompletionsLoop(
 
     for (const call of toolCalls) {
       messages.push(await runTool(toolFunctions, call))
+      if (toolLoopAbort.requested) break
     }
     hadToolResult = true
+    if (toolLoopAbort.requested) break
     const inspectionImages = drainVisualInputs(visualInputs)
     assertCloudVisionCompatible(inspectionImages)
     if (inspectionImages.length > 0) {
@@ -354,16 +359,18 @@ export async function runChatCompletionsLoop(
   return {
     content,
     stats,
-    stopped: stopped || roundsExhausted || providerError !== null,
+    stopped: stopped || roundsExhausted || providerError !== null || toolLoopAbort.requested,
     // A provider failure outranks a round budget: it is why the turn actually
     // ended, and it is the only one of the two the user can act on.
     stopReason: providerError
       ? 'provider-error'
-      : roundsExhausted
-        ? 'rounds-exhausted'
-        : stopped
-          ? 'user'
-          : undefined,
+      : stopped
+        ? 'user'
+        : toolLoopAbort.requested
+          ? 'loop-guard'
+          : roundsExhausted
+            ? 'rounds-exhausted'
+            : undefined,
     stopDetail: providerError ?? undefined
   }
 }

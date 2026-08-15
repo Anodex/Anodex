@@ -85,6 +85,26 @@ describe('buildContextEpochSystemPrompt', () => {
   it('carries a written content hash so a redundant rewrite is recognizable', () => {
     expect(buildContextEpochSystemPrompt(undefined, handoff())).toContain('#a1b2c3d4e5f6')
   })
+
+  it('labels a successful redirect as a no-op instead of completed work', () => {
+    const prompt = buildContextEpochSystemPrompt(
+      undefined,
+      handoff({
+        completedTools: [
+          {
+            name: 'read_file',
+            kind: 'read',
+            status: 'success',
+            madeProgress: false,
+            outcome: 'Already read earlier this task'
+          }
+        ]
+      })
+    )
+
+    expect(prompt).toContain('- no-op: read_file')
+    expect(prompt).not.toContain('- success: read_file')
+  })
 })
 
 /** A crowded handoff: a long plan and a full tool list, all competing for room. */

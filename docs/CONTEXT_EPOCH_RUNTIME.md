@@ -1,12 +1,14 @@
 # Context Epoch Runtime
 
-This document describes Anodex's bounded recovery path for a local vision
-generation that reaches context pressure during a tool-heavy task.
+This document describes Anodex's bounded recovery path for local text, local
+vision, and cloud generations that reach context pressure during a tool-heavy task.
 
 ## Ownership
 
 - `boundedChatRunner.ts` owns the decision to continue a recoverable reply and
-  creates a handoff only after every observed tool call is terminal.
+  creates a handoff after every potentially mutating tool call is terminal.
+  A read-only call that was interrupted at the boundary is safe to discard and
+  reopen; an unsettled write, command, web, or MCP call blocks the checkpoint.
 - `runGeneration.ts` renders the handoff into the system segment before calling
   `boundHistoryForStatelessProvider()`. The history assembler remains the sole
   owner of ordinary transcript compaction; the handoff is fixed prompt cost and
@@ -14,6 +16,9 @@ generation that reaches context pressure during a tool-heavy task.
 - `LlamaVisionService.ts` owns in-turn measurement, output-room policy, image
   reclamation, provider-facing usage calibration, and the round-zero preflight
   that decides whether a rebuild actually reclaimed room.
+- `LlamaService.ts` forces a fresh native text session for every context epoch;
+  otherwise its stateful KV-cache fast path could keep the context the handoff
+  was intended to replace.
 - `readCoverage.ts` and `turnProgress.ts` own the two cross-cycle ledgers an
   epoch has to reopen: what the model has already read, and what it has already
   done. `contextPrompt.ts` owns both the handoff's token cap and its rendering,
@@ -30,9 +35,13 @@ generation that reaches context pressure during a tool-heavy task.
    compaction, and its cost is subtracted from the history budget exactly once.
    The cap is enforced against the rendered block, and sheds the oldest
    settlements first; the objective and the verification note are never shed.
-3. The runner creates at most three context-recovery epochs for a reply. A
-   non-terminal tool call prevents checkpoint creation rather than risking a
-   malformed tool-call/result history.
+3. A new epoch returns to the persisted history that began the reply; it does
+   not replay the same reply's raw assistant/tool transcript. The structured
+   handoff is the replacement for that material. Completed plans are also
+   omitted because they are UI history, not active work. The ordinary 24/40
+   cycle ceiling, total-time limit, no-progress detection, read-churn guard,
+   and no-smaller-rebuild preflight bound repeated recovery; there is no lower
+   arbitrary epoch count that stops a task which is still making progress.
 4. A resumed epoch may spend a small, bounded number of exact recovery reads on
    evidence the epoch dropped from active context — at most one per file per
    epoch. Ordinary repeated reads stay deduplicated, and the loop guard is not
@@ -42,7 +51,9 @@ generation that reaches context pressure during a tool-heavy task.
    counts as real activity rather than reading as a repeat, but two consecutive
    cycles that do nothing except read stop the run with a recovery-churn reason
    rather than the untrue "made no new progress". The check is by tool `kind`,
-   so mixing a search in among re-reads does not bypass it.
+   with known observational `run_command` calls classified as reads, so using
+   `Get-Content` or `Select-String` through the shell does not bypass it or
+   masquerade as a workspace mutation.
 6. `finish_goal`'s evidence gate is seeded from the previous epoch's ordering,
    including the monotonic call counter. Otherwise a task whose work completed
    in the previous epoch is told "nothing has been done yet this turn" and
@@ -53,7 +64,7 @@ generation that reaches context pressure during a tool-heavy task.
    truncated JSON. The early boundary is `inputLimit − reply floor − headroom`
    and the hard stop is `inputLimit − reply floor`, so the gap between them is
    exactly the headroom at every supported context size.
-8. A rebuilt epoch is preflighted on its first round. If it did not come in
+8. A rebuilt vision epoch is preflighted on its first round. If it did not come in
    under the fixed input of the epoch it replaces, or already sits past the early
    boundary, that is fixed-overhead dominance — further epochs would produce the
    same request — and it stops with that diagnosis instead of spending the
@@ -97,8 +108,10 @@ creation with command identity and write digests, the rendered block staying
 inside its own cap with the verification note intact, recovery-read grant and
 re-deduplication at both the tracker and the `read_file`/`read_file_range` level,
 epoch-aware progress accounting and the recovery-churn stop, progress seeding and
-its monotonic counter, system-prompt rendering, tool-aware small-context floors,
-and separated usage calibration.
+its monotonic counter, same-reply transcript shedding, continuation beyond three
+productive epochs, safe pending-read recovery, completed-plan removal,
+system-prompt rendering, tool-aware small-context floors, and separated usage
+calibration.
 
 The full unit, lint, typecheck, production-build, and Electron smoke suites
 remain required release gates.

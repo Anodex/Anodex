@@ -303,6 +303,13 @@ describe('the deferred-tool gateway', () => {
     expect(result).toContain('send_email')
   })
 
+  it('tolerates harmless wrapper punctuation around a known deferred tool name', async () => {
+    const surface = routedSurface()
+    const call = surface.functions.call_available_tool
+
+    await expect(call.handler({ name: '"send_email>', argumentsJson: '{}' })).resolves.toBe('ok')
+  })
+
   it('says so plainly when nothing matches, rather than listing everything', async () => {
     const surface = routedSurface()
     const find = surface.functions.find_available_tool

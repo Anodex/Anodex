@@ -121,6 +121,9 @@ npm run typecheck  # TypeScript validation
 npm run test       # unit tests
 ```
 
+Creating a Windows installer with `npm run dist` also requires the .NET 8 SDK;
+it compiles the self-contained, bounded desktop-control helper before packaging.
+
 ## Built with intention
 
 Electron, React, TypeScript, Zustand, CSS Modules, and `node-llama-cpp` / llama.cpp.

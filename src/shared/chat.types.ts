@@ -321,6 +321,8 @@ export interface ContextEpochToolRecord {
   name: string
   kind: ToolCall['kind']
   status: Extract<ToolCall['status'], 'success' | 'error' | 'denied'>
+  /** False when the successful settlement was only a redirect/no-op. */
+  madeProgress?: boolean
   touchedPaths?: string[]
   /**
    * What this call actually was — the command line for `run_command`, the
@@ -346,7 +348,7 @@ export interface ContextEpochHandoff {
   id: string
   createdAt: number
   epoch: number
-  cause: 'proactive' | 'in-turn'
+  cause: 'proactive' | 'in-turn' | 'loop-guard'
   /** Original user objective, not an automatically generated continuation nudge. */
   objective: string
   /** Current visible plan, if the task has one. */

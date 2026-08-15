@@ -484,7 +484,7 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
     expect(abortGeneration).toHaveBeenCalledTimes(1)
   })
 
-  it('is safe to call without abortGeneration wired up (cloud providers today)', async () => {
+  it('is safe for custom tool contexts to omit abortGeneration', async () => {
     const ctx = createMockContext(root)
     for (let i = 0; i < 8; i++) {
       const result = await runReadTool(ctx, readSpec('Find skill "foo"'))
@@ -493,8 +493,8 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
   })
 
   it('does not falsely claim generation is stopping when abortGeneration is absent', async () => {
-    // No abortGeneration on this context — matches Anthropic/OpenAI today,
-    // which have no way to actually stop generation from the loop guard.
+    // A custom caller can still omit the callback. The first-party model
+    // transports all wire one, but the shared tool helpers remain optional.
     const ctx = createMockContext(root)
     let last = ''
     for (let i = 0; i < 6; i++) {

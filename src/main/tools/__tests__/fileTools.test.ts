@@ -595,7 +595,8 @@ describe('AI file tools', () => {
 
       it('short-circuits a repeat read_file for a file already read in full', async () => {
         await writeFile(join(workspace, 'whole.txt'), 'a\nb\nc')
-        const ctx = createMockContext(workspace)
+        const capture = captureCalls()
+        const ctx = { ...createMockContext(workspace), emit: capture.emit }
         const tool = readFileTool(createMockDefine(), ctx) as unknown as {
           handler: (args: { path: string }) => Promise<string>
         }
@@ -604,6 +605,7 @@ describe('AI file tools', () => {
         const repeat = await tool.handler({ path: 'whole.txt' })
 
         expect(repeat).toContain('already read in full earlier this task')
+        expect(capture.calls.at(-1)?.madeProgress).toBe(false)
       })
 
       it('serves a covered file again once after a context epoch, then resumes deduplicating', async () => {
@@ -663,6 +665,25 @@ describe('AI file tools', () => {
 
         expect(batch).toContain('a.txt ---\nAlready read in full earlier this task')
         expect(batch).toContain('--- b.txt ---\nb')
+      })
+
+      it('reports no progress when read_multiple_files returns no new file content', async () => {
+        await writeFile(join(workspace, 'a.txt'), 'a')
+        await writeFile(join(workspace, 'b.txt'), 'b')
+        const capture = captureCalls()
+        const ctx = { ...createMockContext(workspace), emit: capture.emit }
+        const fileTool = readFileTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path: string }) => Promise<string>
+        }
+        const batchTool = readMultipleFilesTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { paths: string[] }) => Promise<string>
+        }
+
+        await fileTool.handler({ path: 'a.txt' })
+        await fileTool.handler({ path: 'b.txt' })
+        await batchTool.handler({ paths: ['a.txt', 'b.txt'] })
+
+        expect(capture.calls.at(-1)?.madeProgress).toBe(false)
       })
 
       it('does not let one context leak coverage into a different context', async () => {

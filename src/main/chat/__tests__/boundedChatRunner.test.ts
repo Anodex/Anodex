@@ -273,6 +273,31 @@ describe('runBoundedChatGeneration', () => {
     expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
   })
 
+  it('does not reconcile a plan after a successful read redirect that returned no evidence', async () => {
+    const plan = {
+      title: 'Fix the sandbox',
+      steps: [{ id: 'step-1', title: 'Implement and verify', status: 'in_progress' as const }],
+      updatedAt: 1
+    }
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'read-1',
+        name: 'read_file',
+        kind: 'read',
+        title: 'Read src/real.ts',
+        status: 'success',
+        detail: 'Already read earlier this task',
+        madeProgress: false
+      })
+      return Promise.resolve(result({ content: 'Done.' }))
+    })
+
+    await runBoundedChatGeneration(baseRequest({ plan }), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
+  })
+
   /**
    * P3.1: a standing `/goal` turns the reply into a bounded goal run that keeps
    * taking cycles while real progress continues, instead of stopping after one.
@@ -644,7 +669,115 @@ describe('runBoundedChatGeneration', () => {
     expect(outcome.content).toBe('Here is the audit.')
   })
 
+  it('does not treat a failed tool call as progress worth another recovery cycle', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'failed-read',
+        name: 'read_file_range',
+        kind: 'read',
+        title: 'Read src/index.ts lines 1-200',
+        status: 'error',
+        detail: 'Already read earlier this task'
+      })
+      return Promise.resolve(result({ content: '', stopped: true, stopReason: 'context-limit' }))
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+    expect(outcome.stopReason).toBe('context-limit')
+  })
+
+  it('does not treat an explicitly no-op success as durable progress', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'covered-read',
+        name: 'read_file_range',
+        kind: 'read',
+        title: 'Read src/index.ts lines 1-200',
+        status: 'success',
+        detail: 'Already read earlier this task',
+        madeProgress: false
+      })
+      return Promise.resolve(result({ content: '', stopped: true, stopReason: 'context-limit' }))
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+    expect(outcome.stopReason).toBe('context-limit')
+  })
+
+  it('starts one compact continuation after a loop guard when real work preceded it', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'write-1',
+          name: 'write_file',
+          kind: 'write',
+          title: 'Write src/real.ts',
+          status: 'success',
+          touchedPaths: ['src/real.ts']
+        })
+        io.onActivity?.({
+          id: 'repeat-1',
+          name: 'read_file_range',
+          kind: 'read',
+          title: 'Read the same range again',
+          status: 'error',
+          detail: 'Blocked: repeated identical call'
+        })
+        return Promise.resolve(
+          result({
+            content: 'Implemented the first part.',
+            stopped: true,
+            stopReason: 'loop-guard'
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Continued and verified the change.' }))
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    const handoff = mockedRunGeneration.mock.calls[1][0].contextEpoch
+    expect(handoff?.cause).toBe('loop-guard')
+    expect(handoff?.completedTools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'write_file', status: 'success' })])
+    )
+    expect(outcome.content).toContain('Continued and verified the change.')
+  })
+
+  it('keeps a loop guard terminal when the cycle only produced errors and prose', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'repeat-1',
+        name: 'read_file_range',
+        kind: 'read',
+        title: 'Read the same range again',
+        status: 'error',
+        detail: 'Blocked: repeated identical call'
+      })
+      return Promise.resolve(
+        result({ content: 'I am still investigating.', stopped: true, stopReason: 'loop-guard' })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
+    expect(outcome.stopReason).toBe('loop-guard')
+  })
+
   it('passes a protected structured handoff into the next context-recovery cycle', async () => {
+    const persistedHistory = [
+      { role: 'user' as const, content: 'Earlier question.' },
+      { role: 'assistant' as const, content: 'Earlier answer.' }
+    ]
     mockedRunGeneration.mockReset()
     mockedRunGeneration
       .mockImplementationOnce((_request, io: RunGenerationIo) => {
@@ -667,9 +800,12 @@ describe('runBoundedChatGeneration', () => {
       })
       .mockResolvedValueOnce(result({ content: 'Recovered and verified.' }))
 
-    await runBoundedChatGeneration(baseRequest(), baseIo())
+    await runBoundedChatGeneration(baseRequest({ history: persistedHistory }), baseIo())
 
     const resumed = mockedRunGeneration.mock.calls[1][0]
+    // The handoff is the compact replacement for this reply's tool transcript.
+    // Replaying both would refill the new epoch with the evidence it just shed.
+    expect(resumed.history).toEqual(persistedHistory)
     expect(resumed.contextEpoch).toMatchObject({
       version: 1,
       epoch: 1,
@@ -685,7 +821,49 @@ describe('runBoundedChatGeneration', () => {
     })
   })
 
-  it('allows three bounded context-recovery handoffs, then stops on the next boundary', async () => {
+  it('keeps durable work while aggressively shedding late error churn from the handoff', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        for (let index = 1; index <= 4; index++) {
+          io.onActivity?.({
+            id: `write-${index}`,
+            name: 'write_file',
+            kind: 'write',
+            title: `Write src/part-${index}.ts`,
+            status: 'success',
+            touchedPaths: [`src/part-${index}.ts`]
+          })
+        }
+        for (let index = 1; index <= 16; index++) {
+          io.onActivity?.({
+            id: `error-${index}`,
+            name: 'read_file_range',
+            kind: 'read',
+            title: `Rejected repeat ${index}`,
+            status: 'error',
+            detail: 'Already read earlier this task'
+          })
+        }
+        return Promise.resolve(
+          result({
+            content: 'The implementation is partially complete.',
+            stopped: true,
+            stopReason: 'context-limit'
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Finished.' }))
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    const completed = mockedRunGeneration.mock.calls[1][0].contextEpoch?.completedTools ?? []
+    expect(completed).toHaveLength(6)
+    expect(completed.filter((call) => call.name === 'write_file')).toHaveLength(4)
+    expect(completed.filter((call) => call.status === 'error')).toHaveLength(2)
+  })
+
+  it('continues beyond three context-recovery handoffs while progress remains bounded', async () => {
     mockedRunGeneration.mockReset()
     for (let cycle = 1; cycle <= 4; cycle++) {
       mockedRunGeneration.mockResolvedValueOnce(
@@ -696,13 +874,115 @@ describe('runBoundedChatGeneration', () => {
         })
       )
     }
+    mockedRunGeneration.mockResolvedValueOnce(result({ content: 'Finished after recovery.' }))
 
-    await runBoundedChatGeneration(baseRequest(), baseIo())
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(4)
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(5)
     expect(mockedRunGeneration.mock.calls[1][0].contextEpoch?.epoch).toBe(1)
     expect(mockedRunGeneration.mock.calls[2][0].contextEpoch?.epoch).toBe(2)
     expect(mockedRunGeneration.mock.calls[3][0].contextEpoch?.epoch).toBe(3)
+    expect(mockedRunGeneration.mock.calls[4][0].contextEpoch?.epoch).toBe(4)
+    expect(outcome.content).toContain('Finished after recovery.')
+  })
+
+  it('recovers when only a read-only tool was still running at the boundary', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'pending-read',
+          name: 'read_file_range',
+          kind: 'read',
+          title: 'Read src/real.ts lines 1-200',
+          status: 'running'
+        })
+        return Promise.resolve(
+          result({
+            content: 'The earlier reads found the likely cause.',
+            stopped: true,
+            stopReason: 'context-limit'
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Recovered safely.' }))
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    expect(mockedRunGeneration.mock.calls[1][0].contextEpoch?.epoch).toBe(1)
+  })
+
+  it('does not checkpoint while a potentially mutating tool is still running', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'pending-write',
+        name: 'edit_file',
+        kind: 'write',
+        title: 'Edit src/real.ts',
+        status: 'running'
+      })
+      return Promise.resolve(
+        result({ content: 'The edit started.', stopped: true, stopReason: 'context-limit' })
+      )
+    })
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats observational shell commands as reads in a compact handoff', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'write-1',
+          name: 'edit_file',
+          kind: 'write',
+          title: 'Edit src/real.ts',
+          status: 'success'
+        })
+        for (let index = 1; index <= 8; index++) {
+          io.onActivity?.({
+            id: `shell-read-${index}`,
+            name: 'run_command',
+            kind: 'command',
+            title: `Run: Get-Content src/real.ts -TotalCount ${index}`,
+            detail: 'exit 0',
+            status: 'success'
+          })
+        }
+        return Promise.resolve(
+          result({
+            content: 'Inspected the edited file.',
+            stopped: true,
+            stopReason: 'context-limit'
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Done.' }))
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    const handoff = mockedRunGeneration.mock.calls[1][0].contextEpoch
+    expect(handoff?.completedTools.filter((call) => call.name === 'run_command')).toHaveLength(2)
+    expect(handoff?.progress).toMatchObject({ madeChange: true, lastChangeAt: 1 })
+  })
+
+  it('drops a completed plan before starting a new request', async () => {
+    const completedPlan = {
+      title: 'Old task',
+      steps: [{ id: 'old-1', title: 'Already done', status: 'completed' as const }],
+      updatedAt: 1
+    }
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockResolvedValueOnce(result({ content: 'Started the new request.' }))
+
+    await runBoundedChatGeneration(baseRequest({ plan: completedPlan }), baseIo())
+
+    expect(mockedRunGeneration.mock.calls[0][0].plan).toBeNull()
   })
 
   it('carries command identity, write hashes and progress ordering into the handoff', async () => {

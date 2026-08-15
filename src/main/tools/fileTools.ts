@@ -196,7 +196,8 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
           if (ctx.readCoverage.isFullyCovered(file) && !ctx.readCoverage.claimRecoveryRead(file)) {
             return {
               modelResult: `${toWorkspaceRelative(ctx.workspaceRoot, file)} was already read in full earlier this task — nothing new here. Move on to a different file.`,
-              detail: 'Already read in full earlier this task'
+              detail: 'Already read in full earlier this task',
+              madeProgress: false
             }
           }
           const charBudget = clampModelResultCap(MAX_FILE_BYTES, ctx.modelResultBudget.current)
@@ -457,7 +458,8 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           if (attemptCount > MAX_SAME_FILE_READS) {
             return {
               modelResult: `[${normalized.path}: this is read attempt ${attemptCount} on this same file this task.]\nThe request needs coverage across many files, not exhaustive depth on one — move to a different file now. If you need to find something specific in this file later, use search_files or code_outline instead of paging through it further.`,
-              detail: `Redirected after ${attemptCount - 1} reads of this file`
+              detail: `Redirected after ${attemptCount - 1} reads of this file`,
+              madeProgress: false
             }
           }
           // Captured before this call records its own coverage below — used
@@ -502,7 +504,8 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
               modelResult:
                 `[${normalized.path}: no room left in the active context to return any of lines ${start}-${requestedEnd}.]\n` +
                 'Summarize or act on what you already have before reading more.',
-              detail: 'No context budget left'
+              detail: 'No context budget left',
+              madeProgress: false
             }
           }
           const actualEnd = start + includedLines.length - 1
@@ -637,6 +640,7 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
           const perFileShare = Math.max(0, Math.floor(totalCharBudget / Math.max(1, paths.length)))
           const results: string[] = []
           let totalBytes = 0
+          let madeProgress = false
           for (const relativePath of paths) {
             try {
               const file = resolveInWorkspace(ctx.workspaceRoot, relativePath)
@@ -674,6 +678,7 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
                 continue
               }
               const content = await readFile(file, 'utf-8')
+              madeProgress = true
               totalBytes += content.length
               const lines = content.split('\n')
               const { includedLines, partialLastLine } = boundLinesToCharBudget(lines, perFileShare)
@@ -701,7 +706,8 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
           }
           return {
             modelResult: results.join('\n\n'),
-            detail: `${paths.length} files, ${totalBytes} bytes`
+            detail: `${paths.length} files, ${totalBytes} bytes`,
+            madeProgress
           }
         }
       })
@@ -827,7 +833,7 @@ const COVERAGE_REFUSAL_ABORT_AT = 6
 function coverageRefusalResponse(
   ctx: ToolRuntimeContext,
   normalized: { path: string; startLine: number; endLine: number }
-): { modelResult: string; detail: string } {
+): { modelResult: string; detail: string; madeProgress: false } {
   const count = ctx.readCoverage.recordCoverageRefusal()
   const range = `lines ${normalized.startLine}-${normalized.endLine}`
   const header = `[${normalized.path}: ${range} were already read earlier this task — no new content here.]`
@@ -853,6 +859,7 @@ function coverageRefusalResponse(
 
   return {
     modelResult: `${header}${alternatives}`,
-    detail: 'Already read earlier this task'
+    detail: 'Already read earlier this task',
+    madeProgress: false
   }
 }

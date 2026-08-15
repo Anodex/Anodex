@@ -63,7 +63,8 @@ export const writePlanTool: ToolFactory = (define, ctx) =>
                 `That identical plan is already active; its progress was preserved:\n${renderPlan(current)}\n\n` +
                 'Do not call write_plan again. Continue with update_plan_step using these same 1-based numbers.',
               detail: 'Existing plan preserved',
-              plan: current
+              plan: current,
+              madeProgress: false
             })
           }
 
@@ -190,13 +191,14 @@ function rejectIllegalTransition(
   current: PlanStepStatus,
   next: 'in_progress' | 'completed',
   stepNumber: number
-): { modelResult: string; detail: string } | null {
+): { modelResult: string; detail: string; madeProgress: false } | null {
   if (current === next) {
     return {
       modelResult:
         `Step ${stepNumber} is already marked ${next}; nothing changed. Repeating a status ` +
         'update is not progress — carry out the step, then report the result.',
-      detail: 'No change'
+      detail: 'No change',
+      madeProgress: false
     }
   }
 
@@ -206,7 +208,8 @@ function rejectIllegalTransition(
         `Step ${stepNumber} is already completed and cannot be reopened. If that completion ` +
         'was wrong, say so directly in your reply rather than rewriting the plan — the user ' +
         'is reading these rows as a record of what is actually done.',
-      detail: 'Reopening a completed step is not allowed'
+      detail: 'Reopening a completed step is not allowed',
+      madeProgress: false
     }
   }
 

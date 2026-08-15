@@ -9,7 +9,6 @@ files:
   - '!electron-builder.yml'
   - '!node_modules/**/*'
 asar: true
-electronVersion: 40.10.6
 win:
   target: portable
   icon: ../build/icon.ico

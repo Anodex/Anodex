@@ -16,7 +16,8 @@ interface ScriptedRound {
 const mocks = vi.hoisted(() => ({
   rounds: [] as ScriptedRound[],
   requests: [] as Array<Record<string, unknown>>,
-  toolFunctions: {}
+  toolFunctions: {},
+  toolContext: null as { abortGeneration?: () => void } | null
 }))
 
 vi.mock('openai', () => {
@@ -65,7 +66,12 @@ vi.mock('openai', () => {
   return { default: OpenAI, APIUserAbortError }
 })
 
-vi.mock('../../tools/registry', () => ({ buildTools: () => mocks.toolFunctions }))
+vi.mock('../../tools/registry', () => ({
+  buildTools: (_define: unknown, ctx: { abortGeneration?: () => void }) => {
+    mocks.toolContext = ctx
+    return mocks.toolFunctions
+  }
+}))
 
 const { runChatCompletionsLoop } = await import('../OpenAiCompatibleProvider')
 const OpenAI = (await import('openai')).default
@@ -97,6 +103,7 @@ beforeEach(() => {
   mocks.rounds.length = 0
   mocks.requests.length = 0
   mocks.toolFunctions = {}
+  mocks.toolContext = null
 })
 
 describe('runChatCompletionsLoop — tool schemas on the wire', () => {
@@ -182,6 +189,22 @@ describe('runChatCompletionsLoop — a tool misbehaving never breaks the turn', 
 })
 
 describe('runChatCompletionsLoop — round budget', () => {
+  it('honors a tool guard abort before another provider round is billed', async () => {
+    const handler = vi.fn(() => {
+      mocks.toolContext?.abortGeneration?.()
+      return Promise.resolve('Stop this repeated tool loop.')
+    })
+    mocks.toolFunctions = { read_file: { description: 'Read.', params: {}, handler } }
+    mocks.rounds.push({ toolCall: { name: 'read_file', args: '{}' } })
+
+    const outcome = await run({ tools: withTools, maxProviderRounds: 5 })
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(mocks.requests).toHaveLength(1)
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('loop-guard')
+  })
+
   it('does not run tools it has no remaining round to consume', async () => {
     const handler = vi.fn(() => Promise.resolve('ok'))
     mocks.toolFunctions = { read_file: { description: 'Read.', params: {}, handler } }

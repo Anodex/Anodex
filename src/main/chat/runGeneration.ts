@@ -414,12 +414,12 @@ export async function runGeneration(
           // `modelReliabilityStore`.
           if (call.status === 'success') {
             toolNamesThisTurn.push(call.name)
-            successfulToolsThisTurn.push(call.name)
+            if (call.madeProgress !== false) successfulToolsThisTurn.push(call.name)
             // Only a write-kind call's touchedPaths represents an actual change
             // (write/delete/move) — a read-kind call (read_file, preview_html,
             // etc.) also populates touchedPaths so its target shows up in the
             // "recently inspected" ledger, but must not count as "changed".
-            if (call.kind === 'write') {
+            if (call.kind === 'write' && call.madeProgress !== false) {
               for (const path of call.touchedPaths ?? []) changedFilesThisTurn.add(path)
             }
             const verification = parseRunCommandVerification(call)
@@ -639,7 +639,8 @@ export async function runGeneration(
       contextEpoch: request.contextEpoch
         ? {
             epoch: request.contextEpoch.epoch,
-            priorFixedTokens: request.contextEpoch.priorFixedTokens
+            priorFixedTokens: request.contextEpoch.priorFixedTokens,
+            cause: request.contextEpoch.cause
           }
         : undefined,
       signal: execution.signal,
@@ -769,7 +770,9 @@ export async function runGeneration(
 function renderCurrentPlan(
   plan: NonNullable<ChatRequest['plan']> | null | undefined
 ): string | null {
-  if (!plan || plan.steps.length === 0) return null
+  if (!plan || plan.steps.length === 0 || plan.steps.every((step) => step.status === 'completed')) {
+    return null
+  }
   const lines = plan.steps.map((step, index) => `${index + 1}. [${step.status}] ${step.title}`)
   return [
     'Current visible work plan (the Workspace Dock shows this same plan):',

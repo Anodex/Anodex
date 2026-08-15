@@ -380,6 +380,8 @@ describe('buildCompactionSummaryPrompt', () => {
     )
     expect(prompt).toContain('Do not turn an unverified assistant response into a durable fact')
     expect(prompt).toContain('related user message declares an attached image')
+    expect(prompt).toContain('Do not preserve every historical user request as a fact')
+    expect(prompt).toContain('State one active objective and only its open tasks')
   })
 })
 
@@ -401,6 +403,8 @@ describe('buildCompactionUpdatePrompt', () => {
     expect(prompt).toContain(
       'Remove unsupported assistant claims inherited from the current summary'
     )
+    expect(prompt).toContain('Do not retain every historical user request as a fact')
+    expect(prompt).toContain('Remove superseded or completed requests')
   })
 })
 

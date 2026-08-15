@@ -99,6 +99,10 @@ These are complete capabilities, not action items:
 - Built-in slash commands, semantic workspace code search, structured project checks,
   and AI-assisted Git commit summaries.
 - Persistent `/goal` markers above the composer, with plan-backed progress and completion state.
+- Provider-neutral context recovery across local text, local vision, and cloud tool loops,
+  including hard provider-round aborts, no-op-aware progress, durable-work handoffs,
+  same-reply transcript shedding, and productive continuation beyond an arbitrary
+  three-epoch boundary.
 - In-app model discovery/downloads, hardware recommendations, reliability scoring,
   token activity, and the Workspace Dock.
 

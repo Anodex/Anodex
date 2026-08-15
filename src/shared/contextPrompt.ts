@@ -31,7 +31,8 @@ export function buildContextEpochSystemPrompt(
       const paths = tool.touchedPaths?.length ? ` (${tool.touchedPaths.join(', ')})` : ''
       const outcome = tool.outcome ? ` [${tool.outcome}]` : ''
       const hash = tool.contentHash ? ` #${tool.contentHash}` : ''
-      return `- ${tool.status}: ${what}${paths}${outcome}${hash}`
+      const status = tool.madeProgress === false ? 'no-op' : tool.status
+      return `- ${status}: ${what}${paths}${outcome}${hash}`
     })
     .join('\n')
   const plan = handoff.plan

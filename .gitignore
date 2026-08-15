@@ -10,6 +10,10 @@ dist/
 /models/
 /resources/llama-server/*
 !/resources/llama-server/README.md
+/resources/windows-control/*
+!/resources/windows-control/README.md
+/native/windows-control/bin/
+/native/windows-control/obj/
 # Exception: the small embedding model bundled with Anodex itself (semantic
 # code search) ships as part of the app, not a user-downloaded chat model.
 !/resources/embedding-model/*.gguf

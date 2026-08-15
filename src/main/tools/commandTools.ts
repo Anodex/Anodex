@@ -72,7 +72,11 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
             ctx.commandShell
           )
           if (incompatible) {
-            return { modelResult: incompatible, detail: 'not run: incompatible command' }
+            return {
+              modelResult: incompatible,
+              detail: 'not run: incompatible command',
+              madeProgress: false
+            }
           }
 
           const timeoutMs = normalizeTimeout(args.timeoutMs)

@@ -37,6 +37,8 @@ interface ToolOutcome {
   preview?: ToolCallPreview
   /** Restorable file snapshots for this successful mutation. */
   checkpointChanges?: CheckpointFileChange[]
+  /** Explicitly false when a successful tool result is only a redirect/no-op. */
+  madeProgress?: boolean
 }
 
 function rememberResult(modelResult: string): string {
@@ -171,11 +173,9 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec), spec.args)
   if (loopGuard.blocked) {
     // Only claim generation is stopping when something can actually stop it —
-    // cloud providers (Anthropic/OpenAI) don't wire abortGeneration at all
-    // (their own MAX_TOOL_ROUNDS cap bounds the damage differently; see
-    // ToolRuntimeContext.abortGeneration's doc comment), so telling the model
-    // "generation is being stopped now" there would be false: nothing stops,
-    // and the round loop just keeps going, burning further paid API rounds.
+    // Every first-party transport wires this callback. Local text aborts its
+    // opaque native loop; explicit local-vision/cloud loops latch the request
+    // and refuse another provider round. Keep it optional for custom callers.
     const canActuallyAbort = Boolean(ctx.abortGeneration)
     const message = loopGuardMessage(
       spec.name,
@@ -195,19 +195,20 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
     return message
   }
   try {
-    const { modelResult, detail, plan, preview } = await spec.run()
+    const { modelResult, detail, plan, preview, madeProgress = true } = await spec.run()
     const truncated = truncateModelResult(
       modelResult,
       effectiveModelResultCap(ctx, spec.modelResultCap)
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
-    markProgress(ctx, spec)
+    if (madeProgress) markProgress(ctx, spec)
     ctx.emit({
       id,
       name: spec.name,
       kind: spec.kind,
       title: spec.title,
       status: 'success',
+      ...(madeProgress ? {} : { madeProgress: false }),
       detail,
       plan,
       preview,
@@ -370,13 +371,20 @@ export async function runGuardedTool(
       if (gatedByTurnStart) ctx.turnGate.approved = true
     }
 
-    const { modelResult, detail, diff, preview, checkpointChanges } = await spec.run()
+    const {
+      modelResult,
+      detail,
+      diff,
+      preview,
+      checkpointChanges,
+      madeProgress = true
+    } = await spec.run()
     const truncated = truncateModelResult(
       modelResult,
       effectiveModelResultCap(ctx, spec.modelResultCap)
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
-    markProgress(ctx, spec)
+    if (madeProgress) markProgress(ctx, spec)
     const changes = checkpointChanges ?? checkpointChangesFromDiff(diff)
     noteMutatedReadCoverage(ctx, spec.touch, changes)
     recordCheckpoint(ctx, changes)
@@ -386,6 +394,7 @@ export async function runGuardedTool(
       kind: spec.kind,
       title: spec.title,
       status: 'success',
+      ...(madeProgress ? {} : { madeProgress: false }),
       detail,
       diff,
       preview,

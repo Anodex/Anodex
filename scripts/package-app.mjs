@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 /**
@@ -21,6 +22,21 @@ import { resolve } from 'node:path'
 const ROOT = resolve(import.meta.dirname, '..')
 const electronBuilderCli = resolve(ROOT, 'node_modules', 'electron-builder', 'cli.js')
 const passthrough = process.argv.slice(2)
+const rootLock = JSON.parse(readFileSync(resolve(ROOT, 'package-lock.json'), 'utf8'))
+const installerPackage = JSON.parse(
+  readFileSync(resolve(ROOT, 'installer-shell', 'package.json'), 'utf8')
+)
+const electronVersion = rootLock.packages?.['node_modules/electron']?.version
+
+if (typeof electronVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(electronVersion)) {
+  throw new Error('package-lock.json does not contain an exact Electron version.')
+}
+if (installerPackage.devDependencies?.electron !== electronVersion) {
+  throw new Error(
+    `Electron version mismatch: root lockfile has ${electronVersion}, installer shell has ` +
+      `${installerPackage.devDependencies?.electron ?? 'none'}. Keep both release runtimes aligned.`
+  )
+}
 
 function run(command, args) {
   return new Promise((resolveRun, reject) => {
@@ -39,7 +55,14 @@ function run(command, args) {
 function electronBuilder(args) {
   // `--publish never` first so a caller-supplied `--publish always` wins:
   // electron-builder takes the last occurrence.
-  return run(process.execPath, [electronBuilderCli, ...args, '--publish', 'never', ...passthrough])
+  return run(process.execPath, [
+    electronBuilderCli,
+    ...args,
+    `--config.electronVersion=${electronVersion}`,
+    '--publish',
+    'never',
+    ...passthrough
+  ])
 }
 
 /**
@@ -61,6 +84,7 @@ async function packageWindows() {
     '--win',
     'portable',
     '--x64',
+    `--config.electronVersion=${electronVersion}`,
     '--publish',
     'never'
   ])

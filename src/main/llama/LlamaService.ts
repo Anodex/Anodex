@@ -254,12 +254,17 @@ export interface GenerateParams {
     progressSeed?: TurnProgressSeed
   }
   /**
-   * Set when this request is a rebuilt context epoch. The transport uses it for
-   * a first-round preflight: a rebuild that did not come in under
-   * `priorFixedTokens` is fixed-overhead dominance, not history pressure, and
-   * compacting again cannot help.
+   * Set when this request is a rebuilt context epoch. The stateful text engine
+   * uses it to force a fresh native session; the stateless vision transport
+   * also uses it for a first-round preflight, where a rebuild that did not
+   * come in under `priorFixedTokens` is fixed-overhead dominance rather than
+   * history pressure.
    */
-  contextEpoch?: { epoch: number; priorFixedTokens?: number }
+  contextEpoch?: {
+    epoch: number
+    priorFixedTokens?: number
+    cause?: 'proactive' | 'in-turn' | 'loop-guard'
+  }
 }
 
 export interface GenerateOutcome {
@@ -792,7 +797,9 @@ class LlamaService extends EventEmitter {
         hadAnyToolAttempt = true
         toolActivityCount++
         if (call.status !== 'running') nativeToolCheckpoint.pending = true
-        if (call.kind === 'write' && call.status === 'success') hadSuccessfulWrite = true
+        if (call.kind === 'write' && call.status === 'success' && call.madeProgress !== false) {
+          hadSuccessfulWrite = true
+        }
         if (call.status !== 'running') diagnostics.recordToolCallSettled()
         // Denied calls are excluded — that's a user decision, not a signal
         // about the model's own reliability.
@@ -830,7 +837,7 @@ class LlamaService extends EventEmitter {
       params.context,
       toolSchemaReserveTokens,
       'onLoad',
-      params.sessionMode === 'isolated',
+      params.sessionMode === 'isolated' || params.contextEpoch !== undefined,
       params.recallWindowFraction
     )
 
@@ -880,6 +887,7 @@ class LlamaService extends EventEmitter {
     }
     toolSchemaReserveTokens = contextBudget.toolSchemaTokens
     this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
+
     // Real, measured accounting for this turn is now known — every tool call
     // from here on (they all happen later, inside the prompt/generation loop
     // below) sees a budget sized to what's actually left, not a disk-safety
