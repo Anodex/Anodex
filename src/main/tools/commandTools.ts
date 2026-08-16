@@ -3,7 +3,11 @@ import type { ToolCall } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { runGuardedTool } from './helpers'
 import { classifyCommandRisk } from './permissions'
-import { checkCommandCompatibility, describeEmptySearchResult } from './commandGuidance'
+import {
+  checkCommandCompatibility,
+  checkLongRunningServer,
+  describeEmptySearchResult
+} from './commandGuidance'
 import { isObservationalCommand } from './commandEffect'
 
 const COMMAND_TIMEOUT_MS = 60_000
@@ -76,6 +80,17 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
             return {
               modelResult: incompatible,
               detail: 'not run: incompatible command',
+              madeProgress: false
+            }
+          }
+
+          // A server started here is killed with the call, so the command can
+          // only ever spend its whole timeout and produce nothing.
+          const server = checkLongRunningServer(args.command)
+          if (server) {
+            return {
+              modelResult: server,
+              detail: 'not run: would not exit',
               madeProgress: false
             }
           }

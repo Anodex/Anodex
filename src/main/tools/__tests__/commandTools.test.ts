@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ToolConfirmRequest } from '@shared/tools.types'
 import { parseRunCommandVerification, runCommandTool } from '../commandTools'
+import { checkLongRunningServer } from '../commandGuidance'
 import {
   effectiveToolKind,
   isObservationalCommand,
@@ -402,5 +403,50 @@ describe('shell reads count as gathering, shell writes do not', () => {
     expect(
       effectiveToolKind({ name: 'run_command', kind: 'command', title: 'Run: npm test' }, 'read')
     ).toBe('command')
+  })
+})
+
+/**
+ * Two calls that look like work and are not.
+ *
+ * Both cost a live run real time: `python -m http.server 8000` blocked until
+ * the command timeout and was then killed, and `Start-Process "http://…"`
+ * scored as a mutation and reset the ledger's gathering streak.
+ */
+describe('commands that cannot advance the task', () => {
+  it.each([
+    'python -m http.server 8000',
+    'python3 -m http.server',
+    'npx serve .',
+    'npm run dev',
+    'npm start',
+    'vite',
+    'php -S localhost:8000',
+    'hugo server'
+  ])('refuses %s before running it', (command) => {
+    const message = checkLongRunningServer(command)
+    expect(message).toContain('does not exit')
+    expect(message).toContain('preview_html')
+  })
+
+  it.each(['npm run build', 'npm test', 'ls -la', 'git status', 'cargo test'])(
+    'lets %s run',
+    (command) => {
+      expect(checkLongRunningServer(command)).toBeNull()
+    }
+  )
+
+  it('does not count opening a URL in a browser as work', () => {
+    // `Start-Process` is in the mutation list, correctly for a real launch —
+    // but a browser open changes nothing and gathers nothing, and scoring it as
+    // a mutation reset the gathering streak.
+    expect(isObservationalCommand('Start-Process "http://localhost:8000/index.html"')).toBe(true)
+    expect(isObservationalCommand('start http://localhost:8000/')).toBe(true)
+    expect(isObservationalCommand('xdg-open https://example.com')).toBe(true)
+  })
+
+  it('still counts a real Start-Process as work', () => {
+    expect(isObservationalCommand('Start-Process npm -ArgumentList "run","build"')).toBe(false)
+    expect(isObservationalCommand('Start-Process notepad.exe')).toBe(false)
   })
 })

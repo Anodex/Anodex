@@ -36,12 +36,32 @@ const NON_READ_POWERSHELL_VERB_RE =
   /\b(?:Export|Import|Invoke|Save|Start|Stop|Restart|Install|Uninstall|Update|Enable|Disable|Register|Unregister)-[A-Za-z]+\b/i
 
 export function isObservationalCommand(command: string): boolean {
+  // Checked before the mutation patterns, which claim `Start-Process` wholesale.
+  if (BROWSER_LAUNCH_RE.test(command)) return true
   if (MUTATION_RE.test(command) || SHELL_MUTATION_RE.test(command)) return false
   const effective = unwrapPowerShellCommand(command)
   const ungrouped = effective.replace(/^\s*[(&{]+\s*/, '')
   if (DIRECT_READ_RE.test(ungrouped)) return true
   return POWERSHELL_READ_TOKEN_RE.test(effective) && !NON_READ_POWERSHELL_VERB_RE.test(effective)
 }
+
+/**
+ * Opening a URL in the user's browser.
+ *
+ * `MUTATION_RE` claims `Start-Process` unconditionally, which is right for
+ * `Start-Process npm -ArgumentList build` and wrong for
+ * `Start-Process "http://localhost:8000/index.html"`. The second changes
+ * nothing, gathers nothing, and produces no evidence — but scoring it as a
+ * mutation let it reset the ledger's gathering streak, the same shape of hole
+ * as the `sed`/`awk` gap: a call that advances the task by nothing being
+ * counted as work.
+ *
+ * Reported as observational because every consumer asks the same question of
+ * it — did this call move the task forward? — and for a browser launch the
+ * answer is no.
+ */
+const BROWSER_LAUNCH_RE =
+  /^(?:Start-Process|start|explorer|open|xdg-open|cmd(?:\.exe)?\s+\/c\s+start)\b[^|;&]*https?:\/\//i
 
 /** Stable identity for differently-spelled reads of the same evidence. */
 export function observationalCommandIdentity(command: string): string {

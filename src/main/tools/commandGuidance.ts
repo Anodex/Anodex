@@ -137,3 +137,36 @@ export function describeEmptySearchResult(
     'a simpler literal pattern before relying on it.'
   )
 }
+
+/**
+ * Commands that start a server and keep running until something kills them.
+ *
+ * A `run_command` child is bounded by `COMMAND_TIMEOUT_MS` and killed when the
+ * call ends, so starting a server through it is doubly useless: the tool blocks
+ * for the whole timeout producing nothing, and the server is gone before the
+ * next call could use it. A live run spent two calls on `python -m http.server
+ * 8000` and a third on `start /b` of the same thing.
+ *
+ * Matched on the command's own shape, which is Anodex's record of what was
+ * asked to run — never on anything the model wrote as prose.
+ */
+const LONG_RUNNING_SERVER_RE =
+  /(?:^|[\s;&|])(?:python3?\s+-m\s+http\.server|npx?\s+(?:serve|http-server|live-server)|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|preview)|vite(?:\s|$)|next\s+dev|ng\s+serve|rails\s+s(?:erver)?|flask\s+run|php\s+-S|jekyll\s+serve|hugo\s+server|http-server(?:\s|$))/i
+
+/**
+ * Explain why starting a server here cannot work, or `null` for anything else.
+ *
+ * Deliberately a refusal rather than a shorter timeout: there is no timeout at
+ * which this succeeds, because the process cannot outlive the call that started
+ * it. Naming the tools that *do* show a page is what makes the refusal useful
+ * instead of merely correct.
+ */
+export function checkLongRunningServer(command: string): string | null {
+  if (!LONG_RUNNING_SERVER_RE.test(command)) return null
+  return (
+    'That command starts a server and does not exit, so it would block until the command timeout ' +
+    'and then be killed — it cannot still be serving anything by the time you call the next tool. ' +
+    'Nothing was run. To look at a page, use preview_html to show it in the chat, or inspect_visual ' +
+    'to screenshot it; both open the file directly and need no server.'
+  )
+}
