@@ -37,8 +37,6 @@ export class ReadCoverageTracker {
   private observedMtimes = new Map<string, number>()
   private invalidatedReads = new Set<string>()
   private coverageRefusals = 0
-  private recoveryReadsRemaining = 0
-  private recoveredPaths = new Set<string>()
 
   /**
    * Record that `path` was successfully written, deleted, or moved this task
@@ -100,52 +98,6 @@ export class ReadCoverageTracker {
     this.fullFiles.delete(path)
     this.ranges.delete(path)
     this.readAttempts.delete(path)
-  }
-
-  /**
-   * Open a bounded recovery allowance for a new context epoch.
-   *
-   * A context epoch deliberately drops tool-result bodies out of the model's
-   * active context while this tracker — which spans the whole bounded reply —
-   * still records those ranges as read. Without an allowance the resumed model
-   * is told "already read earlier this task" for material it can no longer see,
-   * so the handoff's own instruction to reopen exact evidence is unfollowable
-   * and the epoch resumes blind. The allowance is deliberately small: ordinary
-   * repeated reads must stay deduplicated, or this reopens the read-churn the
-   * tracker exists to stop.
-   *
-   * Also clears the refusal ladder: the new epoch has not ignored anything yet,
-   * and carrying an escalation across the boundary would punish the first
-   * legitimate recovery read.
-   */
-  beginRecoveryEpoch(allowance: number): void {
-    this.recoveryReadsRemaining = Math.max(0, Math.floor(allowance))
-    this.recoveredPaths.clear()
-    this.coverageRefusals = 0
-  }
-
-  /**
-   * Consume one recovery read for `path`, returning whether it was granted.
-   *
-   * Each path may be recovered at most once per epoch even when allowance
-   * remains: re-reading restores this path's coverage, so a second claim would
-   * drop it again and the same file could be re-served indefinitely — exactly
-   * the loop `uncovered()` exists to prevent. Read tools call this only where
-   * they were about to short-circuit.
-   */
-  claimRecoveryRead(path: string): boolean {
-    if (this.recoveryReadsRemaining <= 0) return false
-    if (this.recoveredPaths.has(path)) return false
-    if (!this.hasAnyCoverage(path)) return false
-    this.recoveryReadsRemaining--
-    this.recoveredPaths.add(path)
-    this.dropCoverage(path)
-    return true
-  }
-
-  /** Recovery reads still available in the current epoch, for diagnostics. */
-  get recoveryReadsLeft(): number {
-    return this.recoveryReadsRemaining
   }
 
   /**

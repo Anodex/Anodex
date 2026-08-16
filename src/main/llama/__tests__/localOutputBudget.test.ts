@@ -110,11 +110,14 @@ describe('resolveLocalOutputBudget', () => {
     ).toBe(5_173)
   })
 
-  it("caps a reply to the next turn's replay allocation", () => {
+  it("caps a tool-less reply to the next turn's replay allocation", () => {
     // The 32K story-chat failure: the current prompt had 8,284 tokens of
     // immediate headroom, but only 40% of its 8,324-token history pool could
     // be replayed. Allowing a 7.5K reply made the newest turn too large to
     // carry forward, pinning context at 100%.
+    //
+    // `hasFunctions: false` is the scenario as described — a long prose answer,
+    // where this generation *is* the reply that has to be replayed.
     const result = resolveLocalOutputBudget({
       contextSize: 32_768,
       inputLimitTokens: 32_256,
@@ -122,11 +125,37 @@ describe('resolveLocalOutputBudget', () => {
       promptTokens: 40,
       recallWindowFraction: 0.4,
       requestedMaxTokens: undefined,
-      hasFunctions: true
+      hasFunctions: false
     })
 
     expect(result.effectiveMaxTokens).toBe(3_289)
     expect(result.clamped).toBe(true)
+  })
+
+  it('does not impose the replay ceiling on a tool-enabled round', () => {
+    // A round of an agentic loop is not the reply. Applied there, the ceiling
+    // *always* binds — 40% of free space is below the measured safe ceiling for
+    // any window worth using — so every cycle's first round was silently held
+    // to 40% of a window it had just been given back.
+    //
+    // Measured live at 16K: `fixedTokens` 8,462 of a 15,872 limit left 7,410
+    // tokens free, and round 0 of a fresh cycle was capped at 2,940 — less than
+    // the round before it, which had 3,700 *more* fixed input. The turn ended on
+    // "reached its safe local output limit of 2,940 tokens" with two-thirds of
+    // the window empty.
+    const result = resolveLocalOutputBudget({
+      contextSize: 16_384,
+      inputLimitTokens: 15_872,
+      fixedTokens: 8_462,
+      promptTokens: 40,
+      recallWindowFraction: 0.4,
+      requestedMaxTokens: undefined,
+      hasFunctions: true
+    })
+
+    // The measured ceiling: 7,410 free, less the bounded function-safety
+    // reserve. Not 2,940.
+    expect(result.effectiveMaxTokens).toBe(6_642)
   })
 
   it('leaves legacy greedy replay uncapped by the replay policy', () => {

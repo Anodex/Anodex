@@ -312,6 +312,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'recall_evidence',
+    kind: 'read',
+    description:
+      "Read back a tool result from earlier in the same task, after its text was trimmed out of the conversation to save context. Reads Anodex's own store — no files, no network, no side effects."
+  },
+  {
     name: 'fetch_url',
     kind: 'web',
     description: 'Fetch a public URL and return bounded readable passages plus a source artifact.'
@@ -340,6 +346,13 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'write',
     description:
       'Replace exact unique text within a file. Approval depends on permission mode. Requires an open project.',
+    requiresProject: true
+  },
+  {
+    name: 'replace_lines',
+    kind: 'write',
+    description:
+      'Replace a numbered line range in a file, for edits where the exact original text is no longer in view. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
   },
   {

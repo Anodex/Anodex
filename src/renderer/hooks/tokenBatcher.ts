@@ -1,15 +1,10 @@
 import type { ToolCall } from '@shared/tools.types'
+import type { ChatStreamEvent } from '../features/chat/streamEvents'
 
-/** One message's accumulated, not-yet-flushed token text. */
-export interface PendingTokenEntry {
+/** One message's accumulated, not-yet-flushed events in arrival order. */
+export interface PendingStreamEntry {
   conversationId: string
-  text: string
-}
-
-/** One message's accumulated, not-yet-flushed tool-activity calls, in arrival order. */
-export interface PendingActivityEntry {
-  conversationId: string
-  calls: Map<string, ToolCall>
+  events: ChatStreamEvent[]
 }
 
 /**
@@ -29,16 +24,14 @@ export interface PendingActivityEntry {
  * fully unit-testable data structure.
  */
 export class TokenBatcher {
-  private tokens = new Map<string, PendingTokenEntry>()
-  private thinkingTokens = new Map<string, PendingTokenEntry>()
-  private activity = new Map<string, PendingActivityEntry>()
+  private pending = new Map<string, PendingStreamEntry>()
 
   addToken(conversationId: string, messageId: string, token: string): void {
-    appendTo(this.tokens, conversationId, messageId, token)
+    appendTextEvent(this.entry(conversationId, messageId).events, 'text', token)
   }
 
   addThinkingToken(conversationId: string, messageId: string, token: string): void {
-    appendTo(this.thinkingTokens, conversationId, messageId, token)
+    appendTextEvent(this.entry(conversationId, messageId).events, 'thinking', token)
   }
 
   /**
@@ -50,42 +43,48 @@ export class TokenBatcher {
    * itself relies on.
    */
   addToolActivity(conversationId: string, messageId: string, call: ToolCall): void {
-    let entry = this.activity.get(messageId)
-    if (!entry) {
-      entry = { conversationId, calls: new Map() }
-      this.activity.set(messageId, entry)
+    const events = this.entry(conversationId, messageId).events
+    for (const event of events) {
+      if (event.type !== 'activity') continue
+      const callIndex = event.calls.findIndex((candidate) => candidate.id === call.id)
+      if (callIndex >= 0) {
+        event.calls[callIndex] = call
+        return
+      }
     }
-    entry.calls.set(call.id, call)
+
+    const last = events[events.length - 1]
+    if (last?.type === 'activity') last.calls.push(call)
+    else events.push({ type: 'activity', calls: [call] })
   }
 
   hasPending(): boolean {
-    return this.tokens.size > 0 || this.thinkingTokens.size > 0 || this.activity.size > 0
+    return this.pending.size > 0
   }
 
   /** Drains everything accumulated so far and clears state — call once per flush. */
-  drain(): {
-    tokens: Array<[messageId: string, entry: PendingTokenEntry]>
-    thinkingTokens: Array<[messageId: string, entry: PendingTokenEntry]>
-    activity: Array<[messageId: string, conversationId: string, calls: ToolCall[]]>
-  } {
-    const tokens = [...this.tokens]
-    const thinkingTokens = [...this.thinkingTokens]
-    const activity: Array<[string, string, ToolCall[]]> = [...this.activity].map(
-      ([messageId, entry]) => [messageId, entry.conversationId, [...entry.calls.values()]]
-    )
-    this.tokens.clear()
-    this.thinkingTokens.clear()
-    this.activity.clear()
-    return { tokens, thinkingTokens, activity }
+  drain(): Array<[messageId: string, entry: PendingStreamEntry]> {
+    const pending = [...this.pending]
+    this.pending.clear()
+    return pending
+  }
+
+  private entry(conversationId: string, messageId: string): PendingStreamEntry {
+    let entry = this.pending.get(messageId)
+    if (!entry) {
+      entry = { conversationId, events: [] }
+      this.pending.set(messageId, entry)
+    }
+    return entry
   }
 }
 
-function appendTo(
-  map: Map<string, PendingTokenEntry>,
-  conversationId: string,
-  messageId: string,
+function appendTextEvent(
+  events: ChatStreamEvent[],
+  type: 'text' | 'thinking',
   token: string
 ): void {
-  const existing = map.get(messageId)
-  map.set(messageId, { conversationId, text: (existing?.text ?? '') + token })
+  const last = events[events.length - 1]
+  if (last?.type === type) last.text += token
+  else events.push({ type, text: token })
 }

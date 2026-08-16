@@ -183,7 +183,7 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
           // side effect, the user's own editor) must be served fresh, not
           // short-circuited against stale coverage. The stat this costs is
           // trivial next to serving wrong "already read" answers.
-          ctx.readCoverage.reconcileMtime(file, info.mtimeMs)
+          ctx.ledger.reads.reconcileMtime(file, info.mtimeMs)
           // Already read in full earlier this bounded task (a prior cycle or
           // turn) and unchanged since — see `ReadCoverageTracker`'s doc
           // comment. Skip the content read and the redundant context growth
@@ -191,12 +191,26 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
           // second time.
           // A context epoch may have dropped this file's content out of the
           // model's active context while the coverage above still records it as
-          // read; `claimRecoveryRead` spends one bounded allowance to serve it
-          // again in that case, and returns false for ordinary repeats.
-          if (ctx.readCoverage.isFullyCovered(file) && !ctx.readCoverage.claimRecoveryRead(file)) {
+          // read. That case is answered by the redirect below rather than by a
+          // bounded "you may re-read N files" allowance: the result is still in
+          // the ledger, and recalling it costs no disk read and cannot collide
+          // with another guard.
+          if (ctx.ledger.reads.isFullyCovered(file)) {
+            const relative = toWorkspaceRelative(ctx.workspaceRoot, file)
+            // Same reasoning as `coverageRefusalResponse` below: point at the
+            // stored copy rather than refusing outright, because the model is
+            // most likely asking again precisely because the earlier result was
+            // evicted from its context to make room.
+            const stored = ctx.ledger.evidence.idsMentioning(relative)
             return {
-              modelResult: `${toWorkspaceRelative(ctx.workspaceRoot, file)} was already read in full earlier this task — nothing new here. Move on to a different file.`,
-              detail: 'Already read in full earlier this task',
+              modelResult:
+                stored.length > 0
+                  ? `${relative} was already read in full earlier this task. The result is still stored: call recall_evidence("${stored[0]}") — optionally with a match argument — instead of reading it again.`
+                  : `${relative} was already read in full earlier this task — nothing new here. Move on to a different file.`,
+              detail:
+                stored.length > 0
+                  ? 'Redirected to stored evidence'
+                  : 'Already read in full earlier this task',
               madeProgress: false
             }
           }
@@ -231,7 +245,7 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
               detail: `${info.size} bytes (too large; see recommendation)`
             }
           }
-          ctx.readCoverage.recordFullFile(file)
+          ctx.ledger.reads.recordFullFile(file)
           return {
             modelResult: raw,
             detail: `${lineCount} lines`
@@ -429,7 +443,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // See read_file's identical comment — coverage is only trusted
           // after reconciling with the file's current mtime, so a file
           // changed out-of-band is served fresh instead of short-circuited.
-          ctx.readCoverage.reconcileMtime(file, info.mtimeMs)
+          ctx.ledger.reads.reconcileMtime(file, info.mtimeMs)
           // Already read in full, or this exact range already returned
           // earlier this bounded task (a prior continuation cycle or agent
           // turn, possibly since folded into a compaction summary that no
@@ -437,13 +451,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // `ReadCoverageTracker`'s doc comment. Trim the request down to
           // only what's genuinely new before reading content, rather than
           // re-serving (and re-growing context with) covered territory.
-          let gaps = ctx.readCoverage.uncovered(file, normalized.startLine, normalized.endLine)
-          // See read_file's identical comment: a context epoch drops evidence
-          // from active context without this tracker forgetting it, so one
-          // bounded recovery claim per file reopens exactly that case.
-          if (gaps.length === 0 && ctx.readCoverage.claimRecoveryRead(file)) {
-            gaps = ctx.readCoverage.uncovered(file, normalized.startLine, normalized.endLine)
-          }
+          const gaps = ctx.ledger.reads.uncovered(file, normalized.startLine, normalized.endLine)
           if (gaps.length === 0) {
             return coverageRefusalResponse(ctx, normalized)
           }
@@ -454,7 +462,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // own. Counted only for a real, new-content attempt (not the
           // already-covered case above), so exact duplicates don't count
           // twice toward this cap.
-          const attemptCount = ctx.readCoverage.recordReadAttempt(file)
+          const attemptCount = ctx.ledger.reads.recordReadAttempt(file)
           if (attemptCount > MAX_SAME_FILE_READS) {
             return {
               modelResult: `[${normalized.path}: this is read attempt ${attemptCount} on this same file this task.]\nThe request needs coverage across many files, not exhaustive depth on one — move to a different file now. If you need to find something specific in this file later, use search_files or code_outline instead of paging through it further.`,
@@ -465,7 +473,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // Captured before this call records its own coverage below — used
           // only to decide whether to suggest `code_outline` on what turns
           // out to be the FIRST read of a large file, not on every call.
-          const isFirstReadOfThisFile = !ctx.readCoverage.hasAnyCoverage(file)
+          const isFirstReadOfThisFile = !ctx.ledger.reads.hasAnyCoverage(file)
           const target = gaps[0]
           // Serving any line range requires decoding the whole file to split
           // it — bounded here so a huge artifact degrades to an honest
@@ -483,8 +491,23 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           const raw = await readFile(file, 'utf-8')
           const lines = raw.split('\n')
           const start = target.start
-          if (start > lines.length)
-            throw new Error(`Start line ${start} is beyond the file's ${lines.length} lines.`)
+          if (start > lines.length) {
+            // `target` is the first *uncovered* segment, which can begin past
+            // the end of the file when everything up to EOF has already been
+            // served and the request asked for more (a model reading in fixed
+            // 200-line strides walks straight into this on the last page).
+            // Reporting it as a bad start line was misleading — the model then
+            // retried with 319, 315, 310, each producing the identical error
+            // against a range it had in fact already been given. The honest
+            // answer is that there is nothing left.
+            return {
+              modelResult:
+                `[${normalized.path}: the file has ${lines.length} lines and everything from line ` +
+                `${normalized.startLine} onward was already read this task — there is nothing further to read.]`,
+              detail: 'Already read to the end of the file',
+              madeProgress: false
+            }
+          }
           const requestedEnd = Math.min(lines.length, target.end)
           const requestedLines = lines.slice(start - 1, requestedEnd)
           const charBudget = Math.max(
@@ -518,7 +541,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // covered puts the rest of it permanently out of reach — every later
           // request for it short-circuits as "already read earlier this task".
           const coveredEnd = partialLastLine ? actualEnd - 1 : actualEnd
-          if (coveredEnd >= start) ctx.readCoverage.recordRange(file, start, coveredEnd)
+          if (coveredEnd >= start) ctx.ledger.reads.recordRange(file, start, coveredEnd)
           // Points at the next line NOT yet covered this task, not blindly at
           // `actualEnd + 1` — when a covered island sits just past this
           // call's end (an earlier cycle read it), the naive hint would send
@@ -527,7 +550,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // tracker exists for.
           const nextGap =
             actualEnd < lines.length
-              ? ctx.readCoverage.uncovered(file, actualEnd + 1, lines.length)[0]
+              ? ctx.ledger.reads.uncovered(file, actualEnd + 1, lines.length)[0]
               : undefined
           const continuation =
             actualEnd < lines.length
@@ -652,16 +675,17 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
               // See read_file's identical comment — reconcile before
               // trusting coverage, so a file changed out-of-band is served
               // fresh instead of short-circuited.
-              ctx.readCoverage.reconcileMtime(file, info.mtimeMs)
+              ctx.ledger.reads.reconcileMtime(file, info.mtimeMs)
               // Already read in full earlier this bounded task and unchanged
               // since — see `ReadCoverageTracker`'s doc comment. Skip the
               // content read and the redundant context growth entirely.
-              if (
-                ctx.readCoverage.isFullyCovered(file) &&
-                !ctx.readCoverage.claimRecoveryRead(file)
-              ) {
+              if (ctx.ledger.reads.isFullyCovered(file)) {
+                const stored = ctx.ledger.evidence.idsMentioning(relativePath)
                 results.push(
-                  `--- ${relativePath} ---\nAlready read in full earlier this task — nothing new here.`
+                  `--- ${relativePath} ---\n` +
+                    (stored.length > 0
+                      ? `Already read in full earlier this task; the result is stored as ${stored[0]} — call recall_evidence("${stored[0]}") for it.`
+                      : 'Already read in full earlier this task — nothing new here.')
                 )
                 continue
               }
@@ -695,9 +719,9 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
                 const completeLines = partialLastLine
                   ? includedLines.length - 1
                   : includedLines.length
-                if (completeLines > 0) ctx.readCoverage.recordRange(file, 1, completeLines)
+                if (completeLines > 0) ctx.ledger.reads.recordRange(file, 1, completeLines)
               } else {
-                ctx.readCoverage.recordFullFile(file)
+                ctx.ledger.reads.recordFullFile(file)
               }
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error)
@@ -834,10 +858,32 @@ function coverageRefusalResponse(
   ctx: ToolRuntimeContext,
   normalized: { path: string; startLine: number; endLine: number }
 ): { modelResult: string; detail: string; madeProgress: false } {
-  const count = ctx.readCoverage.recordCoverageRefusal()
   const range = `lines ${normalized.startLine}-${normalized.endLine}`
   const header = `[${normalized.path}: ${range} were already read earlier this task — no new content here.]`
 
+  // The model is usually not being stubborn here: the content it was served
+  // has since been evicted from its context to make room, so from where it
+  // sits the file genuinely has not been read. Answering with the stored
+  // handle turns a dead end into the one action that works — and, unlike a
+  // re-read, costs no disk access and cannot be blocked by another guard. See
+  // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1 for the loop this closes.
+  const stored = ctx.ledger.evidence.idsMentioning(normalized.path)
+  if (stored.length > 0) {
+    return {
+      modelResult:
+        `${header}\nThe result is still stored: call recall_evidence("${stored[0]}")` +
+        (stored.length > 1 ? ` (others for this file: ${stored.slice(1).join(', ')})` : '') +
+        ', optionally with a match argument to jump straight to the part you need. ' +
+        'Do not read this range again — recall it.',
+      detail: 'Redirected to stored evidence',
+      madeProgress: false
+    }
+  }
+
+  // No stored copy — the result predates the store, or was too small to keep.
+  // Only here is escalation the right answer, because only here is repeating
+  // the read genuinely incapable of producing anything.
+  const count = ctx.ledger.reads.recordCoverageRefusal()
   if (count >= COVERAGE_REFUSAL_ERROR_AT) {
     if (count >= COVERAGE_REFUSAL_ABORT_AT) ctx.abortGeneration?.()
     throw new Error(

@@ -26,7 +26,6 @@ function handoff(overrides: Partial<ContextEpochHandoff> = {}): ContextEpochHand
       lastChangeAt: 12,
       lastVisualInspectionAt: null
     },
-    recoveryReadAllowance: 3,
     verificationNote: 'Inspect after changing the rendered view.',
     ...overrides
   }
@@ -42,6 +41,17 @@ describe('buildContextEpochSystemPrompt', () => {
     expect(prompt).toContain('write_file')
     expect(prompt).toContain('src/dashboard.tsx')
     expect(prompt).toContain('Inspect after changing the rendered view.')
+  })
+
+  it('carries prior findings as explicitly non-authoritative working notes', () => {
+    const prompt = buildContextEpochSystemPrompt(
+      undefined,
+      handoff({ workingSummary: 'The 3D canvas is present but the planets section is blank.' })
+    )
+
+    expect(prompt).toContain('Prior working notes')
+    expect(prompt).toContain('model-authored')
+    expect(prompt).toContain('planets section is blank')
   })
 
   it('names what a completed command actually was', () => {
@@ -75,11 +85,20 @@ describe('buildContextEpochSystemPrompt', () => {
     expect(prompt).toContain('exit 0')
   })
 
-  it('states the recovery-read allowance only when one exists', () => {
-    expect(buildContextEpochSystemPrompt(undefined, handoff())).toContain('reopen up to 3 file(s)')
+  it('lists the evidence a resumed epoch can read back, when there is any', () => {
+    // An epoch resets the model's history, so without this it has no way to know
+    // the results it already gathered still exist and re-reads the workspace to
+    // rebuild them. This replaced a "you may reopen up to N files" allowance,
+    // which was only ever needed because an epoch used to destroy the results.
+    const withEvidence = buildContextEpochSystemPrompt(
+      undefined,
+      handoff({ evidenceIndex: 'E1\tread_file\tRead src/app.ts\t8412 chars' })
+    )
+    expect(withEvidence).toContain('recall_evidence')
+    expect(withEvidence).toContain('E1')
     expect(
-      buildContextEpochSystemPrompt(undefined, handoff({ recoveryReadAllowance: 0 }))
-    ).not.toContain('reopen up to')
+      buildContextEpochSystemPrompt(undefined, handoff({ evidenceIndex: undefined }))
+    ).not.toContain('recall_evidence')
   })
 
   it('carries a written content hash so a redundant rewrite is recognizable', () => {
@@ -111,6 +130,7 @@ describe('buildContextEpochSystemPrompt', () => {
 function crowded(): ContextEpochHandoff {
   return handoff({
     objective: 'x'.repeat(4_000),
+    workingSummary: 'finding '.repeat(800),
     plan: {
       title: 'y'.repeat(400),
       updatedAt: 0,
@@ -143,6 +163,7 @@ describe('capContextEpochHandoff', () => {
     const capped = capContextEpochHandoff(crowded(), 4_096)
     const values = [
       capped.objective,
+      capped.workingSummary ?? '',
       capped.plan?.title ?? '',
       ...(capped.plan?.steps ?? []).map((step) => step.title),
       ...capped.completedTools.flatMap((tool) => [

@@ -11,12 +11,14 @@ import type { FileTouchAction } from '@shared/projectMemory.types'
 import type { Plan } from '@shared/plan.types'
 import type { ToolRuntimeContext } from './types'
 import { needsTurnGate, resolvePermission } from './permissions'
-import { checkLoopGuard, loopGuardKey, loopGuardMessage } from './loopGuard'
+import { loopGuardKey } from './loopGuard'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
 import { clampModelResultCap } from './modelResultBudget'
 import { recordCompletedCall } from './turnProgress'
+import { effectiveToolKind } from './commandEffect'
+import { withEvidenceMarker } from './evidenceStore'
 
 /** Truncated tool output retained for cross-session memory. */
 const MAX_REMEMBERED_RESULT = 2000
@@ -55,6 +57,58 @@ function truncateModelResult(modelResult: string, cap: number): string {
     ? `${modelResult.slice(0, cap)}\n… (truncated, ${modelResult.length} bytes total)`
     : modelResult
 }
+
+/**
+ * Store the complete result and hand back the context-facing copy with its
+ * durable handle attached.
+ *
+ * The order matters: the store gets the result *before* `truncateModelResult`
+ * touches it, so what the transports can later recall is the whole thing rather
+ * than whatever happened to fit this round. Every successful call goes through
+ * here, reads and mutations alike — a build log from `run_command` is exactly
+ * as likely to be evicted mid-task as a file read, and exactly as expensive to
+ * regenerate.
+ *
+ * See `TurnEvidenceStore` for why deleting a result outright (the previous
+ * behaviour) deadlocked long tasks.
+ */
+function retainAsEvidence(
+  ctx: ToolRuntimeContext,
+  spec: { name: string; title: string },
+  modelResult: string,
+  cap: number,
+  madeProgress: boolean
+): string {
+  // A call that made no progress produced no evidence: its result is a refusal,
+  // a redirect, or a no-op notice. Storing those would put control messages in
+  // the catalogue under the same file path as the real read — and the guard
+  // that redirects a repeat read to stored evidence would then find a refusal
+  // and redirect the model to it, which is a fresh version of exactly the
+  // circular advice this whole mechanism exists to remove.
+  if (!madeProgress) return truncateModelResult(modelResult, cap)
+  const record = ctx.ledger.evidence.record({
+    tool: spec.name,
+    label: spec.title,
+    body: modelResult
+  })
+  if (!record) return truncateModelResult(modelResult, cap)
+  // The handle is part of the result the model receives, so it is paid for out
+  // of the same budget rather than added on top of it. A cap is a promise about
+  // how much of the context one call may take, and quietly exceeding it is how
+  // the accounting the transports plan against stops being true.
+  const descriptor = ctx.ledger.evidence.descriptor(record.id)
+  const room = cap - descriptor.length - 1
+  if (room < MIN_CONTENT_CHARS_BESIDE_MARKER) return truncateModelResult(modelResult, cap)
+  return withEvidenceMarker(truncateModelResult(modelResult, room), descriptor)
+}
+
+/**
+ * Below this much room for actual content, the handle is not worth its own
+ * cost: a result reduced to almost nothing but a pointer tells the model less
+ * than the same characters of real output would, and it can still find the
+ * result through `recall_evidence`'s catalogue.
+ */
+const MIN_CONTENT_CHARS_BESIDE_MARKER = 200
 
 /**
  * The cap actually applied to one tool result: the tool's own requested cap
@@ -170,35 +224,20 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
     return limitMessage
   }
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec), spec.args)
-  if (loopGuard.blocked) {
-    // Only claim generation is stopping when something can actually stop it —
-    // Every first-party transport wires this callback. Local text aborts its
-    // opaque native loop; explicit local-vision/cloud loops latch the request
-    // and refuse another provider round. Keep it optional for custom callers.
-    const canActuallyAbort = Boolean(ctx.abortGeneration)
-    const message = loopGuardMessage(
-      spec.name,
-      loopGuard.count,
-      loopGuard.shouldAbort && canActuallyAbort
-    )
-    ctx.emit({
-      id,
-      name: spec.name,
-      kind: spec.kind,
-      title: spec.title,
-      status: 'error',
-      detail: 'Blocked: repeated identical call',
-      result: message
-    })
-    if (loopGuard.shouldAbort) ctx.abortGeneration?.()
-    return message
-  }
+  const repeat = reviewRepeat(ctx, spec, id)
+  if (repeat.blocked) return repeat.blocked
   try {
     const { modelResult, detail, plan, preview, madeProgress = true } = await spec.run()
-    const truncated = truncateModelResult(
-      modelResult,
-      effectiveModelResultCap(ctx, spec.modelResultCap)
+    ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress })
+    const truncated = withGatheringAdvice(
+      retainAsEvidence(
+        ctx,
+        spec,
+        modelResult,
+        effectiveModelResultCap(ctx, spec.modelResultCap),
+        madeProgress
+      ),
+      repeat.advice
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
     if (madeProgress) markProgress(ctx, spec)
@@ -229,6 +268,131 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
     })
     return `Error: ${message}`
   }
+}
+
+/**
+ * Ask the task ledger what to do about this call, and emit the outcome when it
+ * must not run.
+ *
+ * Two cases are worth understanding.
+ *
+ * A **redirect** answers a repeated read that this task can serve from storage.
+ * The model is usually not being stubborn — the result was evicted from its
+ * context to free room, so from where it sits the work genuinely has not been
+ * done. Before `TaskLedger` existed that read was refused as a loop while the
+ * transport was simultaneously telling the model to run it again; see
+ * `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1. It is emitted as a completed call that
+ * made no progress rather than an error: nothing went wrong, and the model is
+ * being handed what it asked for.
+ *
+ * **Advice** runs the call and appends a correction to its result. Refusing on
+ * the first sign of over-gathering would be wrong — that call may be the one
+ * that finally locates the problem — but saying nothing is how a turn reaches a
+ * hundred calls and no output.
+ */
+function reviewRepeat(
+  ctx: ToolRuntimeContext,
+  spec: {
+    name: string
+    kind: ToolKind
+    title: string
+    args?: unknown
+    touch?: FileTouch | FileTouch[]
+  },
+  id: string
+): RepeatReview {
+  const verdict = ctx.ledger.reviewCall({
+    name: spec.name,
+    // A shell command used to read a file is gathering, whatever kind the tool
+    // declares — see `effectiveToolKind`. Without this the ledger's gathering
+    // ladder has a shell-shaped hole in it, and a live run walked straight
+    // through it.
+    kind: effectiveToolKind(spec, 'read'),
+    key: loopGuardKey(spec),
+    args: spec.args,
+    // Only a read can be answered from storage — see `TaskLedger.reviewCall`.
+    recallable: spec.kind === 'read',
+    evidenceHint: evidenceHintFor(spec)
+  })
+  if (verdict.action === 'run') return {}
+  if (verdict.action === 'advise') return { advice: verdict.message }
+
+  if (verdict.action === 'redirect') {
+    ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress: false })
+    ctx.emit({
+      id,
+      name: spec.name,
+      kind: spec.kind,
+      title: spec.title,
+      status: 'success',
+      madeProgress: false,
+      detail: 'Redirected to stored evidence',
+      result: verdict.message
+    })
+    return { blocked: verdict.message }
+  }
+
+  // Only claim generation is stopping when something can actually stop it.
+  // Every first-party transport wires this callback: local text aborts its
+  // opaque native loop; explicit local-vision/cloud loops latch the request and
+  // refuse another provider round. Keep it optional for custom callers.
+  const aborting = verdict.action === 'abort' && Boolean(ctx.abortGeneration)
+  const message = aborting
+    ? verdict.message
+    : verdict.message.replace(
+        ' Generation is being stopped now because this kept repeating after being told to stop.',
+        ''
+      )
+  ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress: false })
+  ctx.emit({
+    id,
+    name: spec.name,
+    kind: spec.kind,
+    title: spec.title,
+    status: 'error',
+    detail: verdict.detail,
+    result: message
+  })
+  if (verdict.action === 'abort') ctx.abortGeneration?.()
+  return { blocked: message }
+}
+
+/**
+ * What `reviewRepeat` decided: run it (`{}`), run it with a correction appended
+ * to the result (`advice`), or don't run it at all (`blocked`).
+ */
+interface RepeatReview {
+  blocked?: string
+  advice?: string
+}
+
+/**
+ * Append the ledger's "stop gathering and act" correction to a result.
+ *
+ * Carried on the result rather than sent as its own turn: an extra generation
+ * to deliver one sentence costs a full round on a slow local model, at exactly
+ * the moment the turn is already running long.
+ */
+function withGatheringAdvice(result: string, advice: string | undefined): string {
+  return advice
+    ? `${result}
+
+[Anodex] ${advice}`
+    : result
+}
+
+/**
+ * The identifier a stored result would be filed under, so a repeat can be
+ * matched to it. Prefers the declared touch path — the tool's own structured
+ * statement of what it acted on — and falls back to the title, which is what
+ * the evidence store labels records with anyway.
+ */
+function evidenceHintFor(spec: {
+  title: string
+  touch?: FileTouch | FileTouch[]
+}): string | undefined {
+  const touch = Array.isArray(spec.touch) ? spec.touch[0] : spec.touch
+  return touch?.path ?? spec.title
 }
 
 /**
@@ -302,28 +466,8 @@ export async function runGuardedTool(
     return limitMessage
   }
   ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const loopGuard = checkLoopGuard(ctx.loopGuard, spec.name, loopGuardKey(spec), spec.args)
-  if (loopGuard.blocked) {
-    // See the identical comment in runReadTool above — only claim generation
-    // is stopping when abortGeneration actually exists to do it.
-    const canActuallyAbort = Boolean(ctx.abortGeneration)
-    const message = loopGuardMessage(
-      spec.name,
-      loopGuard.count,
-      loopGuard.shouldAbort && canActuallyAbort
-    )
-    ctx.emit({
-      id,
-      name: spec.name,
-      kind: spec.kind,
-      title: spec.title,
-      status: 'error',
-      detail: 'Blocked: repeated identical call',
-      result: message
-    })
-    if (loopGuard.shouldAbort) ctx.abortGeneration?.()
-    return message
-  }
+  const repeat = reviewRepeat(ctx, spec, id)
+  if (repeat.blocked) return repeat.blocked
 
   try {
     const permissionDecision = resolvePermission(ctx.permissionMode, spec.risk)
@@ -379,9 +523,16 @@ export async function runGuardedTool(
       checkpointChanges,
       madeProgress = true
     } = await spec.run()
-    const truncated = truncateModelResult(
-      modelResult,
-      effectiveModelResultCap(ctx, spec.modelResultCap)
+    ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress })
+    const truncated = withGatheringAdvice(
+      retainAsEvidence(
+        ctx,
+        spec,
+        modelResult,
+        effectiveModelResultCap(ctx, spec.modelResultCap),
+        madeProgress
+      ),
+      repeat.advice
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
     if (madeProgress) markProgress(ctx, spec)
@@ -441,7 +592,7 @@ function noteMutatedReadCoverage(
   ]
   for (const path of paths) {
     try {
-      ctx.readCoverage.noteMutation(resolveInWorkspace(ctx.workspaceRoot, path))
+      ctx.ledger.reads.noteMutation(resolveInWorkspace(ctx.workspaceRoot, path))
     } catch {
       /* Outside the workspace — the tracker never held coverage for it. */
     }

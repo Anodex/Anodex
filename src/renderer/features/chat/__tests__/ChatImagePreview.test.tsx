@@ -222,6 +222,21 @@ describe('ChatImagePreview', () => {
     expect(html).toContain('data:image/png;base64,cGl4ZWxz')
   })
 
+  it('does not repeat a message-wide duration on every interrupted work block', () => {
+    const html = renderToStaticMarkup(
+      <TurnRecap
+        segments={[{ type: 'thinking', text: 'A later reasoning segment.' }]}
+        streaming={false}
+        startedAt={1}
+        finalDurationMs={343_000}
+        showTotalDuration={false}
+      />
+    )
+
+    expect(html).toContain('Work details')
+    expect(html).not.toContain('Worked for')
+  })
+
   it('offers a comparison for repeated inspections of the same path', () => {
     const before = {
       id: 'tool-before',

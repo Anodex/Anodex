@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { activeMaxResponseTokens } from '@shared/maxResponseTokens'
 import { immer } from 'zustand/middleware/immer'
-import type { ChatAttachment, HistoryCompactionEvent } from '@shared/chat.types'
+import type { ChatAttachment, ChatMessage, HistoryCompactionEvent } from '@shared/chat.types'
 import type {
   CheckpointPreview,
   CheckpointSummary,
@@ -41,8 +41,45 @@ import { describeGenerationStop } from '../features/chat/generationStopMessages'
 import { withEmailThreadContext } from '../features/chat/emailThreadContext'
 import { conversationUserFiles } from '../features/chat/conversationUserFiles'
 import { suggestionFromPlan } from '../lib/replaySuggestions'
+import type { ChatStreamEvent } from '../features/chat/streamEvents'
 
 export type { Conversation }
+
+const INTERRUPTED_TOOL_DETAIL = 'Reply ended before this tool reported completion'
+
+/**
+ * A completed IPC reply cannot still have a genuinely active tool call. The
+ * activity stream and the final reply travel through different batching paths,
+ * so a terminal activity frame can occasionally arrive late or be lost during
+ * a bounded stop. Settle the provisional card locally instead of persisting a
+ * false spinner forever; a late real terminal frame is still accepted by the
+ * stream handlers and will replace this fallback status.
+ */
+export function settleRunningToolCalls(message: Pick<ChatMessage, 'toolCalls' | 'blocks'>): void {
+  message.toolCalls = message.toolCalls?.map((call) =>
+    call.status === 'running'
+      ? {
+          ...call,
+          status: 'error',
+          detail: INTERRUPTED_TOOL_DETAIL,
+          madeProgress: false
+        }
+      : call
+  )
+  message.blocks = message.blocks?.map((block) =>
+    block.type === 'tool' && block.call.status === 'running'
+      ? {
+          ...block,
+          call: {
+            ...block.call,
+            status: 'error',
+            detail: INTERRUPTED_TOOL_DETAIL,
+            madeProgress: false
+          }
+        }
+      : block
+  )
+}
 
 /** A message queued from the composer while a turn is still streaming. */
 export interface PendingMessage {
@@ -184,6 +221,12 @@ interface ChatState {
    * re-render per event.
    */
   applyToolActivityBatch: (conversationId: string, messageId: string, calls: ToolCall[]) => void
+  /** Apply one animation frame's mixed stream events without changing their arrival order. */
+  applyStreamEventBatch: (
+    conversationId: string,
+    messageId: string,
+    events: ChatStreamEvent[]
+  ) => void
   /** Persist a durable context snapshot after the main process compacts history. */
   applyHistoryCompaction: (event: HistoryCompactionEvent) => void
   /** Inspect file changes and conflicts for one assistant message checkpoint. */
@@ -321,6 +364,24 @@ function applyOneToolActivity(
   // Workspace Dock's Plan panel updates live, independent of which
   // message/tool card it came from.
   if (call.plan) convo.plan = call.plan
+}
+
+function appendVisibleToken(message: ChatMessage, token: string): void {
+  const visibleToken = quarantineStreamingToolPayload(message, token, pendingToolPayloadByMessage)
+  if (!visibleToken) return
+  message.content += visibleToken
+  if (!message.blocks) message.blocks = []
+  const last = message.blocks[message.blocks.length - 1]
+  if (last?.type === 'text') last.text += visibleToken
+  else message.blocks.push({ type: 'text', text: visibleToken })
+}
+
+function appendThinking(message: ChatMessage, token: string): void {
+  message.thinking = (message.thinking ?? '') + token
+  if (!message.blocks) message.blocks = []
+  const last = message.blocks[message.blocks.length - 1]
+  if (last?.type === 'thinking') last.text += token
+  else message.blocks.push({ type: 'thinking', text: token })
 }
 
 /**
@@ -762,6 +823,7 @@ export const useChatStore = create<ChatState>()(
         // authoritative server reply instead).
         const quarantinedTail = pendingToolPayloadByMessage.get(assistantId) ?? ''
         pendingToolPayloadByMessage.delete(assistantId)
+        settleRunningToolCalls(message)
         message.streaming = false
         // The placeholder was stamped with the user message's time so the two
         // sorted together while empty; restamp it now it exists, or a turn that
@@ -1128,23 +1190,13 @@ export const useChatStore = create<ChatState>()(
         // Implies `convo` too — the message was found by walking it.
         if (message?.streaming !== true) return
 
-        const visibleToken = quarantineStreamingToolPayload(
-          message,
-          token,
-          pendingToolPayloadByMessage
-        )
-        if (!visibleToken) return
-        message.content += visibleToken
+        appendVisibleToken(message, token)
         // Tokens and tool-activity events both arrive over IPC in the exact
         // order they happened during generation, so appending each to a
         // shared timeline (instead of the separate content/toolCalls
         // fields) reconstructs the true interleaving — extend the current
         // trailing text block, or start a new one if the last block was a
         // tool call.
-        if (!message.blocks) message.blocks = []
-        const last = message.blocks[message.blocks.length - 1]
-        if (last && last.type === 'text') last.text += visibleToken
-        else message.blocks.push({ type: 'text', text: visibleToken })
       })
       // convo.updatedAt is intentionally left untouched here — it's already
       // bumped once at turn start (see `sendMessage`), which is all the
@@ -1177,11 +1229,7 @@ export const useChatStore = create<ChatState>()(
         // the complete `thinking` text, so a buffered flush after it would
         // append a duplicate tail.
         if (message?.streaming !== true) return
-        message.thinking = (message.thinking ?? '') + token
-        if (!message.blocks) message.blocks = []
-        const last = message.blocks[message.blocks.length - 1]
-        if (last && last.type === 'thinking') last.text += token
-        else message.blocks.push({ type: 'thinking', text: token })
+        appendThinking(message, token)
       })
     },
 
@@ -1200,6 +1248,27 @@ export const useChatStore = create<ChatState>()(
       pendingToolPayloadByMessage.delete(messageId)
       set((state) => {
         for (const call of calls) applyOneToolActivity(state, conversationId, messageId, call)
+      })
+    },
+
+    applyStreamEventBatch: (conversationId, messageId, events) => {
+      set((state) => {
+        const convo = state.conversations.find((candidate) => candidate.id === conversationId)
+        const message = convo?.messages.find((candidate) => candidate.id === messageId)
+        if (!message) return
+
+        for (const event of events) {
+          if (event.type === 'activity') {
+            pendingToolPayloadByMessage.delete(messageId)
+            for (const call of event.calls) {
+              applyOneToolActivity(state, conversationId, messageId, call)
+            }
+          } else if (message.streaming === true && event.type === 'text') {
+            appendVisibleToken(message, event.text)
+          } else if (message.streaming === true) {
+            appendThinking(message, event.text)
+          }
+        }
       })
     },
 

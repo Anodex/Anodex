@@ -9,6 +9,7 @@ import {
   editFileTool,
   moveFileTool,
   patchFileTool,
+  replaceLinesTool,
   writeFileTool
 } from '../mutationTools'
 import { checkpointStore } from '../../checkpoints/CheckpointStore'
@@ -599,5 +600,384 @@ describe('move_file over an existing target', () => {
     const detail = confirmations.requests.map((request) => request.detail).join('\n')
     expect(detail).toContain('OVERWRITES')
     expect(detail).toContain('dest.txt')
+  })
+})
+
+describe('replace_lines', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-replace-lines-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  function lineTool(ctx: ReturnType<typeof createMockContext>): {
+    handler: (args: {
+      path: string
+      startLine: number
+      endLine: number
+      newText: string
+      expectedFirstLine?: string
+    }) => Promise<string>
+  } {
+    return replaceLinesTool(createMockDefine(), ctx)
+  }
+
+  it('replaces a numbered range without needing the original text', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 3,
+      newText: 'TWO\nTHREE',
+      expectedFirstLine: 'two'
+    })
+
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\nTWO\nTHREE\nfour\n')
+    // The new total is what lets the next call address the file without
+    // re-reading it, so it has to be reported.
+    expect(result).toContain('lines')
+  })
+
+  it('replaces several lines with fewer, and says the numbers below have shifted', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 3,
+      newText: 'merged',
+      expectedFirstLine: 'two'
+    })
+
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\nmerged\nfour\n')
+    expect(result).toContain('shifted')
+  })
+
+  it('deletes the range when newText is empty', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\nthree\n')
+    const ctx = createMockContext(workspace)
+
+    await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: '',
+      expectedFirstLine: 'two'
+    })
+
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\nthree\n')
+  })
+
+  it('refuses a stale anchor instead of overwriting the wrong code', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\nthree\n')
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: 'REPLACED',
+      expectedFirstLine: 'const planetData = ['
+    })
+
+    expect(result).toContain('Error:')
+    expect(result).toContain('stale')
+    // Unchanged: a wrong line number must never silently damage the file.
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\ntwo\nthree\n')
+  })
+
+  it('accepts an anchor that differs only in surrounding whitespace', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\n    indented\nthree\n')
+    const ctx = createMockContext(workspace)
+
+    await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: 'replaced',
+      expectedFirstLine: 'indented'
+    })
+
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\nreplaced\nthree\n')
+  })
+
+  it('preserves CRLF line endings rather than silently converting them', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\r\ntwo\r\nthree\r\n')
+    const ctx = createMockContext(workspace)
+
+    await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: 'TWO\nEXTRA',
+      expectedFirstLine: 'two'
+    })
+
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe(
+      'one\r\nTWO\r\nEXTRA\r\nthree\r\n'
+    )
+  })
+
+  it('reports a start line past the end of the file instead of appending', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\n')
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 40,
+      endLine: 41,
+      newText: 'x',
+      expectedFirstLine: 'nothing here'
+    })
+
+    expect(result).toContain('Error:')
+    expect(result).toContain('beyond the file')
+  })
+
+  it('clamps an end line past the file rather than failing a valid edit', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\nthree\n')
+    const ctx = createMockContext(workspace)
+
+    await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 900,
+      newText: 'tail',
+      expectedFirstLine: 'two'
+    })
+
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\ntail')
+  })
+
+  it('rejects an inverted range', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\n')
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 1,
+      newText: 'x',
+      expectedFirstLine: 'two'
+    })
+
+    expect(result).toContain('Error:')
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\ntwo\n')
+  })
+
+  it('records a diff so the change is reviewable and restorable', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\nthree\n')
+    const { calls, emit } = captureCalls()
+    const ctx = { ...createMockContext(workspace), emit }
+
+    await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: 'TWO',
+      expectedFirstLine: 'two'
+    })
+
+    const success = calls.find((call) => call.status === 'success')
+    expect(success?.diff?.before).toBe('one\ntwo\nthree\n')
+    expect(success?.diff?.after).toBe('one\nTWO\nthree\n')
+  })
+})
+
+/**
+ * The corruption a live run produced, reproduced exactly.
+ *
+ * Anodex was asked why a page rendered black. It made eighteen `replace_lines`
+ * edits, two of which re-stated a line that already sat just outside the range
+ * they replaced. The file ended with `const planets = [];` three times over —
+ * a `SyntaxError`, so the module never parsed and the page stayed black. The
+ * tool added to make editing possible had produced the very symptom it was
+ * asked to fix.
+ */
+describe('replace_lines refuses to duplicate its own neighbours', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-seam-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  function lineTool(ctx: ReturnType<typeof createMockContext>): {
+    handler: (args: {
+      path: string
+      startLine: number
+      endLine: number
+      newText: string
+      expectedFirstLine?: string
+    }) => Promise<string>
+  } {
+    return replaceLinesTool(createMockDefine(), ctx)
+  }
+
+  const SOURCE = [
+    '    // Create planets',
+    '    const planets = [];',
+    '    const orbits = [];',
+    '    let rotationSpeed = 1;'
+  ].join('\n')
+
+  it('refuses a replacement that repeats the line just after the range', async () => {
+    await writeFile(join(workspace, 'a.js'), SOURCE)
+    const ctx = createMockContext(workspace)
+
+    // Replacing the comment, but re-stating the declaration that follows it.
+    const result = await lineTool(ctx).handler({
+      path: 'a.js',
+      startLine: 1,
+      endLine: 1,
+      newText: '    // Create planets and orbits\n    const planets = [];',
+      expectedFirstLine: '// Create planets'
+    })
+
+    expect(result).toContain('Error:')
+    expect(result).toContain('already exists immediately after')
+    expect(await readFile(join(workspace, 'a.js'), 'utf-8')).toBe(SOURCE)
+  })
+
+  it('refuses a replacement that repeats the line just before the range', async () => {
+    await writeFile(join(workspace, 'a.js'), SOURCE)
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.js',
+      startLine: 3,
+      endLine: 3,
+      newText: '    const planets = [];\n    const orbits = [];',
+      expectedFirstLine: 'const orbits = [];'
+    })
+
+    expect(result).toContain('Error:')
+    expect(result).toContain('already exists immediately before')
+    expect(await readFile(join(workspace, 'a.js'), 'utf-8')).toBe(SOURCE)
+  })
+
+  it('allows ordinary repeated structure like a closing brace', async () => {
+    const braces = ['function a() {', '  return 1;', '}', '}'].join('\n')
+    await writeFile(join(workspace, 'b.js'), braces)
+    const ctx = createMockContext(workspace)
+
+    // `}` repeats constantly in real code; refusing it would make the tool
+    // unusable, so only substantial lines count.
+    const result = await lineTool(ctx).handler({
+      path: 'b.js',
+      startLine: 2,
+      endLine: 2,
+      newText: '  return 2;\n}',
+      expectedFirstLine: 'return 1;'
+    })
+
+    expect(result).not.toContain('Error:')
+  })
+
+  it('requires the anchor rather than treating it as optional', async () => {
+    await writeFile(join(workspace, 'a.js'), SOURCE)
+    const ctx = createMockContext(workspace)
+
+    // The live corruption came in exactly here: a `70-75` edit was correctly
+    // refused as stale, and the model immediately retried the same region
+    // without a usable anchor. An interlock a caller may decline is not one.
+    const result = await lineTool(ctx).handler({
+      path: 'a.js',
+      startLine: 2,
+      endLine: 2,
+      newText: '    const planets = [];'
+    })
+
+    expect(result).toContain('Error:')
+    expect(result).toContain('expectedFirstLine is required')
+    expect(await readFile(join(workspace, 'a.js'), 'utf-8')).toBe(SOURCE)
+  })
+})
+
+/**
+ * The data loss, reproduced.
+ *
+ * A live run replaced a 41,455-byte working module with a 1,839-byte first
+ * chunk, never appended the rest, ran out of provider rounds, and left an
+ * unparseable stub where the user's page had been. Two independent defects
+ * combined: `append_file` was not in the model's native tool surface (see
+ * `DIRECT_TOOL_PRIORITY`), and nothing refused the truncating write.
+ */
+describe('write_file will not truncate a substantial file', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-overwrite-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  function writeTool(ctx: ReturnType<typeof createMockContext>): {
+    handler: (args: { path: string; content: string }) => Promise<string>
+  } {
+    return writeFileTool(createMockDefine(), ctx)
+  }
+
+  it('refuses to replace a large file with a small first chunk', async () => {
+    const original = 'const x = 1;\n'.repeat(600)
+    await writeFile(join(workspace, 'big.js'), original)
+    const ctx = createMockContext(workspace)
+
+    const result = await writeTool(ctx).handler({
+      path: 'big.js',
+      content: '// Rewritten\nclass Thing {\n  constructor() {}\n}\n'
+    })
+
+    expect(result).toContain('Error:')
+    expect(result).toContain('discarding most of the file')
+    expect(result).toContain('replace_lines')
+    // The file is untouched, which is the entire point.
+    expect(await readFile(join(workspace, 'big.js'), 'utf-8')).toBe(original)
+  })
+
+  it('still creates a new file of any size', async () => {
+    const ctx = createMockContext(workspace)
+
+    const result = await writeTool(ctx).handler({ path: 'new.js', content: 'const a = 1;\n' })
+
+    expect(result).not.toContain('Error:')
+    expect(await readFile(join(workspace, 'new.js'), 'utf-8')).toBe('const a = 1;\n')
+  })
+
+  it('still rewrites a small file wholesale', async () => {
+    await writeFile(join(workspace, 'small.js'), 'const a = 1;\n')
+    const ctx = createMockContext(workspace)
+
+    const result = await writeTool(ctx).handler({ path: 'small.js', content: 'const b = 2;\n' })
+
+    expect(result).not.toContain('Error:')
+    expect(await readFile(join(workspace, 'small.js'), 'utf-8')).toBe('const b = 2;\n')
+  })
+
+  it('allows a rewrite that keeps most of the content', async () => {
+    // Both sides stay under `MAX_FILE_WRITE_CONTENT_CHARS`, so the only rule
+    // under test here is the shrink ratio.
+    const original = 'const x = 1;\n'.repeat(250)
+    await writeFile(join(workspace, 'big.js'), original)
+    const ctx = createMockContext(workspace)
+
+    const result = await writeTool(ctx).handler({
+      path: 'big.js',
+      content: 'const y = 2;\n'.repeat(240)
+    })
+
+    expect(result).not.toContain('Error:')
   })
 })

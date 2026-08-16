@@ -76,6 +76,8 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
           const beforeBuffer = beforeExists ? await readFile(file) : null
           const beforeState = beforeBuffer ? encodeCheckpointBuffer(beforeBuffer) : null
           const beforeText = beforeState?.encoding === 'utf8' ? beforeState.data : ''
+          const truncation = describeDestructiveOverwrite(beforeText, args.content, relativePath)
+          if (truncation) throw new Error(truncation)
           return {
             confirmDetail: `Write ${args.content.length} characters to ${args.path}:\n\n${preview(args.content)}`,
             confirmDiff:
@@ -109,6 +111,50 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
         }
       )
   })
+
+/**
+ * Refuse a `write_file` that would replace a substantial existing file with a
+ * far smaller payload.
+ *
+ * `write_file` overwrites, and its content is capped at
+ * `MAX_FILE_WRITE_CONTENT_CHARS` — so rewriting anything larger means a first
+ * chunk plus a run of `append_file` calls, and a turn that stops part-way
+ * through that sequence leaves the file truncated. Not hypothetical: a live run
+ * replaced a 41,455-byte working module with a 1,839-byte first chunk, never
+ * appended (the tool was not in its native surface), ran out of provider
+ * rounds, and left an unparseable stub where the user's page had been.
+ *
+ * The cap and the overwrite semantics were each individually defensible, and
+ * together they are a data-loss machine on any model that cannot reliably
+ * finish a ten-call sequence. Incremental in-place edits do not have that
+ * property — the file is valid after every one — so that is what this points
+ * at, leaving `delete_file` as the explicit path for genuinely starting over.
+ *
+ * Fires only for an existing file of real size being cut down substantially.
+ * Creating a file, rewriting a small one, and any rewrite that keeps or grows
+ * the content are all untouched.
+ */
+function describeDestructiveOverwrite(
+  before: string,
+  after: string,
+  relativePath: string
+): string | null {
+  if (before.length < MIN_PROTECTED_OVERWRITE_CHARS) return null
+  if (after.length >= before.length * MAX_OVERWRITE_SHRINK_RATIO) return null
+  return (
+    `write_file would replace ${relativePath} (${before.length} characters) with only ` +
+    `${after.length}, discarding most of the file. It was not applied. ` +
+    'To change part of a file use replace_lines or patch_file — they keep it valid at every step, ' +
+    'which a chunked rewrite does not if the turn ends part-way through. ' +
+    'If you genuinely mean to start this file from scratch, delete_file it first.'
+  )
+}
+
+/** Existing files below this size are cheap to rewrite wholesale and not worth guarding. */
+const MIN_PROTECTED_OVERWRITE_CHARS = 2_000
+
+/** A write keeping at least this share of an existing file is a rewrite, not a truncation. */
+const MAX_OVERWRITE_SHRINK_RATIO = 0.5
 
 /** append_file - append text to an existing UTF-8 text file. */
 export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
@@ -208,9 +254,25 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
             relativePath
           )
           const occurrences = original.split(args.oldText).length - 1
-          if (occurrences === 0) throw new Error('The text to replace was not found in the file.')
+          if (occurrences === 0) {
+            // Point at the tool that works from what the model still has.
+            // `edit_file` needs text copied exactly from a read, and on a small
+            // window that read has usually been trimmed out of context by the
+            // time the edit is attempted — the model then reconstructs `oldText`
+            // from memory and lands here. Observed live: eleven of these in one
+            // turn, each one a wasted round. `replace_lines` needs only the line
+            // numbers, which every read reports and which are cheap to hold.
+            throw new Error(
+              'The text to replace was not found in the file. Do not guess at it — if you no ' +
+                'longer have the exact text in view, use replace_lines with the line numbers ' +
+                'instead, or recall_evidence with a match argument to get the exact text back first.'
+            )
+          }
           if (occurrences > 1) {
-            throw new Error(`The text to replace appears ${occurrences} times; make it unique.`)
+            throw new Error(
+              `The text to replace appears ${occurrences} times; make it unique by including more ` +
+                'surrounding lines, or use replace_lines to target one specific line range.'
+            )
           }
           const updated = original.replace(args.oldText, args.newText)
           return {
@@ -234,6 +296,282 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
         }
       )
   })
+
+/**
+ * replace_lines - replace a line range, addressed by number rather than by
+ * quoted text.
+ *
+ * ## Why a second edit tool
+ *
+ * `edit_file` requires an `oldText` copied verbatim from a read. That is a fine
+ * contract when the read is still in the model's context and a hopeless one
+ * when it is not — and on a small window it very often is not, because the
+ * transports evict older tool results to make room. In the incident recorded in
+ * `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` a single assistant message made 157 tool
+ * calls and zero successful writes, while producing eleven "the text to replace
+ * was not found" errors: the model was reconstructing `oldText` from memory
+ * because the read it came from had been deleted out from under it.
+ *
+ * A line range is working memory a small model can actually hold. "planetData
+ * is at 412-418" is about fifteen tokens; the eight thousand characters
+ * `edit_file` would need are not available at any price on a 16K window. Every
+ * read tool already returns line numbers, so the anchor comes for free.
+ *
+ * ## The two interlocks, and why both are required
+ *
+ * Addressing code by number is only safe if the caller can be held to what it
+ * believed was there. Both checks below exist because a live run corrupted a
+ * file without either one firing.
+ *
+ * `expectedFirstLine` is **required**, not optional. It began optional — "the
+ * anchor is often taken from a read in the same round, where nothing can have
+ * moved" — and that reasoning is exactly backwards: a model omits the anchor
+ * precisely when it is least sure what the line says. In the incident, a
+ * `70-75` replacement was correctly refused as stale, and the model
+ * immediately retried as `70-71` without a usable anchor and duplicated a
+ * declaration. An interlock a caller may decline is not an interlock.
+ *
+ * `describeSeamDuplication` covers what an anchor structurally cannot: the
+ * *end* of the range. Both corruptions in that run came in that way — the
+ * replacement text re-stated a line that already existed just past the range,
+ * leaving `const planets = [];` three times over and the file with a
+ * `SyntaxError`, which is precisely the blank screen the user had asked to have
+ * fixed. Checking the seams is mechanical and language-agnostic: it asks only
+ * whether the edit repeated a substantial line that was already its neighbour.
+ *
+ * This is an addition, not a replacement: `edit_file` remains the better tool
+ * whenever the model does have the text, and larger models will keep using it.
+ */
+export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
+  define({
+    description: `Replace lines startLine..endLine (1-based, inclusive) of a file with newText. Use this instead of edit_file when you know where the code is but no longer have its exact text in view — every read tool reports line numbers. Pass an empty newText to delete the range. The payload is limited to ${MAX_FILE_WRITE_CONTENT_CHARS} characters.`,
+    params: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path relative to the workspace root.' },
+        startLine: { type: 'integer', description: 'First line to replace (1-based, inclusive).' },
+        endLine: {
+          type: 'integer',
+          description: 'Last line to replace (1-based, inclusive). Equal to startLine for one line.'
+        },
+        newText: {
+          type: 'string',
+          maxLength: MAX_FILE_WRITE_CONTENT_CHARS,
+          description: 'Replacement text for that range. May span several lines. Empty deletes it.'
+        },
+        expectedFirstLine: {
+          type: 'string',
+          description:
+            'Required. What line startLine currently says right now, copied from your most recent read of the file — compared ignoring surrounding whitespace. If it no longer matches, the edit is refused and the real line is reported, so a stale line number cannot overwrite the wrong code. If you do not know it, read the range (or recall_evidence it) before editing.'
+        }
+      },
+      required: ['path', 'startLine', 'endLine', 'newText', 'expectedFirstLine']
+    } as const,
+    handler: (args: {
+      path: string
+      startLine: number
+      endLine: number
+      newText: string
+      expectedFirstLine?: string
+    }) =>
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'replace_lines',
+          kind: 'write',
+          title: `Replace ${args.path} lines ${args.startLine}-${args.endLine}`,
+          args,
+          risk: 'safe',
+          touch: { path: args.path, action: 'write' }
+        },
+        async () => {
+          if (args.newText.length > MAX_FILE_WRITE_CONTENT_CHARS) {
+            throw new Error(
+              `replace_lines newText was ${args.newText.length} characters; the limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. Replace a smaller range, or make several calls working from the bottom of the file upward so earlier line numbers stay valid.`
+            )
+          }
+          const start = Math.floor(args.startLine)
+          const end = Math.floor(args.endLine)
+          if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1) {
+            throw new Error(
+              'startLine and endLine must be whole numbers, and startLine at least 1.'
+            )
+          }
+          if (end < start) {
+            throw new Error(`endLine (${end}) is before startLine (${start}).`)
+          }
+          const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
+          const relativePath = toWorkspaceRelative(ctx.workspaceRoot, file)
+          const { text: original, buffer: originalBuffer } = await readEditableText(
+            file,
+            relativePath
+          )
+          const lines = original.split('\n')
+          if (start > lines.length) {
+            throw new Error(
+              `startLine ${start} is beyond the file's ${lines.length} lines. Read the file again to get current line numbers.`
+            )
+          }
+          const clampedEnd = Math.min(end, lines.length)
+          const anchorMismatch = describeAnchorMismatch(
+            args.expectedFirstLine,
+            lines[start - 1],
+            start
+          )
+          if (anchorMismatch) throw new Error(anchorMismatch)
+
+          // Rejoining with '\n' preserves whatever the file already used,
+          // because splitting on '\n' leaves any '\r' attached to the end of
+          // each line. Only the incoming text has to be converted, and only
+          // when the file is CRLF — otherwise a single edit silently rewrites
+          // the line endings of the lines it touches and every later diff and
+          // `oldText` lookup is off by one invisible character per line.
+          const replacement = replacementLines(args.newText, original)
+          const seamDuplication = describeSeamDuplication(lines, replacement, start, clampedEnd)
+          if (seamDuplication) throw new Error(seamDuplication)
+          const updated = [
+            ...lines.slice(0, start - 1),
+            ...replacement,
+            ...lines.slice(clampedEnd)
+          ].join('\n')
+          const replacedCount = clampedEnd - start + 1
+          return {
+            confirmDetail:
+              `In ${relativePath}, replace ${replacedCount} line(s) ${start}-${clampedEnd}:\n\n` +
+              `${preview(lines.slice(start - 1, clampedEnd).join('\n'))}\n\n-> with:\n\n${preview(args.newText || '(nothing — deleting the range)')}`,
+            confirmDiff: diffOrUndefined(relativePath, original, updated),
+            data: { file, relativePath, original, originalBuffer, updated, replacedCount, start }
+          }
+        },
+        async ({ file, relativePath, original, originalBuffer, updated, replacedCount, start }) => {
+          await assertFileStateUnchanged(file, originalBuffer, 'edit')
+          await writeFile(file, updated, 'utf-8')
+          const newLineCount = updated.split('\n').length
+          return {
+            // Reporting the new total is what lets the next call address the
+            // file correctly without re-reading it: after an edit that changes
+            // the line count, every anchor below `start` has shifted, and the
+            // model has no other way to know by how much.
+            modelResult:
+              `Replaced ${replacedCount} line(s) starting at line ${start} in ${relativePath}. ` +
+              `The file now has ${newLineCount} lines; line numbers below line ${start} have shifted.`,
+            detail: `${replacedCount} line(s)`,
+            diff: diffOrUndefined(relativePath, original, updated),
+            checkpointChanges: [{ path: relativePath, before: original, after: updated }]
+          }
+        }
+      )
+  })
+
+/**
+ * Refuse a numbered edit whose anchor no longer describes the file.
+ *
+ * Compared with surrounding whitespace stripped: a model recalling a line from
+ * an indented read reproduces the text reliably and the indentation only
+ * sometimes, and failing on indentation alone would make the interlock so
+ * irritating that callers would stop supplying the anchor — which is the one
+ * outcome that actually costs safety.
+ */
+function describeAnchorMismatch(
+  expected: string | undefined,
+  actual: string | undefined,
+  line: number
+): string | null {
+  const wanted = expected?.trim() ?? ''
+  if (!wanted) {
+    return (
+      'expectedFirstLine is required: give the current text of line ' +
+      `${line} so a stale line number cannot overwrite the wrong code. ` +
+      'Read that range (or recall_evidence the read you already made) and retry with it.'
+    )
+  }
+  const found = (actual ?? '').trim()
+  if (found === wanted) return null
+  return (
+    `Line ${line} does not match expectedFirstLine, so the line numbers are stale and this edit was not applied. ` +
+    `Expected: ${JSON.stringify(wanted)}. Found: ${JSON.stringify(found)}. ` +
+    'Read the file (or recall_evidence the read you already made) to get current line numbers, then retry.'
+  )
+}
+
+/**
+ * Refuse a replacement that repeats a substantial line already sitting just
+ * outside the range it replaces.
+ *
+ * This is the failure `expectedFirstLine` structurally cannot see, because it
+ * happens at the *other* end. A model working from a slightly stale view
+ * re-states the trailing context it thinks it is preserving, and the line ends
+ * up twice. Live consequence: `const planets = [];` three times over, a
+ * `SyntaxError`, and a page that renders nothing — the exact symptom the user
+ * had asked to have fixed, now caused by the fix.
+ *
+ * Only *substantial* lines count. Real code is full of legitimately repeated
+ * `}`, `);`, `],` and blank lines, and refusing those would make the tool
+ * unusable. A line has to carry enough of its own identity to be worth
+ * refusing over.
+ */
+function describeSeamDuplication(
+  original: string[],
+  replacement: string[],
+  start: number,
+  end: number
+): string | null {
+  if (replacement.length === 0) return null
+  const before = original[start - 2]
+  const after = original[end]
+  const head = replacement[0]
+  const tail = replacement[replacement.length - 1]
+
+  for (const [side, neighbour, edge] of [
+    ['before', before, head],
+    ['after', after, tail]
+  ] as const) {
+    if (!isSubstantialLine(edge) || normalizeLine(neighbour) !== normalizeLine(edge)) continue
+    return (
+      `This replacement would repeat a line that already exists immediately ${side} lines ` +
+      `${start}-${end}: ${JSON.stringify(normalizeLine(edge))}. The edit was not applied. ` +
+      'Drop that line from newText, or widen the range to cover the copy that is already there — ' +
+      'do not restate surrounding context you are not replacing.'
+    )
+  }
+  return null
+}
+
+function normalizeLine(line: string | undefined): string {
+  return (line ?? '').replace(/\r$/, '').trim()
+}
+
+/**
+ * Whether a line carries enough identity that seeing it twice is a mistake
+ * rather than ordinary syntax.
+ */
+function isSubstantialLine(line: string | undefined): boolean {
+  const trimmed = normalizeLine(line)
+  if (trimmed.length < 8) return false
+  // At least two word-ish tokens: `});` and `] );` are structure, whereas
+  // `const planets = [];` names something.
+  return (trimmed.match(/[A-Za-z_$][\w$]*/g) ?? []).length >= 2
+}
+
+/**
+ * Split the incoming text into the array form the surrounding file uses.
+ *
+ * The whole file is handled as `split('\n')` and rejoined the same way, which
+ * preserves CRLF for untouched lines automatically — each keeps its own
+ * trailing `\r`. New lines therefore need that `\r` added to *every* element,
+ * including the last: it is followed by a join separator like any other. The
+ * obvious version (convert the string to CRLF, then split) leaves the final
+ * replacement line without one, producing a single stray LF in the middle of a
+ * CRLF file — invisible in review and enough to break a later exact-text edit.
+ */
+function replacementLines(newText: string, original: string): string[] {
+  if (newText === '') return []
+  const lines = newText.replace(/\r\n/g, '\n').split('\n')
+  const crlfCount = (original.match(/\r\n/g) ?? []).length
+  const lfCount = (original.match(/\n/g) ?? []).length
+  const usesCrlf = crlfCount > 0 && crlfCount >= lfCount / 2
+  return usesCrlf ? lines.map((line) => `${line}\r`) : lines
+}
 
 interface PatchReplacement {
   oldText: string

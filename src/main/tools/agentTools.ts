@@ -1,7 +1,6 @@
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
-import { claimsVisualSuccess } from './visualVerification'
-import { hasPostChangeVisualEvidence } from './turnProgress'
+import { hasStaleVisualEvidence } from './turnProgress'
 
 const MAX_SUMMARY_CHARS = 1000
 
@@ -54,17 +53,18 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
                 'progress, explain why in your reply instead of calling finish_goal.'
             )
           }
-          // A summary asserting that something now renders is a claim about
-          // pixels, and only a screenshot taken after the last change can
-          // support it. See `visualVerification.ts` for the incident: an
-          // inspection ran at the very start of the turn, the file was edited
-          // afterwards, and success was reported off the stale screenshot.
-          if (claimsVisualSuccess(summary) && !hasPostChangeVisualEvidence(ctx.progress)) {
+          // A run that inspected something visually and then changed it again
+          // has not seen the result of that change. Decided from the ledger's
+          // ordering, not from whether the summary *sounds* like a success
+          // claim: the old wording check let "the canvas should be fine now"
+          // through while stopping "the canvas renders", which is a distinction
+          // about phrasing rather than about evidence. A run that never
+          // inspected anything is not a visual task and is unaffected.
+          if (hasStaleVisualEvidence(ctx.progress)) {
             throw new Error(
-              'This summary claims something now renders or works, but no visual inspection ' +
-                'has run since the last change was made this turn — so nothing here shows the ' +
-                'result of that change. Call inspect_visual on the affected page (using its ' +
-                'sectionId for the specific section in question) and look at what comes back, ' +
+              'The last change this turn came after the most recent visual inspection, so nothing ' +
+                'gathered so far shows its result. Call inspect_visual on the affected page (using ' +
+                'its sectionId for the specific section in question) and look at what comes back, ' +
                 'then call finish_goal again. If you cannot verify it, say so plainly in the ' +
                 'summary instead of reporting it as working.'
             )

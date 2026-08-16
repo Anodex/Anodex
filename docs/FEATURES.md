@@ -69,6 +69,9 @@ Why it is good:
   possible, and rebuilds context when conversations change.
 - Reasoning or "thought" output from compatible local models is displayed separately
   from the final assistant response.
+- Mixed visible-text, reasoning, and tool events keep their provider arrival order.
+  If a provider switches channels in the middle of a sentence, Anodex keeps the
+  work inspectable while rejoining the visible fragments into readable prose.
 
 ## Optional Cloud Providers
 
@@ -101,8 +104,7 @@ Key capabilities:
 - View installed models and load, unload, or refresh them.
 - Detect local hardware and recommend safer settings.
 - Apply recommended context, GPU, and token settings.
-- Track per-model reliability based on tool success, tool errors, and fabrication
-  detection.
+- Track per-model reliability from structured tool success and error outcomes.
 - Show compatibility and performance-oriented model panels in settings.
 
 Why it is good:
@@ -136,7 +138,13 @@ Key capabilities:
   text, local vision, OpenAI, Anthropic, Azure, and OpenAI-compatible providers.
   Guarded loops stop before another model round, no-op/error tools do not count as
   progress, and a compact checkpoint preserves recent durable work while dropping
-  same-reply tool-result bulk before a safe automatic restart.
+  same-reply tool-result bulk before a safe automatic restart. Recovery checkpoints
+  retain the resolved user objective, bounded prior findings, and representative
+  visual/file evidence so a fresh provider epoch resumes from the diagnosis instead
+  of orienting from scratch. Consecutive post-recovery read-only passes stop as
+  no-progress even when the model varies its visible status narration, so filler
+  text cannot reopen context indefinitely. Prose itself never authorizes a mutation
+  or forces another model round.
 - Drag-and-drop attachments.
 - File picker attachments.
 - Internal file drag from the Files panel into chat.
@@ -276,7 +284,12 @@ Write and mutation tools:
 - Update plan steps.
 - Remember facts.
 
-Email tools:
+Tool availability and email tools:
+
+- Small-context models receive a deterministic core of native builder tools. Every
+  remaining enabled capability—including email, web, image, GitHub, MCP, and specialty
+  project tools—stays reachable through the compact on-demand tool gateway. Prompt
+  keywords never add or remove capabilities.
 
 - List linked email accounts.
 - List threads.
@@ -543,6 +556,8 @@ Key capabilities:
 - Mark read or unread, star, archive, and move between mailboxes.
 - Save email attachments into a project workspace.
 - Unlink an account, which also erases its stored credentials.
+- Keep email side effects behind the same explicit confirmation and account controls
+  regardless of which local or cloud model selected the tool.
 
 Where credentials live:
 

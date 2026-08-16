@@ -18,7 +18,7 @@ vi.mock('../../lib/anodex', () => ({
   }
 }))
 
-import { useChatStore } from '../chatStore'
+import { settleRunningToolCalls, useChatStore } from '../chatStore'
 
 function seedConversation(streaming: boolean): Conversation {
   return {
@@ -92,10 +92,81 @@ describe('chatStore token streaming guards', () => {
     expect(assistantMessage().toolCalls?.[0]?.status).toBe('success')
   })
 
+  it('settles a provisional running card when the reply has ended', () => {
+    const runningCall = {
+      id: 't1',
+      name: 'run_command',
+      kind: 'command' as const,
+      title: 'Run: Get-Content index.html',
+      status: 'running' as const
+    }
+    const message = {
+      toolCalls: [runningCall],
+      blocks: [{ type: 'tool' as const, call: runningCall }]
+    }
+
+    settleRunningToolCalls(message)
+
+    expect(message.toolCalls[0]).toMatchObject({
+      status: 'error',
+      madeProgress: false,
+      detail: 'Reply ended before this tool reported completion'
+    })
+    expect(message.blocks[0].call.status).toBe('error')
+  })
+
   it('ignores tokens for unknown conversations or messages without throwing', () => {
     useChatStore.getState().appendToken('nope', 'a1', 'x')
     useChatStore.getState().appendToken('c1', 'nope', 'x')
     expect(assistantMessage().content).toBe('partial reply')
+  })
+
+  it('applies a mixed frame in chronological order without merging across channels', () => {
+    useChatStore.getState().applyStreamEventBatch('c1', 'a1', [
+      { type: 'text', text: ' Let' },
+      { type: 'thinking', text: ' the plan' },
+      { type: 'text', text: ' me check' },
+      {
+        type: 'activity',
+        calls: [
+          { id: 't1', name: 'read_file', kind: 'read', title: 'Read foo.ts', status: 'success' }
+        ]
+      },
+      { type: 'text', text: ' the files.' }
+    ])
+
+    expect(assistantMessage().blocks).toEqual([
+      { type: 'text', text: 'partial reply Let' },
+      { type: 'thinking', text: ' the plan' },
+      { type: 'text', text: ' me check' },
+      {
+        type: 'tool',
+        call: {
+          id: 't1',
+          name: 'read_file',
+          kind: 'read',
+          title: 'Read foo.ts',
+          status: 'success'
+        }
+      },
+      { type: 'text', text: ' the files.' }
+    ])
+  })
+
+  it('drops late text but still keeps terminal tool status from a mixed frame', () => {
+    useChatStore.setState({ conversations: [seedConversation(false)] })
+    useChatStore.getState().applyStreamEventBatch('c1', 'a1', [
+      { type: 'text', text: ' duplicate tail' },
+      {
+        type: 'activity',
+        calls: [
+          { id: 't1', name: 'read_file', kind: 'read', title: 'Read foo.ts', status: 'success' }
+        ]
+      }
+    ])
+
+    expect(assistantMessage().content).toBe('partial reply')
+    expect(assistantMessage().toolCalls?.[0]?.status).toBe('success')
   })
 })
 

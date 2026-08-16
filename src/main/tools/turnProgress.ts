@@ -140,3 +140,21 @@ export function hasPostChangeVisualEvidence(progress: TurnProgress): boolean {
   if (progress.lastChangeAt === null) return true
   return progress.lastVisualInspectionAt > progress.lastChangeAt
 }
+
+/**
+ * Whether this turn holds a visual inspection that a later change invalidated.
+ *
+ * Distinct from `hasPostChangeVisualEvidence`, and the distinction is the whole
+ * point: that predicate is false when nothing was ever inspected, which is also
+ * true of every task that has nothing to do with pixels. This one is true only
+ * when the turn *did* look at rendered output and then changed something
+ * afterwards — the exact state in which a completion claim is unsupported, and
+ * the state a wording check on the summary was previously standing in for.
+ */
+export function hasStaleVisualEvidence(progress: TurnProgress): boolean {
+  return (
+    progress.lastVisualInspectionAt !== null &&
+    progress.lastChangeAt !== null &&
+    progress.lastChangeAt > progress.lastVisualInspectionAt
+  )
+}

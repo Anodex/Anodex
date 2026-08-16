@@ -533,27 +533,27 @@ describe('runGuardedTool — read-coverage invalidation on mutation', () => {
 
   it('invalidates full-file coverage when the same file is successfully written', async () => {
     const ctx = createMockContext(root)
-    ctx.readCoverage.recordFullFile(resolved('foo.ts'))
+    ctx.ledger.reads.recordFullFile(resolved('foo.ts'))
 
     await runGuardedTool(ctx, writeSpec('foo.ts'))
 
-    expect(ctx.readCoverage.isFullyCovered(resolved('foo.ts'))).toBe(false)
-    expect(ctx.readCoverage.hasInteracted(resolved('foo.ts'))).toBe(true)
+    expect(ctx.ledger.reads.isFullyCovered(resolved('foo.ts'))).toBe(false)
+    expect(ctx.ledger.reads.hasInteracted(resolved('foo.ts'))).toBe(true)
   })
 
   it('invalidates even without an active project — unlike project-memory touches', async () => {
     const ctx = { ...createMockContext(root), projectId: null }
-    ctx.readCoverage.recordRange(resolved('foo.ts'), 1, 200)
+    ctx.ledger.reads.recordRange(resolved('foo.ts'), 1, 200)
 
     await runGuardedTool(ctx, writeSpec('foo.ts'))
 
-    expect(ctx.readCoverage.uncovered(resolved('foo.ts'), 1, 200)).toEqual([{ start: 1, end: 200 }])
+    expect(ctx.ledger.reads.uncovered(resolved('foo.ts'), 1, 200)).toEqual([{ start: 1, end: 200 }])
   })
 
   it('invalidates every path in checkpointChanges too — a move covers its source that way', async () => {
     const ctx = createMockContext(root)
-    ctx.readCoverage.recordFullFile(resolved('old.ts'))
-    ctx.readCoverage.recordFullFile(resolved('new.ts'))
+    ctx.ledger.reads.recordFullFile(resolved('old.ts'))
+    ctx.ledger.reads.recordFullFile(resolved('new.ts'))
 
     await runGuardedTool(ctx, {
       name: 'move_file',
@@ -572,9 +572,9 @@ describe('runGuardedTool — read-coverage invalidation on mutation', () => {
         })
     })
 
-    expect(ctx.readCoverage.isFullyCovered(resolved('old.ts'))).toBe(false)
-    expect(ctx.readCoverage.isFullyCovered(resolved('new.ts'))).toBe(false)
-    expect(ctx.readCoverage.hasInteracted(resolved('old.ts'))).toBe(true)
+    expect(ctx.ledger.reads.isFullyCovered(resolved('old.ts'))).toBe(false)
+    expect(ctx.ledger.reads.isFullyCovered(resolved('new.ts'))).toBe(false)
+    expect(ctx.ledger.reads.hasInteracted(resolved('old.ts'))).toBe(true)
   })
 
   it('does not invalidate when the call is denied', async () => {
@@ -582,28 +582,28 @@ describe('runGuardedTool — read-coverage invalidation on mutation', () => {
       ...createMockContext(root),
       confirm: () => Promise.resolve({ approved: false })
     }
-    ctx.readCoverage.recordFullFile(resolved('foo.ts'))
+    ctx.ledger.reads.recordFullFile(resolved('foo.ts'))
 
     await runGuardedTool(ctx, writeSpec('foo.ts'))
 
-    expect(ctx.readCoverage.isFullyCovered(resolved('foo.ts'))).toBe(true)
+    expect(ctx.ledger.reads.isFullyCovered(resolved('foo.ts'))).toBe(true)
   })
 
   it('does not invalidate when run() throws', async () => {
     const ctx = createMockContext(root)
-    ctx.readCoverage.recordFullFile(resolved('foo.ts'))
+    ctx.ledger.reads.recordFullFile(resolved('foo.ts'))
 
     await runGuardedTool(ctx, {
       ...writeSpec('foo.ts'),
       run: () => Promise.reject(new Error('disk full'))
     })
 
-    expect(ctx.readCoverage.isFullyCovered(resolved('foo.ts'))).toBe(true)
+    expect(ctx.ledger.reads.isFullyCovered(resolved('foo.ts'))).toBe(true)
   })
 
   it('never invalidates for read-action touches', async () => {
     const ctx = createMockContext(root)
-    ctx.readCoverage.recordFullFile(resolved('foo.ts'))
+    ctx.ledger.reads.recordFullFile(resolved('foo.ts'))
 
     await runReadTool(ctx, {
       name: 'read_file',
@@ -613,7 +613,7 @@ describe('runGuardedTool — read-coverage invalidation on mutation', () => {
       run: () => Promise.resolve({ modelResult: 'ok' })
     })
 
-    expect(ctx.readCoverage.isFullyCovered(resolved('foo.ts'))).toBe(true)
+    expect(ctx.ledger.reads.isFullyCovered(resolved('foo.ts'))).toBe(true)
   })
 })
 

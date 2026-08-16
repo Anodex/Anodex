@@ -25,7 +25,7 @@ export const GATEWAY_TOOL_COUNT = GATEWAY_TOOL_NAMES.length
  * their own byte-identical copy of it with nothing keeping them in step.
  */
 export function maxDirectToolsForContext(contextSize: number): number {
-  return Math.max(8, Math.min(24, Math.floor(contextSize / 1_024) + 4))
+  return Math.max(6, Math.min(16, Math.floor(Math.max(0, contextSize) / 4_096) + 6))
 }
 
 const MAX_FIND_DESCRIPTION_CHARS = 320
@@ -55,7 +55,6 @@ interface Gateway {
 export function boundToolSurface(options: {
   allFunctions: Record<string, ToolFunction> | undefined
   define: DefineChatSessionFunction
-  routingText: string
   targetFixedTokens: number
   /** Maximum full native schemas; remaining tools stay available through the gateway. */
   maxDirectTools?: number
@@ -64,7 +63,6 @@ export function boundToolSurface(options: {
   const {
     allFunctions,
     define,
-    routingText,
     targetFixedTokens,
     maxDirectTools = Number.POSITIVE_INFINITY,
     measureFixedTokens
@@ -87,7 +85,7 @@ export function boundToolSurface(options: {
   const selected: Record<string, ToolFunction> = { ...gateway.functions }
   const directToolNames: string[] = []
 
-  for (const name of rankToolNames(allFunctions, routingText)) {
+  for (const name of rankToolNames(allFunctions)) {
     if (directToolNames.length >= maxDirectTools) break
     const candidate = { ...selected, [name]: allFunctions[name] }
     if (measureFixedTokens(candidate) > targetFixedTokens) continue
@@ -109,150 +107,85 @@ export function boundToolSurface(options: {
   }
 }
 
-/** Rank likely-needed native schemas first; every other tool stays available through the gateway. */
-export function rankToolNames(
-  functions: Record<string, ToolFunction>,
-  routingText: string
-): string[] {
-  const text = routingText.toLowerCase()
-  const scores = new Map<string, number>()
+/**
+ * A small deterministic builder core. User or model wording never changes the
+ * available native schemas; every non-core capability remains reachable via
+ * the deferred gateway. This makes context cost stable across providers and
+ * prevents keyword collisions from promoting an unrelated domain such as
+ * email into a coding turn.
+ */
+/**
+ * Ordered so that the first ten entries are a *complete* builder loop —
+ * orient, read, recall, locate, edit, run — rather than the ten most obvious
+ * tools. On a small window only about that many keep a native schema, and a
+ * surface that can read but not edit is what produced the 157-call, zero-write
+ * message in `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md`.
+ *
+ * Three placements are deliberate and worth not "tidying" later:
+ *
+ * - `recall_evidence` is near the top because it is the recovery path for
+ *   evidence the transport evicted. Behind the deferred gateway it would cost
+ *   three calls (find → describe → call) at exactly the moment the turn has no
+ *   room to spare, which is the same as not having it.
+ * - `replace_lines` outranks `edit_file` because it is the edit a model can
+ *   still make once its reads have been evicted; `edit_file` needs text it may
+ *   no longer hold. Both stay available.
+ * - `code_outline` outranks `read_file` because structure-per-token is what a
+ *   tight window needs first, and reading a whole file is what exhausts it.
+ */
+const DIRECT_TOOL_PRIORITY = [
+  'finish_goal',
+  'list_directory',
+  'read_file_range',
+  'recall_evidence',
+  'search_files',
+  'code_outline',
+  'replace_lines',
+  'edit_file',
+  'write_file',
+  // Immediately after `write_file`, always. `write_file` is capped at
+  // `MAX_FILE_WRITE_CONTENT_CHARS` and its own description tells the model to
+  // write a first chunk and append the rest — so offering it without
+  // `append_file` instructs the model to begin an operation it cannot finish.
+  // That happened: a 41,455-byte file was overwritten with a 1,839-byte first
+  // chunk, `append_file` was deferred behind the gateway, zero appends
+  // followed, and the file was left truncated and unparseable.
+  'append_file',
+  'run_command',
+  'read_file',
+  'find_files',
+  'patch_file',
+  'inspect_visual',
+  'preview_html',
+  'show_image',
+  'create_directory',
+  'run_project_check',
+  'git_diff',
+  'git_status',
+  'read_multiple_files',
+  'get_file_info',
+  'search_code',
+  'write_plan',
+  'update_plan_step',
+  'fetch_url',
+  'web_search',
+  'remember_fact',
+  'update_project_notes',
+  'git_commit_summary',
+  'generate_image'
+] as const
 
-  for (const [name, fn] of Object.entries(functions)) {
-    let score = name === 'finish_goal' ? 10_000 : 0
-    if (text.includes(name.toLowerCase())) score += 5_000
-    score += categoryScore(name, text)
-    score += lexicalScore(name, fn.description, text)
-    scores.set(name, score)
-  }
+const DIRECT_TOOL_RANK = new Map<string, number>(
+  DIRECT_TOOL_PRIORITY.map((name, index) => [name, index])
+)
 
+/** Order native schemas without interpreting the task's prose. */
+export function rankToolNames(functions: Record<string, ToolFunction>): string[] {
   return Object.keys(functions).sort((a, b) => {
-    const difference = (scores.get(b) ?? 0) - (scores.get(a) ?? 0)
-    return difference || a.localeCompare(b)
+    const aRank = DIRECT_TOOL_RANK.get(a) ?? Number.POSITIVE_INFINITY
+    const bRank = DIRECT_TOOL_RANK.get(b) ?? Number.POSITIVE_INFINITY
+    return aRank - bRank || a.localeCompare(b)
   })
-}
-
-function categoryScore(name: string, text: string): number {
-  const readOnlyTask = hasAny(text, [
-    'read-only',
-    'read only',
-    'do not edit',
-    'without editing',
-    'no file changes'
-  ])
-  const codeTask = hasAny(text, [
-    'code',
-    'file',
-    'project',
-    'repository',
-    'repo',
-    'typescript',
-    'javascript',
-    'bug',
-    'architecture',
-    'audit',
-    'implement',
-    'refactor'
-  ])
-  const changeTask =
-    !readOnlyTask &&
-    hasAny(text, [
-      'fix',
-      'change',
-      'edit',
-      'implement',
-      'create',
-      'write',
-      'delete',
-      'move',
-      'rename',
-      'refactor',
-      'finish'
-    ])
-  const checkTask =
-    !readOnlyTask &&
-    hasAny(text, ['test', 'typecheck', 'lint', 'build', 'verify', 'command', 'run'])
-  const webTask = hasAny(text, [
-    'web',
-    'search online',
-    'research',
-    'source',
-    'url',
-    'http',
-    'latest'
-  ])
-  const emailTask = hasAny(text, [
-    'email',
-    'gmail',
-    'outlook',
-    'mailbox',
-    'inbox',
-    'attachment',
-    'thread',
-    'send mail',
-    'reply'
-  ])
-  const githubTask = hasAny(text, [
-    'github',
-    'pull request',
-    'issue',
-    'actions',
-    'workflow',
-    'commit'
-  ])
-  const skillTask = hasAny(text, ['skill', 'workflow instructions', 'playbook'])
-  const memoryTask = hasAny(text, ['remember', 'my name', 'preference', 'later conversation'])
-  /**
-   * A request that explicitly asks to be worked through in stages wants the
-   * plan tools on the native surface even when it never says "code"/"file" —
-   * "build a simple website ... lets build it in steps" is a `changeTask` but
-   * not a `codeTask`, which used to leave `update_plan_step` scoring 0 while
-   * the similarly-named `update_change_task` scored 3_500 off WRITE_TOOLS.
-   */
-  const planTask = hasAny(text, [
-    'plan',
-    'step by step',
-    'in steps',
-    'step-by-step',
-    'one step at a time',
-    'stages',
-    'phases',
-    'checklist',
-    'track progress'
-  ])
-
-  if (planTask && PLAN_TOOLS.has(name)) return 3_600
-  if (codeTask && READ_TOOLS.has(name)) return 3_000
-  if (changeTask && WRITE_TOOLS.has(name)) return 3_500
-  if (checkTask && CHECK_TOOLS.has(name)) return 3_700
-  if (webTask && WEB_TOOLS.has(name)) return 3_300
-  if (emailTask && EMAIL_TOOLS.has(name)) return 3_300
-  if (githubTask && isGithubTool(name)) return 3_400
-  if (skillTask && SKILL_TOOLS.has(name)) return 3_200
-  if (memoryTask && name === 'remember_fact') return 3_200
-  if (codeTask && PLAN_TOOLS.has(name)) return 2_000
-  return 0
-}
-
-function lexicalScore(name: string, description: string | undefined, text: string): number {
-  const words = `${name.replaceAll('_', ' ')} ${description ?? ''}`
-    .toLowerCase()
-    .match(/[a-z0-9]{3,}/g)
-  if (!words) return 0
-  let matches = 0
-  for (const word of new Set(words)) {
-    if (text.includes(word)) matches += 1
-  }
-  return Math.min(900, matches * 90)
-}
-
-function hasAny(text: string, terms: readonly string[]): boolean {
-  return terms.some((term) => text.includes(term))
-}
-
-function isGithubTool(name: string): boolean {
-  // The `startsWith('github__')` half this used to also test could never add a
-  // match: anything starting with it already contains "github".
-  return name.toLowerCase().includes('github')
 }
 
 function createDeferredToolGateway(define: DefineChatSessionFunction): Gateway {
@@ -332,23 +265,64 @@ function createDeferredToolGateway(define: DefineChatSessionFunction): Gateway {
 }
 
 function findDeferredTools(functions: Record<string, ToolFunction>, query: string): string {
-  const terms = query.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []
+  const terms = discoveryTerms(query)
+  if (terms.length === 0) {
+    return 'No deferred tools matched. Name the specific object or domain you need, not only a generic action such as read, search, or list.'
+  }
   const ranked = Object.entries(functions)
     .map(([name, fn]) => {
-      const haystack = `${name.replaceAll('_', ' ')} ${fn.description ?? ''}`.toLowerCase()
-      const score = terms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0)
+      const haystack = new Set(
+        discoveryWords(`${name.replaceAll('_', ' ')} ${fn.description ?? ''}`)
+      )
+      const score = terms.reduce((sum, term) => sum + (haystack.has(term) ? 1 : 0), 0)
       return {
         name,
         description: truncate(fn.description ?? 'No description.', MAX_FIND_DESCRIPTION_CHARS),
         score
       }
     })
-    .filter((item) => terms.length === 0 || item.score > 0)
+    .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
     .slice(0, 8)
 
   if (ranked.length === 0) return 'No deferred tools matched. Try a broader capability query.'
   return ranked.map((item) => `${item.name} — ${item.description}`).join('\n')
+}
+
+/** Generic verbs cannot distinguish `read_file` from `read_email`. */
+const DISCOVERY_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'available',
+  'call',
+  'check',
+  'find',
+  'for',
+  'get',
+  'in',
+  'list',
+  'look',
+  'open',
+  'read',
+  'search',
+  'show',
+  'the',
+  'to',
+  'tool',
+  'tools',
+  'use',
+  'with'
+])
+
+function discoveryTerms(value: string): string[] {
+  return [...new Set(discoveryWords(value).filter((word) => !DISCOVERY_STOP_WORDS.has(word)))]
+}
+
+function discoveryWords(value: string): string[] {
+  return (value.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []).map((word) =>
+    word.length > 4 && word.endsWith('s') ? word.slice(0, -1) : word
+  )
 }
 
 function describeDeferredTool(
@@ -478,55 +452,3 @@ function validateAgainstSchema(value: unknown, schema: unknown, path = 'argument
   }
   return null
 }
-
-const READ_TOOLS = new Set([
-  'list_directory',
-  'read_file',
-  'read_file_range',
-  'read_multiple_files',
-  'preview_html',
-  'inspect_visual',
-  'get_file_info',
-  'search_files',
-  'find_files',
-  'code_outline',
-  'search_code',
-  'git_status',
-  'git_diff',
-  'git_commit_summary'
-])
-
-const WRITE_TOOLS = new Set([
-  'write_file',
-  'edit_file',
-  'patch_file',
-  'delete_file',
-  'move_file',
-  'create_directory',
-  'delete_directory',
-  'update_project_notes',
-  'propose_change',
-  'update_change_task',
-  'archive_change',
-  'list_changes'
-])
-
-const CHECK_TOOLS = new Set(['run_command', 'run_project_check', 'git_status', 'git_diff'])
-const WEB_TOOLS = new Set(['web_search', 'fetch_url'])
-const EMAIL_TOOLS = new Set([
-  'list_email_accounts',
-  'list_threads',
-  'search_email',
-  'read_email',
-  'summarize_thread',
-  'find_attachments',
-  'list_mailboxes',
-  'draft_email',
-  'send_email',
-  'reply_email',
-  'manage_email',
-  'move_email',
-  'save_email_attachment'
-])
-const SKILL_TOOLS = new Set(['find_skill', 'load_skill'])
-const PLAN_TOOLS = new Set(['write_plan', 'update_plan_step'])

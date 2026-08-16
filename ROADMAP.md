@@ -103,6 +103,11 @@ These are complete capabilities, not action items:
   including hard provider-round aborts, no-op-aware progress, durable-work handoffs,
   same-reply transcript shedding, and productive continuation beyond an arbitrary
   three-epoch boundary.
+- A deterministic bounded native tool core with every other enabled capability
+  reachable through the deferred gateway, plus ordered mixed-channel chat streaming
+  and readable recovery when a local provider interrupts visible prose with reasoning
+  or a tool call. Tool availability and continuation are driven by configuration and
+  execution state, never prompt-keyword guards.
 - In-app model discovery/downloads, hardware recommendations, reliability scoring,
   token activity, and the Workspace Dock.
 

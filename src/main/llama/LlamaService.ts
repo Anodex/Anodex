@@ -48,7 +48,6 @@ import { planManualContextCompaction } from '@shared/contextProjection'
 import { environmentDateFromPrompt } from '@shared/prompts'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
-import { createLoopGuardState, type LoopGuardState } from '../tools/loopGuard'
 import {
   computeModelToolResultBudget,
   type ModelToolResultBudget
@@ -65,12 +64,7 @@ import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
 import { buildDeterministicCheckpoint } from './deterministicCheckpoint'
 import {
-  detectFabricatedUserTurn,
   detectFallbackToolCall,
-  looksLikeFabricatedOutcome,
-  looksLikeStalledIntent,
-  looksLikeToolBypass,
-  looksLikeUnactedIntent,
   stripFallbackCall,
   type FallbackToolCall
 } from './toolCallFallback'
@@ -82,15 +76,10 @@ import {
   type LocalGenerationDiagnostics
 } from './generationDiagnostics'
 import { boundToolSurface, maxDirectToolsForContext, type BoundedToolSurface } from './toolSurface'
-import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
+import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import type { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { LlamaVisionService } from './LlamaVisionService'
-import {
-  INTENT_NUDGE_PROMPT,
-  STALLED_INTENT_NUDGE_PROMPT,
-  TOOL_BYPASS_NUDGE_PROMPT
-} from './intentNudges'
 import { createAsyncMutex } from './asyncMutex'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
@@ -239,13 +228,10 @@ export interface GenerateParams {
     confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
     /**
      * Shared across every call in a caller-owned multi-cycle/multi-turn task
-     * (see `ToolRuntimeContext.readCoverage`'s doc comment) — undefined means
-     * this call has no such task, so a fresh, call-scoped tracker is used
-     * with no cross-call effect.
+     * (see `ToolRuntimeContext.ledger`) — undefined means this call has no such
+     * task, so a fresh, call-scoped ledger is used with no cross-call effect.
      */
-    readCoverage?: ReadCoverageTracker
-    /** Optional caller-owned guard shared across bounded continuation cycles. */
-    loopGuard?: LoopGuardState
+    ledger?: TaskLedger
     /**
      * Ordering carried from a previous context epoch of the same bounded reply
      * — see `TurnProgressSeed`. Undefined for an ordinary turn, which starts
@@ -309,16 +295,22 @@ export interface GenerateOutcome {
   /** Exact fixed prompt/tool-schema accounting from the active local wrapper. */
   contextBudget?: ContextBudgetUsage
   /**
-   * True when this turn's reply described an outcome (a file change, an
-   * approval/denial, a fabricated user turn) that didn't actually happen —
-   * see `looksLikeUnactedIntent`/`looksLikeFabricatedOutcome`/
-   * `detectFabricatedUserTurn` in `toolCallFallback.ts`. Recorded to
-   * `modelReliabilityStore` internally either way, but callers that run
-   * unattended (`AgentRunService`, `SchedulerService`) have no one watching
-   * the transcript live, so they need this per-turn signal to flag it back
-   * to the user afterward instead of silently reporting success. Undefined
-   * for cloud providers (Anthropic/OpenAI), which don't have this local-model
-   * failure mode or its detection — never explicitly false for them.
+   * True when this reply named workspace files the task never read or wrote and
+   * that are not on disk. Set by `findUnverifiedPathClaims` in
+   * `runBoundedChatGeneration`, not by any transport — a provider only reports
+   * what it generated, and whether that matches reality is a question about the
+   * workspace.
+   *
+   * It used to be set here, by phrase detectors asking whether the reply
+   * *sounded* like it was claiming work ("I've added…", "I fixed…"). That
+   * decided a durable reliability penalty from the model's writing style and
+   * fired differently across languages and phrasings. The question is the same;
+   * the answer now comes from checking the named paths against real state, so a
+   * rewording can neither create the flag nor hide it.
+   *
+   * Callers that run unattended (`AgentRunService`, `SchedulerService`) have no
+   * one watching the transcript live, so they surface this afterwards rather
+   * than silently reporting success.
    */
   fabricationDetected?: boolean
   /**
@@ -741,21 +733,15 @@ class LlamaService extends EventEmitter {
     this.emitState()
     const startedAt = Date.now()
 
-    let hadSuccessfulWrite = false
     // Any tool activity at all this turn (attempted, denied, errored, or
-    // succeeded) — narrower than `hadSuccessfulWrite`, used to gate the
-    // fabricated-outcome check below, which must not fire when a real
-    // interaction actually happened this turn.
+    // succeeded). Reported to the caller so a turn that produced nothing can be
+    // distinguished from one that worked; the per-outcome flags that used to sit
+    // beside it existed only to gate the prose detectors and went with them.
     let hadAnyToolAttempt = false
     // Running count of tool activity, so a single round can tell whether it
     // produced any of its own — see the thinking-promotion decision below,
     // which must not fire for a round whose visible artifact is a tool card.
     let toolActivityCount = 0
-    // Mirrors every `modelReliabilityStore.recordFabrication()` call below,
-    // but per-turn and returned to the caller (see `GenerateOutcome.
-    // fabricationDetected`'s doc comment) rather than only aggregated into
-    // the cross-run store.
-    let fabricationDetectedThisTurn = false
     const currentModel = this.currentModel
     let functions: Record<string, ToolFunction> | undefined
     // Filled in below once `genController` exists — see `buildToolFunctions`'s
@@ -797,9 +783,6 @@ class LlamaService extends EventEmitter {
         hadAnyToolAttempt = true
         toolActivityCount++
         if (call.status !== 'running') nativeToolCheckpoint.pending = true
-        if (call.kind === 'write' && call.status === 'success' && call.madeProgress !== false) {
-          hadSuccessfulWrite = true
-        }
         if (call.status !== 'running') diagnostics.recordToolCallSettled()
         // Denied calls are excluded — that's a user decision, not a signal
         // about the model's own reliability.
@@ -951,24 +934,14 @@ class LlamaService extends EventEmitter {
     // user stop (forwarded into it) or the pre-existing fabricated-turn
     // abort, neither of which should get the loop-guard-specific stopReason.
     let loopGuardAborted = false
-    let usedIntentNudge = false
     const originalPrompt = params.prompt
     let prompt = params.prompt
-    // The nudge prompts fired below explicitly instruct the model to call
-    // write_file/edit_file/patch_file — only meaningful if one of those is
-    // actually registered for this chat (e.g. no project workspace is open,
-    // so only web tools are active). `functions` is fixed for the whole
-    // turn, so this only needs computing once, not once per round.
     const hasEditTool = Boolean(
       functions &&
       ('write_file' in functions || 'edit_file' in functions || 'patch_file' in functions)
     )
-
-    // Guard abort we trigger ourselves the moment the model starts fabricating
-    // the user's next turn mid-generation (see `detectFabricatedUserTurn`) — so
-    // generation stops *before* any tool call in that invented turn actually
-    // runs, rather than only cleaning up the transcript after the fact. Merged
-    // with the caller's own signal so a real user "stop" still aborts too.
+    // One controller combines the caller's Stop signal with internal
+    // execution guards such as context and repeated-tool boundaries.
     const genController = new AbortController()
     const forwardAbort = () => genController.abort()
     if (params.signal) {
@@ -1030,22 +1003,6 @@ class LlamaService extends EventEmitter {
       })
       genController.abort()
     }
-    // Index within the current round's content where a fabricated user turn
-    // begins, once detected — everything from here on is dropped.
-    let fabricatedTurnCut: number | null = null
-    const finalizeFabricatedTurn = (keptContent: string): void => {
-      visibleContent = appendRoundText(visibleContent, keptContent.trimEnd())
-      stopped = true
-      fabricationDetectedThisTurn = true
-      if (currentModel) {
-        modelReliabilityStore.recordFabrication(
-          currentModel.id,
-          currentModel.name,
-          basename(currentModel.path)
-        )
-      }
-    }
-
     // Mid-generation shifts (node-llama-cpp's own `contextShift.strategy`,
     // wired up once per session in `ensureSession`'s `onShift`) are the
     // dominant, expected source of shifts during a long turn — observed
@@ -1153,18 +1110,6 @@ class LlamaService extends EventEmitter {
             diagnostics.recordVisibleTokens(chunk.tokens.length)
             roundContent += chunk.text
             params.onToken(chunk.text)
-            // Only meaningful when tools are registered: the danger of a
-            // fabricated user turn is the model acting on its own invented
-            // approval. Detecting here, as the fabricated reply streams in but
-            // before the model emits its next tool-call token, lets the abort
-            // below stop the round before that call ever executes.
-            if (fabricatedTurnCut === null && functions) {
-              const cut = detectFabricatedUserTurn(roundContent)
-              if (cut !== -1) {
-                fabricatedTurnCut = cut
-                genController.abort()
-              }
-            }
           },
           // Surface write/edit calls the moment their params start generating
           // — the disk write itself is milliseconds, but generating a file's
@@ -1237,16 +1182,6 @@ class LlamaService extends EventEmitter {
         try {
           meta = await session.promptWithMeta(prompt, promptOptions as never)
         } catch (error) {
-          // Our own guard fired mid-stream (not a failure): the model began
-          // fabricating the user's next turn. Keep the reply up to the cut
-          // point (the genuine question), drop the invented turn, and end the
-          // turn so control returns to the real user. Checked before the
-          // context-shift handling below because this abort is expected, not an
-          // error to recover from.
-          if (fabricatedTurnCut !== null) {
-            finalizeFabricatedTurn(roundContent.slice(0, fabricatedTurnCut))
-            break
-          }
           const isContextShiftFailure = isContextShiftCrash(error)
           if (genController.signal.aborted) {
             visibleContent = appendRoundText(visibleContent, stripLeakedChannelTokens(roundContent))
@@ -1300,15 +1235,6 @@ class LlamaService extends EventEmitter {
         // mid-generation) must not be left spinning; settle it as interrupted
         // now, before the fallback path below could mistakenly claim its id.
         for (const call of pendingToolCalls.sweep(round)) params.tools?.onActivity(call)
-
-        // Aborting mid-stream can also resolve (rather than throw) with the
-        // partial text already streamed — handle the fabricated-turn cut here
-        // too, before `meta.responseText` (the full, untruncated text) replaces
-        // the streamed `roundContent` below.
-        if (fabricatedTurnCut !== null) {
-          finalizeFabricatedTurn(roundContent.slice(0, fabricatedTurnCut))
-          break
-        }
 
         // Prefer text that actually streamed during this invocation. During
         // a context shift, node-llama-cpp reconstructs `responseText` by
@@ -1397,87 +1323,18 @@ class LlamaService extends EventEmitter {
             : null
 
         if (!fallback || !activeFunctions) {
-          // The reply describes an outcome that didn't actually happen this turn:
-          // either a claimed file change with no successful write anywhere this
-          // turn, a code-dump bypass of available edit tools, a fabricated
-          // approval/denial/test-result when no tool was called at all this turn,
-          // or — distinct from all three — a bare announcement of intent with no
-          // tool call attempted at all (see `looksLikeStalledIntent`). This
-          // detection is independent of tool availability — a model can
-          // fabricate an outcome (or stall) for remember_fact or git_status just
-          // as easily as for a file edit — so it is NOT gated on hasEditTool.
-          const isToolBypass =
-            Boolean(activeFunctions) &&
-            !hadSuccessfulWrite &&
-            looksLikeToolBypass(roundContent, originalPrompt)
-          const isStalledIntent =
-            !hadAnyToolAttempt && looksLikeStalledIntent(roundContent, originalPrompt)
-          const isFabrication =
-            Boolean(activeFunctions) &&
-            (isToolBypass ||
-              (!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
-              (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent)) ||
-              isStalledIntent)
-
-          // Record this independently of whether a nudge fires below: a bypass,
-          // fabricated outcome, or stall still tells us the model needs more
-          // steering, even when the one-nudge-per-turn budget was already
-          // spent, or when no edit tool is registered to nudge toward.
-          if (isFabrication) {
-            fabricationDetectedThisTurn = true
-            if (currentModel) {
-              modelReliabilityStore.recordFabrication(
-                currentModel.id,
-                currentModel.name,
-                basename(currentModel.path)
-              )
-            }
-          }
-
-          // The bypass nudge explicitly instructs the model to call
-          // write_file/edit_file/patch_file by name, so it only fires when
-          // one of those tools is actually registered for this chat — it's
-          // specifically about dumping code in chat instead of using an edit
-          // tool, which only makes sense when an edit tool exists. The
-          // unacted-intent/fabricated-outcome and stalled-intent nudges are
-          // both generic — neither names a specific tool — so they can fire
-          // whenever any tool at all is available: a false completion claim
-          // or a stall isn't limited to edit tools (observed directly with
-          // propose_change/update_change_task/archive_change, not just
-          // write_file/edit_file).
-          const needsToolBypassNudge = isToolBypass && hasEditTool
-          const needsUnactedIntentNudge =
-            (!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
-            (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent))
-          const needsGenericNudge =
-            (needsUnactedIntentNudge || isStalledIntent) && Boolean(activeFunctions)
-          const needsActionNudge = needsToolBypassNudge || needsGenericNudge
-
-          // Content the model already produced this round is never silently
-          // dropped, even when nudging for a retry — a false-positive nudge
-          // (or one the model doesn't repeat next round) would otherwise
-          // erase the round from the transcript with no trace anywhere. What
-          // IS stripped: a substantial file-edit code fence, when an edit tool
-          // exists to have done the work for real — the tool card (if any
-          // write succeeded) or the upcoming nudge (if not) already covers
-          // it, so repeating the whole file as prose is just noise. Skipped
-          // entirely in a tool-less chat, where a code paste may be the
-          // model's only possible answer.
-          const displayRoundContent = hasEditTool
-            ? stripSubstantialCodeFences(roundContent, originalPrompt)
-            : roundContent
-          visibleContent = appendRoundText(visibleContent, displayRoundContent)
-
-          // Give it one chance to actually act.
-          if (needsActionNudge && !usedIntentNudge) {
-            usedIntentNudge = true
-            prompt = needsToolBypassNudge
-              ? TOOL_BYPASS_NUDGE_PROMPT
-              : needsUnactedIntentNudge
-                ? INTENT_NUDGE_PROMPT
-                : STALLED_INTENT_NUDGE_PROMPT
-            continue
-          }
+          // No recoverable call in this round's text: keep what the model wrote
+          // and end the turn. Anodex used to run a battery of phrase detectors
+          // here — "did this reply claim a change that never happened", "is it
+          // stalling", "did it promise an action" — and re-prompt on a match.
+          // They were disabled behind a flag and are now gone: a wording match
+          // cannot establish that a mutation was skipped, it fires differently
+          // across languages and model styles, and it spent a whole extra
+          // generation on a slow local model to say so. What actually happened
+          // this turn is already recorded in settled tool calls, which is what
+          // `finish_goal`'s evidence gate and the bounded runner's verification
+          // notes read instead.
+          visibleContent = appendRoundText(visibleContent, roundContent)
           break
         }
 
@@ -1510,7 +1367,6 @@ class LlamaService extends EventEmitter {
         stopped,
         stopReason: stopped ? currentStopReason() : undefined,
         contextBudget,
-        fabricationDetected: fabricationDetectedThisTurn,
         thinking: thinkingText || undefined,
         generationDiagnostics: diagnostics.snapshot()
       }
@@ -1530,7 +1386,6 @@ class LlamaService extends EventEmitter {
           stopped: true,
           stopReason: currentStopReason(),
           contextBudget,
-          fabricationDetected: fabricationDetectedThisTurn,
           thinking: thinkingText || undefined,
           generationDiagnostics: diagnostics.snapshot()
         }
@@ -1560,7 +1415,6 @@ class LlamaService extends EventEmitter {
           stopped: true,
           stopReason: 'context-limit',
           contextBudget,
-          fabricationDetected: fabricationDetectedThisTurn,
           thinking: thinkingText || undefined,
           generationDiagnostics: diagnostics.snapshot()
         }
@@ -1584,7 +1438,6 @@ class LlamaService extends EventEmitter {
           stopReason: 'provider-error',
           stopDetail: toStopDetail(error),
           contextBudget,
-          fabricationDetected: fabricationDetectedThisTurn,
           thinking: thinkingText || undefined,
           generationDiagnostics: diagnostics.snapshot()
         }
@@ -2239,16 +2092,17 @@ class LlamaService extends EventEmitter {
 
     const nlc = await this.getModule()
     const shiftReserve = defaultContextShiftReserve(this.contextSize)
+    const toolResultHeadroom = Math.max(512, Math.min(3_000, Math.floor(this.contextSize * 0.15)))
     const targetFixedTokens = Math.max(
       0,
-      this.contextSize - shiftReserve - reservedNonHistoryTokens(this.contextSize)
+      this.contextSize -
+        shiftReserve -
+        reservedNonHistoryTokens(this.contextSize) -
+        toolResultHeadroom
     )
-    const routingText = buildToolRoutingText(params)
-
     return boundToolSurface({
       allFunctions: functions,
       define: nlc.defineChatSessionFunction,
-      routingText,
       targetFixedTokens,
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
       measureFixedTokens: (candidate) =>
@@ -2370,7 +2224,6 @@ class LlamaService extends EventEmitter {
       turnGate: { approved: false },
       // Fresh every generation call, same reasoning as `turnGate` above — see
       // `ToolRuntimeContext.loopGuard`'s doc comment.
-      loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
       // Fresh every generation call, same reasoning as `turnGate` above — see
       // `ToolRuntimeContext.progress`'s doc comment.
       progress: createTurnProgress(params.tools.progressSeed),
@@ -2381,7 +2234,7 @@ class LlamaService extends EventEmitter {
       // Reuse the caller-owned tracker when this call is part of a bounded
       // multi-cycle/multi-turn task (see `ToolRuntimeContext.readCoverage`'s
       // doc comment); otherwise a fresh one with no cross-call effect.
-      readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
+      ledger: params.tools.ledger ?? createTaskLedger(),
       // See `ToolRuntimeContext.abortGeneration`'s doc comment and this
       // method's own doc comment above for why this goes through a box.
       abortGeneration: () => abortBox.current?.(),
@@ -2891,15 +2744,6 @@ function appendUserPrompt(
 function appendModelResponse(history: readonly ChatHistoryItem[]): ChatHistoryItem[] {
   if (history.at(-1)?.type === 'model') return [...history]
   return [...history, { type: 'model', response: [] }]
-}
-
-function buildToolRoutingText(params: GenerateParams): string {
-  const recent = params.history
-    .slice(-8)
-    .flatMap((turn) => [turn.content, ...(turn.toolCalls ?? []).map((call) => call.name)])
-  if (params.tools?.plan) recent.push(...params.tools.plan.steps.map((step) => step.title))
-  recent.push(params.prompt)
-  return recent.join('\n')
 }
 
 function buildStats(tokens: number, startedAt: number): GenerationStats {

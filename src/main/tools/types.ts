@@ -4,10 +4,9 @@ import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/
 import type { ChatUserFile } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
 import type { McpToolDescriptor } from '@shared/mcp.types'
-import type { LoopGuardState } from './loopGuard'
 import type { ToolArtifact, ToolArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ModelToolResultBudget } from './modelResultBudget'
-import type { ReadCoverageTracker } from './readCoverage'
+import type { TaskLedger } from './taskLedger'
 import type { TurnProgress } from './turnProgress'
 import type { WebSourceRegistry } from './WebSourceRegistry'
 import type { VisualInputQueue } from '../vision/imageInputs'
@@ -87,13 +86,6 @@ export interface ToolRuntimeContext {
    */
   turnGate: { approved: boolean }
   /**
-   * Mutable per-generation tally of identical (name + title) calls, shared by
-   * every tool call in this generation, same pattern as `plan`/`turnGate`
-   * above — see `checkLoopGuard` in `loopGuard.ts`. Catches a model stuck
-   * re-issuing the same call over and over instead of making progress.
-   */
-  loopGuard: LoopGuardState
-  /**
    * Mutable per-generation flag, shared by every tool call in this
    * generation, same pattern as `plan`/`turnGate`/`loopGuard` above — set by
    * `runReadTool`/`runGuardedTool` (see `helpers.ts`) whenever a tool call
@@ -140,17 +132,17 @@ export interface ToolRuntimeContext {
    */
   modelResultBudget: { current: ModelToolResultBudget | null }
   /**
-   * Which file line ranges have already been read this bounded task (not
-   * just this one generation call) — see `ReadCoverageTracker`'s doc
-   * comment. Supplied by the caller when it owns a multi-cycle/multi-turn
-   * task (`BoundedChatRunner`, `AgentRunService`) so read tools can trim a
-   * request down to only its genuinely new portion, or short-circuit
-   * entirely, across cycle/turn boundaries — not just within one call the
-   * way `loopGuard` above does. A caller with no such task (a one-shot
-   * generation) gets a fresh, call-scoped instance with no cross-call
-   * effect, identical to not having this at all.
+   * What this bounded task has already read, already called, and can still
+   * recall — see `TaskLedger`.
+   *
+   * One object rather than the three it contains, because they answer one
+   * shared question ("will this call produce anything new?") and answering it
+   * separately is what deadlocked long tasks. Supplied by a caller that owns a
+   * multi-cycle/multi-turn task (`BoundedChatRunner`, `AgentRunService`); a
+   * one-shot generation gets a fresh call-scoped ledger with no cross-call
+   * effect, identical to not having one.
    */
-  readCoverage: ReadCoverageTracker
+  ledger: TaskLedger
   /**
    * Optional multimodal bridge for tools that inspect workspace visuals. It is
    * present only when the active provider can consume images; text-only local

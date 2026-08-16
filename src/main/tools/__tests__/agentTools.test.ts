@@ -194,7 +194,7 @@ describe('finish_goal — visual claims need post-change evidence', () => {
       summary: 'Fixed the sandbox — the canvas now renders correctly.'
     })
 
-    expect(result).toContain('no visual inspection has run since the last change')
+    expect(result).toContain('came after the most recent visual inspection')
     expect(result).toContain('inspect_visual')
   })
 

@@ -122,6 +122,14 @@ describe('runBoundedChatGeneration', () => {
           result({ content: 'Done.', stats: { tokens: 10, durationMs: 100, tokensPerSecond: 100 } })
         )
       })
+      // An open plan buys one continuation: the turn worked and stopped while
+      // rows were still pending, which is the shape of a stall. This cycle
+      // calls nothing, which is how a genuinely finished turn ends the run.
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          result({ content: '', stats: { tokens: 0, durationMs: 10, tokensPerSecond: 0 } })
+        )
+      )
       .mockImplementationOnce((_request, io: RunGenerationIo) => {
         io.onActivity?.({
           id: 'plan-complete',
@@ -140,16 +148,19 @@ describe('runBoundedChatGeneration', () => {
       })
 
     const outcome = await runBoundedChatGeneration(
-      baseRequest({ plan }),
+      baseRequest({ prompt: 'continue the plan', plan }),
       baseIo({ onActivity: (call) => activities.push(call) })
     )
 
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
-    expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain(
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(3)
+    expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain('Continue exactly where you left')
+    expect(mockedRunGeneration.mock.calls[2][0].prompt).toContain(
       'reconcile the current visible work plan'
     )
-    expect(mockedRunGeneration.mock.calls[1][1].enabledTools).toEqual(new Set(['update_plan_step']))
-    expect(outcome.content).toBe('Done.')
+    expect(mockedRunGeneration.mock.calls[2][1].enabledTools).toEqual(new Set(['update_plan_step']))
+    // The reply itself is unchanged; a build-verification note now follows it,
+    // because the turn edited a file and ran nothing against it.
+    expect(outcome.content).toContain('Done.')
     expect(outcome.stats.tokens).toBe(12)
     expect(activities.at(-1)?.plan?.steps.every((step) => step.status === 'completed')).toBe(true)
   })
@@ -196,7 +207,7 @@ describe('runBoundedChatGeneration', () => {
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
       expect(outcome.content).toContain('Visual verification note')
-      expect(outcome.content).toContain('BEFORE the last change')
+      expect(outcome.content).toContain('came after the most recent visual inspection')
       expect(outcome.content).toContain('sectionId')
     })
 
@@ -211,12 +222,16 @@ describe('runBoundedChatGeneration', () => {
       expect(outcome.content).not.toContain('Visual verification note')
     })
 
-    it('flags a visual claim with no inspection at all', async () => {
+    it('stays quiet for a task that never inspected anything visually', async () => {
       replyWith([edit('edit-1')], 'The sandbox is fixed and the scene displays correctly.')
 
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-      expect(outcome.content).toContain('no successful visual inspection ran')
+      // A reply that never took a screenshot is not evidence of a visual task —
+      // it is the ordinary shape of every non-visual edit. The gate used to fire
+      // here on the words "fixed" and "displays", which meant a backend change
+      // described in the wrong vocabulary was told to go and take a screenshot.
+      expect(outcome.content).not.toContain('Visual verification note')
     })
 
     it('stays quiet when the reply already admits it is unverified', async () => {
@@ -268,8 +283,9 @@ describe('runBoundedChatGeneration', () => {
       )
     })
 
-    await runBoundedChatGeneration(baseRequest({ plan }), baseIo())
+    await runBoundedChatGeneration(baseRequest({ prompt: 'continue the plan', plan }), baseIo())
 
+    // Plan bookkeeping is not durable work, so there is nothing to reconcile.
     expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
   })
 
@@ -293,9 +309,117 @@ describe('runBoundedChatGeneration', () => {
       return Promise.resolve(result({ content: 'Done.' }))
     })
 
-    await runBoundedChatGeneration(baseRequest({ plan }), baseIo())
+    await runBoundedChatGeneration(baseRequest({ prompt: 'continue the plan', plan }), baseIo())
 
     expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
+  })
+
+  it('continues a recoverable context epoch without interpreting the model prose', async () => {
+    const plan = {
+      title: 'Fix Universe Sandbox',
+      steps: [
+        { id: 'step-1', title: 'Fix planet lighting', status: 'in_progress' as const },
+        { id: 'step-2', title: 'Add moons', status: 'pending' as const }
+      ],
+      updatedAt: 1
+    }
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'read-index',
+          name: 'read_file_range',
+          kind: 'read',
+          title: 'Read index.html lines 290-489',
+          status: 'success',
+          touchedPaths: ['index.html']
+        })
+        return Promise.resolve(
+          result({
+            content:
+              'This is the Chrome file issue. Let me inspect the setup and fix it so index.html works when double-clicked.',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive'
+          })
+        )
+      })
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'edit-index',
+          name: 'edit_file',
+          kind: 'write',
+          title: 'Edit index.html',
+          status: 'success',
+          touchedPaths: ['index.html']
+        })
+        return Promise.resolve(
+          result({ content: 'The edit is in place; browser verification is still pending.' })
+        )
+      })
+      // The open plan earns a continuation; a cycle that calls nothing ends it.
+      .mockResolvedValue(result({ content: '' }))
+
+    await runBoundedChatGeneration(
+      baseRequest({
+        prompt: 'Opening index.html only shows a black page.',
+        plan
+      }),
+      baseIo()
+    )
+
+    // The production failure made this read count as completed work, then ran
+    // eleven update_plan_step calls over the older lighting/moons plan. The
+    // correction must instead keep the normal workspace tool surface and
+    // continue from measured execution state, not from the wording above.
+    // Two work cycles plus the plan-reconciliation pass, which now runs whenever
+    // durable work left an open plan row rather than only when the reply happened
+    // to word itself as finished.
+    // Two work cycles, the continuation the open plan earns, then the
+    // plan-reconciliation pass.
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(4)
+    // The unfinished plan is passed on every cycle. It used to be withheld
+    // unless the prompt's wording matched a continuation pattern, which made
+    // prompt phrasing an implicit control channel; the rendered plan block now
+    // states its own precedence instead (see `renderCurrentPlan`).
+    expect(mockedRunGeneration.mock.calls[0][0].plan).toEqual(plan)
+    expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain(
+      'Continue exactly where you left off'
+    )
+    expect(mockedRunGeneration.mock.calls[1][1].enabledTools).toBeUndefined()
+  })
+
+  it('reconciles a plan after durable work however the reply is worded', async () => {
+    const plan = {
+      title: 'Fix the sandbox',
+      steps: [{ id: 'step-1', title: 'Implement and verify', status: 'in_progress' as const }],
+      updatedAt: 1
+    }
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'edit-1',
+        name: 'edit_file',
+        kind: 'write',
+        title: 'Edit index.html',
+        status: 'success'
+      })
+      return Promise.resolve(
+        result({ content: 'The edit is in place; I still need to verify it.' })
+      )
+    })
+    mockedRunGeneration.mockResolvedValue(result({ content: '' }))
+
+    await runBoundedChatGeneration(baseRequest({ prompt: 'continue the plan', plan }), baseIo())
+
+    // Durable work plus an open plan row is the whole condition. This used to
+    // additionally require the reply to *sound* finished, so a turn that did the
+    // work and ended on an honest caveat — exactly this one — left its plan rows
+    // stale in the user's dock. The reconciliation prompt itself still refuses to
+    // tick a step the completed work does not support.
+    // The work, one continuation the open plan earns, then the bookkeeping pass.
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(3)
+    expect(mockedRunGeneration.mock.calls[2][1].enabledTools).toEqual(new Set(['update_plan_step']))
   })
 
   /**
@@ -432,6 +556,15 @@ describe('runBoundedChatGeneration', () => {
     async function replyAfter(command: string): Promise<string> {
       mockedRunGeneration.mockReset()
       mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        // A change is what makes verification meaningful — the note is about an
+        // unverified edit, not about an unverified sentence.
+        io.onActivity?.({
+          id: 'edit-1',
+          name: 'edit_file',
+          kind: 'write',
+          title: 'Edit src/main.cpp',
+          status: 'success'
+        })
         io.onActivity?.({
           id: 'check-1',
           name: 'run_command',
@@ -478,21 +611,49 @@ describe('runBoundedChatGeneration', () => {
     })
   })
 
-  it('warns when a build diagnosis was not verified by a build or test command', async () => {
+  it('warns when a reply changed files and nothing was run against them', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'edit-1',
+        name: 'edit_file',
+        kind: 'write',
+        title: 'Edit src/index.ts',
+        status: 'success'
+      })
+      return Promise.resolve(result({ content: 'Restructured the entry point.' }))
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    // Decided by the settled calls, not by whether the prose mentions a build.
+    // The old wording gate stayed silent on the majority of unverified changes
+    // and spoke up on diagnoses that had changed nothing at all.
+    expect(outcome.content).toContain('Build verification note')
+    expect(outcome.content).toContain('unverified')
+  })
+
+  it('stays quiet about verification for a reply that changed nothing', async () => {
     mockedRunGeneration.mockReset()
     mockedRunGeneration.mockResolvedValueOnce(
-      result({ content: 'Build issue: this structural fix will make it run.' })
+      result({ content: 'Build issue: this structural change would make it run.' })
     )
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(outcome.content).toContain('Build verification note')
-    expect(outcome.content).toContain('not a verified fix')
+    expect(outcome.content).not.toContain('Build verification note')
   })
 
   it('does not warn when a build command actually completed', async () => {
     mockedRunGeneration.mockReset()
     mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'edit-1',
+        name: 'edit_file',
+        kind: 'write',
+        title: 'Edit src/index.ts',
+        status: 'success'
+      })
       io.onActivity?.({
         id: 'build-1',
         name: 'run_command',
@@ -666,7 +827,10 @@ describe('runBoundedChatGeneration', () => {
     expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
     // The first cycle produced no visible text (only a tool call), so the
     // combined reply isn't padded with a leading blank line for it.
-    expect(outcome.content).toBe('Here is the audit.')
+    // A reply that inspected and changed nothing now says so — see
+    // `describeNoDurableChange`.
+    expect(outcome.content).toContain('Here is the audit.')
+    expect(outcome.content).toContain('No files were changed by this reply')
   })
 
   it('does not treat a failed tool call as progress worth another recovery cycle', async () => {
@@ -821,6 +985,82 @@ describe('runBoundedChatGeneration', () => {
     })
   })
 
+  it('carries the objective, the model’s findings, and representative evidence into an epoch', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'visual-1',
+          name: 'inspect_visual',
+          kind: 'read',
+          title: 'Inspect index.html',
+          status: 'success',
+          touchedPaths: ['index.html']
+        })
+        io.onActivity?.({
+          id: 'index-1',
+          name: 'read_file_range',
+          kind: 'read',
+          title: 'Read index.html lines 1-180',
+          status: 'success',
+          touchedPaths: ['index.html']
+        })
+        for (let index = 0; index < 5; index++) {
+          io.onActivity?.({
+            id: `sandbox-${index}`,
+            name: 'read_file_range',
+            kind: 'read',
+            title: `Read js/universe-sandbox.js lines ${index * 100 + 1}-${index * 100 + 200}`,
+            status: 'success',
+            touchedPaths: ['js/universe-sandbox.js']
+          })
+        }
+        return Promise.resolve(
+          result({
+            content:
+              'The 2D canvas is visible, but the 3D sandbox and Planets section are blank.\n\n' +
+              'I notice ambientLight is declared but never added to the scene. Let me check the rest of the file.\n\n' +
+              'Let me resume the older orbit-line and texture tasks.',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive'
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Continued from the diagnosis.' }))
+
+    await runBoundedChatGeneration(
+      baseRequest({
+        prompt: 'does not seem to be working',
+        history: [
+          { role: 'user', content: 'Start working on step 2 of the Universe Sandbox.' },
+          { role: 'assistant', content: 'I started the implementation.' }
+        ]
+      }),
+      baseIo()
+    )
+
+    const handoff = mockedRunGeneration.mock.calls[1][0].contextEpoch
+    // The objective is the request as typed. It used to be rewritten to splice
+    // in earlier user turns when the wording matched a "vague follow-up"
+    // pattern, which made what a recovery resumed depend on phrasing; the prior
+    // turns are still in the replayed history either way.
+    expect(handoff?.objective).toBe('does not seem to be working')
+    // Findings survive verbatim. Filtering "process narration" out of them by
+    // phrase was dropped: it decided what a recovery remembered from wording,
+    // and truncated paragraphs mid-sentence when a matched phrase followed a
+    // real finding.
+    expect(handoff?.workingSummary).toContain('3D sandbox and Planets section are blank')
+    expect(handoff?.workingSummary).toContain('ambientLight is declared')
+    expect(handoff?.completedTools.map((tool) => tool.name)).toContain('inspect_visual')
+    expect(
+      handoff?.completedTools.filter((tool) => tool.touchedPaths?.[0] === 'index.html')
+    ).not.toHaveLength(0)
+    expect(
+      handoff?.completedTools.filter((tool) => tool.touchedPaths?.[0] === 'js/universe-sandbox.js')
+    ).toHaveLength(1)
+  })
+
   it('keeps durable work while aggressively shedding late error churn from the handoff', async () => {
     mockedRunGeneration.mockReset()
     mockedRunGeneration
@@ -887,14 +1127,15 @@ describe('runBoundedChatGeneration', () => {
   })
 
   it('recovers when only a read-only tool was still running at the boundary', async () => {
+    const activities: ToolCall[] = []
     mockedRunGeneration.mockReset()
     mockedRunGeneration
       .mockImplementationOnce((_request, io: RunGenerationIo) => {
         io.onActivity?.({
           id: 'pending-read',
-          name: 'read_file_range',
-          kind: 'read',
-          title: 'Read src/real.ts lines 1-200',
+          name: 'run_command',
+          kind: 'command',
+          title: 'Run: powershell -Command "(Get-Content src/real.ts | Select-Object -First 200)"',
           status: 'running'
         })
         return Promise.resolve(
@@ -907,10 +1148,19 @@ describe('runBoundedChatGeneration', () => {
       })
       .mockResolvedValueOnce(result({ content: 'Recovered safely.' }))
 
-    await runBoundedChatGeneration(baseRequest(), baseIo())
+    await runBoundedChatGeneration(
+      baseRequest(),
+      baseIo({ onActivity: (call) => activities.push(call) })
+    )
 
     expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
     expect(mockedRunGeneration.mock.calls[1][0].contextEpoch?.epoch).toBe(1)
+    expect(activities.at(-1)).toMatchObject({
+      id: 'pending-read',
+      status: 'error',
+      madeProgress: false,
+      detail: 'Stopped before this read finished'
+    })
   })
 
   it('does not checkpoint while a potentially mutating tool is still running', async () => {
@@ -949,7 +1199,7 @@ describe('runBoundedChatGeneration', () => {
             id: `shell-read-${index}`,
             name: 'run_command',
             kind: 'command',
-            title: `Run: Get-Content src/real.ts -TotalCount ${index}`,
+            title: `Run: powershell -NoProfile -Command "(Get-Content src/real.ts -TotalCount ${index})"`,
             detail: 'exit 0',
             status: 'success'
           })
@@ -967,7 +1217,7 @@ describe('runBoundedChatGeneration', () => {
     await runBoundedChatGeneration(baseRequest(), baseIo())
 
     const handoff = mockedRunGeneration.mock.calls[1][0].contextEpoch
-    expect(handoff?.completedTools.filter((call) => call.name === 'run_command')).toHaveLength(2)
+    expect(handoff?.completedTools.filter((call) => call.name === 'run_command')).toHaveLength(1)
     expect(handoff?.progress).toMatchObject({ madeChange: true, lastChangeAt: 1 })
   })
 
@@ -1046,7 +1296,7 @@ describe('runBoundedChatGeneration', () => {
       lastVisualInspectionAt: null
     })
     expect(handoff?.priorFixedTokens).toBe(11_480)
-    expect(handoff?.recoveryReadAllowance).toBeGreaterThan(0)
+    expect(handoff?.evidenceIndex).toBeDefined()
   })
 
   it('treats an authorized recovery read after an epoch as real progress', async () => {
@@ -1095,20 +1345,25 @@ describe('runBoundedChatGeneration', () => {
         title: 'Write src/real.ts',
         status: 'success'
       })
+      io.onActivity?.({
+        id: 'initial-read',
+        name: 'read_file',
+        kind: 'read',
+        title: 'Read src/real.ts',
+        status: 'success'
+      })
       return Promise.resolve(
         result({ content: 'Changed it.', stopped: true, stopReason: 'context-limit' })
       )
     })
-    // Every later cycle looks at a different file and says nothing new. Mixing a
-    // search in among the reads must not let it slip past the guard, which is
-    // why the check is by tool kind rather than by tool name.
-    for (const [index, name] of ['read_file', 'search_files', 'read_file_range'].entries()) {
+    // Every later cycle reopens the exact same evidence and says nothing new.
+    for (let index = 0; index < 3; index++) {
       mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
         io.onActivity?.({
           id: `r${index}`,
-          name,
+          name: 'read_file',
           kind: 'read',
-          title: `Read pass ${index}`,
+          title: 'Read src/real.ts',
           status: 'success'
         })
         return Promise.resolve(result({ content: '' }))
@@ -1123,6 +1378,189 @@ describe('runBoundedChatGeneration', () => {
     expect(mockedRunGeneration.mock.calls.length).toBeLessThanOrEqual(3)
     expect(outcome.goalOutcome).toMatchObject({ status: 'unfinished' })
     expect(outcome.goalOutcome?.blockedReason).toMatch(/re-reading the same material/i)
+  })
+
+  it('allows new read evidence across recovery epochs without treating it as churn', async () => {
+    mockedRunGeneration.mockReset()
+    for (let cycle = 0; cycle < 3; cycle++) {
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: `read-${cycle}`,
+          name: 'read_file_range',
+          kind: 'read',
+          title: `Read js/universe-sandbox.js lines ${cycle * 100 + 1}-${cycle * 100 + 100}`,
+          status: 'success',
+          touchedPaths: ['js/universe-sandbox.js']
+        })
+        return Promise.resolve(
+          result({
+            content: `Found new evidence in range ${cycle}.`,
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive'
+          })
+        )
+      })
+    }
+    mockedRunGeneration.mockResolvedValueOnce(
+      result({ content: 'Finished from the new evidence.' })
+    )
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(4)
+    expect(outcome.stopped).toBe(false)
+    expect(outcome.content).toContain('Finished from the new evidence.')
+  })
+
+  it('recognizes differently-spelled shell reads of the same range as recovery churn', async () => {
+    mockedRunGeneration.mockReset()
+    const commands = [
+      'Run: Get-Content js/universe-sandbox.js -TotalCount 100',
+      'Run: powershell -Command "(Get-Content js/universe-sandbox.js | Select-Object -First 100) -join "`n""',
+      'Run: powershell -Command "Get-Content js/universe-sandbox.js | Select-Object -First 100"',
+      'Run: Get-Content js/universe-sandbox.js -TotalCount 100'
+    ]
+    for (const [cycle, title] of commands.entries()) {
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: `shell-read-${cycle}`,
+          name: 'run_command',
+          kind: 'command',
+          title,
+          status: 'success',
+          madeProgress: false
+        })
+        return Promise.resolve(
+          result({
+            content: `Read spelling ${cycle}.`,
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive'
+          })
+        )
+      })
+    }
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(3)
+    expect(outcome.stopReason).toBe('no-progress')
+  })
+
+  it('does not let repetitive visible chatter carry read-only context recovery indefinitely', async () => {
+    mockedRunGeneration.mockReset()
+    for (let cycle = 0; cycle < 12; cycle++) {
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: `read-a-${cycle}`,
+          name: 'read_file_range',
+          kind: 'read',
+          title: 'Read js/universe-sandbox.js lines 1-200',
+          status: 'success',
+          touchedPaths: ['js/universe-sandbox.js']
+        })
+        io.onActivity?.({
+          id: `read-b-${cycle}`,
+          name: 'read_file_range',
+          kind: 'read',
+          title: 'Read js/universe-sandbox.js lines 200-399',
+          status: 'success',
+          touchedPaths: ['js/universe-sandbox.js']
+        })
+        return Promise.resolve(
+          result({
+            content: `Let me check the current state of the files pass ${cycle}.`,
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive'
+          })
+        )
+      })
+    }
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    // The production incident reached epoch 13 because every filler sentence
+    // was unique. One initial pass plus two bounded recovery passes is enough
+    // to prove the model is reopening evidence instead of advancing.
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(3)
+    expect(outcome.stopped).toBe(true)
+    expect(outcome.stopReason).toBe('no-progress')
+    expect(outcome.context?.latestEpochHandoff?.epoch).toBe(2)
+  })
+
+  it('continues read-only work after a recoverable stop without classifying the user wording', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'inspect-1',
+          name: 'run_command',
+          kind: 'command',
+          title: 'Run: Get-Content js/universe-sandbox.js | Select-Object -First 100',
+          status: 'success',
+          madeProgress: false
+        })
+        return Promise.resolve(
+          result({
+            content: 'Let me examine the current code and find the problem.',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive'
+          })
+        )
+      })
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'edit-1',
+          name: 'edit_file',
+          kind: 'write',
+          title: 'Edit js/universe-sandbox.js',
+          status: 'success',
+          touchedPaths: ['js/universe-sandbox.js']
+        })
+        return Promise.resolve(result({ content: 'Fixed the renderer and verified the page.' }))
+      })
+
+    const outcome = await runBoundedChatGeneration(
+      baseRequest({
+        prompt:
+          'when opening the folder and running the index.html it does not show the sandbox its just black no planets or anything'
+      }),
+      baseIo()
+    )
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain(
+      'Continue exactly where you left off'
+    )
+    expect(outcome.stopped).toBe(false)
+    expect(outcome.content).toContain('Fixed the renderer')
+  })
+
+  it('does not turn a diagnosis-only project question into an action continuation', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'inspect-1',
+        name: 'read_file',
+        kind: 'read',
+        title: 'Read js/universe-sandbox.js',
+        status: 'success'
+      })
+      return Promise.resolve(
+        result({ content: 'The renderer is black because initialization failed.' })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(
+      baseRequest({ prompt: 'Why is the renderer black? Diagnose only; do not edit it.' }),
+      baseIo()
+    )
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+    expect(outcome.content).toContain('because initialization failed')
   })
 
   it('does not continue after a recoverable stop that made no real progress', async () => {
@@ -1291,8 +1729,8 @@ describe('runBoundedChatGeneration', () => {
     expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
     const firstIo = mockedRunGeneration.mock.calls[0][1]
     const secondIo = mockedRunGeneration.mock.calls[1][1]
-    expect(firstIo.readCoverage).toBeDefined()
-    expect(secondIo.readCoverage).toBe(firstIo.readCoverage)
+    expect(firstIo.ledger).toBeDefined()
+    expect(secondIo.ledger).toBe(firstIo.ledger)
   })
 
   describe('unverified path claims (fabrication guard)', () => {
@@ -1326,7 +1764,7 @@ describe('runBoundedChatGeneration', () => {
           title: 'Read src/real.ts lines 1-1',
           status: 'success'
         })
-        io.readCoverage?.recordRange(join(workspace, 'src', 'real.ts'), 1, 1)
+        io.ledger?.reads?.recordRange(join(workspace, 'src', 'real.ts'), 1, 1)
         return Promise.resolve(
           result({
             content: 'See `src/real.ts` for details.',
@@ -1337,7 +1775,8 @@ describe('runBoundedChatGeneration', () => {
 
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-      expect(outcome.content).toBe('See `src/real.ts` for details.')
+      expect(outcome.content).toContain('See `src/real.ts` for details.')
+      expect(outcome.content).not.toContain('never read or written')
       expect(outcome.content).not.toContain('not verified')
     })
   })
@@ -1345,4 +1784,329 @@ describe('runBoundedChatGeneration', () => {
 
 afterAll(() => {
   rmSync(workspace, { recursive: true, force: true })
+})
+
+/**
+ * These pin the removal of the prose classifiers, not just their replacements.
+ *
+ * Anodex used to decide whether a plan was active, whether a bookkeeping pass
+ * should run, whether a change was unverified, and whether a visual claim was
+ * supported — all by matching the model's or the user's wording. Each is now
+ * decided from settled tool calls, so the deciding question for every case
+ * below is "does changing only the words change the outcome?" It must not.
+ */
+describe('orchestration does not read prose', () => {
+  const editCall: ToolCall = {
+    id: 'edit-1',
+    name: 'edit_file',
+    kind: 'write',
+    title: 'Edit src/index.ts',
+    status: 'success'
+  }
+
+  function replyOnce(content: string, calls: ToolCall[] = []): void {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      for (const call of calls) io.onActivity?.(call)
+      return Promise.resolve(result({ content }))
+    })
+  }
+
+  it('appends the same verification note however the change is described', async () => {
+    const phrasings = [
+      'Done — fixed the build.',
+      'Restructured the entry point.',
+      'Här är ändringen.',
+      ''
+    ]
+
+    for (const content of phrasings) {
+      replyOnce(content, [editCall])
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+      expect(outcome.content).toContain('Build verification note')
+    }
+  })
+
+  it('passes an unfinished plan whatever the user typed', async () => {
+    const plan = {
+      title: 'Fix the sandbox',
+      steps: [{ id: 'step-1', title: 'Implement', status: 'in_progress' as const }],
+      updatedAt: 1
+    }
+
+    for (const prompt of ['continue the plan', 'add a totally unrelated feature', 'hej']) {
+      replyOnce('Looking into it.')
+      await runBoundedChatGeneration(baseRequest({ prompt, plan }), baseIo())
+      // It used to be withheld unless the wording matched a continuation
+      // pattern, which made phrasing an implicit control channel and hid real
+      // conversation state from the model on most turns.
+      expect(mockedRunGeneration.mock.calls[0][0].plan).toEqual(plan)
+    }
+  })
+
+  it('carries the objective through an epoch exactly as the user typed it', async () => {
+    for (const prompt of ['still not working', 'implement the moon orbits']) {
+      mockedRunGeneration.mockReset()
+      mockedRunGeneration
+        .mockImplementationOnce((_request, io: RunGenerationIo) => {
+          io.onActivity?.(editCall)
+          return Promise.resolve(
+            result({
+              content: 'Partial progress.',
+              stopped: true,
+              stopReason: 'context-limit',
+              contextEpochCause: 'proactive'
+            })
+          )
+        })
+        .mockResolvedValueOnce(result({ content: 'Continued.' }))
+
+      await runBoundedChatGeneration(baseRequest({ prompt }), baseIo())
+
+      expect(mockedRunGeneration.mock.calls[1][0].contextEpoch?.objective).toBe(prompt)
+    }
+  })
+
+  it('keeps the model’s own findings in a handoff without filtering narration', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.(editCall)
+        return Promise.resolve(
+          result({
+            content: 'Let me check the config.\n\nThe loader path is wrong in vite.config.ts.',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive'
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Continued.' }))
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    // Stripping "process narration" by phrase used to truncate paragraphs
+    // mid-sentence when a matched phrase followed a real finding, so the
+    // finding is what has to survive — a little narration alongside it is
+    // cheaper than losing the conclusion.
+    const handoff = mockedRunGeneration.mock.calls[1][0].contextEpoch
+    expect(handoff?.workingSummary).toContain('loader path is wrong')
+  })
+})
+
+/**
+ * The plainest gap in the system, found live: a turn read two files, wrote
+ * "Let me check the rest of the planet creation and animation code", and ended.
+ * Clean provider finish, no stop reason, no error, no summary, nothing written.
+ * From the user's side it simply stopped, and Anodex said nothing about it.
+ *
+ * It reports rather than continuing, deliberately. Anodex cannot tell that turn
+ * apart from a deliberate diagnosis — the only difference is the user's wording
+ * — and continuing on a guess would risk editing a project the user asked not
+ * to touch.
+ */
+describe('a reply that changed nothing says so', () => {
+  const read: ToolCall = {
+    id: 'read-1',
+    name: 'read_file_range',
+    kind: 'read',
+    title: 'Read js/universe-sandbox.js lines 1-200',
+    status: 'success'
+  }
+
+  function replyOnce(content: string, calls: ToolCall[]): void {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      for (const call of calls) io.onActivity?.(call)
+      return Promise.resolve(result({ content }))
+    })
+  }
+
+  it('notes a turn that inspected and stopped without changing anything', async () => {
+    replyOnce('Let me check the rest of the planet creation and animation code.', [read])
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).toContain('No files were changed by this reply')
+  })
+
+  it('says nothing when the reply actually changed something', async () => {
+    replyOnce('Fixed the ambient light.', [
+      read,
+      {
+        id: 'edit-1',
+        name: 'replace_lines',
+        kind: 'write',
+        title: 'Replace js/universe-sandbox.js lines 48-54',
+        status: 'success'
+      }
+    ])
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).not.toContain('No files were changed')
+  })
+
+  it('does not count a shell command that only looked at a file as a change', async () => {
+    replyOnce('Checked the file.', [
+      {
+        id: 'cmd-1',
+        name: 'run_command',
+        kind: 'command',
+        title: "Run: sed -n '40,50p' js/universe-sandbox.js",
+        status: 'success'
+      }
+    ])
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).toContain('No files were changed by this reply')
+  })
+
+  it('stays quiet when the turn stopped for a reason the user already sees', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.(read)
+      // A stop the runner will not continue from, so the turn really ends here
+      // — `time-limit` and friends are recoverable and would take another cycle.
+      return Promise.resolve(
+        result({ content: 'Partial.', stopped: true, stopReason: 'fixed-context-limit' })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    // A stop reason renders its own banner; two explanations for one outcome is
+    // worse than one.
+    expect(outcome.content).not.toContain('No files were changed')
+  })
+
+  it('stays quiet for a reply that used no tools at all', async () => {
+    replyOnce('Three.js renders to a canvas element.', [])
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).not.toContain('No files were changed')
+  })
+})
+
+/**
+ * The stall that survived every other fix.
+ *
+ * Four runs of one request ended the same way: the model announced its next
+ * action ("Now let me read the specific sections I need to fix") and then
+ * emitted a round with no tool call, which is what ends a provider loop. No
+ * stop reason, no error — the reply simply stopped mid-investigation.
+ *
+ * Continuing on "ended cleanly and changed nothing" was tried and reverted: a
+ * deliberate diagnosis is identical in that state, and only the user's wording
+ * separates them. An unfinished **plan** is the difference. It is explicit,
+ * user-visible state the model wrote itself, and a question never has one.
+ */
+describe('an open plan resumes a turn that stopped while still working', () => {
+  const openPlan = {
+    title: 'Fix Universe Sandbox',
+    steps: [
+      { id: 'step-1', title: 'Fix lighting', status: 'completed' as const },
+      { id: 'step-2', title: 'Fix orbit lines', status: 'in_progress' as const }
+    ],
+    updatedAt: 1
+  }
+
+  const realWork: ToolCall = {
+    id: 'read-1',
+    name: 'read_file_range',
+    kind: 'read',
+    title: 'Read js/universe-sandbox.js lines 1-200',
+    status: 'success'
+  }
+
+  function firstCycle(calls: ToolCall[], content: string): void {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        for (const call of calls) io.onActivity?.(call)
+        return Promise.resolve(result({ content }))
+      })
+      .mockResolvedValue(result({ content: '' }))
+  }
+
+  it('resumes when the turn stopped with plan steps still open', async () => {
+    firstCycle([realWork], 'Now let me read the specific sections I need to fix.')
+
+    await runBoundedChatGeneration(baseRequest({ plan: openPlan }), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain('Continue exactly where you left')
+  })
+
+  it('does not resume a turn with no plan at all', async () => {
+    firstCycle([realWork], 'The renderer is black because initialization failed.')
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    // This is the diagnosis case, and it is why the plan is the gate: without
+    // one there is no state saying the work is unfinished, and guessing from
+    // the request's wording could edit a project the user asked not to touch.
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+  })
+
+  it('does not resume when every plan step is already complete', async () => {
+    firstCycle([realWork], 'All done.')
+
+    await runBoundedChatGeneration(
+      baseRequest({
+        plan: {
+          ...openPlan,
+          steps: openPlan.steps.map((step) => ({ ...step, status: 'completed' as const }))
+        }
+      }),
+      baseIo()
+    )
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+  })
+
+  it('does not resume a cycle whose only calls were plan bookkeeping', async () => {
+    firstCycle(
+      [
+        {
+          id: 'plan-1',
+          name: 'update_plan_step',
+          kind: 'plan',
+          title: 'Update plan step 2',
+          status: 'success'
+        }
+      ],
+      'Marked step 2 in progress.'
+    )
+
+    await runBoundedChatGeneration(baseRequest({ plan: openPlan }), baseIo())
+
+    // Ticking a row is not evidence that work is in flight, so resuming would
+    // just amplify a turn that achieved nothing.
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+  })
+
+  it('does not resume a cycle whose only call was a redirect', async () => {
+    firstCycle(
+      [{ ...realWork, madeProgress: false, detail: 'Redirected to stored evidence' }],
+      'Let me look again.'
+    )
+
+    await runBoundedChatGeneration(baseRequest({ plan: openPlan }), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+  })
+
+  it('stops resuming once the model stops calling tools', async () => {
+    firstCycle([realWork], 'Now let me read the specific sections I need to fix.')
+
+    await runBoundedChatGeneration(baseRequest({ plan: openPlan }), baseIo())
+
+    // The bound that keeps a permanently-open plan from tripling every later
+    // turn: a cycle that calls nothing ends the run, so a finished turn costs
+    // exactly one extra round to say so.
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+  })
 })

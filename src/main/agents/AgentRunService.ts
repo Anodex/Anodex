@@ -23,7 +23,7 @@ import {
 } from './agentPrompts'
 import { budgetExceededReason } from './agentBudgets'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
-import { createReadCoverageTracker, type ReadCoverageTracker } from '../tools/readCoverage'
+import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import { headlessConfirm } from '../tools/headlessConfirm'
 
 const log = createLogger('agent-run-service')
@@ -229,7 +229,7 @@ class AgentRunService {
     // `Conversation`, including `toolCalls`), but nothing tracked *coverage*
     // across turns before this, so a long run could still burn turns/tokens
     // re-reading the same file ranges it already saw several turns back.
-    const readCoverage = createReadCoverageTracker()
+    const ledger = createTaskLedger()
     const startTurn = options?.startTurn ?? 1
     let turnsUsed = run.turnsUsed
     let tokensUsed = run.tokensUsed
@@ -270,7 +270,7 @@ class AgentRunService {
           providerOverride,
           controller.signal,
           plan,
-          readCoverage
+          ledger
         )
         tokensUsed += tokens
         if (nextPlan) plan = nextPlan
@@ -387,7 +387,7 @@ class AgentRunService {
     // See the identical `readCoverage` tracker in `runLoop` — scoped to just
     // the planning phase's own (at most two) turns, not shared with the
     // separate `runLoop` that follows once the plan is approved.
-    const readCoverage = createReadCoverageTracker()
+    const ledger = createTaskLedger()
     // Read once, before the try block runs any generation — `runLoop` (via
     // `approvePlan`) re-checks its own preflight budget on the way in, so
     // there's no risk of auto-approving into a run that's actually already
@@ -402,7 +402,7 @@ class AgentRunService {
         providerOverride,
         controller.signal,
         null,
-        readCoverage
+        ledger
       )
       let plan = first.plan
       let turnsUsed = 1
@@ -438,7 +438,7 @@ class AgentRunService {
           providerOverride,
           controller.signal,
           null,
-          readCoverage
+          ledger
         )
         turnsUsed = 2
         tokensUsed += retry.tokens
@@ -522,7 +522,7 @@ class AgentRunService {
     providerOverride: { provider: AgentRun['provider']; model?: string },
     signal: AbortSignal,
     currentPlan: Plan | null,
-    readCoverage: ReadCoverageTracker
+    ledger: TaskLedger
   ): Promise<{
     finished: boolean
     summary: string | null
@@ -566,7 +566,7 @@ class AgentRunService {
           ...AGENT_TURN_BUDGET,
           ...turnTimeLimitOverride(settingsStore.get().generation.turnTimeLimitMinutes)
         },
-        readCoverage,
+        ledger,
         onActivity: (call) => toolCallsById.set(call.id, call),
         confirm: headlessConfirm
       }

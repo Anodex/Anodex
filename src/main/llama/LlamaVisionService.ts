@@ -16,9 +16,13 @@ import { APPROX_CHARS_PER_TOKEN } from '@shared/contextProjection'
 import { projectHistoryForModel, rememberToolCallForModel } from './contextAssembler'
 import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
-import { createLoopGuardState } from '../tools/loopGuard'
 import { createToolLoopAbortState } from '../tools/toolLoopAbort'
-import { createReadCoverageTracker } from '../tools/readCoverage'
+import {
+  collapsedEvidenceNotice,
+  evidenceDescriptorOf,
+  isEvidenceDescriptorOnly
+} from '../tools/evidenceStore'
+import { createTaskLedger } from '../tools/taskLedger'
 import { createLogger } from '../utils/logger'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
@@ -46,19 +50,7 @@ import type { GenerateOutcome, GenerateParams } from './LlamaService'
 import type { ModelInfo, ModelLoadOptions } from '@shared/model.types'
 import { basename } from 'node:path'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
-import {
-  detectFallbackToolCall,
-  looksLikeFabricatedOutcome,
-  looksLikeStalledIntent,
-  looksLikeToolBypass,
-  looksLikeUnactedIntent,
-  stripFallbackCall
-} from './toolCallFallback'
-import {
-  INTENT_NUDGE_PROMPT,
-  STALLED_INTENT_NUDGE_PROMPT,
-  TOOL_BYPASS_NUDGE_PROMPT
-} from './intentNudges'
+import { detectFallbackToolCall, stripFallbackCall } from './toolCallFallback'
 import { createTurnProgress } from '../tools/turnProgress'
 import {
   createVisualInputQueue,
@@ -156,13 +148,12 @@ const MIN_TOOL_CALL_OUTPUT_TOKENS = 1_280
  * on, which is what makes them the right thing to shed first.
  */
 const PROTECTED_RECENT_TOOL_RESULTS = 2
-/** Tools the bypass nudge names by name; it only fires when one is registered. */
-const EDIT_TOOL_NAMES = ['write_file', 'append_file', 'edit_file', 'patch_file']
-
-function hasEditTool(toolFunctions: Record<string, ToolFunction>): boolean {
-  return EDIT_TOOL_NAMES.some((name) => name in toolFunctions)
-}
-
+/**
+ * Evidence handles kept visible once their bodies have been shed. Enough for
+ * the model to see the shape of what it has gathered recently; older ones stay
+ * one `recall_evidence()` call away. See `collapseEvidenceDescriptors`.
+ */
+const KEPT_EVIDENCE_DESCRIPTORS = 12
 /**
  * The next output must be large enough for the kind of request we are about to
  * make. A percentage-only reserve lets a tiny tool-enabled window issue a
@@ -176,13 +167,32 @@ export function minimumViableOutputTokens(contextSize: number, hasTools: boolean
   return hasTools ? Math.max(scaled, MIN_TOOL_CALL_OUTPUT_TOKENS) : scaled
 }
 
-/** Reserve enough room for one bounded result landing before the next round. */
+/**
+ * Reserve enough room for one bounded result landing before the next round.
+ *
+ * Deliberately small now, and the reason matters. This used to be 15% of the
+ * window — 2,457 tokens at 16K — stacked on top of `minimumViableOutputTokens`,
+ * which is itself sized for a whole tool call. Together with the system prompt
+ * and tool schemas that left a 16K model roughly 1,500 tokens of actual working
+ * room, so the turn could afford about one substantial file read before
+ * tripping the proactive stop; everything after that was recovery. The measured
+ * consequence is in `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §2.
+ *
+ * The stacking was never necessary: a tool result cannot exceed what
+ * `computeModelToolResultBudget` allots it, and that budget is derived from the
+ * *same* remaining room this reserve is protecting. Reserving for it twice
+ * priced in a result that cannot arrive. What is genuinely unbudgeted is only
+ * the framing around the result and the model's own tool-call message, so that
+ * is what this covers.
+ *
+ * Evicting a result is also no longer destructive (see `TurnEvidenceStore`), so
+ * running closer to the edge costs a collapse to a handle rather than the loss
+ * of the evidence itself — which is what made a large safety margin feel
+ * necessary in the first place.
+ */
 export function epochHeadroomTokens(contextSize: number, hasTools: boolean): number {
   if (!hasTools) return Math.max(128, Math.floor(contextSize * 0.02))
-  // Tool results are capped dynamically, but read-oriented tools can still
-  // legitimately consume several thousand tokens. Reserve enough room for a
-  // typical bounded result without forcing a recovery after every two calls.
-  return Math.max(512, Math.min(3_000, Math.floor(contextSize * 0.15)))
+  return Math.max(256, Math.min(1_024, Math.floor(contextSize * 0.04)))
 }
 
 export interface VisionPromptUsageCorrection {
@@ -333,14 +343,8 @@ export class LlamaVisionService {
       maxRetries: 0
     })
     const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, LOCAL_VISION_MIME_TYPES)
-    // Mirrors the text path's per-turn tracking (see `LlamaService.
-    // generateInternal`): `hadSuccessfulWrite` gates the unacted-intent check,
-    // the broader `hadAnyToolAttempt` gates the fabricated-outcome one, so a
-    // truthful same-turn report is never flagged.
     const currentModel = this.getCurrentModel?.()
-    let hadSuccessfulWrite = false
     let hadAnyToolAttempt = false
-    let fabricationDetectedThisTurn = false
     // Recomputed from this round's real measurement below, exactly as the text
     // path does (`LlamaService.generateInternal`). Left at `null` — as this
     // transport used to leave it permanently — every tool result falls back to
@@ -357,9 +361,6 @@ export class LlamaVisionService {
           () => toolLoopAbort.request(),
           (call) => {
             hadAnyToolAttempt = true
-            if (call.kind === 'write' && call.status === 'success' && call.madeProgress !== false) {
-              hadSuccessfulWrite = true
-            }
             // Denied calls are excluded — a user decision, not a model signal.
             if (currentModel && (call.status === 'success' || call.status === 'error')) {
               modelReliabilityStore.recordToolCall(
@@ -374,7 +375,7 @@ export class LlamaVisionService {
           }
         )
       : undefined
-    const toolSurface = this.boundTools(allToolFunctions, params)
+    const toolSurface = this.boundTools(allToolFunctions)
     const toolFunctions =
       Object.keys(toolSurface.functions).length > 0 ? toolSurface.functions : undefined
     const tools = toolFunctions ? toOpenAiTools(toolFunctions) : undefined
@@ -409,7 +410,6 @@ export class LlamaVisionService {
     let effectiveMaxTokens = requestedMaxTokens ?? DEFAULT_MAX_TOKENS
     let toolCallRecoveries = 0
     let fallbackRounds = 0
-    let usedIntentNudge = false
     for (let round = 0; round < maxToolRounds; round++) {
       if (params.signal?.aborted) {
         stopped = true
@@ -460,6 +460,12 @@ export class LlamaVisionService {
           if (reclaimToolResultRoom(messages, tier) === 0) continue
           measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
           if (fitsNow(measured)) break
+        }
+        if (
+          !fitsNow(measured) &&
+          collapseEvidenceDescriptors(messages, KEPT_EVIDENCE_DESCRIPTORS) > 0
+        ) {
+          measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
         }
         if (!fitsNow(measured) && reclaimEarlierInspectionImages(messages) > 0) {
           measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
@@ -829,47 +835,6 @@ export class LlamaVisionService {
           })
           continue
         }
-
-        const isToolBypass = !hadSuccessfulWrite && looksLikeToolBypass(roundContent, params.prompt)
-        const isStalledIntent =
-          !hadAnyToolAttempt && looksLikeStalledIntent(roundContent, params.prompt)
-        const needsUnactedIntentNudge =
-          (!hadSuccessfulWrite && looksLikeUnactedIntent(roundContent)) ||
-          (!hadAnyToolAttempt && looksLikeFabricatedOutcome(roundContent))
-        // Recorded whether or not a nudge fires below: the model still
-        // fabricated, even on a round with no retry budget left.
-        if (isToolBypass || isStalledIntent || needsUnactedIntentNudge) {
-          fabricationDetectedThisTurn = true
-          if (currentModel) {
-            modelReliabilityStore.recordFabrication(
-              currentModel.id,
-              currentModel.name,
-              basename(currentModel.path)
-            )
-          }
-        }
-        // The bypass nudge names write_file/edit_file/patch_file, so it only
-        // fires when one of them is actually registered.
-        const needsToolBypassNudge = isToolBypass && hasEditTool(toolFunctions)
-        if (
-          (needsToolBypassNudge || needsUnactedIntentNudge || isStalledIntent) &&
-          !usedIntentNudge
-        ) {
-          usedIntentNudge = true
-          // Only when there is something to attribute: an assistant turn with
-          // neither content nor tool calls is not a shape every chat template
-          // renders safely.
-          if (roundContent) messages.push({ role: 'assistant', content: roundContent })
-          messages.push({
-            role: 'user',
-            content: needsToolBypassNudge
-              ? TOOL_BYPASS_NUDGE_PROMPT
-              : needsUnactedIntentNudge
-                ? INTENT_NUDGE_PROMPT
-                : STALLED_INTENT_NUDGE_PROMPT
-          })
-          continue
-        }
       }
 
       if (calls.length === 0 || !toolFunctions) break
@@ -962,7 +927,6 @@ export class LlamaVisionService {
         requestedMaxTokens,
         effectiveMaxTokens
       }),
-      fabricationDetected: fabricationDetectedThisTurn || undefined,
       stopped:
         stopped ||
         roundsExhausted ||
@@ -1176,11 +1140,10 @@ export class LlamaVisionService {
       beforeTool: params.tools.beforeTool,
       plan: { current: params.tools.plan },
       turnGate: { approved: false },
-      loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
       // Reuse a caller-owned guard across bounded continuation cycles when supplied.
       progress: createTurnProgress(params.tools.progressSeed),
       modelResultBudget,
-      readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
+      ledger: params.tools.ledger ?? createTaskLedger(),
       visualInputs,
       abortGeneration,
       signal: params.signal,
@@ -1189,16 +1152,10 @@ export class LlamaVisionService {
     })
   }
 
-  private boundTools(
-    allFunctions: Record<string, ToolFunction> | undefined,
-    params: GenerateParams
-  ): BoundedToolSurface {
+  private boundTools(allFunctions: Record<string, ToolFunction> | undefined): BoundedToolSurface {
     return boundToolSurface({
       allFunctions,
       define: defineToolFunction,
-      routingText: [...params.history.slice(-8).map((turn) => turn.content), params.prompt].join(
-        '\n'
-      ),
       targetFixedTokens: toolSurfaceTargetTokens(this.contextSize),
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
       measureFixedTokens: (functions) =>
@@ -1329,12 +1286,31 @@ function reclaimToolResultRoom(messages: ChatCompletionMessageParam[], tier: Rec
   for (const index of reclaimable.slice(0, Math.max(0, reclaimable.length - tier.protectRecent))) {
     const message = messages[index] as { content: string; tool_call_id?: string }
     const name = (message.tool_call_id && toolNameById.get(message.tool_call_id)) || 'a tool'
+    // The result's durable handle, if `retainAsEvidence` stored one. When it
+    // exists, freeing this result is a pure truncation down to that line: the
+    // body is still in `TurnEvidenceStore`, and the descriptor says what it was
+    // and how to get it back.
+    //
+    // This is the difference between the old behaviour and the current one, and
+    // it is the whole fix for the livelock in
+    // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1. This code used to tell the model
+    // to "run it again" — which `ReadCoverageTracker` then refused as
+    // already-covered and `loopGuard` blocked on the perturbed retries. One
+    // message spent 157 tool calls and produced zero writes inside that loop.
+    // Anodex must never ask the model for an action another subsystem forbids.
+    const descriptor = evidenceDescriptorOf(message.content)
+    const body = descriptor
+      ? message.content.slice(0, message.content.length - descriptor.length - 1)
+      : message.content
     // Every tier slices from the head of whatever is there now, so re-running a
     // tighter tier over an already-trimmed result just shortens it further
     // instead of stacking notices.
-    const shortened =
-      tier.keepChars > 0
-        ? `${message.content.slice(0, tier.keepChars).trimEnd()}\n${RECLAIMED_RESULT_MARKER} The rest of ${name} was trimmed to make room in this turn. Run it again if you need the whole thing — do not guess at the rest.`
+    const shortened = descriptor
+      ? tier.keepChars > 0
+        ? `${body.slice(0, tier.keepChars).trimEnd()}\n${descriptor}`
+        : descriptor
+      : tier.keepChars > 0
+        ? `${body.slice(0, tier.keepChars).trimEnd()}\n${RECLAIMED_RESULT_MARKER} The rest of ${name} was trimmed to make room in this turn. Run it again if you need the whole thing — do not guess at the rest.`
         : `${RECLAIMED_RESULT_MARKER} The full result of ${name} was dropped to make room in this turn. Run it again if you still need it — do not guess at what it said.`
     // A "shortening" that grew the message buys nothing and would loop.
     if (shortened.length >= message.content.length) continue
@@ -1456,6 +1432,41 @@ const RECLAIM_TIERS: readonly ReclaimTier[] = [
   { keepChars: 0, protectRecent: PROTECTED_RECENT_TOOL_RESULTS },
   { keepChars: 0, protectRecent: 1 }
 ]
+
+/**
+ * Once every body is down to its handle, the handles themselves become the
+ * cost: a task with fifty stored results carries roughly a thousand tokens of
+ * descriptor lines. Collapse all but the newest into one line pointing at the
+ * catalogue, which `recall_evidence` with no argument prints in full.
+ *
+ * Runs after `RECLAIM_TIERS` and only when they were not enough, because the
+ * newest descriptors are worth real money to the model — they are its only
+ * at-a-glance record of what this task has already gathered.
+ */
+function collapseEvidenceDescriptors(
+  messages: ChatCompletionMessageParam[],
+  keepNewest: number
+): number {
+  const collapsible: number[] = []
+  messages.forEach((message, index) => {
+    if (message.role !== 'tool') return
+    const content = (message as { content?: unknown }).content
+    if (typeof content === 'string' && isEvidenceDescriptorOnly(content)) collapsible.push(index)
+  })
+  const targets = collapsible.slice(0, Math.max(0, collapsible.length - keepNewest))
+  if (targets.length === 0) return 0
+  const notice = collapsedEvidenceNotice(collapsible.length)
+  for (const [position, index] of targets.entries()) {
+    messages[index] = {
+      ...(messages[index] as object),
+      // Only the first collapsed slot keeps the pointer; the rest become a
+      // minimal placeholder, because a tool message may not be removed outright
+      // without orphaning its `tool_calls` entry (see `reclaimToolResultRoom`).
+      content: position === 0 ? notice : '[trimmed]'
+    } as ChatCompletionMessageParam
+  }
+  return targets.length
+}
 
 /** Prefix identifying an already-shortened result. */
 const RECLAIMED_RESULT_MARKER = '[Result trimmed to fit the context.]'
@@ -1612,7 +1623,7 @@ function contextBudgetFor(input: {
 
 /** Token target `boundToolSurface` sizes this transport's native surface against. */
 function toolSurfaceTargetTokens(contextSize: number): number {
-  return Math.max(1_200, Math.floor(contextSize * 0.28))
+  return Math.max(900, Math.floor(contextSize * 0.18))
 }
 
 /**

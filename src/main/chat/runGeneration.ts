@@ -11,7 +11,6 @@ import type { WebSource } from '@shared/webSources.types'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
-import type { LoopGuardState } from '../tools/loopGuard'
 import {
   currentLedgerRevision,
   withLedgerRevision,
@@ -25,7 +24,11 @@ import type { GenerationOptions } from '@shared/chat.types'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
-import { cloudContextWindowTokens, DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
+import {
+  cloudContextWindowTokens,
+  DEFAULT_RECALL_WINDOW_FRACTION,
+  type CloudProvider
+} from '@shared/contextBudget'
 import { composeSystemPrompt } from '@shared/prompts'
 import { buildContextEpochSystemPrompt, capContextEpochHandoff } from '@shared/contextPrompt'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
@@ -52,7 +55,7 @@ import { skillStore } from '../skills/SkillStore'
 import { buildActiveSkillContext } from '../skills/activeSkillContext'
 import { parseRunCommandVerification } from '../tools/commandTools'
 import { mcpManager } from '../mcp/McpManager'
-import type { ReadCoverageTracker } from '../tools/readCoverage'
+import type { TaskLedger } from '../tools/taskLedger'
 import { chatEvents } from './chatEvents'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
 import { computerControlService } from '../computerControl/ComputerControlService'
@@ -111,17 +114,14 @@ export interface RunGenerationIo {
   /** Optional stricter per-turn policy; interactive defaults remain bounded too. */
   executionBudget?: GenerationBudgetPolicy
   /**
-   * Shared across every call in a caller-owned multi-cycle/multi-turn task
-   * (see `ToolRuntimeContext.readCoverage`'s doc comment) — `BoundedChatRunner`
-   * and `AgentRunService` supply one so read tools can trim a request down to
-   * only its new portion (or short-circuit entirely) across cycle/turn
-   * boundaries, not just within one call. Omit for a genuine one-shot
-   * generation (e.g. Critical Thinking's isolated phases): a fresh, call-
-   * scoped tracker is used instead, with no cross-call effect.
+   * What the caller-owned multi-cycle/multi-turn task has already read, called
+   * and stored — see `ToolRuntimeContext.ledger`. `BoundedChatRunner` and
+   * `AgentRunService` supply one so coverage, repeat detection and recallable
+   * evidence all span cycle/turn boundaries rather than one call. Omit for a
+   * genuine one-shot generation (e.g. Critical Thinking's isolated phases): a
+   * fresh, call-scoped ledger is used instead, with no cross-call effect.
    */
-  readCoverage?: ReadCoverageTracker
-  /** Shared across bounded continuation cycles so repeated tool investigations cannot reset the loop guard. */
-  loopGuard?: LoopGuardState
+  ledger?: TaskLedger
 }
 
 export interface RunGenerationResult {
@@ -329,6 +329,24 @@ export function resolveHistoryBounding(
 }
 
 /**
+ * The active model's context window, for callers that must size something
+ * against real capacity before the transport has measured anything — currently
+ * `composeSystemPrompt`, which picks the compact core prompt on a small window.
+ *
+ * Returns `undefined` rather than a default when no model is loaded: a guess
+ * here would silently shrink a large model's instructions, and the callers all
+ * treat "unknown" as "keep the full form".
+ */
+function activeContextWindowTokens(
+  providerId: string,
+  modelId: string | undefined
+): number | undefined {
+  if (providerId === 'local') return llamaService.getState().contextSize || undefined
+  if (!modelId) return undefined
+  return cloudContextWindowTokens(providerId as CloudProvider, modelId)
+}
+
+/**
  * Runs one assistant turn: composes the system prompt (workspace context,
  * project rules, retrieved memory), builds the tool set if enabled, calls the
  * active provider, then records project memory and token-activity stats.
@@ -371,7 +389,6 @@ export async function runGeneration(
   const failedToolsThisTurn: string[] = []
   const changedFilesThisTurn = new Set<string>()
   const verificationThisTurn: VerificationResult[] = []
-
   const tools = settings.tools.enabled
     ? {
         workspaceRoot,
@@ -382,6 +399,10 @@ export async function runGeneration(
         commandShell: settings.general.defaultShell.trim() || undefined,
         projectId: activeProject?.id ?? null,
         webSearch: settings.webSearch,
+        // Linked integrations remain available without interpreting the
+        // user's prose. The bounded tool surface keeps non-core domains behind
+        // the on-demand gateway, while their normal approval rules remain the
+        // authority for side effects.
         email: settings.email,
         memory: {
           crossChatEnabled: settings.memory.crossChatEnabled,
@@ -431,8 +452,7 @@ export async function runGeneration(
           io.onActivity?.(call)
         },
         confirm: io.confirm,
-        readCoverage: io.readCoverage,
-        loopGuard: io.loopGuard,
+        ledger: io.ledger,
         // Carry the previous epoch's ordering into this generation's evidence
         // gate. Without it `finish_goal` sees `madeChange: false` on a task
         // whose work completed in the previous epoch and demands another
@@ -483,6 +503,7 @@ export async function runGeneration(
       : null
   const systemPrompt = composeSystemPrompt({
     hasWorkspaceTools,
+    contextWindowTokens: activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id),
     hasProject: Boolean(activeProject),
     assistantStyle: settings.assistantStyle.globalStyle,
     projectRules,
@@ -778,7 +799,15 @@ function renderCurrentPlan(
     'Current visible work plan (the Workspace Dock shows this same plan):',
     `Title: ${plan.title}`,
     ...lines,
-    'Use update_plan_step with the 1-based step number to mark work in progress or completed.'
+    'Use update_plan_step with the 1-based step number to mark work in progress or completed.',
+    // Stated unconditionally rather than injected when a heuristic guesses the
+    // request is "new". Anodex used to decide whether to show the plan at all by
+    // pattern-matching the user's wording for continuation phrases, which made
+    // prompt phrasing an implicit control channel and meant an unfinished plan
+    // silently vanished from the model's view on most turns. The plan is real,
+    // user-visible conversation state; it is always shown, and its precedence
+    // relative to the current request is simply said out loud.
+    'This plan is existing state, not the current instruction. The user’s latest message takes precedence: work on what they just asked for, and only resume a plan step when it is what they asked for.'
   ].join('\n')
 }
 

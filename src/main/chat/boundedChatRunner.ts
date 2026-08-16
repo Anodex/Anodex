@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { basename } from 'node:path'
 import type {
   ChatHistoryTurn,
   ChatRequest,
@@ -9,17 +10,18 @@ import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from './runGeneration'
 import { isRecoverableGenerationStop } from './recoverableStop'
-import { createReadCoverageTracker } from '../tools/readCoverage'
-import { createLoopGuardState } from '../tools/loopGuard'
+import { createTaskLedger } from '../tools/taskLedger'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import {
   describeUnverifiedPathClaims,
   findUnverifiedPathClaims
 } from '../tools/pathClaimVerification'
 import { parseRunCommandVerification } from '../tools/commandTools'
-import { claimsVisualSuccess } from '../tools/visualVerification'
+import { isObservationalRunCommand, observationalCommandIdentity } from '../tools/commandEffect'
 import { progressFromSettledCalls } from '../tools/turnProgress'
 import { projectStore } from '../projects/ProjectStore'
+import { llamaService } from '../llama/LlamaService'
+import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { withEpochHandoff } from '@shared/context.types'
 
 /**
@@ -193,13 +195,28 @@ const GOAL_MAX_CYCLES = 40
 const MAX_CONSECUTIVE_RECOVERY_ONLY_CYCLES = 2
 
 /**
- * Files a single epoch may reopen despite existing read coverage.
+ * Extra cycles granted to a turn that ended cleanly with plan steps still open.
  *
- * Small on purpose. The allowance exists because an epoch drops evidence the
- * tracker still counts as read; it is not a licence to re-read the workspace,
- * which is the churn `ReadCoverageTracker` was built to stop.
+ * The model announcing its next action and then emitting a round with no tool
+ * call is what ends a provider loop, and it ended four runs of one request
+ * mid-investigation. An open plan is the state that says the work is not done —
+ * bounded here so a plan the model never closes cannot make every later turn in
+ * the conversation run three times as long.
  */
-const RECOVERY_READS_PER_EPOCH = 3
+const MAX_OPEN_PLAN_CONTINUATIONS = 3
+
+/**
+ * Evidence handles listed in a context-epoch handoff.
+ *
+ * This replaced a "you may reopen up to N files already read earlier" allowance.
+ * That allowance existed only because an epoch destroyed the results while the
+ * coverage tracker still recorded them as read, so the resumed model had to be
+ * granted permission to fetch them again. Results now survive the epoch in the
+ * ledger, so the right thing to hand the model is a catalogue of what it
+ * already has — recalling costs one round trip, no disk, and cannot be refused
+ * by a guard.
+ */
+const EPOCH_EVIDENCE_INDEX_ENTRIES = 12
 
 /**
  * Wall-clock ceiling across every cycle of one goal run.
@@ -266,8 +283,12 @@ export async function runBoundedChatGeneration(
   // stops a later cycle from re-reading territory an earlier cycle already
   // covered, independent of whether the model itself still remembers doing
   // so (a compaction summary between cycles may not preserve that fact).
-  const readCoverage = createReadCoverageTracker()
-  const loopGuard = io.loopGuard ?? createLoopGuardState()
+  // One ledger for the whole bounded reply — see `TaskLedger`. This is what
+  // makes a context epoch survivable: the epoch drops the cycle's tool
+  // transcript out of the model's context, while the ledger keeps what was read
+  // and what can still be recalled, so the fresh cycle resumes instead of
+  // starting over.
+  const ledger = io.ledger ?? createTaskLedger()
   // Same resolution `runGeneration` itself uses internally — needed here too
   // so the final reply can be checked against real disk/coverage state (see
   // `findUnverifiedPathClaims`), not just handed straight to the caller.
@@ -284,9 +305,16 @@ export async function runBoundedChatGeneration(
   let history: ChatHistoryTurn[] = baseHistory
   let prompt = request.prompt
   let context = request.context ?? undefined
-  // Plan state is separate from compacted transcript history. Carry the latest
-  // tool-emitted snapshot into every continuation cycle so a fresh context
-  // epoch can still update the same visible plan.
+  // Plan state is separate from compacted transcript history. An unfinished
+  // plan remains useful for an explicit continuation, but must not silently
+  // become the objective of a new concrete request in the same conversation.
+  // The plan stays persisted in the UI; this only decides whether the model
+  // receives it as active state for this reply.
+  // An unfinished plan is real, user-visible conversation state, so it is always
+  // passed. Whether it is *the current instruction* is stated in the rendered
+  // plan block itself (`renderCurrentPlan`) rather than decided here by matching
+  // the user's wording against continuation phrases — which made prompt phrasing
+  // an implicit control channel and hid the plan from the model on most turns.
   let currentPlan = activePlan(request.plan)
   let combinedContent = ''
   let combinedThinking = ''
@@ -304,6 +332,7 @@ export async function runBoundedChatGeneration(
   // read/command look like fresh progress simply because the context epoch
   // changed.
   const seenToolActivity = new Set<string>()
+  const seenReadActivity = new Set<string>()
   const seenCycleContent = new Set<string>()
   const completedToolCalls = new Map<string, ToolCall>()
   let latestCycleToolCalls: ToolCall[] | undefined
@@ -313,7 +342,7 @@ export async function runBoundedChatGeneration(
   // (which the evidence gate in `agentTools.ts` can refuse) rather than after
   // one pass. See `ChatRequest.goal`.
   const goal = request.goal?.trim() || null
-  const originalObjective = goal ?? request.prompt
+  const originalObjective = buildRecoveryObjective(request, goal)
   const goalDeadline = goal ? Date.now() + GOAL_MAX_TOTAL_MS : null
   const cycleCeiling = goal ? GOAL_MAX_CYCLES : MAX_CYCLES
   let goalFinished = false
@@ -322,6 +351,10 @@ export async function runBoundedChatGeneration(
   let contextEpoch: ContextEpochHandoff | undefined
   let contextEpochCount = 0
   let recoveryOnlyCycles = 0
+  let recoveryChurnDetected = false
+  /** Extra cycles spent resuming a turn that stopped with plan steps still open. */
+  let planContinuations = 0
+  let lastCycleUsedTools = false
 
   for (let cycle = 0; cycle < cycleCeiling; cycle++) {
     let novelToolActivityThisCycle = false
@@ -335,8 +368,7 @@ export async function runBoundedChatGeneration(
       { ...request, history, prompt, context, plan: currentPlan, contextEpoch },
       {
         ...io,
-        readCoverage,
-        loopGuard,
+        ledger,
         webSources,
         onActivity: (call) => {
           if (call.status !== 'running') {
@@ -369,9 +401,10 @@ export async function runBoundedChatGeneration(
     if (result.transcriptRecallUsed) transcriptRecallUsed.push(...result.transcriptRecallUsed)
     if (result.context) context = result.context
 
+    settleInterruptedReadCalls(toolCallsById, completedToolCalls, cycle, io)
     const cycleToolCalls = toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined
     latestCycleToolCalls = cycleToolCalls
-
+    lastCycleUsedTools = (cycleToolCalls?.length ?? 0) > 0
     const normalizedContent = normalizeCycleContent(result.content)
     const novelVisibleContent =
       normalizedContent.length > 0 && !seenCycleContent.has(normalizedContent)
@@ -380,13 +413,25 @@ export async function runBoundedChatGeneration(
     // every read tool — ranges, directory listings, code search, outlines — so a
     // cycle cannot slip past the guard by mixing one `search_files` in among its
     // re-reads, which a two-name list allowed.
-    const recoveryOnlyCycle = Boolean(
-      contextEpoch &&
-      cycleToolCalls?.length &&
-      cycleToolCalls.every(isReadLikeCall) &&
-      !novelVisibleContent
+    // Visible narration is not durable progress when every action in a
+    // post-epoch cycle is still a read. In the driving failure the model
+    // changed "Let me check the current state..." slightly on every pass,
+    // which made `novelVisibleContent` true and let thirteen context epochs
+    // repeat the same two ranges. The tool effects decide whether recovery
+    // advanced; prose cannot turn read churn into work.
+    const successfulReadIdentities =
+      cycleToolCalls
+        ?.filter((call) => call.status === 'success' && isReadLikeCall(call))
+        .map(recoveryReadIdentity) ?? []
+    const hasNovelReadEvidence = successfulReadIdentities.some(
+      (identity) => !seenReadActivity.has(identity)
     )
-    recoveryOnlyCycles = recoveryOnlyCycle ? recoveryOnlyCycles + 1 : 0
+    for (const identity of successfulReadIdentities) seenReadActivity.add(identity)
+    const recoveryOnlyCycle = Boolean(
+      contextEpoch && cycleToolCalls?.length && cycleToolCalls.every(isReadLikeCall)
+    )
+    const repetitiveRecoveryCycle = recoveryOnlyCycle && !hasNovelReadEvidence
+    recoveryOnlyCycles = repetitiveRecoveryCycle ? recoveryOnlyCycles + 1 : 0
     const recoveryChurn = recoveryOnlyCycles >= MAX_CONSECUTIVE_RECOVERY_ONLY_CYCLES
     const madeProgressThisCycle =
       (novelToolActivityThisCycle || novelVisibleContent) && !recoveryChurn
@@ -410,10 +455,11 @@ export async function runBoundedChatGeneration(
       result.stopped &&
       isRecoverableGenerationStop(result.stopReason) &&
       (result.stopReason !== 'loop-guard' || loopGuardRecovery)
+    recoveryChurnDetected ||= recoveryChurn && (recoveredStop || goalStillOpenFor(result, goal))
     const contextRecovery = result.stopReason === 'context-limit' || loopGuardRecovery
     let contextRecoveryBlocked = false
     let startedContextEpoch = false
-    if (contextRecovery) {
+    if (contextRecovery && !recoveryChurnDetected) {
       const unsafeNonTerminal =
         cycleToolCalls?.some((call) => call.status === 'running' && !isReadLikeCall(call)) ?? false
       if (!unsafeNonTerminal) {
@@ -424,14 +470,16 @@ export async function runBoundedChatGeneration(
           objective: originalObjective,
           plan: currentPlan,
           calls: [...completedToolCalls.values()],
+          workingSummary: buildRecoveryWorkingSummary(combinedContent),
+          // The epoch is about to drop this cycle's tool transcript out of the
+          // model's context. The results themselves survive in the ledger, but
+          // the resumed model has no way to know that unless it is told what is
+          // there — without this it starts the fresh cycle blind and re-reads.
+          // This is what replaced the old "you may reopen 3 files" allowance:
+          // recalling is cheaper than re-reading and cannot be refused.
+          evidenceIndex: ledger.evidence.index(EPOCH_EVIDENCE_INDEX_ENTRIES),
           priorFixedTokens: result.contextBudget?.fixedTokens
         })
-        // This epoch is about to drop evidence out of the model's active
-        // context while `readCoverage` — which spans the whole reply — still
-        // records it as read. Opening the matching allowance is what makes the
-        // handoff's own "reopen workspace evidence" instruction followable
-        // instead of answered with "already read earlier this task".
-        readCoverage.beginRecoveryEpoch(contextEpoch.recoveryReadAllowance)
         context = withEpochHandoff(context, contextEpoch)
         startedContextEpoch = true
       } else {
@@ -444,10 +492,38 @@ export async function runBoundedChatGeneration(
     // finish_goal — that is the autonomy. It still requires real progress, so
     // a cycle that achieved nothing stops here rather than looping.
     const goalStillOpen = goal !== null && !result.stopped
+    // A turn can also end cleanly while it was plainly still working. The
+    // provider loop stops the moment the model emits no tool call, which is not
+    // the same as the model being finished — observed four times on one request,
+    // most recently as "Now let me read the specific sections I need to fix"
+    // followed by nothing.
+    //
+    // What makes this safe to act on is the *plan*. An unfinished plan is
+    // explicit, user-visible state the model wrote itself, saying there is more
+    // to do; a question ("why is this black? diagnose only") has no plan at all,
+    // which is why continuing on a bare "changed nothing" signal was wrong and
+    // was reverted. This reads state, never the request's wording.
+    //
+    // Bounded, and still gated on `madeProgressThisCycle` below, so a plan left
+    // open forever cannot turn every later turn into a multi-cycle run.
+    // "Was it actually working?" — a successful call that did something and was
+    // not plan bookkeeping. A cycle that only ticked plan rows, or only got a
+    // redirect back, has not established that there is work in flight, and
+    // resuming it would amplify a turn that achieved nothing.
+    const madeRealToolProgress =
+      cycleToolCalls?.some(
+        (call) => call.status === 'success' && call.madeProgress !== false && call.kind !== 'plan'
+      ) ?? false
+    const stalledWithOpenPlan =
+      !result.stopped &&
+      goal === null &&
+      currentPlan !== null &&
+      madeRealToolProgress &&
+      planContinuations < MAX_OPEN_PLAN_CONTINUATIONS
+    if (stalledWithOpenPlan) planContinuations++
     const withinGoalDeadline = goalDeadline === null || Date.now() < goalDeadline
-
     const canContinue =
-      (recoveredStop || goalStillOpen) &&
+      (recoveredStop || goalStillOpen || stalledWithOpenPlan) &&
       madeProgressThisCycle &&
       cycle < cycleCeiling - 1 &&
       withinGoalDeadline &&
@@ -557,26 +633,41 @@ export async function runBoundedChatGeneration(
   const unverifiedPaths = await findUnverifiedPathClaims(
     combinedContent,
     workspaceRoot,
-    readCoverage
+    ledger.reads
   )
   const unverifiedNote = describeUnverifiedPathClaims(unverifiedPaths)
-  const buildVerificationNote = describeMissingBuildVerification(combinedContent, [
-    ...completedToolCalls.values()
-  ])
-  const visualVerificationNote = describeMissingVisualVerification(combinedContent, [
-    ...completedToolCalls.values()
-  ])
-  const planReconciliationNote = describeUnfinishedPlan(
-    currentPlan,
-    planReconciliationAttempted,
-    combinedContent
-  )
-  const finalContent = `${combinedContent}${unverifiedNote ?? ''}${buildVerificationNote ?? ''}${visualVerificationNote ?? ''}${planReconciliationNote ?? ''}`
+  // The fabrication signal the unattended surfaces show (`AgentRun.flaggedTurns`,
+  // the Scheduler flag, the model reliability score) now comes from here.
+  //
+  // It used to come from a set of phrase detectors asking whether the reply
+  // *sounded* like it was claiming work — "I've added…", "I fixed…" — which
+  // decided a durable reliability penalty from the model's writing style. This
+  // is the same question answered from state: the reply named workspace files,
+  // and this task neither read nor wrote them and they are not on disk. A
+  // wording change cannot create or hide it.
+  if (unverifiedPaths.length > 0) {
+    fabricationDetectedAnyCycle = true
+    const model = llamaService.getState().model
+    if (model) {
+      modelReliabilityStore.recordFabrication(model.id, model.name, basename(model.path))
+    }
+  }
+  const stalledNote = describeNoDurableChange({
+    toolCalls: [...completedToolCalls.values()],
+    usedTools: lastCycleUsedTools || completedToolCalls.size > 0,
+    stopped: finalResult.stopped
+  })
+  const buildVerificationNote = describeMissingBuildVerification([...completedToolCalls.values()])
+  const visualVerificationNote = describeMissingVisualVerification([...completedToolCalls.values()])
+  const planReconciliationNote = describeUnfinishedPlan(currentPlan, planReconciliationAttempted)
+  const finalContent = `${combinedContent}${unverifiedNote ?? ''}${stalledNote ?? ''}${buildVerificationNote ?? ''}${visualVerificationNote ?? ''}${planReconciliationNote ?? ''}`
 
   return {
     ...finalResult,
     content: finalContent,
     stats,
+    stopped: recoveryChurnDetected || finalResult.stopped,
+    stopReason: recoveryChurnDetected ? 'no-progress' : finalResult.stopReason,
     goalOutcome:
       goal === null
         ? undefined
@@ -591,6 +682,10 @@ export async function runBoundedChatGeneration(
     webSearchAttempted: webSources.attempted,
     context
   }
+}
+
+function goalStillOpenFor(result: RunGenerationResult, goal: string | null): boolean {
+  return goal !== null && !result.stopped
 }
 
 /**
@@ -621,6 +716,8 @@ function buildContextEpochHandoff(input: {
   objective: string
   plan: ChatRequest['plan'] | null | undefined
   calls: ToolCall[]
+  workingSummary?: string
+  evidenceIndex?: string
   priorFixedTokens?: number
 }): ContextEpochHandoff {
   const settledCalls = input.calls.filter(
@@ -644,13 +741,14 @@ function buildContextEpochHandoff(input: {
     epoch: input.epoch,
     cause: input.cause,
     objective: input.objective,
+    workingSummary: input.workingSummary,
+    evidenceIndex: input.evidenceIndex,
     plan: input.plan ?? undefined,
     completedTools,
     // Derived in `turnProgress.ts` from the same kind sets the live gate uses,
     // so an epoch can never disagree with `agentTools.ts` about what counts as
     // work or as a rendering-affecting change.
     progress: progressFromSettledCalls(input.calls.map(asProgressCall)),
-    recoveryReadAllowance: RECOVERY_READS_PER_EPOCH,
     priorFixedTokens: input.priorFixedTokens,
     verificationNote:
       'Preserve the existing evidence gate: after a rendering-affecting change, inspect the result again before claiming success.'
@@ -665,16 +763,87 @@ function buildContextEpochHandoff(input: {
 function selectContextEpochCalls<T extends ToolCall>(calls: readonly T[]): T[] {
   const durableLimit = 6
   const recentOtherLimit = 2
+  const evidenceLimit = 4
   const durable = (call: T): boolean =>
     call.status === 'success' &&
     call.madeProgress !== false &&
     !isReadLikeCall(call) &&
     call.kind !== 'plan'
   const selected = new Set(calls.filter(durable).slice(-durableLimit))
-  for (const call of calls.filter((call) => !durable(call)).slice(-recentOtherLimit)) {
+  const visual = calls.findLast(
+    (call) => call.name === 'inspect_visual' && call.status === 'success'
+  )
+  if (visual) selected.add(visual)
+
+  const evidenceKeys = new Set<string>()
+  let evidenceCount = visual ? 1 : 0
+  for (const call of calls.toReversed()) {
+    if (evidenceCount >= evidenceLimit) break
+    if (!isReadLikeCall(call) || call.status !== 'success' || call === visual) continue
+    const key = readEvidenceKey(call)
+    if (evidenceKeys.has(key)) continue
+    evidenceKeys.add(key)
+    selected.add(call)
+    evidenceCount++
+  }
+
+  for (const call of calls
+    .filter((call) => !durable(call) && !(isReadLikeCall(call) && call.status === 'success'))
+    .slice(-recentOtherLimit)) {
     selected.add(call)
   }
   return calls.filter((call) => selected.has(call))
+}
+
+function readEvidenceKey(call: ToolCall): string {
+  const path = call.touchedPaths?.[0]?.toLowerCase()
+  if (path) {
+    const category = call.name === 'inspect_visual' ? 'visual' : 'file'
+    return `${category}:${path}`
+  }
+  return `${call.name}:${call.title.toLowerCase().replace(/\d+/g, '#')}`
+}
+
+/**
+ * What this bounded reply is trying to achieve, carried across context epochs.
+ *
+ * The standing goal when there is one, otherwise the request exactly as the
+ * user typed it. Anodex used to inspect the wording for "vague follow-up"
+ * phrasing and splice earlier user turns into the objective when it matched,
+ * which made what a recovery resumed depend on the user's choice of words: a
+ * phrasing the pattern missed produced a different objective than one it
+ * caught, for the same intent. The preceding turns are still in
+ * `request.history`; they do not need a regex to promote them.
+ */
+function buildRecoveryObjective(request: ChatRequest, goal: string | null): string {
+  return goal ?? request.prompt.trim()
+}
+
+/**
+ * The model's own conclusions from this reply so far, carried into the next
+ * epoch: the newest few distinct paragraphs, verbatim.
+ *
+ * An earlier version tried to strip "process narration" ("Let me check…") with
+ * phrase patterns. That made what survived a recovery depend on wording, and it
+ * truncated a paragraph mid-sentence whenever a matched phrase happened to
+ * follow a real finding. Deduplicated and bounded is enough — a little
+ * narration costs a few tokens, while a dropped conclusion costs the work that
+ * produced it. The epoch's factual content comes from the settlement list and
+ * the evidence index rendered beside this, not from here.
+ */
+function buildRecoveryWorkingSummary(content: string): string | undefined {
+  const unique = new Set<string>()
+  const substantive: string[] = []
+  for (const raw of content.split(/\n{2,}/)) {
+    const paragraph = raw.trim().replace(/\s+/g, ' ')
+    if (!paragraph) continue
+    const key = paragraph.toLowerCase()
+    if (unique.has(key)) continue
+    unique.add(key)
+    substantive.push(paragraph)
+  }
+  if (substantive.length === 0) return undefined
+  return substantive.slice(-4).join('\n')
 }
 
 /** A completed plan is UI history, not active model state for a later request. */
@@ -695,23 +864,35 @@ function isReadLikeCall(call: Pick<ToolCall, 'name' | 'kind' | 'title'>): boolea
   return call.kind === 'read' || isObservationalRunCommand(call)
 }
 
-function isObservationalRunCommand(call: Pick<ToolCall, 'name' | 'title'>): boolean {
-  if (call.name !== 'run_command' || !call.title.startsWith('Run: ')) return false
-  const command = call.title.slice('Run: '.length).trim()
-  if (
-    /(?:^|[\s;&|])(?:Set-Content|Add-Content|Out-File|Remove-Item|Move-Item|Copy-Item|New-Item|Rename-Item|git\s+(?:add|commit|checkout|switch|reset|restore|clean|merge|rebase|cherry-pick|push|pull))\b|(?:^|\s)(?:>>?|2>)\s*/i.test(
-      command
-    )
-  ) {
-    return false
-  }
-  return /^(?:Get-Content|Select-String|Get-ChildItem|Get-Item|Get-Location|Get-Command|Test-Path|Resolve-Path|Measure-Object|rg|grep|findstr|ls|dir|type|cat|head|tail|pwd|where(?:\.exe)?|which)\b|^git\s+(?:status|diff|log|show|branch|rev-parse)\b/i.test(
-    command
-  )
-}
-
 function asProgressCall(call: ToolCall): ToolCall {
   return isObservationalRunCommand(call) ? { ...call, kind: 'read' } : call
+}
+
+function recoveryReadIdentity(call: ToolCall): string {
+  if (call.name === 'run_command' && call.title.startsWith('Run: ')) {
+    return `run_command:${observationalCommandIdentity(call.title.slice('Run: '.length))}`
+  }
+  return `${call.name}:${call.title}`.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+function settleInterruptedReadCalls(
+  toolCallsById: Map<string, ToolCall>,
+  completedToolCalls: Map<string, ToolCall>,
+  cycle: number,
+  io: RunGenerationIo
+): void {
+  for (const [id, call] of toolCallsById) {
+    if (call.status !== 'running' || !isReadLikeCall(call)) continue
+    const settled: ToolCall = {
+      ...call,
+      status: 'error',
+      detail: 'Stopped before this read finished',
+      madeProgress: false
+    }
+    toolCallsById.set(id, settled)
+    completedToolCalls.set(`${cycle}:${id}`, settled)
+    io.onActivity?.(settled)
+  }
 }
 
 /**
@@ -745,60 +926,125 @@ function normalizeCycleContent(content: string): string {
  * Whether the bookkeeping-only reconciliation pass should run.
  *
  * The `toolCalls` condition is what stops this pass amplifying a turn that
- * achieved nothing. Reconciliation exists to close the gap between a finished
- * piece of work and a plan whose rows still say pending — it presupposes that
- * work happened. In chat `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef` the final
- * reply made one edit and then spent seven of eleven calls rewriting plan
- * statuses, and inviting one more status-only generation on top of that made
- * the churn worse rather than better. If the reply produced no successful
- * non-plan tool call, there is by definition nothing new for a status update
- * to honestly reflect, and the "unfinished plan" note below is the truthful
- * outcome instead.
+ * achieved nothing. Reconciliation exists to close the gap between finished
+ * work and a plan whose rows still say pending, so it presupposes that durable
+ * work actually happened: a read can inform an answer, but it cannot prove an
+ * implementation step advanced. In chat
+ * `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef` one read followed by "Let me ... fix
+ * it" launched an 11-call plan-only pass over an older plan.
+ *
+ * The gate is entirely the settled calls now. It used to additionally require
+ * the reply to *sound* finished, which decided a bookkeeping pass from the
+ * model's choice of words and skipped it whenever a genuinely complete turn
+ * happened to end on a caveat. Durable work plus an open plan step is the whole
+ * condition; the reconciliation prompt itself already refuses to tick a step the
+ * completed work does not support.
  */
+/**
+ * State plainly that a reply which used workspace tools changed nothing.
+ *
+ * The gap this closes is the plainest one in the whole system. A live turn read
+ * two files, wrote "Let me check the rest of the planet creation and animation
+ * code", and ended — clean provider finish, no stop reason, no error, no
+ * summary, nothing written. From the user's side it simply stopped, and Anodex
+ * said nothing at all about it.
+ *
+ * Anodex cannot tell that turn apart from a deliberate diagnosis, and must not
+ * try: the only thing distinguishing them is the user's wording ("diagnose
+ * only; do not edit"), and reading that to decide whether to keep working is
+ * the first item on this architecture's prohibited list. Continuing
+ * automatically would risk editing a project the user explicitly asked not to
+ * touch.
+ *
+ * So this reports rather than acts. For a diagnosis it is a true and quiet
+ * confirmation that nothing was touched; for a stall it is the missing signal
+ * that the work did not happen. Suppressed when the turn stopped for a known
+ * reason, which already surfaces its own banner.
+ */
+function describeNoDurableChange(input: {
+  toolCalls: ToolCall[]
+  usedTools: boolean
+  stopped: boolean
+}): string | null {
+  if (input.stopped || !input.usedTools) return null
+  if (input.toolCalls.some(isDurableChange)) return null
+  return (
+    '\n\nNo files were changed by this reply — it only inspected. ' +
+    'Say "continue" if you expected an edit.'
+  )
+}
+
+/**
+ * Whether one settled call actually changed something.
+ *
+ * A successful shell command that only looked at a file is excluded: the whole
+ * point of `isObservationalRunCommand` is that `run_command`'s kind describes
+ * the tool, not the effect.
+ */
+function isDurableChange(call: ToolCall): boolean {
+  return (
+    call.status === 'success' &&
+    call.madeProgress !== false &&
+    MUTATING_TOOL_KINDS.has(call.kind) &&
+    !isObservationalRunCommand(call)
+  )
+}
+
 function canReconcilePlan(
   plan: ChatRequest['plan'] | null | undefined,
   result: RunGenerationResult,
   io: RunGenerationIo,
   toolCalls: ToolCall[]
 ): boolean {
-  const didRealWork = toolCalls.some(
-    (call) => call.status === 'success' && call.madeProgress !== false && call.kind !== 'plan'
-  )
+  const didDurableWork = toolCalls.some(isDurableChange)
   return Boolean(
     !result.stopped &&
     !io.signal?.aborted &&
-    didRealWork &&
+    didDurableWork &&
     plan?.steps.some((step) => step.status !== 'completed') &&
     (io.enabledTools == null || io.enabledTools.has('update_plan_step'))
   )
 }
 
+/**
+ * States which plan rows the completed work could not be shown to finish.
+ *
+ * Reported whenever a reconciliation pass ran and left rows open, without
+ * reading the reply: this is a statement about the plan's state, not an
+ * accusation about what the reply claimed. It was previously suppressed unless
+ * the wording matched a completion pattern — which silenced it on exactly the
+ * hedged turn where the user most needs to see what is still open.
+ */
 function describeUnfinishedPlan(
   plan: ChatRequest['plan'] | null | undefined,
-  reconciliationAttempted: boolean,
-  content: string
+  reconciliationAttempted: boolean
 ): string | null {
-  if (!reconciliationAttempted || !plan || !claimsTaskCompletion(content)) return null
+  if (!reconciliationAttempted || !plan) return null
   const unfinished = plan.steps.filter((step) => step.status !== 'completed')
   if (unfinished.length === 0) return null
   return (
-    '\n\nPlan status: this reply reported completion, but the following visible plan step(s) could not be ' +
-    `confirmed as complete and remain open: ${unfinished.map((step) => step.title).join('; ')}.`
+    '\n\nPlan status: the following visible plan step(s) could not be confirmed as complete and ' +
+    `remain open: ${unfinished.map((step) => step.title).join('; ')}.`
   )
 }
 
-function claimsTaskCompletion(content: string): boolean {
-  if (/\b(?:not done|not complete|incomplete|cannot complete|can't complete)\b/i.test(content)) {
-    return false
-  }
-  return /\b(?:done|completed|finished|all set|implemented|fixed|created)\b/i.test(content)
-}
-
-function describeMissingBuildVerification(content: string, toolCalls: ToolCall[]): string | null {
-  if (!looksLikeBuildDiagnosis(content) || hasBuildOrTestVerification(toolCalls)) return null
+/**
+ * Notes that this reply changed files and nothing was run against them.
+ *
+ * Decided from the settled calls alone. The previous version fired only when
+ * the prose matched a "build/compile/typecheck" pattern *and* a second
+ * fix/cause/problem pattern, so it stayed silent on the majority of unverified
+ * changes and spoke up on diagnoses that had changed nothing at all. Both
+ * directions were wrong, and the silent one was the common one.
+ */
+function describeMissingBuildVerification(toolCalls: ToolCall[]): string | null {
+  const changedCode = toolCalls.some(
+    (call) => call.status === 'success' && call.madeProgress !== false && call.kind === 'write'
+  )
+  if (!changedCode || hasBuildOrTestVerification(toolCalls)) return null
   return (
-    '\n\nBuild verification note: no build, test, type-check, or lint command completed in this task. ' +
-    'Treat the structural diagnosis as an inspection finding, not a verified fix.'
+    '\n\nBuild verification note: this reply changed files, but no build, test, type-check, or lint ' +
+    'command completed in this task. Treat the change as unverified.'
   )
 }
 
@@ -853,45 +1099,28 @@ function describeGoalStop(reason: {
  * partial work still reaches the user, with the unsupported part named. A hard
  * block would discard honest progress along with the overclaim.
  */
-function describeMissingVisualVerification(content: string, toolCalls: ToolCall[]): string | null {
-  if (!claimsVisualSuccess(content)) return null
-
+function describeMissingVisualVerification(toolCalls: ToolCall[]): string | null {
   const lastMutationIndex = toolCalls.findLastIndex(
     (call) =>
       call.status === 'success' &&
       MUTATING_TOOL_KINDS.has(call.kind) &&
       !isObservationalRunCommand(call)
   )
-  const inspectedAfterLastChange = toolCalls.some(
-    (call, index) =>
-      call.name === 'inspect_visual' && call.status === 'success' && index > lastMutationIndex
-  )
-  if (inspectedAfterLastChange) return null
-
-  const inspectedAtAll = toolCalls.some(
+  if (lastMutationIndex < 0) return null
+  const lastInspectionIndex = toolCalls.findLastIndex(
     (call) => call.name === 'inspect_visual' && call.status === 'success'
   )
-  const reason =
-    lastMutationIndex >= 0 && inspectedAtAll
-      ? 'the only successful visual inspection in this reply happened BEFORE the last change was made, so it cannot show the result of that change'
-      : 'no successful visual inspection ran in this reply'
+  // No inspection anywhere in the reply means this is not a task about pixels,
+  // and demanding a screenshot would be noise. One that predates the last change
+  // means it *is* about pixels, and the newest change has not been looked at.
+  if (lastInspectionIndex < 0 || lastInspectionIndex > lastMutationIndex) return null
 
   return (
-    `\n\nVisual verification note: this reply reports that something now renders or works, but ` +
-    `${reason}. Treat that as untested. Call inspect_visual on the affected page — using its ` +
-    `sectionId for the specific section in question — after the final edit before relying on it.`
+    '\n\nVisual verification note: the last change in this reply came after the most recent visual ' +
+    'inspection, so nothing here shows its result. Call inspect_visual on the affected page — using ' +
+    'its sectionId for the specific section in question — before relying on it.'
   )
 }
-
-function looksLikeBuildDiagnosis(content: string): boolean {
-  return (
-    /\b(?:build|compile|typecheck|test suite)\b/i.test(content) &&
-    /\b(?:fix|fixed|cause|because|problem|issue|diagnos\w*|won't run|will not run|can't run)\b/i.test(
-      content
-    )
-  )
-}
-
 function hasBuildOrTestVerification(toolCalls: ToolCall[]): boolean {
   return toolCalls.some((call) => {
     const verification = parseRunCommandVerification(call)

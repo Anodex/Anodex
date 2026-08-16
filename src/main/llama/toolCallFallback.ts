@@ -15,15 +15,15 @@
  * wrapping shapes, parse strictly, and only accept a match whose `name` is an
  * actually-registered tool — never guess.
  *
- * Also handles related but distinct failures one level worse than a malformed
- * call: the model doesn't attempt a tool call at all, it narrates a file change
- * in prose ("Now let's add X to file.js: ```...```") or later claims the change
- * was made. There's no call artifact to recover here, so the detectors below
- * flag the reply so the caller can nudge the model to actually act (see
- * `LlamaService.generate()`'s intent-nudge step).
+ * Strictly a *parser*, and deliberately nothing more. This module used to also
+ * carry a set of intent detectors — "does this reply claim a change that never
+ * happened", "is it stalling", "did it fabricate an approval" — which the
+ * caller used to re-prompt the model. Those are gone: recovering a malformed
+ * call is reading syntax the model emitted, while judging whether a reply
+ * *means* it made a change is guessing at intent from wording, and Anodex does
+ * not let a phrase match drive orchestration. What a turn actually did is
+ * recorded in its settled tool calls.
  */
-
-import { CODE_ONLY_REQUEST_RE, hasSubstantialCodeFence } from '@shared/toolCallText'
 
 export interface FallbackToolCall {
   name: string
@@ -221,157 +221,4 @@ function findToolishJsonStart(text: string): number {
     return index
   }
   return -1
-}
-
-/** Language claiming a file change was made, checked only near the end of a reply. */
-const COMPLETION_CLAIM_RE =
-  /\bI(?:'ve| have)?\s+(?:added|updated|fixed|created|changed|modified|edited|wrote|rewritten|replaced)\b/i
-
-/** How much of the tail of a reply to check for a completion claim. */
-const INTENT_CHECK_WINDOW = 600
-
-/**
- * True when the end of a reply claims a file was changed ("I've added...",
- * "I fixed..."). Checking only the tail (not requiring the whole reply be short
- * or fence-free) matches how these claims actually appear — usually as a closing
- * summary after a long, otherwise-harmless explanation. This is intentionally
- * permissive on its own; the caller is expected to only act on it when no
- * write/edit tool call actually succeeded this turn, which is what makes a false
- * positive here harmless (verified elsewhere), not what makes this pattern itself
- * precise.
- */
-export function looksLikeUnactedIntent(text: string): boolean {
-  const trimmed = text.trim()
-  if (!trimmed) return false
-  return COMPLETION_CLAIM_RE.test(trimmed.slice(-INTENT_CHECK_WINDOW))
-}
-
-/**
- * Language claiming a tool-mediated *outcome* occurred — an approval, a denial,
- * or a passing/failing test or build — checked only near the end of a reply.
- * Distinct from `COMPLETION_CLAIM_RE`: that catches a first-person "I did X"
- * claim, this catches third-person/outcome narration describing something that
- * supposedly just happened. Observed directly: given a conversation that
- * already contained a real "denied by user" event from an earlier turn, a 7B
- * model later fabricated a fresh "The user denied adding the function"
- * sentence in a turn that made zero tool calls — inventing an event that never
- * happened *that* turn, distinct from falsely claiming its own success.
- * The test/build phrasing is untested-in-the-wild here but included by analogy
- * (a well-documented agentic-coding-assistant confabulation pattern) — narrow
- * enough to revisit if it never actually fires.
- */
-const FABRICATED_OUTCOME_RE =
-  /\b(?:the user|you)\s+(?:denied|rejected|declined|approved|allowed)\b|\b(?:the\s+)?(?:tests?|build|command)\s+(?:passed|failed|succeeded)\b/i
-
-/**
- * True when the end of a reply describes an approval/denial/test-result outcome.
- * Like `looksLikeUnactedIntent`, this is intentionally permissive on its own —
- * the caller should only act on it when *no tool call of any kind* happened
- * this turn, since a truthful report of a real outcome from this same turn
- * would otherwise be flagged too.
- */
-export function looksLikeFabricatedOutcome(text: string): boolean {
-  const trimmed = text.trim()
-  if (!trimmed) return false
-  return FABRICATED_OUTCOME_RE.test(trimmed.slice(-INTENT_CHECK_WINDOW))
-}
-
-/**
- * Broader than `FILE_ACTION_RE` below (which only covers file-edit verbs for
- * `looksLikeToolBypass`'s narrower purpose) — this also covers read/inspect
- * verbs, since a stalled turn is just as possible for "check git status" as
- * for "add a feature". Used against the *user's* prompt, not the reply.
- */
-const ACTION_REQUEST_RE =
-  /\b(?:add|create|edit|include|insert|modify|patch|put|replace|update|write|check|run|search|list|verify|test|fix|remember|delete|move|rename|refactor|propose|archive|mark)\b/i
-
-/**
- * True when the user's message asked for a concrete action and *no tool call
- * of any kind happened this turn* (the caller is expected to gate on this —
- * same discipline as `looksLikeUnactedIntent`/`looksLikeFabricatedOutcome`
- * above), and the reply isn't a genuine clarifying question. Deliberately
- * phrasing-agnostic on the reply itself: models have been observed avoiding
- * a real tool call while still sounding like something happened in at least
- * three distinct ways in the same long session — a bare "Let's add X"
- * announcement, a first-person "I've added X" claim (nominally covered by
- * `looksLikeUnactedIntent`, but that regex is narrow), and a passive/
- * third-person "X is now live" / "X has been updated" claim that matches
- * neither existing regex. Chasing each new phrasing with its own pattern is
- * a losing game — if the user asked for a checkable/actionable thing and
- * literally nothing was attempted, that's worth a nudge regardless of how
- * the reply is worded. The cost of a false positive here (a reply that
- * genuinely needed no tool call, e.g. "no change needed, X already does
- * that") is just one extra retry round, not a wrong action — the nudge
- * prompt explicitly allows declining plainly on retry.
- */
-export function looksLikeStalledIntent(reply: string, userPrompt: string): boolean {
-  const trimmed = reply.trim()
-  if (!trimmed || trimmed.endsWith('?')) return false
-  if (CODE_ONLY_REQUEST_RE.test(userPrompt)) return false
-  return ACTION_REQUEST_RE.test(userPrompt)
-}
-
-const FILE_ACTION_RE =
-  /\b(?:add|create|edit|include|insert|modify|patch|put|replace|update|write)\b/i
-const FILE_TARGET_RE =
-  /`?[\w./-]+\.(?:css|html|js|jsx|json|md|ts|tsx)`?|\b(?:css|html|javascript|js|file)\b/i
-
-/**
- * True when a project-chat reply appears to give the user file-edit code in
- * chat instead of applying it through write/edit tools. Kept conservative:
- * require a substantial code fence plus edit/action language, and suppress the
- * warning when the user's prompt explicitly asks to see code in chat.
- */
-export function looksLikeToolBypass(reply: string, userPrompt: string): boolean {
-  const trimmedReply = reply.trim()
-  if (!trimmedReply || CODE_ONLY_REQUEST_RE.test(userPrompt)) return false
-  if (!FILE_ACTION_RE.test(trimmedReply) || !FILE_TARGET_RE.test(trimmedReply)) return false
-  return hasSubstantialCodeFence(trimmedReply)
-}
-
-/**
- * A sentence opener that only makes sense as a *reply to something the user
- * just said* — an agreement with user feedback ("you're absolutely right"), a
- * concession ("good point"), or an apology ("my apologies", "sorry about
- * that"). Each is anchored to a sentence/line boundary (group 1) so the opener
- * itself (group 2) can be located precisely. The "you're right/correct" branch
- * only allows a short, fixed set of intensifiers between so it can't stretch
- * across an unrelated clause ("you're going to see the right side").
- */
-const FABRICATED_USER_REPLY_RE =
-  /((?:^|[\n.!?)]\s+))(you(?:'re| are)\s+(?:(?:absolutely|totally|completely|so|quite|100%|definitely|certainly|entirely|indeed|very)\s+)?(?:right|correct)\b|(?:good|great|fair)\s+(?:point|catch)\b|my\s+apolog(?:y|ies)\b|i\s+apologize\b|i'?m\s+sorry\b|apologies\b|sorry(?:,|\s+about|\s+for)\b|thanks?\s+(?:you\s+)?for\s+(?:the\s+|your\s+)?(?:feedback|catch|pointing|correcting|clarifying)\b)/gi
-
-/**
- * Locate the point where an assistant reply stops talking to the user and
- * starts fabricating the user's *next turn* — the model asks the user a
- * question ("Want me to fix these?") and then, in the same generation, keeps
- * going as if the user had already answered ("You're absolutely right — let me
- * apply those fixes"), often proceeding to act on its own invented approval.
- *
- * Returns the index where the fabricated reply begins (so a caller can cut the
- * turn there, keeping the genuine question), or -1 if none is found.
- *
- * The discriminator is a real question earlier in the *same* generation: within
- * one assistant turn no new user input can have arrived, so a "responding to
- * you" opener (agreement/concession/apology) that appears *after* the assistant
- * has already put a question to the user is fabricated by construction. Gating
- * on a preceding question is what keeps a legitimate "you're right" — one that
- * answers the user's *original* prompt at the top of a turn — from matching.
- */
-export function detectFabricatedUserTurn(text: string): number {
-  const questionIdx = text.indexOf('?')
-  if (questionIdx === -1) return -1
-
-  FABRICATED_USER_REPLY_RE.lastIndex = 0
-  let match: RegExpExecArray | null
-  while ((match = FABRICATED_USER_REPLY_RE.exec(text)) !== null) {
-    const openerStart = match.index + match[1].length
-    if (openerStart > questionIdx) return openerStart
-  }
-  return -1
-}
-
-/** True when a reply fabricates the user's next turn (see {@link detectFabricatedUserTurn}). */
-export function looksLikeFabricatedUserTurn(text: string): boolean {
-  return detectFabricatedUserTurn(text) !== -1
 }

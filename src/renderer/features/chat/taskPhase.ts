@@ -145,7 +145,110 @@ export function groupSegmentsForTimeline(segments: RenderSegment[]): TimelineBlo
     }
   }
 
+  return normalizeInterruptedText(blocks)
+}
+
+/**
+ * Some OpenAI-compatible local servers can switch from visible content to
+ * reasoning (or a tool call) in the middle of a sentence, then continue the
+ * visible sentence afterward. Keep the work inspectable, but present the two
+ * visible fragments as the sentence the model actually intended.
+ */
+function normalizeInterruptedText(input: TimelineBlock[]): TimelineBlock[] {
+  let blocks = input
+  let changed = true
+
+  while (changed) {
+    changed = false
+    const next: TimelineBlock[] = []
+
+    for (let index = 0; index < blocks.length; index += 1) {
+      const left = blocks[index]
+      const work = blocks[index + 1]
+      const right = blocks[index + 2]
+      if (
+        left?.type === 'text' &&
+        work?.type === 'work' &&
+        right?.type === 'text' &&
+        !endsVisibleSentence(left.text)
+      ) {
+        if (startsWithLowercaseContinuation(right.text)) {
+          appendTimelineBlock(next, work)
+          appendTimelineBlock(next, { type: 'text', text: joinText(left.text, right.text) })
+          index += 2
+          changed = true
+          continue
+        }
+
+        if (isShortOrphanFragment(left.text)) {
+          appendTimelineBlock(next, {
+            type: 'work',
+            segments: [{ type: 'thinking', text: left.text }, ...work.segments]
+          })
+          appendTimelineBlock(next, right)
+          index += 2
+          changed = true
+          continue
+        }
+      }
+
+      appendTimelineBlock(next, left)
+    }
+
+    blocks = next
+  }
+
+  // During live generation the continuation may not have arrived yet. Do not
+  // leave an unfinished piece of process narration hanging above the active
+  // work indicator; the original segments are derived again on the next
+  // render, so it will reappear as joined prose as soon as its text continues.
+  const trailingText = blocks[blocks.length - 2]
+  const trailingWork = blocks[blocks.length - 1]
+  if (
+    trailingText?.type === 'text' &&
+    trailingWork?.type === 'work' &&
+    !endsVisibleSentence(trailingText.text)
+  ) {
+    blocks = [
+      ...blocks.slice(0, -2),
+      {
+        type: 'work',
+        segments: [{ type: 'thinking', text: trailingText.text }, ...trailingWork.segments]
+      }
+    ]
+  }
+
   return blocks
+}
+
+function appendTimelineBlock(blocks: TimelineBlock[], block: TimelineBlock): void {
+  const last = blocks[blocks.length - 1]
+  if (last?.type === 'work' && block.type === 'work') {
+    last.segments.push(...block.segments)
+  } else if (last?.type === 'text' && block.type === 'text') {
+    last.text = joinText(last.text, block.text)
+  } else {
+    blocks.push(block)
+  }
+}
+
+function endsVisibleSentence(text: string): boolean {
+  return /[.!?…:;]["')\]}]*\s*$/.test(text)
+}
+
+function startsWithLowercaseContinuation(text: string): boolean {
+  const firstLetter = text.trimStart().match(/[A-Za-z]/)?.[0]
+  return firstLetter !== undefined && firstLetter === firstLetter.toLowerCase()
+}
+
+function isShortOrphanFragment(text: string): boolean {
+  const trimmed = text.trim()
+  return trimmed.length <= 32 && trimmed.split(/\s+/).length <= 3
+}
+
+function joinText(left: string, right: string): string {
+  if (/\s$/.test(left) || /^\s/.test(right)) return left + right
+  return `${left} ${right}`
 }
 
 /**
