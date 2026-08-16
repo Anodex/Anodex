@@ -449,4 +449,15 @@ describe('commands that cannot advance the task', () => {
     expect(isObservationalCommand('Start-Process npm -ArgumentList "run","build"')).toBe(false)
     expect(isObservationalCommand('Start-Process notepad.exe')).toBe(false)
   })
+
+  it('does not count waiting as work', () => {
+    // `NON_READ_POWERSHELL_VERB_RE`'s `Start-` prefix scored `Start-Sleep` as a
+    // mutation, so a reply that read one file and slept twice looked like it had
+    // changed something — which suppressed the "no files were changed" note it
+    // should have carried.
+    expect(isObservationalCommand('Start-Sleep -Seconds 4')).toBe(true)
+    expect(isObservationalCommand('timeout /t 4 /nobreak')).toBe(true)
+    expect(isObservationalCommand('sleep 2')).toBe(true)
+    expect(isObservationalCommand('ping -n 5 127.0.0.1')).toBe(true)
+  })
 })

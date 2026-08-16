@@ -36,8 +36,9 @@ const NON_READ_POWERSHELL_VERB_RE =
   /\b(?:Export|Import|Invoke|Save|Start|Stop|Restart|Install|Uninstall|Update|Enable|Disable|Register|Unregister)-[A-Za-z]+\b/i
 
 export function isObservationalCommand(command: string): boolean {
-  // Checked before the mutation patterns, which claim `Start-Process` wholesale.
-  if (BROWSER_LAUNCH_RE.test(command)) return true
+  // Checked before the mutation patterns, which claim `Start-Process` and
+  // every `Start-*` verb wholesale.
+  if (NON_ADVANCING_RE.test(command)) return true
   if (MUTATION_RE.test(command) || SHELL_MUTATION_RE.test(command)) return false
   const effective = unwrapPowerShellCommand(command)
   const ungrouped = effective.replace(/^\s*[(&{]+\s*/, '')
@@ -46,22 +47,25 @@ export function isObservationalCommand(command: string): boolean {
 }
 
 /**
- * Opening a URL in the user's browser.
+ * Commands that change nothing, gather nothing, and produce no evidence.
  *
- * `MUTATION_RE` claims `Start-Process` unconditionally, which is right for
- * `Start-Process npm -ArgumentList build` and wrong for
- * `Start-Process "http://localhost:8000/index.html"`. The second changes
- * nothing, gathers nothing, and produces no evidence — but scoring it as a
- * mutation let it reset the ledger's gathering streak, the same shape of hole
- * as the `sed`/`awk` gap: a call that advances the task by nothing being
- * counted as work.
+ * Two shapes, both of which `MUTATION_RE` claims wholesale and both of which a
+ * live run used to look busy while doing nothing:
  *
- * Reported as observational because every consumer asks the same question of
- * it — did this call move the task forward? — and for a browser launch the
- * answer is no.
+ * - **Opening a URL.** `Start-Process npm -ArgumentList build` is real work;
+ *   `Start-Process "http://localhost:8000/index.html"` opens a browser.
+ * - **Waiting.** `Start-Sleep -Seconds 4`, `timeout /t 4`, `sleep 2`. A pause
+ *   is the clearest possible case of a call that advances nothing, and
+ *   `NON_READ_POWERSHELL_VERB_RE`'s `Start-` prefix scored `Start-Sleep` as a
+ *   mutation. In one run that made a reply which read a single file and slept
+ *   twice look like it had *changed* something, which suppressed the "no files
+ *   were changed by this reply" note that should have accompanied it.
+ *
+ * Reported as observational because every consumer asks the same question of a
+ * command — did this move the task forward? — and here the answer is no.
  */
-const BROWSER_LAUNCH_RE =
-  /^(?:Start-Process|start|explorer|open|xdg-open|cmd(?:\.exe)?\s+\/c\s+start)\b[^|;&]*https?:\/\//i
+const NON_ADVANCING_RE =
+  /^(?:Start-Process|start|explorer|open|xdg-open|cmd(?:\.exe)?\s+\/c\s+start)\b[^|;&]*https?:\/\/|^(?:Start-Sleep|sleep|timeout(?:\.exe)?\s+\/t|ping\s+-n)\b/i
 
 /** Stable identity for differently-spelled reads of the same evidence. */
 export function observationalCommandIdentity(command: string): string {
