@@ -2110,3 +2110,64 @@ describe('an open plan resumes a turn that stopped while still working', () => {
     expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
   })
 })
+
+/**
+ * A guard that ends a turn silently is its own failure.
+ *
+ * A live run made 162 calls and six real edits, then had its last two calls
+ * refused by the gathering ladder and simply ended — no stop reason, no error,
+ * no summary. The guard behaved exactly as designed and the user saw a reply
+ * that stopped for no stated reason.
+ */
+describe('a reply cut short by the gathering ladder says so', () => {
+  const read: ToolCall = {
+    id: 'read-1',
+    name: 'read_file_range',
+    kind: 'read',
+    title: 'Read js/app.js lines 1-200',
+    status: 'success'
+  }
+
+  function replyOnce(io: RunGenerationIo, calls: ToolCall[], content: string): void {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, generationIo: RunGenerationIo) => {
+      // Drive the shared ledger the way the tool runners do, so the block is
+      // recorded through the real path rather than stubbed.
+      for (let i = 0; i < 40; i++) {
+        generationIo.ledger?.recordOutcome({ kind: 'read', madeProgress: true })
+      }
+      generationIo.ledger?.reviewCall({
+        name: 'search_files',
+        kind: 'read',
+        key: '{"pattern":"x"}',
+        args: { pattern: 'x' }
+      })
+      for (const call of calls) generationIo.onActivity?.(call)
+      return Promise.resolve(result({ content }))
+    })
+    void io
+  }
+
+  it('reports the refusal instead of ending in silence', async () => {
+    const io = baseIo()
+    replyOnce(io, [read], 'Looking at the sandbox setup.')
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), io)
+
+    expect(outcome.content).toContain('stopped this reply from looking further')
+    expect(outcome.content).toContain('continue')
+  })
+
+  it('stays quiet when nothing was refused', async () => {
+    const io = baseIo()
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, generationIo: RunGenerationIo) => {
+      generationIo.onActivity?.(read)
+      return Promise.resolve(result({ content: 'Looked at it.' }))
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), io)
+
+    expect(outcome.content).not.toContain('stopped this reply from looking further')
+  })
+})

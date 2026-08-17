@@ -42,6 +42,8 @@ export class TaskLedger {
   private readonly loopGuard: LoopGuardState = createLoopGuardState()
   /** Settled gathering calls since the last durable change — see `GATHERING_*`. */
   private gatheringStreak = 0
+  /** Gathering calls this task refused outright. Reported, never acted on. */
+  private blockedGatheringCalls = 0
 
   /**
    * Decide what to do with a call that is about to run.
@@ -125,9 +127,23 @@ export class TaskLedger {
       'and say plainly what is blocking you if you cannot.'
 
     if (this.gatheringStreak >= GATHERING_HARD_LIMIT) {
+      this.blockedGatheringCalls++
       return { action: 'block', detail: 'Blocked: gathering without progress', message }
     }
     return { action: 'advise', message }
+  }
+
+  /**
+   * How many gathering calls this task refused outright.
+   *
+   * Exposed so the finished reply can *say* the run was cut short. A live turn
+   * made 162 calls and six real edits, then had its last two calls blocked here
+   * and simply ended — no stop reason, no error, no summary. The guard behaved
+   * exactly as intended and the user saw a reply that stopped for no stated
+   * reason, which is its own kind of failure.
+   */
+  get blockedGathering(): number {
+    return this.blockedGatheringCalls
   }
 
   /**

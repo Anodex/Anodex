@@ -652,6 +652,10 @@ export async function runBoundedChatGeneration(
       modelReliabilityStore.recordFabrication(model.id, model.name, basename(model.path))
     }
   }
+  const gatheringNote = describeBlockedGathering({
+    blocked: ledger.blockedGathering,
+    stopped: finalResult.stopped
+  })
   const stalledNote = describeNoDurableChange({
     toolCalls: [...completedToolCalls.values()],
     usedTools: lastCycleUsedTools || completedToolCalls.size > 0,
@@ -660,7 +664,7 @@ export async function runBoundedChatGeneration(
   const buildVerificationNote = describeMissingBuildVerification([...completedToolCalls.values()])
   const visualVerificationNote = describeMissingVisualVerification([...completedToolCalls.values()])
   const planReconciliationNote = describeUnfinishedPlan(currentPlan, planReconciliationAttempted)
-  const finalContent = `${combinedContent}${unverifiedNote ?? ''}${stalledNote ?? ''}${buildVerificationNote ?? ''}${visualVerificationNote ?? ''}${planReconciliationNote ?? ''}`
+  const finalContent = `${combinedContent}${unverifiedNote ?? ''}${gatheringNote ?? ''}${stalledNote ?? ''}${buildVerificationNote ?? ''}${visualVerificationNote ?? ''}${planReconciliationNote ?? ''}`
 
   return {
     ...finalResult,
@@ -940,6 +944,31 @@ function normalizeCycleContent(content: string): string {
  * condition; the reconciliation prompt itself already refuses to tick a step the
  * completed work does not support.
  */
+/**
+ * Say that the reply was cut short because it kept gathering without
+ * progressing.
+ *
+ * `TaskLedger`'s gathering ladder refuses further reads once a turn has spent
+ * its allowance since the last durable change. That is the right call, and it
+ * is completely silent: a live turn made 162 calls and six real edits, had its
+ * final two calls refused here, and ended with no stop reason, no error and no
+ * summary. The guard worked; the user saw a reply that stopped for no stated
+ * reason.
+ *
+ * Suppressed when the turn stopped for a reason that renders its own banner,
+ * so one outcome never gets two explanations.
+ */
+function describeBlockedGathering(input: { blocked: number; stopped: boolean }): string | null {
+  if (input.stopped || input.blocked === 0) return null
+  return (
+    `
+
+Anodex stopped this reply from looking further: ${input.blocked} more ` +
+    'information-gathering call(s) were refused because it had gone a long stretch without ' +
+    'changing anything. Anything it had already done is above. Say "continue" to pick it up.'
+  )
+}
+
 /**
  * State plainly that a reply which used workspace tools changed nothing.
  *
