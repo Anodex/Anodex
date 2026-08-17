@@ -37,8 +37,10 @@ const RESERVED_VRAM_GB = 2
 const DEFAULT_CONTEXT_SIZE = 4096
 /** Largest context Anodex will auto-recommend. Bigger models cost more KV-cache
  * memory per token, so heavier tiers need more headroom to reach the same size —
- * smaller models can reach it on much more modest hardware. */
-const CONTEXT_CEILING = 131072
+ * smaller models can reach it on much more modest hardware. Raised past 131,072
+ * for workstations with half a terabyte of unified memory, which can hold far
+ * more than the old ceiling allowed them to ask for. */
+const CONTEXT_CEILING = 1048576
 
 const TIER_WEIGHT: Record<ModelTier, number> = {
   '1b': 1,
@@ -76,7 +78,14 @@ export function contextSizeFor(model: RecommendedModel, ramGb: number, vramGb = 
     case '70b':
     case '32b':
     case '14b':
-      if (usableGb >= 256) return CONTEXT_CEILING
+      // Rungs at and below 256 GB are deliberately unchanged: raising what an
+      // existing machine is told to use would double its KV cache on an app
+      // update, which is how a working setup starts failing to load. The new
+      // rungs only add reach above where the ladder used to stop.
+      if (usableGb >= 1024) return CONTEXT_CEILING
+      if (usableGb >= 512) return 524288
+      if (usableGb >= 384) return 262144
+      if (usableGb >= 256) return 131072
       if (usableGb >= 128) return 65536
       if (usableGb >= 64) return 32768
       return 16384

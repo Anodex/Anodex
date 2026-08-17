@@ -109,14 +109,14 @@ well before the limit, rotate before context rot sets in.
 
 | Window  | Output | Sys+ref | Schemas | Repo map | **Working set**   |
 | ------- | ------ | ------- | ------- | -------- | ----------------- |
-| 8,192   | 1,229  | 1,229   | 983     | 492      | **4,259 (52%)**   |
-| 16,384  | 2,458  | 2,458   | 1,966   | 983      | **8,519 (52%)**   |
+| 8,192   | 1,228  | 1,228   | 983     | 491      | **4,262 (52%)**   |
+| 16,384  | 2,457  | 2,457   | 1,966   | 983      | **8,521 (52%)**   |
 | 32,768  | 4,096  | 4,915   | 3,932   | 1,966    | **17,859 (55%)**  |
 | 131,072 | 4,096  | 8,192   | 6,144   | 4,096    | **108,544 (83%)** |
 
 The working set never falls below about half the window, at any size.
 
-**Against today's measured run at the same 16,384:** usable space goes from ~3,300 (21%) to 8,519
+**Against today's measured run at the same 16,384:** usable space goes from ~3,300 (21%) to 8,521
 (52%) — **2.6× more room**, before a single algorithmic change.
 
 ## 5. What to remove
