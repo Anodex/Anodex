@@ -195,25 +195,20 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
           // bounded "you may re-read N files" allowance: the result is still in
           // the ledger, and recalling it costs no disk read and cannot collide
           // with another guard.
-          if (ctx.ledger.reads.isFullyCovered(file)) {
-            const relative = toWorkspaceRelative(ctx.workspaceRoot, file)
-            // Same reasoning as `coverageRefusalResponse` below: point at the
-            // stored copy rather than refusing outright, because the model is
-            // most likely asking again precisely because the earlier result was
-            // evicted from its context to make room.
-            const stored = ctx.ledger.evidence.idsMentioning(relative)
-            return {
-              modelResult:
-                stored.length > 0
-                  ? `${relative} was already read in full earlier this task. The result is still stored: call recall_evidence("${stored[0]}") — optionally with a match argument — instead of reading it again.`
-                  : `${relative} was already read in full earlier this task — nothing new here. Move on to a different file.`,
-              detail:
-                stored.length > 0
-                  ? 'Redirected to stored evidence'
-                  : 'Already read in full earlier this task',
-              madeProgress: false
-            }
-          }
+          // A file already read in full is deliberately *not* refused here.
+          //
+          // This used to answer with "nothing new here", then with a pointer to
+          // stored evidence. Both are dead ends dressed differently: the model
+          // asks again precisely because the content was evicted, and the copy
+          // it gets pointed at is the one that was already stale. A live run
+          // spent 39% of 156 calls recalling, and still had four edits rejected
+          // for line numbers that had moved under an earlier edit of its own.
+          //
+          // Serving the read is cheap now and self-correcting: identical reads
+          // collapse to the newest in `projectHistoryForModel`, so repeating one
+          // cannot compound context, and what comes back reflects the file as it
+          // is rather than as it was. Runaway repetition is still bounded by the
+          // loop guard's abort and by the gathering ladder.
           const charBudget = clampModelResultCap(MAX_FILE_BYTES, ctx.modelResultBudget.current)
           // Rejectable on byte size alone (see MAX_UTF8_BYTES_PER_CHAR) —
           // return the honest pointer without pulling a potentially huge

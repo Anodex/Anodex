@@ -228,7 +228,7 @@ describe('read tools redirect a repeat to the stored copy', () => {
     expect(repeat).not.toContain('Try a different range or file instead')
   })
 
-  it('points a repeated whole-file read at the stored copy too', async () => {
+  it('serves a repeated whole-file read again rather than pointing at a copy', async () => {
     const ctx = createMockContext(workspace)
     const tool = readFileTool(createMockDefine(), ctx) as unknown as {
       handler: (args: { path: string }) => Promise<string>
@@ -237,7 +237,9 @@ describe('read tools redirect a repeat to the stored copy', () => {
 
     const repeat = await tool.handler({ path: 'a.txt' })
 
-    expect(repeat).toContain('recall_evidence("E1")')
+    // The stored copy is by definition the older one. Handing it back is how a
+    // live run ended up editing against line numbers that had already moved.
+    expect(repeat).toContain('line 1')
   })
 })
 

@@ -27,33 +27,40 @@ describe('TaskLedger.reviewCall', () => {
     expect(review(ledger).action).toBe('run')
   })
 
-  it('redirects a repeated read to the stored result instead of blocking it', () => {
+  it('lets a repeated read run again instead of refusing it', () => {
     const ledger = createTaskLedger()
-    ledger.evidence.record({
-      tool: 'read_file_range',
-      label: 'Read app.js lines 1-200',
-      body: BODY
-    })
 
     let verdict = review(ledger)
     for (let i = 0; i < LOOP_GUARD_LIMIT; i++) verdict = review(ledger)
 
-    // The whole point of the merge: the model is repeating the read because the
-    // result was evicted from its context, not because it is stuck. Refusing it
-    // — while the transport separately told it to re-run the tool — is the
-    // livelock in `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1.
-    expect(verdict.action).toBe('redirect')
-    expect(verdict.message).toContain('recall_evidence("E1")')
+    // The livelock in `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1 was that eviction
+    // told the model to re-run a tool the ledger then refused. The first fix
+    // pointed it at stored evidence instead; the live runs showed that trades
+    // one loop for another, because a recall costs a call *and* permanently
+    // enlarges replayed history with a copy that is already stale. Re-reading
+    // costs one bounded call and returns what is on disk now.
+    expect(verdict.action).toBe('run')
   })
 
-  it('blocks a repeated read with nothing stored to redirect to', () => {
+  it('lets a read repeat even with nothing stored, which is why it is safe', () => {
     const ledger = createTaskLedger()
 
     let verdict = review(ledger)
     for (let i = 0; i < LOOP_GUARD_LIMIT; i++) verdict = review(ledger)
 
-    expect(verdict.action).toBe('block')
-    expect(verdict.message).toContain('looks like a loop')
+    expect(verdict.action).toBe('run')
+  })
+
+  // Allowing the re-read does not remove the backstop, it moves it: a model
+  // that has genuinely stuck still stops, just later and by aborting rather
+  // than by being handed a stale copy of what it asked for.
+  it('still aborts a read that repeats past the abort threshold', () => {
+    const ledger = createTaskLedger()
+
+    let verdict = review(ledger)
+    for (let i = 0; i < LOOP_GUARD_ABORT_AFTER + 1; i++) verdict = review(ledger)
+
+    expect(verdict.action).toBe('abort')
   })
 
   it('never redirects a non-read, however many times it repeats', () => {

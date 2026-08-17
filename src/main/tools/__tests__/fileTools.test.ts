@@ -601,7 +601,7 @@ describe('AI file tools', () => {
         expect(rangeResult).toContain('already read earlier this task')
       })
 
-      it('short-circuits a repeat read_file for a file already read in full', async () => {
+      it('serves a repeat read_file for a file already read in full', async () => {
         await writeFile(join(workspace, 'whole.txt'), 'a\nb\nc')
         const capture = captureCalls()
         const ctx = { ...createMockContext(workspace), emit: capture.emit }
@@ -612,11 +612,15 @@ describe('AI file tools', () => {
         await tool.handler({ path: 'whole.txt' })
         const repeat = await tool.handler({ path: 'whole.txt' })
 
-        expect(repeat).toContain('already read in full earlier this task')
-        expect(capture.calls.at(-1)?.madeProgress).toBe(false)
+        expect(repeat).toContain('a')
+        expect(repeat).toContain('c')
+        expect(repeat).not.toContain('already read in full')
+        // It counts as progress now, because it did the work and returned the
+        // file as it currently stands rather than refusing.
+        expect(capture.calls.at(-1)?.madeProgress).not.toBe(false)
       })
 
-      it('answers a repeat whole-file read with the stored copy, not a dead end', async () => {
+      it('serves a repeat whole-file read again rather than dead-ending it', async () => {
         // A context epoch drops the file's content out of the model's active
         // context while this tracker still records it as read. That used to be
         // answered with "already read earlier this task" — leaving the model no
@@ -635,15 +639,14 @@ describe('AI file tools', () => {
 
         await tool.handler({ path: 'whole.txt' })
 
-        expect(await tool.handler({ path: 'whole.txt' })).toContain('already read in full')
-
-        // Every repeat is answered the same way, whether the coverage tracker or
-        // the ledger's repeat threshold gets there first: a pointer to the copy,
-        // never the content again, and never a dead end.
+        // Every repeat serves the file again. Pointing at a stored copy was the
+        // same dead end as refusing outright, one step removed: the copy is by
+        // definition the older one, which is how four edits in a live run came
+        // to be rejected for line numbers that had moved.
         for (let attempt = 0; attempt < 4; attempt++) {
           const repeat = await tool.handler({ path: 'whole.txt' })
-          expect(repeat).toContain('recall_evidence')
-          expect(repeat).not.toContain('const marker7 = 7')
+          expect(repeat).toContain('const marker7 = 7')
+          expect(repeat).not.toContain('already read in full')
         }
       })
 

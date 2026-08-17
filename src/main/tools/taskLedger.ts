@@ -79,20 +79,24 @@ export class TaskLedger {
     const guard = checkLoopGuard(this.loopGuard, spec.name, spec.key, spec.args)
     if (!guard.blocked) return { action: 'run' }
 
-    if (spec.recallable && spec.evidenceHint) {
-      const stored = this.evidence.idsMentioning(spec.evidenceHint)
-      if (stored.length > 0) {
-        return {
-          action: 'redirect',
-          detail: 'Redirected to stored evidence',
-          message:
-            `You have already called ${spec.name} this way ${guard.count} times this turn. ` +
-            `That result is still stored — call recall_evidence("${stored[0]}") to read it back ` +
-            '(add a match argument to jump straight to what you need) rather than running the ' +
-            'tool again.'
-        }
-      }
-    }
+    // A repeated *stable read* is allowed to run again, right up to the abort
+    // backstop. This reverses the redirect that used to send it to stored
+    // evidence, and it is the correction the live runs argued for.
+    //
+    // Forbidding the re-read is what made `recall_evidence` necessary at all,
+    // and recall is strictly worse than the thing it replaced: a re-read costs
+    // one bounded call and returns what is on disk *now*, while a recall costs
+    // a call and permanently enlarges replayed history with a copy that was
+    // already stale. One measured run spent 39% of 156 calls on recalls and
+    // still had four edits rejected for stale line numbers — the model was
+    // being handed back the very copy that was out of date.
+    //
+    // Re-reading is safe to allow because it is bounded elsewhere and by
+    // construction: identical reads are collapsed to the newest in
+    // `projectHistoryForModel`, so repeating one cannot compound context; the
+    // gathering ladder still stops a turn that only looks; and `shouldAbort`
+    // below remains the backstop against a model that has genuinely stuck.
+    if (spec.recallable && !guard.shouldAbort) return { action: 'run' }
 
     return {
       action: guard.shouldAbort ? 'abort' : 'block',

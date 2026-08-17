@@ -476,14 +476,82 @@ async function rebaseOversizedSummary(
   })
 }
 
+/**
+ * Tools whose result is a snapshot of a file at a moment in time, so a later
+ * identical call replaces rather than supplements it.
+ *
+ * `run_command` is absent on purpose: two identical commands can legitimately
+ * return different things, and the earlier output may be the interesting one.
+ */
+const SNAPSHOT_READ_TOOLS = new Set([
+  'read_file',
+  'read_file_range',
+  'read_multiple_files',
+  'code_outline'
+])
+
+const SUPERSEDED_READ_NOTICE =
+  '[superseded — this exact read was repeated later in the task, and the newer copy is the one that reflects the file now]'
+
+/**
+ * Ids of snapshot reads that a later, identical read has replaced.
+ *
+ * Identity is the tool name plus its rendered title, and the title carries the
+ * line range — so reading lines 1-50 and then 200-250 of one file leaves both
+ * in place, because they are different content rather than a repeat. Only a
+ * genuinely identical read is collapsed.
+ *
+ * Two problems measured in one live run share this cause. The model spent 39%
+ * of its calls re-fetching material it already had, each copy accumulating in a
+ * window that only grows; and four edits were rejected with "line numbers are
+ * stale" because the copy it was working from predated its own earlier edit.
+ * Keeping the newest copy answers both: context stops compounding, and what the
+ * model is looking at is what is actually on disk.
+ */
+function supersededReadIds(history: ChatHistoryTurn[]): Set<string> {
+  const newestSeen = new Set<string>()
+  const superseded = new Set<string>()
+  // Newest first, so the first sighting of an identity is the one that survives.
+  for (let turnIndex = history.length - 1; turnIndex >= 0; turnIndex--) {
+    const calls = history[turnIndex]?.toolCalls
+    if (!calls?.length) continue
+    for (let callIndex = calls.length - 1; callIndex >= 0; callIndex--) {
+      const call = calls[callIndex]
+      if (call.status !== 'success' || !SNAPSHOT_READ_TOOLS.has(call.name)) continue
+      const identity = `${call.name}::${call.title}`
+      if (newestSeen.has(identity)) superseded.add(call.id)
+      else newestSeen.add(identity)
+    }
+  }
+  return superseded
+}
+
+/**
+ * The stand-in for a read the model has since repeated. The call itself stays
+ * in the transcript — removing it would make the model's own history look as
+ * though it never looked — but its body is replaced by a line saying where the
+ * current copy is.
+ */
+function supersededReadMarker(call: ToolCall): ToolCall {
+  return {
+    ...call,
+    title: truncateToolTitle(call.title),
+    result: SUPERSEDED_READ_NOTICE,
+    detail: undefined
+  }
+}
+
 /** Sanitize transcript text and bound remembered tool output before model replay. */
 export function projectHistoryForModel(history: ChatHistoryTurn[]): ChatHistoryTurn[] {
+  const superseded = supersededReadIds(history)
   return history.map((rawTurn) => {
     const turn = sanitizeHistoryTurn(rawTurn)
     if (turn.role !== 'assistant' || !turn.toolCalls?.length) return turn
     return {
       ...turn,
-      toolCalls: turn.toolCalls.map(projectToolCallForModel)
+      toolCalls: turn.toolCalls.map((call) =>
+        superseded.has(call.id) ? supersededReadMarker(call) : projectToolCallForModel(call)
+      )
     }
   })
 }

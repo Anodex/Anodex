@@ -392,7 +392,7 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
     }
   }
 
-  it('lets identical read-tool calls through up to the limit, then blocks without running them', async () => {
+  it('keeps serving identical read-tool calls instead of refusing them', async () => {
     const ctx = createMockContext(root)
     const runMock = vi.fn(() => Promise.resolve({ modelResult: 'ok' }))
 
@@ -402,11 +402,13 @@ describe('loop guard (exercised via runReadTool / runGuardedTool)', () => {
     }
     expect(runMock).toHaveBeenCalledTimes(3)
 
-    const blocked = await runReadTool(ctx, { ...readSpec('Find skill "foo"'), run: runMock })
-    expect(blocked).toContain('find_skill')
-    expect(blocked).toContain('loop')
-    // The underlying call is never actually executed once blocked.
-    expect(runMock).toHaveBeenCalledTimes(3)
+    // A read that repeats past the limit now runs rather than being refused:
+    // the model is asking again because it lost the content, and handing it a
+    // refusal is the livelock this work exists to remove. The backstop moved to
+    // the loop guard's abort threshold rather than disappearing.
+    const repeated = await runReadTool(ctx, { ...readSpec('Find skill "foo"'), run: runMock })
+    expect(repeated).toBe('ok')
+    expect(runMock).toHaveBeenCalledTimes(4)
   })
 
   it('does not block calls to the same tool with different arguments', async () => {
