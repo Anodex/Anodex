@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MIN_WORKING_SET_FRACTION,
   allocateContextBudget,
+  reservedNonHistoryTokens,
   workingSetFraction
 } from '../contextBudget'
 import { CONTEXT_SIZE_LADDER } from '../contextSizes'
@@ -18,7 +19,7 @@ describe('allocateContextBudget', () => {
 
     it.each(CONTEXT_SIZE_LADDER)('never allocates more than the window at %i', (size) => {
       const a = allocateContextBudget(size)
-      const total = a.outputReserve + a.referenceContext + a.toolSchemas + a.repoMap + a.workingSet
+      const total = a.outputReserve + a.referenceContext + a.toolSchemas + a.workingSet
       expect(total).toBeLessThanOrEqual(size)
     })
 
@@ -32,13 +33,13 @@ describe('allocateContextBudget', () => {
   // overhead reached 79%, leaving ~3,300 tokens for the actual task.
   it('leaves the measured 16,384 window about half its space for the task', () => {
     const allocation = allocateContextBudget(16384)
-    expect(allocation.workingSet).toBe(8521)
+    expect(allocation.workingSet).toBe(9504)
     expect(workingSetFraction(allocation)).toBeGreaterThan(0.5)
     expect(allocation.constrained).toBe(false)
   })
 
   describe('the small end, where floors would overflow the window', () => {
-    // Floors sum to 2,304 before the repo map — more than the window itself.
+    // Floors sum to 2,304 — more than the whole window.
     it('scales floors back rather than returning a negative working set', () => {
       const allocation = allocateContextBudget(2048)
       expect(allocation.constrained).toBe(true)
@@ -46,8 +47,18 @@ describe('allocateContextBudget', () => {
       expect(workingSetFraction(allocation)).toBeGreaterThanOrEqual(MIN_WORKING_SET_FRACTION)
     })
 
-    it('still reserves some room for a reply', () => {
-      expect(allocateContextBudget(2048).outputReserve).toBeGreaterThan(0)
+    // A turn with no room to answer produces nothing, so the reply keeps its
+    // full floor and the two planning budgets absorb the whole squeeze.
+    it('protects the reply floor rather than squeezing it too', () => {
+      expect(allocateContextBudget(2048).outputReserve).toBe(512)
+      expect(allocateContextBudget(1000).outputReserve).toBe(512)
+    })
+
+    it('shrinks the planning budgets to pay for it', () => {
+      const roomy = allocateContextBudget(16384)
+      const cramped = allocateContextBudget(2048)
+      expect(cramped.referenceContext).toBeLessThan(roomy.referenceContext)
+      expect(cramped.toolSchemas).toBeLessThan(roomy.toolSchemas)
     })
 
     it('does not flag a comfortable window as constrained', () => {
@@ -67,10 +78,9 @@ describe('allocateContextBudget', () => {
     // for text that has nothing more to say.
     it('caps overhead so a huge window spends it on the task', () => {
       const allocation = allocateContextBudget(1048576)
-      expect(allocation.outputReserve).toBe(4096)
+      expect(allocation.outputReserve).toBe(8192)
       expect(allocation.referenceContext).toBe(8192)
       expect(allocation.toolSchemas).toBe(6144)
-      expect(allocation.repoMap).toBe(4096)
       expect(workingSetFraction(allocation)).toBeGreaterThan(0.97)
     })
 
@@ -99,6 +109,20 @@ describe('allocateContextBudget', () => {
       expect(allocation.rotateAtTokens).toBeLessThan(
         allocation.contextSize - allocation.outputReserve
       )
+    })
+  })
+
+  describe('reservedNonHistoryTokens', () => {
+    // Four call sites ask this question — assembler, compactor, text transport,
+    // renderer meter — and a second rule for it is how they came to disagree.
+    // It covers the reply only: the caller measures prompt and schemas itself,
+    // so reserving those here would charge for them twice.
+    it.each(CONTEXT_SIZE_LADDER)('agrees with the allocation at %i', (size) => {
+      expect(reservedNonHistoryTokens(size)).toBe(allocateContextBudget(size).outputReserve)
+    })
+
+    it('grows with the window instead of pinning to a constant', () => {
+      expect(reservedNonHistoryTokens(65536)).toBeGreaterThan(reservedNonHistoryTokens(8192))
     })
   })
 

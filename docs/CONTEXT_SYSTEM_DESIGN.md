@@ -92,39 +92,55 @@ one thing that must never be evicted; it is also the cheapest thing to keep.
 Every budget becomes `clamp(fraction × contextSize, floor, ceiling)`. Ratios protect small windows;
 ceilings stop large windows wasting space on a system prompt that does not need 20k tokens.
 
-| Budget                     | Fraction           | Floor | Ceiling |
-| -------------------------- | ------------------ | ----- | ------- |
-| Output reserve             | 15%                | 512   | 4,096   |
-| System + reference context | 15%                | 1,024 | 8,192   |
-| Tool schemas               | 12%                | 768   | 6,144   |
-| Repo map                   | 6%                 | 0     | 4,096   |
-| **Working set**            | remainder          | —     | —       |
-| Masking begins             | 60% of input limit |       |         |
-| Epoch rotation             | 80% of input limit |       |         |
-
-The 60/70/80 staging is the proportional scheme from the long-running-agent research: begin masking
-well before the limit, rotate before context rot sets in.
+| Budget            | Fraction           | Floor | Ceiling |
+| ----------------- | ------------------ | ----- | ------- |
+| Output reserve    | 15%                | 512   | 8,192   |
+| Reference context | 15%                | 1,024 | 8,192   |
+| Tool schemas      | 12%                | 768   | 6,144   |
+| **Working set**   | remainder          | —     | —       |
+| Masking begins    | 60% of input limit |       |         |
+| Epoch rotation    | 80% of input limit |       |         |
 
 ### What that yields
 
-| Window  | Output | Sys+ref | Schemas | Repo map | **Working set**   |
-| ------- | ------ | ------- | ------- | -------- | ----------------- |
-| 8,192   | 1,228  | 1,228   | 983     | 491      | **4,262 (52%)**   |
-| 16,384  | 2,457  | 2,457   | 1,966   | 983      | **8,521 (52%)**   |
-| 32,768  | 4,096  | 4,915   | 3,932   | 1,966    | **17,859 (55%)**  |
-| 131,072 | 4,096  | 8,192   | 6,144   | 4,096    | **108,544 (83%)** |
+| Window    | Output | Reference | Schemas | **Working set**     |
+| --------- | ------ | --------- | ------- | ------------------- |
+| 2,048     | 512    | 468       | 350     | **718 (35%)**       |
+| 8,192     | 1,228  | 1,228     | 983     | **4,753 (58%)**     |
+| 16,384    | 2,457  | 2,457     | 1,966   | **9,504 (58%)**     |
+| 131,072   | 8,192  | 8,192     | 6,144   | **108,544 (83%)**   |
+| 1,048,576 | 8,192  | 8,192     | 6,144   | **1,026,048 (98%)** |
 
-The working set never falls below about half the window, at any size.
+**Against the measured run at the same 16,384:** usable space goes from ~3,300 (21%) to 9,504 (58%).
 
-**Against today's measured run at the same 16,384:** usable space goes from ~3,300 (21%) to 8,521
-(52%) — **2.6× more room**, before a single algorithmic change.
+## 4a. Three things implementation changed
+
+Building it corrected the design in three places, each found by a failing test rather than by
+reasoning:
+
+- **No repo-map budget.** Reserving 6% for a feature that does not exist is room taken from the
+  working set for nothing. It returns with the feature.
+- **The reservation covers the reply, and only the reply.** `historyBudgetTokens` already subtracts
+  the _measured_ system prompt and the _measured_ tool schemas, so reserving the reference and
+  schema budgets on top charged for both twice — which is what made a small window look as though it
+  had no room for history at all. Those two budgets cap what gets _built_; they are not subtracted
+  again after it has been. This is the "two overlapping budget authorities" seam, found in our own
+  code rather than avoided in the abstract.
+- **The squeeze is not uniform.** When the floors do not fit, the reply keeps its full floor and the
+  two planning budgets absorb all of it. A turn with no room to answer produces nothing; a thinner
+  workspace summary still leaves a working system.
+
+One further defect surfaced: the workspace summary subtracted its notes and spec from the core's own
+allowance, a leftover from when a single constant covered all three. With each section separately
+capped that double-subtracted, and on a 2,048-token window it truncated the project's own name to
+`Name: ano…`.
 
 ## 5. What to remove
 
 This design deletes machinery rather than adding it, which after several rounds of guard-stacking is
 the right direction.
 
-- **`recall_evidence`** — superseded by legal re-reads (§3.2).
+- **`recall_evidence`** — superseded by legal re-reads (§3.2). _Still to do._
 - **The re-read ban in the coverage tracker** — the root cause of the livelock, and the reason recall
   had to be invented.
 - **Rolling-summary compaction as the primary path** — demoted behind masking; keep it only for
@@ -133,8 +149,9 @@ the right direction.
 
 ## 6. Order of work
 
-1. **Proportional budgets** (§4). Pure arithmetic, no behaviour change, immediately lifts the working
-   set 2.6× at 16k. Lowest risk, highest measured payoff.
+1. ~~**Proportional budgets** (§4).~~ **Done.** `allocateContextBudget` in `src/shared/contextBudget.ts`,
+   wired through the assembler, compactor, text transport, meter, workspace summary and memory
+   retriever. The ladder now reaches 1,048,576.
 2. **Legal re-reads + duplicate collapsing** (§3.2). Removes the recall storm and the stale-edit
    failures.
 3. **Observation masking** (§3.1) replacing summarization as the default path.

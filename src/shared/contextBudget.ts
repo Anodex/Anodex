@@ -19,10 +19,6 @@ import { QWEN_MODELS } from './qwenModels'
  * different context story than the engine actually uses.
  */
 
-export const RESERVED_NON_HISTORY_FRACTION = 0.2
-export const MIN_RESERVED_NON_HISTORY_TOKENS = 512
-export const MAX_RESERVED_NON_HISTORY_TOKENS = 8192
-
 /**
  * Manual compaction keeps this many newest turns verbatim. The summary covers
  * everything older, so the user can clean the context before a new phase
@@ -104,43 +100,34 @@ export function cloudContextWindowTokens(provider: CloudProvider, modelId: strin
   )
 }
 
-/** Non-history token reservation for the given context window. */
-export function reservedNonHistoryTokens(contextSize: number): number {
-  return Math.min(
-    MAX_RESERVED_NON_HISTORY_TOKENS,
-    Math.max(
-      MIN_RESERVED_NON_HISTORY_TOKENS,
-      Math.round(contextSize * RESERVED_NON_HISTORY_FRACTION)
-    )
-  )
-}
-
 /* ------------------------------------------------------------------------ *
  * Per-budget allocation
  *
- * `reservedNonHistoryTokens` above already sets the shape every budget here
- * follows — a fraction of the window, floored and ceilinged — but it answers
- * one coarse question: how much is not history. It does not say how that room
- * is divided, and the pieces it covers were each sized independently, some of
- * them as fixed character counts that do not scale at all.
+ * Everything that is not conversation history — the reply, the reference
+ * context, the tool schemas — is budgeted here, as a fraction of the window
+ * with a floor and a ceiling. The fraction is what makes it scale; the floor
+ * stops a small window allocating something too small to function; the ceiling
+ * stops a huge window spending 150,000 tokens on a system prompt that has
+ * nothing more to say.
  *
- * A measured run showed what that costs. At a 16,384-token window the real
- * fixed overhead reached 12,548 tokens — 79% of the window, nearly four times
- * the 20% this module reserves — leaving about 3,300 tokens for the task. The
- * reservation was never wrong; nothing was accountable to it.
+ * Anodex runs from 2,048 tokens on a laptop to 1,048,576 on a workstation with
+ * half a terabyte of unified memory. That is nine doublings, and a constant
+ * that suits either end is wrong at the other — which is also why the published
+ * agents' numbers cannot be copied: OpenCode's *safety buffer* alone is 20,000
+ * tokens, larger than the entire window of the run measured below.
  *
- * Anodex now runs from 2,048 tokens on a laptop to 1,048,576 on a workstation
- * with half a terabyte of unified memory. That is nine doublings, and a
- * constant that suits either end is wrong at the other — which is also why the
- * published agents' numbers cannot simply be copied: OpenCode's *safety buffer*
- * alone is 20,000 tokens, larger than the entire window measured above.
+ * ## Why this replaced a flat 20% reservation
  *
- * NOT YET WIRED. These budgets are declared and tested here first, deliberately
- * without changing what any of the ten current importers do. Moving the
- * assembler and both local transports onto them is the following step, and it
- * has to reconcile with `reservedNonHistoryTokens` rather than run beside it —
- * two overlapping budget authorities is precisely the seam that produces the
- * bugs this work exists to remove.
+ * `reservedNonHistoryTokens` used to be its own rule — 20% of the window,
+ * floored at 512 and ceilinged at 8,192 — sized independently of the things it
+ * was meant to cover. A measured run showed the cost: at a 16,384-token window
+ * the real fixed overhead reached 12,548 tokens, 79% of the window, nearly four
+ * times what was reserved for it, leaving about 3,300 tokens for the task. The
+ * reservation was not wrong so much as unenforced — nothing was accountable to
+ * it, so the assembler planned history against room that did not exist.
+ *
+ * It is now derived from the same allocation the rest of the system uses, so
+ * the number the meter shows and the number the prompt obeys cannot drift.
  * ------------------------------------------------------------------------ */
 
 /** A fraction of the window, bounded at both ends. All values are tokens. */
@@ -151,27 +138,28 @@ interface BudgetRule {
 }
 
 /**
- * Room held back for the model's own reply. The ceiling is low on purpose: no
- * single turn needs a 150,000-token answer, and reserving one would starve the
- * working set on exactly the machines that paid for the most memory.
+ * Room held back for the model's own reply. The ceiling matters: no single turn
+ * needs a 150,000-token answer, and reserving one would starve the working set
+ * on exactly the machines that paid for the most memory. 8,192 is generous
+ * enough for a long reasoning reply and is what the flat rule this replaced
+ * capped at, so the top of the range is unchanged.
  */
-const OUTPUT_RESERVE: BudgetRule = { fraction: 0.15, floor: 512, ceiling: 4096 }
+const OUTPUT_RESERVE: BudgetRule = { fraction: 0.15, floor: 512, ceiling: 8192 }
 
 /**
- * System prompt plus the workspace tree, project notes, spec and memory — the
- * budget whose pieces are currently fixed character counts.
+ * The workspace tree, project notes, spec and memory that open the system
+ * prompt. A planning budget, not a second reservation: the assembler measures
+ * the rendered prompt and subtracts the real count. This caps what goes into
+ * it — see `referenceContextChars`.
  */
 const REFERENCE_CONTEXT: BudgetRule = { fraction: 0.15, floor: 1024, ceiling: 8192 }
 
-/** JSON schemas of the exposed tools. */
-const TOOL_SCHEMAS: BudgetRule = { fraction: 0.12, floor: 768, ceiling: 6144 }
-
 /**
- * A ranked map of the repository. Floor of zero is deliberate: on a very small
- * window there is no map worth having, and a stub would cost room the working
- * set needs more.
+ * JSON schemas of the exposed tools. Also a planning budget — it decides how
+ * many tools are worth exposing on a given window, while the assembler
+ * subtracts the schemas actually rendered.
  */
-const REPO_MAP: BudgetRule = { fraction: 0.06, floor: 0, ceiling: 4096 }
+const TOOL_SCHEMAS: BudgetRule = { fraction: 0.12, floor: 768, ceiling: 6144 }
 
 /**
  * The share of the window the working set keeps no matter what. Below roughly
@@ -196,8 +184,6 @@ export interface ContextBudgetAllocation {
   referenceContext: number
   /** Tool JSON schemas. */
   toolSchemas: number
-  /** Ranked repository map. */
-  repoMap: number
   /** Everything left for conversation and tool results. */
   workingSet: number
   /** Begin masking old observations once the prompt passes this. */
@@ -226,28 +212,29 @@ export function allocateContextBudget(contextSize: number): ContextBudgetAllocat
   const raw = {
     outputReserve: applyRule(OUTPUT_RESERVE, size),
     referenceContext: applyRule(REFERENCE_CONTEXT, size),
-    toolSchemas: applyRule(TOOL_SCHEMAS, size),
-    repoMap: applyRule(REPO_MAP, size)
+    toolSchemas: applyRule(TOOL_SCHEMAS, size)
   }
 
-  const overhead = raw.outputReserve + raw.referenceContext + raw.toolSchemas + raw.repoMap
   const overheadCeiling = Math.floor(size * (1 - MIN_WORKING_SET_FRACTION))
+  const overhead = raw.outputReserve + raw.referenceContext + raw.toolSchemas
   const constrained = overhead > overheadCeiling
 
-  // Scale every budget by the same factor rather than sacrificing one outright.
-  // Zeroing the repo map first would be a false economy — it is the smallest
-  // share, so it buys almost nothing, and the window that needs the scaling is
-  // the one that can least afford to lose its orientation entirely.
-  const scale = constrained && overhead > 0 ? overheadCeiling / overhead : 1
+  // When the floors do not fit, they are not squeezed equally. The reply is
+  // protected first: a turn with no room to answer produces nothing at all,
+  // while a thinner workspace summary or a smaller tool surface still leaves a
+  // working system. So the output reserve takes its floor, and the two planning
+  // budgets share whatever is left in proportion to each other.
+  const outputReserve = Math.min(raw.outputReserve, overheadCeiling)
+  const remaining = Math.max(0, overheadCeiling - outputReserve)
+  const soft = raw.referenceContext + raw.toolSchemas
+  const scale = constrained && soft > remaining && soft > 0 ? remaining / soft : 1
   const scaled = {
-    outputReserve: Math.floor(raw.outputReserve * scale),
+    outputReserve,
     referenceContext: Math.floor(raw.referenceContext * scale),
-    toolSchemas: Math.floor(raw.toolSchemas * scale),
-    repoMap: Math.floor(raw.repoMap * scale)
+    toolSchemas: Math.floor(raw.toolSchemas * scale)
   }
 
-  const usedOverhead =
-    scaled.outputReserve + scaled.referenceContext + scaled.toolSchemas + scaled.repoMap
+  const usedOverhead = scaled.outputReserve + scaled.referenceContext + scaled.toolSchemas
   const inputLimit = Math.max(0, size - scaled.outputReserve)
 
   return {
@@ -258,6 +245,65 @@ export function allocateContextBudget(contextSize: number): ContextBudgetAllocat
     rotateAtTokens: Math.floor(inputLimit * ROTATE_AT_FRACTION),
     constrained
   }
+}
+
+/**
+ * Tokens held back from the history budget on top of what the caller measures.
+ *
+ * This is the reply, and only the reply. `historyBudgetTokens` already
+ * subtracts the *measured* system prompt and the *measured* tool schemas, so
+ * adding the reference-context and tool-schema budgets here would charge for
+ * both twice — the double-count that makes a small window look like it has no
+ * room for history at all. Those two budgets exist to cap what gets built in
+ * the first place, not to be subtracted a second time after it has been.
+ *
+ * Four call sites ask this question — the assembler, the compactor, the text
+ * transport and the renderer's meter — and all four must agree, which is why it
+ * reads from the allocation rather than carrying a rule of its own.
+ */
+export function reservedNonHistoryTokens(contextSize: number): number {
+  return allocateContextBudget(contextSize).outputReserve
+}
+
+/**
+ * Roughly four characters per token for English prose and source code.
+ *
+ * Only ever used to turn a token budget into a character cap for text Anodex
+ * truncates itself, where being a little conservative costs a few characters
+ * and being optimistic costs an overflow.
+ */
+const CHARS_PER_TOKEN = 4
+
+/**
+ * Character budget for the workspace summary that opens the system prompt.
+ *
+ * The summary's own limits are what it takes to be *useful*; this is what the
+ * window can *afford*. Taking the smaller of the two means a large window is
+ * unaffected — there is no more workspace worth describing — while a small one
+ * stops spending a fifth of itself on a preamble before the task even starts.
+ */
+export function referenceContextChars(contextSize: number): number {
+  return allocateContextBudget(contextSize).referenceContext * CHARS_PER_TOKEN
+}
+
+/**
+ * What the reference sections total when the window can afford all of them:
+ * the workspace summary (tree, notes, spec) plus the retrieved memory section.
+ *
+ * They are budgeted against one number because they share one budget. Sized
+ * separately, each would assume the whole reference allowance was its own and
+ * together they would spend it twice.
+ */
+export const FULL_REFERENCE_CONTEXT_CHARS = 5100
+
+/**
+ * How much of its full size each reference section may use on this window,
+ * from 0 to 1. Above roughly 16k this is 1 — there is no more workspace or
+ * memory worth describing, so a bigger window simply spends less of itself on
+ * the preamble.
+ */
+export function referenceContextShare(contextSize: number): number {
+  return Math.min(1, referenceContextChars(contextSize) / FULL_REFERENCE_CONTEXT_CHARS)
 }
 
 /** The working set as a share of the window, for display and for tests. */

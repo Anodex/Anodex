@@ -463,12 +463,6 @@ export async function runGeneration(
 
   const hasWorkspaceTools = settings.tools.enabled && Boolean(workspaceRoot)
   const includeReferenceContext = io.includeReferenceContext !== false
-  const memory = includeReferenceContext
-    ? buildMemoryContext(activeProject?.id ?? null, request.prompt, {
-        crossChatEnabled: settings.memory.crossChatEnabled,
-        personalEnabled: settings.memory.personalEnabled
-      })
-    : null
 
   // Resolved once and reused below for cloud-provider gating (transcript
   // recall, context bounding, before generation) and stats attribution
@@ -476,6 +470,18 @@ export async function runGeneration(
   // model, not whatever's loaded locally.
   const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
   const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
+
+  const memory = includeReferenceContext
+    ? buildMemoryContext(
+        activeProject?.id ?? null,
+        request.prompt,
+        {
+          crossChatEnabled: settings.memory.crossChatEnabled,
+          personalEnabled: settings.memory.personalEnabled
+        },
+        activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id)
+      )
+    : null
 
   const transcriptRecall = includeReferenceContext
     ? buildTranscriptRecallContext({
@@ -499,7 +505,12 @@ export async function runGeneration(
   )
   const workspaceContext =
     hasWorkspaceTools && workspaceRoot
-      ? buildWorkspaceContext(workspaceRoot, activeProject?.id ?? null, request.prompt)
+      ? buildWorkspaceContext(
+          workspaceRoot,
+          activeProject?.id ?? null,
+          request.prompt,
+          activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id)
+        )
       : null
   const systemPrompt = composeSystemPrompt({
     hasWorkspaceTools,

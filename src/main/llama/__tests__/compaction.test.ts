@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { allocateContextBudget } from '@shared/contextBudget'
 import { describe, expect, it } from 'vitest'
 import type { ChatHistoryTurn } from '@shared/chat.types'
 import { ROLLING_SUMMARY_TOKEN_CEILING } from '../rollingSummary'
@@ -10,8 +11,6 @@ import {
   buildCompactionSummaryPrompt,
   buildCompactionSystemPrompt,
   buildCompactionUpdatePrompt,
-  MAX_RESERVED_NON_HISTORY_TOKENS,
-  MIN_RESERVED_NON_HISTORY_TOKENS,
   NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT,
   NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT,
   renderTurnsForSummary,
@@ -23,16 +22,27 @@ import {
 const countTokens = (text: string): number => text.length
 
 describe('reservedNonHistoryTokens', () => {
-  it('scales as a fraction of contextSize in the normal range', () => {
-    expect(reservedNonHistoryTokens(16000)).toBe(3200) // 20% of 16000
+  // The rule itself now lives in contextBudget.ts, derived from the per-budget
+  // allocation, and is tested exhaustively there across every window on the
+  // ladder. What matters here is that the compactor's re-export is the same
+  // function — a second copy of this number is how the engine and the meter
+  // came to disagree in the first place.
+  it('delegates to the shared allocation rather than carrying its own rule', () => {
+    for (const size of [1_000, 16_000, 1_000_000]) {
+      expect(reservedNonHistoryTokens(size)).toBe(allocateContextBudget(size).outputReserve)
+    }
   })
 
-  it('floors small contexts instead of reserving almost nothing', () => {
-    expect(reservedNonHistoryTokens(1000)).toBe(MIN_RESERVED_NON_HISTORY_TOKENS)
+  // Reserving 20% covered the reply *and* the tool schemas, which the assembler
+  // already measures and subtracts itself — so at 16,000 it charged 3,200 for
+  // work worth 2,400 and took the difference out of history.
+  it('no longer double-counts what the assembler measures directly', () => {
+    expect(reservedNonHistoryTokens(16_000)).toBe(2_400)
   })
 
-  it('caps huge contexts instead of reserving a proportionally huge chunk', () => {
-    expect(reservedNonHistoryTokens(1_000_000)).toBe(MAX_RESERVED_NON_HISTORY_TOKENS)
+  it('still floors a small window and caps a huge one', () => {
+    expect(reservedNonHistoryTokens(1_000)).toBe(512)
+    expect(reservedNonHistoryTokens(1_000_000)).toBe(8_192)
   })
 })
 
