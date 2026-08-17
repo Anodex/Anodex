@@ -41,6 +41,11 @@ export interface TurnSummaryInput {
   blockedGathering: number
   /** Paths the reply named but never touched — see `findUnverifiedPathClaims`. */
   unverifiedPaths: PathClaimIssue[]
+  /**
+   * Why the turn stopped continuing when it wanted to keep going — see
+   * `describeChatStop`. `null` when it simply finished answering.
+   */
+  endedBecause?: string | null
 }
 
 /** Tool kinds that can change the workspace. */
@@ -209,11 +214,17 @@ function describePlan(plan: Plan | null | undefined): string | null {
  * one outcome never carries two explanations.
  */
 function describeEnding(input: TurnSummaryInput): string | null {
-  if (input.stopped || input.blockedGathering === 0) return null
-  return (
-    `**Ended early** — ${input.blockedGathering} further information-gathering call(s) were ` +
-    'refused because it had gone a long stretch without changing anything. Say "continue" to resume.'
-  )
+  if (input.stopped) return null
+  // The ladder refusing calls is the more specific cause, so it wins over the
+  // loop's own account of running out of rounds.
+  if (input.blockedGathering > 0) {
+    return (
+      `**Ended early** — ${input.blockedGathering} further information-gathering call(s) were ` +
+      'refused because it had gone a long stretch without changing anything. Say "continue" to resume.'
+    )
+  }
+  if (input.endedBecause) return `**Ended early** — ${input.endedBecause}`
+  return null
 }
 
 /** Claims the settled record does not support. */

@@ -235,6 +235,16 @@ export async function runBoundedChatGeneration(
   let recoveryChurnDetected = false
   /** Extra cycles spent resuming a turn that stopped with plan steps still open. */
   let planContinuations = 0
+  /**
+   * Why a *chat* turn stopped continuing, when it wanted to and could not.
+   *
+   * Agent runs have had `goalBlockedReason` all along, but the equivalent for a
+   * chat turn was never recorded: the loop simply broke and the reply ended
+   * mid-sentence with nothing anywhere saying why. In a live run that made 143
+   * tool calls this was the whole of the user's experience — "it stopped
+   * randomly". A turn that merely finished answering leaves this `null`.
+   */
+  let chatEndReason: string | null = null
 
   for (let cycle = 0; cycle < cycleCeiling; cycle++) {
     let novelToolActivityThisCycle = false
@@ -419,6 +429,18 @@ export async function runBoundedChatGeneration(
           recoveryChurn,
           stopped: result.stopped
         })
+      } else if (goal === null) {
+        chatEndReason = describeChatStop({
+          wantedToContinue: recoveredStop || stalledWithOpenPlan,
+          planExhausted:
+            currentPlan !== null &&
+            madeRealToolProgress &&
+            planContinuations >= MAX_OPEN_PLAN_CONTINUATIONS,
+          outOfCycles: cycle >= cycleCeiling - 1,
+          madeProgress: madeProgressThisCycle,
+          contextRecoveryBlocked,
+          aborted: Boolean(io.signal?.aborted)
+        })
       }
       break
     }
@@ -538,7 +560,8 @@ export async function runBoundedChatGeneration(
     plan: currentPlan,
     stopped: finalResult.stopped,
     blockedGathering: ledger.blockedGathering,
-    unverifiedPaths
+    unverifiedPaths,
+    endedBecause: chatEndReason
   })
   const finalContent = `${combinedContent}${outcome ?? ''}`
 
@@ -835,6 +858,41 @@ function canReconcilePlan(
     plan?.steps.some((step) => step.status !== 'completed') &&
     (io.enabledTools == null || io.enabledTools.has('update_plan_step'))
   )
+}
+
+/**
+ * Why a chat turn stopped continuing — `null` when it simply finished
+ * answering, which needs no explanation.
+ *
+ * The distinction that matters is `wantedToContinue`: the ordinary end of a
+ * chat turn is the model finishing its reply, and announcing a "reason" for
+ * that would be noise on every well-behaved turn. This speaks only when the
+ * turn was mid-flight and something denied it another round.
+ */
+function describeChatStop(reason: {
+  wantedToContinue: boolean
+  planExhausted: boolean
+  outOfCycles: boolean
+  madeProgress: boolean
+  contextRecoveryBlocked: boolean
+  aborted: boolean
+}): string | null {
+  // The user pressed stop; they do not need to be told what they just did.
+  if (reason.aborted) return null
+  if (!reason.wantedToContinue && !reason.planExhausted) return null
+  if (reason.contextRecoveryBlocked) {
+    return 'it ran out of room to recover what it had already read. Say "continue" to resume with a fresh context.'
+  }
+  if (reason.outOfCycles) {
+    return `it reached the limit of ${MAX_CYCLES} tool-calling rounds for a single reply. Say "continue" to resume.`
+  }
+  if (!reason.madeProgress) {
+    return 'the last round added nothing new, so it stopped rather than repeat itself.'
+  }
+  if (reason.planExhausted) {
+    return `it resumed ${MAX_OPEN_PLAN_CONTINUATIONS} times with plan steps still open and will not resume itself again. Say "continue" to keep going.`
+  }
+  return 'it stopped mid-task. Say "continue" to resume.'
 }
 
 function describeGoalStop(reason: {

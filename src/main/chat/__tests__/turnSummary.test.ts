@@ -159,6 +159,33 @@ describe('describeTurnOutcome', () => {
       expect(text).toContain('3 further information-gathering call(s)')
     })
 
+    // The silent break: a chat turn that ran out of rounds recorded nothing
+    // anywhere, so a reply ending mid-sentence had no explanation at all.
+    it('explains a turn that ran out of tool-calling rounds', () => {
+      const text = summary({
+        calls: [read('a')],
+        endedBecause: 'it reached the limit of 24 tool-calling rounds for a single reply.'
+      })
+      expect(text).toContain('**Ended early**')
+      expect(text).toContain('24 tool-calling rounds')
+    })
+
+    it('says nothing about ending when the turn simply finished', () => {
+      expect(summary({ calls: [read('a')], endedBecause: null })).not.toContain('Ended early')
+    })
+
+    // The ladder is the more specific cause; two explanations for one ending
+    // is worse than one.
+    it('prefers the ladder refusal over the loop running out of rounds', () => {
+      const text = summary({
+        calls: [read('a')],
+        blockedGathering: 2,
+        endedBecause: 'it reached the limit of 24 tool-calling rounds.'
+      })
+      expect(text).toContain('were refused')
+      expect(text).not.toContain('24 tool-calling rounds')
+    })
+
     // One outcome, one explanation: a stop reason renders its own banner.
     it('leaves a stop that already explains itself alone', () => {
       const text = summary({ calls: [read('a')], blockedGathering: 3, stopped: true })
