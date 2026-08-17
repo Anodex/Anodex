@@ -429,6 +429,18 @@ describe('commands that cannot advance the task', () => {
     expect(message).toContain('preview_html')
   })
 
+  it('tells the model to hand the command to the user, not to route around it', () => {
+    // The first version of this refusal only named preview_html/inspect_visual —
+    // tools for Anodex to look at a page — when a model asking for a server is
+    // usually trying to make the site work for the *user*. Refused three times
+    // in one turn, a live run downloaded UMD builds and rewrote the project from
+    // ES modules to global scripts to avoid needing a server at all.
+    const message = checkLongRunningServer('python -m http.server 8000') ?? ''
+
+    expect(message).toContain('give them the command to run')
+    expect(message).toContain('Do not restructure the project')
+  })
+
   it.each(['npm run build', 'npm test', 'ls -la', 'git status', 'cargo test'])(
     'lets %s run',
     (command) => {
