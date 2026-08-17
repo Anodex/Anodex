@@ -672,3 +672,50 @@ Two writes is not a lot of work for 98 calls, and 74 of those calls were gatheri
 completing is not the same as the task being _well_ done — whether the sandbox now looks right is a
 judgement only the user can make from the page. The gathering ratio remains the open question from
 §14.2, and it should be measured across a few more runs before anyone tunes the ladder.
+
+## 16. The closing account
+
+Across eleven live runs of one request, only two ended with the model telling the user what it had
+done. The rest stopped mid-intent, or had their last calls refused by the gathering ladder, and the
+reply trailed off into fragments of narration — followed by up to six separate appended disclaimers.
+
+The user's requirement was direct: it should say what it did, what it found, and why it stopped.
+
+### 16.1 Why the model is not asked to write it
+
+It cannot be relied on to, and worse, it can be wrong. One live reply described a rendered scene in
+confident detail — the Sun glowing, all eight planets orbiting — having never once called
+`inspect_visual`. A summary assembled from the settled tool record has a property model prose does
+not: **every claim in it corresponds to something that actually happened.**
+
+Every settled call already carries its name, kind, status and touched paths. What a turn changed,
+what it ran and with what exit status, which files it examined, which plan rows are still open, and
+why it ended are therefore all known without asking anyone.
+
+### 16.2 Why six notes became one
+
+Build verification, visual verification, unverified paths, open plan rows, "nothing changed" and
+"stopped for going in circles" were each appended independently. The result was that the worst
+turns — the ones a user most needs explained — ended in a wall of warnings with no statement of what
+had happened. They are all facts about the same turn, and `describeTurnOutcome` now renders them as
+one block: the work first, the caveats after it.
+
+### 16.3 Three things the consolidation got wrong first
+
+- **Silence on a zero-call reply.** The first version returned `null` when the turn made no tool
+  calls. That is exactly the fabrication case: a synthesis cycle that did no work and still cited
+  four nonexistent paths in a confident-looking table. A caveat now renders even with no calls.
+- **A failed build reading as success.** `**Verified** by running \`npm test\``was emitted whether
+the command passed or failed. The exit status is the single most useful thing a turn can report,
+so a failure now opens with`**Ran**` and names the outcome. Re-running a command keeps the last
+  result, so fixing a red build is not reported as breaking it.
+- **Counting instead of naming.** "48 file reads" says how busy the turn was; the file names say
+  where the work actually got to, which on a turn cut short before any conclusions is the only
+  account there is.
+
+### 16.4 What this does not do
+
+It does not stop a turn ending early — it explains when one has. Making the model finish what it
+started is a separate problem, partly addressed by open-plan continuation (§9), and no amount of
+after-the-fact reporting substitutes for it. What is guaranteed here is that the user is never left
+guessing what a reply did.

@@ -12,11 +12,8 @@ import { runGeneration, type RunGenerationIo, type RunGenerationResult } from '.
 import { isRecoverableGenerationStop } from './recoverableStop'
 import { createTaskLedger } from '../tools/taskLedger'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
-import {
-  describeUnverifiedPathClaims,
-  findUnverifiedPathClaims
-} from '../tools/pathClaimVerification'
-import { parseRunCommandVerification } from '../tools/commandTools'
+import { findUnverifiedPathClaims } from '../tools/pathClaimVerification'
+import { describeTurnOutcome, isDurableChange } from './turnSummary'
 import { isObservationalRunCommand, observationalCommandIdentity } from '../tools/commandEffect'
 import { progressFromSettledCalls } from '../tools/turnProgress'
 import { projectStore } from '../projects/ProjectStore'
@@ -47,122 +44,6 @@ const PLAN_RECONCILIATION_PROMPT =
   'Use update_plan_step to mark only steps the completed work proves are finished. Do not change files, ' +
   'run commands, create a new plan, or claim unfinished work is complete. If no status can be updated ' +
   'honestly, reply exactly PLAN_UNCHANGED.'
-
-/**
- * Commands that count as having actually built, tested, type-checked, or
- * linted something — across every ecosystem Anodex might be pointed at, not
- * just JavaScript.
- *
- * This gates `describeMissingBuildVerification`, which appends "no build,
- * test, type-check, or lint command completed in this task" to a reply that
- * diagnoses a build problem. Getting the list wrong is not a cosmetic miss: a
- * C++ developer whose `make test` passed, or a Ruby developer whose `rspec`
- * ran green, was told their verified fix was unverified. That is Anodex's own
- * honesty machinery producing a false accusation, and it fired only for
- * non-JavaScript projects — precisely the users least served by the rest of
- * the tooling.
- *
- * Grouped by ecosystem so a missing entry is easy to spot and add. Erring
- * toward inclusion is right here: a false *negative* (a real verification not
- * recognized) actively misinforms, while a false positive merely omits a note.
- */
-const BUILD_OR_TEST_TOOLS = [
-  // JavaScript / TypeScript
-  'npm',
-  'pnpm',
-  'yarn',
-  'bun',
-  'npx',
-  'deno',
-  'vitest',
-  'jest',
-  'mocha',
-  'jasmine',
-  'playwright',
-  'cypress',
-  'tsc',
-  'eslint',
-  'biome',
-  // Python
-  'pytest',
-  'unittest',
-  'tox',
-  'nox',
-  'mypy',
-  'pyright',
-  'ruff',
-  'pylint',
-  'flake8',
-  'poetry',
-  'hatch',
-  // Rust
-  'cargo',
-  'rustc',
-  'clippy',
-  // Go
-  'go',
-  'gofmt',
-  'golangci-lint',
-  // JVM
-  'gradle',
-  'gradlew',
-  'mvn',
-  'maven',
-  'ant',
-  'sbt',
-  'lein',
-  // .NET
-  'dotnet',
-  'msbuild',
-  'nunit',
-  'xunit',
-  // C / C++ and general native build systems
-  'make',
-  'cmake',
-  'ctest',
-  'ninja',
-  'meson',
-  'bazel',
-  'buck',
-  'clang',
-  'gcc',
-  // Apple platforms
-  'swift',
-  'xcodebuild',
-  'xcrun',
-  // Ruby
-  'rake',
-  'rspec',
-  'minitest',
-  'bundle',
-  // PHP
-  'composer',
-  'phpunit',
-  'pest',
-  // Dart / Flutter
-  'dart',
-  'flutter',
-  // Others
-  'zig',
-  'mix',
-  'stack',
-  'cabal',
-  'nimble',
-  'crystal',
-  'scons'
-]
-
-/**
- * `clang++`/`g++` are matched separately: `+` is not a word character, so a
- * trailing word boundary after them would never match.
- */
-const BUILD_OR_TEST_COMMAND = new RegExp(
-  // String.raw, not a plain template literal: `\b` in a normal template
-  // literal is the backspace escape, so the pattern would silently lose every
-  // word boundary and match substrings inside unrelated words.
-  String.raw`(?:\b(?:${BUILD_OR_TEST_TOOLS.join('|')})\b|\b(?:clang|g)\+\+)`,
-  'i'
-)
 
 /**
  * At most this many `runGeneration()` calls total for one bounded reply — a
@@ -354,7 +235,6 @@ export async function runBoundedChatGeneration(
   let recoveryChurnDetected = false
   /** Extra cycles spent resuming a turn that stopped with plan steps still open. */
   let planContinuations = 0
-  let lastCycleUsedTools = false
 
   for (let cycle = 0; cycle < cycleCeiling; cycle++) {
     let novelToolActivityThisCycle = false
@@ -404,7 +284,6 @@ export async function runBoundedChatGeneration(
     settleInterruptedReadCalls(toolCallsById, completedToolCalls, cycle, io)
     const cycleToolCalls = toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined
     latestCycleToolCalls = cycleToolCalls
-    lastCycleUsedTools = (cycleToolCalls?.length ?? 0) > 0
     const normalizedContent = normalizeCycleContent(result.content)
     const novelVisibleContent =
       normalizedContent.length > 0 && !seenCycleContent.has(normalizedContent)
@@ -576,9 +455,7 @@ export async function runBoundedChatGeneration(
   // a reconciliation, but constrain that extra model pass to status updates
   // and deliberately discard its prose so the user receives one reply, not a
   // confusing second mini-answer.
-  let planReconciliationAttempted = false
   if (canReconcilePlan(currentPlan, finalResult, io, [...completedToolCalls.values()])) {
-    planReconciliationAttempted = true
     try {
       const reconciliationHistory = [
         ...history,
@@ -635,7 +512,6 @@ export async function runBoundedChatGeneration(
     workspaceRoot,
     ledger.reads
   )
-  const unverifiedNote = describeUnverifiedPathClaims(unverifiedPaths)
   // The fabrication signal the unattended surfaces show (`AgentRun.flaggedTurns`,
   // the Scheduler flag, the model reliability score) now comes from here.
   //
@@ -652,19 +528,19 @@ export async function runBoundedChatGeneration(
       modelReliabilityStore.recordFabrication(model.id, model.name, basename(model.path))
     }
   }
-  const gatheringNote = describeBlockedGathering({
-    blocked: ledger.blockedGathering,
-    stopped: finalResult.stopped
+  // One account of the turn, from the settled record, rather than six separate
+  // disclaimers. A reply that was cut short used to end in a wall of warnings
+  // with no statement of what had actually happened; this states the work
+  // first and the caveats after it, and — unlike a model-written summary — it
+  // cannot describe something that never occurred. See `describeTurnOutcome`.
+  const outcome = describeTurnOutcome({
+    calls: [...completedToolCalls.values()],
+    plan: currentPlan,
+    stopped: finalResult.stopped,
+    blockedGathering: ledger.blockedGathering,
+    unverifiedPaths
   })
-  const stalledNote = describeNoDurableChange({
-    toolCalls: [...completedToolCalls.values()],
-    usedTools: lastCycleUsedTools || completedToolCalls.size > 0,
-    stopped: finalResult.stopped
-  })
-  const buildVerificationNote = describeMissingBuildVerification([...completedToolCalls.values()])
-  const visualVerificationNote = describeMissingVisualVerification([...completedToolCalls.values()])
-  const planReconciliationNote = describeUnfinishedPlan(currentPlan, planReconciliationAttempted)
-  const finalContent = `${combinedContent}${unverifiedNote ?? ''}${gatheringNote ?? ''}${stalledNote ?? ''}${buildVerificationNote ?? ''}${visualVerificationNote ?? ''}${planReconciliationNote ?? ''}`
+  const finalContent = `${combinedContent}${outcome ?? ''}`
 
   return {
     ...finalResult,
@@ -944,80 +820,6 @@ function normalizeCycleContent(content: string): string {
  * condition; the reconciliation prompt itself already refuses to tick a step the
  * completed work does not support.
  */
-/**
- * Say that the reply was cut short because it kept gathering without
- * progressing.
- *
- * `TaskLedger`'s gathering ladder refuses further reads once a turn has spent
- * its allowance since the last durable change. That is the right call, and it
- * is completely silent: a live turn made 162 calls and six real edits, had its
- * final two calls refused here, and ended with no stop reason, no error and no
- * summary. The guard worked; the user saw a reply that stopped for no stated
- * reason.
- *
- * Suppressed when the turn stopped for a reason that renders its own banner,
- * so one outcome never gets two explanations.
- */
-function describeBlockedGathering(input: { blocked: number; stopped: boolean }): string | null {
-  if (input.stopped || input.blocked === 0) return null
-  return (
-    `
-
-Anodex stopped this reply from looking further: ${input.blocked} more ` +
-    'information-gathering call(s) were refused because it had gone a long stretch without ' +
-    'changing anything. Anything it had already done is above. Say "continue" to pick it up.'
-  )
-}
-
-/**
- * State plainly that a reply which used workspace tools changed nothing.
- *
- * The gap this closes is the plainest one in the whole system. A live turn read
- * two files, wrote "Let me check the rest of the planet creation and animation
- * code", and ended — clean provider finish, no stop reason, no error, no
- * summary, nothing written. From the user's side it simply stopped, and Anodex
- * said nothing at all about it.
- *
- * Anodex cannot tell that turn apart from a deliberate diagnosis, and must not
- * try: the only thing distinguishing them is the user's wording ("diagnose
- * only; do not edit"), and reading that to decide whether to keep working is
- * the first item on this architecture's prohibited list. Continuing
- * automatically would risk editing a project the user explicitly asked not to
- * touch.
- *
- * So this reports rather than acts. For a diagnosis it is a true and quiet
- * confirmation that nothing was touched; for a stall it is the missing signal
- * that the work did not happen. Suppressed when the turn stopped for a known
- * reason, which already surfaces its own banner.
- */
-function describeNoDurableChange(input: {
-  toolCalls: ToolCall[]
-  usedTools: boolean
-  stopped: boolean
-}): string | null {
-  if (input.stopped || !input.usedTools) return null
-  if (input.toolCalls.some(isDurableChange)) return null
-  return (
-    '\n\nNo files were changed by this reply — it only inspected. ' +
-    'Say "continue" if you expected an edit.'
-  )
-}
-
-/**
- * Whether one settled call actually changed something.
- *
- * A successful shell command that only looked at a file is excluded: the whole
- * point of `isObservationalRunCommand` is that `run_command`'s kind describes
- * the tool, not the effect.
- */
-function isDurableChange(call: ToolCall): boolean {
-  return (
-    call.status === 'success' &&
-    call.madeProgress !== false &&
-    MUTATING_TOOL_KINDS.has(call.kind) &&
-    !isObservationalRunCommand(call)
-  )
-}
 
 function canReconcilePlan(
   plan: ChatRequest['plan'] | null | undefined,
@@ -1035,57 +837,6 @@ function canReconcilePlan(
   )
 }
 
-/**
- * States which plan rows the completed work could not be shown to finish.
- *
- * Reported whenever a reconciliation pass ran and left rows open, without
- * reading the reply: this is a statement about the plan's state, not an
- * accusation about what the reply claimed. It was previously suppressed unless
- * the wording matched a completion pattern — which silenced it on exactly the
- * hedged turn where the user most needs to see what is still open.
- */
-function describeUnfinishedPlan(
-  plan: ChatRequest['plan'] | null | undefined,
-  reconciliationAttempted: boolean
-): string | null {
-  if (!reconciliationAttempted || !plan) return null
-  const unfinished = plan.steps.filter((step) => step.status !== 'completed')
-  if (unfinished.length === 0) return null
-  return (
-    '\n\nPlan status: the following visible plan step(s) could not be confirmed as complete and ' +
-    `remain open: ${unfinished.map((step) => step.title).join('; ')}.`
-  )
-}
-
-/**
- * Notes that this reply changed files and nothing was run against them.
- *
- * Decided from the settled calls alone. The previous version fired only when
- * the prose matched a "build/compile/typecheck" pattern *and* a second
- * fix/cause/problem pattern, so it stayed silent on the majority of unverified
- * changes and spoke up on diagnoses that had changed nothing at all. Both
- * directions were wrong, and the silent one was the common one.
- */
-function describeMissingBuildVerification(toolCalls: ToolCall[]): string | null {
-  const changedCode = toolCalls.some(
-    (call) => call.status === 'success' && call.madeProgress !== false && call.kind === 'write'
-  )
-  if (!changedCode || hasBuildOrTestVerification(toolCalls)) return null
-  return (
-    '\n\nBuild verification note: this reply changed files, but no build, test, type-check, or lint ' +
-    'command completed in this task. Treat the change as unverified.'
-  )
-}
-
-/** Tool kinds that can change what a page renders. */
-const MUTATING_TOOL_KINDS = new Set(['write', 'command'])
-
-/**
- * Why a goal run ended without `finish_goal`. Shown on the goal bar, so it has
- * to distinguish "you stopped it" from "it ran out of room" from "it could not
- * make further progress" — those call for completely different responses from
- * the user.
- */
 function describeGoalStop(reason: {
   aborted: boolean
   outOfTime: boolean
@@ -1110,49 +861,4 @@ function describeGoalStop(reason: {
   }
   if (reason.stopped) return 'The turn hit a generation limit before the goal was met.'
   return 'Ended without reporting the goal complete.'
-}
-
-/**
- * A correction appended when a reply claims a visual fix that no screenshot
- * taken after the last edit actually supports.
- *
- * This is the central honesty gate for the failure in chat
- * `c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef`. The model was asked to "confirm by
- * using vision", called `inspect_visual` once at the *start* of the turn, then
- * edited the file and reported progress without ever looking again. A
- * screenshot taken before an edit says nothing about the state after it, so
- * the ordering — not merely the presence — of the inspection is what matters.
- *
- * Deliberately a correction rather than a hard refusal, matching
- * `findUnverifiedPathClaims` and `describeMissingBuildVerification`: the useful
- * partial work still reaches the user, with the unsupported part named. A hard
- * block would discard honest progress along with the overclaim.
- */
-function describeMissingVisualVerification(toolCalls: ToolCall[]): string | null {
-  const lastMutationIndex = toolCalls.findLastIndex(
-    (call) =>
-      call.status === 'success' &&
-      MUTATING_TOOL_KINDS.has(call.kind) &&
-      !isObservationalRunCommand(call)
-  )
-  if (lastMutationIndex < 0) return null
-  const lastInspectionIndex = toolCalls.findLastIndex(
-    (call) => call.name === 'inspect_visual' && call.status === 'success'
-  )
-  // No inspection anywhere in the reply means this is not a task about pixels,
-  // and demanding a screenshot would be noise. One that predates the last change
-  // means it *is* about pixels, and the newest change has not been looked at.
-  if (lastInspectionIndex < 0 || lastInspectionIndex > lastMutationIndex) return null
-
-  return (
-    '\n\nVisual verification note: the last change in this reply came after the most recent visual ' +
-    'inspection, so nothing here shows its result. Call inspect_visual on the affected page — using ' +
-    'its sectionId for the specific section in question — before relying on it.'
-  )
-}
-function hasBuildOrTestVerification(toolCalls: ToolCall[]): boolean {
-  return toolCalls.some((call) => {
-    const verification = parseRunCommandVerification(call)
-    return verification !== null && BUILD_OR_TEST_COMMAND.test(verification.command)
-  })
 }

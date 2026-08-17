@@ -206,8 +206,8 @@ describe('runBoundedChatGeneration', () => {
 
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-      expect(outcome.content).toContain('Visual verification note')
-      expect(outcome.content).toContain('came after the most recent visual inspection')
+      expect(outcome.content).toContain('most recent screenshot')
+      expect(outcome.content).toContain('most recent screenshot')
       expect(outcome.content).toContain('sectionId')
     })
 
@@ -219,7 +219,7 @@ describe('runBoundedChatGeneration', () => {
 
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-      expect(outcome.content).not.toContain('Visual verification note')
+      expect(outcome.content).not.toContain('most recent screenshot')
     })
 
     it('stays quiet for a task that never inspected anything visually', async () => {
@@ -231,7 +231,7 @@ describe('runBoundedChatGeneration', () => {
       // it is the ordinary shape of every non-visual edit. The gate used to fire
       // here on the words "fixed" and "displays", which meant a backend change
       // described in the wrong vocabulary was told to go and take a screenshot.
-      expect(outcome.content).not.toContain('Visual verification note')
+      expect(outcome.content).not.toContain('most recent screenshot')
     })
 
     it('stays quiet when the reply already admits it is unverified', async () => {
@@ -242,7 +242,7 @@ describe('runBoundedChatGeneration', () => {
 
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-      expect(outcome.content).not.toContain('Visual verification note')
+      expect(outcome.content).not.toContain('most recent screenshot')
     })
 
     it('stays quiet for a reply making no visual claim', async () => {
@@ -250,7 +250,7 @@ describe('runBoundedChatGeneration', () => {
 
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-      expect(outcome.content).not.toContain('Visual verification note')
+      expect(outcome.content).not.toContain('most recent screenshot')
     })
   })
 
@@ -603,11 +603,11 @@ describe('runBoundedChatGeneration', () => {
       ['Gradle', 'gradle test'],
       ['Cargo', 'cargo test']
     ])('accepts %s as real verification', async (_label, command) => {
-      expect(await replyAfter(command)).not.toContain('Build verification note')
+      expect(await replyAfter(command)).not.toContain('Not verified')
     })
 
     it('still warns when nothing that verifies anything ran', async () => {
-      expect(await replyAfter('ls -la')).toContain('Build verification note')
+      expect(await replyAfter('ls -la')).toContain('Not verified')
     })
   })
 
@@ -629,8 +629,8 @@ describe('runBoundedChatGeneration', () => {
     // Decided by the settled calls, not by whether the prose mentions a build.
     // The old wording gate stayed silent on the majority of unverified changes
     // and spoke up on diagnoses that had changed nothing at all.
-    expect(outcome.content).toContain('Build verification note')
-    expect(outcome.content).toContain('unverified')
+    expect(outcome.content).toContain('Not verified')
+    expect(outcome.content).toContain('Not verified')
   })
 
   it('stays quiet about verification for a reply that changed nothing', async () => {
@@ -641,7 +641,7 @@ describe('runBoundedChatGeneration', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(outcome.content).not.toContain('Build verification note')
+    expect(outcome.content).not.toContain('Not verified')
   })
 
   it('does not warn when a build command actually completed', async () => {
@@ -667,7 +667,7 @@ describe('runBoundedChatGeneration', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(outcome.content).not.toContain('Build verification note')
+    expect(outcome.content).not.toContain('Not verified')
   })
 
   it('automatically continues after a recoverable stop that made real progress', async () => {
@@ -830,7 +830,7 @@ describe('runBoundedChatGeneration', () => {
     // A reply that inspected and changed nothing now says so — see
     // `describeNoDurableChange`.
     expect(outcome.content).toContain('Here is the audit.')
-    expect(outcome.content).toContain('No files were changed by this reply')
+    expect(outcome.content).toContain('Changed** nothing')
   })
 
   it('does not treat a failed tool call as progress worth another recovery cycle', async () => {
@@ -1750,7 +1750,7 @@ describe('runBoundedChatGeneration', () => {
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
       expect(outcome.content).toContain('src/main/ipc/tool.handlers.ts')
-      expect(outcome.content).toContain('not verified against real tool calls')
+      expect(outcome.content).toContain('exist here')
       expect(outcome.content).toContain('likely fabricated or misspelled')
     })
 
@@ -1776,7 +1776,7 @@ describe('runBoundedChatGeneration', () => {
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
       expect(outcome.content).toContain('See `src/real.ts` for details.')
-      expect(outcome.content).not.toContain('never read or written')
+      expect(outcome.content).not.toContain('exist here')
       expect(outcome.content).not.toContain('not verified')
     })
   })
@@ -1823,7 +1823,7 @@ describe('orchestration does not read prose', () => {
     for (const content of phrasings) {
       replyOnce(content, [editCall])
       const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
-      expect(outcome.content).toContain('Build verification note')
+      expect(outcome.content).toContain('Not verified')
     }
   })
 
@@ -1927,7 +1927,7 @@ describe('a reply that changed nothing says so', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(outcome.content).toContain('No files were changed by this reply')
+    expect(outcome.content).toContain('Changed** nothing')
   })
 
   it('says nothing when the reply actually changed something', async () => {
@@ -1944,7 +1944,7 @@ describe('a reply that changed nothing says so', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(outcome.content).not.toContain('No files were changed')
+    expect(outcome.content).not.toContain('Changed** nothing')
   })
 
   it('does not count a shell command that only looked at a file as a change', async () => {
@@ -1960,7 +1960,7 @@ describe('a reply that changed nothing says so', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(outcome.content).toContain('No files were changed by this reply')
+    expect(outcome.content).toContain('Changed** nothing')
   })
 
   it('stays quiet when the turn stopped for a reason the user already sees', async () => {
@@ -1976,9 +1976,10 @@ describe('a reply that changed nothing says so', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    // A stop reason renders its own banner; two explanations for one outcome is
-    // worse than one.
-    expect(outcome.content).not.toContain('No files were changed')
+    // A stop reason renders its own banner, so the summary must not add a second
+    // explanation of *why* it ended — but it still reports what the turn did.
+    expect(outcome.content).toContain('What this reply did')
+    expect(outcome.content).not.toContain('Ended early')
   })
 
   it('stays quiet for a reply that used no tools at all', async () => {
@@ -1986,7 +1987,7 @@ describe('a reply that changed nothing says so', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(outcome.content).not.toContain('No files were changed')
+    expect(outcome.content).not.toContain('Changed** nothing')
   })
 })
 
@@ -2154,7 +2155,7 @@ describe('a reply cut short by the gathering ladder says so', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), io)
 
-    expect(outcome.content).toContain('stopped this reply from looking further')
+    expect(outcome.content).toContain('Ended early')
     expect(outcome.content).toContain('continue')
   })
 
@@ -2168,6 +2169,6 @@ describe('a reply cut short by the gathering ladder says so', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), io)
 
-    expect(outcome.content).not.toContain('stopped this reply from looking further')
+    expect(outcome.content).not.toContain('Ended early')
   })
 })
