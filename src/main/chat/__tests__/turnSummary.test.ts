@@ -91,6 +91,24 @@ describe('describeTurnOutcome', () => {
       expect(summary({ calls: [wrote('src/a.ts')] })).toContain('**Not verified**')
     })
 
+    // A static site has no build command. Calling a screenshotted fix
+    // "unverified" is the same false accusation as calling a green cargo test
+    // unverified, and it lands only on the projects with nothing to run.
+    it('counts a screenshot taken after the last change as verification', () => {
+      const text = summary({
+        calls: [wrote('index.html'), call({ name: 'inspect_visual', kind: 'read' })]
+      })
+      expect(text).toContain('**Verified** visually')
+      expect(text).not.toContain('Not verified')
+    })
+
+    it('does not count a screenshot taken before the change', () => {
+      const text = summary({
+        calls: [call({ name: 'inspect_visual', kind: 'read' }), wrote('index.html')]
+      })
+      expect(text).toContain('**Not verified**')
+    })
+
     it('stays quiet about verification when nothing was changed', () => {
       expect(summary({ calls: [read('src/a.ts')] })).not.toContain('Not verified')
     })
@@ -186,10 +204,13 @@ describe('describeTurnOutcome', () => {
       expect(text).not.toContain('24 tool-calling rounds')
     })
 
-    // One outcome, one explanation: a stop reason renders its own banner.
-    it('leaves a stop that already explains itself alone', () => {
+    // This used to stay silent, on the reasoning that a stop renders its own
+    // banner. A live run refused ten gathering calls, broke off mid-sentence,
+    // and told the user nothing — the banner does not reach them. A duplicate
+    // explanation costs a line; a silent stop costs the whole account.
+    it('still explains an ending even when the turn reports a stop', () => {
       const text = summary({ calls: [read('a')], blockedGathering: 3, stopped: true })
-      expect(text).not.toContain('Ended early')
+      expect(text).toContain('**Ended early**')
       expect(text).toContain('What this reply did')
     })
   })

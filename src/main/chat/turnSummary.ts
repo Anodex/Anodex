@@ -131,6 +131,13 @@ function describeVerification(calls: ToolCall[]): string | null {
 
   if (verifications.length === 0) {
     if (!calls.some(isDurableChange)) return null
+    // A page has no build. Reporting a change that was screenshotted after the
+    // fact as "not verified" is the same false accusation as calling a green
+    // `cargo test` unverified — and it lands on exactly the projects, static
+    // sites, that have no command to run in the first place.
+    if (hasVisualEvidenceOfChange(calls)) {
+      return '**Verified** visually — the screenshot was taken after the last change'
+    }
     return '**Not verified** — no build, test, type-check or lint command ran against the change'
   }
 
@@ -214,7 +221,14 @@ function describePlan(plan: Plan | null | undefined): string | null {
  * one outcome never carries two explanations.
  */
 function describeEnding(input: TurnSummaryInput): string | null {
-  if (input.stopped) return null
+  // A turn that stopped used to be left alone here, on the reasoning that its
+  // own banner already explained the ending and two explanations are worse than
+  // one. A live run disproved it: ten gathering calls were refused, the reply
+  // broke off mid-sentence at "Let me verify the actual files in the js
+  // directory", and nothing anywhere told the user why. The banner does not
+  // reach them. A rare duplicate explanation costs a line; a silent stop costs
+  // the user the whole account of what happened.
+  //
   // The ladder refusing calls is the more specific cause, so it wins over the
   // loop's own account of running out of rounds.
   if (input.blockedGathering > 0) {
@@ -251,6 +265,16 @@ function describeCaveats(input: TurnSummaryInput): string | null {
   }
 
   return caveats.length > 0 ? `**Check** ${caveats.join('; ')}` : null
+}
+
+/** Whether a screenshot was taken after the last change, and so shows it. */
+function hasVisualEvidenceOfChange(calls: ToolCall[]): boolean {
+  const lastChange = calls.findLastIndex(isDurableChange)
+  if (lastChange < 0) return false
+  const lastShot = calls.findLastIndex(
+    (call) => call.name === 'inspect_visual' && call.status === 'success'
+  )
+  return lastShot > lastChange
 }
 
 /**
