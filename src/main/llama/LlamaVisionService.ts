@@ -14,6 +14,7 @@ import type {
 import type { ToolCall } from '@shared/tools.types'
 import { APPROX_CHARS_PER_TOKEN } from '@shared/contextProjection'
 import { projectHistoryForModel, rememberToolCallForModel } from './contextAssembler'
+import { collapseSupersededToolResults } from './supersededToolResults'
 import { buildTools } from '../tools/registry'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import { createToolLoopAbortState } from '../tools/toolLoopAbort'
@@ -867,6 +868,8 @@ export class LlamaVisionService {
         })
         if (toolLoopAbort.requested) break
       }
+      // Before the next round replays all of this back to the model.
+      collapseSupersededToolResults(messages)
       // The guard fires inside a tool handler, after the provider response has
       // already arrived. Refuse the next llama-server round.
       if (toolLoopAbort.requested) break

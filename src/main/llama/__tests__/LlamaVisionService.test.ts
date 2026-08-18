@@ -965,7 +965,9 @@ describe('LlamaVisionService.generate', () => {
     }
     mocks.countTokens = (text) => Math.ceil(text.length / 4)
     for (let i = 0; i < 4; i++) {
-      mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', `call_${i}`)] })
+      mocks.rounds.push({
+        chunks: [toolCallChunk('read_file', JSON.stringify({ path: `f${i}.txt` }), `call_${i}`)]
+      })
     }
     mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
 
@@ -1015,7 +1017,9 @@ describe('LlamaVisionService.generate', () => {
     }
     mocks.countTokens = (text) => Math.ceil(text.length / 4)
     for (let i = 0; i < 4; i++) {
-      mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', `call_${i}`)] })
+      mocks.rounds.push({
+        chunks: [toolCallChunk('read_file', JSON.stringify({ path: `f${i}.txt` }), `call_${i}`)]
+      })
     }
     mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
 
@@ -1061,7 +1065,9 @@ describe('LlamaVisionService.generate', () => {
       }
     }
     mocks.countTokens = (text) => Math.ceil(text.length / 4)
-    mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', 'call_0')] })
+    mocks.rounds.push({
+      chunks: [toolCallChunk('read_file', JSON.stringify({ path: 'f0.txt' }), 'call_0')]
+    })
     // This response must never be requested: the completed tool result above
     // already crossed the proactive checkpoint threshold, so the outer chat
     // runner should compact and replay the task in a fresh context epoch.
@@ -1087,7 +1093,9 @@ describe('LlamaVisionService.generate', () => {
     }
     mocks.countTokens = (text) => Math.ceil(text.length / 4)
     for (let i = 0; i < 3; i++) {
-      mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', `call_${i}`)] })
+      mocks.rounds.push({
+        chunks: [toolCallChunk('read_file', JSON.stringify({ path: `f${i}.txt` }), `call_${i}`)]
+      })
     }
     mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
 
