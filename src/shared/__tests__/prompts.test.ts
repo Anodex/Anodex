@@ -29,10 +29,26 @@ describe('composeSystemPrompt', () => {
     expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
   })
 
-  it('instructs the assistant to acknowledge before using tools', () => {
+  // A live turn made 78 tool calls behind 99 paragraphs of "Let me check X",
+  // none of which reported a finding. The user's account of it was that it
+  // "said nothing about what it was doing or why" — announcing an intention to
+  it('asks for the say-do-report loop rather than per-call chatter', () => {
     const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
-    expect(prompt).toContain('Before the first tool call')
-    expect(prompt).toContain('exactly one short user-facing sentence')
+    expect(prompt).toContain('say what you are about to do and why')
+    expect(prompt).toContain('say what you found')
+    expect(prompt).toContain('say what you are doing next')
+    expect(prompt).toContain('never once per call')
+  })
+
+  it('counts a negative result as something worth reporting', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
+    expect(prompt).toContain('A negative result is a result')
+  })
+
+  it('asks the reply to end with status and what comes next', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
+    expect(prompt).toContain('whether the request is now complete')
+    expect(prompt).toContain('what you would do next or recommend')
   })
 
   it('keeps internal tool-call syntax allowed for the runtime', () => {
