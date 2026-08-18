@@ -123,20 +123,8 @@ export function useAnodexBridge(): void {
     let tokenFlushHandle: number | null = null
     const flushPendingTokens = (): void => {
       tokenFlushHandle = null
-      const { tokens, thinkingTokens, activity } = tokenBatcher.drain()
-      // Activity first: `applyToolActivityBatch` clears this message's
-      // streaming-tool-payload quarantine (see `quarantineStreamingToolPayload`)
-      // the moment a real tool call is confirmed, so a token batch flushed in
-      // this same frame sees that already cleared rather than staying
-      // quarantined for one extra frame.
-      for (const [messageId, conversationId, calls] of activity) {
-        useChatStore.getState().applyToolActivityBatch(conversationId, messageId, calls)
-      }
-      for (const [messageId, { conversationId, text }] of tokens) {
-        useChatStore.getState().appendToken(conversationId, messageId, text)
-      }
-      for (const [messageId, { conversationId, text }] of thinkingTokens) {
-        useChatStore.getState().appendThinkingToken(conversationId, messageId, text)
+      for (const [messageId, { conversationId, events }] of tokenBatcher.drain()) {
+        useChatStore.getState().applyStreamEventBatch(conversationId, messageId, events)
       }
     }
     const scheduleTokenFlush = (): void => {

@@ -30,12 +30,23 @@ export interface PathClaimIssue {
  * fragment that stats to nothing and gets flagged "likely fabricated" on a
  * perfectly honest reply. Sits after the optional backtick so a wrapping
  * backtick itself never blocks the match.
+ *
+ * `:` joined that rejection class the hard way. A reply that correctly told the
+ * user to open `http://localhost:8000/index.html` had `8000/index.html` pulled
+ * out of it — the character before `8000` is a colon, which the class did not
+ * cover — and was told it had fabricated a path. A false accusation on a
+ * correct answer is worse than no check at all, since this machinery is only
+ * worth having if the user can trust it, so URLs are additionally masked out
+ * wholesale before matching.
  */
-const PATH_PATTERN = /`?(?<![\w.\\/-])((?:\.{1,2}\/)?(?:[\w-]+\/)+[\w.-]+\.[A-Za-z0-9]+)`?/g
+const PATH_PATTERN = /`?(?<![\w.:\\/-])((?:\.{1,2}\/)?(?:[\w-]+\/)+[\w.-]+\.[A-Za-z0-9]+)`?/g
+
+/** Any `scheme://…` run, removed before matching so no fragment of one is scanned. */
+const URL_PATTERN = /\b[a-z][\w+.-]*:\/\/\S+/gi
 
 function extractCandidatePaths(content: string): string[] {
   const seen = new Set<string>()
-  for (const match of content.matchAll(PATH_PATTERN)) {
+  for (const match of content.replace(URL_PATTERN, ' ').matchAll(PATH_PATTERN)) {
     if (match[1]) seen.add(match[1])
   }
   return [...seen]

@@ -137,3 +137,51 @@ export function describeEmptySearchResult(
     'a simpler literal pattern before relying on it.'
   )
 }
+
+/**
+ * Commands that start a server and keep running until something kills them.
+ *
+ * A `run_command` child is bounded by `COMMAND_TIMEOUT_MS` and killed when the
+ * call ends, so starting a server through it is doubly useless: the tool blocks
+ * for the whole timeout producing nothing, and the server is gone before the
+ * next call could use it. A live run spent two calls on `python -m http.server
+ * 8000` and a third on `start /b` of the same thing.
+ *
+ * Matched on the command's own shape, which is Anodex's record of what was
+ * asked to run — never on anything the model wrote as prose.
+ */
+const LONG_RUNNING_SERVER_RE =
+  /(?:^|[\s;&|])(?:python3?\s+-m\s+http\.server|npx?\s+(?:serve|http-server|live-server)|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|preview)|vite(?:\s|$)|next\s+dev|ng\s+serve|rails\s+s(?:erver)?|flask\s+run|php\s+-S|jekyll\s+serve|hugo\s+server|http-server(?:\s|$))/i
+
+/**
+ * Explain why starting a server here cannot work, or `null` for anything else.
+ *
+ * A refusal rather than a shorter timeout: there is no timeout at which this
+ * succeeds, because the process cannot outlive the call that started it.
+ *
+ * **What the refusal says matters more than the refusal itself.** The first
+ * version named `preview_html` and `inspect_visual` — tools for *Anodex* to
+ * look at a page — when a model asking for a server is usually trying to make
+ * the site work *for the user*. Told the wrong alternative three times in one
+ * turn, a live run went and did something far worse than waiting: it downloaded
+ * UMD builds of the project's dependencies and rewrote the site from ES modules
+ * to global scripts, to route around a restriction that was never about the
+ * site at all. A guard that blocks the cheap wrong action and points at the
+ * wrong right one buys nothing.
+ *
+ * So this now says the true thing: serving is the *user's* to run, and telling
+ * them the command is the useful move.
+ */
+export function checkLongRunningServer(command: string): string | null {
+  if (!LONG_RUNNING_SERVER_RE.test(command)) return null
+  return (
+    'That command starts a server and does not exit, so it would block until the command timeout ' +
+    'and then be killed — it cannot still be serving anything by the time you call the next tool. ' +
+    'Nothing was run, and nothing is wrong with the command itself.\n' +
+    'If the user needs the site served, say so and give them the command to run in their own ' +
+    'terminal — that is the fix, and it is theirs to run, not yours. Do not restructure the ' +
+    'project to avoid needing a server unless the user asked for that.\n' +
+    'If you only need to see the page yourself, preview_html and inspect_visual open a file ' +
+    'directly and need no server.'
+  )
+}

@@ -1,28 +1,14 @@
 import type { ChatHistoryTurn } from '@shared/chat.types'
-import {
-  MAX_RESERVED_NON_HISTORY_TOKENS,
-  MIN_RESERVED_NON_HISTORY_TOKENS,
-  RESERVED_NON_HISTORY_FRACTION,
-  reservedNonHistoryTokens
-} from '@shared/contextBudget'
+import { reservedNonHistoryTokens } from '@shared/contextBudget'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 
 /**
- * Fraction of the context window reserved for the system prompt's tool
- * schemas plus the model's own response, on top of the system prompt's own
- * measured token count. Scales with `contextSize` rather than a flat token
- * count — mirrors the existing `maxTokens = contextSize * 0.25` recommendation
- * in `LlamaService.recommendSettingsForFile`. A flat reservation would either
- * swallow a small context whole (e.g. 2048 reserved out of a 3072-token
- * context leaves almost no history budget at all) or waste a large one (2048
- * out of 128K is needlessly stingy for a big context's own response).
+ * Re-exported so callers of the compactor get the reservation from the same
+ * place they get everything else about compaction. The rule itself lives in
+ * `contextBudget.ts`, derived from the per-budget allocation rather than being
+ * a flat fraction of its own — see that module for why the flat one was wrong.
  */
-export {
-  MAX_RESERVED_NON_HISTORY_TOKENS,
-  MIN_RESERVED_NON_HISTORY_TOKENS,
-  RESERVED_NON_HISTORY_FRACTION,
-  reservedNonHistoryTokens
-}
+export { reservedNonHistoryTokens }
 
 /**
  * Below this combined character count, older turns are dropped outright

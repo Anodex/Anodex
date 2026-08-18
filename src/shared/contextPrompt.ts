@@ -44,11 +44,15 @@ export function buildContextEpochSystemPrompt(
     'Context epoch handoff (Anodex-generated, authoritative for this continuation):',
     `Objective: ${handoff.objective}`,
     `Epoch: ${handoff.epoch}; cause: ${handoff.cause}.`,
+    handoff.workingSummary
+      ? `Prior working notes (model-authored; preserve continuity, but verify before relying on them):\n${handoff.workingSummary}`
+      : '',
     completed ? `Completed tool settlements:\n${completed}` : '',
     plan ? `Current plan:\n${plan}` : '',
     handoff.verificationNote ?? '',
-    handoff.recoveryReadAllowance > 0
-      ? `You may reopen up to ${handoff.recoveryReadAllowance} file(s) already read earlier in this task when you need exact detail that is no longer shown above; each file may be reopened once.`
+    handoff.evidenceIndex
+      ? `Results already gathered in this task (read any of them back with recall_evidence — no need to re-run the tool):
+${handoff.evidenceIndex}`
       : '',
     'Continue from the next concrete action. Do not repeat completed mutations.'
   ]
@@ -92,6 +96,15 @@ export function capContextEpochHandoff(
     return result
   }
   const objective = trim(handoff.objective, Math.max(160, Math.floor(maxCharacters / 3)))
+  // Ahead of the working summary: the index names results the model can read
+  // back exactly, while the summary is its own prose about them. When only one
+  // fits, the addressable facts are worth more than the narration.
+  const evidenceIndex = handoff.evidenceIndex
+    ? trim(handoff.evidenceIndex, Math.max(200, Math.floor(maxCharacters / 3)))
+    : undefined
+  const workingSummary = handoff.workingSummary
+    ? trim(handoff.workingSummary, Math.max(160, Math.floor(maxCharacters / 4)))
+    : undefined
   // Tool identity before plan text: the plan is a restatement of intent the
   // model can re-derive, while a command line it already ran is the fact that
   // stops it running the command twice.
@@ -121,7 +134,15 @@ export function capContextEpochHandoff(
       }
     : handoff.plan
   return fitRenderedHandoff(
-    { ...handoff, objective, plan, completedTools, verificationNote },
+    {
+      ...handoff,
+      objective,
+      evidenceIndex,
+      workingSummary,
+      plan,
+      completedTools,
+      verificationNote
+    },
     maxCharacters
   )
 }
@@ -162,7 +183,7 @@ function fitRenderedHandoff(
 }
 
 /** Header, epoch line, recovery-read line and closing instruction, approximately. */
-const RENDERED_HANDOFF_FIXED_CHARS = 420
+const RENDERED_HANDOFF_FIXED_CHARS = 540
 /** `- status: name — identity (paths) [outcome] #hash` punctuation per entry. */
 const RENDERED_HANDOFF_PER_TOOL_CHARS = 36
 

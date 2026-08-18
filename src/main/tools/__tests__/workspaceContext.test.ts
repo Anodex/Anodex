@@ -25,6 +25,48 @@ describe('buildWorkspaceContext', () => {
     await rm(workspace, { recursive: true, force: true })
   })
 
+  // The summary opens every system prompt, so on a small window it is a tax
+  // paid before the task starts: 3,600 characters is roughly a fifth of a
+  // 2,048-token context. Above ~8k the reference budget already exceeds what
+  // these sections want, so nothing changes there.
+  describe('scales to the context window', () => {
+    beforeEach(async () => {
+      await writeFile(
+        join(workspace, 'package.json'),
+        JSON.stringify({ name: 'demo-app', scripts: { build: 'tsc' } })
+      )
+      await writeFile(join(workspace, 'ANODEX.md'), 'n'.repeat(4000))
+      await mkdir(join(workspace, '.anodex'))
+      await writeFile(join(workspace, '.anodex', 'SPEC.md'), 's'.repeat(4000))
+    })
+
+    it('shrinks the summary on a window that cannot afford it', () => {
+      const cramped = buildWorkspaceContext(workspace, null, '', 2048)
+      const roomy = buildWorkspaceContext(workspace, null, '', 32768)
+      expect(cramped.length).toBeLessThan(roomy.length)
+    })
+
+    it('leaves a large window at the full summary', () => {
+      const roomy = buildWorkspaceContext(workspace, null, '', 32768)
+      const huge = buildWorkspaceContext(workspace, null, '', 262144)
+      expect(huge.length).toBe(roomy.length)
+    })
+
+    it('keeps every section rather than dropping one outright', () => {
+      // A tree with no notes reads as though the project has none.
+      const cramped = buildWorkspaceContext(workspace, null, '', 2048)
+      expect(cramped).toContain('demo-app')
+      expect(cramped).toContain('nnn')
+      expect(cramped).toContain('sss')
+    })
+
+    it('is unchanged when no window is given', () => {
+      expect(buildWorkspaceContext(workspace, null)).toBe(
+        buildWorkspaceContext(workspace, null, '', 262144)
+      )
+    })
+  })
+
   it('summarizes name, scripts, top-level tree, and README', async () => {
     await writeFile(
       join(workspace, 'package.json'),

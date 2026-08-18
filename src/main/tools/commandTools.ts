@@ -3,7 +3,12 @@ import type { ToolCall } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { runGuardedTool } from './helpers'
 import { classifyCommandRisk } from './permissions'
-import { checkCommandCompatibility, describeEmptySearchResult } from './commandGuidance'
+import {
+  checkCommandCompatibility,
+  checkLongRunningServer,
+  describeEmptySearchResult
+} from './commandGuidance'
+import { isObservationalCommand } from './commandEffect'
 
 const COMMAND_TIMEOUT_MS = 60_000
 const MAX_COMMAND_TIMEOUT_MS = 5 * 60_000
@@ -79,6 +84,17 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
             }
           }
 
+          // A server started here is killed with the call, so the command can
+          // only ever spend its whole timeout and produce nothing.
+          const server = checkLongRunningServer(args.command)
+          if (server) {
+            return {
+              modelResult: server,
+              detail: 'not run: would not exit',
+              madeProgress: false
+            }
+          }
+
           const timeoutMs = normalizeTimeout(args.timeoutMs)
           const { stdout, stderr, code, terminated } = await runShell(
             args.command,
@@ -106,7 +122,8 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
           // instead of the command's real output size.
           return {
             modelResult: `${describeOutcome(terminated, code, timeoutMs)}\n\n${combined}${emptySearchNote}`,
-            detail: terminated ? TERMINATION_DETAIL[terminated] : `exit ${code}`
+            detail: terminated ? TERMINATION_DETAIL[terminated] : `exit ${code}`,
+            madeProgress: !isObservationalCommand(args.command)
           }
         }
       })

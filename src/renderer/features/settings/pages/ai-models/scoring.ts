@@ -90,6 +90,8 @@ export function reliabilityScoreForRecommended(
 export function ctxSizeWarning(hardware: HardwareInfo, selectedCtx: number): boolean {
   if (!hardware.unifiedMemory && hardware.vramBytes) {
     const vramGb = hardware.vramBytes / 1024 ** 3
+    if (selectedCtx >= 1048576 && vramGb < 80) return true
+    if (selectedCtx >= 524288 && vramGb < 48) return true
     if (selectedCtx >= 262144 && vramGb < 32) return true
     if (selectedCtx >= 131072 && vramGb < 24) return true
     if (selectedCtx >= 65536 && vramGb < 16) return true
@@ -100,6 +102,8 @@ export function ctxSizeWarning(hardware: HardwareInfo, selectedCtx: number): boo
   }
 
   const ramGb = bytesToGb(hardware.ramBytes)
+  if (selectedCtx >= 1048576 && ramGb < 256) return true
+  if (selectedCtx >= 524288 && ramGb < 160) return true
   if (selectedCtx >= 262144 && ramGb < 96) return true
   if (selectedCtx >= 131072 && ramGb < 64) return true
   if (selectedCtx >= 65536 && ramGb < 32) return true

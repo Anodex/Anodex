@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CODING_AGENT_PROMPT,
+  COMPACT_CODING_AGENT_PROMPT,
   composeSystemPrompt,
+  coreAgentPrompt,
   environmentDateFromPrompt,
   NO_WORKSPACE_NOTE,
   READ_ONLY_WORKSPACE_NOTE,
@@ -26,10 +29,26 @@ describe('composeSystemPrompt', () => {
     expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
   })
 
-  it('instructs the assistant to acknowledge before using tools', () => {
+  // A live turn made 78 tool calls behind 99 paragraphs of "Let me check X",
+  // none of which reported a finding. The user's account of it was that it
+  // "said nothing about what it was doing or why" — announcing an intention to
+  it('asks for the say-do-report loop rather than per-call chatter', () => {
     const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
-    expect(prompt).toContain('Before the first tool call')
-    expect(prompt).toContain('exactly one short user-facing sentence')
+    expect(prompt).toContain('say what you are about to do and why')
+    expect(prompt).toContain('say what you found')
+    expect(prompt).toContain('say what you are doing next')
+    expect(prompt).toContain('never once per call')
+  })
+
+  it('counts a negative result as something worth reporting', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
+    expect(prompt).toContain('A negative result is a result')
+  })
+
+  it('asks the reply to end with status and what comes next', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: true, hasProject: true })
+    expect(prompt).toContain('whether the request is now complete')
+    expect(prompt).toContain('what you would do next or recommend')
   })
 
   it('keeps internal tool-call syntax allowed for the runtime', () => {
@@ -247,5 +266,46 @@ describe('environmentDateFromPrompt', () => {
     expect(environmentDateFromPrompt('You are a helpful assistant.')).toBeNull()
     expect(environmentDateFromPrompt(undefined)).toBeNull()
     expect(environmentDateFromPrompt(null)).toBeNull()
+  })
+})
+
+describe('core prompt sizing', () => {
+  it('keeps the full prompt when the window is large or unknown', () => {
+    expect(coreAgentPrompt(undefined)).toBe(CODING_AGENT_PROMPT)
+    expect(coreAgentPrompt(200_000)).toBe(CODING_AGENT_PROMPT)
+    expect(coreAgentPrompt(32_768)).toBe(CODING_AGENT_PROMPT)
+  })
+
+  it('switches to the compact core on a window that cannot afford the long form', () => {
+    for (const contextSize of [4_096, 8_192, 16_384]) {
+      expect(coreAgentPrompt(contextSize)).toBe(COMPACT_CODING_AGENT_PROMPT)
+    }
+  })
+
+  it('makes the compact core substantially cheaper than the full one', () => {
+    // The whole reason it exists. At 16K the long form is ~11% of the window
+    // before tool schemas, history and the reply take their share — see
+    // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §2.
+    expect(COMPACT_CODING_AGENT_PROMPT.length).toBeLessThan(CODING_AGENT_PROMPT.length / 2)
+  })
+
+  it('keeps the rules a small model most needs, not just fewer words', () => {
+    // Recall instead of re-reading, and line-addressed edits, are the two
+    // behaviours that make a small window able to finish a task at all.
+    expect(COMPACT_CODING_AGENT_PROMPT).toContain('recall_evidence')
+    expect(COMPACT_CODING_AGENT_PROMPT).toContain('replace_lines')
+    expect(COMPACT_CODING_AGENT_PROMPT).toContain('write_plan')
+    expect(COMPACT_CODING_AGENT_PROMPT).toContain('remember_fact')
+  })
+
+  it('uses the compact core inside a composed prompt for a small window', () => {
+    const composed = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      contextWindowTokens: 16_384
+    })
+
+    expect(composed).toContain(COMPACT_CODING_AGENT_PROMPT)
+    expect(composed).not.toContain(CODING_AGENT_PROMPT)
   })
 })

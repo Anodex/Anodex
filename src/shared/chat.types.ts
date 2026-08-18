@@ -351,14 +351,29 @@ export interface ContextEpochHandoff {
   cause: 'proactive' | 'in-turn' | 'loop-guard'
   /** Original user objective, not an automatically generated continuation nudge. */
   objective: string
+  /**
+   * Bounded model-authored findings from the reply before it was shed. These
+   * preserve orientation, but are explicitly rendered as working notes rather
+   * than authoritative evidence.
+   */
+  workingSummary?: string
+  /**
+   * Catalogue of tool results this task has stored and can read back with
+   * `recall_evidence` — see `TurnEvidenceStore`.
+   *
+   * A context epoch resets the model's history, so without this the resumed
+   * model has no idea the results still exist and re-reads the workspace to
+   * rebuild what it already has. This replaced `recoveryReadAllowance`, a
+   * permission to re-read N files that was only ever needed because the epoch
+   * used to destroy the results outright.
+   */
+  evidenceIndex?: string
   /** Current visible plan, if the task has one. */
   plan?: Plan | null
   /** Completed tool facts only. Raw result bodies and arguments stay in durable history. */
   completedTools: ContextEpochToolRecord[]
   /** Seeds the resumed generation's completion/verification gate. */
   progress: ContextEpochProgress
-  /** Exact re-reads this epoch may spend on evidence it dropped from active context. */
-  recoveryReadAllowance: number
   /**
    * Measured fixed input of the epoch this handoff replaces. The next epoch's
    * first round must come in under it; an epoch that does not shrink is fixed

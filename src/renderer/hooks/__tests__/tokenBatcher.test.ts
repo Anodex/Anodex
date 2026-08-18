@@ -7,123 +7,83 @@ function call(id: string, status: ToolCall['status'] = 'running'): ToolCall {
 }
 
 describe('TokenBatcher', () => {
-  it('has nothing pending before any token arrives', () => {
+  it('has nothing pending before an event arrives and clears after draining', () => {
     const batcher = new TokenBatcher()
     expect(batcher.hasPending()).toBe(false)
-  })
 
-  it('reports pending work once a token is added', () => {
-    const batcher = new TokenBatcher()
-    batcher.addToken('conv-1', 'msg-1', 'a')
+    batcher.addToken('conv-1', 'msg-1', 'hello')
     expect(batcher.hasPending()).toBe(true)
+
+    batcher.drain()
+    expect(batcher.hasPending()).toBe(false)
+    expect(batcher.drain()).toEqual([])
   })
 
-  it('concatenates multiple tokens for the same message in arrival order', () => {
+  it('coalesces only adjacent events of the same text channel', () => {
     const batcher = new TokenBatcher()
     batcher.addToken('conv-1', 'msg-1', 'Hel')
     batcher.addToken('conv-1', 'msg-1', 'lo')
-    batcher.addToken('conv-1', 'msg-1', '!')
+    batcher.addThinkingToken('conv-1', 'msg-1', ' plan')
+    batcher.addThinkingToken('conv-1', 'msg-1', ' first')
+    batcher.addToken('conv-1', 'msg-1', ' again')
 
-    const { tokens } = batcher.drain()
-
-    expect(tokens).toEqual([['msg-1', { conversationId: 'conv-1', text: 'Hello!' }]])
+    expect(batcher.drain()).toEqual([
+      [
+        'msg-1',
+        {
+          conversationId: 'conv-1',
+          events: [
+            { type: 'text', text: 'Hello' },
+            { type: 'thinking', text: ' plan first' },
+            { type: 'text', text: ' again' }
+          ]
+        }
+      ]
+    ])
   })
 
-  it('keeps separate messages independent', () => {
+  it('preserves text, thinking, and tool activity in their exact arrival order', () => {
+    const batcher = new TokenBatcher()
+    batcher.addToken('conv-1', 'msg-1', 'Let')
+    batcher.addThinkingToken('conv-1', 'msg-1', ' the plan')
+    batcher.addToken('conv-1', 'msg-1', ' me check')
+    batcher.addToolActivity('conv-1', 'msg-1', call('call-1'))
+    batcher.addToken('conv-1', 'msg-1', ' the files.')
+
+    const [, entry] = batcher.drain()[0]
+    expect(entry.events.map((event) => event.type)).toEqual([
+      'text',
+      'thinking',
+      'text',
+      'activity',
+      'text'
+    ])
+  })
+
+  it('keeps a repeated call in its chronological slot while replacing its status', () => {
+    const batcher = new TokenBatcher()
+    batcher.addToolActivity('conv-1', 'msg-1', call('call-1', 'running'))
+    batcher.addToken('conv-1', 'msg-1', 'working')
+    batcher.addToolActivity('conv-1', 'msg-1', call('call-2', 'running'))
+    batcher.addToolActivity('conv-1', 'msg-1', call('call-1', 'success'))
+
+    const [, entry] = batcher.drain()[0]
+    expect(entry.events).toEqual([
+      { type: 'activity', calls: [call('call-1', 'success')] },
+      { type: 'text', text: 'working' },
+      { type: 'activity', calls: [call('call-2', 'running')] }
+    ])
+  })
+
+  it('keeps separate messages independent and starts fresh after a drain', () => {
     const batcher = new TokenBatcher()
     batcher.addToken('conv-1', 'msg-1', 'a')
     batcher.addToken('conv-2', 'msg-2', 'b')
+    expect(batcher.drain().map(([messageId]) => messageId)).toEqual(['msg-1', 'msg-2'])
 
-    const { tokens } = batcher.drain()
-
-    expect(tokens).toHaveLength(2)
-    expect(Object.fromEntries(tokens)).toEqual({
-      'msg-1': { conversationId: 'conv-1', text: 'a' },
-      'msg-2': { conversationId: 'conv-2', text: 'b' }
-    })
-  })
-
-  it('keeps thinking tokens in a separate bucket from regular tokens', () => {
-    const batcher = new TokenBatcher()
-    batcher.addToken('conv-1', 'msg-1', 'visible')
-    batcher.addThinkingToken('conv-1', 'msg-1', 'thought')
-
-    const { tokens, thinkingTokens } = batcher.drain()
-
-    expect(tokens).toEqual([['msg-1', { conversationId: 'conv-1', text: 'visible' }]])
-    expect(thinkingTokens).toEqual([['msg-1', { conversationId: 'conv-1', text: 'thought' }]])
-  })
-
-  it('clears all state after a drain, leaving nothing pending', () => {
-    const batcher = new TokenBatcher()
-    batcher.addToken('conv-1', 'msg-1', 'a')
-    batcher.addThinkingToken('conv-1', 'msg-1', 'b')
-    batcher.addToolActivity('conv-1', 'msg-1', call('call-1'))
-
-    batcher.drain()
-
-    expect(batcher.hasPending()).toBe(false)
-    const second = batcher.drain()
-    expect(second.tokens).toEqual([])
-    expect(second.thinkingTokens).toEqual([])
-    expect(second.activity).toEqual([])
-  })
-
-  describe('tool activity', () => {
-    it('reports pending work once a tool-activity event is added', () => {
-      const batcher = new TokenBatcher()
-      batcher.addToolActivity('conv-1', 'msg-1', call('call-1'))
-      expect(batcher.hasPending()).toBe(true)
-    })
-
-    it('buffers several distinct calls for one message into one drain entry', () => {
-      const batcher = new TokenBatcher()
-      batcher.addToolActivity('conv-1', 'msg-1', call('call-1'))
-      batcher.addToolActivity('conv-1', 'msg-1', call('call-2'))
-
-      const { activity } = batcher.drain()
-
-      expect(activity).toHaveLength(1)
-      const [messageId, conversationId, calls] = activity[0]
-      expect(messageId).toBe('msg-1')
-      expect(conversationId).toBe('conv-1')
-      expect(calls.map((c) => c.id)).toEqual(['call-1', 'call-2'])
-    })
-
-    it('keeps a repeat call for the same id in its original position but with the latest status', () => {
-      const batcher = new TokenBatcher()
-      batcher.addToolActivity('conv-1', 'msg-1', call('call-1', 'running'))
-      batcher.addToolActivity('conv-1', 'msg-1', call('call-2', 'running'))
-      // call-1 settles after call-2 started — its position should stay first.
-      batcher.addToolActivity('conv-1', 'msg-1', call('call-1', 'success'))
-
-      const { activity } = batcher.drain()
-      const [, , calls] = activity[0]
-
-      expect(calls.map((c) => c.id)).toEqual(['call-1', 'call-2'])
-      expect(calls[0].status).toBe('success')
-      expect(calls[1].status).toBe('running')
-    })
-
-    it('keeps activity for separate messages independent', () => {
-      const batcher = new TokenBatcher()
-      batcher.addToolActivity('conv-1', 'msg-1', call('call-1'))
-      batcher.addToolActivity('conv-2', 'msg-2', call('call-2'))
-
-      const { activity } = batcher.drain()
-
-      expect(activity).toHaveLength(2)
-    })
-  })
-
-  it('starts a fresh accumulation for a message after it was drained', () => {
-    const batcher = new TokenBatcher()
-    batcher.addToken('conv-1', 'msg-1', 'first batch')
-    batcher.drain()
-
-    batcher.addToken('conv-1', 'msg-1', 'second batch')
-    const { tokens } = batcher.drain()
-
-    expect(tokens).toEqual([['msg-1', { conversationId: 'conv-1', text: 'second batch' }]])
+    batcher.addToken('conv-1', 'msg-1', 'second')
+    expect(batcher.drain()).toEqual([
+      ['msg-1', { conversationId: 'conv-1', events: [{ type: 'text', text: 'second' }] }]
+    ])
   })
 })

@@ -16,9 +16,8 @@ import {
   MIN_SUMMARY_CHARS
 } from '../llama/compaction'
 import { buildTools } from '../tools/registry'
-import { createLoopGuardState } from '../tools/loopGuard'
 import { createToolLoopAbortState } from '../tools/toolLoopAbort'
-import { createReadCoverageTracker } from '../tools/readCoverage'
+import { createTaskLedger } from '../tools/taskLedger'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
 import type { ModelToolResultBudget } from '../tools/modelResultBudget'
 import { toolParameterSchema } from '../tools/toolParameterSchema'
@@ -119,7 +118,6 @@ class OpenAiProvider implements LlmProvider {
           turnGate: { approved: false },
           // Fresh every generation call, same reasoning as `turnGate` above —
           // see `ToolRuntimeContext.loopGuard`'s doc comment.
-          loopGuard: params.tools.loopGuard ?? createLoopGuardState(),
           // Fresh every generation call unless a context epoch carried ordering
           // forward — see `ToolRuntimeContext.progress` and `TurnProgressSeed`.
           progress: createTurnProgress(params.tools.progressSeed),
@@ -132,7 +130,7 @@ class OpenAiProvider implements LlmProvider {
           // bounded multi-cycle/multi-turn task (see
           // `ToolRuntimeContext.readCoverage`'s doc comment); otherwise a
           // fresh one with no cross-call effect.
-          readCoverage: params.tools.readCoverage ?? createReadCoverageTracker(),
+          ledger: params.tools.ledger ?? createTaskLedger(),
           visualInputs,
           abortGeneration: () => toolLoopAbort.request(),
           signal: params.signal,

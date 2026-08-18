@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { FileTouch, ProjectMemory, ProjectRecallEvent } from '@shared/projectMemory.types'
 import { wordSet } from '@shared/textSimilarity'
+import { referenceContextShare } from '@shared/contextBudget'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { codeIndexer } from '../codeIndex/CodeIndexer'
 import { PROJECT_NOTES_FILENAME } from './projectNotesTool'
@@ -17,15 +18,48 @@ import { PROJECT_NOTES_FILENAME } from './projectNotesTool'
  */
 
 const MAX_TREE_ENTRIES = 60
-const MAX_CHARS = 2000
 const README_LINES = 8
 const CACHE_TTL_MS = 30_000
 const MAX_ACTIVITY_FILES = 8
 const MAX_ACTIVITY_SUMMARIES = 3
+
+/**
+ * What each section is worth when the window can afford it. These are the sizes
+ * the summary was tuned to be useful at, so they are ceilings rather than
+ * targets: there is no more workspace worth describing on a 128k window than on
+ * a 32k one.
+ */
+const FULL_CORE_CHARS = 2000
 /** Tail-sliced, not head — newest notes land at the end of the file, unlike a README. */
-const NOTES_CHARS = 800
-/** Tail-sliced, same reasoning as `NOTES_CHARS` — newest archived changes land at the end. */
-const SPEC_CHARS = 800
+const FULL_NOTES_CHARS = 800
+/** Tail-sliced, same reasoning as `FULL_NOTES_CHARS` — newest archived changes land at the end. */
+const FULL_SPEC_CHARS = 800
+
+interface CharBudget {
+  core: number
+  notes: number
+  spec: number
+}
+
+/**
+ * Scale the three sections to what the context window can afford, keeping their
+ * relative sizes.
+ *
+ * At 8,192 tokens and above the reference budget already exceeds what these
+ * sections want, so nothing changes. Below that it bites, and it should: 3,600
+ * characters of preamble is roughly a fifth of a 2,048-token window spent
+ * before the task has started. Squeezing all three together rather than
+ * dropping one keeps the summary's shape — a tree with no notes reads as though
+ * the project has none.
+ */
+function charBudget(contextSize?: number): CharBudget {
+  const share = contextSize ? referenceContextShare(contextSize) : 1
+  return {
+    core: Math.floor(FULL_CORE_CHARS * share),
+    notes: Math.floor(FULL_NOTES_CHARS * share),
+    spec: Math.floor(FULL_SPEC_CHARS * share)
+  }
+}
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -40,6 +74,8 @@ const SKIP_DIRS = new Set([
 
 interface CacheEntry {
   root: string
+  /** Part of the key: a context-size change must not serve a stale budget. */
+  budget: CharBudget
   builtAt: number
   text: string
 }
@@ -54,10 +90,19 @@ let cache: CacheEntry | null = null
 export function buildWorkspaceContext(
   root: string,
   projectId: string | null,
-  retrievalQuery = ''
+  retrievalQuery = '',
+  contextSize?: number
 ): string {
-  if (!cache || cache.root !== root || Date.now() - cache.builtAt >= CACHE_TTL_MS) {
-    cache = { root, builtAt: Date.now(), text: build(root) }
+  const budget = charBudget(contextSize)
+  // Inline rather than hoisted to a `stale` flag: the null check has to stay in
+  // the condition for the compiler to know `cache` is populated afterwards.
+  if (
+    !cache ||
+    cache.root !== root ||
+    cache.budget.core !== budget.core ||
+    Date.now() - cache.builtAt >= CACHE_TTL_MS
+  ) {
+    cache = { root, budget, builtAt: Date.now(), text: build(root, budget) }
   }
   // Fire-and-forget: keeps the semantic code index (see `search_code`) fresh
   // in the background, throttled/single-flighted internally by the indexer
@@ -175,7 +220,7 @@ function overlapScore(text: string, queryWords: Set<string>): number {
   }
   return score
 }
-function build(root: string): string {
+function build(root: string, budget: CharBudget): string {
   if (!existsSync(root)) return ''
   const coreLines: string[] = [`Name: ${basename(root)}`, `Path: ${root}`]
 
@@ -202,19 +247,20 @@ function build(root: string): string {
   }
 
   // Notes and SPEC.md are built separately from the core section (name, tree,
-  // README, ...) and their combined length is reserved out of MAX_CHARS
-  // *before* the core is truncated below — otherwise a large top-level tree
-  // or long README alone could fill the entire budget, silently evicting
-  // SPEC.md (added last) with no signal to the model that it was dropped.
+  // README, ...). They used to be subtracted from the core's allowance, because
+  // a single constant covered all three and a long README could otherwise fill
+  // it and silently evict SPEC.md. Each section now carries its own cap, which
+  // solves that by construction — and subtracting as well would charge the core
+  // twice, which on a small window truncated the project's own name mid-word.
   const trailingLines: string[] = []
-  const notes = projectNotesExcerpt(root)
+  const notes = projectNotesExcerpt(root, budget.notes)
   if (notes) {
     trailingLines.push(
       `Notes Anodex previously recorded about this project (from ${PROJECT_NOTES_FILENAME}, most recent last):`,
       notes
     )
   }
-  const spec = specExcerpt(root)
+  const spec = specExcerpt(root, budget.spec)
   if (spec) {
     trailingLines.push(
       "This project's living spec (from .anodex/SPEC.md, built from archived change proposals, most recent last):",
@@ -224,7 +270,7 @@ function build(root: string): string {
   const trailingText = trailingLines.length ? `\n${trailingLines.join('\n')}` : ''
 
   const coreText = coreLines.join('\n')
-  const coreBudget = Math.max(0, MAX_CHARS - trailingText.length)
+  const coreBudget = budget.core
   const truncatedCore =
     coreText.length > coreBudget ? `${coreText.slice(0, coreBudget)}\n…` : coreText
 
@@ -261,26 +307,26 @@ function readmeExcerpt(root: string): string | null {
 }
 
 /** The tail of `ANODEX.md`, if present — newest notes first via the caller's framing. */
-function projectNotesExcerpt(root: string): string | null {
+function projectNotesExcerpt(root: string, limit: number): string | null {
   const path = join(root, PROJECT_NOTES_FILENAME)
   if (!existsSync(path)) return null
   try {
     const text = readFileSync(path, 'utf-8').trim()
     if (!text) return null
-    return text.length > NOTES_CHARS ? `…${text.slice(-NOTES_CHARS)}` : text
+    return text.length > limit ? `…${text.slice(-limit)}` : text
   } catch {
     return null
   }
 }
 
 /** The tail of `.anodex/SPEC.md`, if present — newest archived changes first via the caller's framing. */
-function specExcerpt(root: string): string | null {
+function specExcerpt(root: string, limit: number): string | null {
   const path = join(root, '.anodex', 'SPEC.md')
   if (!existsSync(path)) return null
   try {
     const text = readFileSync(path, 'utf-8').trim()
     if (!text) return null
-    return text.length > SPEC_CHARS ? `…${text.slice(-SPEC_CHARS)}` : text
+    return text.length > limit ? `…${text.slice(-limit)}` : text
   } catch {
     return null
   }

@@ -163,3 +163,49 @@ describe('describeUnverifiedPathClaims', () => {
     expect(note).toContain('no tool call actually read them this task')
   })
 })
+
+describe('URLs are never mistaken for workspace paths', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-urlpath-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  it('does not flag a path fragment taken from a localhost URL', async () => {
+    // Live false positive on an otherwise correct reply: `8000/index.html` was
+    // extracted from `http://localhost:8000/index.html` and reported as
+    // "likely fabricated". A false accusation on a correct answer costs more
+    // than the check is worth.
+    const issues = await findUnverifiedPathClaims(
+      'Open `http://localhost:8000/index.html` and scroll to the sandbox.',
+      workspace,
+      new ReadCoverageTracker()
+    )
+
+    expect(issues).toEqual([])
+  })
+
+  it('ignores paths inside any scheme URL', async () => {
+    const issues = await findUnverifiedPathClaims(
+      'See https://github.com/acme/repo/blob/main/src/app.ts for the upstream version.',
+      workspace,
+      new ReadCoverageTracker()
+    )
+
+    expect(issues).toEqual([])
+  })
+
+  it('still flags a genuinely fabricated workspace path beside a URL', async () => {
+    const issues = await findUnverifiedPathClaims(
+      'Serving at http://localhost:8000/index.html; the bug is in `src/made-up.ts`.',
+      workspace,
+      new ReadCoverageTracker()
+    )
+
+    expect(issues).toEqual([{ path: 'src/made-up.ts', reason: 'not-found' }])
+  })
+})

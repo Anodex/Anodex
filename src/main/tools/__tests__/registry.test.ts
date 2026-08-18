@@ -28,6 +28,7 @@ const PROJECT_WORKSPACE_TOOLS = [
   'write_file',
   'append_file',
   'edit_file',
+  'replace_lines',
   'patch_file',
   'delete_file',
   'move_file',
@@ -59,6 +60,7 @@ const READ_ONLY_WORKSPACE_TOOLS = [
 ]
 
 const GLOBAL_OR_CONDITIONAL_TOOLS = [
+  'recall_evidence',
   'fetch_url',
   'web_search',
   'generate_image',

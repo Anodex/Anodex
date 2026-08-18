@@ -165,6 +165,7 @@ export function MessageBubble({
   const showInitialActivity = message.streaming && segments.length === 0
   const lastSegment = segments[segments.length - 1]
   const timeline = groupSegmentsForTimeline(segments)
+  const firstWorkBlockIndex = timeline.findIndex((block) => block.type === 'work')
   // The tail of a streaming message always carries an unobtrusive live status.
   // Tool names come from actual activity events; other labels describe only
   // the observable generation state, not unexposed model reasoning.
@@ -258,6 +259,7 @@ export function MessageBubble({
                   streaming={Boolean(message.streaming) && index === timeline.length - 1}
                   startedAt={message.createdAt}
                   finalDurationMs={message.stats?.durationMs}
+                  showTotalDuration={index === firstWorkBlockIndex}
                   comparison={blockComparison}
                 />
               )

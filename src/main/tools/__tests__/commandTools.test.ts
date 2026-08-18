@@ -4,6 +4,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ToolConfirmRequest } from '@shared/tools.types'
 import { parseRunCommandVerification, runCommandTool } from '../commandTools'
+import { checkLongRunningServer } from '../commandGuidance'
+import {
+  effectiveToolKind,
+  isObservationalCommand,
+  observationalCommandIdentity
+} from '../commandEffect'
 import { captureCalls, createMockContext, createMockDefine } from './test-helpers'
 
 describe('run_command', () => {
@@ -40,6 +46,46 @@ describe('run_command', () => {
 
     expect(result).toContain('Exit code 0')
     expect(result).toContain('hello')
+  })
+
+  it('marks successful shell inspection as read-only progress', async () => {
+    const { calls, emit } = captureCalls()
+    const ctx = {
+      ...createMockContext(workspace),
+      emit,
+      confirm: () => Promise.resolve({ approved: true })
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string }) => Promise<string>
+    }
+
+    await tool.handler({ command: process.platform === 'win32' ? 'Get-ChildItem' : 'ls' })
+
+    expect(calls.at(-1)).toMatchObject({ status: 'success', madeProgress: false })
+    expect(ctx.progress.madeChange).toBe(false)
+  })
+
+  it('classifies wrapped PowerShell reads without hiding real mutations', () => {
+    expect(
+      isObservationalCommand(
+        'powershell -Command "$content = Get-Content js/universe-sandbox.js -Raw; $content.Substring(10000, 10000)"'
+      )
+    ).toBe(true)
+    expect(
+      isObservationalCommand(
+        'powershell -Command "(Get-Content js/universe-sandbox.js | Select-Object -Skip 100 -First 150) -join "`n""'
+      )
+    ).toBe(true)
+    expect(isObservationalCommand('Set-Content index.html "changed"')).toBe(false)
+    expect(isObservationalCommand('npm test')).toBe(false)
+  })
+
+  it('canonicalizes equivalent shell reads to one evidence identity', () => {
+    expect(observationalCommandIdentity('Get-Content js/universe-sandbox.js -TotalCount 100')).toBe(
+      observationalCommandIdentity(
+        'powershell -Command "Get-Content js/universe-sandbox.js | Select-Object -First 100"'
+      )
+    )
   })
 
   it('marks a command rejected before execution as a no-op', async () => {
@@ -318,5 +364,112 @@ describe('parseRunCommandVerification', () => {
         detail: 'Command failed to spawn'
       })
     ).toBeNull()
+  })
+})
+
+/**
+ * Read-shaped shell commands, classified for the ledger's gathering ladder.
+ *
+ * A live run, told by the ladder to stop gathering, said so in its own reply —
+ * "The system is blocking repeated info calls. Let me use a command to read the
+ * file content I need" — and then made twenty-two shell reads. Every utility
+ * missing from `DIRECT_READ_RE` is a hole of exactly that shape.
+ */
+describe('shell reads count as gathering, shell writes do not', () => {
+  it.each([
+    ["sed -n '40,50p' js/app.js", true],
+    ["awk 'NR>40 && NR<50' js/app.js", true],
+    ['head -n 100 js/app.js | tail -n 30', true],
+    ['nl -ba js/app.js', true],
+    ['wc -l js/app.js', true],
+    ["Select-String -Path 'js/app.js' -Pattern 'ambient'", true],
+    ["(Get-Content 'js/app.js') | Select-Object -Index 39,40,41", true],
+    // In-place editing is the one form of sed that writes.
+    ["sed -i 's/a/b/' js/app.js", false],
+    ["sed -i.bak 's/a/b/' js/app.js", false],
+    ['npm run build', false],
+    ['cat js/app.js > copy.js', false]
+  ])('%s -> observational: %s', (command, expected) => {
+    expect(isObservationalCommand(command)).toBe(expected)
+  })
+
+  it('reports the effective kind a shell read should be counted as', () => {
+    expect(
+      effectiveToolKind(
+        { name: 'run_command', kind: 'command', title: "Run: sed -n '1,5p' a.js" },
+        'read'
+      )
+    ).toBe('read')
+    expect(
+      effectiveToolKind({ name: 'run_command', kind: 'command', title: 'Run: npm test' }, 'read')
+    ).toBe('command')
+  })
+})
+
+/**
+ * Two calls that look like work and are not.
+ *
+ * Both cost a live run real time: `python -m http.server 8000` blocked until
+ * the command timeout and was then killed, and `Start-Process "http://…"`
+ * scored as a mutation and reset the ledger's gathering streak.
+ */
+describe('commands that cannot advance the task', () => {
+  it.each([
+    'python -m http.server 8000',
+    'python3 -m http.server',
+    'npx serve .',
+    'npm run dev',
+    'npm start',
+    'vite',
+    'php -S localhost:8000',
+    'hugo server'
+  ])('refuses %s before running it', (command) => {
+    const message = checkLongRunningServer(command)
+    expect(message).toContain('does not exit')
+    expect(message).toContain('preview_html')
+  })
+
+  it('tells the model to hand the command to the user, not to route around it', () => {
+    // The first version of this refusal only named preview_html/inspect_visual —
+    // tools for Anodex to look at a page — when a model asking for a server is
+    // usually trying to make the site work for the *user*. Refused three times
+    // in one turn, a live run downloaded UMD builds and rewrote the project from
+    // ES modules to global scripts to avoid needing a server at all.
+    const message = checkLongRunningServer('python -m http.server 8000') ?? ''
+
+    expect(message).toContain('give them the command to run')
+    expect(message).toContain('Do not restructure the project')
+  })
+
+  it.each(['npm run build', 'npm test', 'ls -la', 'git status', 'cargo test'])(
+    'lets %s run',
+    (command) => {
+      expect(checkLongRunningServer(command)).toBeNull()
+    }
+  )
+
+  it('does not count opening a URL in a browser as work', () => {
+    // `Start-Process` is in the mutation list, correctly for a real launch —
+    // but a browser open changes nothing and gathers nothing, and scoring it as
+    // a mutation reset the gathering streak.
+    expect(isObservationalCommand('Start-Process "http://localhost:8000/index.html"')).toBe(true)
+    expect(isObservationalCommand('start http://localhost:8000/')).toBe(true)
+    expect(isObservationalCommand('xdg-open https://example.com')).toBe(true)
+  })
+
+  it('still counts a real Start-Process as work', () => {
+    expect(isObservationalCommand('Start-Process npm -ArgumentList "run","build"')).toBe(false)
+    expect(isObservationalCommand('Start-Process notepad.exe')).toBe(false)
+  })
+
+  it('does not count waiting as work', () => {
+    // `NON_READ_POWERSHELL_VERB_RE`'s `Start-` prefix scored `Start-Sleep` as a
+    // mutation, so a reply that read one file and slept twice looked like it had
+    // changed something — which suppressed the "no files were changed" note it
+    // should have carried.
+    expect(isObservationalCommand('Start-Sleep -Seconds 4')).toBe(true)
+    expect(isObservationalCommand('timeout /t 4 /nobreak')).toBe(true)
+    expect(isObservationalCommand('sleep 2')).toBe(true)
+    expect(isObservationalCommand('ping -n 5 127.0.0.1')).toBe(true)
   })
 })

@@ -174,6 +174,56 @@ describe('groupSegmentsForTimeline', () => {
     expect(blocks.map((b) => b.type)).toEqual(['work', 'text', 'work'])
   })
 
+  it('rejoins a visible sentence split by reasoning activity', () => {
+    const blocks = groupSegmentsForTimeline([
+      { type: 'text', text: 'Let' },
+      { type: 'thinking', text: ' the plan.' },
+      { type: 'text', text: 'me check the current state.' }
+    ])
+
+    expect(blocks.map((block) => block.type)).toEqual(['work', 'text'])
+    expect((blocks[1] as { type: 'text'; text: string }).text).toBe(
+      'Let me check the current state.'
+    )
+  })
+
+  it('rejoins a visible sentence split by a tool call', () => {
+    const blocks = groupSegmentsForTimeline([
+      { type: 'text', text: 'Let me check the current state of' },
+      { type: 'toolGroup', phase: 'inspecting', calls: [call({ kind: 'read' })] },
+      { type: 'text', text: 'the project files.' }
+    ])
+
+    expect(blocks.map((block) => block.type)).toEqual(['work', 'text'])
+    expect((blocks[1] as { type: 'text'; text: string }).text).toBe(
+      'Let me check the current state of the project files.'
+    )
+  })
+
+  it('moves a short abandoned fragment into work details instead of showing broken prose', () => {
+    const blocks = groupSegmentsForTimeline([
+      { type: 'text', text: 'That' },
+      { type: 'thinking', text: ' we left off.' },
+      { type: 'text', text: "Instagram email isn't related to the project." }
+    ])
+
+    expect(blocks.map((block) => block.type)).toEqual(['work', 'text'])
+    expect((blocks[0] as { type: 'work'; segments: unknown[] }).segments).toHaveLength(2)
+    expect((blocks[1] as { type: 'text'; text: string }).text).toBe(
+      "Instagram email isn't related to the project."
+    )
+  })
+
+  it('hides an unfinished live fragment until its continuation arrives', () => {
+    const blocks = groupSegmentsForTimeline([
+      { type: 'text', text: 'Let' },
+      { type: 'thinking', text: ' me inspect the plan.' }
+    ])
+
+    expect(blocks.map((block) => block.type)).toEqual(['work'])
+    expect((blocks[0] as { type: 'work'; segments: unknown[] }).segments).toHaveLength(2)
+  })
+
   it('returns an empty array for no segments', () => {
     expect(groupSegmentsForTimeline([])).toEqual([])
   })

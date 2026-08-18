@@ -566,7 +566,7 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.content).not.toContain('tool_call')
   })
 
-  it('nudges once when the model claims work it never did', async () => {
+  it('does not route from a completion-looking sentence', async () => {
     mocks.toolFunctions = {
       write_file: {
         description: 'Write.',
@@ -579,17 +579,58 @@ describe('LlamaVisionService.generate', () => {
 
     const outcome = await (await service()).generate(params({ tools: withTools }))
 
-    const secondRequest = mocks.requests[1].messages as Array<{ role: string; content: string }>
-    expect(secondRequest.at(-1)?.content).toBe(
-      'You described an outcome — a change, an approval, or a denial — that did not ' +
-        'actually happen this turn; no tool was called. If you intend to make the change, ' +
-        "call the appropriate tool now to do it for real. If you can't or the task " +
-        "is blocked, say so plainly instead of describing something that didn't happen."
-    )
-    expect(outcome.fabricationDetected).toBe(true)
+    expect(mocks.requests).toHaveLength(1)
+    expect(outcome.content).toContain("I've added the function")
+    expect(outcome.fabricationDetected).toBeUndefined()
   })
 
-  it('nudges at most once per turn', async () => {
+  it('does not force another round from post-read prose', async () => {
+    mocks.toolFunctions = {
+      read_file_range: {
+        description: 'Read.',
+        params: { type: 'object' },
+        handler: () => {
+          mocks.toolContext?.emit({
+            name: 'read_file_range',
+            kind: 'read',
+            status: 'success'
+          })
+          return Promise.resolve('index.html uses a module script')
+        }
+      },
+      edit_file: {
+        description: 'Edit.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    mocks.rounds.push({ chunks: [toolCallChunk('read_file_range', '{"path":"index.html"}')] })
+    mocks.rounds.push({
+      chunks: [
+        textChunk(
+          'This is the Chrome file issue. Let me inspect the setup and fix it so index.html works when double-clicked.'
+        )
+      ]
+    })
+    mocks.rounds.push({
+      chunks: [textChunk('I cannot edit it because the file is locked.', 'stop')]
+    })
+
+    const outcome = await (
+      await service()
+    ).generate(
+      params({
+        prompt: 'Opening index.html only shows a black page.',
+        tools: withTools
+      })
+    )
+
+    expect(mocks.requests).toHaveLength(2)
+    expect(outcome.content).toContain('Let me inspect the setup and fix it')
+    expect(outcome.fabricationDetected).toBeUndefined()
+  })
+
+  it('does not retry based on repeated completion wording', async () => {
     mocks.toolFunctions = {
       write_file: {
         description: 'Write.',
@@ -604,10 +645,10 @@ describe('LlamaVisionService.generate', () => {
 
     await (await service()).generate(params({ tools: withTools }))
 
-    expect(mocks.requests).toHaveLength(2)
+    expect(mocks.requests).toHaveLength(1)
   })
 
-  it('records tool outcomes and fabrications against the loaded model', async () => {
+  it('does not record a fabrication from prose alone', async () => {
     mocks.toolFunctions = {
       write_file: {
         description: 'Write.',
@@ -620,12 +661,7 @@ describe('LlamaVisionService.generate', () => {
 
     await (await service()).generate(params({ tools: withTools }))
 
-    expect(mocks.reliability).toContainEqual([
-      'fabrication',
-      'model-1',
-      'Test 27B',
-      'test-27b.gguf'
-    ])
+    expect(mocks.reliability.some(([kind]) => kind === 'fabrication')).toBe(false)
   })
 
   it('does not flag a truthful report made in the same turn as a real tool call', async () => {
@@ -929,7 +965,9 @@ describe('LlamaVisionService.generate', () => {
     }
     mocks.countTokens = (text) => Math.ceil(text.length / 4)
     for (let i = 0; i < 4; i++) {
-      mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', `call_${i}`)] })
+      mocks.rounds.push({
+        chunks: [toolCallChunk('read_file', JSON.stringify({ path: `f${i}.txt` }), `call_${i}`)]
+      })
     }
     mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
 
@@ -960,16 +998,76 @@ describe('LlamaVisionService.generate', () => {
     }
   })
 
-  it('stops at a safe proactive boundary before the hard context limit', async () => {
+  it('collapses an evicted result to its recall handle, never to "run it again"', async () => {
+    // Results arrive already carrying the durable handle `retainAsEvidence`
+    // attaches, which is what the real tool helpers produce.
+    let call = 0
     mocks.toolFunctions = {
       read_file: {
         description: 'Read.',
         params: { type: 'object' },
-        handler: () => Promise.resolve('z'.repeat(48_000))
+        handler: () => {
+          call += 1
+          return Promise.resolve(
+            `${'z'.repeat(20_000)}
+[evidence E${call} · read_file · Read app.js lines 1-200 · 20,000 chars · recall_evidence("E${call}")]`
+          )
+        }
       }
     }
     mocks.countTokens = (text) => Math.ceil(text.length / 4)
-    mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', 'call_0')] })
+    for (let i = 0; i < 4; i++) {
+      mocks.rounds.push({
+        chunks: [toolCallChunk('read_file', JSON.stringify({ path: `f${i}.txt` }), `call_${i}`)]
+      })
+    }
+    mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+    await (await service(16_384)).generate(params({ tools: withTools }))
+
+    const sent = mocks.requests.at(-1)?.messages as Array<{ role: string; content: unknown }>
+    const toolMessages = sent
+      .filter((m) => m.role === 'tool' && typeof m.content === 'string')
+      .map((m) => String(m.content))
+    // The bulk is gone, but every shed result still says what it was and how to
+    // read it back — at whichever tier the escalation stopped at.
+    const shed = toolMessages.filter((content) => content.length < 20_000)
+    expect(shed.length).toBeGreaterThan(0)
+    for (const content of shed) {
+      expect(content.trimEnd().endsWith(']')).toBe(true)
+      expect(content).toMatch(/\[evidence E\d+ .*recall_evidence\("E\d+"\)\]$/)
+    }
+    // The old behaviour asked the model to re-run the tool — which
+    // `ReadCoverageTracker` then refused and `loopGuard` blocked. Anodex must
+    // never issue an instruction another subsystem forbids; see
+    // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1.
+    for (const content of toolMessages) {
+      expect(content).not.toContain('Run it again')
+    }
+  })
+
+  it('stops at a safe proactive boundary before the hard context limit', async () => {
+    // Sized from the threshold rather than hardcoded, so a deliberate change to
+    // the reserves retunes this fixture instead of silently turning the test
+    // into a no-op — which is exactly what a fixed 48,000 did when
+    // `epochHeadroomTokens` was cut back.
+    const contextSize = 16_384
+    const proactiveLimitTokens =
+      contextSize -
+      RESERVED_TOKENS -
+      minimumViableOutputTokens(contextSize, true) -
+      epochHeadroomTokens(contextSize, true)
+    mocks.toolFunctions = {
+      read_file: {
+        description: 'Read.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('z'.repeat((proactiveLimitTokens + 1_000) * 4))
+      }
+    }
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    mocks.rounds.push({
+      chunks: [toolCallChunk('read_file', JSON.stringify({ path: 'f0.txt' }), 'call_0')]
+    })
     // This response must never be requested: the completed tool result above
     // already crossed the proactive checkpoint threshold, so the outer chat
     // runner should compact and replay the task in a fresh context epoch.
@@ -995,7 +1093,9 @@ describe('LlamaVisionService.generate', () => {
     }
     mocks.countTokens = (text) => Math.ceil(text.length / 4)
     for (let i = 0; i < 3; i++) {
-      mocks.rounds.push({ chunks: [toolCallChunk('read_file', '{}', `call_${i}`)] })
+      mocks.rounds.push({
+        chunks: [toolCallChunk('read_file', JSON.stringify({ path: `f${i}.txt` }), `call_${i}`)]
+      })
     }
     mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
 
@@ -1159,19 +1259,18 @@ describe('visionToolSchemaReserveTokens', () => {
     // The live failure this guards: history was bounded with no schema
     // reserve at all, so a 32K project chat planned as if the schemas were
     // free and was left 1,628 tokens to reply in. The real surface measured
-    // 2,851 tokens; the bound is deliberately a little above that, since
-    // over-reserving costs replayed history while under-reserving costs the
-    // answer.
+    // The deterministic core now stays substantially below that old surface,
+    // while the reserve still accounts for every native and gateway schema.
     const reserve = visionToolSchemaReserveTokens(32_768, true)
-    expect(reserve).toBeGreaterThan(2_851)
-    expect(reserve).toBeLessThan(5_000)
+    expect(reserve).toBeGreaterThan(2_000)
+    expect(reserve).toBeLessThan(3_000)
   })
 
   it('never reserves more than the surface itself is capped at', () => {
-    // On a small context the 28% target binds before the per-tool bound does;
+    // On a small context the 18% target binds before the per-tool bound does;
     // reserving past it would evict history for schemas that cannot exist.
     for (const contextSize of [4_096, 8_192, 16_384, 32_768, 131_072]) {
-      const target = Math.max(1_200, Math.floor(contextSize * 0.28))
+      const target = Math.max(900, Math.floor(contextSize * 0.18))
       expect(visionToolSchemaReserveTokens(contextSize, true)).toBeLessThanOrEqual(target)
     }
   })

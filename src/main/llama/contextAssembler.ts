@@ -476,14 +476,104 @@ async function rebaseOversizedSummary(
   })
 }
 
+/**
+ * Tools whose result is a snapshot of a file at a moment in time, so a later
+ * identical call replaces rather than supplements it.
+ *
+ * `run_command` is absent on purpose: two identical commands can legitimately
+ * return different things, and the earlier output may be the interesting one.
+ */
+const SNAPSHOT_READ_TOOLS = new Set([
+  'read_file',
+  'read_file_range',
+  'read_multiple_files',
+  'code_outline'
+])
+
+/** Tools that change a file, and so invalidate every earlier read of it. */
+const WRITE_TOOLS = new Set(['write_file', 'append_file', 'edit_file', 'replace_lines'])
+
+const SUPERSEDED_READ_NOTICE =
+  '[superseded — this exact read was repeated later in the task, and the newer copy is the one that reflects the file now]'
+
+const STALE_AFTER_WRITE_NOTICE =
+  '[superseded — this file was edited after this read, so these line numbers and this content no longer match what is on disk. Read it again before editing it.]'
+
+/**
+ * Ids of snapshot reads that a later, identical read has replaced.
+ *
+ * Identity is the tool name plus its rendered title, and the title carries the
+ * line range — so reading lines 1-50 and then 200-250 of one file leaves both
+ * in place, because they are different content rather than a repeat. Only a
+ * genuinely identical read is collapsed.
+ *
+ * A repeated read is one of two ways a copy goes bad, and it turned out to be
+ * the less important one. The other is a *write*: once a file has been edited,
+ * every earlier read of it describes a file that no longer exists, whatever the
+ * range. That is the one that produced six rejected edits in a live run —
+ * "line numbers are stale", "the text to replace was not found" — because
+ * collapsing identical reads cannot help when the reads were never identical.
+ * A write therefore supersedes every earlier read of the path it touched, and
+ * says so, rather than leaving the model to discover it by failing.
+ */
+function supersededReadIds(history: ChatHistoryTurn[]): {
+  repeated: Set<string>
+  staleAfterWrite: Set<string>
+} {
+  const newestSeen = new Set<string>()
+  const writtenSince = new Set<string>()
+  const repeated = new Set<string>()
+  const staleAfterWrite = new Set<string>()
+  // Newest first, so the first sighting of an identity is the one that
+  // survives, and any write is seen before the reads it invalidates.
+  for (let turnIndex = history.length - 1; turnIndex >= 0; turnIndex--) {
+    const calls = history[turnIndex]?.toolCalls
+    if (!calls?.length) continue
+    for (let callIndex = calls.length - 1; callIndex >= 0; callIndex--) {
+      const call = calls[callIndex]
+      if (call.status !== 'success') continue
+      if (WRITE_TOOLS.has(call.name)) {
+        for (const path of call.touchedPaths ?? []) writtenSince.add(path)
+        continue
+      }
+      if (!SNAPSHOT_READ_TOOLS.has(call.name)) continue
+      if ((call.touchedPaths ?? []).some((path) => writtenSince.has(path))) {
+        staleAfterWrite.add(call.id)
+        continue
+      }
+      const identity = `${call.name}::${call.title}`
+      if (newestSeen.has(identity)) repeated.add(call.id)
+      else newestSeen.add(identity)
+    }
+  }
+  return { repeated, staleAfterWrite }
+}
+
+/**
+ * The stand-in for a read the model has since repeated. The call itself stays
+ * in the transcript — removing it would make the model's own history look as
+ * though it never looked — but its body is replaced by a line saying where the
+ * current copy is.
+ */
+function supersededReadMarker(call: ToolCall, notice: string): ToolCall {
+  return { ...call, title: truncateToolTitle(call.title), result: notice, detail: undefined }
+}
+
 /** Sanitize transcript text and bound remembered tool output before model replay. */
 export function projectHistoryForModel(history: ChatHistoryTurn[]): ChatHistoryTurn[] {
+  const { repeated, staleAfterWrite } = supersededReadIds(history)
   return history.map((rawTurn) => {
     const turn = sanitizeHistoryTurn(rawTurn)
     if (turn.role !== 'assistant' || !turn.toolCalls?.length) return turn
     return {
       ...turn,
-      toolCalls: turn.toolCalls.map(projectToolCallForModel)
+      toolCalls: turn.toolCalls.map((call) => {
+        if (staleAfterWrite.has(call.id)) {
+          return supersededReadMarker(call, STALE_AFTER_WRITE_NOTICE)
+        }
+        if (repeated.has(call.id)) return supersededReadMarker(call, SUPERSEDED_READ_NOTICE)
+        return projectToolCallForModel(call)
+      })
     }
   })
 }

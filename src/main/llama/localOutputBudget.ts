@@ -77,8 +77,22 @@ export function resolveLocalOutputBudget(input: LocalOutputBudgetInput): LocalOu
  * `historyBudgetTokens()` uses during the next session rebuild. Without this,
  * a reply could fit the current native context yet be too large to retain
  * verbatim later, pinning the meter at 100% until a failed context shift.
+ *
+ * **Never applied to a tool-enabled turn.** There, one generation is a round of
+ * an agentic loop — usually a tool call — not the reply that will be replayed,
+ * and the accumulated reply is small next to the tool traffic, which is already
+ * bounded by `MAX_MODEL_TOOL_RESULT_CHARS` and `modelResultBudget`. Capping the
+ * round instead of the reply produced a measured absurdity: with `fixedTokens`
+ * at 8,462 of a 15,872 limit — 7,410 tokens genuinely free — round 0 of a fresh
+ * cycle was held to 2,940, *less* than the round before it that had 3,700 more
+ * fixed input. The turn then ended on "reached its safe local output limit of
+ * 2,940 tokens" with the window two-thirds empty.
+ *
+ * The failure this ceiling exists for is a single large *answer*, which is a
+ * tool-less turn — and that case still gets it.
  */
 function replaySafeOutputCeiling(input: LocalOutputBudgetInput): number | undefined {
+  if (input.hasFunctions) return undefined
   const fraction = input.recallWindowFraction
   if (fraction == null || !Number.isFinite(fraction)) return undefined
 

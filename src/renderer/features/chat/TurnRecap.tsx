@@ -22,6 +22,7 @@ export function TurnRecap({
   streaming,
   startedAt,
   finalDurationMs,
+  showTotalDuration = true,
   comparison
 }: {
   segments: WorkSegment[]
@@ -30,6 +31,8 @@ export function TurnRecap({
   startedAt: number
   /** Authoritative total once the whole message has finished generating. */
   finalDurationMs?: number
+  /** Only one recap in a settled message should claim its message-wide duration. */
+  showTotalDuration?: boolean
   /** Explicit message-level comparison, or undefined for standalone/in-turn derivation. */
   comparison?: VisualComparisonPair | null
 }): JSX.Element {
@@ -71,7 +74,9 @@ export function TurnRecap({
   const elapsedMs = streaming ? Date.now() - startedAt : (finalDurationMs ?? settledMs ?? 0)
   const label = streaming
     ? `Working for ${formatDuration(elapsedMs)}`
-    : `Worked for ${formatDuration(elapsedMs)}`
+    : showTotalDuration
+      ? `Worked for ${formatDuration(elapsedMs)}`
+      : 'Work details'
 
   return (
     <div className={styles.turnHead}>

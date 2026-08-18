@@ -1,4 +1,5 @@
 import type { MemoryEntry } from '@shared/memory.types'
+import { referenceContextShare } from '@shared/contextBudget'
 import { wordSet } from '@shared/textSimilarity'
 import { memoryStore } from './MemoryStore'
 
@@ -12,7 +13,12 @@ import { memoryStore } from './MemoryStore'
  */
 
 const MAX_ENTRIES = 8
-const MAX_CHARS = 1500
+/**
+ * What the memory section is worth when the window can afford it. Scaled by
+ * `referenceContextShare` against the same allowance the workspace summary
+ * draws on — see `FULL_REFERENCE_CONTEXT_CHARS`.
+ */
+const FULL_MAX_CHARS = 1500
 
 export interface MemoryRetrievalOptions {
   crossChatEnabled: boolean
@@ -28,8 +34,12 @@ export interface MemoryRetrievalResult {
 export function buildMemoryContext(
   projectId: string | null,
   userPrompt: string,
-  options: MemoryRetrievalOptions
+  options: MemoryRetrievalOptions,
+  contextSize?: number
 ): MemoryRetrievalResult | null {
+  const maxChars = Math.floor(
+    FULL_MAX_CHARS * (contextSize ? referenceContextShare(contextSize) : 1)
+  )
   const entries = gatherEntries(projectId, options)
   if (entries.length === 0) return null
 
@@ -44,10 +54,10 @@ export function buildMemoryContext(
   let usedChars = 0
   for (const entry of ranked) {
     const line = `- [${entry.kind}] ${entry.text} (${scopeLabel(entry)})`
-    const remaining = MAX_CHARS - usedChars
+    const remaining = maxChars - usedChars
     if (line.length > remaining) {
       if (lines.length === 0) {
-        lines.push(`${line.slice(0, Math.max(0, MAX_CHARS - 1))}…`)
+        lines.push(`${line.slice(0, Math.max(0, maxChars - 1))}…`)
         used.push(entry)
       }
       break

@@ -297,10 +297,16 @@ describe('assembleModelContext', () => {
       { role: 'user', content: 'latest' }
     ]
 
+    // 520 used to exercise this because the flat reservation took a hard 512
+    // floor out of it, leaving 8 tokens of history — a window 98% reserved for
+    // a reply it could never use. The reserve is now capped by the overhead
+    // ceiling, so reaching a history budget this tight takes a truly tiny
+    // window. The path under test is unchanged: older turns totalling less than
+    // MIN_CHARS_TO_SUMMARIZE are dropped rather than sent for summarizing.
     const assembled = await assembleModelContext({
       systemPrompt: undefined,
       history,
-      contextSize: 520,
+      contextSize: 60,
       countTokens,
       summarizeOlderTurns: () => Promise.resolve('unused')
     })

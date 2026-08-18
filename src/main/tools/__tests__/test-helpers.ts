@@ -1,7 +1,6 @@
 import type { DefineChatSessionFunction, WorkspaceToolContext } from '../types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
-import { createLoopGuardState } from '../loopGuard'
-import { createReadCoverageTracker } from '../readCoverage'
+import { createTaskLedger } from '../taskLedger'
 import { createTurnProgress } from '../turnProgress'
 
 /**
@@ -42,11 +41,10 @@ export function createMockContext(workspaceRoot: string): WorkspaceToolContext {
     disabledTools: new Set(),
     plan: { current: null },
     turnGate: { approved: false },
-    loopGuard: createLoopGuardState(),
     goalRun: false,
     progress: createTurnProgress(),
     modelResultBudget: { current: null },
-    readCoverage: createReadCoverageTracker(),
+    ledger: createTaskLedger(),
     emit: () => {},
     confirm: () => Promise.resolve({ approved: true }),
     mcpTools: []
@@ -73,4 +71,22 @@ export function captureConfirmations(): {
       return Promise.resolve({ approved: true })
     }
   }
+}
+
+/**
+ * Split a tool result into its content and the trailing `[evidence E<n> …]`
+ * handle, when one is present.
+ *
+ * Every sizeable result now carries one — see `retainAsEvidence` in
+ * `helpers.ts` — so assertions about the content itself have to look past it.
+ * Shared here rather than duplicated per suite so a change to the handle's
+ * shape breaks one place.
+ */
+export function splitEvidenceMarker(result: string): [string, string | null] {
+  const lastNewline = result.lastIndexOf('\n')
+  if (lastNewline < 0) return [result, null]
+  const candidate = result.slice(lastNewline + 1)
+  return /^\[evidence E\d+ · /.test(candidate)
+    ? [result.slice(0, lastNewline), candidate]
+    : [result, null]
 }

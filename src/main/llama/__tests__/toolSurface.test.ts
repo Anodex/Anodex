@@ -33,7 +33,6 @@ describe('bounded tool surface', () => {
     const result = boundToolSurface({
       allFunctions,
       define: fakeDefine,
-      routingText: 'read the source file',
       targetFixedTokens: 1_000,
       measureFixedTokens: fixedCost
     })
@@ -58,7 +57,6 @@ describe('bounded tool surface', () => {
     const result = boundToolSurface({
       allFunctions,
       define: fakeDefine,
-      routingText: 'Perform a read-only architectural audit of TypeScript project files.',
       targetFixedTokens: 500,
       measureFixedTokens: fixedCost
     })
@@ -95,7 +93,6 @@ describe('bounded tool surface', () => {
     const result = boundToolSurface({
       allFunctions,
       define: fakeDefine,
-      routingText: 'Read the project architecture.',
       targetFixedTokens: 10_000,
       maxDirectTools: 8,
       measureFixedTokens: fixedCost
@@ -116,7 +113,6 @@ describe('bounded tool surface', () => {
         draft_email: tool('Draft an email.')
       },
       define: fakeDefine,
-      routingText: 'unrelated request',
       targetFixedTokens: 300,
       measureFixedTokens: fixedCost
     })
@@ -149,7 +145,6 @@ describe('bounded tool surface', () => {
         draft_email: tool('Draft an email.')
       },
       define: fakeDefine,
-      routingText: 'unrelated request',
       targetFixedTokens: 300,
       measureFixedTokens: fixedCost
     })
@@ -180,7 +175,6 @@ describe('bounded tool surface', () => {
         draft_email: tool('Draft an email.')
       },
       define: fakeDefine,
-      routingText: 'unrelated request',
       targetFixedTokens: 300,
       measureFixedTokens: fixedCost
     })
@@ -198,54 +192,33 @@ describe('bounded tool surface', () => {
     expect(String(second)).toContain('Schema chunk 4000-7999')
   })
 
-  it('prioritizes the autonomous completion signal even when the prompt does not name it', () => {
-    const ranked = rankToolNames(
-      {
-        read_file: tool('Read a file.'),
-        finish_goal: tool('Finish the autonomous goal.')
-      },
-      'The work is complete.'
-    )
+  it('prioritizes the autonomous completion signal without interpreting prompt text', () => {
+    const ranked = rankToolNames({
+      read_file: tool('Read a file.'),
+      finish_goal: tool('Finish the autonomous goal.')
+    })
     expect(ranked[0]).toBe('finish_goal')
   })
 
-  it('does not rank write or command tools from negated read-only instructions', () => {
-    const ranked = rankToolNames(
-      {
-        write_file: tool('Edit a project file.'),
-        run_command: tool('Run a project command or test.'),
-        read_file_range: tool('Read a range from a TypeScript file.'),
-        list_directory: tool('List project source directories.')
-      },
-      'Perform a read-only architecture audit. Do not edit files or run commands.'
-    )
+  it('uses the same deterministic builder order for every wording', () => {
+    const functions = {
+      send_email: tool('Send an email.'),
+      run_command: tool('Run a command.'),
+      write_file: tool('Write a file.'),
+      read_file: tool('Read a file.')
+    }
 
-    expect(ranked.slice(0, 2)).toEqual(
-      expect.arrayContaining(['list_directory', 'read_file_range'])
-    )
-    expect(ranked.indexOf('write_file')).toBeGreaterThan(1)
-    expect(ranked.indexOf('run_command')).toBeGreaterThan(1)
-  })
-
-  /**
-   * "Build a website ... lets build it in steps" reads as a change task but not
-   * a code task (no "code"/"file"/"project" in it), which used to leave
-   * `update_plan_step` scoring 0 while the confusingly similar
-   * `update_change_task` scored 3_500 off the write-tool bucket.
-   */
-  it('ranks the plan tools for a request that asks to be done in steps', () => {
-    const ranked = rankToolNames(
-      {
-        write_plan: tool('Create or replace the visible task plan.'),
-        update_plan_step: tool('Mark a step of the current plan in progress or completed.'),
-        update_change_task: tool('Mark a task of an existing persisted change done or not done.'),
-        write_file: tool('Write a new file.')
-      },
-      'Create a simple, responsive website about the solar system. Lets build it in steps.'
-    )
-
-    expect(ranked.indexOf('update_plan_step')).toBeLessThan(ranked.indexOf('update_change_task'))
-    expect(ranked.indexOf('write_plan')).toBeLessThan(ranked.indexOf('update_change_task'))
+    // The exact order is `DIRECT_TOOL_PRIORITY`'s, and what this asserts is
+    // that it comes from that list rather than from anything in the task's
+    // wording. `write_file`/`run_command` outrank `read_file` because the first
+    // ten entries are tuned to be a complete builder loop on a small window;
+    // `send_email` is unranked and sorts last.
+    expect(rankToolNames(functions)).toEqual([
+      'write_file',
+      'run_command',
+      'read_file',
+      'send_email'
+    ])
   })
 })
 
@@ -260,7 +233,6 @@ describe('the deferred-tool gateway', () => {
         generate_image: tool('Generate an image from a text description.')
       },
       define: fakeDefine,
-      routingText: 'read the source file',
       targetFixedTokens: 500,
       measureFixedTokens: fixedCost,
       maxDirectTools: 1
@@ -303,6 +275,28 @@ describe('the deferred-tool gateway', () => {
     expect(result).toContain('send_email')
   })
 
+  it('does not map generic project verbs onto unrelated email tools', async () => {
+    const surface = routedSurface()
+    const find = surface.functions.find_available_tool
+
+    const readResult = (await find.handler({ query: 'read the project file' })) as string
+    const searchResult = (await find.handler({ query: 'search for planet images' })) as string
+
+    expect(readResult).not.toContain('send_email')
+    expect(readResult).not.toContain('list_mailboxes')
+    expect(searchResult).not.toContain('send_email')
+    expect(searchResult).not.toContain('list_mailboxes')
+  })
+
+  it('still discovers an email tool when the requested domain is explicit', async () => {
+    const surface = routedSurface()
+    const result = (await surface.functions.find_available_tool.handler({
+      query: 'list email mailboxes'
+    })) as string
+
+    expect(result).toContain('list_mailboxes')
+  })
+
   it('tolerates harmless wrapper punctuation around a known deferred tool name', async () => {
     const surface = routedSurface()
     const call = surface.functions.call_available_tool
@@ -341,15 +335,14 @@ describe('the deferred-tool gateway', () => {
 })
 
 describe('maxDirectToolsForContext', () => {
-  it('never leaves a model with fewer native schemas than it can work with', () => {
-    // Both transports had their own byte-identical copy of this; it is the one
-    // knob deciding how much of the catalog a model is told about directly.
-    expect(maxDirectToolsForContext(1_024)).toBe(8)
-    expect(maxDirectToolsForContext(0)).toBe(8)
+  it('keeps a small core even for a small local context', () => {
+    expect(maxDirectToolsForContext(1_024)).toBe(6)
+    expect(maxDirectToolsForContext(0)).toBe(6)
   })
 
-  it('grows with the context and then stops', () => {
-    expect(maxDirectToolsForContext(8_192)).toBe(12)
-    expect(maxDirectToolsForContext(1_000_000)).toBe(24)
+  it('grows slowly with context and caps well below the old 24-schema surface', () => {
+    expect(maxDirectToolsForContext(8_192)).toBe(8)
+    expect(maxDirectToolsForContext(16_384)).toBe(10)
+    expect(maxDirectToolsForContext(1_000_000)).toBe(16)
   })
 })

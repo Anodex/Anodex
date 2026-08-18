@@ -1,0 +1,199 @@
+import {
+  checkLoopGuard,
+  createLoopGuardState,
+  loopGuardMessage,
+  type LoopGuardState
+} from './loopGuard'
+import type { ToolKind } from '@shared/tools.types'
+import { createReadCoverageTracker, type ReadCoverageTracker } from './readCoverage'
+import { createTurnEvidenceStore, type TurnEvidenceStore } from './evidenceStore'
+
+/**
+ * Everything one bounded task knows about what it has already done.
+ *
+ * ## Why these three are one object
+ *
+ * Line coverage, the loop guard, and the evidence store used to be threaded
+ * separately through every transport, and each answered the same question —
+ * *will this call produce anything new?* — from a different sliver of the
+ * facts. They disagreed, and the disagreement was not academic: coverage said
+ * "you already read that", the transport had just deleted the result and told
+ * the model to read it again, and the loop guard blocked the retries in
+ * between. One assistant message spent 157 tool calls inside that triangle and
+ * completed zero writes (`docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1).
+ *
+ * They are kept as distinct members rather than dissolved into one bag because
+ * they genuinely do different jobs — which *lines* were served, which *calls*
+ * repeated, which *bytes* are still recoverable. What they must not do is
+ * answer the shared question independently, so that answer lives here, in
+ * {@link TaskLedger.reviewCall}, with all three in view.
+ *
+ * ## Lifetime
+ *
+ * One bounded reply (`runBoundedChatGeneration`) or one agent run — deliberately
+ * longer than a single provider call, because a context epoch resets the
+ * model's history and must not reset what the *task* has established.
+ */
+export class TaskLedger {
+  /** Which line ranges of which files have been served this task. */
+  readonly reads: ReadCoverageTracker = createReadCoverageTracker()
+  /** Full tool results, outside the context window — see `TurnEvidenceStore`. */
+  readonly evidence: TurnEvidenceStore = createTurnEvidenceStore()
+  private readonly loopGuard: LoopGuardState = createLoopGuardState()
+  /** Settled gathering calls since the last durable change — see `GATHERING_*`. */
+  private gatheringStreak = 0
+  /** Gathering calls this task refused outright. Reported, never acted on. */
+  private blockedGatheringCalls = 0
+
+  /**
+   * Decide what to do with a call that is about to run.
+   *
+   * `run` is the overwhelmingly common answer. The other two exist because
+   * repetition has two very different causes, and treating them alike is what
+   * deadlocked long tasks:
+   *
+   * - **redirect** — the call repeats work whose result this task still holds.
+   *   The model is not being stubborn; it is asking again because the result was
+   *   evicted from its context to make room. Point it at the stored copy.
+   * - **block** — the call repeats work with nothing to show for it and nothing
+   *   to recall. This is the real loop the guard was built for.
+   *
+   * Note that only a *stable read* can be redirected. A `run_command` or an
+   * edit repeated with identical arguments is not asking for information it
+   * already has; re-running it may be the whole point, or may be a loop, but it
+   * is never answered by handing back an old result.
+   */
+  reviewCall(spec: {
+    name: string
+    kind: ToolKind
+    key: string
+    args?: unknown
+    /** Path or identifier whose stored evidence could answer a repeat, if any. */
+    evidenceHint?: string
+    /** Whether a repeat of this call could be satisfied from a stored result. */
+    recallable?: boolean
+  }): LedgerVerdict {
+    const gathering = this.reviewGathering(spec.kind)
+    if (gathering) return gathering
+
+    const guard = checkLoopGuard(this.loopGuard, spec.name, spec.key, spec.args)
+    if (!guard.blocked) return { action: 'run' }
+
+    // A repeated *stable read* is allowed to run again, right up to the abort
+    // backstop. This reverses the redirect that used to send it to stored
+    // evidence, and it is the correction the live runs argued for.
+    //
+    // Forbidding the re-read is what made `recall_evidence` necessary at all,
+    // and recall is strictly worse than the thing it replaced: a re-read costs
+    // one bounded call and returns what is on disk *now*, while a recall costs
+    // a call and permanently enlarges replayed history with a copy that was
+    // already stale. One measured run spent 39% of 156 calls on recalls and
+    // still had four edits rejected for stale line numbers — the model was
+    // being handed back the very copy that was out of date.
+    //
+    // Re-reading is safe to allow because it is bounded elsewhere and by
+    // construction: identical reads are collapsed to the newest in
+    // `projectHistoryForModel`, so repeating one cannot compound context; the
+    // gathering ladder still stops a turn that only looks; and `shouldAbort`
+    // below remains the backstop against a model that has genuinely stuck.
+    if (spec.recallable && !guard.shouldAbort) return { action: 'run' }
+
+    return {
+      action: guard.shouldAbort ? 'abort' : 'block',
+      detail: 'Blocked: repeated identical call',
+      message: loopGuardMessage(spec.name, guard.count, guard.shouldAbort)
+    }
+  }
+
+  /**
+   * Stop a task that has become all input and no output.
+   *
+   * This is the guard the whole system was missing. The loop guard catches an
+   * identical call; read coverage catches an identical range; nothing noticed a
+   * turn that gathered *forty different things* and produced nothing. Two live
+   * runs on the same request ended 157 calls / 0 writes and 103 calls / 0
+   * writes, every individual call legitimately distinct.
+   *
+   * Counted in settled calls, never in prose, and reset by any durable change —
+   * so a task that reads a lot and then edits gets a fresh allowance for the
+   * next stretch of investigation. A genuinely read-only request (a diagnosis, a
+   * question about the code) reaches the soft rung and is told to answer with
+   * what it has, which is the right instruction there too.
+   */
+  private reviewGathering(kind: ToolKind): LedgerVerdict | null {
+    if (!GATHERING_KINDS.has(kind)) return null
+    if (this.gatheringStreak < GATHERING_SOFT_LIMIT) return null
+
+    const message =
+      `You have made ${this.gatheringStreak} information-gathering calls without changing ` +
+      'anything. More looking is not moving this forward. Take the next concrete action with ' +
+      'what you already have — make the edit, run the command, or give the user your answer — ' +
+      'and say plainly what is blocking you if you cannot.'
+
+    if (this.gatheringStreak >= GATHERING_HARD_LIMIT) {
+      this.blockedGatheringCalls++
+      return { action: 'block', detail: 'Blocked: gathering without progress', message }
+    }
+    return { action: 'advise', message }
+  }
+
+  /**
+   * How many gathering calls this task refused outright.
+   *
+   * Exposed so the finished reply can *say* the run was cut short. A live turn
+   * made 162 calls and six real edits, then had its last two calls blocked here
+   * and simply ended — no stop reason, no error, no summary. The guard behaved
+   * exactly as intended and the user saw a reply that stopped for no stated
+   * reason, which is its own kind of failure.
+   */
+  get blockedGathering(): number {
+    return this.blockedGatheringCalls
+  }
+
+  /**
+   * Record how a call settled. Called once per settled call from the tool
+   * runners, so the gathering streak measures work that actually happened
+   * rather than work that was attempted.
+   */
+  recordOutcome(spec: { kind: ToolKind; madeProgress: boolean }): void {
+    if (!spec.madeProgress) {
+      // A refusal, a redirect, or a recall. It consumed a round trip and
+      // produced nothing durable, so it counts toward the streak whatever its
+      // kind — this is exactly the shape of the run that spent fifty calls
+      // recalling.
+      this.gatheringStreak++
+      return
+    }
+    if (GATHERING_KINDS.has(spec.kind)) this.gatheringStreak++
+    else this.gatheringStreak = 0
+  }
+}
+
+/** Kinds that gather information rather than change anything. */
+const GATHERING_KINDS = new Set<ToolKind>(['read', 'web', 'plan'])
+
+/**
+ * Gathering calls since the last durable change after which the model is told
+ * to act. Generous: a real multi-file investigation legitimately reads this
+ * much before it knows what to change.
+ */
+const GATHERING_SOFT_LIMIT = 22
+
+/** …and after which further gathering is refused outright rather than served. */
+const GATHERING_HARD_LIMIT = 34
+
+/** What {@link TaskLedger.reviewCall} decided, and what to tell the model. */
+export type LedgerVerdict =
+  | { action: 'run'; message?: undefined; detail?: undefined }
+  /** Run, but append a correction: the task is gathering without producing. */
+  | { action: 'advise'; message: string; detail?: undefined }
+  /** Repeated work this task can serve from storage — answer, don't refuse. */
+  | { action: 'redirect'; message: string; detail: string }
+  /** Refuse this call but let the turn continue. */
+  | { action: 'block'; message: string; detail: string }
+  /** A loop that survived being refused: end the generation. */
+  | { action: 'abort'; message: string; detail: string }
+
+export function createTaskLedger(): TaskLedger {
+  return new TaskLedger()
+}
