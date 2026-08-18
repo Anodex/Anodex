@@ -526,81 +526,20 @@ describe('AI file tools', () => {
       const omitted = await tool.handler({ path: 'big.txt', startLine: 1 })
       const blocked = await tool.handler({ path: 'big.txt', startLine: 1, endLine: 200 })
 
-      // All four calls canonicalize to the identical effective range. The first
-      // genuinely reads it; the rest are already covered and are answered with a
-      // pointer to the stored copy rather than by re-serving the content. The
-      // fourth reaches the repeat threshold, where the ledger still redirects
-      // instead of blocking — the result exists, so "you are looping" would be
-      // both unhelpful and untrue (see `TaskLedger.reviewCall`).
-      expect(infinite).toContain('[big.txt: lines 1-200 of 300. Next startLine: 201.]')
-      expect(oversized).toContain('already read earlier this task')
-      expect(oversized).toContain('recall_evidence')
-      expect(omitted).toContain('recall_evidence')
-      expect(blocked).toContain('recall_evidence')
-      expect(blocked).not.toContain('line 1')
+      // All four calls canonicalize to the identical effective range, and all
+      // four are served it. Coverage no longer turns a repeat into a pointer at
+      // a stored copy: that copy is by definition the older one, and handing it
+      // back is what left a live run editing against line numbers that had
+      // already moved (see `projectHistoryForModel`).
+      const header = '[big.txt: lines 1-200 of 300. Next startLine: 201.]'
+      for (const result of [infinite, oversized, omitted, blocked]) {
+        expect(result).toContain(header)
+        expect(result).toContain('line 1')
+        expect(result).not.toContain('already read earlier this task')
+      }
     })
 
     describe('cross-call read coverage (P0-C follow-up)', () => {
-      it('serves only the new trailing portion of a range that partly overlaps an earlier read', async () => {
-        // Regression fixture: a live retest reread the opening ~250 lines of
-        // the same file across FIVE overlapping calls spread over several
-        // continuation cycles instead of moving on to new files (see
-        // `ReadCoverageTracker`'s doc comment). A single shared `ctx` here
-        // stands in for one bounded task's shared tracker across cycles.
-        const content = Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join('\n')
-        await writeFile(join(workspace, 'big.txt'), content)
-        const ctx = createMockContext(workspace)
-        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
-          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
-        }
-
-        const first = await tool.handler({ path: 'big.txt', startLine: 1, endLine: 200 })
-        // Well under MAX_RANGE_LINES (200), so normalization doesn't reshape
-        // this request itself — the only trimming should come from coverage.
-        const second = await tool.handler({ path: 'big.txt', startLine: 150, endLine: 250 })
-
-        expect(first).toContain('lines 1-200')
-        // Only the genuinely new 201-250 portion is served, not a re-fetch of
-        // the already-covered 150-200 prefix.
-        expect(second).toContain('[big.txt: lines 201-250 of 500.')
-        expect(second).toContain('line 201')
-        expect(second).not.toContain('line 150\n')
-        expect(second).toContain(
-          'Lines 150-250 were requested; only the first unread segment is shown'
-        )
-      })
-
-      it('short-circuits an exact duplicate range without touching disk content again', async () => {
-        const content = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n')
-        await writeFile(join(workspace, 'small.txt'), content)
-        const ctx = createMockContext(workspace)
-        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
-          handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
-        }
-
-        await tool.handler({ path: 'small.txt', startLine: 1, endLine: 10 })
-        const repeat = await tool.handler({ path: 'small.txt', startLine: 1, endLine: 10 })
-
-        expect(repeat).toContain('already read earlier this task')
-        expect(repeat).not.toContain('line 1\n')
-      })
-
-      it('short-circuits read_file_range for a file already read in full via read_file', async () => {
-        await writeFile(join(workspace, 'whole.txt'), 'a\nb\nc')
-        const ctx = createMockContext(workspace)
-        const fileTool = readFileTool(createMockDefine(), ctx) as unknown as {
-          handler: (args: { path: string }) => Promise<string>
-        }
-        const rangeTool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
-          handler: (args: { path: string; startLine: number }) => Promise<string>
-        }
-
-        await fileTool.handler({ path: 'whole.txt' })
-        const rangeResult = await rangeTool.handler({ path: 'whole.txt', startLine: 1 })
-
-        expect(rangeResult).toContain('already read earlier this task')
-      })
-
       it('serves a repeat read_file for a file already read in full', async () => {
         await writeFile(join(workspace, 'whole.txt'), 'a\nb\nc')
         const capture = captureCalls()
@@ -648,22 +587,6 @@ describe('AI file tools', () => {
           expect(repeat).toContain('const marker7 = 7')
           expect(repeat).not.toContain('already read in full')
         }
-      })
-
-      it('answers a repeat range read with the stored copy, not a dead end', async () => {
-        const content = Array.from({ length: 40 }, (_, i) => `const marker${i} = ${i}`).join('\n')
-        await writeFile(join(workspace, 'lines.txt'), content)
-        const ctx = createMockContext(workspace)
-        const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
-          handler: (args: { path: string; startLine: number; endLine: number }) => Promise<string>
-        }
-
-        await tool.handler({ path: 'lines.txt', startLine: 1, endLine: 40 })
-        const repeat = await tool.handler({ path: 'lines.txt', startLine: 1, endLine: 40 })
-
-        expect(repeat).toContain('already read')
-        expect(repeat).toContain('recall_evidence')
-        expect(repeat).not.toContain('Try a different range or file instead')
       })
 
       it('skips a file in read_multiple_files that was already read in full', async () => {
@@ -1030,24 +953,6 @@ describe('AI file tools', () => {
       expect(info).toContain('"isFile": true')
     })
 
-    it('points the continuation hint past an already-covered island, not blindly at actualEnd + 1', async () => {
-      const content = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join('\n')
-      await writeFile(join(workspace, 'islands.txt'), content)
-      const ctx = createMockContext(workspace)
-      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
-        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
-      }
-
-      // An earlier cycle covered 50-100; this request serves only 1-49. The
-      // naive hint (startLine 50) would send the next call straight into an
-      // "already read" short-circuit.
-      ctx.ledger.reads.recordRange(join(workspace, 'islands.txt'), 50, 100)
-      const result = await tool.handler({ path: 'islands.txt', startLine: 1, endLine: 200 })
-
-      expect(result).toContain('lines 1-49')
-      expect(result).toContain('Next startLine: 101.')
-    })
-
     it('serves fresh content when a fully-read file changed on disk out-of-band', async () => {
       // A run_command side effect or the user's own editor — no write tool
       // declares a touch, so only the mtime reconciliation can catch it.
@@ -1109,21 +1014,6 @@ describe('AI file tools', () => {
       expect(batch).toContain('new batch content')
       expect(batch).not.toContain('Already read in full earlier this task')
     })
-
-    it('says so when every remaining line was already read instead of hinting a dead startLine', async () => {
-      await writeFile(join(workspace, 'tail-covered.txt'), 'a\nb\nc\nd\ne')
-      const ctx = createMockContext(workspace)
-      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
-        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
-      }
-
-      ctx.ledger.reads.recordRange(join(workspace, 'tail-covered.txt'), 3, 5)
-      const result = await tool.handler({ path: 'tail-covered.txt', startLine: 1, endLine: 5 })
-
-      expect(result).toContain('lines 1-2')
-      expect(result).toContain('Every remaining line was already read earlier this task.')
-      expect(result).not.toContain('Next startLine')
-    })
   })
 })
 
@@ -1183,48 +1073,6 @@ describe('read_file_range coverage refusal escalation', () => {
   ): void {
     ctx.ledger.reads.recordRange(join(root, 'big.js'), 1, 60)
   }
-
-  it('names concrete alternatives on the second refusal', async () => {
-    const ctx = createMockContext(workspace)
-    const tool = rangeTool(ctx)
-    coverWithoutStoringEvidence(ctx, workspace)
-
-    const first = await tool.handler({ path: 'big.js', ...COVERED_RANGES[0] })
-    const second = await tool.handler({ path: 'big.js', ...COVERED_RANGES[1] })
-
-    expect(first).toContain('Try a different range or file instead')
-    expect(second).toContain('search_files')
-    expect(second).toContain('code_outline')
-  })
-
-  it('reports the third refusal as an error, not a success', async () => {
-    const ctx = createMockContext(workspace)
-    const tool = rangeTool(ctx)
-    coverWithoutStoringEvidence(ctx, workspace)
-
-    let result = ''
-    for (const range of COVERED_RANGES.slice(0, 3)) {
-      result = await tool.handler({ path: 'big.js', ...range })
-    }
-
-    // `runReadTool` converts a thrown error into an `Error:`-prefixed result
-    // and emits the call with an `error` status.
-    expect(result).toContain('Error:')
-    expect(result).toContain('Re-reading is not making progress')
-  })
-
-  it('aborts generation once refusals reach the abort threshold', async () => {
-    const abortGeneration = vi.fn()
-    const ctx = { ...createMockContext(workspace), abortGeneration }
-    const tool = rangeTool(ctx)
-    coverWithoutStoringEvidence(ctx, workspace)
-
-    for (const range of COVERED_RANGES.slice(0, 6)) {
-      await tool.handler({ path: 'big.js', ...range })
-    }
-
-    expect(abortGeneration).toHaveBeenCalled()
-  })
 
   it('does not abort before the threshold', async () => {
     const abortGeneration = vi.fn()

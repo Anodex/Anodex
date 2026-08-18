@@ -212,22 +212,6 @@ describe('read tools redirect a repeat to the stored copy', () => {
     await rm(workspace, { recursive: true, force: true })
   })
 
-  it('points a repeated range read at recall_evidence instead of dead-ending', async () => {
-    const ctx = createMockContext(workspace)
-    const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
-      handler: (args: { path: string; startLine: number; endLine: number }) => Promise<string>
-    }
-    await tool.handler({ path: 'a.txt', startLine: 1, endLine: 60 })
-
-    const repeat = await tool.handler({ path: 'a.txt', startLine: 1, endLine: 20 })
-
-    expect(repeat).toContain('recall_evidence("E1")')
-    // The old behaviour told the model to try something else and left it with
-    // no way to see content it had genuinely lost. See
-    // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1.
-    expect(repeat).not.toContain('Try a different range or file instead')
-  })
-
   it('serves a repeated whole-file read again rather than pointing at a copy', async () => {
     const ctx = createMockContext(workspace)
     const tool = readFileTool(createMockDefine(), ctx) as unknown as {

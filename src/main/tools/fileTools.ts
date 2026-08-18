@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TEXT_EXT } from '@shared/textFileExtensions'
-import type { ToolRuntimeContext, WorkspaceToolFactory } from './types'
+import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
 import { clampModelResultCap } from './modelResultBudget'
@@ -446,10 +446,13 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // `ReadCoverageTracker`'s doc comment. Trim the request down to
           // only what's genuinely new before reading content, rather than
           // re-serving (and re-growing context with) covered territory.
-          const gaps = ctx.ledger.reads.uncovered(file, normalized.startLine, normalized.endLine)
-          if (gaps.length === 0) {
-            return coverageRefusalResponse(ctx, normalized)
-          }
+          // Coverage no longer refuses, and no longer trims the request down to
+          // its uncovered gaps. The model is asking because its copy is gone or
+          // has moved under an edit of its own, so serving half the range — the
+          // part the tracker happens to think is new — hands back something
+          // that does not line up with what it asked for. It gets what it asked
+          // for, and `projectHistoryForModel` collapses the duplicate so
+          // serving it costs nothing that lasts.
           // A genuinely new range, but this file alone has already consumed
           // its fair share of one bounded task's read budget — redirect
           // instead of serving more, deterministically, since the softer
@@ -469,7 +472,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           // only to decide whether to suggest `code_outline` on what turns
           // out to be the FIRST read of a large file, not on every call.
           const isFirstReadOfThisFile = !ctx.ledger.reads.hasAnyCoverage(file)
-          const target = gaps[0]
+          const target = { start: normalized.startLine, end: normalized.endLine }
           // Serving any line range requires decoding the whole file to split
           // it — bounded here so a huge artifact degrades to an honest
           // redirect instead of decoding gigabytes (see
@@ -831,76 +834,3 @@ function countLines(text: string): number {
  * A single politely-worded message repeated eleven times is not feedback; it is
  * wallpaper. These thresholds turn repetition into escalating consequence.
  */
-const COVERAGE_REFUSAL_NAME_ALTERNATIVES_AT = 2
-const COVERAGE_REFUSAL_ERROR_AT = 3
-const COVERAGE_REFUSAL_ABORT_AT = 6
-
-/**
- * What `read_file_range` returns when every requested line was already served
- * this task. Escalates with the running refusal count (see
- * `ReadCoverageTracker.recordCoverageRefusal`):
- *
- * 1. state the range is already covered;
- * 2. additionally name the tools that would actually make progress, because
- *    "try something else" without saying what is easy to ignore;
- * 3. throw, so the call is emitted with an `error` status rather than
- *    `success` — a refusal that reports success reads, in the transcript, like
- *    a completed read;
- * 4. at the abort threshold, stop the generation, matching how `loopGuard`
- *    treats a model that keeps issuing a blocked call after being told to stop.
- */
-function coverageRefusalResponse(
-  ctx: ToolRuntimeContext,
-  normalized: { path: string; startLine: number; endLine: number }
-): { modelResult: string; detail: string; madeProgress: false } {
-  const range = `lines ${normalized.startLine}-${normalized.endLine}`
-  const header = `[${normalized.path}: ${range} were already read earlier this task — no new content here.]`
-
-  // The model is usually not being stubborn here: the content it was served
-  // has since been evicted from its context to make room, so from where it
-  // sits the file genuinely has not been read. Answering with the stored
-  // handle turns a dead end into the one action that works — and, unlike a
-  // re-read, costs no disk access and cannot be blocked by another guard. See
-  // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1 for the loop this closes.
-  const stored = ctx.ledger.evidence.idsMentioning(normalized.path)
-  if (stored.length > 0) {
-    return {
-      modelResult:
-        `${header}\nThe result is still stored: call recall_evidence("${stored[0]}")` +
-        (stored.length > 1 ? ` (others for this file: ${stored.slice(1).join(', ')})` : '') +
-        ', optionally with a match argument to jump straight to the part you need. ' +
-        'Do not read this range again — recall it.',
-      detail: 'Redirected to stored evidence',
-      madeProgress: false
-    }
-  }
-
-  // No stored copy — the result predates the store, or was too small to keep.
-  // Only here is escalation the right answer, because only here is repeating
-  // the read genuinely incapable of producing anything.
-  const count = ctx.ledger.reads.recordCoverageRefusal()
-  if (count >= COVERAGE_REFUSAL_ERROR_AT) {
-    if (count >= COVERAGE_REFUSAL_ABORT_AT) ctx.abortGeneration?.()
-    throw new Error(
-      `${header} This is repeat request ${count} for already-covered content, and no new ` +
-        'information has been produced by any of them. Re-reading is not making progress. ' +
-        'State what you already know from the content you have been served, then either take a ' +
-        'different action (search_files for an exact symbol, code_outline for structure, ' +
-        'inspect_visual for runtime evidence, run_command to execute something) or tell the ' +
-        'user what is blocking you.'
-    )
-  }
-
-  const alternatives =
-    count >= COVERAGE_REFUSAL_NAME_ALTERNATIVES_AT
-      ? '\nRe-reading has now failed twice. Use search_files to find an exact symbol, ' +
-        'code_outline for structure, or inspect_visual for runtime evidence — reading this ' +
-        'range again cannot return anything new.'
-      : '\nTry a different range or file instead.'
-
-  return {
-    modelResult: `${header}${alternatives}`,
-    detail: 'Already read earlier this task',
-    madeProgress: false
-  }
-}
