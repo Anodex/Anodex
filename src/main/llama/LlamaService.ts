@@ -290,6 +290,18 @@ export interface GenerateOutcome {
    * opposite responses from the user.
    */
   stopDetail?: string
+  /**
+   * True when the model ran a tool and then produced no closing prose about it
+   * — its last act was the call, and the round after it came back empty.
+   *
+   * This separates "finished" from "was still working" without reading the
+   * wording of the reply. A turn that has genuinely answered ends with the
+   * model writing text and calling nothing; a turn that trails off ends on a
+   * tool result it never commented on ("Now let me inspect the page to see if
+   * the sandbox renders." — then a command, then silence). `stopped` cannot
+   * tell them apart, because this exit is a clean one.
+   */
+  endedOnToolCall?: boolean
   /** Structured local context boundary cause; separate from the stable UI stop reason. */
   contextEpochCause?: 'proactive' | 'in-turn'
   /** Exact fixed prompt/tool-schema accounting from the active local wrapper. */
@@ -737,6 +749,7 @@ class LlamaService extends EventEmitter {
     // succeeded). Reported to the caller so a turn that produced nothing can be
     // distinguished from one that worked; the per-outcome flags that used to sit
     // beside it existed only to gate the prose detectors and went with them.
+    let spokeSinceLastTool = false
     let hadAnyToolAttempt = false
     // Running count of tool activity, so a single round can tell whether it
     // produced any of its own — see the thinking-promotion decision below,
@@ -781,6 +794,12 @@ class LlamaService extends EventEmitter {
       params,
       (call) => {
         hadAnyToolAttempt = true
+        // Node-llama-cpp runs its own tool loop inside one `promptWithMeta`
+        // call, so there is no round boundary to read the ending from. Track
+        // it directly instead: a settled call clears the flag, and any visible
+        // token after it sets it again, leaving "did the model say anything
+        // after its final tool result" true at the end.
+        if (call.status !== 'running') spokeSinceLastTool = false
         toolActivityCount++
         if (call.status !== 'running') nativeToolCheckpoint.pending = true
         if (call.status !== 'running') diagnostics.recordToolCallSettled()
@@ -1108,6 +1127,9 @@ class LlamaService extends EventEmitter {
               return
             }
             diagnostics.recordVisibleTokens(chunk.tokens.length)
+            // Visible prose after the last tool call — the model came back to
+            // comment on what it got. See `GenerateOutcome.endedOnToolCall`.
+            if (chunk.text.trim()) spokeSinceLastTool = true
             roundContent += chunk.text
             params.onToken(chunk.text)
           },
@@ -1366,6 +1388,7 @@ class LlamaService extends EventEmitter {
         stats: buildStats(tokenCount, startedAt),
         stopped,
         stopReason: stopped ? currentStopReason() : undefined,
+        endedOnToolCall: hadAnyToolAttempt && !spokeSinceLastTool,
         contextBudget,
         thinking: thinkingText || undefined,
         generationDiagnostics: diagnostics.snapshot()

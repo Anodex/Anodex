@@ -132,6 +132,8 @@ export interface RunGenerationResult {
   stopReason?: GenerationStopReason
   /** See `GenerateOutcome.stopDetail`'s doc comment. */
   stopDetail?: string
+  /** See `GenerateOutcome.endedOnToolCall` — the reply trailed off after a tool call. */
+  endedOnToolCall?: boolean
   /** Internal context boundary cause used by the bounded runner; the UI keeps the stable stop reason. */
   contextEpochCause?: 'proactive' | 'in-turn'
   /** Exact local fixed-context/tool accounting for this turn. */
@@ -786,6 +788,7 @@ export async function runGeneration(
     stopReason: outcome.stopReason,
     stopDetail: outcome.stopDetail,
     contextEpochCause: outcome.contextEpochCause,
+    endedOnToolCall: outcome.endedOnToolCall,
     contextBudget: outcome.contextBudget,
     memoryUsed: memory?.entries,
     transcriptRecallUsed: transcriptRecall?.results,

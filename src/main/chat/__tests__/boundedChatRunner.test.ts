@@ -1758,6 +1758,68 @@ describe('runBoundedChatGeneration', () => {
     )
   })
 
+  // The ending that actually reached users: nothing is `stopped`, no end reason
+  // is recorded, and the inherited plan is already complete — so every existing
+  // signal says "finished" while the reply stops on "Now let me inspect the
+  // page…" followed by a command and silence.
+  it('closes out a reply the model trailed off from after a tool call', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementation((_request, io: RunGenerationIo) => {
+      if (io.enabledTools?.size === 0) {
+        return Promise.resolve(result({ content: 'I fixed the OrbitControls reference.' }))
+      }
+      io.onActivity?.({
+        id: 'open-1',
+        name: 'run_command',
+        kind: 'command',
+        title: 'Run start index.html',
+        status: 'success'
+      })
+      return Promise.resolve(
+        result({
+          content: 'Now let me inspect the page to see if the sandbox renders.',
+          stopped: false,
+          endedOnToolCall: true,
+          stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 }
+        })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(cycleCallCount()).toBe(1)
+    expect(outcome.content).toContain('I fixed the OrbitControls reference.')
+  })
+
+  it('leaves a cleanly finished reply alone rather than adding a second ending', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementation((_request, io: RunGenerationIo) => {
+      if (io.enabledTools?.size === 0) {
+        return Promise.resolve(result({ content: 'SHOULD NOT RUN' }))
+      }
+      io.onActivity?.({
+        id: 'read-1',
+        name: 'read_file',
+        kind: 'read',
+        title: 'Read index.html',
+        status: 'success'
+      })
+      // The model answered and called nothing further: a real conclusion.
+      return Promise.resolve(
+        result({
+          content: 'The sandbox is black because the import map is unused.',
+          stopped: false,
+          endedOnToolCall: false,
+          stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 }
+        })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).not.toContain('SHOULD NOT RUN')
+  })
+
   it('forwards a later cycle onActivity/onToken through to the caller-supplied io', async () => {
     mockedRunGeneration.mockReset()
     const seenActivity: ToolCall[] = []

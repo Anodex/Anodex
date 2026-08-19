@@ -595,7 +595,7 @@ export async function runBoundedChatGeneration(
   // touched but not what any of it meant. One tool-less pass closes the task in
   // the model's own words. Only for a turn that was cut short — a turn that
   // finished naturally already ended with its own answer.
-  if (needsClosingSummary(chatEndReason, combinedContent)) {
+  if (needsClosingSummary(finalResult, chatEndReason, combinedContent)) {
     try {
       const closing = await runGeneration(
         {
@@ -698,15 +698,28 @@ export async function runBoundedChatGeneration(
 
 /**
  * Whether the reply was cut short mid-thought and so owes the user a closing
- * word.
+ * word. Two ways that happens, and `chatEndReason` alone only catches the first:
  *
- * Gated on `chatEndReason` rather than on `stopped` alone: that field is set
- * only where the loop recorded that the turn *wanted to keep going and was not
- * allowed to*, which is exactly the case with no conclusion. A turn that simply
- * finished, or that the user stopped, leaves it null and pays for no extra pass.
+ * 1. The loop wanted to keep going and was not allowed to — a limit, churn, a
+ *    blocked recovery. `chatEndReason` records exactly that.
+ * 2. The model simply stopped. This exit is *clean* — nothing is `stopped`, no
+ *    reason is recorded — so it used to pay for no closing pass at all, and it
+ *    is the ending that has actually reached users: "Now let me inspect the
+ *    page to see if the sandbox renders.", a command, then silence. Gating it
+ *    on `endedOnToolCall` reads the shape of the ending rather than its
+ *    wording: the model never came back to comment on its own last tool result.
+ *
+ * A user Stop is neither — they know why it ended and asked for it to be over,
+ * not for one more model pass.
  */
-function needsClosingSummary(endedBecause: string | null, content: string): boolean {
-  return endedBecause !== null && content.trim().length > 0
+function needsClosingSummary(
+  result: RunGenerationResult,
+  endedBecause: string | null,
+  content: string
+): boolean {
+  if (result.stopReason === 'user') return false
+  if (content.trim().length === 0) return false
+  return endedBecause !== null || result.endedOnToolCall === true
 }
 
 function goalStillOpenFor(result: RunGenerationResult, goal: string | null): boolean {

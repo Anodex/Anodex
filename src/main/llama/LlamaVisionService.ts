@@ -389,6 +389,7 @@ export class LlamaVisionService {
     let outputTokens = 0
     let stopped = false
     let tokenLimit = false
+    let endedOnToolCall = false
     let roundsExhausted = false
     /** Set when the recovery budget for cut-off tool calls ran out. */
     let toolCallsTruncated = false
@@ -838,7 +839,13 @@ export class LlamaVisionService {
         }
       }
 
-      if (calls.length === 0 || !toolFunctions) break
+      if (calls.length === 0 || !toolFunctions) {
+        // The model asked for nothing more. If it also said nothing this round,
+        // its last act was the previous round's tool call and it never came
+        // back to comment on the result — see `GenerateOutcome.endedOnToolCall`.
+        endedOnToolCall = hadAnyToolAttempt && roundContent.trim().length === 0
+        break
+      }
       if (round === maxToolRounds - 1) {
         roundsExhausted = true
         break
@@ -922,6 +929,7 @@ export class LlamaVisionService {
       content,
       thinking: thinking || undefined,
       stats,
+      endedOnToolCall,
       contextBudget: contextBudgetFor({
         measured,
         params,
