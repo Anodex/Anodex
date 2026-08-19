@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '@shared/tools.types'
-import { buildContinuationBrief } from '../continuationBrief'
+import { buildContinuationBrief, outstandingVerification } from '../continuationBrief'
 
 let sequence = 0
 
@@ -157,6 +157,22 @@ describe('buildContinuationBrief', () => {
     })!
 
     expect(worst.length).toBeLessThanOrEqual(520)
+  })
+
+  it('shares one outstanding-verification rule with the epoch handoff', () => {
+    // Once an epoch starts the brief is suppressed for the rest of the reply,
+    // and a measured 8K run took twelve epochs — so the handoff's note is the
+    // only place this can still reach the model. Both must say the same thing.
+    expect(outstandingVerification([])).toContain('nothing has been changed yet')
+    expect(outstandingVerification([read('a.ts'), write('a.ts')])).toContain(
+      'nothing has checked the change yet'
+    )
+    expect(outstandingVerification([inspect(), write('a.ts')])).toContain(
+      'no longer proves anything'
+    )
+    // Nothing outstanding is `null`, so a caller can fall back rather than
+    // render an empty line.
+    expect(outstandingVerification([write('a.ts'), inspect()])).toBeNull()
   })
 
   it('scales with the window rather than using one fixed size', () => {
