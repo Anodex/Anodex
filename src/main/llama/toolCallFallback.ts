@@ -50,6 +50,24 @@ const SELF_CLOSING_TAG = /<([a-zA-Z][\w-]*)((?:\s+[\w-]+=(?:"[^"]*"|'[^']*'))+)\
 const TAG_ATTRIBUTE = /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g
 
 /**
+ * Qwen-style pseudo-XML: `<function=search_files><parameter=path>js</parameter>…`,
+ * usually but not always wrapped in `<tool_call>`. The body is not JSON, so
+ * `TOOL_CALL_TAG` captured it and then failed to parse it — the call silently
+ * never ran, the round produced no tool call, and the provider loop treated
+ * that as the model being finished. Observed ending a live turn mid-fix, with
+ * the raw tags left visible in the transcript.
+ *
+ * Matched by hand rather than one regex because the closing `</function>` and
+ * `</tool_call>` are frequently absent (the model stops emitting once it
+ * believes the call is made), so the block has to be allowed to run to the
+ * next function tag or to the end of the text.
+ */
+const FUNCTION_TAG = /<function=([\w-]+)>/gi
+const PARAMETER_BLOCK = /<parameter=([\w-]+)>([\s\S]*?)(?:<\/parameter>|(?=<parameter=)|$)/gi
+const TRAILING_WRAPPER = /^(?:\s*<\/function>)?(?:\s*<\/tool_call>)?/
+const LEADING_WRAPPER = /<tool_call>\s*$/
+
+/**
  * Look for a tool-call attempt in a model's plain-text response that wasn't
  * executed by native function-calling. Returns the first match whose `name`
  * is in `availableToolNames`, or `null` if nothing recognizable is found.
@@ -83,6 +101,7 @@ function extractCandidates(text: string): Candidate[] {
   for (const match of text.matchAll(JSON_FENCE)) {
     candidates.push({ matchedText: match[0], jsonText: match[1] })
   }
+  candidates.push(...extractFunctionTagCandidates(text))
   for (const match of text.matchAll(SELF_CLOSING_TAG)) {
     const [matchedText, name, attrText] = match
     const args: Record<string, string> = {}
@@ -110,6 +129,43 @@ function extractCandidates(text: string): Candidate[] {
   }
   const trailingJson = extractTrailingJsonObject(text)
   if (trailingJson) candidates.push(trailingJson)
+
+  return candidates
+}
+
+/** See `FUNCTION_TAG`. One candidate per `<function=…>` block found. */
+function extractFunctionTagCandidates(text: string): Candidate[] {
+  const candidates: Candidate[] = []
+
+  for (const match of text.matchAll(FUNCTION_TAG)) {
+    const tagStart = match.index
+    const bodyStart = tagStart + match[0].length
+
+    // The block ends at whichever comes first: an explicit close, the next
+    // function tag, or the end of the text.
+    let bodyEnd = text.length
+    for (const marker of ['<function=', '</function>']) {
+      const found = text.indexOf(marker, bodyStart)
+      if (found !== -1 && found < bodyEnd) bodyEnd = found
+    }
+
+    const args: Record<string, string> = {}
+    for (const parameter of text.slice(bodyStart, bodyEnd).matchAll(PARAMETER_BLOCK)) {
+      args[parameter[1]] = parameter[2].trim()
+    }
+
+    // Widen the span over the wrapper tags so `stripFallbackCall` removes them
+    // too, rather than leaving bare `<tool_call>` fragments in the reply.
+    const leading = LEADING_WRAPPER.exec(text.slice(0, tagStart))
+    const trailing = TRAILING_WRAPPER.exec(text.slice(bodyEnd))
+    candidates.push({
+      matchedText: text.slice(
+        tagStart - (leading?.[0].length ?? 0),
+        bodyEnd + (trailing?.[0].length ?? 0)
+      ),
+      jsonText: JSON.stringify({ name: match[1], arguments: args })
+    })
+  }
 
   return candidates
 }
@@ -204,6 +260,8 @@ export function stripFallbackCall(text: string, call: FallbackToolCall): string 
 export function findPotentialToolCallTextStart(text: string): number {
   const starts = [
     text.indexOf('<tool_call'),
+    // Held back for the same reason as `<tool_call`: it can appear without one.
+    text.indexOf('<function='),
     text.indexOf('```json'),
     text.indexOf('```\n{'),
     text.indexOf('``` \n{'),

@@ -46,6 +46,32 @@ export function turnTimeLimitOverride(
   return { maxDurationMs: turnTimeLimitMinutes === null ? null : turnTimeLimitMinutes * 60_000 }
 }
 
+/**
+ * Rounds and tool calls a single `runGeneration` cycle may spend, scaled to the
+ * window it has to spend them in.
+ *
+ * `maxProviderRounds` is a failsafe against a pathological loop, not a work
+ * limit — the context wall and the cross-cycle no-progress guard are the real
+ * stops. Left flat it stops being a failsafe and becomes the binding
+ * constraint: a measured 16k run ended two cycles at exactly round 11, the
+ * first of them with a third of its window still unused, and each restart then
+ * paid the fixed-token re-entry cost again. Flat 12 happens to be well tuned
+ * *for 16k* — there the cap and the context wall land within a round of each
+ * other — so the calibration below reproduces it exactly at that size and only
+ * changes behaviour for windows the constant was never chosen for. At 128k the
+ * wall is a couple of hundred rounds away while a flat cap still fires at 12.
+ *
+ * `maxTools` moves with it at the same 8:3 ratio the flat pair already had.
+ * Raising rounds alone would just hand the binding role to the tool ceiling,
+ * since a round almost always carries one call.
+ */
+function cycleLimitsForContext(
+  contextSize: number
+): Pick<GenerationBudgetPolicy, 'maxProviderRounds' | 'maxTools'> {
+  const maxProviderRounds = Math.max(6, Math.min(64, Math.ceil(contextSize / 4_096) * 3))
+  return { maxProviderRounds, maxTools: Math.round((maxProviderRounds * 8) / 3) }
+}
+
 export function interactiveBudgetForContext(
   contextSize: number | undefined,
   turnTimeLimitMinutes: number | null = 15
@@ -54,6 +80,7 @@ export function interactiveBudgetForContext(
     ? DEFAULT_INTERACTIVE_BUDGET
     : {
         ...DEFAULT_INTERACTIVE_BUDGET,
+        ...cycleLimitsForContext(contextSize),
         maxContextShifts: Math.max(4, Math.min(12, Math.ceil(contextSize / 4_096) * 4))
       }
   return { ...base, ...turnTimeLimitOverride(turnTimeLimitMinutes) }

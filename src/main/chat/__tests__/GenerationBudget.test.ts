@@ -12,6 +12,37 @@ describe('GenerationBudget', () => {
     expect(interactiveBudgetForContext(32_768).maxContextShifts).toBe(12)
   })
 
+  // The flat 12/32 pair was tuned for 16k, where the cap and the context wall
+  // land within a round of each other. It has to stay exactly 12/32 there, or
+  // this is a behaviour change on the size it was chosen for rather than a fix
+  // for the sizes it was not.
+  it('reproduces the previously flat cycle limits at a 16k window', () => {
+    expect(interactiveBudgetForContext(16_384).maxProviderRounds).toBe(12)
+    expect(interactiveBudgetForContext(16_384).maxTools).toBe(32)
+  })
+
+  it('scales cycle rounds and tool calls with the window, so the cap is not the binding limit', () => {
+    expect(interactiveBudgetForContext(8_192).maxProviderRounds).toBe(6)
+    expect(interactiveBudgetForContext(32_768).maxProviderRounds).toBe(24)
+    expect(interactiveBudgetForContext(65_536).maxProviderRounds).toBe(48)
+    // Clamped, so a very large window cannot turn one cycle into an unbounded
+    // run; the wall clock and MAX_CYCLES remain the outer stops.
+    expect(interactiveBudgetForContext(1_048_576).maxProviderRounds).toBe(64)
+    expect(interactiveBudgetForContext(2_048).maxProviderRounds).toBe(6)
+  })
+
+  it('keeps tool calls ahead of rounds, so raising rounds does not just move the ceiling', () => {
+    for (const size of [2_048, 8_192, 16_384, 32_768, 131_072]) {
+      const policy = interactiveBudgetForContext(size)
+      expect(policy.maxTools).toBeGreaterThan(policy.maxProviderRounds)
+    }
+  })
+
+  it('falls back to the flat defaults when no context size is known', () => {
+    expect(interactiveBudgetForContext(undefined).maxProviderRounds).toBe(12)
+    expect(interactiveBudgetForContext(undefined).maxTools).toBe(32)
+  })
+
   it('derives the per-turn wall-clock cap from the configured minutes, or disables it when null', () => {
     expect(turnTimeLimitOverride(15).maxDurationMs).toBe(15 * 60_000)
     expect(turnTimeLimitOverride(null).maxDurationMs).toBeNull()

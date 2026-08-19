@@ -397,6 +397,17 @@ export async function runBoundedChatGeneration(
     // most recently as "Now let me read the specific sections I need to fix"
     // followed by nothing.
     //
+    // Known blind spot, deliberately left alone: `ChatRequest.plan` is
+    // *conversation*-scoped, so a turn that calls no plan tool inherits
+    // whichever plan the previous turn left behind. If that plan is fully
+    // completed, `activePlan` returns null and this rescue cannot fire even
+    // though the current request may be unrelated and unfinished — observed
+    // once, on a turn that stopped mid-edit. The cause there was a tool call
+    // the fallback parser could not read (see `toolCallFallback.ts`), which is
+    // fixed at its source; widening the rescue to cover a stale completed plan
+    // would mean resuming on no evidence at all, which is the signal below
+    // that was already tried and reverted.
+    //
     // What makes this safe to act on is the *plan*. An unfinished plan is
     // explicit, user-visible state the model wrote itself, saying there is more
     // to do; a question ("why is this black? diagnose only") has no plan at all,

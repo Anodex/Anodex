@@ -141,3 +141,56 @@ describe('stripFallbackCall', () => {
     expect(stripFallbackCall(text, call)).toBe('')
   })
 })
+
+// Qwen-style pseudo-XML. Observed ending a live turn: the model wrote this
+// instead of calling the tool, nothing parsed it, the round produced no tool
+// call, and the provider loop read that as "finished" mid-fix.
+describe('detectFallbackToolCall with <function=…> pseudo-XML', () => {
+  const SEARCH_TOOLS = new Set(['search_files', 'read_file'])
+
+  it('parses a <tool_call>-wrapped function block that was never closed', () => {
+    const text =
+      'Now I need to check the other references. Let me search for that.\n\n' +
+      '<tool_call>\n<function=search_files>\n<parameter=path>\njs\n</parameter>\n' +
+      '<parameter=query>\nnew OrbitControls\n</parameter>\n'
+
+    const call = detectFallbackToolCall(text, SEARCH_TOOLS)
+    expect(call?.name).toBe('search_files')
+    expect(call?.arguments).toEqual({ path: 'js', query: 'new OrbitControls' })
+    expect(call?.matchedText).toContain('<function=search_files>')
+    expect(stripFallbackCall(text, call!)).toBe(
+      'Now I need to check the other references. Let me search for that.'
+    )
+  })
+
+  it('parses a fully closed function block and strips both wrappers', () => {
+    const text =
+      'Checking.\n<tool_call><function=read_file><parameter=path>a.ts</parameter>' +
+      '</function></tool_call>'
+
+    const call = detectFallbackToolCall(text, SEARCH_TOOLS)
+    expect(call?.name).toBe('read_file')
+    expect(call?.arguments).toEqual({ path: 'a.ts' })
+    expect(stripFallbackCall(text, call!)).toBe('Checking.')
+  })
+
+  it('parses a bare function block with no <tool_call> wrapper', () => {
+    const call = detectFallbackToolCall(
+      '<function=read_file><parameter=path>a.ts</parameter>',
+      SEARCH_TOOLS
+    )
+    expect(call?.name).toBe('read_file')
+    expect(call?.arguments).toEqual({ path: 'a.ts' })
+  })
+
+  it('ignores a function block naming a tool that is not registered', () => {
+    expect(
+      detectFallbackToolCall('<function=launch_missiles><parameter=x>1</parameter>', SEARCH_TOOLS)
+    ).toBeNull()
+  })
+
+  it('holds streamed text back from the start of a function tag', () => {
+    const text = 'Let me search. <function=search_files>'
+    expect(findPotentialToolCallTextStart(text)).toBe('Let me search. '.length)
+  })
+})
