@@ -133,7 +133,10 @@ vi.mock('../../recall/transcriptRecallContext', () => ({
   buildTranscriptRecallContext: () => null
 }))
 vi.mock('../../skills/SkillStore', () => ({ skillStore: { list: () => [] } }))
-vi.mock('../../tools/workspaceContext', () => ({ buildWorkspaceContext: () => null }))
+vi.mock('../../tools/workspaceContext', () => ({
+  buildWorkspaceContext: () => null,
+  buildWorkspaceContextParts: () => ({ summary: '', activity: '' })
+}))
 vi.mock('../../checkpoints/CheckpointStore', () => ({
   checkpointStore: { getSummary: () => null }
 }))

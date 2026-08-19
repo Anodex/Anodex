@@ -20,6 +20,16 @@ export interface TranscriptRecallContext {
   text: string
   /** The raw results, for `RunGenerationResult.transcriptRecallUsed` (UI provenance). */
   results: TranscriptRecallResult[]
+  /**
+   * One rendered block per result in `results`, same order and same length.
+   *
+   * A recalled conversation is indivisible: its heading dates the excerpts
+   * beneath it, and half a block is an excerpt with no idea which chat or when.
+   * The shared packer drops whole blocks, and the 1:1 pairing is what lets the
+   * caller report exactly the excerpts the model was given. See
+   * `AutomaticReferenceSource` in `contextPlanner.ts`.
+   */
+  blocks: string[]
 }
 
 /**
@@ -42,7 +52,8 @@ export function buildTranscriptRecallContext(
   })
   if (results.length === 0) return null
 
-  return { text: renderResults(results), results }
+  const blocks = results.map(renderResult)
+  return { text: blocks.join('\n'), results, blocks }
 }
 
 function gatherCandidates(
@@ -57,14 +68,12 @@ function gatherCandidates(
     : conversationStore.listByProject(projectId)
 }
 
-function renderResults(results: TranscriptRecallResult[]): string {
-  const lines: string[] = []
-  for (const result of results) {
-    const when = new Date(result.updatedAt).toISOString().slice(0, 10)
-    lines.push(`## "${result.title}" (${when})`)
-    for (const excerpt of result.excerpts) {
-      lines.push(`- ${excerpt.role}: ${excerpt.text}`)
-    }
+/** One recalled conversation: its dated heading and the excerpts under it. */
+function renderResult(result: TranscriptRecallResult): string {
+  const when = new Date(result.updatedAt).toISOString().slice(0, 10)
+  const lines = [`## "${result.title}" (${when})`]
+  for (const excerpt of result.excerpts) {
+    lines.push(`- ${excerpt.role}: ${excerpt.text}`)
   }
   return lines.join('\n')
 }

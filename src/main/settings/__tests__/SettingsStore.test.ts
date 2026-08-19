@@ -278,6 +278,15 @@ describe('stripRetiredGeneralSettings', () => {
 })
 
 describe('validatePatch', () => {
+  it('accepts only known context assembly strategies', () => {
+    expect(() =>
+      validatePatch({ generation: { contextAssemblyStrategy: 'adaptive-v1' } })
+    ).not.toThrow()
+    expect(() =>
+      validatePatch({ generation: { contextAssemblyStrategy: 'future-v2' } } as never)
+    ).toThrow(/contextAssemblyStrategy/)
+  })
+
   it('accepts an assistantStyle.globalStyle patch within the cap', () => {
     expect(() => validatePatch({ assistantStyle: { globalStyle: 'Be concise.' } })).not.toThrow()
   })

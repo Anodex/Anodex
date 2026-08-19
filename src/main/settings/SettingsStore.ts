@@ -6,6 +6,7 @@ import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import { DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
+import { isContextAssemblyStrategy } from '@shared/contextPlanner'
 import {
   DEFAULT_KEYBOARD_SHORTCUTS,
   isBindableShortcut,
@@ -689,6 +690,12 @@ export function validatePatch(patch: SettingsPatch): void {
     if (!isFiniteNumber(generation.topP) || generation.topP < 0 || generation.topP > 1) {
       throw new Error('generation.topP must be a finite number between 0 and 1')
     }
+  }
+  if (
+    generation?.contextAssemblyStrategy !== undefined &&
+    !isContextAssemblyStrategy(generation.contextAssemblyStrategy)
+  ) {
+    throw new Error('generation.contextAssemblyStrategy must be "current" or "adaptive-v1"')
   }
   for (const [name, entry] of Object.entries(patch.provider ?? {})) {
     if (name === 'active' || typeof entry !== 'object' || entry === null) continue

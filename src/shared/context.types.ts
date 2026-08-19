@@ -42,6 +42,13 @@ export interface ContextLedgerRevision {
   coveredTurns: number
   /** Bounded model-facing digest of the covered conversation. */
   continuityDigest: string
+  /**
+   * Optional SHA-256 of the canonical history prefix represented by this
+   * digest. Older revisions intentionally omit it and preserve their existing
+   * behavior; new stateless revisions use it to reject a stale projection after
+   * a branch or transcript edit without touching the raw conversation.
+   */
+  sourcePrefixFingerprint?: string
 }
 
 /**
