@@ -1,5 +1,26 @@
 import type { ContextBudgetUsage, GenerationStopReason } from '@shared/chat.types'
 
+/**
+ * Explain a turn that could not start, in the terms that actually decided it.
+ *
+ * The fixed input is reported against the room it left, not against the window,
+ * because the window is never what runs out first — the reply space is. Naming
+ * the leftover is also what makes the advice obvious: a few hundred tokens of
+ * reply room is not a prompt to shorten, it is a context size to raise.
+ */
+function fixedContextMessage(budget: ContextBudgetUsage): string {
+  const left = budget.effectiveMaxOutputTokens ?? budget.inputLimitTokens - budget.fixedTokens
+  const deferred = `Anodex had already deferred ${budget.deferredToolCount} tool${
+    budget.deferredToolCount === 1 ? '' : 's'
+  } to save room.`
+  return (
+    `The model could not start: its fixed instructions and active tool definitions take ` +
+    `${budget.fixedTokens.toLocaleString()} of the ${budget.inputLimitTokens.toLocaleString()} ` +
+    `tokens available, leaving only ${Math.max(0, left).toLocaleString()} to reply in — too few ` +
+    `to finish a single tool call. ${deferred} Raise the context size for this model.`
+  )
+}
+
 export interface GenerationStopNote {
   error: string
   /** See `ChatMessage.errorKind`'s doc comment. Omitted means a genuine failure. */
@@ -45,9 +66,15 @@ export function describeGenerationStop(
     case 'fixed-context-limit':
       // Nothing was ever produced here (the pre-flight fit check failed
       // before generation started) — a real failure, not a bounded stop.
+      //
+      // What fails is never that the fixed input exceeds the window; it is that
+      // too little is left afterwards to answer in. Saying "need 2,672 tokens,
+      // but only 3,584 fit" put the larger number second and read as
+      // self-contradictory, because it compared the wrong pair — the room left
+      // for the reply is the whole point, and it went unmentioned.
       return {
         error: contextBudget
-          ? `The model could not start because its fixed instructions and active tool definitions need ${contextBudget.fixedTokens.toLocaleString()} tokens, but only ${contextBudget.inputLimitTokens.toLocaleString()} fit before reply space. Anodex already deferred ${contextBudget.deferredToolCount} tool${contextBudget.deferredToolCount === 1 ? '' : 's'}.`
+          ? fixedContextMessage(contextBudget)
           : 'The model could not start because its fixed instructions and active tool definitions do not fit in the current context window.'
       }
     case 'rounds-exhausted':
