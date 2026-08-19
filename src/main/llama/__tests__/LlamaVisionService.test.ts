@@ -954,6 +954,30 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.stopReason).toBe('fixed-context-limit')
   })
 
+  it('reports the reply ceiling a turn that never started actually had', async () => {
+    // The 4K probe in `docs/CONTEXT_OS_HANDOFF.md` recorded an effective output
+    // maximum of 4,096 on a turn whose fixed input had already outgrown the
+    // window — the one number a reader would use to size the problem, and the
+    // one that was wrong. The loop broke out on exhaustion before ever reaching
+    // the budget call that sets this, so the *requested* ceiling was reported.
+    mocks.countTokens = (text) => (text === 'Build a website.' ? 10 : 9_000)
+    mocks.rounds.push({ chunks: [textChunk('unreachable', 'stop')] })
+
+    const outcome = await (
+      await service(8_192)
+    ).generate(params({ tools: withTools, options: { maxTokens: 4_096 } }))
+
+    const budget = outcome.contextBudget!
+    expect(outcome.stopReason).toBe('fixed-context-limit')
+    expect(budget.requestedMaxOutputTokens).toBe(4_096)
+    // What was left of the input limit once the fixed input was measured —
+    // never the ceiling that was asked for.
+    expect(budget.effectiveMaxOutputTokens).toBe(
+      Math.max(0, budget.inputLimitTokens - budget.fixedTokens)
+    )
+    expect(budget.effectiveMaxOutputTokens).toBeLessThan(4_096)
+  })
+
   it('reclaims room from earlier results without orphaning a tool call', async () => {
     let call = 0
     mocks.toolFunctions = {
