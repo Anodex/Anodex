@@ -50,7 +50,6 @@ import {
   listChangesTool
 } from './changeTools'
 import { finishGoalTool } from './agentTools'
-import { recallEvidenceTool } from './evidenceTools'
 import { buildMcpToolFunction } from './mcpTools'
 import { scheduleTaskTool } from './schedulerTools'
 import {
@@ -146,17 +145,8 @@ const PROJECT_READ_ONLY_FACTORIES: Record<string, WorkspaceToolFactory> = {
  * memory toggle(s) are on.
  */
 
-/**
- * Tools that need no workspace (always available when tools are enabled).
- *
- * `recall_evidence` belongs here rather than with the workspace read tools: it
- * reads Anodex's own store of results already produced this task, so it is as
- * meaningful in an email or web turn as in a project one, and it must be
- * registered from the first round because the evidence it serves accumulates
- * *during* the turn.
- */
+/** Tools that need no workspace (always available when tools are enabled). */
 const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
-  recall_evidence: recallEvidenceTool,
   fetch_url: fetchUrlTool,
   write_plan: writePlanTool,
   update_plan_step: updatePlanStepTool,

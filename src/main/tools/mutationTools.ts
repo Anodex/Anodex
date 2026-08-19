@@ -265,7 +265,7 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
             throw new Error(
               'The text to replace was not found in the file. Do not guess at it — if you no ' +
                 'longer have the exact text in view, use replace_lines with the line numbers ' +
-                'instead, or recall_evidence with a match argument to get the exact text back first.'
+                'instead, or read that part of the file again to get the exact text first.'
             )
           }
           if (occurrences > 1) {
@@ -362,7 +362,7 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
         expectedFirstLine: {
           type: 'string',
           description:
-            'Required. What line startLine currently says right now, copied from your most recent read of the file — compared ignoring surrounding whitespace. If it no longer matches, the edit is refused and the real line is reported, so a stale line number cannot overwrite the wrong code. If you do not know it, read the range (or recall_evidence it) before editing.'
+            'Required. What line startLine currently says right now, copied from your most recent read of the file — compared ignoring surrounding whitespace. If it no longer matches, the edit is refused and the real line is reported, so a stale line number cannot overwrite the wrong code. If you do not know it, read the range before editing.'
         }
       },
       required: ['path', 'startLine', 'endLine', 'newText', 'expectedFirstLine']
@@ -482,7 +482,7 @@ function describeAnchorMismatch(
     return (
       'expectedFirstLine is required: give the current text of line ' +
       `${line} so a stale line number cannot overwrite the wrong code. ` +
-      'Read that range (or recall_evidence the read you already made) and retry with it.'
+      'Read that range again and retry with it.'
     )
   }
   const found = (actual ?? '').trim()
@@ -490,7 +490,7 @@ function describeAnchorMismatch(
   return (
     `Line ${line} does not match expectedFirstLine, so the line numbers are stale and this edit was not applied. ` +
     `Expected: ${JSON.stringify(wanted)}. Found: ${JSON.stringify(found)}. ` +
-    'Read the file (or recall_evidence the read you already made) to get current line numbers, then retry.'
+    'Read the file again to get current line numbers, then retry.'
   )
 }
 

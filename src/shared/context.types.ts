@@ -225,12 +225,37 @@ export function withLedgerRevision(
   }
 }
 
+/**
+ * Record one revision per compaction *boundary*, replacing any earlier revision
+ * that covered the same one.
+ *
+ * A stateless transport re-bounds history on every provider round, and every
+ * fold mints a fresh revision id — so dropping only the matching id appended a
+ * new entry each round. Worse, the boundary cannot advance mid-reply: it is a
+ * *message* id, and no new message is persisted until the turn ends. A measured
+ * reply therefore produced **151 revisions all naming the same
+ * `throughMessageId`**, differing only in a two-turn creep in `removedTurns`,
+ * and the user was shown "Context condensed 151 revisions" for what was, in
+ * user-visible terms, one compaction.
+ *
+ * Superseding by boundary keeps the newest and most complete record of each
+ * real compaction, which is also what makes an inline transcript marker
+ * legible: one marker per place the conversation was actually condensed, rather
+ * than a hundred stacked at a single point. Revisions at *different* boundaries
+ * still accumulate, because those are genuinely separate events.
+ *
+ * A snapshot with no boundary (`throughMessageId` null/undefined) cannot be
+ * matched this way and falls back to id, so it is never merged with an
+ * unrelated one.
+ */
 function appendCompactionSnapshot(
   snapshots: ConversationContextSnapshot[],
   nextSnapshot: ConversationContextSnapshot
 ): ConversationContextSnapshot[] {
-  const withoutCurrent = snapshots.filter((snapshot) => snapshot.id !== nextSnapshot.id)
-  return [...withoutCurrent, nextSnapshot]
+  const boundary = nextSnapshot.throughMessageId
+  const supersedes = (snapshot: ConversationContextSnapshot): boolean =>
+    snapshot.id === nextSnapshot.id || (Boolean(boundary) && snapshot.throughMessageId === boundary)
+  return [...snapshots.filter((snapshot) => !supersedes(snapshot)), nextSnapshot]
 }
 
 function mergeCompactionHistory(
@@ -240,12 +265,15 @@ function mergeCompactionHistory(
   const merged = new Map<string, ConversationContextSnapshot>()
   for (const snapshot of [...existing, ...incoming]) {
     // The live event and final result may use different revision IDs for the
-    // same generated digest. Its boundary and digest identify that compaction
-    // more reliably than the transport-specific ID.
-    const key = [snapshot.throughMessageId ?? '', snapshot.removedTurns, snapshot.summary].join(
-      '\u0000'
-    )
-    merged.set(key, snapshot)
+    // same compaction, so the boundary identifies it more reliably than the
+    // transport-specific ID. Keyed on the boundary *alone* — deliberately not
+    // on `removedTurns`/`summary` too, which is what let one reply's repeated
+    // folds against a single boundary survive as 151 separate rows (see
+    // `appendCompactionSnapshot`). Later wins, so the row that survives is the
+    // most complete account of that boundary.
+    const key = snapshot.throughMessageId || `id:${snapshot.id}`
+    const previous = merged.get(key)
+    if (!previous || snapshot.createdAt >= previous.createdAt) merged.set(key, snapshot)
   }
   return [...merged.values()].sort((a, b) => a.createdAt - b.createdAt)
 }

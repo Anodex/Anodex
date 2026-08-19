@@ -14,8 +14,7 @@ function review(
     kind: 'read',
     key: '{"path":"app.js","startLine":1}',
     args: { path: 'app.js', startLine: 1 },
-    recallable: true,
-    evidenceHint: 'app.js',
+    rereadable: true,
     ...overrides
   })
 }
@@ -63,7 +62,7 @@ describe('TaskLedger.reviewCall', () => {
     expect(verdict.action).toBe('abort')
   })
 
-  it('never redirects a non-read, however many times it repeats', () => {
+  it('never gives a non-read the latitude a repeated read gets', () => {
     const ledger = createTaskLedger()
     ledger.evidence.record({ tool: 'run_command', label: 'Run: npm test', body: BODY })
 
@@ -72,8 +71,7 @@ describe('TaskLedger.reviewCall', () => {
       kind: 'command',
       key: '{"command":"npm test"}',
       args: { command: 'npm test' },
-      recallable: false,
-      evidenceHint: 'npm test'
+      rereadable: false
     })
     for (let i = 0; i < LOOP_GUARD_LIMIT; i++) {
       verdict = review(ledger, {
@@ -81,13 +79,12 @@ describe('TaskLedger.reviewCall', () => {
         kind: 'command',
         key: '{"command":"npm test"}',
         args: { command: 'npm test' },
-        recallable: false,
-        evidenceHint: 'npm test'
+        rereadable: false
       })
     }
 
     // Re-running a command may be exactly the point, or may be a loop, but it
-    // is never answered by handing back an old result.
+    // is not the eviction-driven repeat a read gets latitude for.
     expect(verdict.action).toBe('block')
   })
 
@@ -109,7 +106,7 @@ describe('TaskLedger.reviewCall', () => {
     // The three used to be threaded separately and could disagree about what the
     // task had already done; one object is what makes that impossible.
     expect(ledger.reads.isFullyCovered('/w/app.js')).toBe(true)
-    expect(ledger.evidence.idsMentioning('app.js')).toEqual(['E1'])
+    expect(ledger.evidence.index()).toContain('Read app.js')
   })
 })
 
@@ -194,10 +191,10 @@ describe('TaskLedger gathering ladder', () => {
     expect(look(ledger, 2).action).toBe('run')
   })
 
-  it('counts recalls and redirects toward the streak', () => {
+  it('counts no-progress calls toward the streak', () => {
     const ledger = createTaskLedger()
-    // This is the shape of the live failure: fifty successful recalls, each one
-    // a different id, none of them advancing anything.
+    // This is the shape of the live failure: fifty calls that each succeeded and
+    // advanced nothing.
     for (let i = 0; i < 40; i++) ledger.recordOutcome({ kind: 'read', madeProgress: false })
 
     expect(look(ledger, 1).action).toBe('block')

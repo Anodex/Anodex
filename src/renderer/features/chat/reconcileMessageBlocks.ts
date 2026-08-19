@@ -30,7 +30,15 @@ export function reconcileMessageBlocks(
   toolCalls: ToolCall[] | undefined,
   extraToolNames: readonly string[] = [],
   userPrompt = '',
-  hasEditTool = false
+  hasEditTool = false,
+  /**
+   * Anodex's account of the turn (`describeTurnOutcome`). It is already inside
+   * `finalContent`, but it never streamed, so it exists in no live block — and
+   * the paths below that walk the streamed blocks would drop it. Passed in so
+   * the branch that keeps streamed text can re-attach it, and the branches that
+   * use `finalContent` wholesale can leave it alone rather than duplicating it.
+   */
+  turnOutcome = ''
 ): MessageBlock[] | undefined {
   if (!blocks?.length) {
     return finalContent ? [{ type: 'text', text: finalContent }] : undefined
@@ -68,5 +76,8 @@ export function reconcileMessageBlocks(
 
   const hasText = reconciled.some((block) => block.type === 'text')
   if (!hasText && finalContent) reconciled.push({ type: 'text', text: finalContent })
+  // Only the kept-streamed-text path needs it back: the fallback above pushed
+  // `finalContent`, which already ends with the account.
+  else if (turnOutcome) reconciled.push({ type: 'text', text: turnOutcome })
   return reconciled.length > 0 ? reconciled : undefined
 }

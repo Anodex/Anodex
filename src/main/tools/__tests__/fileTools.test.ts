@@ -1060,12 +1060,11 @@ describe('read_file_range coverage refusal escalation', () => {
   }
 
   /**
-   * Mark the file fully read without producing a stored result.
+   * Mark the file fully read without leaving an evidence descriptor behind.
    *
-   * The escalation ladder below only applies when no recallable copy exists —
-   * coverage recorded by an older build, or a result too small to store. When
-   * a copy does exist the tool redirects to `recall_evidence` instead, which
-   * the separate suite further down covers.
+   * Coverage and the evidence record are separate: coverage can exist without a
+   * descriptor (recorded by an older build, or a result too small to note). The
+   * escalation ladder below is what answers that case.
    */
   function coverWithoutStoringEvidence(
     ctx: ReturnType<typeof createMockContext>,

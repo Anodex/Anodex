@@ -114,10 +114,10 @@ export interface RunGenerationIo {
   /** Optional stricter per-turn policy; interactive defaults remain bounded too. */
   executionBudget?: GenerationBudgetPolicy
   /**
-   * What the caller-owned multi-cycle/multi-turn task has already read, called
-   * and stored — see `ToolRuntimeContext.ledger`. `BoundedChatRunner` and
-   * `AgentRunService` supply one so coverage, repeat detection and recallable
-   * evidence all span cycle/turn boundaries rather than one call. Omit for a
+   * What the caller-owned multi-cycle/multi-turn task has already read and
+   * called — see `ToolRuntimeContext.ledger`. `BoundedChatRunner` and
+   * `AgentRunService` supply one so coverage, repeat detection and the record
+   * of gathered evidence all span cycle/turn boundaries rather than one call. Omit for a
    * genuine one-shot generation (e.g. Critical Thinking's isolated phases): a
    * fresh, call-scoped ledger is used instead, with no cross-call effect.
    */
@@ -147,6 +147,16 @@ export interface RunGenerationResult {
    * Absent for an ordinary turn.
    */
   goalOutcome?: { status: 'finished' | 'unfinished'; summary?: string; blockedReason?: string }
+  /**
+   * Anodex's own account of the turn (`describeTurnOutcome`), already appended
+   * to `content`. Carried separately because the renderer builds its blocks
+   * from the *stream*, and this text never streamed: `reconcileMessageBlocks`
+   * only falls back to `content` when a turn produced no text block at all, so
+   * every ordinary turn silently dropped the account from the render. The user
+   * saw a reply that stopped mid-work with no summary while the persisted
+   * `content` had one all along.
+   */
+  turnOutcome?: string
   /**
    * True if any web tool ran this turn, regardless of what it returned. With an
    * empty `webSources` this is the "looked and found nothing" case, which the

@@ -59,17 +59,16 @@ function truncateModelResult(modelResult: string, cap: number): string {
 }
 
 /**
- * Store the complete result and hand back the context-facing copy with its
- * durable handle attached.
+ * Note the result in the task's record of what it has gathered, and hand back
+ * the context-facing copy with its descriptor attached.
  *
- * The order matters: the store gets the result *before* `truncateModelResult`
- * touches it, so what the transports can later recall is the whole thing rather
- * than whatever happened to fit this round. Every successful call goes through
- * here, reads and mutations alike — a build log from `run_command` is exactly
- * as likely to be evicted mid-task as a file read, and exactly as expensive to
- * regenerate.
+ * The order matters: the record is taken *before* `truncateModelResult` touches
+ * the result, so the size it reports is the whole thing rather than whatever
+ * happened to fit this round. Every successful call goes through here, reads
+ * and mutations alike — a build log from `run_command` is exactly as likely to
+ * be evicted mid-task as a file read.
  *
- * See `TurnEvidenceStore` for why deleting a result outright (the previous
+ * See `TurnEvidenceStore` for why evicting a result *silently* (the previous
  * behaviour) deadlocked long tasks.
  */
 function retainAsEvidence(
@@ -79,12 +78,10 @@ function retainAsEvidence(
   cap: number,
   madeProgress: boolean
 ): string {
-  // A call that made no progress produced no evidence: its result is a refusal,
-  // a redirect, or a no-op notice. Storing those would put control messages in
-  // the catalogue under the same file path as the real read — and the guard
-  // that redirects a repeat read to stored evidence would then find a refusal
-  // and redirect the model to it, which is a fresh version of exactly the
-  // circular advice this whole mechanism exists to remove.
+  // A call that made no progress produced no evidence: its result is a refusal
+  // or a no-op notice. Recording those would file control messages in the
+  // catalogue alongside the real reads, so the task's own account of what it
+  // has gathered would overstate it.
   if (!madeProgress) return truncateModelResult(modelResult, cap)
   const record = ctx.ledger.evidence.record({
     tool: spec.name,
@@ -92,21 +89,20 @@ function retainAsEvidence(
     body: modelResult
   })
   if (!record) return truncateModelResult(modelResult, cap)
-  // The handle is part of the result the model receives, so it is paid for out
-  // of the same budget rather than added on top of it. A cap is a promise about
-  // how much of the context one call may take, and quietly exceeding it is how
-  // the accounting the transports plan against stops being true.
-  const descriptor = ctx.ledger.evidence.descriptor(record.id)
+  // The descriptor is part of the result the model receives, so it is paid for
+  // out of the same budget rather than added on top of it. A cap is a promise
+  // about how much of the context one call may take, and quietly exceeding it
+  // is how the accounting the transports plan against stops being true.
+  const descriptor = ctx.ledger.evidence.descriptor(record)
   const room = cap - descriptor.length - 1
   if (room < MIN_CONTENT_CHARS_BESIDE_MARKER) return truncateModelResult(modelResult, cap)
   return withEvidenceMarker(truncateModelResult(modelResult, room), descriptor)
 }
 
 /**
- * Below this much room for actual content, the handle is not worth its own
- * cost: a result reduced to almost nothing but a pointer tells the model less
- * than the same characters of real output would, and it can still find the
- * result through `recall_evidence`'s catalogue.
+ * Below this much room for actual content, the descriptor is not worth its own
+ * cost: a result reduced to almost nothing but a note about itself tells the
+ * model less than the same characters of real output would.
  */
 const MIN_CONTENT_CHARS_BESIDE_MARKER = 200
 
@@ -274,21 +270,14 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
  * Ask the task ledger what to do about this call, and emit the outcome when it
  * must not run.
  *
- * Two cases are worth understanding.
- *
- * A **redirect** answers a repeated read that this task can serve from storage.
- * The model is usually not being stubborn — the result was evicted from its
- * context to free room, so from where it sits the work genuinely has not been
- * done. Before `TaskLedger` existed that read was refused as a loop while the
- * transport was simultaneously telling the model to run it again; see
- * `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1. It is emitted as a completed call that
- * made no progress rather than an error: nothing went wrong, and the model is
- * being handed what it asked for.
- *
  * **Advice** runs the call and appends a correction to its result. Refusing on
  * the first sign of over-gathering would be wrong — that call may be the one
  * that finally locates the problem — but saying nothing is how a turn reaches a
  * hundred calls and no output.
+ *
+ * A repeated stable read is deliberately *not* refused; see
+ * `TaskLedger.reviewCall` and `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1 for the
+ * livelock that refusing it produced.
  */
 function reviewRepeat(
   ctx: ToolRuntimeContext,
@@ -297,7 +286,6 @@ function reviewRepeat(
     kind: ToolKind
     title: string
     args?: unknown
-    touch?: FileTouch | FileTouch[]
   },
   id: string
 ): RepeatReview {
@@ -310,27 +298,11 @@ function reviewRepeat(
     kind: effectiveToolKind(spec, 'read'),
     key: loopGuardKey(spec),
     args: spec.args,
-    // Only a read can be answered from storage — see `TaskLedger.reviewCall`.
-    recallable: spec.kind === 'read',
-    evidenceHint: evidenceHintFor(spec)
+    // Only a read may simply repeat — see `TaskLedger.reviewCall`.
+    rereadable: spec.kind === 'read'
   })
   if (verdict.action === 'run') return {}
   if (verdict.action === 'advise') return { advice: verdict.message }
-
-  if (verdict.action === 'redirect') {
-    ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress: false })
-    ctx.emit({
-      id,
-      name: spec.name,
-      kind: spec.kind,
-      title: spec.title,
-      status: 'success',
-      madeProgress: false,
-      detail: 'Redirected to stored evidence',
-      result: verdict.message
-    })
-    return { blocked: verdict.message }
-  }
 
   // Only claim generation is stopping when something can actually stop it.
   // Every first-party transport wires this callback: local text aborts its
@@ -379,20 +351,6 @@ function withGatheringAdvice(result: string, advice: string | undefined): string
 
 [Anodex] ${advice}`
     : result
-}
-
-/**
- * The identifier a stored result would be filed under, so a repeat can be
- * matched to it. Prefers the declared touch path — the tool's own structured
- * statement of what it acted on — and falls back to the title, which is what
- * the evidence store labels records with anyway.
- */
-function evidenceHintFor(spec: {
-  title: string
-  touch?: FileTouch | FileTouch[]
-}): string | undefined {
-  const touch = Array.isArray(spec.touch) ? spec.touch[0] : spec.touch
-  return touch?.path ?? spec.title
 }
 
 /**

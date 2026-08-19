@@ -290,9 +290,9 @@ describe('core prompt sizing', () => {
   })
 
   it('keeps the rules a small model most needs, not just fewer words', () => {
-    // Recall instead of re-reading, and line-addressed edits, are the two
-    // behaviours that make a small window able to finish a task at all.
-    expect(COMPACT_CODING_AGENT_PROMPT).toContain('recall_evidence')
+    // Narrow re-reads, and line-addressed edits, are the two behaviours that
+    // make a small window able to finish a task at all.
+    expect(COMPACT_CODING_AGENT_PROMPT).toContain('run the read again')
     expect(COMPACT_CODING_AGENT_PROMPT).toContain('replace_lines')
     expect(COMPACT_CODING_AGENT_PROMPT).toContain('write_plan')
     expect(COMPACT_CODING_AGENT_PROMPT).toContain('remember_fact')

@@ -20,6 +20,16 @@ import { projectStore } from '../projects/ProjectStore'
 import { llamaService } from '../llama/LlamaService'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { withEpochHandoff } from '@shared/context.types'
+import { createLogger } from '../utils/logger'
+
+/**
+ * Cycle boundaries were invisible in the log. Only the provider transports
+ * logged anything per round, so a turn that silently ran as three cycles read
+ * as one long reply, and reconstructing why it split meant inferring it from a
+ * round counter resetting to zero and cross-checking a persisted handoff that
+ * had not been updated. `stopReason` is the field that answers it directly.
+ */
+const log = createLogger('chat:cycle')
 
 /**
  * Nudge prompt for every continuation cycle after the first — deliberately
@@ -90,12 +100,12 @@ const MAX_OPEN_PLAN_CONTINUATIONS = 3
  * Evidence handles listed in a context-epoch handoff.
  *
  * This replaced a "you may reopen up to N files already read earlier" allowance.
- * That allowance existed only because an epoch destroyed the results while the
- * coverage tracker still recorded them as read, so the resumed model had to be
- * granted permission to fetch them again. Results now survive the epoch in the
- * ledger, so the right thing to hand the model is a catalogue of what it
- * already has — recalling costs one round trip, no disk, and cannot be refused
- * by a guard.
+ * That allowance existed only because an epoch left no trace of the results
+ * while the coverage tracker still recorded them as read, so the resumed model
+ * had to be granted permission to fetch them again. The record of what was
+ * gathered now survives the epoch in the ledger, so the right thing to hand the
+ * model is that catalogue — and no permission, because a re-read is no longer
+ * refused by any guard.
  */
 const EPOCH_EVIDENCE_INDEX_ENTRIES = 12
 
@@ -167,8 +177,7 @@ export async function runBoundedChatGeneration(
   // One ledger for the whole bounded reply — see `TaskLedger`. This is what
   // makes a context epoch survivable: the epoch drops the cycle's tool
   // transcript out of the model's context, while the ledger keeps what was read
-  // and what can still be recalled, so the fresh cycle resumes instead of
-  // starting over.
+  // and what was gathered, so the fresh cycle resumes instead of starting over.
   const ledger = io.ledger ?? createTaskLedger()
   // Same resolution `runGeneration` itself uses internally — needed here too
   // so the final reply can be checked against real disk/coverage state (see
@@ -361,11 +370,12 @@ export async function runBoundedChatGeneration(
           calls: [...completedToolCalls.values()],
           workingSummary: buildRecoveryWorkingSummary(combinedContent),
           // The epoch is about to drop this cycle's tool transcript out of the
-          // model's context. The results themselves survive in the ledger, but
-          // the resumed model has no way to know that unless it is told what is
-          // there — without this it starts the fresh cycle blind and re-reads.
-          // This is what replaced the old "you may reopen 3 files" allowance:
-          // recalling is cheaper than re-reading and cannot be refused.
+          // model's context. The record of what was gathered survives in the
+          // ledger, but the resumed model has no way to know that unless it is
+          // told — without this it starts the fresh cycle blind and re-reads the
+          // same ground. This is what replaced the old "you may reopen 3 files"
+          // allowance: knowing which ground is covered beats a quota, and a
+          // re-read of what it actually needs is no longer refused.
           evidenceIndex: ledger.evidence.index(EPOCH_EVIDENCE_INDEX_ENTRIES),
           priorFixedTokens: result.contextBudget?.fixedTokens
         })
@@ -418,6 +428,29 @@ export async function runBoundedChatGeneration(
       withinGoalDeadline &&
       !io.signal?.aborted &&
       !contextRecoveryBlocked
+
+    log.info('Bounded cycle ended', {
+      cycle,
+      cycleCeiling,
+      stopReason: result.stopReason ?? null,
+      stopped: result.stopped,
+      toolCalls: cycleToolCalls?.length ?? 0,
+      fixedTokens: result.contextBudget?.fixedTokens ?? null,
+      madeProgress: madeProgressThisCycle,
+      contextEpoch: contextEpochCount,
+      startedContextEpoch,
+      continuing: canContinue,
+      // Which of the three continuation paths applies, so a split turn says
+      // whether it resumed because the provider stopped recoverably, because a
+      // goal was still open, or because the visible plan still had rows to do.
+      continuationCause: !canContinue
+        ? null
+        : recoveredStop
+          ? 'recoverable-stop'
+          : goalStillOpen
+            ? 'goal-open'
+            : 'open-plan'
+    })
 
     if (!canContinue) {
       if (goal !== null && !goalFinished) {
@@ -568,6 +601,7 @@ export async function runBoundedChatGeneration(
   return {
     ...finalResult,
     content: finalContent,
+    turnOutcome: outcome ?? undefined,
     stats,
     stopped: recoveryChurnDetected || finalResult.stopped,
     stopReason: recoveryChurnDetected ? 'no-progress' : finalResult.stopReason,

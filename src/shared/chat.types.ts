@@ -358,14 +358,13 @@ export interface ContextEpochHandoff {
    */
   workingSummary?: string
   /**
-   * Catalogue of tool results this task has stored and can read back with
-   * `recall_evidence` — see `TurnEvidenceStore`.
+   * Catalogue of what this task has already gathered — see `TurnEvidenceStore`.
    *
    * A context epoch resets the model's history, so without this the resumed
-   * model has no idea the results still exist and re-reads the workspace to
-   * rebuild what it already has. This replaced `recoveryReadAllowance`, a
+   * model has no idea which ground has been covered and re-reads the workspace
+   * wholesale to rebuild it. This replaced `recoveryReadAllowance`, a
    * permission to re-read N files that was only ever needed because the epoch
-   * used to destroy the results outright.
+   * used to leave no trace of the results at all.
    */
   evidenceIndex?: string
   /** Current visible plan, if the task has one. */
@@ -468,6 +467,12 @@ export interface ChatResult {
   conversationId: string
   messageId: string
   content: string
+  /**
+   * Anodex's account of the turn, already appended to `content`. Sent on its
+   * own as well because the renderer's blocks are built from the token stream
+   * and this text never streamed — see `RunGenerationResult.turnOutcome`.
+   */
+  turnOutcome?: string
   stats: GenerationStats
   /**
    * True if the turn ended before naturally finishing — a real user Stop,

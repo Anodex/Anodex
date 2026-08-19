@@ -37,7 +37,7 @@ import { createTurnEvidenceStore, type TurnEvidenceStore } from './evidenceStore
 export class TaskLedger {
   /** Which line ranges of which files have been served this task. */
   readonly reads: ReadCoverageTracker = createReadCoverageTracker()
-  /** Full tool results, outside the context window — see `TurnEvidenceStore`. */
+  /** What this task has already gathered — see `TurnEvidenceStore`. */
   readonly evidence: TurnEvidenceStore = createTurnEvidenceStore()
   private readonly loopGuard: LoopGuardState = createLoopGuardState()
   /** Settled gathering calls since the last durable change — see `GATHERING_*`. */
@@ -48,30 +48,27 @@ export class TaskLedger {
   /**
    * Decide what to do with a call that is about to run.
    *
-   * `run` is the overwhelmingly common answer. The other two exist because
-   * repetition has two very different causes, and treating them alike is what
-   * deadlocked long tasks:
+   * `run` is the overwhelmingly common answer. Repetition has two very
+   * different causes, and treating them alike is what deadlocked long tasks:
    *
-   * - **redirect** — the call repeats work whose result this task still holds.
-   *   The model is not being stubborn; it is asking again because the result was
-   *   evicted from its context to make room. Point it at the stored copy.
-   * - **block** — the call repeats work with nothing to show for it and nothing
-   *   to recall. This is the real loop the guard was built for.
+   * - a repeated **stable read** is usually not stubbornness — the result was
+   *   trimmed out of the model's context to make room, so from where it sits
+   *   the work genuinely has not been done. Let it run again.
+   * - a repeated call that changes nothing and produces nothing is the real
+   *   loop the guard was built for. **block** it.
    *
-   * Note that only a *stable read* can be redirected. A `run_command` or an
-   * edit repeated with identical arguments is not asking for information it
-   * already has; re-running it may be the whole point, or may be a loop, but it
-   * is never answered by handing back an old result.
+   * Note that only a *stable read* gets that latitude. A `run_command` or an
+   * edit repeated with identical arguments is not re-acquiring information it
+   * has lost sight of; re-running it may be the whole point, or may be a loop,
+   * but it is not the eviction-driven repeat this allows for.
    */
   reviewCall(spec: {
     name: string
     kind: ToolKind
     key: string
     args?: unknown
-    /** Path or identifier whose stored evidence could answer a repeat, if any. */
-    evidenceHint?: string
-    /** Whether a repeat of this call could be satisfied from a stored result. */
-    recallable?: boolean
+    /** Whether repeating this call is a stable read that may simply run again. */
+    rereadable?: boolean
   }): LedgerVerdict {
     const gathering = this.reviewGathering(spec.kind)
     if (gathering) return gathering
@@ -80,23 +77,24 @@ export class TaskLedger {
     if (!guard.blocked) return { action: 'run' }
 
     // A repeated *stable read* is allowed to run again, right up to the abort
-    // backstop. This reverses the redirect that used to send it to stored
-    // evidence, and it is the correction the live runs argued for.
+    // backstop. This reverses the redirect that used to send it to a stored
+    // copy, and it is the correction the live runs argued for.
     //
-    // Forbidding the re-read is what made `recall_evidence` necessary at all,
-    // and recall is strictly worse than the thing it replaced: a re-read costs
-    // one bounded call and returns what is on disk *now*, while a recall costs
-    // a call and permanently enlarges replayed history with a copy that was
-    // already stale. One measured run spent 39% of 156 calls on recalls and
-    // still had four edits rejected for stale line numbers — the model was
-    // being handed back the very copy that was out of date.
+    // Forbidding the re-read is what made the retired `recall_evidence` tool
+    // necessary at all, and recall was strictly worse than the thing it
+    // replaced: a re-read costs one bounded call and returns what is on disk
+    // *now*, while a recall cost a call and permanently enlarged replayed
+    // history with a copy that was already stale. One measured run spent 39%
+    // of 156 calls on recalls and still had four edits rejected for stale line
+    // numbers — the model was being handed back the very copy that was out of
+    // date.
     //
     // Re-reading is safe to allow because it is bounded elsewhere and by
     // construction: identical reads are collapsed to the newest in
     // `projectHistoryForModel`, so repeating one cannot compound context; the
     // gathering ladder still stops a turn that only looks; and `shouldAbort`
     // below remains the backstop against a model that has genuinely stuck.
-    if (spec.recallable && !guard.shouldAbort) return { action: 'run' }
+    if (spec.rereadable && !guard.shouldAbort) return { action: 'run' }
 
     return {
       action: guard.shouldAbort ? 'abort' : 'block',
@@ -157,10 +155,10 @@ export class TaskLedger {
    */
   recordOutcome(spec: { kind: ToolKind; madeProgress: boolean }): void {
     if (!spec.madeProgress) {
-      // A refusal, a redirect, or a recall. It consumed a round trip and
-      // produced nothing durable, so it counts toward the streak whatever its
-      // kind — this is exactly the shape of the run that spent fifty calls
-      // recalling.
+      // A refusal or a no-op. It consumed a round trip and produced nothing
+      // durable, so it counts toward the streak whatever its kind — this is
+      // exactly the shape of the run that spent fifty calls re-acquiring what
+      // it already had.
       this.gatheringStreak++
       return
     }
@@ -187,8 +185,6 @@ export type LedgerVerdict =
   | { action: 'run'; message?: undefined; detail?: undefined }
   /** Run, but append a correction: the task is gathering without producing. */
   | { action: 'advise'; message: string; detail?: undefined }
-  /** Repeated work this task can serve from storage — answer, don't refuse. */
-  | { action: 'redirect'; message: string; detail: string }
   /** Refuse this call but let the turn continue. */
   | { action: 'block'; message: string; detail: string }
   /** A loop that survived being refused: end the generation. */

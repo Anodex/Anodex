@@ -9,74 +9,48 @@ import {
   isEvidenceDescriptorOnly,
   withEvidenceMarker
 } from '../evidenceStore'
-import { recallEvidenceTool } from '../evidenceTools'
 import { readFileRangeTool, readFileTool } from '../fileTools'
 import { runReadTool } from '../helpers'
-import {
-  captureCalls,
-  createMockContext,
-  createMockDefine,
-  splitEvidenceMarker
-} from './test-helpers'
+import { createMockContext, createMockDefine, splitEvidenceMarker } from './test-helpers'
 
 const BODY = 'line one\nline two with needle\nline three\n'.repeat(40)
 
 describe('TurnEvidenceStore', () => {
-  it('stores a result and describes it in one recallable line', () => {
+  it('records a result and describes it in one line', () => {
     const store = createTurnEvidenceStore()
 
     const record = store.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
 
     expect(record?.id).toBe('E1')
-    const descriptor = store.descriptor('E1')
+    const descriptor = store.descriptor(record!)
     expect(descriptor).toContain('read_file')
     expect(descriptor).toContain('Read a.ts')
-    // Steers to a targeted recall: the bare id invites paging a whole file back
-    // into a window that could not hold it, which is what a live run did fifty
-    // times over.
-    expect(descriptor).toContain('recall_evidence("E1", match:')
+    // The descriptor is a record of the call, not a way back to its bytes: the
+    // way back is reading again, which the ledger now allows.
+    expect(descriptor).toContain('read it again')
     // The descriptor has to survive a round trip through the message array, so
     // the transports can collapse a result to it without a store reference.
     expect(evidenceDescriptorOf(withEvidenceMarker('body text', descriptor))).toBe(descriptor)
     expect(isEvidenceDescriptorOnly(descriptor)).toBe(true)
   })
 
-  it('does not store a result too small to be worth the indirection', () => {
+  it('does not record a result too small to be worth a descriptor', () => {
     const store = createTurnEvidenceStore()
 
     expect(store.record({ tool: 'get_file_info', label: 'Info a.ts', body: '12 bytes' })).toBeNull()
-    expect(store.size).toBe(0)
+    expect(store.index()).toContain('Nothing gathered yet')
   })
 
-  it('pages a long result and reports where to continue', () => {
+  it('keeps metadata only — never the result body', () => {
     const store = createTurnEvidenceStore()
-    store.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
 
-    const first = store.slice('E1', 0, 100)
-    expect(first?.text).toBe(BODY.slice(0, 100))
-    expect(first?.nextOffset).toBe(100)
+    const record = store.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
 
-    const last = store.slice('E1', BODY.length - 10, 100)
-    expect(last?.nextOffset).toBeNull()
-  })
-
-  it('finds matching lines with their offsets instead of paging', () => {
-    const store = createTurnEvidenceStore()
-    store.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-
-    const found = store.findLines('E1', 'needle', 2_000)
-
-    expect(found).toContain('line two with needle')
-    expect(found).toMatch(/@\d+\t/)
-  })
-
-  it('recovers an id a weaker model wrapped in punctuation or lowercased', () => {
-    const store = createTurnEvidenceStore()
-    store.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-
-    expect(store.get('"E1"')?.id).toBe('E1')
-    expect(store.get('e1')?.id).toBe('E1')
-    expect(store.get('E2')).toBeUndefined()
+    // Holding bodies existed to serve them back through `recall_evidence`.
+    // With that tool retired nothing reads them, and a long turn would carry
+    // megabytes of strings for a character count.
+    expect(record).not.toHaveProperty('body')
+    expect(record?.chars).toBe(BODY.length)
   })
 
   it('lists what a task has gathered, newest last', () => {
@@ -91,26 +65,14 @@ describe('TurnEvidenceStore', () => {
     expect(index.indexOf('E1')).toBeLessThan(index.indexOf('E2'))
   })
 
-  it('matches stored labels by path so a repeat read can be redirected', () => {
-    const store = createTurnEvidenceStore()
-    store.record({ tool: 'read_file_range', label: 'Read src/app.ts lines 1-200', body: BODY })
-    store.record({ tool: 'read_file_range', label: 'Read src/other.ts lines 1-200', body: BODY })
-    store.record({ tool: 'read_file_range', label: 'Read src/app.ts lines 201-400', body: BODY })
-
-    // Newest first: the most recent read of that path is the most useful one to
-    // point at.
-    expect(store.idsMentioning('src/app.ts')).toEqual(['E3', 'E1'])
-    expect(store.idsMentioning('src/missing.ts')).toEqual([])
-  })
-
-  it('names a collapsed archive without losing the way back to it', () => {
-    expect(collapsedEvidenceNotice(24)).toContain('24 earlier result(s) still stored')
-    expect(collapsedEvidenceNotice(24)).toContain('recall_evidence()')
+  it('names a collapsed archive without pretending it can be read back', () => {
+    expect(collapsedEvidenceNotice(24)).toContain('24 earlier result(s)')
+    expect(collapsedEvidenceNotice(24)).not.toContain('recall')
     expect(isEvidenceDescriptorOnly(collapsedEvidenceNotice(24))).toBe(false)
   })
 })
 
-describe('tool results carry a durable handle', () => {
+describe('tool results carry a descriptor', () => {
   let workspace: string
 
   beforeEach(async () => {
@@ -121,7 +83,7 @@ describe('tool results carry a durable handle', () => {
     await rm(workspace, { recursive: true, force: true })
   })
 
-  it('stores the whole result even when the context-facing copy is truncated', async () => {
+  it('reports the whole result size even when the context-facing copy is truncated', async () => {
     const full = 'z'.repeat(20_000)
     const ctx = createMockContext(workspace)
     ctx.modelResultBudget.current = {
@@ -141,13 +103,13 @@ describe('tool results carry a durable handle', () => {
     const [body, marker] = splitEvidenceMarker(result)
 
     expect(marker).not.toBeNull()
-    // The point of the store: what the model was shown is a fraction of what
-    // remains recoverable.
+    // The record is taken before truncation, so the descriptor tells the model
+    // how much of the result it is *not* looking at.
     expect(body.length).toBeLessThan(full.length)
-    expect(ctx.ledger.evidence.get('E1')?.body).toBe(full)
+    expect(marker).toContain(full.length.toLocaleString('en-US'))
   })
 
-  it('keeps the whole result and its handle when it already fits', async () => {
+  it('keeps the whole result and its descriptor when it already fits', async () => {
     const content = Array.from({ length: 60 }, (_, index) => `line ${index + 1}`).join('\n')
     await writeFile(join(workspace, 'a.txt'), content)
     const ctx = createMockContext(workspace)
@@ -158,10 +120,10 @@ describe('tool results carry a durable handle', () => {
     const [body, marker] = splitEvidenceMarker(await tool.handler({ path: 'a.txt' }))
 
     expect(body).toBe(content)
-    expect(marker).toContain('recall_evidence("E1"')
+    expect(marker).toContain('[evidence E1 ·')
   })
 
-  it('keeps the handle inside the result budget rather than on top of it', async () => {
+  it('keeps the descriptor inside the result budget rather than on top of it', async () => {
     const content = 'x'.repeat(20_000)
     await writeFile(join(workspace, 'a.txt'), content)
     const ctx = createMockContext(workspace)
@@ -182,7 +144,7 @@ describe('tool results carry a durable handle', () => {
     expect(result.length).toBeLessThanOrEqual(1_500)
   })
 
-  it('does not store a refusal as if it were evidence', async () => {
+  it('does not record a refusal as if it were evidence', async () => {
     const content = Array.from({ length: 60 }, (_, index) => `line ${index + 1}`).join('\n')
     await writeFile(join(workspace, 'a.txt'), content)
     const ctx = createMockContext(workspace)
@@ -193,15 +155,15 @@ describe('tool results carry a durable handle', () => {
 
     await tool.handler({ path: 'a.txt', startLine: 1, endLine: 20 })
 
-    expect(ctx.ledger.evidence.size).toBe(0)
+    expect(ctx.ledger.evidence.index()).toContain('Nothing gathered yet')
   })
 })
 
-describe('read tools redirect a repeat to the stored copy', () => {
+describe('a repeated read runs again', () => {
   let workspace: string
 
   beforeEach(async () => {
-    workspace = await mkdtemp(join(tmpdir(), 'anodex-redirect-'))
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-reread-'))
     await writeFile(
       join(workspace, 'a.txt'),
       Array.from({ length: 60 }, (_, index) => `line ${index + 1}`).join('\n')
@@ -221,131 +183,8 @@ describe('read tools redirect a repeat to the stored copy', () => {
 
     const repeat = await tool.handler({ path: 'a.txt' })
 
-    // The stored copy is by definition the older one. Handing it back is how a
-    // live run ended up editing against line numbers that had already moved.
+    // Any stored copy is by definition the older one. Handing that back is how
+    // a live run ended up editing against line numbers that had already moved.
     expect(repeat).toContain('line 1')
-  })
-})
-
-describe('recall_evidence', () => {
-  let workspace: string
-
-  beforeEach(async () => {
-    workspace = await mkdtemp(join(tmpdir(), 'anodex-recall-'))
-  })
-
-  afterEach(async () => {
-    await rm(workspace, { recursive: true, force: true })
-  })
-
-  function recallTool(ctx: ReturnType<typeof createMockContext>): {
-    handler: (args: { id?: string; offset?: number; match?: string }) => Promise<string>
-  } {
-    return recallEvidenceTool(createMockDefine(), ctx)
-  }
-
-  it('serves back a result whose text has left the conversation', async () => {
-    const ctx = createMockContext(workspace)
-    ctx.ledger.evidence.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-
-    const result = await recallTool(ctx).handler({ id: 'E1' })
-
-    expect(result).toContain('line two with needle')
-  })
-
-  it('jumps straight to matching lines when given a match', async () => {
-    const ctx = createMockContext(workspace)
-    ctx.ledger.evidence.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-
-    const result = await recallTool(ctx).handler({ id: 'E1', match: 'needle' })
-
-    expect(result).toContain('line two with needle')
-    expect(result).not.toContain('line three')
-  })
-
-  it('lists the catalogue when asked for an id that does not exist', async () => {
-    const ctx = createMockContext(workspace)
-    ctx.ledger.evidence.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-
-    const result = await recallTool(ctx).handler({ id: 'E9' })
-
-    expect(result).toContain('No stored result has id "E9"')
-    expect(result).toContain('E1')
-  })
-
-  it('never returns more than the turn’s measured result budget allows', async () => {
-    const ctx = createMockContext(workspace)
-    ctx.modelResultBudget.current = {
-      contextSizeTokens: 16_384,
-      inputLimitTokens: 15_872,
-      fixedTokens: 13_000,
-      minimumReplyReserveTokens: 1_024,
-      maxTokensPerResult: 200
-    }
-    ctx.ledger.evidence.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-
-    const result = await recallTool(ctx).handler({ id: 'E1' })
-
-    // Recalling must relieve context pressure, not become a second way to
-    // refill the window it was called to free.
-    expect(result.length).toBeLessThan(BODY.length)
-    expect(result).toContain('recall_evidence("E1"')
-  })
-
-  it('does not count as task progress', async () => {
-    const ctx = createMockContext(workspace)
-    ctx.ledger.evidence.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-
-    await recallTool(ctx).handler({ id: 'E1' })
-
-    // Reading back something already gathered cannot satisfy `finish_goal`'s
-    // evidence gate — see `TurnProgress`.
-    expect(ctx.progress.madeChange).toBe(false)
-  })
-})
-
-describe('recall does not feed itself', () => {
-  let workspace: string
-
-  beforeEach(async () => {
-    workspace = await mkdtemp(join(tmpdir(), 'anodex-recall-loop-'))
-  })
-
-  afterEach(async () => {
-    await rm(workspace, { recursive: true, force: true })
-  })
-
-  it('never stores a recall result as new evidence', async () => {
-    const ctx = createMockContext(workspace)
-    ctx.ledger.evidence.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-    const tool = recallEvidenceTool(createMockDefine(), ctx) as unknown as {
-      handler: (args: { id?: string }) => Promise<string>
-    }
-
-    for (let i = 0; i < 5; i++) await tool.handler({ id: 'E1' })
-
-    // The live failure: every recall minted a copy of the record it had just
-    // read, the catalogue grew by one entry per recall, and a model looking at a
-    // lengthening list of handles kept recalling. One turn made 50 of them and
-    // zero writes.
-    expect(ctx.ledger.evidence.size).toBe(1)
-  })
-
-  it('does not let recalling buy the turn more room to keep recalling', async () => {
-    const ctx = createMockContext(workspace)
-    ctx.ledger.evidence.record({ tool: 'read_file', label: 'Read a.ts', body: BODY })
-    const { calls, emit } = captureCalls()
-    const recall = recallEvidenceTool(createMockDefine(), { ...ctx, emit }) as unknown as {
-      handler: (args: { id?: string }) => Promise<string>
-    }
-
-    await recall.handler({ id: 'E1' })
-
-    // `madeProgress: false` is what keeps `runBoundedChatGeneration` from
-    // treating a recall-only cycle as progress worth another cycle, and keeps
-    // `finish_goal`'s evidence gate from accepting it as work.
-    const success = calls.find((call) => call.status === 'success')
-    expect(success?.madeProgress).toBe(false)
-    expect(ctx.progress.madeChange).toBe(false)
   })
 })

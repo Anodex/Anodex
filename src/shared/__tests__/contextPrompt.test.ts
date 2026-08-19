@@ -87,18 +87,18 @@ describe('buildContextEpochSystemPrompt', () => {
 
   it('lists the evidence a resumed epoch can read back, when there is any', () => {
     // An epoch resets the model's history, so without this it has no way to know
-    // the results it already gathered still exist and re-reads the workspace to
-    // rebuild them. This replaced a "you may reopen up to N files" allowance,
-    // which was only ever needed because an epoch used to destroy the results.
+    // which ground it already covered and re-reads the workspace wholesale to
+    // rebuild it. This replaced a "you may reopen up to N files" allowance,
+    // which was only ever needed because an epoch used to leave no trace.
     const withEvidence = buildContextEpochSystemPrompt(
       undefined,
       handoff({ evidenceIndex: 'E1\tread_file\tRead src/app.ts\t8412 chars' })
     )
-    expect(withEvidence).toContain('recall_evidence')
+    expect(withEvidence).toContain('Already gathered in this task')
     expect(withEvidence).toContain('E1')
     expect(
       buildContextEpochSystemPrompt(undefined, handoff({ evidenceIndex: undefined }))
-    ).not.toContain('recall_evidence')
+    ).not.toContain('Already gathered in this task')
   })
 
   it('carries a written content hash so a redundant rewrite is recognizable', () => {

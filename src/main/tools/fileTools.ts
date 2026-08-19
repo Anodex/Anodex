@@ -189,12 +189,6 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
           // comment. Skip the content read and the redundant context growth
           // entirely rather than silently reproducing identical content a
           // second time.
-          // A context epoch may have dropped this file's content out of the
-          // model's active context while the coverage above still records it as
-          // read. That case is answered by the redirect below rather than by a
-          // bounded "you may re-read N files" allowance: the result is still in
-          // the ledger, and recalling it costs no disk read and cannot collide
-          // with another guard.
           // A file already read in full is deliberately *not* refused here.
           //
           // This used to answer with "nothing new here", then with a pointer to
@@ -678,12 +672,10 @@ export const readMultipleFilesTool: WorkspaceToolFactory = (define, ctx) =>
               // since — see `ReadCoverageTracker`'s doc comment. Skip the
               // content read and the redundant context growth entirely.
               if (ctx.ledger.reads.isFullyCovered(file)) {
-                const stored = ctx.ledger.evidence.idsMentioning(relativePath)
                 results.push(
                   `--- ${relativePath} ---\n` +
-                    (stored.length > 0
-                      ? `Already read in full earlier this task; the result is stored as ${stored[0]} — call recall_evidence("${stored[0]}") for it.`
-                      : 'Already read in full earlier this task — nothing new here.')
+                    'Already read in full earlier this task and unchanged since — nothing new ' +
+                    'here. Read it on its own with read_file if you need the text back.'
                 )
                 continue
               }

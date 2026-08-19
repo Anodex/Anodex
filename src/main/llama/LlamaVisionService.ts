@@ -150,9 +150,9 @@ const MIN_TOOL_CALL_OUTPUT_TOKENS = 1_280
  */
 const PROTECTED_RECENT_TOOL_RESULTS = 2
 /**
- * Evidence handles kept visible once their bodies have been shed. Enough for
- * the model to see the shape of what it has gathered recently; older ones stay
- * one `recall_evidence()` call away. See `collapseEvidenceDescriptors`.
+ * Evidence descriptors kept visible once their bodies have been shed. Enough
+ * for the model to see the shape of what it has gathered recently; older ones
+ * collapse into a single count. See `collapseEvidenceDescriptors`.
  */
 const KEPT_EVIDENCE_DESCRIPTORS = 12
 /**
@@ -186,10 +186,10 @@ export function minimumViableOutputTokens(contextSize: number, hasTools: boolean
  * the framing around the result and the model's own tool-call message, so that
  * is what this covers.
  *
- * Evicting a result is also no longer destructive (see `TurnEvidenceStore`), so
- * running closer to the edge costs a collapse to a handle rather than the loss
- * of the evidence itself — which is what made a large safety margin feel
- * necessary in the first place.
+ * Evicting a result is also no longer silent (see `TurnEvidenceStore`), so
+ * running closer to the edge costs a collapse to a descriptor the model can act
+ * on rather than an unexplained gap — which is what made a large safety margin
+ * feel necessary in the first place.
  */
 export function epochHeadroomTokens(contextSize: number, hasTools: boolean): number {
   if (!hasTools) return Math.max(128, Math.floor(contextSize * 0.02))
@@ -1289,10 +1289,9 @@ function reclaimToolResultRoom(messages: ChatCompletionMessageParam[], tier: Rec
   for (const index of reclaimable.slice(0, Math.max(0, reclaimable.length - tier.protectRecent))) {
     const message = messages[index] as { content: string; tool_call_id?: string }
     const name = (message.tool_call_id && toolNameById.get(message.tool_call_id)) || 'a tool'
-    // The result's durable handle, if `retainAsEvidence` stored one. When it
-    // exists, freeing this result is a pure truncation down to that line: the
-    // body is still in `TurnEvidenceStore`, and the descriptor says what it was
-    // and how to get it back.
+    // The result's descriptor, if `retainAsEvidence` recorded one. When it
+    // exists, freeing this result is a pure truncation down to that line, which
+    // says what the call gathered and how large it was.
     //
     // This is the difference between the old behaviour and the current one, and
     // it is the whole fix for the livelock in
@@ -1438,9 +1437,8 @@ const RECLAIM_TIERS: readonly ReclaimTier[] = [
 
 /**
  * Once every body is down to its handle, the handles themselves become the
- * cost: a task with fifty stored results carries roughly a thousand tokens of
- * descriptor lines. Collapse all but the newest into one line pointing at the
- * catalogue, which `recall_evidence` with no argument prints in full.
+ * cost: a task with fifty results carries roughly a thousand tokens of
+ * descriptor lines. Collapse all but the newest into a single count.
  *
  * Runs after `RECLAIM_TIERS` and only when they were not enough, because the
  * newest descriptors are worth real money to the model — they are its only

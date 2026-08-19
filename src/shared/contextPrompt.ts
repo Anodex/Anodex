@@ -51,7 +51,7 @@ export function buildContextEpochSystemPrompt(
     plan ? `Current plan:\n${plan}` : '',
     handoff.verificationNote ?? '',
     handoff.evidenceIndex
-      ? `Results already gathered in this task (read any of them back with recall_evidence — no need to re-run the tool):
+      ? `Already gathered in this task — treat these as done, and re-read only the specific part a next step needs:
 ${handoff.evidenceIndex}`
       : '',
     'Continue from the next concrete action. Do not repeat completed mutations.'

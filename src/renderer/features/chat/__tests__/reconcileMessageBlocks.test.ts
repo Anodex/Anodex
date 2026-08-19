@@ -109,4 +109,39 @@ describe('reconcileMessageBlocks', () => {
 
     expect(reconcileMessageBlocks(blocks, 'The issue is in the imports.', [tool])).toEqual(blocks)
   })
+
+  // A turn that stopped mid-work rendered with no account of itself at all:
+  // the account is appended to `content` in the main process, never streams,
+  // and so exists in no live block. This path keeps the streamed blocks, so
+  // without re-attaching it the user saw the reply simply stop.
+  it('re-attaches the turn account when streamed text blocks are kept', () => {
+    const tool = call()
+    const outcome = '\n\n---\n**What this reply did**\n\n- **Changed** `a.js`'
+    const blocks: MessageBlock[] = [
+      { type: 'text', text: 'Let me fix that now:' },
+      { type: 'tool', call: tool }
+    ]
+
+    expect(
+      reconcileMessageBlocks(
+        blocks,
+        `Let me fix that now:${outcome}`,
+        [tool],
+        [],
+        '',
+        false,
+        outcome
+      )
+    ).toEqual([...blocks, { type: 'text', text: outcome }])
+  })
+
+  it('does not duplicate the turn account when it falls back to the final content', () => {
+    const tool = call()
+    const outcome = '\n\n---\n**What this reply did**\n\n- **Changed** `a.js`'
+    const blocks: MessageBlock[] = [{ type: 'tool', call: tool }]
+
+    expect(
+      reconcileMessageBlocks(blocks, `All done.${outcome}`, [tool], [], '', false, outcome)
+    ).toEqual([...blocks, { type: 'text', text: `All done.${outcome}` }])
+  })
 })

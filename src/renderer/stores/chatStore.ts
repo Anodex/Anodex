@@ -842,7 +842,8 @@ export const useChatStore = create<ChatState>()(
             message.toolCalls,
             [],
             trimmed,
-            Boolean(projectId)
+            Boolean(projectId),
+            result.value.turnOutcome
           )
           // `stopped: true` isn't always a user-initiated Stop (that path is
           // deliberately silent — no error, no chime, see below) — most other

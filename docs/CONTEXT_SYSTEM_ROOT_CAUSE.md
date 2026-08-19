@@ -4,6 +4,14 @@ Independent investigation answering `docs/CLAUDE_CONTEXT_SYSTEM_HANDOFF.md`. Evi
 the persisted conversation named there
 (`c_fa3b6587-d9f0-430b-9dde-0d8e5a0593ef.json`, 80 messages, 18.6 MB) plus the current source.
 
+> **Historical record — one design decision here has since been reversed.** This document proposes
+> `recall_evidence` as the recovery path for an evicted result. That tool shipped, was measured
+> making 39% of the calls in a turn that produced no writes, and has been **retired**: re-reading is
+> now legal (see `docs/CONTEXT_SYSTEM_DESIGN.md` §3.2 and §5), so a shed result is recovered by
+> reading it again. `TurnEvidenceStore` remains as the per-task record of what was gathered — the
+> descriptor line, not the bytes. Everything else below still describes live behaviour; read any
+> mention of recall as the account of a mechanism that no longer exists.
+
 ## 0. The fact the handoff does not state
 
 Every persisted `contextBudget` in that conversation carries `reservedTokens: 512`.
@@ -153,6 +161,9 @@ that additionally knows whether the evidence for a call is **currently visible**
 - repeat read whose evidence was _evicted_ → **redirect to `recall_evidence`**, not refuse;
 - repeat that is neither → genuine loop, block.
 
+> **Superseded.** The first two rules are gone. A repeated stable read simply runs again, up to the
+> abort backstop, and there is no `redirect` verdict — see `docs/CONTEXT_SYSTEM_DESIGN.md` §3.2.
+
 ### Pillar 4 — Make the fixed floor fit the window
 
 - **Tiered system prompt.** Same rules, fewer words below ~24K: a compact core (~600 tokens)
@@ -204,13 +215,13 @@ pieces of state.
 | file                                                      | change                                                                                                                                                                                                                                           |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/main/tools/taskLedger.ts`                            | **new.** `TaskLedger` owns read coverage, the loop guard and the evidence store, and answers the one question they used to answer separately: run, redirect, block, or abort.                                                                    |
-| `src/main/tools/evidenceStore.ts`                         | **new.** `TurnEvidenceStore` — full results outside the window, one-line handles inside it.                                                                                                                                                      |
-| `src/main/tools/evidenceTools.ts`                         | **new.** `recall_evidence(id?, offset?, match?)`. No disk, no re-execution, no side effects; bounded by the same per-result budget.                                                                                                              |
+| `src/main/tools/evidenceStore.ts`                         | **new.** `TurnEvidenceStore` — full results outside the window, one-line handles inside it. _(Since reduced to metadata only; it no longer holds bodies.)_                                                                                       |
+| `src/main/tools/evidenceTools.ts`                         | **new.** `recall_evidence(id?, offset?, match?)`. No disk, no re-execution, no side effects; bounded by the same per-result budget. _(Since deleted — the tool is retired.)_                                                                     |
 | `src/main/tools/helpers.ts`                               | `retainAsEvidence` stores every successful result before truncation and attaches its handle _inside_ the cap. `reviewRepeat` routes both tool runners through the ledger. No-progress results (refusals, redirects) are deliberately not stored. |
 | `src/main/llama/LlamaVisionService.ts`                    | eviction collapses a result to its handle instead of saying "run it again"; `collapseEvidenceDescriptors` sheds old handles; `epochHeadroomTokens` no longer double-reserves.                                                                    |
-| `src/main/tools/fileTools.ts`                             | a repeat read is redirected to `recall_evidence` when a stored copy exists; the escalation ladder now only fires when none does.                                                                                                                 |
+| `src/main/tools/fileTools.ts`                             | a repeat read is redirected to `recall_evidence` when a stored copy exists; the escalation ladder now only fires when none does. _(Since reversed — a repeat read just runs again.)_                                                             |
 | `src/main/tools/mutationTools.ts`                         | **new tool** `replace_lines(path, startLine, endLine, newText, expectedFirstLine?)`, CRLF-preserving, with a stale-anchor interlock.                                                                                                             |
-| `src/main/llama/toolSurface.ts`                           | `DIRECT_TOOL_PRIORITY` reordered so the first ten native schemas are a complete builder loop including `recall_evidence` and `replace_lines`.                                                                                                    |
+| `src/main/llama/toolSurface.ts`                           | `DIRECT_TOOL_PRIORITY` reordered so the first ten native schemas are a complete builder loop including `recall_evidence` and `replace_lines`. _(Recall since dropped from the order.)_                                                           |
 | `src/shared/prompts.ts`                                   | `COMPACT_CODING_AGENT_PROMPT` + `coreAgentPrompt(contextWindowTokens)`; selected by measured window only.                                                                                                                                        |
 | `src/shared/chat.types.ts`, `src/shared/contextPrompt.ts` | `ContextEpochHandoff.evidenceIndex` replaces `recoveryReadAllowance` — a catalogue of what the task holds, instead of permission to re-read three files.                                                                                         |
 
@@ -266,7 +277,7 @@ the outcome does not move.
 has not been re-run on real hardware. In the logs, the things to watch are:
 
 - `read_file_range` errors and `Blocked: repeated identical call` should largely disappear, replaced
-  by `recall_evidence` calls;
+  by `recall_evidence` calls; _(superseded: replaced by plain re-reads — recall no longer exists)_
 - a message that previously completed zero writes should complete some;
 - `fixedTokens` at round 0 on a 16K model should land near 5,000–6,000 rather than 9,000–13,000.
 
@@ -274,6 +285,10 @@ If a turn still stalls, the first thing to check is whether `recall_evidence` ap
 calls at all. If it does not, the native surface is not carrying it (check `activeToolCount` and the
 `DIRECT_TOOL_PRIORITY` order); if it does and the turn still churns, the evidence index in the epoch
 handoff is the next thing to look at.
+
+> **Superseded — do not follow this.** `recall_evidence` no longer exists, and its presence in a turn
+> was itself the failure (§8). The equivalent check today is whether repeated reads are being served
+> rather than blocked, and whether the evidence index in the epoch handoff is reaching the model.
 
 ## 8. First live retest — the recall storm
 
@@ -311,8 +326,9 @@ toward acting, so the action itself must always get through.
 ### 8.3 The descriptor invited whole-file recalls
 
 It suggested `recall_evidence("E7")`, i.e. page the whole thing back into a window that could not
-hold it. It now suggests `recall_evidence("E7", match: "…")`, and the compact prompt says to locate
-first, read narrow, and recall only what the next action needs.
+hold it. It was changed to suggest `recall_evidence("E7", match: "…")`, and the compact prompt to say
+locate first, read narrow, recall only what the next action needs. _(Both since superseded: the
+descriptor now ends `body trimmed; read it again if you need it`.)_
 
 ### 8.4 Also fixed
 
@@ -359,8 +375,9 @@ utilities the model actually reached for were exactly the ones that scored as wo
 ### 9.2 `edit_file` failed eleven times, each one a wasted round
 
 All with "the text to replace was not found" — the model reconstructing `oldText` from memory after
-its read had been trimmed out of context. The error now names `replace_lines` and `recall_evidence`
-as the two ways out, so the failure teaches instead of just costing a round.
+its read had been trimmed out of context. The error names the ways out, so the failure teaches
+instead of just costing a round: `replace_lines`, and (until recall was retired) `recall_evidence` —
+today, reading that part of the file again.
 
 ### 9.3 Not fixed, worth knowing
 

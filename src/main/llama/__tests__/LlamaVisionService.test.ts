@@ -998,8 +998,8 @@ describe('LlamaVisionService.generate', () => {
     }
   })
 
-  it('collapses an evicted result to its recall handle, never to "run it again"', async () => {
-    // Results arrive already carrying the durable handle `retainAsEvidence`
+  it('collapses an evicted result to its descriptor, never to a silent gap', async () => {
+    // Results arrive already carrying the descriptor `retainAsEvidence`
     // attaches, which is what the real tool helpers produce.
     let call = 0
     mocks.toolFunctions = {
@@ -1010,7 +1010,7 @@ describe('LlamaVisionService.generate', () => {
           call += 1
           return Promise.resolve(
             `${'z'.repeat(20_000)}
-[evidence E${call} · read_file · Read app.js lines 1-200 · 20,000 chars · recall_evidence("E${call}")]`
+[evidence E${call} · read_file · Read app.js lines 1-200 · 20,000 chars · body trimmed; read it again if you need it]`
           )
         }
       }
@@ -1029,13 +1029,13 @@ describe('LlamaVisionService.generate', () => {
     const toolMessages = sent
       .filter((m) => m.role === 'tool' && typeof m.content === 'string')
       .map((m) => String(m.content))
-    // The bulk is gone, but every shed result still says what it was and how to
-    // read it back — at whichever tier the escalation stopped at.
+    // The bulk is gone, but every shed result still says what it was — at
+    // whichever tier the escalation stopped at.
     const shed = toolMessages.filter((content) => content.length < 20_000)
     expect(shed.length).toBeGreaterThan(0)
     for (const content of shed) {
       expect(content.trimEnd().endsWith(']')).toBe(true)
-      expect(content).toMatch(/\[evidence E\d+ .*recall_evidence\("E\d+"\)\]$/)
+      expect(content).toMatch(/\[evidence E\d+ .*read it again if you need it\]$/)
     }
     // The old behaviour asked the model to re-run the tool — which
     // `ReadCoverageTracker` then refused and `loopGuard` blocked. Anodex must

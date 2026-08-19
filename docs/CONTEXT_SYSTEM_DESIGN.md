@@ -140,7 +140,12 @@ capped that double-subtracted, and on a 2,048-token window it truncated the proj
 This design deletes machinery rather than adding it, which after several rounds of guard-stacking is
 the right direction.
 
-- **`recall_evidence`** — superseded by legal re-reads (§3.2). _Still to do._
+- **`recall_evidence`** — superseded by legal re-reads (§3.2). **Done.** The tool, its schema, its
+  place in `DIRECT_TOOL_PRIORITY`, the prompt rules that taught it, and the now-unreachable
+  `redirect` verdict in `TaskLedger` are all gone. `TurnEvidenceStore` stays, reduced to what it is
+  actually for: a per-task record of _what_ each call gathered and how large the result was, with no
+  bodies held — the descriptor is now observation masking (§3.1), and the way back to the content is
+  a re-read.
 - **The re-read ban in the coverage tracker** — the root cause of the livelock, and the reason recall
   had to be invented.
 - **Rolling-summary compaction as the primary path** — demoted behind masking; keep it only for
@@ -152,8 +157,9 @@ the right direction.
 1. ~~**Proportional budgets** (§4).~~ **Done.** `allocateContextBudget` in `src/shared/contextBudget.ts`,
    wired through the assembler, compactor, text transport, meter, workspace summary and memory
    retriever. The ladder now reaches 1,048,576.
-2. **Legal re-reads + duplicate collapsing** (§3.2). Removes the recall storm and the stale-edit
-   failures.
+2. ~~**Legal re-reads + duplicate collapsing** (§3.2).~~ **Done.** Identical reads collapse to the
+   newest in `projectHistoryForModel`, a repeated stable read runs again rather than being refused,
+   and `recall_evidence` is retired (§5).
 3. **Observation masking** (§3.1) replacing summarization as the default path.
 4. **Repo map** (§3.3). Largest build; do it once the loop is stable.
 

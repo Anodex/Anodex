@@ -182,13 +182,11 @@ function describeInspection(calls: ToolCall[]): string | null {
   const effort: string[] = []
   const reads = succeeded(['read_file', 'read_file_range', 'read_multiple_files', 'code_outline'])
   const searches = succeeded(['search_files', 'search_code', 'find_files', 'list_directory'])
-  const recalls = succeeded(['recall_evidence'])
   const shots = succeeded(['inspect_visual'])
   if (reads.length > 0) effort.push(`${reads.length} read${reads.length === 1 ? '' : 's'}`)
   if (searches.length > 0) {
     effort.push(`${searches.length} search${searches.length === 1 ? '' : 'es'}`)
   }
-  if (recalls.length > 0) effort.push(`${recalls.length} recall${recalls.length === 1 ? '' : 's'}`)
   if (shots.length > 0) effort.push(`${shots.length} screenshot${shots.length === 1 ? '' : 's'}`)
   if (effort.length === 0) return null
 

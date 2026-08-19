@@ -116,17 +116,13 @@ export function boundToolSurface(options: {
  */
 /**
  * Ordered so that the first ten entries are a *complete* builder loop —
- * orient, read, recall, locate, edit, run — rather than the ten most obvious
- * tools. On a small window only about that many keep a native schema, and a
- * surface that can read but not edit is what produced the 157-call, zero-write
- * message in `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md`.
+ * orient, read, locate, edit, run — rather than the ten most obvious tools. On
+ * a small window only about that many keep a native schema, and a surface that
+ * can read but not edit is what produced the 157-call, zero-write message in
+ * `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md`.
  *
- * Three placements are deliberate and worth not "tidying" later:
+ * Two placements are deliberate and worth not "tidying" later:
  *
- * - `recall_evidence` is near the top because it is the recovery path for
- *   evidence the transport evicted. Behind the deferred gateway it would cost
- *   three calls (find → describe → call) at exactly the moment the turn has no
- *   room to spare, which is the same as not having it.
  * - `replace_lines` outranks `edit_file` because it is the edit a model can
  *   still make once its reads have been evicted; `edit_file` needs text it may
  *   no longer hold. Both stay available.
@@ -137,7 +133,6 @@ const DIRECT_TOOL_PRIORITY = [
   'finish_goal',
   'list_directory',
   'read_file_range',
-  'recall_evidence',
   'search_files',
   'code_outline',
   'replace_lines',

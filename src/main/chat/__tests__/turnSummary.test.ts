@@ -136,15 +136,14 @@ describe('describeTurnOutcome', () => {
       expect(summary({ calls })).toContain('and 3 more')
     })
 
-    it('reports searches and recalls, which touch no single file', () => {
+    it('reports searches, which touch no single file', () => {
       const text = summary({
         calls: [
           call({ name: 'search_files', kind: 'read' }),
-          call({ name: 'recall_evidence', kind: 'read' })
+          call({ name: 'list_directory', kind: 'read' })
         ]
       })
-      expect(text).toContain('1 search')
-      expect(text).toContain('1 recall')
+      expect(text).toContain('2 searches')
     })
   })
 
@@ -276,7 +275,7 @@ describe('isDurableChange', () => {
     expect(isDurableChange({ ...wrote('src/a.ts'), status: 'error' })).toBe(false)
   })
 
-  // `recall_evidence` reports `madeProgress: false` precisely so it cannot buy
+  // A refusal or no-op reports `madeProgress: false` precisely so it cannot buy
   // a continuation cycle or read as work.
   it('does not count a call that reported no progress', () => {
     expect(isDurableChange({ ...wrote('src/a.ts'), madeProgress: false })).toBe(false)

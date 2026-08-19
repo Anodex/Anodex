@@ -312,12 +312,6 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
-    name: 'recall_evidence',
-    kind: 'read',
-    description:
-      "Read back a tool result from earlier in the same task, after its text was trimmed out of the conversation to save context. Reads Anodex's own store — no files, no network, no side effects."
-  },
-  {
     name: 'fetch_url',
     kind: 'web',
     description: 'Fetch a public URL and return bounded readable passages plus a source artifact.'

@@ -132,8 +132,8 @@ export interface ToolRuntimeContext {
    */
   modelResultBudget: { current: ModelToolResultBudget | null }
   /**
-   * What this bounded task has already read, already called, and can still
-   * recall — see `TaskLedger`.
+   * What this bounded task has already read, already called, and already
+   * gathered — see `TaskLedger`.
    *
    * One object rather than the three it contains, because they answer one
    * shared question ("will this call produce anything new?") and answering it
