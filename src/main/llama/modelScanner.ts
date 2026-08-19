@@ -128,7 +128,7 @@ function resolveVisionProjectorPath(modelPath: string): string | undefined {
     const projectors = siblings.filter(isVisionProjectorFileName)
     const named = projectors.filter((candidate) => namesTheSameModel(candidate, modelPath))
     if (named.length === 1) return named[0]
-    if (named.length > 1) return undefined
+    if (named.length > 1) return closestNamedProjector(named, modelPath)
 
     // A projector named only for its role (`mmproj-model-f16.gguf`) says
     // nothing about which model it serves. Trust it only where there is
@@ -143,6 +143,44 @@ function resolveVisionProjectorPath(modelPath: string): string | undefined {
     // a valid text model even when companion discovery is unavailable.
   }
   return undefined
+}
+
+/**
+ * Break a tie between projectors that all name this model, by preferring the
+ * one that says nothing the model's own name does not.
+ *
+ * Refusing outright whenever more than one matched cost a user their vision
+ * model. `Qwen3.6-27B-Q4_K_M` reduces to `qwen3 6 27b`; so does its own
+ * `Qwen3.6-27B-GGUF-mmproj-F16`, and so — as a prefix — does an unrelated
+ * `Qwen3.6-27B-Fable-Fusion-711-…-mmproj-F16` belonging to a *different*
+ * finetune in the same folder. Installing that second vision model silently
+ * downgraded the first to a text model, with no message and no way to tell why
+ * `inspect_visual` had stopped existing.
+ *
+ * The tie-break keeps the safety property that made this strict in the first
+ * place. It scores each candidate by how far its identifying words are from the
+ * model's own — counting both the words it adds and the words it lacks — and
+ * takes the nearest. Extra words (`fable`, `fusion`, `711`) mean the projector
+ * claims a *more* specific model than this one; missing words mean it claims a
+ * broader family. Neither is as good as naming exactly this model, and scoring
+ * both directions is what lets the plain model and the finetune each keep their
+ * own projector out of the same folder. Only a unique best is accepted — a
+ * genuine tie still declines, because two equally specific claims are exactly
+ * the case where guessing pairs the wrong backend.
+ */
+function closestNamedProjector(candidates: string[], modelPath: string): string | undefined {
+  const modelTokens = new Set(identifyingTokens(basename(modelPath)))
+  const distances = candidates.map((candidate) => {
+    const tokens = identifyingTokens(basename(candidate))
+    const added = tokens.filter((token) => !modelTokens.has(token)).length
+    const seen = new Set(tokens)
+    const missing = [...modelTokens].filter((token) => !seen.has(token)).length
+    return added + missing
+  })
+  const nearest = Math.min(...distances)
+  return distances.filter((distance) => distance === nearest).length === 1
+    ? candidates[distances.indexOf(nearest)]
+    : undefined
 }
 
 /**
@@ -201,8 +239,16 @@ function identifyingTokens(fileName: string): string[] {
     .filter((token) => token.length > 0 && !GENERIC_NAME_TOKENS.has(token) && !isQuantToken(token))
 }
 
+/**
+ * Words that describe how a GGUF was quantized rather than which model it is.
+ *
+ * `ud` is Unsloth's dynamic-quant marker. It sits in the model's file name and
+ * not in its projector's, which was enough to stop `Muse-Glimmer-30B-UD-Q5_K_M`
+ * ever finding `Muse-Glimmer-30B-GGUF-mmproj-…` — the two names agree on every
+ * word that identifies the model and disagree only on the quantization recipe.
+ */
 function isQuantToken(token: string): boolean {
-  return /^(q\d[a-z0-9]*|f16|f32|bf16|iq\d[a-z0-9]*|k|s|m|l|xs|xl)$/.test(token)
+  return /^(q\d[a-z0-9]*|f16|f32|bf16|iq\d[a-z0-9]*|ud|k|s|m|l|xs|xl)$/.test(token)
 }
 
 function hashPath(path: string): string {
