@@ -97,6 +97,44 @@ describe('modelScanner vision projectors', () => {
     expect(describeModel(modelPath)?.visionProjectorPath).toBeUndefined()
   })
 
+  it('keeps a model paired when a more specific finetune adds its own projector', async () => {
+    // The live regression: installing a second vision model in the same folder
+    // silently downgraded the first to a text model, because the finetune's
+    // projector also matches on the shared `qwen3 6 27b` prefix.
+    const modelPath = join(dir, 'Qwen3.6-27B-Q4_K_M.gguf')
+    const exactProjector = join(dir, 'Qwen3.6-27B-GGUF-mmproj-F16.gguf')
+    const finetune = join(dir, 'Qwen3.6-27B-Fable-Fusion-711-Uncensored-Q4_K_M.gguf')
+    const finetuneProjector = join(
+      dir,
+      'Qwen3.6-27B-Fable-Fusion-711-Uncensored-GGUF-mmproj-F16.gguf'
+    )
+    await Promise.all(
+      [modelPath, exactProjector, finetune, finetuneProjector].map((path) =>
+        writeFile(path, 'gguf')
+      )
+    )
+
+    expect(describeModel(modelPath)?.visionProjectorPath).toBe(exactProjector)
+    expect(describeModel(finetune)?.visionProjectorPath).toBe(finetuneProjector)
+  })
+
+  it('still declines when two projectors claim a model equally specifically', async () => {
+    const modelPath = join(dir, 'Qwen3.6-27B-Q4_K_M.gguf')
+    const first = join(dir, 'Qwen3.6-27B-GGUF-mmproj-F16.gguf')
+    const second = join(dir, 'Qwen3.6-27B-mmproj-BF16.gguf')
+    await Promise.all([modelPath, first, second].map((path) => writeFile(path, 'gguf')))
+
+    expect(describeModel(modelPath)?.visionProjectorPath).toBeUndefined()
+  })
+
+  it('pairs across a quantization-recipe tag the projector does not carry', async () => {
+    const modelPath = join(dir, 'Muse-Glimmer-30B-UD-Q5_K_M.gguf')
+    const projectorPath = join(dir, 'Muse-Glimmer-30B-GGUF-mmproj-Muse-Glimmer-30B-BF16.gguf')
+    await Promise.all([modelPath, projectorPath].map((path) => writeFile(path, 'gguf')))
+
+    expect(describeModel(modelPath)?.visionProjectorPath).toBe(projectorPath)
+  })
+
   it('leaves a role-named projector unpaired when several models could claim it', async () => {
     const projectorPath = join(dir, 'mmproj-model-f16.gguf')
     const llamaPath = join(dir, 'Llama-3.2-3B-Instruct-Q4_K_M.gguf')

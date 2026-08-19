@@ -44,11 +44,14 @@ export const previewHtmlTool: WorkspaceToolFactory = (define, ctx) =>
         args,
         touch: { path: args.path, action: 'read' },
         async run() {
-          const { file, content } = await prepareHtmlPreview(ctx.workspaceRoot, args.path)
+          const { file, content, skipped } = await prepareHtmlPreview(ctx.workspaceRoot, args.path)
+          const dropped = describeSkippedPreviewAssets(skipped)
 
           return {
-            modelResult: `Rendered an inline chat preview for ${args.path}.`,
-            detail: 'inline preview',
+            modelResult: dropped
+              ? `Rendered an inline chat preview for ${args.path}, but ${dropped}`
+              : `Rendered an inline chat preview for ${args.path}.`,
+            detail: dropped ? 'inline preview — assets dropped' : 'inline preview',
             preview: {
               kind: 'html',
               title: args.title?.trim() || args.path,
@@ -60,12 +63,26 @@ export const previewHtmlTool: WorkspaceToolFactory = (define, ctx) =>
       })
   })
 
+/**
+ * A local asset that could not be inlined because it is too big.
+ *
+ * Worth reporting rather than swallowing: a `srcDoc` preview cannot fetch a
+ * relative path, so a skipped script does not merely go missing — the page runs
+ * without it and usually renders blank. A vendored library is exactly the kind
+ * of file that trips this (a Three.js build is around 600 KB), and a blank
+ * preview with no stated cause is what a model then reports as fact.
+ */
+export interface SkippedPreviewAsset {
+  url: string
+  bytes: number
+}
+
 /** Prepare the same sandboxed, self-contained HTML used by chat and visual inspection. */
 export async function prepareHtmlPreview(
   workspaceRoot: string,
   htmlPath: string,
   options: { maxContentChars?: number; maxImageBytes?: number } = {}
-): Promise<{ file: string; content: string }> {
+): Promise<{ file: string; content: string; skipped: SkippedPreviewAsset[] }> {
   const file = resolveInWorkspace(workspaceRoot, htmlPath)
   const info = await stat(file)
   if (!info.isFile()) throw new Error('Path is not a file.')
@@ -75,8 +92,9 @@ export async function prepareHtmlPreview(
   }
 
   const html = await readFile(file, 'utf-8')
-  const content = await prepareHtmlPreviewSource(workspaceRoot, htmlPath, html, options)
-  return { file, content }
+  const skipped: SkippedPreviewAsset[] = []
+  const content = await prepareHtmlPreviewSource(workspaceRoot, htmlPath, html, options, skipped)
+  return { file, content, skipped }
 }
 
 /**
@@ -90,19 +108,59 @@ export async function prepareHtmlPreviewSource(
   workspaceRoot: string,
   htmlPath: string,
   html: string,
-  options: { maxContentChars?: number; maxImageBytes?: number } = {}
+  options: { maxContentChars?: number; maxImageBytes?: number } = {},
+  skipped: SkippedPreviewAsset[] = []
 ): Promise<string> {
   const inlined = await inlineLocalAssets(
     workspaceRoot,
     htmlPath,
     html,
-    options.maxImageBytes ?? MAX_PREVIEW_IMAGE_BYTES
+    options.maxImageBytes ?? MAX_PREVIEW_IMAGE_BYTES,
+    skipped
   )
   const content = withPreviewScrollbars(inlined)
-  if (content.length > (options.maxContentChars ?? MAX_PREVIEW_CONTENT_CHARS)) {
-    throw new Error('Preview is too large after inlining local assets.')
-  }
+  const limit = options.maxContentChars ?? MAX_PREVIEW_CONTENT_CHARS
+  if (content.length > limit) throw new Error(oversizedPreviewMessage(content.length, limit))
   return content
+}
+
+/**
+ * Say what actually overflowed, and where to go instead.
+ *
+ * The message this replaced was "Preview is too large after inlining local
+ * assets." — true, and useless: it named no file, no size, and no alternative,
+ * so a model that hit it had nothing to act on and simply stopped verifying.
+ * Three live runs ended that way. `inspect_visual` serves the real files over a
+ * loopback HTTP server instead of inlining them, so it has none of these limits
+ * and is the right answer for a page with vendored libraries.
+ */
+function oversizedPreviewMessage(size: number, limit: number): string {
+  const kb = (bytes: number): string => `${Math.round(bytes / 1024)} KB`
+  return (
+    `Inlining this page's local assets produced ${kb(size)}, over the ${kb(limit)} inline-preview ` +
+    'limit. Use inspect_visual on the same path — it serves the real files over a local HTTP ' +
+    'server, so it has no inlining limit and runs the page the way a browser would.'
+  )
+}
+
+/**
+ * What a caller should tell the model when assets were dropped.
+ *
+ * Returns `null` when nothing was skipped, so the ordinary case adds no noise.
+ */
+export function describeSkippedPreviewAssets(skipped: SkippedPreviewAsset[]): string | null {
+  if (skipped.length === 0) return null
+  const named = skipped
+    .slice()
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 3)
+    .map((asset) => `${asset.url} (${Math.round(asset.bytes / 1024)} KB)`)
+  const more = skipped.length - named.length
+  return (
+    `${skipped.length} local asset(s) were too large to inline and did not load: ` +
+    `${named.join(', ')}${more > 0 ? `, and ${more} more` : ''}. ` +
+    'The page may render blank without them — use inspect_visual for a faithful render.'
+  )
 }
 
 /**
@@ -158,14 +216,15 @@ async function inlineLocalAssets(
   workspaceRoot: string,
   htmlPath: string,
   html: string,
-  maxImageBytes: number
+  maxImageBytes: number,
+  skipped: SkippedPreviewAsset[]
 ): Promise<string> {
   const withStyles = await replaceAsync(
     html,
     /<link\b([^>]*?)\bhref=["']([^"']+)["']([^>]*?)>/gi,
     async (match, before: string, href: string, after: string) => {
       if (!/\brel=["']?stylesheet["']?/i.test(`${before} ${after}`)) return match
-      const css = await readLocalTextAsset(workspaceRoot, htmlPath, href)
+      const css = await readLocalTextAsset(workspaceRoot, htmlPath, href, skipped)
       return css === null
         ? match
         : `<style data-anodex-preview-source="${escapeAttr(href)}">\n${css}\n</style>`
@@ -176,7 +235,7 @@ async function inlineLocalAssets(
     withStyles,
     /<script\b([^>]*?)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi,
     async (_match, before: string, src: string, after: string) => {
-      const js = await readLocalTextAsset(workspaceRoot, htmlPath, src)
+      const js = await readLocalTextAsset(workspaceRoot, htmlPath, src, skipped)
       return js === null
         ? `<script${before} src="${escapeAttr(src)}"${after}></script>`
         : `<script${before}${after} data-anodex-preview-source="${escapeAttr(src)}">\n${js}\n</script>`
@@ -198,7 +257,8 @@ async function inlineLocalAssets(
 async function readLocalTextAsset(
   workspaceRoot: string,
   htmlPath: string,
-  assetUrl: string
+  assetUrl: string,
+  skipped: SkippedPreviewAsset[]
 ): Promise<string | null> {
   if (
     /^(?:[a-z]+:)?\/\//i.test(assetUrl) ||
@@ -218,7 +278,13 @@ async function readLocalTextAsset(
   try {
     const file = resolveInWorkspace(workspaceRoot, assetPath)
     const info = await stat(file)
-    if (!info.isFile() || info.size > MAX_PREVIEW_SOURCE_BYTES) return null
+    if (!info.isFile()) return null
+    // Recorded, not silently dropped: inside a `srcDoc` the surviving tag has
+    // no origin to fetch from, so the page runs without this file entirely.
+    if (info.size > MAX_PREVIEW_SOURCE_BYTES) {
+      skipped.push({ url: assetUrl, bytes: info.size })
+      return null
+    }
     return await readFile(file, 'utf-8')
   } catch {
     // A referenced asset that doesn't exist (or can't be read) leaves its tag
