@@ -265,6 +265,37 @@ function describeCaveats(input: TurnSummaryInput): string | null {
   return caveats.length > 0 ? `**Check** ${caveats.join('; ')}` : null
 }
 
+/**
+ * Whether anything at all has checked the newest change.
+ *
+ * A build/test/type-check/lint command that ran after it, or a screenshot taken
+ * after it. Exported so the continuation brief can tell the model the same
+ * thing mid-task that this account tells the user at the end — a live 16K run
+ * made five successful edits, said "let me inspect the visual result", never
+ * called the tool, and closed by reporting the fix as working. The account
+ * below caught it; nothing had told the model while it could still act.
+ */
+export function hasVerificationOfChange(calls: ToolCall[]): boolean {
+  // A check command is a `command`-kind call, so it is a durable change by the
+  // same rule — and measuring "after the last change" naively would mean a
+  // build could never count as verifying anything, because it would always be
+  // the last change itself. The change that needs checking is the last one that
+  // is not a check.
+  const lastChange = calls.findLastIndex((call) => isDurableChange(call) && !isCheckCommand(call))
+  if (lastChange < 0) return true
+  return calls.some(
+    (call, index) =>
+      index > lastChange &&
+      (isCheckCommand(call) || (call.name === 'inspect_visual' && call.status === 'success'))
+  )
+}
+
+/** A successful build/test/type-check/lint run, as opposed to any other command. */
+function isCheckCommand(call: ToolCall): boolean {
+  const verification = parseRunCommandVerification(call)
+  return verification !== null && BUILD_OR_TEST_COMMAND.test(verification.command)
+}
+
 /** Whether a screenshot was taken after the last change, and so shows it. */
 function hasVisualEvidenceOfChange(calls: ToolCall[]): boolean {
   const lastChange = calls.findLastIndex(isDurableChange)

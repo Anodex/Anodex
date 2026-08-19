@@ -35,6 +35,11 @@ const GPU_OPTIONS = [
   { label: 'Custom', value: 'custom' }
 ]
 
+const CONTEXT_ASSEMBLY_OPTIONS = [
+  { label: 'Current (baseline)', value: 'current' },
+  { label: 'Adaptive v1 (experimental)', value: 'adaptive-v1' }
+]
+
 const TURN_TIME_LIMIT_MAX_MINUTES = 120
 const TURN_TIME_LIMIT_COMMIT_DELAY_MS = 250
 
@@ -611,6 +616,23 @@ export function AiModelsSettings(): JSX.Element {
                     value={settings.generation.turnTimeLimitMinutes}
                     onCommit={(minutes) =>
                       void update({ generation: { turnTimeLimitMinutes: minutes } })
+                    }
+                  />
+                }
+              />
+              <SettingRow
+                label="Context assembly"
+                description="Current keeps the established projection path. Adaptive v1 gives workspace context, memory, and past-chat recall one shared budget based on the active model's context window; it never disables your tools, skills, or instructions."
+                control={
+                  <SelectControl
+                    value={settings.generation.contextAssemblyStrategy}
+                    options={CONTEXT_ASSEMBLY_OPTIONS}
+                    onChange={(value) =>
+                      void update({
+                        generation: {
+                          contextAssemblyStrategy: value as 'current' | 'adaptive-v1'
+                        }
+                      })
                     }
                   />
                 }

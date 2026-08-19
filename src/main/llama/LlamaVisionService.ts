@@ -543,6 +543,14 @@ export class LlamaVisionService {
       // parse of the half-written call. Ending here instead keeps the text and
       // completed tool work from the rounds that did fit.
       if (measured && inputLimitTokens - measured.fixedTokens < minimumOutput) {
+        // The reply ceiling this turn really had, before the break below leaves
+        // the loop without ever reaching the budget call that normally sets it.
+        // Reporting the *requested* ceiling here is what made a 4K probe's
+        // record say the effective maximum output was 4,096 on a turn whose
+        // fixed input had already outgrown the window — the one number in that
+        // record a reader would use to size the problem, and it was the one
+        // number that was wrong.
+        effectiveMaxTokens = Math.max(0, inputLimitTokens - measured.fixedTokens)
         // Two different faults, and conflating them sends the user after the
         // wrong thing. On the first round nothing has accumulated yet, so the
         // *fixed* input — system prompt, project rules, tool schemas — is what

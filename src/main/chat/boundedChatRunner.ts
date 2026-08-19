@@ -15,7 +15,8 @@ import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { findUnverifiedPathClaims } from '../tools/pathClaimVerification'
 import { describeTurnOutcome, isDurableChange } from './turnSummary'
 import { isObservationalRunCommand, observationalCommandIdentity } from '../tools/commandEffect'
-import { progressFromSettledCalls } from '../tools/turnProgress'
+import { isReadLikeCall, progressFromSettledCalls } from '../tools/turnProgress'
+import { buildContinuationBrief } from './continuationBrief'
 import { projectStore } from '../projects/ProjectStore'
 import { llamaService } from '../llama/LlamaService'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
@@ -234,6 +235,7 @@ export async function runBoundedChatGeneration(
   let last: RunGenerationResult | undefined
   const memoryUsed: NonNullable<RunGenerationResult['memoryUsed']> = []
   const transcriptRecallUsed: NonNullable<RunGenerationResult['transcriptRecallUsed']> = []
+  const contextAssemblies: NonNullable<RunGenerationResult['contextAssembly']>[] = []
   // One registry for the whole reply, not one per cycle: the citation ids the
   // model writes have to mean the same page from the first cycle to the last.
   const webSources = new WebSourceRegistry()
@@ -262,6 +264,18 @@ export async function runBoundedChatGeneration(
   let goalSummary: string | undefined
   let contextEpoch: ContextEpochHandoff | undefined
   let contextEpochCount = 0
+  /**
+   * The window the last cycle actually ran in, for sizing the continuation
+   * brief. Taken from the transport's own report rather than asked of the local
+   * engine, so a cloud or vision turn sizes against its own capacity.
+   */
+  let lastContextWindowTokens: number | undefined
+  /**
+   * What the previous cycle's system prompt actually cost the transport, so the
+   * next one plans against a measured characters-per-token ratio rather than a
+   * fixed guess. See `PromptCalibration`.
+   */
+  let promptCalibration: RunGenerationResult['promptCalibration']
   let recoveryOnlyCycles = 0
   let recoveryChurnDetected = false
   /** Extra cycles spent resuming a turn that stopped with plan steps still open. */
@@ -278,6 +292,18 @@ export async function runBoundedChatGeneration(
   let chatEndReason: string | null = null
 
   for (let cycle = 0; cycle < cycleCeiling; cycle++) {
+    // Every cycle after the first opens with what the task has actually settled.
+    // Suppressed when an epoch handoff is present, because that handoff is the
+    // same account in fuller form and two would just repeat each other. See
+    // `continuationBrief.ts` for why the fixed nudge alone was not enough.
+    const continuationBrief =
+      cycle > 0 && !contextEpoch
+        ? (buildContinuationBrief({
+            objective: originalObjective,
+            calls: [...completedToolCalls.values()],
+            contextWindowTokens: lastContextWindowTokens
+          }) ?? undefined)
+        : undefined
     let novelToolActivityThisCycle = false
     // Keyed by call id, same shape/reasoning as `AgentRunService.runTurn`'s
     // `toolCallsById`: a call's *latest* status (running → terminal)
@@ -286,7 +312,16 @@ export async function runBoundedChatGeneration(
     // below, carrying only the tool calls it actually made.
     const toolCallsById = new Map<string, ToolCall>()
     const result = await runGeneration(
-      { ...request, history, prompt, context, plan: currentPlan, contextEpoch },
+      {
+        ...request,
+        history,
+        prompt,
+        context,
+        plan: currentPlan,
+        contextEpoch,
+        continuationBrief,
+        promptCalibration
+      },
       {
         ...io,
         ledger,
@@ -325,6 +360,9 @@ export async function runBoundedChatGeneration(
     if (result.fabricationDetected) fabricationDetectedAnyCycle = true
     if (result.memoryUsed) memoryUsed.push(...result.memoryUsed)
     if (result.transcriptRecallUsed) transcriptRecallUsed.push(...result.transcriptRecallUsed)
+    if (result.contextAssembly) contextAssemblies.push(result.contextAssembly)
+    lastContextWindowTokens = result.contextBudget?.contextSize ?? lastContextWindowTokens
+    promptCalibration = result.promptCalibration ?? promptCalibration
     if (result.context) context = result.context
 
     settleInterruptedReadCalls(toolCallsById, completedToolCalls, cycle, io)
@@ -690,6 +728,7 @@ export async function runBoundedChatGeneration(
     fabricationDetected: fabricationDetectedAnyCycle,
     memoryUsed: memoryUsed.length > 0 ? memoryUsed : undefined,
     transcriptRecallUsed: transcriptRecallUsed.length > 0 ? transcriptRecallUsed : undefined,
+    contextAssemblies: contextAssemblies.length > 0 ? contextAssemblies : undefined,
     webSources: webSources.list(),
     webSearchAttempted: webSources.attempted,
     context
@@ -914,16 +953,6 @@ function activePlan(
 ): NonNullable<ChatRequest['plan']> | null {
   if (!plan || plan.steps.length === 0) return null
   return plan.steps.some((step) => step.status !== 'completed') ? plan : null
-}
-
-/**
- * Some local models use the shell for ordinary reads. Preserve the command's
- * approval behavior, but classify its task effect from Anodex's own recorded
- * title so read-only PowerShell/CLI queries do not masquerade as mutations in
- * recovery, visual-verification, or progress state.
- */
-function isReadLikeCall(call: Pick<ToolCall, 'name' | 'kind' | 'title'>): boolean {
-  return call.kind === 'read' || isObservationalRunCommand(call)
 }
 
 function asProgressCall(call: ToolCall): ToolCall {

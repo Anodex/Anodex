@@ -579,6 +579,7 @@ class AgentRunService {
       createdAt: Date.now(),
       stats: result.stats,
       contextBudget: result.contextBudget,
+      contextAssemblies: result.contextAssembly ? [result.contextAssembly] : undefined,
       memoryUsed: result.memoryUsed,
       thinking: result.thinking,
       toolCalls: toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined

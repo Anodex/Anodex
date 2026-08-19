@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { ChatHistoryTurn } from '@shared/chat.types'
 import { currentLedgerRevision, type ConversationContext } from '@shared/context.types'
 import type { ToolCall } from '@shared/tools.types'
@@ -72,6 +73,61 @@ export interface SnapshotSeededContext {
   applied: boolean
   summary?: string
   throughMessageId?: string | null
+  /** A fingerprinted derived snapshot no longer matched canonical history. */
+  stale?: boolean
+}
+
+/**
+ * Stable fingerprint for the exact persisted prefix a ledger revision claims
+ * to summarize. This lives in the main-process assembler because Node crypto
+ * hashes large tool-heavy histories without expanding them into another string.
+ */
+export function historyPrefixFingerprint(
+  history: ChatHistoryTurn[],
+  throughMessageId: string | null | undefined
+): string | undefined {
+  if (!throughMessageId) return undefined
+  const boundaryIndex = history.findIndex((turn) => turn.id === throughMessageId)
+  if (boundaryIndex < 0) return undefined
+
+  const hash = createHash('sha256')
+  for (const turn of history.slice(0, boundaryIndex + 1)) {
+    hashPart(hash, turn.id)
+    hashPart(hash, turn.role)
+    hashPart(hash, turn.content)
+    for (const attachment of turn.attachments ?? []) {
+      hashPart(hash, attachment.path)
+      hashPart(hash, attachment.name)
+      hashPart(hash, attachment.mimeType)
+      hashPart(hash, attachment.visionContextPinned)
+    }
+    for (const call of turn.toolCalls ?? []) {
+      hashPart(hash, call.id)
+      hashPart(hash, call.name)
+      hashPart(hash, call.kind)
+      hashPart(hash, call.status)
+      hashPart(hash, call.title)
+      hashPart(hash, call.result)
+      hashPart(hash, call.detail)
+      hashPart(hash, call.touchedPaths?.join('\u0000'))
+    }
+  }
+  return hash.digest('hex')
+}
+
+function hashPart(hash: ReturnType<typeof createHash>, value: unknown): void {
+  const text =
+    value === undefined || value === null
+      ? ''
+      : typeof value === 'string'
+        ? value
+        : typeof value === 'number' || typeof value === 'boolean'
+          ? value.toString()
+          : (JSON.stringify(value) ?? '')
+  hash.update(String(text.length))
+  hash.update('\u0000')
+  hash.update(text)
+  hash.update('\u0000')
 }
 
 export interface ModelContextAssemblyInput {
@@ -273,6 +329,13 @@ export function seedContextFromSnapshot(
   if (boundaryIndex < 0) {
     return { systemPrompt, history: projectedHistory, applied: false }
   }
+  if (
+    revision.sourcePrefixFingerprint &&
+    historyPrefixFingerprint(history, revision.throughMessageId) !==
+      revision.sourcePrefixFingerprint
+  ) {
+    return { systemPrompt, history: projectedHistory, applied: false, stale: true }
+  }
 
   return {
     systemPrompt: buildCompactionSystemPrompt(systemPrompt, revision.continuityDigest),
@@ -298,6 +361,8 @@ export interface CloudBoundedContext {
   coveredTurns?: number
   /** True when a legacy oversized snapshot was rebased before replay. */
   summaryRebased?: boolean
+  /** True when a fingerprinted prior summary no longer matched raw history. */
+  snapshotStale?: boolean
 }
 
 /**
@@ -367,7 +432,8 @@ export async function boundHistoryForStatelessProvider(
       systemPrompt: seeded.systemPrompt,
       history: split.recent,
       omittedTurns: split.older.length,
-      summarized: false
+      summarized: false,
+      snapshotStale: seeded.stale
     }
   }
 
@@ -397,7 +463,8 @@ export async function boundHistoryForStatelessProvider(
     compactedThroughMessageId:
       assembled.compactedThroughMessageId ?? seeded.throughMessageId ?? null,
     coveredTurns: priorCoveredTurns + assembled.removedTurns,
-    summaryRebased: assembled.summaryRebased
+    summaryRebased: assembled.summaryRebased,
+    snapshotStale: seeded.stale
   }
 }
 

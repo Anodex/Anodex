@@ -1,10 +1,17 @@
 /** Persisted application settings. */
 
 import type { EmailAccount } from './email.types'
+import type { ContextAssemblyStrategy } from './contextPlanner'
 
 export interface GenerationSettings {
   temperature: number
   topP: number
+  /**
+   * Context projection implementation. current remains the immediate rollback
+   * path; adaptive-v1 packs automatic supporting material into one
+   * capacity-aware allowance without changing enabled capabilities.
+   */
+  contextAssemblyStrategy: ContextAssemblyStrategy
   /**
    * Wall-clock cap on a single turn (covers all of its tool calls), in
    * minutes (1-120), for interactive chat and agent-run turns. `null`

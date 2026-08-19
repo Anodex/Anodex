@@ -34,7 +34,8 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     generation: {
       temperature: 0.3,
       topP: 0.9,
-      turnTimeLimitMinutes: 15
+      turnTimeLimitMinutes: 15,
+      contextAssemblyStrategy: 'current'
     },
     model: {
       contextSize: 8192,
