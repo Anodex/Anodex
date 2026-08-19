@@ -56,6 +56,18 @@ const PLAN_RECONCILIATION_PROMPT =
   'honestly, reply exactly PLAN_UNCHANGED.'
 
 /**
+ * One tool-less final pass for a turn that was cut short before it could say
+ * what it had done. It is told what it may not do, because the failure to avoid
+ * is a confident-sounding wrap-up claiming work that never happened — the same
+ * risk `findUnverifiedPathClaims` exists to catch.
+ */
+const CLOSING_SUMMARY_PROMPT =
+  'This reply is being cut short by a limit, so close it out for the user. In a short paragraph ' +
+  'or a few bullets: what you actually did, what you found, and what is still unfinished. ' +
+  'Describe only work that already appears above — do not claim any change, file, or result that ' +
+  'is not there, and do not start new work or ask to continue.'
+
+/**
  * At most this many `runGeneration()` calls total for one bounded reply — a
  * hard ceiling independent of the wall clock, so a pathological run of fast,
  * barely-progressing cycles can't loop indefinitely just because each one
@@ -65,6 +77,14 @@ const PLAN_RECONCILIATION_PROMPT =
 // tool progress. The cross-cycle no-progress guard is the primary stop; this
 // is only a distant final failsafe against a pathological endless run.
 const MAX_CYCLES = 24
+
+/**
+ * How many times one identical call (same tool, same target, same result) may
+ * still count as progress. Two: the original, plus the one re-read a context
+ * epoch legitimately authorizes after dropping the evidence. A third identical
+ * result is the model going in circles.
+ */
+export const REPEATED_CALL_ALLOWANCE = 2
 
 /**
  * Cycle ceiling for a goal run (`ChatRequest.goal`), which continues on
@@ -222,6 +242,8 @@ export async function runBoundedChatGeneration(
   // read/command look like fresh progress simply because the context epoch
   // changed.
   const seenToolActivity = new Set<string>()
+  /** How many times each epoch-independent call identity has come back. */
+  const repeatedCallCounts = new Map<string, number>()
   const seenReadActivity = new Set<string>()
   const seenCycleContent = new Set<string>()
   const completedToolCalls = new Map<string, ToolCall>()
@@ -275,7 +297,12 @@ export async function runBoundedChatGeneration(
           }
           if (call.status === 'success' && call.madeProgress !== false) {
             const activityKey = toolActivityKey(call, contextEpochCount)
-            if (!seenToolActivity.has(activityKey)) {
+            const repeats = (repeatedCallCounts.get(repeatedCallIdentity(call)) ?? 0) + 1
+            repeatedCallCounts.set(repeatedCallIdentity(call), repeats)
+            // Past the allowance the call is repetition however new the epoch
+            // makes it look, so it stops counting toward this cycle's progress.
+            // A cycle doing anything genuinely new still passes on that call.
+            if (!seenToolActivity.has(activityKey) && repeats <= REPEATED_CALL_ALLOWANCE) {
               seenToolActivity.add(activityKey)
               novelToolActivityThisCycle = true
             }
@@ -562,6 +589,43 @@ export async function runBoundedChatGeneration(
     }
   }
 
+  // A turn that ran to a limit never got to write a conclusion: the last thing
+  // the user sees is whatever narration the final cycle was mid-way through
+  // ("Let me fix that now:"), and the structured account below states what was
+  // touched but not what any of it meant. One tool-less pass closes the task in
+  // the model's own words. Only for a turn that was cut short — a turn that
+  // finished naturally already ended with its own answer.
+  if (needsClosingSummary(chatEndReason, combinedContent)) {
+    try {
+      const closing = await runGeneration(
+        {
+          ...request,
+          history: [
+            ...history,
+            { role: 'user' as const, content: prompt },
+            sanitizeHistoryTurn({
+              role: 'assistant',
+              content: finalResult.content,
+              toolCalls: latestCycleToolCalls
+            })
+          ],
+          prompt: CLOSING_SUMMARY_PROMPT,
+          context,
+          plan: currentPlan
+        },
+        { ...io, enabledTools: new Set(), onToken: undefined, onThinkingToken: undefined }
+      )
+      totalTokens += closing.stats.tokens
+      totalDurationMs += closing.stats.durationMs
+      if (closing.context) context = closing.context
+      const summary = closing.content.trim()
+      if (summary) combinedContent = `${combinedContent}\n\n${summary}`
+    } catch {
+      // Losing the closing words must not lose the work: the structured account
+      // below still reports what the turn actually did.
+    }
+  }
+
   const stats: GenerationStats = {
     tokens: totalTokens,
     durationMs: totalDurationMs,
@@ -632,6 +696,19 @@ export async function runBoundedChatGeneration(
   }
 }
 
+/**
+ * Whether the reply was cut short mid-thought and so owes the user a closing
+ * word.
+ *
+ * Gated on `chatEndReason` rather than on `stopped` alone: that field is set
+ * only where the loop recorded that the turn *wanted to keep going and was not
+ * allowed to*, which is exactly the case with no conclusion. A turn that simply
+ * finished, or that the user stopped, leaves it null and pays for no extra pass.
+ */
+function needsClosingSummary(endedBecause: string | null, content: string): boolean {
+  return endedBecause !== null && content.trim().length > 0
+}
+
 function goalStillOpenFor(result: RunGenerationResult, goal: string | null): boolean {
   return goal !== null && !result.stopped
 }
@@ -649,13 +726,37 @@ function toolActivityKey(call: ToolCall, epoch: number): string {
     // authorized re-read produces a key seen before, reads as "no novel tool
     // activity", and terminates the run on the very action the epoch asked for.
     epoch,
+    ...toolActivityFacts(call)
+  })
+}
+
+/**
+ * The same facts *without* the epoch — what makes two calls the same work.
+ *
+ * The epoch in `toolActivityKey` buys back one authorized re-read, but on its
+ * own it hands out a fresh key every epoch, so unlimited repetition keeps
+ * reading as novel and the no-progress guard is disabled in exactly the
+ * situation it exists for. A measured run made 181 calls of which 86 were exact
+ * repeats — one command ran ten times — while every cycle still reported
+ * progress, and it ran 42 minutes to the cycle ceiling.
+ *
+ * `result` is part of the identity, so a re-read that returns something
+ * different is genuinely new work and is unaffected; only a call that returns
+ * what it returned before is counted as a repeat.
+ */
+function repeatedCallIdentity(call: ToolCall): string {
+  return JSON.stringify(toolActivityFacts(call))
+}
+
+function toolActivityFacts(call: ToolCall): Record<string, unknown> {
+  return {
     name: call.name,
     title: call.title,
     status: call.status,
     touchedPaths: call.touchedPaths?.slice().sort(),
     result: call.result?.slice(0, 512),
     detail: call.status === 'error' || call.status === 'denied' ? call.detail : undefined
-  })
+  }
 }
 
 function buildContextEpochHandoff(input: {

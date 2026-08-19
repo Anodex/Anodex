@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { ChatRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from '../runGeneration'
-import { runBoundedChatGeneration } from '../boundedChatRunner'
+import { REPEATED_CALL_ALLOWANCE, runBoundedChatGeneration } from '../boundedChatRunner'
 
 vi.mock('../runGeneration', () => ({
   runGeneration: vi.fn()
@@ -49,6 +49,17 @@ function baseIo(overrides: Partial<RunGenerationIo> = {}): RunGenerationIo {
     confirm: () => Promise.resolve({ approved: true }),
     ...overrides
   }
+}
+
+/**
+ * Generation calls that were real work cycles. A turn the loop had to cut short
+ * also makes one tool-less closing pass so the reply does not end mid-thought;
+ * that pass is not a cycle and must not be counted as one. Identified by its
+ * empty `enabledTools` — a normal cycle restricts nothing, and the plan
+ * reconciliation pass allows exactly one tool.
+ */
+function cycleCallCount(): number {
+  return mockedRunGeneration.mock.calls.filter(([, io]) => io.enabledTools?.size !== 0).length
 }
 
 /** Minimal measured budget; only `fixedTokens` matters to the epoch handoff. */
@@ -933,7 +944,7 @@ describe('runBoundedChatGeneration', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
+    expect(cycleCallCount()).toBe(1)
     expect(outcome.stopReason).toBe('loop-guard')
   })
 
@@ -1180,7 +1191,7 @@ describe('runBoundedChatGeneration', () => {
 
     await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(1)
+    expect(cycleCallCount()).toBe(1)
   })
 
   it('treats observational shell commands as reads in a compact handoff', async () => {
@@ -1444,7 +1455,7 @@ describe('runBoundedChatGeneration', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(3)
+    expect(cycleCallCount()).toBe(3)
     expect(outcome.stopReason).toBe('no-progress')
   })
 
@@ -1484,7 +1495,7 @@ describe('runBoundedChatGeneration', () => {
     // The production incident reached epoch 13 because every filler sentence
     // was unique. One initial pass plus two bounded recovery passes is enough
     // to prove the model is reopening evidence instead of advancing.
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(3)
+    expect(cycleCallCount()).toBe(3)
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('no-progress')
     expect(outcome.context?.latestEpochHandoff?.epoch).toBe(2)
@@ -1648,7 +1659,7 @@ describe('runBoundedChatGeneration', () => {
 
     // 24 cycles total (MAX_CYCLES): every one reported recoverable + progress,
     // so only the hard cycle cap itself ends the loop.
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(24)
+    expect(cycleCallCount()).toBe(24)
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('tool-limit')
   })
@@ -1675,8 +1686,76 @@ describe('runBoundedChatGeneration', () => {
 
     const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
 
-    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    expect(cycleCallCount()).toBe(2)
     expect(outcome.stopReason).toBe('rounds-exhausted')
+  })
+
+  // A live run made 181 calls of which 86 were exact repeats — one command ten
+  // times — and never stopped, because every context epoch handed the same call
+  // a fresh activity key and it read as novel work. The epoch still buys one
+  // authorized re-read; it does not buy unlimited ones.
+  it('stops repeating a call that a new context epoch keeps making look novel', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementation((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'same-read',
+        name: 'read_file',
+        kind: 'read',
+        title: 'Read index.html',
+        status: 'success',
+        result: 'unchanged contents'
+      })
+      return Promise.resolve(
+        result({
+          content: 'Let me check the current state of index.html.',
+          stopped: true,
+          stopReason: 'context-limit',
+          contextBudget: budget(9_000),
+          stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 }
+        })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    // Original + the one epoch-authorized re-read, then it stops rather than
+    // run the cycle ceiling out on the same read.
+    expect(cycleCallCount()).toBe(REPEATED_CALL_ALLOWANCE + 1)
+    expect(outcome.stopped).toBe(true)
+  })
+
+  it('closes out a cut-short reply with a tool-less summary pass', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementation((_request, io: RunGenerationIo) => {
+      // The closing pass is the one with no tools; it must not be able to start
+      // new work, and its prose becomes the end of the reply.
+      if (io.enabledTools?.size === 0) {
+        return Promise.resolve(
+          result({ content: 'I removed the import map and the sandbox still renders black.' })
+        )
+      }
+      io.onActivity?.({
+        id: 'edit-1',
+        name: 'edit_file',
+        kind: 'write',
+        title: 'Edit index.html',
+        status: 'success'
+      })
+      return Promise.resolve(
+        result({
+          content: 'Let me fix that now:',
+          stopped: true,
+          stopReason: 'rounds-exhausted',
+          stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 }
+        })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).toContain(
+      'I removed the import map and the sandbox still renders black.'
+    )
   })
 
   it('forwards a later cycle onActivity/onToken through to the caller-supplied io', async () => {
