@@ -55,6 +55,37 @@ describe('describeGenerationStop', () => {
     expect(note?.error).toContain('7,373')
   })
 
+  it('explains a turn that could not start by the reply room it was left', () => {
+    // The live 4K refusal read "need 2,672 tokens, but only 3,584 fit", which
+    // compares the wrong pair: 2,672 is the smaller number, so the sentence
+    // contradicted itself and never named what actually ran out.
+    const note = describeGenerationStop(
+      'fixed-context-limit',
+      {
+        ...BUDGET,
+        contextSize: 4_096,
+        inputLimitTokens: 3_584,
+        fixedTokens: 2_672,
+        effectiveMaxOutputTokens: 912,
+        deferredToolCount: 35
+      },
+      false
+    )
+
+    expect(note?.error).toContain('2,672 of the 3,584')
+    expect(note?.error).toContain('leaving only 912 to reply in')
+    expect(note?.error).toContain('35 tools')
+    expect(note?.error).toContain('Raise the context size')
+  })
+
+  it('derives the remaining reply room when the transport reported none', () => {
+    const { effectiveMaxOutputTokens: _omitted, ...withoutCeiling } = BUDGET
+    const note = describeGenerationStop('fixed-context-limit', withoutCeiling, false)
+
+    // 7,373 - 4,037
+    expect(note?.error).toContain('3,336')
+  })
+
   it('falls back to a generic fixed-context-limit message when no budget is available', () => {
     const note = describeGenerationStop('fixed-context-limit', undefined, false)
 
