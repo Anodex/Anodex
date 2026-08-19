@@ -16,7 +16,7 @@ import { findUnverifiedPathClaims } from '../tools/pathClaimVerification'
 import { describeTurnOutcome, isDurableChange } from './turnSummary'
 import { isObservationalRunCommand, observationalCommandIdentity } from '../tools/commandEffect'
 import { isReadLikeCall, progressFromSettledCalls } from '../tools/turnProgress'
-import { buildContinuationBrief } from './continuationBrief'
+import { buildContinuationBrief, outstandingVerification } from './continuationBrief'
 import { projectStore } from '../projects/ProjectStore'
 import { llamaService } from '../llama/LlamaService'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
@@ -851,7 +851,15 @@ function buildContextEpochHandoff(input: {
     // work or as a rendering-affecting change.
     progress: progressFromSettledCalls(input.calls.map(asProgressCall)),
     priorFixedTokens: input.priorFixedTokens,
+    // Derived from the same settled state the continuation brief uses, rather
+    // than a fixed sentence. The note this replaced — "after a
+    // rendering-affecting change, inspect the result again" — is true on every
+    // turn and so says nothing about this one. It matters most here: once an
+    // epoch starts the brief is suppressed for the rest of the reply, and an 8K
+    // run took twelve epochs, so this note is the only place the outstanding
+    // verification can still reach the model.
     verificationNote:
+      outstandingVerification(settledCalls) ??
       'Preserve the existing evidence gate: after a rendering-affecting change, inspect the result again before claiming success.'
   }
 }

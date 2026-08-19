@@ -75,7 +75,7 @@ export function buildContinuationBrief(input: ContinuationBriefInput): string | 
           ? `Already read (${reads.length} call(s) over ${read.length} file(s)): ` +
             `${describePaths(read)}. Re-read one only if it has changed since.`
           : '',
-      outstanding: outstanding(settled),
+      outstanding: outstandingVerification(settled) ?? '',
       instruction:
         'Take the next concrete action toward the objective now, or say plainly what is blocking it.'
     },
@@ -119,6 +119,12 @@ function fit(lines: BriefLines, limit: number): string {
 /**
  * The one verification the task still owes, in the order that matters.
  *
+ * Exported because the context-epoch handoff needs the same sentence. That
+ * handoff carries a fixed note — "after a rendering-affecting change, inspect
+ * the result again" — which is true on every turn and therefore says nothing
+ * about this one. Both paths now derive the same specific claim from the same
+ * settled state, so a reply gets it whether or not an epoch has started.
+ *
  * Stale visual evidence first: a change made after the last inspection is the
  * state in which a completion claim is unsupported, and the specific gap the
  * evidence gate in `agentTools.ts` refuses a `finish_goal` for. Then a change
@@ -128,7 +134,7 @@ function fit(lines: BriefLines, limit: number): string {
  * nothing to do with pixels" until you also know something was changed. The
  * gathering case last, because it is advice rather than an obligation.
  */
-function outstanding(settled: ToolCall[]): string {
+export function outstandingVerification(settled: ToolCall[]): string | null {
   const progress = progressFromSettledCalls(settled)
   if (hasStaleVisualEvidence(progress)) {
     return (
@@ -150,7 +156,7 @@ function outstanding(settled: ToolCall[]): string {
       'call(s). More looking is not moving this forward.'
     )
   }
-  return ''
+  return null
 }
 
 /** Distinct paths a set of calls touched, most recently touched first. */
