@@ -343,6 +343,147 @@ claimed from the wall-clock or tool-count spread — `current` ran 220–571 s a
 negative one: the capacity contract did not engage, so this batch does not compare the two
 strategies at all.
 
+### Capacity matrix — 2026-08-19/20, local vision, three windows
+
+**Recommendation: keep `current` as the default for now. `adaptive-v1` has earned its place on
+constrained windows and is measurably inert above them, but the cloud, local-text and 32K+ lanes are
+untested and this document requires them before a default change.**
+
+Nineteen live runs on the loaded Qwen3.6-27B-Q4_K_M vision model, temperature 0.30, top-p 0.90, GPU
+Auto, Untethered, 40-minute turn cap. Every trial ran in the freshly created `Bench Fixture 0819`
+project over a copy of `Baseline Snapshot`, restored between runs, so the transcript-recall pool
+began empty and no prior attempt could be recalled into a later one. Conversations and per-trial
+fixture end-states are archived under the benchmark folder's `runs4k`, `runs8k` and `runs16k`
+directories.
+
+| Window | `current`                          | `adaptive-v1`                     | Allowance behaviour      |
+| ------ | ---------------------------------- | --------------------------------- | ------------------------ |
+| 4,096  | **cannot start**                   | runs, 5 calls, honest pause       | binds hard — allowance 0 |
+| 8,192  | 0 completions in 4 runs            | 0 completions in 3 runs           | binds late, marginally   |
+| 16,384 | **completes, screenshot-verified** | **completes, code-verified only** | never binds — cap holds  |
+
+#### 4K — the case the contract exists for
+
+`current` refuses the turn outright: fixed input 2,672 tokens of a 3,584 limit, leaving 912 to reply
+in, below the floor for one tool call. `adaptive-v1` on the same window runs: fixed input 2,196,
+leaving 1,388. The whole difference is the automatic reference material — `current` injects 3,806
+characters (workspace 2,292, recall 1,514), `adaptive-v1` injects **0**, and `systemTokens` falls
+from 1,938 to 1,127. That 811-token gap is exactly the injected material, and it is the difference
+between a window that can seat a turn and one that cannot.
+
+Against this lane's stated bar: no crash, no fixture corruption, all 42 tools still reachable (7
+active, 35 deferred — the same 42 as at 8K, nothing stripped to make the prompt fit), and a pause
+that states its own state truthfully. Both sources reported `deferred`, not `unavailable` — material
+existed and was refused, which is the contract working rather than nothing being available.
+
+#### 8K — a documented negative, and not a defect
+
+Seven runs across both lanes, zero completions, every one stopped by the recovery-churn guard. The
+cause is arithmetic rather than context selection, and it is worth recording so nobody re-runs this
+lane expecting a different answer.
+
+Each cycle begins at roughly 3,700 fixed tokens and reaches 5,900 within two to four tool rounds
+against a 6,073 proactive limit. A cycle therefore affords two to four calls. Re-acquiring the
+two-file working set consumes them, the epoch rotates, and the handoff that survives carries an
+evidence _index_ — tool, label, size — not content. The model re-reads from the same opening moves
+(`List js` four times, `index.html lines 1-200` four times, `universe-sandbox.js lines 1-200` three
+times in one run), the guard sees no novel read identity, and two consecutive read-only post-epoch
+cycles end the reply. It never holds the file contents and the room to act at the same time.
+
+Three candidate faults were checked and cleared with evidence rather than assumption:
+
+- **Tools.** 36 successful reads in the audited run: zero empty, zero collapsed to evidence
+  descriptors, zero truncated stubs, 301–2,001 characters each. Every repeated call returned real
+  content.
+- **The task ledger.** Zero refusals in all seven runs. The loop guard and the gathering ladder never
+  fired.
+- **The churn guard.** A change to scope its read-identity set per epoch was written and reverted: it
+  broke three tests that pin a prior live failure of thirteen epochs re-reading two ranges. The guard
+  is correct, and an early honest stop is better than twenty-four cycles reaching the same place.
+
+The same task completes at 16K, so this is a working-set limit for this task and tool surface, not a
+context-assembly failure. Neither strategy moves it, and the packer fix below — verified to raise
+allowance utilisation from 63% to 91% — changed nothing here.
+
+#### 16K — both lanes complete
+
+`current`: clean finish, 7 cycles, 4 writes, two visual inspections, all four static criteria, and a
+screenshot showing the Sun, eight labelled planets, orbit paths, Saturn's rings, asteroid belt and
+starfield. The fix was `new OrbitControls(...)` to `new THREE.OrbitControls(...)`, the one-line
+binding every earlier run missed.
+
+`adaptive-v1`: clean finish, 9 cycles, 7 writes, all four static criteria, an equivalent fix
+(`const OrbitControls = THREE.OrbitControls` bound at the top). **It took zero visual inspections**,
+so by this document's own standard its completion is unverified — the code is right, and it never
+checked. Independent measurement from a 1280x800 viewport found `THREE` and `THREE.OrbitControls`
+present and the canvas live at 1265x800 with a working WebGL context and no console errors, but the
+browser pane failed before a screenshot could be captured. Treat it as strong indirect verification,
+not a verified completion.
+
+The allowance sat at 5,100 characters — the window cap — on all nine cycles while the sources offered
+3,577–4,609. The contract never bound once, so both lanes fed the model near-identical context and
+the differences between these two runs are variance.
+
+#### The static criteria are not sufficient to score this benchmark
+
+An 8K `current` run passed all four static criteria on a page that still rendered black. The 16K run
+passed the same four and renders correctly. Only the screenshot separates them. Any promotion
+decision resting on the static gate alone would be resting on a false signal; the visual requirement
+in this document is load-bearing and must not be relaxed for convenience.
+
+#### Corrections to earlier records in this document
+
+- The claim that the fixed 4:1 characters-per-token ratio caused roughly two thirds of the
+  fixed-prompt undercount was **wrong**. It divided a reconstructed character count by a measured
+  token count from a different run. Matched pairs put the real ratio at **4.08–4.26** — slightly
+  above 4, so the fixed constant was mildly conservative, not optimistic. The undercount was almost
+  entirely the uncounted section framing, now measured at 1,337 characters for a three-section prompt
+  and corrected (`fixedPromptTokens` 886 to 1,157).
+- A falling `automaticReferenceIncludedChars` was read as the contract binding. A `current` run with
+  no contract at all swings 4,017 to 2,114 to 3,538 on its own, because the retrievers themselves
+  return different amounts as workspace activity and the recall pool shift. Only `included` sitting
+  _at_ the allowance is evidence of binding.
+- `madeProgress === false` was used as a proxy for "the model is repeating". The churn guard keys on
+  call _identity_, not content novelty; the two disagree, and the identity signal is the one that
+  fires.
+
+#### Fixes this batch produced
+
+All are committed on `context-os-adaptive-v1`, each independently revertible.
+
+- **Section framing priced.** `composeSystemPrompt` wraps each reference block in a heading and
+  preamble that exist only because material was admitted. Leaving them out of the fixed-prompt price
+  understated it by 1,337 characters.
+- **Packing no longer strands the budget.** An equal share per source let small units beat large ones:
+  at an allowance of 3,372 the workspace summary fitted its share and its activity block did not,
+  recall packed all three of its small blocks, and 1,258 characters were left unusable — 2,114 of
+  3,372 spent, for fifteen consecutive cycles. Now one unit is guaranteed to each source, then a
+  priority-order fill. Verified live at 63% to 91% utilisation with the workspace kept whole.
+- **Outstanding verification survives an epoch.** The continuation brief was suppressed for the entire
+  remainder of a reply after the first epoch, because `contextEpoch` is assigned once and never
+  cleared. At 8K, with sixteen epochs in nineteen cycles, the brief reached the model at most once.
+  The epoch handoff now derives the same claim from the same settled calls.
+- **A turn that cannot start explains itself.** The refusal read "need 2,672 tokens, but only 3,584
+  fit" — the smaller number second, self-contradictory, and silent about the 912 tokens that actually
+  ran out.
+- **The reply ceiling is reported honestly.** A turn that never starts reported the _requested_
+  ceiling, not the room it had. Covered by a regression test.
+
+#### What remains before promotion
+
+- Local text (node-llama-cpp session path) and any configured cloud provider — untested here; the
+  fixed-cost pricing and the calibration path could behave differently on a transport that reports
+  usage differently.
+- A 32K+ window, to confirm the contract stays inert where there is room.
+- Phase 3's fingerprint extension to the local-session and manual compaction paths.
+- Result manifests rather than prose summaries.
+
+The evidence so far supports promotion in principle — `adaptive-v1` is measurably identical to
+`current` wherever the window has room, because the cap binds before the contract does, and strictly
+better where it does not. That is a narrow claim, and the right one: this is a capacity contract, not
+a better context system. It should be promoted only once the untested transports confirm the same
+inertness.
+
 ### Implementation map
 
 - `src/shared/contextPlanner.ts` is the pure strategy selector, capacity contract, shared
@@ -828,13 +969,12 @@ Exit condition: stale context projections are recoverable and never become the o
 - [x] Run the entire automated gate listed below.
 - [x] Expose `adaptive-v1` as an explicit opt-in setting while retaining `current` as default.
 - [x] Fix the defects the first batch found, and only those. See the correction record above.
-- [ ] Re-run controlled benchmark lanes now the corrections have landed, then complete the wider
-      representative live matrix. The initial local-vision batch is recorded above and does not
-      qualify adaptive-v1 for promotion.
-- [ ] Add a third lane to the next batch: `current` plus a transcript-recall budget, with no strategy
-      change. Recall being unbudgeted is the one defect in the shipped system that is proven rather
-      than argued, and it has a far smaller fix than a second strategy. If `adaptive-v1` cannot beat
-      that lane, it has not earned the surface area it costs.
+- [x] Re-run the controlled lanes now the corrections have landed. Done for local vision at 4K, 8K
+      and 16K — see the capacity matrix above. The wider matrix (local text, cloud, 32K+) remains.
+- [ ] Add a third lane to a later batch: `current` plus a transcript-recall budget, with no strategy
+      change. Deferred rather than dropped — the 4K result now shows the contract doing something a
+      recall budget alone could not, since it also refuses workspace material, but the comparison is
+      still the cheapest test of whether the strategy earns its surface area.
 - [ ] Record result manifests, not only prose summaries.
 - [ ] Fix only evidence-backed regressions. Do not tune allocation shares from one run.
 
