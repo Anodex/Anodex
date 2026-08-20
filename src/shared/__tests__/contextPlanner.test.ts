@@ -230,6 +230,55 @@ describe('assembleAutomaticReferenceContext', () => {
     }
   })
 
+  it('spends the allowance instead of stranding it behind one large unit', () => {
+    // The measured 8K regression: an allowance of 3,372 with a two-unit
+    // workspace (975 + 1,424) and three small recall blocks. Reserving an equal
+    // share per source committed workspace to its first unit, recall packed all
+    // three of its blocks, and the 1,258 characters left over were then too few
+    // for the block workspace still wanted — 2,114 of 3,372 spent, with the
+    // larger source losing to the smaller purely because its pieces were bigger.
+    const assembly = assembleAutomaticReferenceContext({
+      strategy: 'adaptive-v1',
+      contextWindowTokens: 8_192,
+      fixedPromptTokens: 1_700,
+      toolSchemaTokens: 1_474,
+      sources: [
+        { id: 'workspace', units: ['w'.repeat(975), 'a'.repeat(1_422)] },
+        { id: 'memory', units: [] },
+        { id: 'transcript-recall', units: ['r'.repeat(378), 'r'.repeat(378), 'r'.repeat(378)] }
+      ]
+    })
+
+    const workspace = assembly.report.sources.find((source) => source.id === 'workspace')!
+    // The whole workspace survives, which is the point: it is the orientation a
+    // task acts from, and it lost to lexical matches from other conversations.
+    expect(workspace.includedUnits).toBe(2)
+    expect(assembly.report.automaticReferenceIncludedChars).toBeGreaterThan(2_114)
+    expect(assembly.report.automaticReferenceIncludedChars).toBeLessThanOrEqual(
+      assembly.report.automaticReferenceBudgetChars!
+    )
+  })
+
+  it('still gives every source its first unit before anyone gets a second', () => {
+    // The guarantee that stops a single greedy sweep letting workspace take the
+    // lot: recall must not be silenced just because it is ranked last.
+    const assembly = assembleAutomaticReferenceContext({
+      strategy: 'adaptive-v1',
+      contextWindowTokens: 8_192,
+      fixedPromptTokens: 1_700,
+      toolSchemaTokens: 1_474,
+      sources: [
+        { id: 'workspace', units: ['w'.repeat(1_200), 'w'.repeat(1_200)] },
+        { id: 'memory', units: ['m'.repeat(600)] },
+        { id: 'transcript-recall', units: ['r'.repeat(600)] }
+      ]
+    })
+
+    for (const source of assembly.report.sources) {
+      if (source.availableUnits > 0) expect(source.includedUnits).toBeGreaterThanOrEqual(1)
+    }
+  })
+
   it('falls back to current behavior when capacity is not factual yet', () => {
     const assembly = assembleAutomaticReferenceContext({
       strategy: 'adaptive-v1',
