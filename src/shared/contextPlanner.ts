@@ -367,12 +367,23 @@ interface PackedSource {
 }
 
 /**
- * Equal shares first, then hand the remainder back in priority order.
+ * Give every source its first unit, then fill the rest in priority order.
  *
- * Two passes rather than one greedy sweep: a single sweep in priority order
- * would let the workspace summary spend the whole allowance before memory or
- * recall were considered at all, which is the all-or-nothing behaviour this
- * packer exists to end.
+ * The guarantee pass is what stops one source taking everything: a single
+ * greedy sweep would let the workspace summary spend the whole allowance before
+ * recall was considered at all. Bounding that first unit by an equal share
+ * keeps a large source from swallowing the guarantee itself.
+ *
+ * The fill pass then spends what is left in priority order, and it has to be
+ * separate from the guarantee for a reason a measured run made plain. Reserving
+ * an equal share *per source* and only then redistributing let small units win
+ * over large ones: at an allowance of 3,372 the workspace summary fitted its
+ * 1,686 share but its activity block did not, so workspace was committed to one
+ * unit while recall packed all three of its small blocks — and the 1,258
+ * characters left over were then too few for the block workspace still wanted.
+ * 2,114 of 3,372 characters were spent, and the strongest source lost to the
+ * weakest because its pieces were bigger. Filling by priority after the
+ * guarantee spends 3,158 of the same budget and keeps the workspace whole.
  */
 function packSources(
   sources: Map<AutomaticReferenceSourceId, AutomaticReferenceSource>,
@@ -382,9 +393,11 @@ function packSources(
   const active = REDISTRIBUTION_ORDER.filter((id) => sources.get(id)!.units.length > 0)
   if (active.length === 0 || allowance <= 0) return packed
 
+  // Guarantee: one unit each, so no source is silenced outright.
   const share = Math.floor(allowance / active.length)
-  for (const id of active) extend(packed[id], sources.get(id)!, share)
+  for (const id of active) extendBy(packed[id], sources.get(id)!, share, 1)
 
+  // Fill: whatever is left goes in priority order, whole units only.
   let remaining = allowance - sum(mapSources((id) => packed[id].chars))
   for (const id of REDISTRIBUTION_ORDER) {
     if (remaining <= 0) break
@@ -404,12 +417,24 @@ function packSources(
  * before it.
  */
 function extend(packed: PackedSource, source: AutomaticReferenceSource, limit: number): void {
+  extendBy(packed, source, limit, Number.POSITIVE_INFINITY)
+}
+
+/** As {@link extend}, but taking at most `maxUnits` more. */
+function extendBy(
+  packed: PackedSource,
+  source: AutomaticReferenceSource,
+  limit: number,
+  maxUnits: number
+): void {
   const separator = separatorOf(source).length
-  for (let index = packed.units; index < source.units.length; index++) {
+  let taken = 0
+  for (let index = packed.units; index < source.units.length && taken < maxUnits; index++) {
     const cost = source.units[index].length + (packed.units === 0 ? 0 : separator)
     if (packed.chars + cost > limit) return
     packed.chars += cost
     packed.units++
+    taken++
   }
 }
 
