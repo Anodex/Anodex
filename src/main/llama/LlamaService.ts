@@ -115,6 +115,22 @@ function isContextShiftCrash(error: unknown): boolean {
   )
 }
 
+/**
+ * DeepSeek's tool-call markers, written with the full-width vertical bar
+ * (U+FF5C) and lower-one-eighth block (U+2581) the model actually emits — not
+ * the ASCII pipe and underscore they resemble. Escaped so the distinction
+ * survives an editor, a copy-paste and a diff.
+ */
+const DEEPSEEK_CALLS_BEGIN = '<｜tool▁calls▁begin｜>'
+const DEEPSEEK_CALLS_END = '<｜tool▁calls▁end｜>'
+const DEEPSEEK_CALL_BEGIN = '<｜tool▁call▁begin｜>'
+const DEEPSEEK_CALL_END = '<｜tool▁call▁end｜>'
+const DEEPSEEK_SEP = '<｜tool▁sep｜>'
+const DEEPSEEK_OUTPUTS_BEGIN = '<｜tool▁outputs▁begin｜>'
+const DEEPSEEK_OUTPUTS_END = '<｜tool▁outputs▁end｜>'
+const DEEPSEEK_OUTPUT_BEGIN = '<｜tool▁output▁begin｜>'
+const DEEPSEEK_OUTPUT_END = '<｜tool▁output▁end｜>'
+
 const log = createLogger('llama')
 
 /**
@@ -1739,7 +1755,11 @@ class LlamaService extends EventEmitter {
     options: { maxTokens: number; temperature: number }
   ): Promise<string> {
     const nlc = await this.getModule()
-    let session = new nlc.LlamaChatSession({ contextSequence: sequence })
+    const toolWrapper = this.toolCallingWrapper(nlc)
+    let session = new nlc.LlamaChatSession({
+      contextSequence: sequence,
+      ...(toolWrapper ? { chatWrapper: toolWrapper as never } : {})
+    })
     // Qwen 3's chat template defaults to "thinking" mode — we want a direct
     // answer, not a reasoning monologue, so explicitly discourage it when
     // that's the resolved wrapper. Verified directly: without this,
@@ -1858,9 +1878,13 @@ class LlamaService extends EventEmitter {
     }
 
     const nlc = await this.getModule()
+    // See `toolCallingWrapper`: a model whose tool calls the resolved wrapper
+    // cannot read back would otherwise narrate them as prose and call nothing.
+    const chatWrapper = this.toolCallingWrapper(nlc)
     this.session = new nlc.LlamaChatSession({
       contextSequence: this.contextSequence,
       systemPrompt: compacted.systemPrompt,
+      ...(chatWrapper ? { chatWrapper: chatWrapper as never } : {}),
       contextShift: {
         strategy: createBoundedContextShiftStrategy({
           // Context shifts occur inside an active generation. Keep this path
@@ -2398,6 +2422,49 @@ class LlamaService extends EventEmitter {
       totalLayers: insights.totalLayers,
       rationale: buildFileRecommendationRationale(insights, contextSize, hardware, hasCapableGpu)
     }
+  }
+
+  /**
+   * A chat wrapper to use instead of the one node-llama-cpp resolves on its own.
+   *
+   * Resolution prefers the Jinja chat template embedded in the GGUF whenever
+   * there is one, and for DeepSeek that template is right: prompted with it, the
+   * model emits tool calls in exactly its trained syntax. What the Jinja wrapper
+   * lacks is a way to read them back, so the call arrives as prose — and, far
+   * worse, generation never stops at the call boundary, so the model carries on
+   * and writes the tool *result* too. A live DeepSeek-Coder-V2-Lite turn
+   * invented file contents that way and reasoned on them for 10,248 tokens
+   * without opening a single file.
+   *
+   * Substituting `DeepSeekChatWrapper` wholesale is not the answer: it replaces
+   * the prompt as well, and the model then stopped attempting calls at all (47
+   * tokens of stated intent, no call). Keeping the model's own template and
+   * teaching that wrapper the call syntax is what fixes both halves.
+   *
+   * Keyed on the GGUF's declared architecture rather than the file name, which a
+   * user can rename. Narrower than the general rule against model-name special
+   * cases: this picks the parse pattern a model was trained to emit, the same
+   * kind of factual capability as pairing a vision projector, not a decision
+   * about what the user meant.
+   */
+  private toolCallingWrapper(nlc: LlamaModule): object | undefined {
+    const architecture = this.model?.fileInfo?.metadata?.general?.architecture
+    if (typeof architecture !== 'string' || !architecture.toLowerCase().startsWith('deepseek')) {
+      return undefined
+    }
+    const template = this.model?.fileInfo?.metadata?.tokenizer?.chat_template
+    if (typeof template !== 'string' || template.length === 0) {
+      // No embedded template to preserve, so the purpose-built wrapper's own
+      // prompt is the best available.
+      return new nlc.DeepSeekChatWrapper()
+    }
+    return new nlc.JinjaTemplateChatWrapper({
+      template,
+      functionCallMessageTemplate: {
+        call: `${DEEPSEEK_CALLS_BEGIN}${DEEPSEEK_CALL_BEGIN}function${DEEPSEEK_SEP}{{functionName}}\n\`\`\`json\n{{functionParams}}\n\`\`\`${DEEPSEEK_CALL_END}${DEEPSEEK_CALLS_END}`,
+        result: `${DEEPSEEK_OUTPUTS_BEGIN}${DEEPSEEK_OUTPUT_BEGIN}{{functionCallResult}}${DEEPSEEK_OUTPUT_END}${DEEPSEEK_OUTPUTS_END}`
+      }
+    })
   }
 
   private async getModule(): Promise<LlamaModule> {
