@@ -88,7 +88,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: anodex-${{ matrix.name }}
-          path: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            dist/latest*.yml
           if-no-files-found: error
           # These run to hundreds of megabytes each; the default 90 days of
           # retention on every manual packaging run is not worth the storage.

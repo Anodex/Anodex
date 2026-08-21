@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream, existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
@@ -94,7 +94,7 @@ try {
   assertInsideResourceRoot(TARGET)
   await rm(TARGET, { recursive: true, force: true })
   await mkdir(RESOURCE_ROOT, { recursive: true })
-  await rename(extracted, TARGET)
+  await moveExtractedRuntime(extracted, TARGET)
   const installedBinary = resolve(TARGET, relative(extracted, binary))
   await writeFile(
     MARKER,
@@ -131,6 +131,22 @@ async function sha256File(path) {
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(path)) hash.update(chunk)
   return hash.digest('hex')
+}
+
+/**
+ * GitHub-hosted Windows runners keep the checkout and the temp directory on
+ * different drives. `rename` cannot cross that boundary, so copy in that one
+ * case; the temporary source is still removed by the outer `finally` block.
+ */
+async function moveExtractedRuntime(source, target) {
+  try {
+    await rename(source, target)
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || error.code !== 'EXDEV') {
+      throw error
+    }
+    await cp(source, target, { recursive: true })
+  }
 }
 
 function assertInsideResourceRoot(path) {
