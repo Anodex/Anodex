@@ -5,13 +5,8 @@ appId: com.anodex.app
 productName: Anodex
 # Auto-update source (electron-updater reads this from app-update.yml, which
 # electron-builder generates into the packaged app from this block).
-# IMPORTANT: Anodex/Anodex is currently a PRIVATE repo. electron-updater can
-# still fetch releases from a private repo, but only with a token present at
-# check-time (GH_TOKEN env var, or a token baked into the build) — there is
-# no such token wired up yet, so update checks will fail closed (a caught,
-# logged error, not a crash) until either the repo goes public or a token is
-# provisioned. `npm run dist -- --publish always` also needs GH_TOKEN set to
-# actually upload a release.
+# Anodex/Anodex is public, so electron-updater can fetch release metadata and
+# assets without a baked-in token. Publishing from CI still requires `GH_TOKEN`.
 publish:
   provider: github
   owner: Anodex

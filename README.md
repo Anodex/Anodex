@@ -81,16 +81,16 @@ workspace controls—see the [feature overview](docs/FEATURES.md).
 
 ## Availability
 
-Anodex is being prepared for public release. When installers are available, they
-will be published on the [Releases page](https://github.com/Anodex/Anodex/releases).
+Anodex is available publicly from source. When installers are available, they will
+be published on the [Releases page](https://github.com/Anodex/Anodex/releases).
 
 **Platform status:** Windows is the currently tested platform. macOS and Linux are
 not yet tested, so they are not advertised as supported release targets.
 
 ### Build from source
 
-Until then, authorized contributors can run Anodex from source. You will need Git,
-a supported Node.js LTS release, and access to this private repository.
+Until then, you can run Anodex from source. You will need Git and a supported Node.js
+LTS release.
 
 ```bash
 git clone https://github.com/Anodex/Anodex.git
