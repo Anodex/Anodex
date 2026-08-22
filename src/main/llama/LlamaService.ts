@@ -60,6 +60,17 @@ import {
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
+import {
+  DEEPSEEK_CALLS_BEGIN,
+  DEEPSEEK_CALLS_END,
+  DEEPSEEK_CALL_BEGIN,
+  DEEPSEEK_CALL_END,
+  DEEPSEEK_SEP,
+  DEEPSEEK_OUTPUTS_BEGIN,
+  DEEPSEEK_OUTPUTS_END,
+  DEEPSEEK_OUTPUT_BEGIN,
+  DEEPSEEK_OUTPUT_END
+} from './deepSeekMarkers'
 import { beginModelLoad, finishModelLoad } from './loadSentinel'
 import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
@@ -115,22 +126,6 @@ function isContextShiftCrash(error: unknown): boolean {
       error.message.includes(NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT))
   )
 }
-
-/**
- * DeepSeek's tool-call markers, written with the full-width vertical bar
- * (U+FF5C) and lower-one-eighth block (U+2581) the model actually emits — not
- * the ASCII pipe and underscore they resemble. Escaped so the distinction
- * survives an editor, a copy-paste and a diff.
- */
-const DEEPSEEK_CALLS_BEGIN = '<｜tool▁calls▁begin｜>'
-const DEEPSEEK_CALLS_END = '<｜tool▁calls▁end｜>'
-const DEEPSEEK_CALL_BEGIN = '<｜tool▁call▁begin｜>'
-const DEEPSEEK_CALL_END = '<｜tool▁call▁end｜>'
-const DEEPSEEK_SEP = '<｜tool▁sep｜>'
-const DEEPSEEK_OUTPUTS_BEGIN = '<｜tool▁outputs▁begin｜>'
-const DEEPSEEK_OUTPUTS_END = '<｜tool▁outputs▁end｜>'
-const DEEPSEEK_OUTPUT_BEGIN = '<｜tool▁output▁begin｜>'
-const DEEPSEEK_OUTPUT_END = '<｜tool▁output▁end｜>'
 
 const log = createLogger('llama')
 

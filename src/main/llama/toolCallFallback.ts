@@ -25,6 +25,8 @@
  * recorded in its settled tool calls.
  */
 
+import { DEEPSEEK_CALL_BEGIN, DEEPSEEK_SEP } from './deepSeekMarkers'
+
 export interface FallbackToolCall {
   name: string
   arguments: Record<string, unknown>
@@ -62,6 +64,34 @@ const TAG_ATTRIBUTE = /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g
  * believes the call is made), so the block has to be allowed to run to the
  * next function tag or to the end of the text.
  */
+/**
+ * DeepSeek's own call syntax, leaked as text: the tool name follows
+ * `<｜tool▁sep｜>` and the arguments sit in a separate fenced JSON block, so
+ * neither half is a `{"name": …, "arguments": …}` object and every other shape
+ * here misses it — `JSON_FENCE` captured the arguments and then rejected them
+ * for having no `name`.
+ *
+ * Why the model emits it as text at all: the wrapper's call template (see
+ * `LlamaService.toolCallingWrapper`) opens with `<｜tool▁calls▁begin｜>`
+ * immediately followed by `<｜tool▁call▁begin｜>`, and node-llama-cpp matches
+ * that whole prefix to recognise a call. DeepSeek writes the section opener
+ * once and then begins every *subsequent* call with the bare
+ * `<｜tool▁call▁begin｜>`, which no longer matches — so the first call in a
+ * section runs natively and the rest come through as prose.
+ *
+ * Observed directly: a DeepSeek-Coder-V2-Lite turn ran two real calls, then
+ * leaked eight more this way — inventing an `edit_file` success, a
+ * `run_command` transcript, and a web server on port 8000 — and changed
+ * nothing at all on disk.
+ */
+const DEEPSEEK_CALL = new RegExp(
+  // `String.raw` so the backslashes reach `RegExp` intact — in a plain template
+  // literal `\s` is just `s`. `\x60` is a backtick, spelled that way so the
+  // fence needs no escaping inside the raw literal.
+  String.raw`${DEEPSEEK_CALL_BEGIN}\s*(?:function)?\s*${DEEPSEEK_SEP}\s*([\w-]+)\s*\n?\x60{3}(?:json)?\s*\n?([\s\S]*?)\x60{3}`,
+  'g'
+)
+
 const FUNCTION_TAG = /<function=([\w-]+)>/gi
 const PARAMETER_BLOCK = /<parameter=([\w-]+)>([\s\S]*?)(?:<\/parameter>|(?=<parameter=)|$)/gi
 const TRAILING_WRAPPER = /^(?:\s*<\/function>)?(?:\s*<\/tool_call>)?/
@@ -95,6 +125,7 @@ interface Candidate {
 function extractCandidates(text: string): Candidate[] {
   const candidates: Candidate[] = []
 
+  candidates.push(...extractDeepSeekCandidates(text))
   for (const match of text.matchAll(TOOL_CALL_TAG)) {
     candidates.push({ matchedText: match[0], jsonText: match[1] })
   }
@@ -129,6 +160,34 @@ function extractCandidates(text: string): Candidate[] {
   }
   const trailingJson = extractTrailingJsonObject(text)
   if (trailingJson) candidates.push(trailingJson)
+
+  return candidates
+}
+
+/**
+ * See `DEEPSEEK_CALL`. One candidate per leaked call.
+ *
+ * `matchedText` deliberately runs from the call marker to the end of the
+ * response rather than stopping at the closing fence. Everything the model
+ * writes past a leaked call is a continuation reasoned on a tool result it
+ * never received — in the observed turn, literal `<｜tool▁output▁begin｜>`
+ * blocks holding invented file contents. Only the text *before* the first
+ * leaked call was written with real information, so that is all that survives
+ * into the reply; the recovered call then runs for real and the caller
+ * re-prompts with its actual result.
+ */
+function extractDeepSeekCandidates(text: string): Candidate[] {
+  const candidates: Candidate[] = []
+
+  for (const match of text.matchAll(DEEPSEEK_CALL)) {
+    candidates.push({
+      matchedText: text.slice(match.index),
+      jsonText: JSON.stringify({
+        name: match[1],
+        arguments: parseJsonLoosely(match[2].trim()) ?? {}
+      })
+    })
+  }
 
   return candidates
 }
@@ -262,6 +321,9 @@ export function findPotentialToolCallTextStart(text: string): number {
     text.indexOf('<tool_call'),
     // Held back for the same reason as `<tool_call`: it can appear without one.
     text.indexOf('<function='),
+    // Same reason: a leaked DeepSeek call is raw payload, not prose the user
+    // should watch arrive.
+    text.indexOf(DEEPSEEK_CALL_BEGIN),
     text.indexOf('```json'),
     text.indexOf('```\n{'),
     text.indexOf('``` \n{'),
