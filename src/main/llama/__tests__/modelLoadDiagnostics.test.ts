@@ -3,7 +3,7 @@ import {
   createNativeLogTail,
   describeNativeLoadFailure,
   describeUnreadableModelFile
-} from '../nativeLoadDiagnostics'
+} from '../modelLoadDiagnostics'
 
 describe('native log tail', () => {
   it('keeps only the most recent lines', () => {
