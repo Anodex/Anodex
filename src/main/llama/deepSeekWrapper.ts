@@ -46,17 +46,16 @@ export function buildDeepSeekChatWrapper(
   const functions = wrapper.settings.functions
   if (functions == null) return wrapper
 
-  // The sections themselves, which `functionCallMessageTemplate` has no way
-  // to express — node-llama-cpp reads them off `settings` directly. Declaring
-  // them is what closes the section properly in the rendered context after a
-  // call is executed (`sectionSuffix`, then the results section), so the model
-  // is asked for its next call from outside an open section and opens a fresh
-  // one instead of continuing the old one in prose.
+  // The sections themselves, which `functionCallMessageTemplate` has no way to
+  // express — node-llama-cpp reads them off `settings` directly. Declaring them
+  // is what closes a section properly in the rendered context once a call has
+  // run (`sectionSuffix`, then the results section).
   //
   // `betweenCalls` is empty because DeepSeek concatenates calls directly. The
   // one-call-per-section bound stays as it was — see `maxParallelFunctionCalls`
   // in `generate()`'s prompt options for why buffering a whole section before
   // executing anything is unsafe here.
+  //
   // Assigned onto the instance rather than passed in: `settings` is declared
   // readonly and the constructor takes no parallelism option, but the wrapper
   // is a live object whose methods read `this.settings`, so replacing the
@@ -68,6 +67,18 @@ export function buildDeepSeekChatWrapper(
       parallelism: {
         call: {
           sectionPrefix: DEEPSEEK_CALLS_BEGIN,
+          // The section opener is written once per turn and then never again:
+          // after a result comes back, DeepSeek-Coder-V2-Lite resumes with a
+          // bare `<｜tool▁call▁begin｜>`. node-llama-cpp detects a call by the
+          // section prefix and the call prefix *concatenated*, so without an
+          // empty alternate every call after the first fails to match and
+          // arrives as prose — measured directly by the live probe, which saw
+          // `list_files` execute and the `read_file` that depended on its
+          // result leak as text, followed by an invented file listing.
+          //
+          // Detection only: node-llama-cpp still writes the canonical
+          // `sectionPrefix` when it builds the context itself.
+          sectionPrefixAlternateMatches: [''],
           betweenCalls: '',
           sectionSuffix: DEEPSEEK_CALLS_END
         },

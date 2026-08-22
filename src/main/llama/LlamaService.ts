@@ -60,7 +60,7 @@ import {
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
-import { buildDeepSeekChatWrapper } from './deepSeekWrapper'
+import { resolveToolCallingWrapper } from './toolCallDialects'
 import { beginModelLoad, finishModelLoad } from './loadSentinel'
 import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
@@ -2433,40 +2433,16 @@ class LlamaService extends EventEmitter {
   }
 
   /**
-   * A chat wrapper to use instead of the one node-llama-cpp resolves on its own.
-   *
-   * Resolution prefers the Jinja chat template embedded in the GGUF whenever
-   * there is one, and for DeepSeek that template is right: prompted with it, the
-   * model emits tool calls in exactly its trained syntax. What the Jinja wrapper
-   * lacks is a way to read them back, so the call arrives as prose — and, far
-   * worse, generation never stops at the call boundary, so the model carries on
-   * and writes the tool *result* too. A live DeepSeek-Coder-V2-Lite turn
-   * invented file contents that way and reasoned on them for 10,248 tokens
-   * without opening a single file.
-   *
-   * Substituting `DeepSeekChatWrapper` wholesale is not the answer: it replaces
-   * the prompt as well, and the model then stopped attempting calls at all (47
-   * tokens of stated intent, no call). Keeping the model's own template and
-   * teaching that wrapper the call syntax is what fixes both halves.
-   *
-   * Keyed on the GGUF's declared architecture rather than the file name, which a
-   * user can rename. Narrower than the general rule against model-name special
-   * cases: this picks the parse pattern a model was trained to emit, the same
-   * kind of factual capability as pairing a vision projector, not a decision
-   * about what the user meant.
+   * The chat wrapper for the loaded model, or `undefined` to keep the one
+   * node-llama-cpp resolves on its own. See `toolCallDialects.ts` for which
+   * families need an override and why the list is deliberately short.
    */
   private toolCallingWrapper(nlc: LlamaModule): object | undefined {
-    const architecture = this.model?.fileInfo?.metadata?.general?.architecture
-    if (typeof architecture !== 'string' || !architecture.toLowerCase().startsWith('deepseek')) {
-      return undefined
-    }
-    const template = this.model?.fileInfo?.metadata?.tokenizer?.chat_template
-    if (typeof template !== 'string' || template.length === 0) {
-      // No embedded template to preserve, so the purpose-built wrapper's own
-      // prompt is the best available.
-      return new nlc.DeepSeekChatWrapper()
-    }
-    return buildDeepSeekChatWrapper(nlc, template)
+    return resolveToolCallingWrapper(
+      nlc,
+      this.model?.fileInfo?.metadata?.general?.architecture,
+      this.model?.fileInfo?.metadata?.tokenizer?.chat_template
+    )
   }
 
   private async getModule(): Promise<LlamaModule> {
