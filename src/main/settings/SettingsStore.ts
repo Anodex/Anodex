@@ -653,6 +653,8 @@ function assertKnownKeys(
     // This is an intentionally open string-to-string record. Its keys are
     // absolute model paths, so they cannot appear in the canonical defaults.
     if (`${path}${key}` === 'visionProjectorPaths') continue
+    // Open record for the same reason: keyed by absolute model path.
+    if (`${path}${key}` === 'modelContextSizes') continue
     if (isPlainObject(refValue)) {
       // A whole settings block replaced by a scalar or an array. `deepMerge`
       // only recurses when both sides are objects, so it would take the value
@@ -755,6 +757,26 @@ export function validatePatch(patch: SettingsPatch): void {
       )
     ) {
       throw new Error('visionProjectorPaths must map model paths to non-empty projector paths')
+    }
+  }
+
+  if (patch.modelContextSizes !== undefined) {
+    if (
+      typeof patch.modelContextSizes !== 'object' ||
+      patch.modelContextSizes === null ||
+      Array.isArray(patch.modelContextSizes) ||
+      Object.entries(patch.modelContextSizes).some(
+        ([modelPath, contextSize]) =>
+          // `null` is the removal sentinel (see `REMOVABLE_SETTING_PATHS`).
+          !modelPath.trim() ||
+          (contextSize !== null &&
+            (typeof contextSize !== 'number' ||
+              !Number.isFinite(contextSize) ||
+              !Number.isInteger(contextSize) ||
+              contextSize <= 0))
+      )
+    ) {
+      throw new Error('modelContextSizes must map model paths to positive whole token counts')
     }
   }
 

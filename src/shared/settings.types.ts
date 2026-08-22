@@ -469,6 +469,22 @@ export interface AppSettings {
   addedModelPaths: string[]
   /** Explicit model-path -> multimodal-projector-path associations. */
   visionProjectorPaths: Record<string, string>
+  /**
+   * Context size chosen for one specific model file, keyed by its path.
+   *
+   * `model.contextSize` is a single global number, but a context size is only
+   * ever meaningful for the model it was sized against — "Apply recommendation"
+   * reads that file's own GGUF metadata. Writing that result globally silently
+   * re-sized every *other* model: sizing a 27B vision model down to 8,192 left
+   * a small coding model running at 8,192 too, with a 427-token history budget
+   * and no warning anywhere, because the running size still matched the saved
+   * setting exactly.
+   *
+   * An entry here wins over `model.contextSize` when that model loads. Absent
+   * for any model whose size was never chosen deliberately, which keeps the
+   * global setting meaningful as the default for everything else.
+   */
+  modelContextSizes: Record<string, number>
   /** Path of the last successfully loaded model, restored on next launch. */
   lastModelPath?: string
   generation: GenerationSettings
@@ -511,7 +527,8 @@ export type DeepPartial<T> = {
  */
 export const REMOVABLE_SETTING_PATHS: ReadonlySet<string> = new Set([
   'lastModelPath',
-  'visionProjectorPaths.*'
+  'visionProjectorPaths.*',
+  'modelContextSizes.*'
 ])
 
 /**
@@ -531,10 +548,12 @@ export function isRemovableSetting(parentPath: string, key: string): boolean {
  */
 export type SettingsPatch = Omit<
   DeepPartial<AppSettings>,
-  'lastModelPath' | 'visionProjectorPaths'
+  'lastModelPath' | 'visionProjectorPaths' | 'modelContextSizes'
 > & {
   /** `null` clears the stored path, e.g. when that model file is deleted. */
   lastModelPath?: string | null
   /** A `null` value removes that model's projector association entirely. */
   visionProjectorPaths?: Record<string, string | null>
+  /** A `null` value forgets that model's size, falling back to `model.contextSize`. */
+  modelContextSizes?: Record<string, number | null>
 }
