@@ -1,4 +1,5 @@
 import { buildDeepSeekChatWrapper } from './deepSeekWrapper'
+import { DEEPSEEK_OUTPUTS_BEGIN, DEEPSEEK_OUTPUT_BEGIN } from '@shared/deepSeekMarkers'
 
 type NlcModule = typeof import('node-llama-cpp')
 
@@ -34,13 +35,20 @@ export interface ToolCallDialect {
    * purpose-built wrapper (prompt included) is the best available.
    */
   withoutTemplate(nlc: NlcModule): object
+  /**
+   * Text that only the engine may legitimately produce — the markers that
+   * introduce a tool *result*. A model writing one is inventing a result it was
+   * never given, so generation is stopped there.
+   */
+  readonly fabricatedResultMarkers?: readonly string[]
 }
 
 const DEEPSEEK: ToolCallDialect = {
   name: 'deepseek',
   matches: (architecture) => architecture.startsWith('deepseek'),
   withTemplate: (nlc, template) => buildDeepSeekChatWrapper(nlc, template),
-  withoutTemplate: (nlc) => new nlc.DeepSeekChatWrapper()
+  withoutTemplate: (nlc) => new nlc.DeepSeekChatWrapper(),
+  fabricatedResultMarkers: [DEEPSEEK_OUTPUTS_BEGIN, DEEPSEEK_OUTPUT_BEGIN]
 }
 
 const DIALECTS: readonly ToolCallDialect[] = [DEEPSEEK]
@@ -68,4 +76,25 @@ export function resolveToolCallingWrapper(
   return typeof template === 'string' && template.length > 0
     ? dialect.withTemplate(nlc, template)
     : dialect.withoutTemplate(nlc)
+}
+
+/**
+ * Stop triggers for the loaded model: text that, if the model writes it, means
+ * it has stopped calling tools and started inventing their results.
+ *
+ * This is syntax, not intent. Anodex deliberately does not let a phrase match
+ * drive orchestration — "does this reply claim a change that never happened"
+ * is guesswork — but a tool-result marker is not a phrase. It is a token the
+ * engine alone emits, and a model producing one has begun fabricating by
+ * definition. Measured directly: given a three-step task,
+ * DeepSeek-Coder-V2-Lite ran the first call, then wrote its own
+ * `<｜tool▁output▁begin｜>` block containing invented file contents and
+ * reasoned onward from them. Stopping at the marker ends that turn while it is
+ * still only one wrong sentence long, instead of spending the whole budget
+ * building on a fiction.
+ */
+export function fabricatedResultStopTriggers(architecture: string | undefined): string[] {
+  if (typeof architecture !== 'string' || architecture.length === 0) return []
+  const dialect = DIALECTS.find((candidate) => candidate.matches(architecture.toLowerCase()))
+  return [...(dialect?.fabricatedResultMarkers ?? [])]
 }

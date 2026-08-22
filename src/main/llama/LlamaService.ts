@@ -60,7 +60,7 @@ import {
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
-import { resolveToolCallingWrapper } from './toolCallDialects'
+import { resolveToolCallingWrapper, fabricatedResultStopTriggers } from './toolCallDialects'
 import {
   createNativeLogTail,
   describeNativeLoadFailure,
@@ -1116,6 +1116,13 @@ class LlamaService extends EventEmitter {
           // per-turn token budget on pure repetition. `strength: 0.8` is the
           // library's own recommended default.
           dryRepeatPenalty: { strength: 0.8 },
+          // Halt the moment the model starts inventing a tool result rather
+          // than calling the tool — see `fabricatedResultStopTriggers`. The
+          // round handler below turns that stop into one plain request for the
+          // call it skipped.
+          customStopTriggers: fabricatedResultStopTriggers(
+            this.model?.fileInfo?.metadata?.general?.architecture
+          ),
           signal: genController.signal,
           ...(grammar ? { grammar } : { functions }),
           // Force a checkpoint after every native tool call. Wrappers such
@@ -1343,6 +1350,28 @@ class LlamaService extends EventEmitter {
           stopped = true
           log.warn('Bounded local generation stop diagnostics', diagnostics.snapshot())
           break
+        }
+
+        // The model started writing a tool *result*, which only the engine may
+        // produce — see `fabricatedResultStopTriggers`. Generation was stopped
+        // at the marker, so the invented content was never written; what is
+        // missing is the call the model skipped. Ask for it once, plainly,
+        // spending a round from the same budget the fallback path uses.
+        //
+        // Syntax, not intent: this fires on a marker the model cannot
+        // legitimately emit, never on what a reply appears to claim.
+        if (
+          meta.stopReason === 'customStopTrigger' &&
+          functions != null &&
+          round < MAX_FALLBACK_ROUNDS
+        ) {
+          visibleContent = appendRoundText(visibleContent, roundContent)
+          prompt =
+            'You started writing a tool result yourself. Tool results come only from the ' +
+            'tools — anything you write there is invented. Call the tool you need and wait ' +
+            'for its real result, or, if the task is already done, say what you did.'
+          log.info('Stopped a fabricated tool result and asked for the call instead', { round })
+          continue
         }
 
         // Some local models fail to trigger node-llama-cpp's native function
