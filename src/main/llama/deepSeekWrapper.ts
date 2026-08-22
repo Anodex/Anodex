@@ -9,7 +9,7 @@ import {
   DEEPSEEK_OUTPUTS_END,
   DEEPSEEK_OUTPUT_BEGIN,
   DEEPSEEK_OUTPUT_END
-} from './deepSeekMarkers'
+} from '@shared/deepSeekMarkers'
 
 type NlcModule = typeof import('node-llama-cpp')
 

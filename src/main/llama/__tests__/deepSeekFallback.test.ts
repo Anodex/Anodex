@@ -9,7 +9,7 @@ import {
   DEEPSEEK_OUTPUT_BEGIN,
   DEEPSEEK_OUTPUT_END,
   DEEPSEEK_SEP
-} from '../deepSeekMarkers'
+} from '@shared/deepSeekMarkers'
 
 const TOOLS = new Set(['read_file_range', 'edit_file', 'list_directory'])
 

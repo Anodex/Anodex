@@ -1,3 +1,14 @@
+import {
+  DEEPSEEK_CALLS_BEGIN,
+  DEEPSEEK_CALLS_END,
+  DEEPSEEK_CALL_BEGIN,
+  DEEPSEEK_CALL_END,
+  DEEPSEEK_OUTPUTS_BEGIN,
+  DEEPSEEK_OUTPUTS_END,
+  DEEPSEEK_OUTPUT_BEGIN,
+  DEEPSEEK_OUTPUT_END
+} from './deepSeekMarkers'
+
 export interface ToolCallTextMatch {
   name: string
   arguments: Record<string, unknown>
@@ -51,6 +62,10 @@ export function stripToolCallText(text: string, availableToolNames: ReadonlySet<
 export function findPotentialToolCallTextStart(text: string): number {
   const starts = [
     text.indexOf('<tool_call'),
+    // A DeepSeek call or result marker is raw payload, never prose — held back
+    // so it does not flash into the transcript mid-stream.
+    text.indexOf(DEEPSEEK_CALL_BEGIN),
+    text.indexOf(DEEPSEEK_OUTPUTS_BEGIN),
     text.indexOf('```json'),
     text.indexOf('```\n{'),
     text.indexOf('``` \n{'),
@@ -213,9 +228,49 @@ export function stripSubstantialCodeFences(text: string, userPrompt: string): st
  */
 const LEAKED_CHANNEL_TOKEN_RE = /<\/?channel\|?>\n?/gi
 
+/**
+ * A tool-*results* block written by the model itself.
+ *
+ * Real results never arrive this way: the engine executes the call and the chat
+ * wrapper renders the result into the context. Anything matching this shape
+ * inside generated text is therefore fiction, and the whole span goes — content
+ * included, not just the markers, since the content is the invention. Observed
+ * directly: a reply that opened with two `<｜tool▁output▁begin｜>` blocks
+ * echoing a file range back as though it had been read.
+ *
+ * An unterminated block runs to the end of the text, because the model stops
+ * mid-fabrication often enough that requiring the closing marker would leave
+ * exactly the worst case on screen.
+ */
+const FABRICATED_TOOL_OUTPUTS_RE = new RegExp(
+  `${DEEPSEEK_OUTPUTS_BEGIN}[\\s\\S]*?(?:${DEEPSEEK_OUTPUTS_END}|$)`,
+  'g'
+)
+
+/**
+ * Any DeepSeek tool marker still standing on its own after the blocks above are
+ * gone — a stray opener the model emitted without ever closing it, or a closer
+ * with no opener. Markers only, so surrounding prose is left alone.
+ */
+const STRAY_TOOL_MARKER_RE = new RegExp(
+  [
+    DEEPSEEK_CALLS_BEGIN,
+    DEEPSEEK_CALLS_END,
+    DEEPSEEK_CALL_BEGIN,
+    DEEPSEEK_CALL_END,
+    DEEPSEEK_OUTPUTS_BEGIN,
+    DEEPSEEK_OUTPUTS_END,
+    DEEPSEEK_OUTPUT_BEGIN,
+    DEEPSEEK_OUTPUT_END
+  ].join('|'),
+  'g'
+)
+
 export function stripLeakedChannelTokens(text: string): string {
   return text
     .replace(LEAKED_CHANNEL_TOKEN_RE, '')
+    .replace(FABRICATED_TOOL_OUTPUTS_RE, '')
+    .replace(STRAY_TOOL_MARKER_RE, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }

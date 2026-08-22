@@ -11,7 +11,7 @@ import {
   DEEPSEEK_OUTPUT_BEGIN,
   DEEPSEEK_OUTPUT_END,
   DEEPSEEK_SEP
-} from '../deepSeekMarkers'
+} from '@shared/deepSeekMarkers'
 
 /** Enough of DeepSeek's chat template for the wrapper to render a prompt. */
 const TEMPLATE = `{% for message in messages %}{{ message['role'] }}: {{ message['content'] }}\n{% endfor %}`
