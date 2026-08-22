@@ -60,17 +60,7 @@ import {
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
-import {
-  DEEPSEEK_CALLS_BEGIN,
-  DEEPSEEK_CALLS_END,
-  DEEPSEEK_CALL_BEGIN,
-  DEEPSEEK_CALL_END,
-  DEEPSEEK_SEP,
-  DEEPSEEK_OUTPUTS_BEGIN,
-  DEEPSEEK_OUTPUTS_END,
-  DEEPSEEK_OUTPUT_BEGIN,
-  DEEPSEEK_OUTPUT_END
-} from './deepSeekMarkers'
+import { buildDeepSeekChatWrapper } from './deepSeekWrapper'
 import { beginModelLoad, finishModelLoad } from './loadSentinel'
 import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
@@ -2468,13 +2458,7 @@ class LlamaService extends EventEmitter {
       // prompt is the best available.
       return new nlc.DeepSeekChatWrapper()
     }
-    return new nlc.JinjaTemplateChatWrapper({
-      template,
-      functionCallMessageTemplate: {
-        call: `${DEEPSEEK_CALLS_BEGIN}${DEEPSEEK_CALL_BEGIN}function${DEEPSEEK_SEP}{{functionName}}\n\`\`\`json\n{{functionParams}}\n\`\`\`${DEEPSEEK_CALL_END}${DEEPSEEK_CALLS_END}`,
-        result: `${DEEPSEEK_OUTPUTS_BEGIN}${DEEPSEEK_OUTPUT_BEGIN}{{functionCallResult}}${DEEPSEEK_OUTPUT_END}${DEEPSEEK_OUTPUTS_END}`
-      }
-    })
+    return buildDeepSeekChatWrapper(nlc, template)
   }
 
   private async getModule(): Promise<LlamaModule> {

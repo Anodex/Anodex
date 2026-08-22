@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import type { ModelSettingsRecommendation } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
+import type { ModelSettings } from '@shared/settings.types'
 import { recommendModel } from '@shared/modelRecommendation'
 import { CONTEXT_SIZE_LADDER, formatContextSizeLabel } from '@shared/contextSizes'
 import { useModelStore } from '../../../../stores/modelStore'
@@ -222,15 +223,30 @@ export function AiModelsSettings(): JSX.Element {
     void loadModel(refused.model)
   }, [engine.refusedLoad, engine.status, engine.generating, loadModel])
 
+  /**
+   * Save a deliberately chosen context size.
+   *
+   * Recorded against the loaded model as well as globally: a size is only ever
+   * meaningful for the model it was chosen for, and without the per-model entry
+   * this number silently followed the *next* model into the engine — see
+   * `resolveModelContextSize`. Writing both keeps the global default in step
+   * with the visible control while the running model keeps its own size.
+   */
+  const saveContextSize = (patch: Partial<ModelSettings> & { contextSize: number }): void => {
+    const activePath = engine.model?.source === 'local' ? engine.model.path : null
+    void update({
+      model: patch,
+      ...(activePath ? { modelContextSizes: { [activePath]: patch.contextSize } } : {})
+    }).then(reloadActiveModelIfSafe)
+  }
+
   const applyRecommendation = (): void => {
     if (!recommendation) return
-    void update({
-      model: {
-        contextSize: recommendation.contextSize,
-        gpuLayers: recommendation.gpuLayers,
-        autoConfigured: true
-      }
-    }).then(reloadActiveModelIfSafe)
+    saveContextSize({
+      contextSize: recommendation.contextSize,
+      gpuLayers: recommendation.gpuLayers,
+      autoConfigured: true
+    })
   }
 
   // Reads the *loaded file's own* GGUF metadata rather than assuming a tier —
@@ -252,13 +268,11 @@ export function AiModelsSettings(): JSX.Element {
 
   const applyFileRecommendation = (): void => {
     if (!fileRecommendation) return
-    void update({
-      model: {
-        contextSize: fileRecommendation.contextSize,
-        gpuLayers: fileRecommendation.gpuLayers,
-        autoConfigured: true
-      }
-    }).then(reloadActiveModelIfSafe)
+    saveContextSize({
+      contextSize: fileRecommendation.contextSize,
+      gpuLayers: fileRecommendation.gpuLayers,
+      autoConfigured: true
+    })
     setFileRecommendation(null)
   }
 
@@ -485,11 +499,7 @@ export function AiModelsSettings(): JSX.Element {
                   <SelectControl
                     value={String(settings.model.contextSize)}
                     options={CONTEXT_OPTIONS}
-                    onChange={(value) =>
-                      void update({ model: { contextSize: Number(value) } }).then(
-                        reloadActiveModelIfSafe
-                      )
-                    }
+                    onChange={(value) => saveContextSize({ contextSize: Number(value) })}
                   />
                 }
               />
