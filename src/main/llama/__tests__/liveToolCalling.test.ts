@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'node:fs'
 import * as nlc from 'node-llama-cpp'
 import { resolveToolCallingWrapper } from '../toolCallDialects'
@@ -60,10 +60,11 @@ describe.skipIf(!MODEL_PATH)('live tool calling', () => {
     context = await model.createContext({ contextSize: CONTEXT_SIZE })
   }, 600_000)
 
-  afterAll(async () => {
-    await context?.dispose()
-    await model?.dispose()
-  })
+  // Deliberately no teardown. Disposing a multi-gigabyte model took the vitest
+  // worker down with it on a 27B (`Worker exited unexpectedly`, reported as an
+  // unhandled error after the test had already passed) — a probe that cries
+  // failure on a model that actually worked is worse than no probe. The run is
+  // a short-lived process of its own; exiting reclaims everything.
 
   it('runs both calls of a task that needs two sequential tools', async () => {
     const calls: RecordedCall[] = []

@@ -61,6 +61,12 @@ import {
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
 import { resolveToolCallingWrapper } from './toolCallDialects'
+import {
+  createNativeLogTail,
+  describeNativeLoadFailure,
+  describeUnreadableModelFile,
+  type NativeLogTail
+} from './nativeLoadDiagnostics'
 import { beginModelLoad, finishModelLoad } from './loadSentinel'
 import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
@@ -390,6 +396,8 @@ class LlamaService extends EventEmitter {
   private status: EngineState['status'] = 'unloaded'
   private currentModel?: ModelInfo
   private contextSize?: number
+  /** Tail of llama.cpp's own log, read only when a load fails. */
+  private readonly nativeLog: NativeLogTail = createNativeLogTail()
   private gpuLayersUsed?: number
   private gpuLayersTotal?: number
   private error?: string
@@ -618,7 +626,7 @@ class LlamaService extends EventEmitter {
       log.info('Model ready:', info.name, `(ctx ${this.contextSize})`)
       return this.getState()
     } catch (error) {
-      const message = describeLoadError(error, info)
+      const message = describeLoadError(error, info, this.nativeLog.lines())
       log.error('Failed to load model:', message)
       await this.visionService.unload()
       await this.disposeModel()
@@ -2338,7 +2346,17 @@ class LlamaService extends EventEmitter {
 
   private async createLlamaBackend(): Promise<Llama> {
     const nlc = await this.getModule()
-    this.llama = await nlc.getLlama()
+    // llama.cpp's own diagnostics never reach JS — a failed load rejects with a
+    // bare "Failed to load model" whatever the cause — so they are captured
+    // here instead. See `nativeLoadDiagnostics.ts`.
+    this.llama = await nlc.getLlama({
+      logger: (level, message) => {
+        this.nativeLog.record(message)
+        if (level === nlc.LlamaLogLevel.error || level === nlc.LlamaLogLevel.fatal) {
+          log.warn('llama.cpp:', message)
+        }
+      }
+    })
     return this.llama
   }
 
@@ -2891,9 +2909,14 @@ async function describeInsufficientMemory(
  * than guess at a cause we can't reliably detect, add real, actionable
  * guidance to whatever the engine did report instead of surfacing it bare.
  */
-function describeLoadError(error: unknown, info: ModelInfo): string {
+function describeLoadError(error: unknown, info: ModelInfo, nativeLog: readonly string[]): string {
   const raw = error instanceof Error ? error.message : String(error)
   const base = raw || 'Failed to load model.'
+  // A cause llama.cpp actually named beats the generic memory guidance below,
+  // which is a guess — and a misleading one for a model that can never load on
+  // this build no matter how much memory is free.
+  const nativeCause = describeNativeLoadFailure(nativeLog) ?? describeUnreadableModelFile(raw)
+  if (nativeCause) return `${base} ${nativeCause}`
   return (
     `${base} This often happens when a model needs more RAM or VRAM than is ` +
     `currently available — try CPU-only mode, close other applications, or ` +
