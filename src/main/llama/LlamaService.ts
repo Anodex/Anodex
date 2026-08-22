@@ -59,6 +59,7 @@ import {
   seedContextFromSnapshot
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
+import { gbnfSafeSchema } from './gbnfSafeSchema'
 import { beginModelLoad, finishModelLoad } from './loadSentinel'
 import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
@@ -1054,7 +1055,7 @@ class LlamaService extends EventEmitter {
       const grammar =
         params.options?.jsonSchema && functions == null && this.llama
           ? await this.llama.createGrammarForJsonSchema<GbnfJsonSchema>(
-              params.options.jsonSchema as GbnfJsonSchema
+              gbnfSafeSchema(params.options.jsonSchema) as GbnfJsonSchema
             )
           : undefined
       for (let round = 0; ; round++) {
@@ -2243,7 +2244,7 @@ class LlamaService extends EventEmitter {
     if (!params.tools) return undefined
     const nlc = await this.getModule()
     const rawConfirm = params.tools.confirm
-    return buildTools(nlc.defineChatSessionFunction, {
+    const tools = buildTools(nlc.defineChatSessionFunction, {
       conversationId: params.conversationId,
       messageId: params.messageId,
       workspaceRoot: params.tools.workspaceRoot,
@@ -2300,6 +2301,20 @@ class LlamaService extends EventEmitter {
       // confirm as denied the moment this generation ends, however it ends.
       confirm: (request) => confirmRacingAbort(rawConfirm, request, signalBox)
     })
+    // node-llama-cpp compiles each tool's schema into GBNF on its own — and
+    // rejects bounds a cloud provider accepts happily. This is the only seam
+    // where the tool declarations meet that compiler, so it is where they are
+    // made safe for it; see `gbnfSafeSchema`'s doc comment for what fails and
+    // why the bound is dropped rather than lowered.
+    return Object.fromEntries(
+      Object.entries(tools).map(([name, fn]) => {
+        // `fn.params` is `any` (`ToolFunction = ChatSessionModelFunction<any>`)
+        // — narrowed to `unknown` before use, as `estimateToolSchemaTokens`
+        // above does, so it is never propagated unsafely.
+        const params: unknown = fn.params
+        return [name, params == null ? fn : { ...fn, params: gbnfSafeSchema(params) }]
+      })
+    )
   }
 
   /**
