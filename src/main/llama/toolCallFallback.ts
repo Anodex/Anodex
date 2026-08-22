@@ -25,7 +25,7 @@
  * recorded in its settled tool calls.
  */
 
-import { DEEPSEEK_CALL_BEGIN, DEEPSEEK_SEP } from './deepSeekMarkers'
+import { DEEPSEEK_CALL_BEGIN, DEEPSEEK_SEP } from '@shared/deepSeekMarkers'
 
 export interface FallbackToolCall {
   name: string
@@ -64,6 +64,8 @@ const TAG_ATTRIBUTE = /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g
  * believes the call is made), so the block has to be allowed to run to the
  * next function tag or to the end of the text.
  */
+const FUNCTION_TAG = /<function=([\w-]+)>/gi
+const PARAMETER_BLOCK = /<parameter=([\w-]+)>([\s\S]*?)(?:<\/parameter>|(?=<parameter=)|$)/gi
 /**
  * DeepSeek's own call syntax, leaked as text: the tool name follows
  * `<｜tool▁sep｜>` and the arguments sit in a separate fenced JSON block, so
@@ -71,18 +73,13 @@ const TAG_ATTRIBUTE = /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g
  * here misses it — `JSON_FENCE` captured the arguments and then rejected them
  * for having no `name`.
  *
- * Why the model emits it as text at all: the wrapper's call template (see
- * `LlamaService.toolCallingWrapper`) opens with `<｜tool▁calls▁begin｜>`
- * immediately followed by `<｜tool▁call▁begin｜>`, and node-llama-cpp matches
- * that whole prefix to recognise a call. DeepSeek writes the section opener
- * once and then begins every *subsequent* call with the bare
- * `<｜tool▁call▁begin｜>`, which no longer matches — so the first call in a
- * section runs natively and the rest come through as prose.
- *
- * Observed directly: a DeepSeek-Coder-V2-Lite turn ran two real calls, then
- * leaked eight more this way — inventing an `edit_file` success, a
- * `run_command` transcript, and a web server on port 8000 — and changed
- * nothing at all on disk.
+ * A backstop rather than the primary path: the wrapper now declares DeepSeek's
+ * call sections properly (see `deepSeekWrapper.ts`), so these calls are read
+ * back natively. Before it did, only the first call of a section matched the
+ * configured prefix and one live turn leaked eight — inventing an `edit_file`
+ * success, a `run_command` transcript, and a web server on port 8000 while
+ * changing nothing on disk. Keeping the parser costs nothing and the failure it
+ * covers is silent, expensive, and produces confident fiction.
  */
 const DEEPSEEK_CALL = new RegExp(
   // `String.raw` so the backslashes reach `RegExp` intact — in a plain template
@@ -92,8 +89,6 @@ const DEEPSEEK_CALL = new RegExp(
   'g'
 )
 
-const FUNCTION_TAG = /<function=([\w-]+)>/gi
-const PARAMETER_BLOCK = /<parameter=([\w-]+)>([\s\S]*?)(?:<\/parameter>|(?=<parameter=)|$)/gi
 const TRAILING_WRAPPER = /^(?:\s*<\/function>)?(?:\s*<\/tool_call>)?/
 const LEADING_WRAPPER = /<tool_call>\s*$/
 

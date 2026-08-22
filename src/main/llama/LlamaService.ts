@@ -534,7 +534,15 @@ class LlamaService extends EventEmitter {
     await this.unloadInternal()
     // A new attempt supersedes any refusal on record, whatever its outcome.
     this.setState({ status: 'loading', model: info, error: undefined, refusedLoad: undefined })
-    log.info('Loading model', info.name)
+    // The requested size, and whether the caller actually named one. Without
+    // this the only record of a load is the size that came *out*, so a model
+    // running at half the configured context is indistinguishable from one the
+    // caller asked to be small — which cost a long investigation once already.
+    log.info('Loading model', info.name, {
+      requestedContextSize: requestedSize,
+      callerAskedFor: options.contextSize ?? null,
+      gpuLayers: options.gpuLayers ?? 'auto'
+    })
 
     // Everything below this line can take the whole process down without
     // raising anything catchable — see `loadSentinel.ts`. The record is
