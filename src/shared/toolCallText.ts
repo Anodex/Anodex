@@ -266,7 +266,13 @@ const STRAY_TOOL_MARKER_RE = new RegExp(
   'g'
 )
 
-export function stripLeakedChannelTokens(text: string): string {
+/**
+ * Remove everything from a reply that the model should never have written
+ * itself: a chat template's own segment markers, and any tool-result block it
+ * fabricated. Both are engine text — one the wrapper failed to consume, the
+ * other invented outright — and neither belongs in front of a reader.
+ */
+export function stripLeakedEngineText(text: string): string {
   return text
     .replace(LEAKED_CHANNEL_TOKEN_RE, '')
     .replace(FABRICATED_TOOL_OUTPUTS_RE, '')

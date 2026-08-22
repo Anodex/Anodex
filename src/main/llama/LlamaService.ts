@@ -66,7 +66,7 @@ import {
   describeNativeLoadFailure,
   describeUnreadableModelFile,
   type NativeLogTail
-} from './nativeLoadDiagnostics'
+} from './modelLoadDiagnostics'
 import { beginModelLoad, finishModelLoad } from './loadSentinel'
 import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
@@ -76,7 +76,7 @@ import {
   stripFallbackCall,
   type FallbackToolCall
 } from './toolCallFallback'
-import { stripLeakedChannelTokens, stripSubstantialCodeFences } from '@shared/toolCallText'
+import { stripLeakedEngineText, stripSubstantialCodeFences } from '@shared/toolCallText'
 import { PendingToolCallTracker } from './pendingToolCalls'
 import { appendThinking, shouldPromoteThinkingToAnswer } from './thinkingChannel'
 import {
@@ -1231,7 +1231,7 @@ class LlamaService extends EventEmitter {
         } catch (error) {
           const isContextShiftFailure = isContextShiftCrash(error)
           if (genController.signal.aborted) {
-            visibleContent = appendRoundText(visibleContent, stripLeakedChannelTokens(roundContent))
+            visibleContent = appendRoundText(visibleContent, stripLeakedEngineText(roundContent))
             if (roundSegment.trim()) {
               thinkingText = thinkingText
                 ? `${thinkingText}\n\n${roundSegment.trim()}`
@@ -1260,10 +1260,7 @@ class LlamaService extends EventEmitter {
             // the outer catch cannot decide whether a turn has work worth
             // keeping if the work is invisible to it.
             if (!genController.signal.aborted) {
-              visibleContent = appendRoundText(
-                visibleContent,
-                stripLeakedChannelTokens(roundContent)
-              )
+              visibleContent = appendRoundText(visibleContent, stripLeakedEngineText(roundContent))
               if (roundSegment.trim()) {
                 thinkingText = thinkingText
                   ? `${thinkingText}\n\n${roundSegment.trim()}`
@@ -1322,7 +1319,7 @@ class LlamaService extends EventEmitter {
         // through as literal text otherwise. Cleaned here, before any of the
         // detection logic below sees it, so a stray leaked tag can't also
         // confuse the fallback/stalled-intent checks.
-        roundContent = stripLeakedChannelTokens(roundContent)
+        roundContent = stripLeakedEngineText(roundContent)
 
         log.debug('Generation round complete', {
           round,
@@ -1825,12 +1822,12 @@ class LlamaService extends EventEmitter {
       const finalText = meta.responseText || responseText || segmentText
       // These throwaway summarization sessions use the same chat wrappers
       // (e.g. Gemma4ChatWrapper) as the main conversation, so they're subject
-      // to the same special-token leak (see `stripLeakedChannelTokens`'s
+      // to the same special-token leak (see `stripLeakedEngineText`'s
       // docs). Compaction summaries in particular are now shown directly to
       // the user via the in-transcript compaction marker, not just fed back
       // as model context, so a leaked `<channel|>` here would be a new
       // user-visible bug rather than a harmless internal artifact.
-      return stripLeakedChannelTokens(finalText)
+      return stripLeakedEngineText(finalText)
     } finally {
       session.dispose()
     }
@@ -2377,7 +2374,7 @@ class LlamaService extends EventEmitter {
     const nlc = await this.getModule()
     // llama.cpp's own diagnostics never reach JS — a failed load rejects with a
     // bare "Failed to load model" whatever the cause — so they are captured
-    // here instead. See `nativeLoadDiagnostics.ts`.
+    // here instead. See `modelLoadDiagnostics.ts`.
     this.llama = await nlc.getLlama({
       logger: (level, message) => {
         this.nativeLog.record(message)

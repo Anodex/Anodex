@@ -1,7 +1,7 @@
 import type { MessageBlock } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import {
-  stripLeakedChannelTokens,
+  stripLeakedEngineText,
   stripSubstantialCodeFences,
   stripToolCallText
 } from '@shared/toolCallText'
@@ -13,7 +13,7 @@ import {
  * the chronological render blocks so the real tool card becomes the UI.
  *
  * Also mirrors two other backend cleanup passes (see `LlamaService.ts`): a
- * leaked chat-template segment marker (`stripLeakedChannelTokens`, applied
+ * leaked chat-template segment marker (`stripLeakedEngineText`, applied
  * unconditionally — it's not a "should have used a tool" concern, just a
  * template artifact) and the substantial-code-fence stripping
  * (`stripSubstantialCodeFences`). The flat `content` string and the
@@ -67,7 +67,7 @@ export function reconcileMessageBlocks(
       continue
     }
 
-    const strippedCall = stripLeakedChannelTokens(stripToolCallText(block.text, toolNames))
+    const strippedCall = stripLeakedEngineText(stripToolCallText(block.text, toolNames))
     const cleaned = hasEditTool
       ? stripSubstantialCodeFences(strippedCall, userPrompt)
       : strippedCall
