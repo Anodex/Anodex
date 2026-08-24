@@ -7,6 +7,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { app } from 'electron'
 import type { ModelLoadOptions } from '@shared/model.types'
 import { createLogger } from '../utils/logger'
+import { reasoningBudgetTokens } from './reasoningOverrun'
 
 const log = createLogger('llama:vision-runtime')
 const STARTUP_TIMEOUT_MS = 5 * 60_000
@@ -94,6 +95,15 @@ export class LlamaServerRuntime {
       )
     ]
     if (options.gpuLayers === 0) args.push('--no-mmproj-offload')
+    // Close a runaway thought and let the round continue into its answer or
+    // tool call, instead of spending the whole reply allowance thinking. This
+    // is the transport's counterpart to node-llama-cpp's `budgets.thoughtTokens`
+    // — see `reasoningOverrun.ts` for the measurements, and for why cutting the
+    // stream from this side instead does not work. A no-op for a model that
+    // emits no reasoning, and safe to pass unconditionally because the binary
+    // is the bundled one (`resolveLlamaServerBinary`), not whatever is on PATH.
+    const reasoningBudget = reasoningBudgetTokens(options.contextSize)
+    if (reasoningBudget !== null) args.push('--reasoning-budget', String(reasoningBudget))
 
     const binaryDir = dirname(binaryPath)
     const libraryPathKey =

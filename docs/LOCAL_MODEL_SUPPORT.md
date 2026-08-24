@@ -82,17 +82,49 @@ is now advice in the tool description plus a far higher hard limit
 
 **A round that thought until it ran out of room.** On the llama-server transport
 nothing bounded hidden reasoning — the node-llama-cpp path budgets it through
-`budgets.thoughtTokens`, and the OpenAI-compatible API has no equivalent knob.
-Measured: reasoning segments of 63,882 and 75,715 characters against a
-15,875-token reply cap, in a turn that ran 19.7 minutes and changed no files.
-A round that ends with no tool call and no visible text used to end the turn;
-the bounded runner then opened a fresh cycle, and the model restarted the same
-task and re-emitted the same opening sentence and the same two reads. The
-signature in the transcript is a reply whose blocks repeat as a **sequence** —
-same text, same calls, same order — rather than a single sentence looping.
-`reasoningOverrun.ts` cuts the runaway at a budget sized from the same policy
-the text path uses, and gives the round one corrective prompt instead of ending
-the turn.
+`budgets.thoughtTokens`. Measured: reasoning segments of 63,882 and 75,715
+characters against a 15,875-token reply cap, in a turn that ran 19.7 minutes and
+changed no files. A round that ends with no tool call and no visible text used
+to end the turn; the bounded runner then opened a fresh cycle, and the model
+restarted the same task and re-emitted the same opening sentence and the same
+two reads. The signature in the transcript is a reply whose blocks repeat as a
+**sequence** — same text, same calls, same order — rather than a single sentence
+looping.
+
+The fix is `llama-server --reasoning-budget N`, sized in `reasoningOverrun.ts`
+from the same policy the text path applies and passed at load by
+`LlamaServerRuntime`. It closes the thought at the budget and lets the **same
+round continue** into its answer or tool call. Measured on Qwen3.8-27B with a
+budget of 400: reasoning fell from 3,198 characters to 1,628, and the round went
+from producing zero characters of output to 3,932.
+
+Worth knowing if you are tempted by the obvious alternative: cutting the
+reasoning stream from Anodex's side does **not** work, and the live probe below
+is what established that. Aborting a round throws its reasoning away, llama.cpp
+does not replay reasoning into history, so each corrective round began with no
+record of the thinking it was told to act on and re-derived it — four rounds and
+22 minutes on Qwen3.8-27B with no tool call. The corrective prompt survives only
+as a backstop, and it now carries the tail of that reasoning back with it.
+
+## The live probes
+
+Two, both opt-in, both there because unit tests passed while real turns failed.
+
+`liveToolCalling` (above) loads a GGUF itself and checks the wrapper seam.
+`liveReasoningRecovery` does the opposite — it mocks only process management and
+points the **real** transport at a llama-server you already have running:
+
+```bash
+ANODEX_LIVE_SERVER=http://127.0.0.1:18777/v1 \
+ANODEX_LIVE_KEY=<api key> \
+ANODEX_LIVE_MODEL_ID=<the id /v1/models reports> \
+npx vitest run liveReasoningRecovery
+```
+
+Start the server the way `LlamaServerRuntime.start` does — that test's doc
+comment carries the exact command. Reach for it whenever a change touches the
+round loop, the output budget, or reasoning: it is the only thing here that
+exercises a real model through Anodex's own code.
 
 ## Adding a dialect
 
