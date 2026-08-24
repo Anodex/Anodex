@@ -52,28 +52,7 @@
  * because losing it is what broke the first attempt.
  */
 
-import { defaultThoughtTokenBudget } from './localOutputBudget'
-
-/**
- * The reply allowance a round is assumed to have, for sizing purposes.
- *
- * The real allowance is `inputLimitTokens - fixedTokens`, which shrinks as a
- * turn accumulates tool traffic — but `--reasoning-budget` is fixed at load and
- * cannot track it. A quarter of the window is the anchor: well under what an
- * early round really has, so the budget is generous exactly where the planning
- * happens.
- *
- * The consequence, deliberately accepted: on a late round squeezed down toward
- * `minimumViableOutputTokens`, or under a low user-set reply ceiling, the round
- * cap falls *below* this budget and the budget stops binding. Sizing it to
- * always bind would mean deriving it from that floor instead — 819 tokens at a
- * 32K window — which would cut a model like Qwen3.8 off mid-thought on every
- * round, including the early ones with room to spare. The trade is made the
- * other way: think freely while there is room, and let
- * {@link reasoningOverrunGuidance} catch the tight rounds, which is what it is
- * there for.
- */
-const ASSUMED_REPLY_FRACTION = 0.25
+import { defaultThoughtTokenBudget, minimumViableOutputTokens } from './localOutputBudget'
 
 /**
  * Tokens of hidden reasoning one round may spend, for
@@ -81,19 +60,45 @@ const ASSUMED_REPLY_FRACTION = 0.25
  *
  * Sized through `defaultThoughtTokenBudget`, the same function the
  * node-llama-cpp path applies through `budgets.thoughtTokens`, so a model gets
- * the same proportion of its round to think in on either transport and only the
+ * the same share of its round to think in on either transport and only the
  * enforcement mechanism differs.
  *
+ * ## Why it is sized against the *smallest* round, not a typical one
+ *
+ * A round's real allowance is `inputLimitTokens - fixedTokens`, which shrinks
+ * as the turn accumulates tool traffic. `--reasoning-budget` is fixed at load
+ * and cannot track that, so the only budget that is useful on **every** round
+ * is one that binds on the tightest round the transport will still issue —
+ * `minimumViableOutputTokens`.
+ *
+ * The first version of this sized against a quarter of the window instead
+ * (3,276 tokens at 32K), on the theory that thinking should be generous where
+ * there is room and the corrective prompt could catch the tight rounds. The
+ * live probe measured that theory failing: with the budget above the round's
+ * cap it never engaged, and three consecutive rounds spent their entire
+ * allowance thinking and produced nothing, for 30 minutes. A budget that does
+ * not bind is not a budget.
+ *
+ * The cost is that an early round with plenty of room still thinks only this
+ * much. That is a real reduction and it is accepted deliberately, because the
+ * measurements say it does not hurt: at a budget of 400 the same model went
+ * from producing *zero* characters of output to 3,932. Being made to stop
+ * deliberating and act is the point, not a side effect — and across a turn's
+ * many rounds the model still accumulates far more thinking than the 75,715
+ * characters that one runaway round used to spend.
+ *
  * Returns `null` when there is no context size to size against — an unmeasured
- * window must not become a tiny budget that strangles every round. `null` means
- * "pass no flag", which leaves llama-server's own default in place.
+ * window must not become a guess. `null` means "pass no flag", which leaves
+ * llama-server's own default in place.
  */
 export function reasoningBudgetTokens(contextSize: number | undefined): number | null {
   if (contextSize === undefined || !Number.isFinite(contextSize) || contextSize <= 0) return null
-  const budget = defaultThoughtTokenBudget(Math.floor(contextSize * ASSUMED_REPLY_FRACTION))
-  // A floor, because the fraction collapses on a small window and a budget of a
-  // few dozen tokens would cut off a model mid-first-sentence — worse than the
-  // runaway this bounds, and not a failure anyone has observed on 4K.
+  // `hasTools: true` — this transport registers tools on any real chat turn,
+  // and it is the larger of the two floors, so it is the one a budget has to
+  // fit inside.
+  const budget = defaultThoughtTokenBudget(minimumViableOutputTokens(contextSize, true))
+  // A floor, because a budget of a few dozen tokens would cut a model off
+  // mid-first-sentence — worse than the runaway this bounds.
   return Math.max(512, budget)
 }
 
