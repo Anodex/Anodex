@@ -19,6 +19,8 @@ import { isReadLikeCall, progressFromSettledCalls } from '../tools/turnProgress'
 import { buildContinuationBrief, outstandingVerification } from './continuationBrief'
 import { projectStore } from '../projects/ProjectStore'
 import { llamaService } from '../llama/LlamaService'
+import { settingsStore } from '../settings/SettingsStore'
+import { interactiveBudgetForContext } from './GenerationBudget'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { withEpochHandoff } from '@shared/context.types'
 import { createLogger } from '../utils/logger'
@@ -141,6 +143,36 @@ const EPOCH_EVIDENCE_INDEX_ENTRIES = 12
 const GOAL_MAX_TOTAL_MS = 30 * 60_000
 
 /**
+ * When this reply must stop taking new cycles, from the user's "Turn time
+ * limit" setting. `null` when they have set no limit.
+ *
+ * The setting was only ever reaching `GenerationBudget`, which is constructed
+ * *inside* `runGeneration` — so it bounded one cycle, and the only whole-turn
+ * bound was `MAX_CYCLES`. At the default that is twenty-four fifteen-minute
+ * cycles: a setting that reads as fifteen minutes permitting six hours.
+ * Measured turns ran 36 and 50 minutes against a 40-minute limit.
+ *
+ * Enforced the way `goalDeadline` already is — by declining to start another
+ * cycle, never by aborting one mid-flight. A cycle that is part-way through a
+ * write finishes it, so the deadline can never be the reason a file is left
+ * half-written; the cost of that choice is overshooting by at most the length
+ * of the cycle in progress.
+ *
+ * Read through the same expression `runGeneration` uses, so the per-cycle
+ * budget and this total can never disagree about what the user asked for.
+ */
+function resolveTurnDeadline(io: RunGenerationIo): number | null {
+  const limitMs = (
+    io.executionBudget ??
+    interactiveBudgetForContext(
+      llamaService.getState().contextSize,
+      settingsStore.get().generation.turnTimeLimitMinutes
+    )
+  ).maxDurationMs
+  return limitMs === null ? null : Date.now() + limitMs
+}
+
+/**
  * Continuation nudge for a goal run. Unlike `CHAT_CONTINUE_PROMPT`, this turn
  * *does* have a standing goal and a termination tool, so it names both — the
  * same shape as Agent's `CONTINUE_PROMPT` in `agentPrompts.ts`.
@@ -258,6 +290,7 @@ export async function runBoundedChatGeneration(
   const goal = request.goal?.trim() || null
   const originalObjective = buildRecoveryObjective(request, goal)
   const goalDeadline = goal ? Date.now() + GOAL_MAX_TOTAL_MS : null
+  const turnDeadline = resolveTurnDeadline(io)
   const cycleCeiling = goal ? GOAL_MAX_CYCLES : MAX_CYCLES
   let goalFinished = false
   let goalBlockedReason: string | null = null
@@ -497,11 +530,13 @@ export async function runBoundedChatGeneration(
       planContinuations < MAX_OPEN_PLAN_CONTINUATIONS
     if (stalledWithOpenPlan) planContinuations++
     const withinGoalDeadline = goalDeadline === null || Date.now() < goalDeadline
+    const withinTurnDeadline = turnDeadline === null || Date.now() < turnDeadline
     const canContinue =
       (recoveredStop || goalStillOpen || stalledWithOpenPlan) &&
       madeProgressThisCycle &&
       cycle < cycleCeiling - 1 &&
       withinGoalDeadline &&
+      withinTurnDeadline &&
       !io.signal?.aborted &&
       !contextRecoveryBlocked
 
@@ -532,7 +567,7 @@ export async function runBoundedChatGeneration(
       if (goal !== null && !goalFinished) {
         goalBlockedReason ??= describeGoalStop({
           aborted: Boolean(io.signal?.aborted),
-          outOfTime: !withinGoalDeadline,
+          outOfTime: !withinGoalDeadline || !withinTurnDeadline,
           outOfCycles: cycle >= cycleCeiling - 1,
           madeProgress: madeProgressThisCycle,
           recoveryChurn,
@@ -545,6 +580,7 @@ export async function runBoundedChatGeneration(
             currentPlan !== null &&
             madeRealToolProgress &&
             planContinuations >= MAX_OPEN_PLAN_CONTINUATIONS,
+          outOfTime: !withinTurnDeadline,
           outOfCycles: cycle >= cycleCeiling - 1,
           madeProgress: madeProgressThisCycle,
           contextRecoveryBlocked,
@@ -1068,6 +1104,7 @@ function canReconcilePlan(
 function describeChatStop(reason: {
   wantedToContinue: boolean
   planExhausted: boolean
+  outOfTime: boolean
   outOfCycles: boolean
   madeProgress: boolean
   contextRecoveryBlocked: boolean
@@ -1078,6 +1115,9 @@ function describeChatStop(reason: {
   if (!reason.wantedToContinue && !reason.planExhausted) return null
   if (reason.contextRecoveryBlocked) {
     return 'it ran out of room to recover what it had already read. Say "continue" to resume with a fresh context.'
+  }
+  if (reason.outOfTime) {
+    return 'it reached your turn time limit (Settings → Generation). Say "continue" to resume.'
   }
   if (reason.outOfCycles) {
     return `it reached the limit of ${MAX_CYCLES} tool-calling rounds for a single reply. Say "continue" to resume.`
