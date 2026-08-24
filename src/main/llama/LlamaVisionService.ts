@@ -28,7 +28,7 @@ import { createLogger } from '../utils/logger'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
-import { resolveLocalOutputBudget } from './localOutputBudget'
+import { minimumViableOutputTokens, resolveLocalOutputBudget } from './localOutputBudget'
 import { MAX_REASONING_OVERRUNS, reasoningOverrunGuidance } from './reasoningOverrun'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
 import { isDroppedStreamError } from './droppedStreamError'
@@ -137,7 +137,6 @@ const IMAGE_TOKEN_ESTIMATE = 768
  * be cut off and replayed as the same malformed request. Stop earlier so the
  * bounded chat runner can rebuild the turn with compacted history.
  */
-const MIN_TOOL_CALL_OUTPUT_TOKENS = 1_280
 /**
  * Start a fresh stateless context epoch before the active turn becomes
  * difficult to recover. The outer bounded chat runner will summarize the
@@ -156,18 +155,10 @@ const PROTECTED_RECENT_TOOL_RESULTS = 2
  * collapse into a single count. See `collapseEvidenceDescriptors`.
  */
 const KEPT_EVIDENCE_DESCRIPTORS = 12
-/**
- * The next output must be large enough for the kind of request we are about to
- * make. A percentage-only reserve lets a tiny tool-enabled window issue a
- * request that cannot finish one valid JSON call; an absolute 4096-token rule
- * made small tool-free requests impossible by arithmetic. This derives the
- * floor from capacity, then raises it to the known bounded write payload when
- * tools are present.
- */
-export function minimumViableOutputTokens(contextSize: number, hasTools: boolean): number {
-  const scaled = Math.max(384, Math.min(2_048, Math.floor(contextSize * 0.12)))
-  return hasTools ? Math.max(scaled, MIN_TOOL_CALL_OUTPUT_TOKENS) : scaled
-}
+// Defined in `localOutputBudget` so `reasoningOverrun` can size against it
+// without closing an import loop back through this file. Re-exported because
+// this is where callers have always found it.
+export { minimumViableOutputTokens } from './localOutputBudget'
 
 /**
  * Reserve enough room for one bounded result landing before the next round.

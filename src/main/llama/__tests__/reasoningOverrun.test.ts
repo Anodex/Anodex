@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultThoughtTokenBudget } from '../localOutputBudget'
+import { defaultThoughtTokenBudget, minimumViableOutputTokens } from '../localOutputBudget'
 import {
   MAX_REASONING_OVERRUNS,
   reasoningBudgetTokens,
@@ -7,30 +7,40 @@ import {
 } from '../reasoningOverrun'
 
 describe('reasoningBudgetTokens', () => {
+  /**
+   * The invariant the whole fix rests on, and the one the live probe caught
+   * being violated: a budget above the round's own cap never engages. Three
+   * consecutive rounds then spent their entire allowance thinking and produced
+   * nothing, for 30 minutes. Every window must leave real room for the call.
+   */
+  it('binds on the tightest round the transport will still issue', () => {
+    for (const contextSize of [4_096, 8_192, 16_384, 32_768, 131_072]) {
+      const floor = minimumViableOutputTokens(contextSize, true)
+      const budget = reasoningBudgetTokens(contextSize)!
+      expect(budget).toBeLessThan(floor)
+      // And not merely under it — what is left has to fit a whole tool call.
+      expect(floor - budget).toBeGreaterThanOrEqual(budget)
+    }
+  })
+
   it('gives the llama-server path the same share the text path budgets', () => {
-    // The whole point of the module: one policy, two enforcement mechanisms.
-    // If these drift, a model gets a different amount of room to think in
-    // purely because its GGUF carries a projector.
+    // One policy, two enforcement mechanisms. If these drift, a model gets a
+    // different amount of room to think in purely because its GGUF carries a
+    // projector.
     for (const contextSize of [16_384, 32_768, 131_072]) {
       expect(reasoningBudgetTokens(contextSize)).toBe(
-        defaultThoughtTokenBudget(Math.floor(contextSize * 0.25))
+        defaultThoughtTokenBudget(minimumViableOutputTokens(contextSize, true))
       )
     }
   })
 
-  it('leaves a round far more room to answer in than to think in', () => {
-    // 32,768 is the window the driving conversation ran at, where a round's
-    // real allowance measured 15,875 tokens.
-    const budget = reasoningBudgetTokens(32_768)
-    expect(budget).not.toBeNull()
-    expect(budget!).toBeLessThan(15_875 * 0.3)
-    // The measured pathology was ~19,000 tokens of reasoning in one segment.
-    expect(budget!).toBeLessThan(19_000 / 4)
+  it('stays far below the runaway it exists to bound', () => {
+    // The measured pathology was ~19,000 tokens of reasoning in one segment,
+    // against a round allowance of 15,875.
+    expect(reasoningBudgetTokens(32_768)!).toBeLessThan(19_000 / 10)
   })
 
   it('never collapses to a budget that would cut off a first sentence', () => {
-    // The fraction goes small on a small window; the floor is what stops that
-    // turning into a worse failure than the runaway it bounds.
     for (const contextSize of [2_048, 4_096, 8_192]) {
       expect(reasoningBudgetTokens(contextSize)!).toBeGreaterThanOrEqual(512)
     }
@@ -45,8 +55,11 @@ describe('reasoningBudgetTokens', () => {
     expect(reasoningBudgetTokens(Number.NaN)).toBeNull()
   })
 
-  it('scales with the window rather than being a fixed number', () => {
-    expect(reasoningBudgetTokens(131_072)!).toBeGreaterThan(reasoningBudgetTokens(16_384)!)
+  it('grows with the window until the floor it tracks stops growing', () => {
+    // `minimumViableOutputTokens` is capped at 2,048, so past roughly 17K the
+    // tightest round stops getting tighter and neither does this.
+    expect(reasoningBudgetTokens(32_768)!).toBeGreaterThan(reasoningBudgetTokens(8_192)!)
+    expect(reasoningBudgetTokens(131_072)).toBe(reasoningBudgetTokens(32_768))
   })
 })
 
