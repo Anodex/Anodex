@@ -98,6 +98,18 @@ round continue** into its answer or tool call. Measured on Qwen3.8-27B with a
 budget of 400: reasoning fell from 3,198 characters to 1,628, and the round went
 from producing zero characters of output to 3,932.
 
+**Close the thought with an instruction, not in silence.** `--reasoning-budget`
+alone bounds the _hidden_ channel; it does not stop the model reasoning. With
+llama-server's default budget message (none) a model mid-deliberation simply
+continues outside the tag, where llama.cpp reports it as ordinary `content` and
+Anodex renders it in the chat. Measured on Qwen3.8-27B at a 16K window: hidden
+reasoning correctly held to ~800 tokens, and the same reply carrying 13,578- and
+9,129-character visible blocks of "Wait, there's a subtlety…". Adding
+`--reasoning-budget-message` (`REASONING_BUDGET_MESSAGE`) took the same round's
+visible text from 3,322 characters to 247 — and those 247 were the one-sentence
+narration the system prompt asks for. The message is written in the first person
+because it is appended inside the model's own thought.
+
 Worth knowing if you are tempted by the obvious alternative: cutting the
 reasoning stream from Anodex's side does **not** work, and the live probe below
 is what established that. Aborting a round throws its reasoning away, llama.cpp

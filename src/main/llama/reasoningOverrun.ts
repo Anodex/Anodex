@@ -103,6 +103,30 @@ export function reasoningBudgetTokens(contextSize: number | undefined): number |
 }
 
 /**
+ * Injected before the end-of-thinking tag when the budget above runs out, via
+ * `llama-server --reasoning-budget-message`.
+ *
+ * Closing the thought is not enough on its own, and the difference is visible
+ * to the user. llama-server's default for this is *none*: the tag is closed and
+ * nothing is said, so a model mid-deliberation simply carries on deliberating —
+ * except now outside the tag, which means llama.cpp reports it as ordinary
+ * `content` and Anodex renders it in the chat. Measured on Qwen3.8-27B at a 16K
+ * window right after the budget shipped: hidden reasoning was correctly held to
+ * ~800 tokens, and the same reply then carried 13,578- and 9,129-character
+ * visible blocks of "Wait, there's a subtlety…" and "Let me reconsider…". The
+ * budget had relocated the reasoning rather than ended it, and the round still
+ * had nothing left for its tool call.
+ *
+ * Written in the first person and as a conclusion, because it is appended to
+ * the model's *own* thought and read back as the last thing it decided — an
+ * instruction phrased in the second person reads there as dialogue the model
+ * then answers, which is one more thing to say instead of an action.
+ */
+export const REASONING_BUDGET_MESSAGE =
+  'I have used my thinking budget. I will stop planning here and make the next tool call now, ' +
+  'with what I have already worked out.'
+
+/**
  * How many corrective rounds a turn may spend on reasoning overruns.
  *
  * Two, matching `MAX_TOOL_CALL_RECOVERIES`: enough for a model that needs one

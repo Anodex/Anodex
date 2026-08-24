@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelLoadOptions } from '@shared/model.types'
-import { reasoningBudgetTokens } from '../reasoningOverrun'
+import { REASONING_BUDGET_MESSAGE, reasoningBudgetTokens } from '../reasoningOverrun'
 
 /**
  * First coverage for the supervisor of the private llama-server process used
@@ -197,12 +197,26 @@ describe('start', () => {
     expect(args[args.indexOf('--reasoning-budget') + 1]).toBe(String(reasoningBudgetTokens(4096)))
   })
 
+  it('tells the model what to do when the budget runs out', async () => {
+    // Closing the thought silently is what put raw chain-of-thought into the
+    // chat: llama-server's default for this message is none, so a model
+    // mid-deliberation simply continued outside the tag, where its reasoning
+    // is reported as ordinary content. See `REASONING_BUDGET_MESSAGE`.
+    respond({ '/health': () => jsonResponse({}), '/models': () => jsonResponse({ data: [] }) })
+
+    await new LlamaServerRuntime().start(options())
+    const args = spawn.mock.calls[0][1]
+
+    expect(args[args.indexOf('--reasoning-budget-message') + 1]).toBe(REASONING_BUDGET_MESSAGE)
+  })
+
   it('leaves the engine default alone when no window was given', async () => {
     respond({ '/health': () => jsonResponse({}), '/models': () => jsonResponse({ data: [] }) })
 
     await new LlamaServerRuntime().start({ ...options(), contextSize: undefined })
 
     expect(spawn.mock.calls[0][1]).not.toContain('--reasoning-budget')
+    expect(spawn.mock.calls[0][1]).not.toContain('--reasoning-budget-message')
   })
 
   it('refuses to start without a projector', async () => {

@@ -7,7 +7,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { app } from 'electron'
 import type { ModelLoadOptions } from '@shared/model.types'
 import { createLogger } from '../utils/logger'
-import { reasoningBudgetTokens } from './reasoningOverrun'
+import { REASONING_BUDGET_MESSAGE, reasoningBudgetTokens } from './reasoningOverrun'
 
 const log = createLogger('llama:vision-runtime')
 const STARTUP_TIMEOUT_MS = 5 * 60_000
@@ -103,7 +103,13 @@ export class LlamaServerRuntime {
     // emits no reasoning, and safe to pass unconditionally because the binary
     // is the bundled one (`resolveLlamaServerBinary`), not whatever is on PATH.
     const reasoningBudget = reasoningBudgetTokens(options.contextSize)
-    if (reasoningBudget !== null) args.push('--reasoning-budget', String(reasoningBudget))
+    if (reasoningBudget !== null) {
+      args.push('--reasoning-budget', String(reasoningBudget))
+      // Closing the thought without saying anything just moves the reasoning
+      // into the visible reply — llama-server's default for this is none. See
+      // `REASONING_BUDGET_MESSAGE`.
+      args.push('--reasoning-budget-message', REASONING_BUDGET_MESSAGE)
+    }
 
     const binaryDir = dirname(binaryPath)
     const libraryPathKey =

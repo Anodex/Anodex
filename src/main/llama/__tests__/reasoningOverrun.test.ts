@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { defaultThoughtTokenBudget, minimumViableOutputTokens } from '../localOutputBudget'
 import {
   MAX_REASONING_OVERRUNS,
+  REASONING_BUDGET_MESSAGE,
   reasoningBudgetTokens,
   reasoningOverrunGuidance
 } from '../reasoningOverrun'
@@ -86,6 +87,29 @@ describe('reasoningOverrunGuidance', () => {
     const guidance = reasoningOverrunGuidance('   ')
     expect(guidance).toMatch(/next tool call/i)
     expect(guidance).not.toContain('left off')
+  })
+})
+
+describe('REASONING_BUDGET_MESSAGE', () => {
+  /**
+   * The regression it exists to stop, measured on Qwen3.8-27B at a 16K window
+   * once the budget shipped without it: hidden reasoning was correctly held to
+   * ~800 tokens and the reply then carried 13,578- and 9,129-character visible
+   * blocks of "Wait, there's a subtlety..." — the budget had relocated the
+   * reasoning into the chat rather than ended it. With this message the same
+   * round's visible text fell from 3,322 characters to 247, and those 247 were
+   * the one-sentence narration the system prompt asks for.
+   */
+  it("reads as the model's own closing thought, not an instruction to it", () => {
+    // It is appended inside the model's thought and read back as the last thing
+    // it decided. Second person there reads as dialogue to answer — one more
+    // thing to say instead of an action.
+    expect(REASONING_BUDGET_MESSAGE).toMatch(/^I have used/)
+    expect(REASONING_BUDGET_MESSAGE).not.toMatch(/\byou\b/i)
+  })
+
+  it('points at the next tool call rather than just declaring the budget spent', () => {
+    expect(REASONING_BUDGET_MESSAGE).toMatch(/tool call/i)
   })
 })
 
