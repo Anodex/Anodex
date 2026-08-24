@@ -45,7 +45,7 @@
  * output to 3,932. It is a launch flag — the same value is rejected as a
  * per-request field, verified directly — so it is sized once, at load.
  *
- * {@link REASONING_OVERRUN_GUIDANCE} remains as the backstop for a round that
+ * {@link reasoningOverrunGuidance} remains as the backstop for a round that
  * still ends on nothing but thinking: an older engine build, a model whose
  * template ignores the budget, or a round whose visible answer runs out of room
  * too. It carries the tail of that reasoning back to the model precisely
@@ -59,10 +59,19 @@ import { defaultThoughtTokenBudget } from './localOutputBudget'
  *
  * The real allowance is `inputLimitTokens - fixedTokens`, which shrinks as a
  * turn accumulates tool traffic — but `--reasoning-budget` is fixed at load and
- * cannot track it. A quarter of the window is the anchor: comfortably more than
- * the guaranteed floor a tight late round gets (`minimumViableOutputTokens`),
- * and well under what an early round really has, so the budget derived from it
- * is generous early and still leaves room late.
+ * cannot track it. A quarter of the window is the anchor: well under what an
+ * early round really has, so the budget is generous exactly where the planning
+ * happens.
+ *
+ * The consequence, deliberately accepted: on a late round squeezed down toward
+ * `minimumViableOutputTokens`, or under a low user-set reply ceiling, the round
+ * cap falls *below* this budget and the budget stops binding. Sizing it to
+ * always bind would mean deriving it from that floor instead — 819 tokens at a
+ * 32K window — which would cut a model like Qwen3.8 off mid-thought on every
+ * round, including the early ones with room to spare. The trade is made the
+ * other way: think freely while there is room, and let
+ * {@link reasoningOverrunGuidance} catch the tight rounds, which is what it is
+ * there for.
  */
 const ASSUMED_REPLY_FRACTION = 0.25
 
