@@ -160,6 +160,12 @@ const GOAL_MAX_TOTAL_MS = 30 * 60_000
  *
  * Read through the same expression `runGeneration` uses, so the per-cycle
  * budget and this total can never disagree about what the user asked for.
+ *
+ * This bounds every caller of the bounded runner, which is chat and the
+ * Scheduler — the latter through its own `SCHEDULED_TASK_BUDGET`, so a
+ * scheduled task's whole reply is now held to the ten minutes that budget
+ * always named rather than ten minutes per cycle. Agent runs are unaffected:
+ * they call `runGeneration` directly and pace themselves with `agentBudgets`.
  */
 function resolveTurnDeadline(io: RunGenerationIo): number | null {
   const limitMs = (
