@@ -60,6 +60,40 @@ spends one bounded round asking for the call that was skipped.
 the text and runs it for real, cutting the reply at that point because anything
 after it was reasoned on a result the model never received.
 
+## When it repeats itself
+
+A model that keeps saying the same thing is usually not stuck on the request —
+it is being restarted. Two causes, both fixed, both worth recognising if
+something like them comes back.
+
+**A rejected call it cannot change.** A tool that refuses a call gives the model
+one remedy, and if the model cannot carry that remedy out it reissues the same
+call and gets the same refusal. Measured: eight byte-identical `append_file`
+calls, each over the old 4,000-character payload cap, none of them applied. Two
+things were wrong. The loop guard never saw them, because
+`runGuardedToolWithPrepare` reached the task ledger only after its `prepare()`
+step succeeded and the refusal was raised inside `prepare()` — so every
+prepare-stage failure, including `edit_file`'s commonest one, was uncounted. And
+the refusal itself bought nothing: the payload had already been generated, and
+discarding it demanded a regeneration a small model will not perform. The cap
+is now advice in the tool description plus a far higher hard limit
+(`FILE_WRITE_CHUNK_TARGET_CHARS` and `MAX_FILE_WRITE_CONTENT_CHARS` in
+`mutationTools.ts`).
+
+**A round that thought until it ran out of room.** On the llama-server transport
+nothing bounded hidden reasoning — the node-llama-cpp path budgets it through
+`budgets.thoughtTokens`, and the OpenAI-compatible API has no equivalent knob.
+Measured: reasoning segments of 63,882 and 75,715 characters against a
+15,875-token reply cap, in a turn that ran 19.7 minutes and changed no files.
+A round that ends with no tool call and no visible text used to end the turn;
+the bounded runner then opened a fresh cycle, and the model restarted the same
+task and re-emitted the same opening sentence and the same two reads. The
+signature in the transcript is a reply whose blocks repeat as a **sequence** —
+same text, same calls, same order — rather than a single sentence looping.
+`reasoningOverrun.ts` cuts the runaway at a budget sized from the same policy
+the text path uses, and gives the round one corrective prompt instead of ending
+the turn.
+
 ## Adding a dialect
 
 `src/main/llama/toolCallDialects.ts` is an **exception list, not a catalog**.
