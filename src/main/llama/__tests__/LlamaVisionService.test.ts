@@ -170,6 +170,7 @@ vi.mock('../../models/ModelReliabilityStore', () => ({
 }))
 
 import { MAX_REASONING_OVERRUNS } from '../reasoningOverrun'
+import { FILE_WRITE_CHUNK_TARGET_CHARS } from '../../tools/mutationTools'
 
 const {
   LlamaVisionService,
@@ -482,6 +483,35 @@ describe('LlamaVisionService.generate', () => {
     expect(guidance?.content).toContain('cut off')
     expect(guidance?.content).toContain('Nothing was written')
     expect(guidance?.content).toContain('Do not repeat that call as-is')
+  })
+
+  it('asks for a smaller payload each time, not the size that just failed', async () => {
+    // A live run was told "under 4000 characters" by the tool description,
+    // overran anyway with a 10,507-character payload, was told the same number
+    // again by this prompt, and overran again. Repeating a size that has just
+    // failed is not asking for a different shape.
+    mocks.toolFunctions = {
+      write_file: {
+        description: 'Write.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    mocks.rounds.push({ error: truncatedToolCall() })
+    mocks.rounds.push({ error: truncatedToolCall() })
+    mocks.rounds.push({ chunks: [textChunk('ok', 'stop')] })
+
+    await (await service()).generate(params({ tools: withTools }))
+
+    // Every request shares the one mutating `messages` array, so the sequence
+    // has to be read out of its final state rather than per request.
+    const sent = mocks.requests[0].messages as Array<{ role: string; content: string }>
+    const sizesAsked = sent
+      .map((message) => /under (\d+) characters/.exec(String(message.content))?.[1])
+      .filter((size): size is string => size !== undefined)
+      .map(Number)
+
+    expect(sizesAsked).toEqual([FILE_WRITE_CHUNK_TARGET_CHARS, 1_200])
   })
 
   it('never repairs and runs the partial arguments', async () => {
