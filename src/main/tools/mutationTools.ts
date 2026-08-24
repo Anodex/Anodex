@@ -23,6 +23,13 @@ export const FILE_WRITE_CHUNK_TARGET_CHARS = 4_000
  * The largest payload actually accepted. A sanity bound, deliberately far
  * above {@link FILE_WRITE_CHUNK_TARGET_CHARS}.
  *
+ * **Never named in a tool description.** It was, briefly, and a number that
+ * large is the one a model anchors on: a live run emitted a 10,507-character
+ * `write_file` into a round with 3,920 tokens of room and was cut off
+ * mid-argument, having been told both "about 4,000 characters" and "hard limit
+ * 64,000" in the same sentence. Descriptions state only the size to aim for;
+ * this appears solely in the error raised when it is genuinely exceeded.
+ *
  * These were one constant, and refusing anything over the chunk target was a
  * loop generator. By the time a handler sees the payload the model has already
  * spent the tokens to produce it; rejecting it recovers nothing and discards
@@ -62,7 +69,7 @@ export function diffOrUndefined(
 /** write_file - create or overwrite a text file. */
 export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Create or overwrite a text file within the workspace. Aim for about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters per call: a longer file is safer as a first chunk plus append_file calls, because one very long payload can be cut off part-way through and lost. Hard limit ${MAX_FILE_WRITE_CONTENT_CHARS} characters.`,
+    description: `Create or overwrite a text file within the workspace. Keep the content under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters: a longer file must be a first chunk plus append_file calls, because one long payload runs out of room part-way through and is lost entirely.`,
     params: {
       type: 'object',
       properties: {
@@ -70,7 +77,7 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
         content: {
           type: 'string',
           maxLength: MAX_FILE_WRITE_CONTENT_CHARS,
-          description: `The file contents, or a first chunk of about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters for a longer file. Use append_file for the rest.`
+          description: `The file contents, under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters. For a longer file write a first chunk this size and use append_file for the rest.`
         }
       },
       required: ['path', 'content']
@@ -188,7 +195,7 @@ const MAX_OVERWRITE_SHRINK_RATIO = 0.5
 /** append_file - append text to an existing UTF-8 text file. */
 export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Append text to an existing UTF-8 file within the workspace. Use this for long new files after a first write_file call. Aim for chunks of about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters; hard limit ${MAX_FILE_WRITE_CONTENT_CHARS}.`,
+    description: `Append text to an existing UTF-8 file within the workspace. Use this for long new files after a first write_file call. Keep each chunk under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters, for the same reason.`,
     params: {
       type: 'object',
       properties: {
@@ -196,7 +203,7 @@ export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
         content: {
           type: 'string',
           maxLength: MAX_FILE_WRITE_CONTENT_CHARS,
-          description: `Text to append to the end of the file, ideally about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters.`
+          description: `Text to append to the end of the file, under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters.`
         }
       },
       required: ['path', 'content']
@@ -373,7 +380,7 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
  */
 export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Replace lines startLine..endLine (1-based, inclusive) of a file with newText. Use this instead of edit_file when you know where the code is but no longer have its exact text in view — every read tool reports line numbers. Pass an empty newText to delete the range. The payload has a hard limit of ${MAX_FILE_WRITE_CONTENT_CHARS} characters.`,
+    description: `Replace lines startLine..endLine (1-based, inclusive) of a file with newText. Use this instead of edit_file when you know where the code is but no longer have its exact text in view — every read tool reports line numbers. Pass an empty newText to delete the range. Keep newText under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters; replace a smaller range if it would be longer.`,
     params: {
       type: 'object',
       properties: {

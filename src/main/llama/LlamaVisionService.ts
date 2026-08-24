@@ -29,6 +29,7 @@ import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { minimumViableOutputTokens, resolveLocalOutputBudget } from './localOutputBudget'
+import { FILE_WRITE_CHUNK_TARGET_CHARS } from '../tools/mutationTools'
 import { MAX_REASONING_OVERRUNS, reasoningOverrunGuidance } from './reasoningOverrun'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
 import { isDroppedStreamError } from './droppedStreamError'
@@ -770,7 +771,10 @@ export class LlamaVisionService {
             preview,
             runtimeOutput: this.runtime.recentOutput()
           })
-          messages.push({ role: 'user', content: truncatedToolCallGuidance(preview) })
+          messages.push({
+            role: 'user',
+            content: truncatedToolCallGuidance(preview, toolCallRecoveries - 1)
+          })
           continue
         }
         // Same rule the cloud providers follow, and for the same reason: a
@@ -1274,21 +1278,38 @@ export class LlamaVisionService {
 }
 
 /**
+ * Sizes asked for on successive truncation recoveries, in characters.
+ *
+ * The first is the chunk size every write tool already advertises. Repeating it
+ * after it has just failed is asking for the same thing again — a live run was
+ * told "under 4000 characters" by the tool description, overran anyway with a
+ * 10,507-character payload, was told it again by this prompt, and overran
+ * again. The second attempt names a size small enough that the round's
+ * remaining room is not in question.
+ */
+const TRUNCATION_RETRY_CHARS = [FILE_WRITE_CHUNK_TARGET_CHARS, 1_200] as const
+
+/**
  * Corrective prompt for a tool call that never finished emitting.
  *
  * Says what happened, and — critically — asks for a *different* shape rather
  * than a repeat. A verbatim retry of a call that already overran reproduces
  * the same failure at the same cost, which on a slow local model means many
  * more minutes for the same outcome.
+ *
+ * `attempt` is 0-based, and the size shrinks with it for the same reason: the
+ * shape has to change, and "smaller" is the only dimension the model can act on
+ * without knowing how much room the round actually had.
  */
-function truncatedToolCallGuidance(preview: string | undefined): string {
+function truncatedToolCallGuidance(preview: string | undefined, attempt: number): string {
+  const limit = TRUNCATION_RETRY_CHARS[Math.min(attempt, TRUNCATION_RETRY_CHARS.length - 1)]
   return [
     'Your previous tool call was cut off before its arguments were complete, so it could not be run',
     preview ? ` (it ended at: ${preview}).` : '.',
     ' Nothing was written and nothing changed.',
     ' Do not repeat that call as-is. If you were writing a long file, use a small first',
-    ' write_file call followed by short append_file calls. Keep every content payload under',
-    ' 4000 characters. Otherwise, answer without the tool call.'
+    ` write_file call followed by short append_file calls. Keep every content payload under`,
+    ` ${limit} characters. Otherwise, answer without the tool call.`
   ].join('')
 }
 
