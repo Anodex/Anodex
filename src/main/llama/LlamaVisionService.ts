@@ -29,11 +29,7 @@ import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { resolveLocalOutputBudget } from './localOutputBudget'
-import {
-  MAX_REASONING_OVERRUNS,
-  reasoningBudgetChars,
-  REASONING_OVERRUN_GUIDANCE
-} from './reasoningOverrun'
+import { MAX_REASONING_OVERRUNS, reasoningOverrunGuidance } from './reasoningOverrun'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
 import { isDroppedStreamError } from './droppedStreamError'
 import {
@@ -420,20 +416,19 @@ export class LlamaVisionService {
     /** Rounds whose reasoning was cut off at its budget — see `reasoningOverrun.ts`. */
     let reasoningOverruns = 0
     /**
-     * Count one reasoning overrun and queue the corrective prompt. Shared by
-     * the three places a round can end that way — the stream cut short at its
-     * budget, that cut surfacing as an abort, and a round the server itself cut
-     * at the token limit — so all three spend the same bounded allowance.
+     * Count one reasoning overrun and queue the corrective prompt, carrying the
+     * tail of the reasoning back so the next round continues instead of
+     * re-deriving it — see `reasoningOverrun.ts` for why that matters.
      */
-    const recordReasoningOverrun = (round: number, chars: number, roundMs: number): void => {
+    const recordReasoningOverrun = (round: number, reasoning: string, roundMs: number): void => {
       reasoningOverruns += 1
       log.warn('Reasoning outran the room this round had for it', {
         round,
-        reasoningChars: chars,
+        reasoningChars: reasoning.length,
         overruns: reasoningOverruns,
         roundMs
       })
-      messages.push({ role: 'user', content: REASONING_OVERRUN_GUIDANCE })
+      messages.push({ role: 'user', content: reasoningOverrunGuidance(reasoning) })
     }
     for (let round = 0; round < maxToolRounds; round++) {
       if (params.signal?.aborted) {
@@ -661,9 +656,6 @@ export class LlamaVisionService {
       let roundThinking = ''
       let finishReason: string | null = null
       const roundStartedAt = Date.now()
-      /** Set when this round's reasoning was cut off at its budget, below. */
-      let reasoningCutShort = false
-      const reasoningBudget = reasoningBudgetChars(effectiveMaxTokens)
       // llama-server prints its own per-request accounting (`launch_slot_`,
       // `print_timing`, `release`) as it works. Captured here so a failure can
       // be checked against whether the process did anything at all — see the
@@ -708,19 +700,6 @@ export class LlamaVisionService {
             roundThinking += reasoning
             thinking += reasoning
             params.onThinkingToken?.(reasoning)
-            // Unlike the node-llama-cpp path there is no server-side thought
-            // budget to lean on, so the runaway is stopped here, on the
-            // deltas — see `reasoningOverrun.ts`. Flagged before aborting so
-            // the catch below can tell this apart from the user pressing stop.
-            if (
-              reasoningBudget !== null &&
-              roundThinking.length > reasoningBudget &&
-              reasoningOverruns < MAX_REASONING_OVERRUNS
-            ) {
-              reasoningCutShort = true
-              stream.controller.abort()
-              break
-            }
           }
           for (const call of delta.tool_calls ?? []) {
             const existing = pendingCalls.get(call.index) ?? {
@@ -744,16 +723,6 @@ export class LlamaVisionService {
         // transports fold in their own catch for exactly this reason.
         content = appendRoundText(content, roundContent)
         roundContent = ''
-        // Checked before the user-abort branch. Cutting the reasoning stream
-        // aborts it, and although that normally leaves the loop by `break`
-        // rather than by throwing, an abort surfacing as an `APIUserAbortError`
-        // here would otherwise be indistinguishable from the stop button and
-        // would silently end the turn. `params.signal` still takes precedence:
-        // a real stop landing in the same round is a stop.
-        if (reasoningCutShort && !params.signal?.aborted) {
-          recordReasoningOverrun(round, roundThinking.length, Date.now() - roundStartedAt)
-          continue
-        }
         if (params.signal?.aborted || error instanceof APIUserAbortError) {
           stopped = true
           break
@@ -823,15 +792,6 @@ export class LlamaVisionService {
         providerError = toStopDetail(described) ?? 'The local runtime gave no reason.'
         log.error('Local vision generation failed mid-turn; keeping the work already done:', error)
         break
-      }
-
-      // The ordinary exit for a cut reasoning stream: aborting the controller
-      // and breaking out of the chunk loop leaves it normally, so this — not
-      // the catch above — is the path that usually runs. `continue` re-enters
-      // the loop, whose first act is to fold this round's text into `content`.
-      if (reasoningCutShort) {
-        recordReasoningOverrun(round, roundThinking.length, Date.now() - roundStartedAt)
-        continue
       }
 
       if (measured && reportedPromptTokens !== undefined) {
@@ -924,7 +884,7 @@ export class LlamaVisionService {
         reasoningOverruns < MAX_REASONING_OVERRUNS
       ) {
         tokenLimit = tokenLimitBeforeRound
-        recordReasoningOverrun(round, roundThinking.length, Date.now() - roundStartedAt)
+        recordReasoningOverrun(round, roundThinking, Date.now() - roundStartedAt)
         continue
       }
       if (calls.length === 0 || !toolFunctions) {

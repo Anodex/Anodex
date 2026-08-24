@@ -1,6 +1,6 @@
 /**
  * Bound hidden reasoning on the llama-server transport, and recover the turn
- * when it runs long anyway.
+ * when a round still ends with nothing but thinking.
  *
  * ## The failure
  *
@@ -8,68 +8,84 @@
  * `thoughtTokens` sub-budget, so reasoning cannot eat the whole reply
  * allowance before a call is attempted (see `defaultThoughtTokenBudget`).
  * `LlamaVisionService` — which is the whole engine for any model carrying a
- * multimodal projector, not just image turns — talks OpenAI-compatible HTTP to
- * a real `llama-server`, and that API has no equivalent knob. Reasoning there
- * was bounded by nothing at all.
+ * multimodal projector, not just image turns — had no equivalent, and reasoning
+ * there was bounded by nothing at all.
  *
  * Measured in one conversation: single reasoning segments of 63,882 and 75,715
- * characters — roughly 16k and 19k tokens against a 15,875-token reply cap —
- * in a turn that ran 19.7 minutes and changed no files. The model narrated a
- * complete design and was cut off mid-sentence before it ever called a tool.
+ * characters against a 15,875-token reply cap, in a turn that ran 19.7 minutes
+ * and changed no files.
  *
  * ## Why it repeated
  *
  * A round that produces no tool call and no visible text used to end the turn,
- * on the reading that the model "asked for nothing more". That reading is
- * wrong for a round cut off at the token limit: the model did not finish, it
- * ran out of room. `boundedChatRunner` then opened a fresh cycle, the model
- * started the same task from the same state, and re-emitted the same opening
- * sentence, the same `list_directory`, the same `read_file`. In the measured
- * conversation one assistant message contained that sequence twice, verbatim —
- * the "it keeps repeating itself" the user actually sees.
+ * on the reading that the model "asked for nothing more". For a round cut off
+ * at the token limit that reading is wrong: it did not finish, it ran out of
+ * room. `boundedChatRunner` then opened a fresh cycle, the model started the
+ * same task from the same state, and re-emitted the same opening sentence, the
+ * same `list_directory` and the same `read_file`. One assistant message
+ * contained that sequence twice, verbatim — the "it keeps repeating itself"
+ * the user actually sees.
  *
- * ## The two halves
+ * ## Why the budget is the server's job
  *
- * {@link reasoningBudgetChars} stops the runaway while it is still running, so
- * the cost is bounded rather than merely reported. {@link REASONING_OVERRUN_GUIDANCE}
- * gives the round somewhere to go afterwards, so a cut-off round becomes one
- * corrective round instead of a dead turn the next cycle repeats. Neither half
- * works alone: cutting without recovering ends the turn faster, and recovering
- * without cutting still spends twenty minutes to get there.
+ * The first attempt at this cut the reasoning stream client-side, at a budget
+ * of the same size, and gave the round a corrective prompt afterwards. The live
+ * probe (`liveReasoningRecovery.test.ts`) showed it does not work: four rounds
+ * and 22 minutes on Qwen3.8-27B, no tool call, because **aborting a round
+ * throws its reasoning away**. llama.cpp does not replay reasoning into history
+ * by default, so each corrective round began with no record of the thinking it
+ * was being told to act on, re-derived it from scratch, and hit the budget
+ * again. It reproduced the restart loop inside one turn.
+ *
+ * `llama-server --reasoning-budget N` does the thing that actually helps: it
+ * closes the thought segment at the budget and lets the **same round continue**
+ * into its visible answer or tool call, reasoning intact. Measured on
+ * Qwen3.8-27B with `--reasoning-budget 400`: reasoning fell from 3,198
+ * characters to 1,628, and the round went from producing *zero* characters of
+ * output to 3,932. It is a launch flag — the same value is rejected as a
+ * per-request field, verified directly — so it is sized once, at load.
+ *
+ * {@link REASONING_OVERRUN_GUIDANCE} remains as the backstop for a round that
+ * still ends on nothing but thinking: an older engine build, a model whose
+ * template ignores the budget, or a round whose visible answer runs out of room
+ * too. It carries the tail of that reasoning back to the model precisely
+ * because losing it is what broke the first attempt.
  */
 
 import { defaultThoughtTokenBudget } from './localOutputBudget'
 
 /**
- * Characters assumed per token when watching a reasoning stream.
+ * The reply allowance a round is assumed to have, for sizing purposes.
  *
- * The budget has to be enforced on the deltas as they arrive, and no token
- * count is available until the stream reports usage at the end — by which
- * point the tokens are already spent. Four characters per token is the same
- * rough conversion used elsewhere for local estimates. It is deliberately
- * generous rather than accurate: over-estimating the budget wastes some
- * reasoning room, while under-estimating it would cut short a model that was
- * still within the allowance the text path grants for the same work.
+ * The real allowance is `inputLimitTokens - fixedTokens`, which shrinks as a
+ * turn accumulates tool traffic — but `--reasoning-budget` is fixed at load and
+ * cannot track it. A quarter of the window is the anchor: comfortably more than
+ * the guaranteed floor a tight late round gets (`minimumViableOutputTokens`),
+ * and well under what an early round really has, so the budget derived from it
+ * is generous early and still leaves room late.
  */
-const CHARS_PER_TOKEN = 4
+const ASSUMED_REPLY_FRACTION = 0.25
 
 /**
- * How many characters of reasoning one round may stream before it is cut off.
+ * Tokens of hidden reasoning one round may spend, for
+ * `llama-server --reasoning-budget`.
  *
- * Sized from the same policy the node-llama-cpp path applies through
- * `budgets.thoughtTokens`, so the two transports give a model the same
- * proportion of its reply allowance to think in and only the enforcement
- * mechanism differs.
+ * Sized through `defaultThoughtTokenBudget`, the same function the
+ * node-llama-cpp path applies through `budgets.thoughtTokens`, so a model gets
+ * the same proportion of its round to think in on either transport and only the
+ * enforcement mechanism differs.
  *
- * Returns `null` when there is no meaningful cap to apply — an unmeasured or
- * nonsensical output cap must not be turned into a tiny budget that strangles
- * every round.
+ * Returns `null` when there is no context size to size against — an unmeasured
+ * window must not become a tiny budget that strangles every round. `null` means
+ * "pass no flag", which leaves llama-server's own default in place.
  */
-export function reasoningBudgetChars(effectiveMaxTokens: number): number | null {
-  if (!Number.isFinite(effectiveMaxTokens) || effectiveMaxTokens <= 0) return null
-  const budgetTokens = defaultThoughtTokenBudget(effectiveMaxTokens)
-  if (budgetTokens <= 0) return null
-  return budgetTokens * CHARS_PER_TOKEN
+export function reasoningBudgetTokens(contextSize: number | undefined): number | null {
+  if (contextSize === undefined || !Number.isFinite(contextSize) || contextSize <= 0) return null
+  const budget = defaultThoughtTokenBudget(Math.floor(contextSize * ASSUMED_REPLY_FRACTION))
+  // A floor, because the fraction collapses on a small window and a budget of a
+  // few dozen tokens would cut off a model mid-first-sentence — worse than the
+  // runaway this bounds, and not a failure anyone has observed on 4K.
+  return Math.max(512, budget)
 }
 
 /**
@@ -81,16 +97,28 @@ export function reasoningBudgetChars(effectiveMaxTokens: number): number | null 
  */
 export const MAX_REASONING_OVERRUNS = 2
 
+/** Characters of the cut-off reasoning handed back to the model. */
+const CARRIED_REASONING_CHARS = 2_000
+
 /**
- * What the model is told after its reasoning was cut off.
+ * What the model is told after a round ended on reasoning alone.
  *
- * Written to be actionable rather than scolding, and specifically to stop the
- * behaviour that follows a cut-off round: re-deriving the plan from the
- * beginning. The model has already done the thinking — what it needs is
- * permission to act on the part it has.
+ * It carries the **tail** of that reasoning — where the model left off — back
+ * into the request. Without it the corrective round cannot see its own work:
+ * llama.cpp does not replay reasoning into history, so "act on what you already
+ * worked out" would name something the model can no longer read, and it will
+ * dutifully work it out again. That is not a hypothesis; it is what the live
+ * probe measured before this argument existed.
+ *
+ * Actionable rather than scolding, and specifically aimed at the behaviour that
+ * follows a cut-off round: re-deriving the plan from the beginning.
  */
-export const REASONING_OVERRUN_GUIDANCE =
-  'Your reasoning ran past the room this turn has for it and was cut off before you acted. ' +
-  'Do not plan any further and do not start over — act now on what you have already worked out. ' +
-  'Make the single next tool call, keeping it small enough to finish. ' +
-  'If you genuinely cannot act yet, say in one sentence what is blocking you.'
+export function reasoningOverrunGuidance(reasoning: string): string {
+  const tail = reasoning.trim().slice(-CARRIED_REASONING_CHARS)
+  const instruction =
+    'Your reasoning ran past the room this turn has for it and stopped before you acted. ' +
+    'Do not plan any further and do not start over — act now. ' +
+    'Make the single next tool call, keeping it small enough to finish. ' +
+    'If you genuinely cannot act yet, say in one sentence what is blocking you.'
+  return tail ? `Here is where your reasoning left off:\n\n${tail}\n\n${instruction}` : instruction
+}
