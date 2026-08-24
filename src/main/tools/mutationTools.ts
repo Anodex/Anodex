@@ -62,7 +62,7 @@ export function diffOrUndefined(
 /** write_file - create or overwrite a text file. */
 export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Create or overwrite a text file within the workspace. Write the whole file in one call when you can. If it is too long to emit at once, aim for a first chunk of about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters and use append_file for the rest. Hard limit ${MAX_FILE_WRITE_CONTENT_CHARS} characters.`,
+    description: `Create or overwrite a text file within the workspace. Aim for about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters per call: a longer file is safer as a first chunk plus append_file calls, because one very long payload can be cut off part-way through and lost. Hard limit ${MAX_FILE_WRITE_CONTENT_CHARS} characters.`,
     params: {
       type: 'object',
       properties: {
@@ -70,7 +70,7 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
         content: {
           type: 'string',
           maxLength: MAX_FILE_WRITE_CONTENT_CHARS,
-          description: `The complete file contents, or a first chunk of about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters for a file too long to emit at once. Use append_file for the rest.`
+          description: `The file contents, or a first chunk of about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters for a longer file. Use append_file for the rest.`
         }
       },
       required: ['path', 'content']
