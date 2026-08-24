@@ -7,6 +7,8 @@ import {
   appendFileTool,
   deleteFileTool,
   editFileTool,
+  FILE_WRITE_CHUNK_TARGET_CHARS,
+  MAX_FILE_WRITE_CONTENT_CHARS,
   moveFileTool,
   patchFileTool,
   replaceLinesTool,
@@ -335,7 +337,23 @@ describe('write_file diff capture', () => {
     expect(success?.diff).toBeUndefined()
   })
 
-  it('rejects an oversized model write before touching the workspace', async () => {
+  // The chunk target is advice given before generation, not a refusal after
+  // it. A payload that arrived whole is complete and safe to apply, and
+  // discarding it is what sent a real run into an eight-attempt retry loop.
+  it('writes a payload over the chunk target rather than refusing it', async () => {
+    const ctx = createMockContext(workspace)
+    const tool = writeFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; content: string }) => Promise<string>
+    }
+    const content = 'x'.repeat(FILE_WRITE_CHUNK_TARGET_CHARS + 1)
+
+    const result = await tool.handler({ path: 'long.html', content })
+
+    expect(result).toContain('Wrote')
+    expect(await readFile(join(workspace, 'long.html'), 'utf-8')).toBe(content)
+  })
+
+  it('rejects a write past the hard limit before touching the workspace', async () => {
     const ctx = createMockContext(workspace)
     const capture = captureCalls<ToolCall>()
     ctx.emit = capture.emit
@@ -343,10 +361,15 @@ describe('write_file diff capture', () => {
       handler: (args: { path: string; content: string }) => Promise<string>
     }
 
-    const result = await tool.handler({ path: 'too-large.html', content: 'x'.repeat(4_001) })
+    const result = await tool.handler({
+      path: 'too-large.html',
+      content: 'x'.repeat(MAX_FILE_WRITE_CONTENT_CHARS + 1)
+    })
 
     expect(result).toContain('use append_file')
-    expect(capture.calls.find((call) => call.status === 'error')?.result).toContain('4000')
+    expect(capture.calls.find((call) => call.status === 'error')?.result).toContain(
+      String(MAX_FILE_WRITE_CONTENT_CHARS)
+    )
     await expect(readFile(join(workspace, 'too-large.html'), 'utf-8')).rejects.toThrow()
   })
 })
@@ -375,16 +398,33 @@ describe('append_file', () => {
     expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('first second')
   })
 
-  it('rejects an oversized append so long files stay split across tool calls', async () => {
+  it('appends a chunk over the target rather than discarding it', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'first')
+    const ctx = createMockContext(workspace)
+    const tool = appendFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; content: string }) => Promise<string>
+    }
+    const content = 'x'.repeat(FILE_WRITE_CHUNK_TARGET_CHARS + 1)
+
+    const result = await tool.handler({ path: 'a.txt', content })
+
+    expect(result).toContain('Appended')
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe(`first${content}`)
+  })
+
+  it('rejects an append past the hard limit, leaving the file untouched', async () => {
     await writeFile(join(workspace, 'a.txt'), 'first')
     const ctx = createMockContext(workspace)
     const tool = appendFileTool(createMockDefine(), ctx) as unknown as {
       handler: (args: { path: string; content: string }) => Promise<string>
     }
 
-    const result = await tool.handler({ path: 'a.txt', content: 'x'.repeat(4_001) })
+    const result = await tool.handler({
+      path: 'a.txt',
+      content: 'x'.repeat(MAX_FILE_WRITE_CONTENT_CHARS + 1)
+    })
 
-    expect(result).toContain('Split the remaining content')
+    expect(result).toContain('following append_file call')
     expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('first')
   })
 

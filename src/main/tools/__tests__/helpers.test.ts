@@ -8,6 +8,7 @@ import {
   runReadTool
 } from '../helpers'
 import { createMockContext, captureCalls, captureConfirmations } from './test-helpers'
+import { LOOP_GUARD_LIMIT } from '../loopGuard'
 
 /**
  * An absolute workspace root on whatever OS is running the suite.
@@ -775,9 +776,10 @@ describe('runGuardedToolWithPrepare — provisional card handoff', () => {
     )
 
     expect(result).toBe('Error: oldText not found in foo.ts')
-    expect(calls).toHaveLength(1)
-    expect(calls[0].id).toBe('provisional-2')
-    expect(calls[0].status).toBe('error')
+    // `running` then `error`, both on the one card — the preflight now runs
+    // before `prepare()` so the loop guard can count a prepare-stage failure.
+    expect(calls.map((call) => call.status)).toEqual(['running', 'error'])
+    expect(calls.every((call) => call.id === 'provisional-2')).toBe(true)
     // Claimed exactly once, so nothing is left for the round sweep to mark
     // "Interrupted" and nothing is double-claimed by a later call.
     expect(tracker.claimed()).toBe(1)
@@ -794,8 +796,39 @@ describe('runGuardedToolWithPrepare — provisional card handoff', () => {
       () => Promise.resolve({ modelResult: 'unreachable' })
     )
 
-    expect(calls).toHaveLength(1)
-    expect(calls[0].id).toEqual(expect.any(String))
-    expect(calls[0].status).toBe('error')
+    expect(calls.map((call) => call.status)).toEqual(['running', 'error'])
+    expect(new Set(calls.map((call) => call.id)).size).toBe(1)
+  })
+
+  // The loop-guard blind spot this ordering exists to close: every failure
+  // raised in `prepare()` used to bypass the ledger entirely, so a model could
+  // reissue the same rejected write without limit. Eight identical
+  // `append_file` refusals in one measured turn were counted as zero.
+  it('counts a repeated prepare failure toward the loop guard', async () => {
+    const { calls, emit } = captureCalls()
+    const ctx = { ...createMockContext(root), emit, claimPendingToolCallId: () => undefined }
+
+    const attempt = (): Promise<string> =>
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'append_file',
+          kind: 'write',
+          title: 'Append to foo.ts',
+          risk: 'safe',
+          args: { path: 'foo.ts', content: 'same every time' }
+        },
+        () => Promise.reject(new Error('payload too large')),
+        () => Promise.resolve({ modelResult: 'unreachable' })
+      )
+
+    const results: string[] = []
+    for (let i = 0; i < LOOP_GUARD_LIMIT + 1; i++) results.push(await attempt())
+
+    expect(results.slice(0, LOOP_GUARD_LIMIT)).toEqual(
+      Array(LOOP_GUARD_LIMIT).fill('Error: payload too large')
+    )
+    expect(results.at(-1)).toContain('this looks like a loop, not progress')
+    expect(calls.some((call) => call.detail === 'Blocked: repeated identical call')).toBe(true)
   })
 })
