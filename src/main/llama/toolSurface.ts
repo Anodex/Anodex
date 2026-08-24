@@ -138,10 +138,10 @@ const DIRECT_TOOL_PRIORITY = [
   'replace_lines',
   'edit_file',
   'write_file',
-  // Immediately after `write_file`, always. `write_file` is capped at
-  // `MAX_FILE_WRITE_CONTENT_CHARS` and its own description tells the model to
-  // write a first chunk and append the rest — so offering it without
-  // `append_file` instructs the model to begin an operation it cannot finish.
+  // Immediately after `write_file`, always. `write_file`'s own description
+  // tells the model to write a first chunk and append the rest when a file is
+  // too long to emit at once — so offering it without `append_file` instructs
+  // the model to begin an operation it cannot finish.
   // That happened: a 41,455-byte file was overwritten with a 1,839-byte first
   // chunk, `append_file` was deferred behind the gateway, zero appends
   // followed, and the file was left truncated and unparseable.

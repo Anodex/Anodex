@@ -205,23 +205,10 @@ interface GuardedToolSpec extends ReadToolSpec {
  * rather than throwing (which would abort the whole generation).
  */
 export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): Promise<string> {
-  const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
-  const limitMessage = ctx.beforeTool?.(spec.name, spec.args) ?? null
-  if (limitMessage) {
-    ctx.emit({
-      id,
-      name: spec.name,
-      kind: spec.kind,
-      title: spec.title,
-      status: 'error',
-      detail: 'Blocked: execution budget reached',
-      result: limitMessage
-    })
-    return limitMessage
-  }
-  ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const repeat = reviewRepeat(ctx, spec, id)
-  if (repeat.blocked) return repeat.blocked
+  const preflight = beginToolCall(ctx, spec)
+  const { id } = preflight
+  if (preflight.blocked) return preflight.blocked
+  const repeat: RepeatReview = { advice: preflight.advice }
   try {
     const { modelResult, detail, plan, preview, madeProgress = true } = await spec.run()
     ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress })
@@ -264,6 +251,55 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
     })
     return `Error: ${message}`
   }
+}
+
+/** What a completed preflight established about a call that is about to run. */
+interface ToolCallPreflight {
+  /** The card this call reports on, claimed once for the whole call. */
+  id: string
+  /** Set when the call must not run at all; this is the model-facing reason. */
+  blocked?: string
+  /** A correction to append to the result of a call that is still allowed to run. */
+  advice?: string
+}
+
+/**
+ * Everything that must happen before a tool's own work begins: claim the UI
+ * card, charge the execution budget, show the call as running, and let the task
+ * ledger decide whether it should run at all.
+ *
+ * Shared by all three entry points so the order can never drift between them,
+ * and — the reason it was extracted — so it can run exactly once for a
+ * prepare-then-run pair. `runGuardedToolWithPrepare` used to reach the ledger
+ * only after its `prepare()` step had succeeded, which meant every failure
+ * raised in `prepare()` was invisible to the loop guard: a size-limit refusal,
+ * a path outside the workspace, a missing file, an `edit_file` whose `oldText`
+ * is no longer in the file. Those are the *commonest* write failures, and a
+ * model repeating one got the identical error back forever with nothing
+ * counting the repeats. Observed directly: eight byte-identical `append_file`
+ * calls, each rejected for the same over-limit payload, none of them counted.
+ */
+function beginToolCall(
+  ctx: ToolRuntimeContext,
+  spec: { name: string; kind: ToolKind; title: string; args?: unknown }
+): ToolCallPreflight {
+  const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
+  const limitMessage = ctx.beforeTool?.(spec.name, spec.args) ?? null
+  if (limitMessage) {
+    ctx.emit({
+      id,
+      name: spec.name,
+      kind: spec.kind,
+      title: spec.title,
+      status: 'error',
+      detail: 'Blocked: execution budget reached',
+      result: limitMessage
+    })
+    return { id, blocked: limitMessage }
+  }
+  ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
+  const repeat = reviewRepeat(ctx, spec, id)
+  return { id, blocked: repeat.blocked, advice: repeat.advice }
 }
 
 /**
@@ -407,25 +443,18 @@ function markProgress(ctx: ToolRuntimeContext, spec: { name: string; kind: ToolK
  */
 export async function runGuardedTool(
   ctx: ToolRuntimeContext,
-  spec: GuardedToolSpec
+  spec: GuardedToolSpec,
+  /**
+   * A preflight already performed by the caller. `runGuardedToolWithPrepare`
+   * passes its own so the call is counted, budgeted and card-claimed exactly
+   * once across the prepare-then-run pair; direct callers omit it.
+   */
+  done?: ToolCallPreflight
 ): Promise<string> {
-  const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
-  const limitMessage = ctx.beforeTool?.(spec.name, spec.args) ?? null
-  if (limitMessage) {
-    ctx.emit({
-      id,
-      name: spec.name,
-      kind: spec.kind,
-      title: spec.title,
-      status: 'error',
-      detail: 'Blocked: execution budget reached',
-      result: limitMessage
-    })
-    return limitMessage
-  }
-  ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const repeat = reviewRepeat(ctx, spec, id)
-  if (repeat.blocked) return repeat.blocked
+  const preflight = done ?? beginToolCall(ctx, spec)
+  const { id } = preflight
+  if (preflight.blocked) return preflight.blocked
+  const repeat: RepeatReview = { advice: preflight.advice }
 
   try {
     const permissionDecision = resolvePermission(ctx.permissionMode, spec.risk)
@@ -586,6 +615,10 @@ interface PreparedGuardedCall<TData> {
  * call arguments. A `prepare()` failure (bad input, file not found, sandbox
  * violation) is reported exactly like a `run()` failure: a clean resolved
  * error string and no confirm prompt for a call that's already known to fail.
+ *
+ * The preflight (card, budget, loop guard) runs *before* `prepare()` and its
+ * result is handed to `runGuardedTool`, so the pair is treated as the single
+ * call it is. See {@link beginToolCall} for the failure this ordering fixes.
  */
 export async function runGuardedToolWithPrepare<TData>(
   ctx: ToolRuntimeContext,
@@ -596,25 +629,26 @@ export async function runGuardedToolWithPrepare<TData>(
   prepare: () => Promise<PreparedGuardedCall<TData>>,
   run: (data: TData) => Promise<ToolOutcome>
 ): Promise<string> {
+  const preflight = beginToolCall(ctx, spec)
+  if (preflight.blocked) return preflight.blocked
+
   let prepared: PreparedGuardedCall<TData>
   try {
     prepared = await prepare()
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     ctx.emit({
-      // Claimed here, exactly as `runGuardedTool` and `runReadTool` do on
-      // their own first line. This path used to mint a fresh id instead, and
-      // it is the one path where that is most visible: `write_file`,
+      // The card claimed by the preflight, not a fresh one. `write_file`,
       // `edit_file`, and `patch_file` are simultaneously the only tools with a
       // provisional streaming card (`PendingToolCallTracker`'s `TRACKED_TOOLS`)
       // and all users of this function. A failing `prepare()` — a path outside
       // the workspace, a missing file, an `oldText` that isn't in the file,
-      // which is edit_file's single commonest failure — therefore emitted the
-      // real error onto a brand-new card while the card the user had watched
-      // fill in was left unclaimed, to be swept at the end of the round as
+      // which is edit_file's single commonest failure — used to emit the real
+      // error onto a brand-new card while the card the user had watched fill
+      // in was left unclaimed, to be swept at the end of the round as
       // "Interrupted". One failed call, two cards, and the one naming the
       // actual reason was not the one attached to the call they were watching.
-      id: ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID(),
+      id: preflight.id,
       name: spec.name,
       kind: spec.kind,
       title: spec.title,
@@ -625,11 +659,15 @@ export async function runGuardedToolWithPrepare<TData>(
     return `Error: ${message}`
   }
 
-  return runGuardedTool(ctx, {
-    ...spec,
-    confirmDetail: prepared.confirmDetail,
-    confirmDiff: prepared.confirmDiff,
-    confirmEmailDraft: prepared.confirmEmailDraft,
-    run: () => run(prepared.data)
-  })
+  return runGuardedTool(
+    ctx,
+    {
+      ...spec,
+      confirmDetail: prepared.confirmDetail,
+      confirmDiff: prepared.confirmDiff,
+      confirmEmailDraft: prepared.confirmEmailDraft,
+      run: () => run(prepared.data)
+    },
+    preflight
+  )
 }
