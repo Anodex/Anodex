@@ -93,7 +93,10 @@ vi.mock('openai', () => {
           if (round.error && !round.chunks?.length) throw round.error
           const chunks = round.chunks ?? []
           const failAfter = round.error
+          // A real `Stream` exposes the request's AbortController, which the
+          // reasoning-budget cut uses to stop llama-server mid-generation.
           return Promise.resolve({
+            controller: new AbortController(),
             [Symbol.asyncIterator]: function* () {
               for (const chunk of chunks) yield chunk
               if (failAfter) throw failAfter
@@ -165,6 +168,8 @@ vi.mock('../../models/ModelReliabilityStore', () => ({
     recordFabrication: (...args: unknown[]) => mocks.reliability.push(['fabrication', ...args])
   }
 }))
+
+import { MAX_REASONING_OVERRUNS } from '../reasoningOverrun'
 
 const {
   LlamaVisionService,
@@ -1271,6 +1276,130 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.content).toBe('Step 1 done.')
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('runtime-stalled')
+  })
+
+  /**
+   * The failure these three reproduce, from conversation
+   * `c_2b538bf0-db08-4d2e-ad7e-c196d30d380e`: single reasoning segments of
+   * 63,882 and 75,715 characters against a 15,875-token reply cap, in a turn
+   * that ran 19.7 minutes and changed no files. A round that thought until it
+   * was cut off produced no call and no text, which ended the turn; the runner
+   * opened a fresh cycle, and the model re-emitted the same opening sentence,
+   * the same `list_directory` and the same `read_file`. See
+   * `reasoningOverrun.ts`.
+   */
+  describe('reasoning that outruns its round', () => {
+    function reasoningChunk(text: string): StreamChunk {
+      return { choices: [{ delta: { reasoning_content: text } }] }
+    }
+
+    /** One tool so the round structurally requires a visible call. */
+    function oneTool(handler = vi.fn(() => Promise.resolve('ok'))) {
+      return {
+        list_directory: {
+          description: 'List a directory.',
+          params: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+          handler
+        }
+      }
+    }
+
+    it('cuts a runaway reasoning stream and gets a tool call on the next round', async () => {
+      mocks.toolFunctions = oneTool()
+      // Far past any budget derived from this context's reply cap.
+      mocks.rounds.push({ chunks: [reasoningChunk('x'.repeat(400_000))] })
+      mocks.rounds.push({ chunks: [toolCallChunk('list_directory', '{"path":"."}')] })
+      mocks.rounds.push({ chunks: [textChunk('Listed it.', 'stop')] })
+
+      const outcome = await (await service(32_768)).generate(params({ tools: withTools }))
+
+      expect(outcome.content).toContain('Listed it.')
+      // The turn completed. Before this, the cut-off round ended it outright.
+      expect(outcome.stopped).toBe(false)
+      // The model was told to act, not left to restart. (Every request shares
+      // the one mutating `messages` array, so this reads its final state.)
+      const sent = mocks.requests[0].messages as Array<{ role: string; content: unknown }>
+      const corrections = sent.filter(
+        (message) =>
+          message.role === 'user' && String(message.content).includes('do not start over')
+      )
+      expect(corrections).toHaveLength(1)
+    })
+
+    it('recovers a round the server itself cut at the token limit mid-thought', async () => {
+      mocks.toolFunctions = oneTool()
+      // Under the budget, so the client-side cut never fires — the server ends
+      // the round at its own cap with reasoning only and nothing to show.
+      mocks.rounds.push({
+        chunks: [
+          reasoningChunk('Now I have the full picture. The camera model is'),
+          { choices: [{ delta: {}, finish_reason: 'length' }] }
+        ]
+      })
+      mocks.rounds.push({ chunks: [toolCallChunk('list_directory', '{"path":"."}')] })
+      mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+      const outcome = await (await service(32_768)).generate(params({ tools: withTools }))
+
+      expect(outcome.content).toContain('Done.')
+      // `token-limit` on a round that was retried, not lost, would send the
+      // runner into another cycle for work that already completed.
+      expect(outcome.stopped).toBe(false)
+      expect(outcome.stopReason).toBeUndefined()
+    })
+
+    it('still reports a token limit the recovered round did not cause', async () => {
+      mocks.toolFunctions = oneTool()
+      // Round 0 loses real visible output to the cap — a genuine token limit.
+      mocks.rounds.push({
+        chunks: [
+          toolCallChunk('list_directory', '{"path":"."}'),
+          { choices: [{ delta: { content: 'Half a sen' }, finish_reason: 'length' }] }
+        ]
+      })
+      mocks.rounds.push({
+        chunks: [
+          reasoningChunk('More planning'),
+          { choices: [{ delta: {}, finish_reason: 'length' }] }
+        ]
+      })
+      mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+      const outcome = await (await service(32_768)).generate(params({ tools: withTools }))
+
+      expect(outcome.stopped).toBe(true)
+      expect(outcome.stopReason).toBe('token-limit')
+    })
+
+    it('stops correcting once the overrun allowance is spent', async () => {
+      mocks.toolFunctions = oneTool()
+      // One more runaway round than the allowance covers.
+      for (let i = 0; i < MAX_REASONING_OVERRUNS + 1; i++) {
+        mocks.rounds.push({ chunks: [reasoningChunk('x'.repeat(400_000))] })
+      }
+      mocks.rounds.push({ chunks: [textChunk('unreachable', 'stop')] })
+
+      const outcome = await (await service(32_768)).generate(params({ tools: withTools }))
+
+      // The turn ends rather than spending itself on corrections, and it does
+      // not silently read as a user stop.
+      expect(outcome.content).not.toContain('unreachable')
+      expect(mocks.requests).toHaveLength(MAX_REASONING_OVERRUNS + 1)
+    })
+
+    it('leaves a real user stop reading as a user stop', async () => {
+      mocks.toolFunctions = oneTool()
+      mocks.rounds.push({ chunks: [reasoningChunk('x'.repeat(400_000))] })
+      const controller = new AbortController()
+      controller.abort()
+
+      const outcome = await (
+        await service(32_768)
+      ).generate(params({ tools: withTools, signal: controller.signal }))
+
+      expect(outcome.stopped).toBe(true)
+      expect(outcome.stopReason).toBe('user')
+    })
   })
 })
 
