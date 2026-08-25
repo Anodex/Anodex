@@ -4,7 +4,8 @@ import type {
   ChatHistoryTurn,
   ChatRequest,
   ContextEpochHandoff,
-  GenerationStats
+  GenerationStats,
+  GenerationStopReason
 } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
@@ -329,6 +330,8 @@ export async function runBoundedChatGeneration(
    * randomly". A turn that merely finished answering leaves this `null`.
    */
   let chatEndReason: string | null = null
+  /** Set when the runner stopped a turn it would otherwise have continued. */
+  let ranOutOfTurnBudget = false
 
   for (let cycle = 0; cycle < cycleCeiling; cycle++) {
     // Every cycle after the first opens with what the task has actually settled.
@@ -580,6 +583,10 @@ export async function runBoundedChatGeneration(
           stopped: result.stopped
         })
       } else if (goal === null) {
+        // The runner wanted to keep going and its own outer budget stopped it.
+        // Distinct from a cycle that simply had nothing more to offer -- see
+        // `supersededStopReason`.
+        ranOutOfTurnBudget = !withinTurnDeadline || cycle >= cycleCeiling - 1
         chatEndReason = describeChatStop({
           wantedToContinue: recoveredStop || stalledWithOpenPlan,
           planExhausted:
@@ -759,7 +766,11 @@ export async function runBoundedChatGeneration(
     turnOutcome: outcome ?? undefined,
     stats,
     stopped: recoveryChurnDetected || finalResult.stopped,
-    stopReason: recoveryChurnDetected ? 'no-progress' : finalResult.stopReason,
+    // `supersededStopReason`: once the runner has explained the ending itself,
+    // the last cycle's reason is no longer the turn's reason.
+    stopReason: recoveryChurnDetected
+      ? 'no-progress'
+      : supersededStopReason(finalResult.stopReason, chatEndReason, ranOutOfTurnBudget),
     goalOutcome:
       goal === null
         ? undefined
@@ -1107,6 +1118,44 @@ function canReconcilePlan(
  * that would be noise on every well-behaved turn. This speaks only when the
  * turn was mid-flight and something denied it another round.
  */
+/**
+ * The reason to *report* for a turn that ran as several cycles.
+ *
+ * A bounded cycle ends with the reason that cycle hit -- it ran out of provider
+ * rounds, or output tokens, or its own time. That reason is real, and for a turn
+ * the runner then resumes it is also invisible and unimportant. It only reaches
+ * the user when the runner decides to stop, and at that point it is usually not
+ * why the turn ended: the runner stopped for an outer reason of its own, which
+ * `describeChatStop` has already stated in the turn outcome, in the user's terms
+ * and with what to do about it.
+ *
+ * Observed live: a turn ran two cycles, the second ending on its round budget,
+ * and the runner then declined to start a third because the turn had passed the
+ * user's turn time limit. The outcome block said so correctly -- "it reached
+ * your turn time limit (Settings -> Generation). Say 'continue' to resume" --
+ * while the error banner above it said the reply had reached its provider-round
+ * budget. Both were printed. Only one was the reason, and the wrong one was the
+ * one styled as the headline and the one carrying no advice.
+ *
+ * So a recoverable inner stop stands down, but only in that exact situation: the
+ * runner hit its own turn deadline or cycle ceiling on a turn it would have kept
+ * running. A cycle that stopped because it had nothing more to give -- no
+ * progress, a repeated call, blocked context recovery -- is not contradicted by
+ * its own reason, and that reason is often the more informative of the two, so
+ * it still gets said. So does a genuine failure (`'fixed-context-limit'`, an
+ * unknown reason), which the runner did not choose and the outcome block does
+ * not cover. `chatEndReason` is null for a turn that ended naturally or that the
+ * user stopped, leaving both of those untouched as well.
+ */
+function supersededStopReason(
+  stopReason: GenerationStopReason | undefined,
+  chatEndReason: string | null,
+  ranOutOfTurnBudget: boolean
+): GenerationStopReason | undefined {
+  if (chatEndReason === null || !ranOutOfTurnBudget) return stopReason
+  return isRecoverableGenerationStop(stopReason) ? undefined : stopReason
+}
+
 function describeChatStop(reason: {
   wantedToContinue: boolean
   planExhausted: boolean
