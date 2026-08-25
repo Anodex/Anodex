@@ -20,6 +20,7 @@ import type { RegenerateTarget } from './messageEdit'
 import { MessageAttachments } from './MessageAttachments'
 import {
   buildRenderSegments,
+  foldSettledTimeline,
   groupSegmentsForTimeline,
   liveActivityLabel,
   messageBlocks
@@ -164,7 +165,10 @@ export function MessageBubble({
   const segments = buildRenderSegments(messageBlocks(message))
   const showInitialActivity = message.streaming && segments.length === 0
   const lastSegment = segments[segments.length - 1]
-  const timeline = groupSegmentsForTimeline(segments)
+  // Folded only once the reply has settled: while it streams, watching it
+  // work is the point. See `foldSettledTimeline`.
+  const grouped = groupSegmentsForTimeline(segments)
+  const timeline = message.streaming ? grouped : foldSettledTimeline(grouped)
   const firstWorkBlockIndex = timeline.findIndex((block) => block.type === 'work')
   // The tail of a streaming message always carries an unobtrusive live status.
   // Tool names come from actual activity events; other labels describe only

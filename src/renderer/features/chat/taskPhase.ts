@@ -120,10 +120,16 @@ export function buildRenderSegments(blocks: MessageBlock[]): RenderSegment[] {
   return segments
 }
 
-/** A contiguous run of thinking/tool-call activity, collapsible behind one `TurnRecap`. */
+/**
+ * A contiguous run of activity, collapsible behind one `TurnRecap`.
+ *
+ * A work block holds any segment kind, prose included. While a reply streams
+ * it only ever collects thinking and tool calls, so the model's narration
+ * stays on screen as it arrives; once the reply settles, `foldSettledTimeline`
+ * folds the narration in too.
+ */
 export type TimelineBlock =
-  | { type: 'text'; text: string }
-  | { type: 'work'; segments: Array<Extract<RenderSegment, { type: 'thinking' | 'toolGroup' }>> }
+  { type: 'text'; text: string } | { type: 'work'; segments: RenderSegment[] }
 
 /**
  * Regroups render segments so consecutive thinking/tool-call activity becomes
@@ -148,6 +154,48 @@ export function groupSegmentsForTimeline(segments: RenderSegment[]): TimelineBlo
   }
 
   return normalizeInterruptedText(blocks)
+}
+
+/**
+ * Collapse a finished reply down to its answer.
+ *
+ * While a turn runs, watching it work is the point. Once it is done, the
+ * working is history: a forty-minute turn leaves forty-five tool cards and
+ * every "let me check the shader link status" the model wrote on its way
+ * through, and the reader has to scroll past all of it to reach the sentence
+ * that says what happened. `TurnRecap` already folded the tool calls away and
+ * left the prose behind, which is the half that is actually long.
+ *
+ * So a settled reply becomes one collapsible run plus its closing text. What
+ * stays visible is the answer and the turn outcome -- and the outcome is
+ * derived from the settled tool record rather than written by the model, so
+ * the collapsed view reports what happened rather than what was intended, and
+ * a failure ("1 failed", "Not verified") still shows through.
+ *
+ * Only the *trailing* text is kept out: prose that came before more work was
+ * narration, not a conclusion. A turn cut short mid-tool has no trailing text
+ * at all, and correctly collapses to the outcome alone.
+ *
+ * Untouched when there is nothing to fold -- a plain answer with no tool calls
+ * renders exactly as it always did, with no stray toggle above it.
+ */
+export function foldSettledTimeline(blocks: TimelineBlock[]): TimelineBlock[] {
+  if (!blocks.some((block) => block.type === 'work')) return blocks
+
+  const last = blocks[blocks.length - 1]
+  const trailingText = last?.type === 'text' ? last : null
+  const foldable = trailingText ? blocks.slice(0, -1) : blocks
+  if (foldable.length === 0) return blocks
+
+  const segments: RenderSegment[] = []
+  for (const block of foldable) {
+    if (block.type === 'text') segments.push({ type: 'text', text: block.text })
+    else segments.push(...block.segments)
+  }
+
+  const folded: TimelineBlock[] = [{ type: 'work', segments }]
+  if (trailingText) folded.push(trailingText)
+  return folded
 }
 
 /**
