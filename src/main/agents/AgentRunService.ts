@@ -283,11 +283,17 @@ class AgentRunService {
         if (outcome) lastOutcome = outcome
 
         if (stopped && !isRecoverableGenerationStop(stopReason)) {
+          // Same reasoning as the budget stop below: a run that ends still owes
+          // an account of itself, and this branch is the one that fires when
+          // something outside the run breaks. Observed live: a GPU device loss
+          // (`vk::Queue::submit: ErrorDeviceLost`) ended a run at turn 9 of 44,
+          // and it recorded the driver error and nothing about the eight turns
+          // of work that had already landed.
           this.finish(
             run.id,
             conversation.id,
             'stopped',
-            null,
+            lastOutcome,
             terminalStopMessage(stopReason, stopDetail)
           )
           return
