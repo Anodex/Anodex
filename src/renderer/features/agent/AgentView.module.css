@@ -607,3 +607,19 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* The run's id, revealed on hover. A chip on every card in a list is noise;
+   inside a run it earns its place and is always visible. */
+.runId {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.runCard:hover .runId,
+.runCard:focus-within .runId {
+  opacity: 1;
+}

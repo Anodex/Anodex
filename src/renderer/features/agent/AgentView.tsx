@@ -20,6 +20,7 @@ import {
 } from './agentRunFormat'
 import { useAwayArrivals } from './useAwayArrivals'
 import styles from './AgentView.module.css'
+import { shortenId } from '../../components/shortenId'
 
 /**
  * True for one render pass when a run reaches a terminal status the user
@@ -242,6 +243,9 @@ function RunCard({
             {projectName(run.projectId) && (
               <span className={styles.runProject}>{projectName(run.projectId)}</span>
             )}
+            {/* On the list, one chip per card would be noise, so it waits for a
+                hover. Inside a run it is always visible -- see CopyableId. */}
+            <span className={styles.runId}>{shortenId(run.id)}</span>
           </div>
           <p className={styles.runGoal}>{run.goal}</p>
           <div className={styles.runMeta}>

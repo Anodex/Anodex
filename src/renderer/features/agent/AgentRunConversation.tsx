@@ -17,6 +17,7 @@ import {
   providerLabel
 } from './agentRunFormat'
 import styles from './AgentRunConversation.module.css'
+import { CopyableId } from '../../components/CopyableId'
 
 interface AgentRunConversationProps {
   run: AgentRun
@@ -296,6 +297,7 @@ export function AgentRunConversation({
             </span>
             {projectName && <span className={styles.subMeta}>{projectName}</span>}
             <span>updated {formatRelativeTime(run.updatedAt)} ago</span>
+            <CopyableId id={run.id} label="agent run" />
           </p>
         </div>
         <div className={styles.headerActions}>
