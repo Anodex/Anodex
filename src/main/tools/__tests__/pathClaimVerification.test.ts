@@ -169,6 +169,9 @@ describe('URLs are never mistaken for workspace paths', () => {
 
   beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), 'anodex-urlpath-'))
+    // A real project has a `src/`. Without one, `src/made-up.ts` is not a claim
+    // about this project at all -- see `rootDirectoryExists`.
+    await mkdir(join(workspace, 'src'), { recursive: true })
   })
 
   afterEach(async () => {
@@ -207,5 +210,55 @@ describe('URLs are never mistaken for workspace paths', () => {
     )
 
     expect(issues).toEqual([{ path: 'src/made-up.ts', reason: 'not-found' }])
+  })
+})
+
+/**
+ * The check told a model its own working `#include <GL/gl.h>` was "likely
+ * fabricated or misspelled". Every language has this shape, so this is not a
+ * C++ quirk.
+ */
+describe('external paths are not accused of being fabricated', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-extpath-'))
+    await mkdir(join(workspace, 'src'), { recursive: true })
+    await writeFile(join(workspace, 'src', 'main.cpp'), '#include <GL/gl.h>', 'utf8')
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  it('says nothing about a system header whose root is not in the workspace', async () => {
+    const issues = await findUnverifiedPathClaims(
+      'It includes `GL/gl.h` and `sys/stat.h`, then calls into `boost/asio.hpp`.',
+      workspace,
+      new ReadCoverageTracker()
+    )
+
+    expect(issues).toEqual([])
+  })
+
+  /** The fabrication this check exists for still has to be caught. */
+  it('still flags a missing file under a directory the project really has', async () => {
+    const issues = await findUnverifiedPathClaims(
+      'The bug is in `src/does-not-exist.ts`.',
+      workspace,
+      new ReadCoverageTracker()
+    )
+
+    expect(issues).toEqual([{ path: 'src/does-not-exist.ts', reason: 'not-found' }])
+  })
+
+  it('leaves a real, uninspected file reported as uninspected', async () => {
+    const issues = await findUnverifiedPathClaims(
+      'See `src/main.cpp`.',
+      workspace,
+      new ReadCoverageTracker()
+    )
+
+    expect(issues).toEqual([{ path: 'src/main.cpp', reason: 'not-inspected' }])
   })
 })
