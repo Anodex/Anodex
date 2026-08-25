@@ -320,6 +320,31 @@ function discoveryWords(value: string): string[] {
   )
 }
 
+/**
+ * Why a name is not resolvable as a deferred tool, phrased so the next call is
+ * obvious.
+ *
+ * The gateway tools are *direct* — they are always in the native surface. A
+ * model that reaches them through `call_available_tool` has made a predictable
+ * mistake, and Anodex used to answer it with "No deferred tool named
+ * describe_available_tool. Use find_available_tool first", which is true,
+ * unhelpful, and sends the model somewhere that cannot help either.
+ *
+ * Observed in a real run: a schema mismatch told the model to "call
+ * describe_available_tool and try again"; the model, already inside
+ * `call_available_tool`, wrapped that call too and got the missing-tool error.
+ * Anodex's own advice walked it into a dead end.
+ */
+function explainUnknownDeferredTool(name: string): string {
+  if ((GATEWAY_TOOL_NAMES as readonly string[]).includes(name)) {
+    return (
+      `"${name}" is one of the always-available gateway tools, not a deferred one. ` +
+      'Call it directly rather than through call_available_tool.'
+    )
+  }
+  return `No deferred tool named "${name}". Use find_available_tool first.`
+}
+
 function describeDeferredTool(
   functions: Record<string, ToolFunction>,
   name: string,
@@ -327,7 +352,7 @@ function describeDeferredTool(
 ): string {
   const resolvedName = resolveDeferredToolName(functions, name)
   const tool = functions[resolvedName]
-  if (!tool) return `No deferred tool named "${name}". Use find_available_tool first.`
+  if (!tool) return explainUnknownDeferredTool(name)
   const parameters: unknown = tool.params
   const serialized = JSON.stringify(
     {
@@ -355,7 +380,7 @@ async function callDeferredTool(
 ): Promise<unknown> {
   const resolvedName = resolveDeferredToolName(functions, name)
   const tool = functions[resolvedName]
-  if (!tool) throw new Error(`No deferred tool named "${name}". Use find_available_tool first.`)
+  if (!tool) throw new Error(explainUnknownDeferredTool(name))
 
   let args: unknown
   try {
@@ -371,7 +396,8 @@ async function callDeferredTool(
   if (validationError) {
     throw new Error(
       `Arguments for "${resolvedName}" do not match its schema: ${validationError} ` +
-        'Call describe_available_tool and try again.'
+        'Call describe_available_tool directly — it is a normal tool, not something to pass ' +
+        'through call_available_tool — then retry with corrected arguments.'
     )
   }
   return await tool.handler(args)
