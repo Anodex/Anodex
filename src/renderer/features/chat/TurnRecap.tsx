@@ -4,12 +4,17 @@ import { Icon } from '../../components/Icon'
 import { formatDuration } from '../../lib/format'
 import { ThoughtsSection } from './ThoughtsSection'
 import { ToolCallCard } from './ToolCallCard'
+import { MessageContent } from './MessageContent'
 import { VisualComparison } from './VisualComparison'
 import { latestVisualComparison, type VisualComparisonPair } from './visualComparisonPair'
 import { summarizeWork } from './summarizeWork'
 import styles from './TurnRecap.module.css'
 
-type WorkSegment = Extract<RenderSegment, { type: 'thinking' | 'toolGroup' }>
+/**
+ * Anything a collapsed run can contain. Prose is included because a settled
+ * reply folds its narration in too -- see `foldSettledTimeline`.
+ */
+type WorkSegment = RenderSegment
 
 /**
  * Collapses a turn's thinking + tool-call activity behind one "Worked for
@@ -110,17 +115,23 @@ export function TurnRecap({
         <div className={styles.panelInner}>
           <div className={styles.steps}>
             {resolvedComparison && <VisualComparison pair={resolvedComparison} />}
-            {segments.map((segment, index) =>
-              segment.type === 'thinking' ? (
-                <ThoughtsSection
-                  key={`thinking-${index}`}
-                  thinking={segment.text}
-                  streaming={streaming && index === segments.length - 1}
-                />
-              ) : (
-                segment.calls.map((call) => <ToolCallCard key={call.id} call={call} />)
-              )
-            )}
+            {segments.map((segment, index) => {
+              if (segment.type === 'thinking') {
+                return (
+                  <ThoughtsSection
+                    key={`thinking-${index}`}
+                    thinking={segment.text}
+                    streaming={streaming && index === segments.length - 1}
+                  />
+                )
+              }
+              // Narration the model wrote between calls. Rendered as the prose
+              // it is, so expanding a folded reply reads the way it did live.
+              if (segment.type === 'text') {
+                return <MessageContent key={`text-${index}`} content={segment.text} />
+              }
+              return segment.calls.map((call) => <ToolCallCard key={call.id} call={call} />)
+            })}
           </div>
         </div>
       </div>

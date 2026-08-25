@@ -4,6 +4,7 @@ import type { ToolCall } from '@shared/tools.types'
 import {
   buildRenderSegments,
   currentTaskPhase,
+  foldSettledTimeline,
   groupSegmentsForTimeline,
   groupToolCallsByPhase,
   liveActivityLabel,
@@ -311,5 +312,62 @@ describe('messageBlocks', () => {
 
   it('returns an empty array for a message with no content and no tool calls', () => {
     expect(messageBlocks(message({}))).toEqual([])
+  })
+})
+
+/**
+ * A forty-minute turn leaves dozens of tool cards and every "let me check the
+ * shader link status" the model wrote on the way through. `TurnRecap` already
+ * folded the tool calls away and left the prose -- the half that is actually
+ * long. A finished reply should show its answer.
+ */
+describe('foldSettledTimeline', () => {
+  const text = (t: string): MessageBlock => ({ type: 'text', text: t })
+  const toolBlockOf = (title: string): MessageBlock => toolBlock({ title, status: 'success' })
+  const timelineOf = (...blocks: MessageBlock[]) =>
+    groupSegmentsForTimeline(buildRenderSegments(blocks))
+
+  it('folds narration and tool calls into one run, keeping the closing answer', () => {
+    const folded = foldSettledTimeline(
+      timelineOf(text('Let me check the shader.'), toolBlockOf('Read gl.cpp'), text('Fixed it.'))
+    )
+
+    expect(folded).toHaveLength(2)
+    expect(folded[0].type).toBe('work')
+    expect(folded[1]).toEqual({ type: 'text', text: 'Fixed it.' })
+    // The narration is inside the fold, not lost.
+    const work = folded[0]
+    if (work.type !== 'work') throw new Error('expected a work block')
+    expect(work.segments.some((s) => s.type === 'text')).toBe(true)
+  })
+
+  /** Prose before more work was narration, not a conclusion. */
+  it('keeps out only trailing text, not prose that came before more work', () => {
+    const folded = foldSettledTimeline(
+      timelineOf(
+        text('First I will look.'),
+        toolBlockOf('Read a.ts'),
+        text('Now the edit.'),
+        toolBlockOf('Edit a.ts')
+      )
+    )
+
+    expect(folded).toHaveLength(1)
+    expect(folded[0].type).toBe('work')
+  })
+
+  /** A turn cut short mid-tool collapses to the outcome alone. */
+  it('folds a reply that never got to write a conclusion', () => {
+    const folded = foldSettledTimeline(timelineOf(toolBlockOf('Read a.ts')))
+
+    expect(folded).toHaveLength(1)
+    expect(folded[0].type).toBe('work')
+  })
+
+  /** No stray toggle above a plain answer. */
+  it('leaves a reply with no tool calls exactly as it was', () => {
+    const plain = timelineOf(text('Just an answer.'))
+
+    expect(foldSettledTimeline(plain)).toEqual(plain)
   })
 })
