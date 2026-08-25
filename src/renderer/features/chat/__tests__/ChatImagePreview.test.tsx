@@ -194,7 +194,15 @@ describe('ChatImagePreview', () => {
     expect(html).toContain('aria-label="Re-inspect page.html"')
   })
 
-  it('keeps the finished turn recap open when it contains an inspected image', () => {
+  /**
+   * This used to assert the opposite: a finished recap stayed open when it held
+   * an inspected image, from when a screenshot was rare and was the point of
+   * the turn. `inspect_visual` is now routine -- Anodex looks at its own render
+   * most turns -- so the exception had grown to mean "almost never collapse",
+   * and a finished reply could not show the clean summary it exists to show.
+   * The image is still in the panel, one click away.
+   */
+  it('collapses a finished turn recap even when it contains an inspected image', () => {
     const call = {
       id: 'tool-1',
       name: 'inspect_visual',
@@ -218,7 +226,8 @@ describe('ChatImagePreview', () => {
       />
     )
 
-    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain('aria-expanded="false"')
+    // Collapsed, not discarded: the image is still rendered inside the panel.
     expect(html).toContain('data:image/png;base64,cGl4ZWxz')
   })
 
