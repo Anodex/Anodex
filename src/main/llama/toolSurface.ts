@@ -138,16 +138,28 @@ const DIRECT_TOOL_PRIORITY = [
   'replace_lines',
   'edit_file',
   'write_file',
-  // Immediately after `write_file`, always. `write_file` is capped at
-  // `MAX_FILE_WRITE_CONTENT_CHARS` and its own description tells the model to
-  // write a first chunk and append the rest — so offering it without
-  // `append_file` instructs the model to begin an operation it cannot finish.
+  // Immediately after `write_file`, always. `write_file`'s own description
+  // tells the model to write a first chunk and append the rest when a file is
+  // too long to emit at once — so offering it without `append_file` instructs
+  // the model to begin an operation it cannot finish.
   // That happened: a 41,455-byte file was overwritten with a 1,839-byte first
   // chunk, `append_file` was deferred behind the gateway, zero appends
   // followed, and the file was left truncated and unparseable.
   'append_file',
   'run_command',
   'read_file',
+  // Directly after `read_file`, and above the visual tools, because it is the
+  // cheapest way out of the failure this whole ordering exists to prevent.
+  // Sitting at the end of this list it was past `maxDirectToolsForContext`'s
+  // ceiling of 16 and therefore deferred at *every* context size, on every
+  // machine — so a model needing several files reached for `read_file` once per
+  // file instead. Measured: a turn read the same five files five times over, 27
+  // reads and zero writes, work one batched call would have done once.
+  //
+  // It stays below `read_file` deliberately. On a small window batching several
+  // files is the more dangerous call, and the ceiling keeps it deferred there
+  // while handing it to the 32K-and-above windows that have room to use it.
+  'read_multiple_files',
   'find_files',
   'patch_file',
   'inspect_visual',
@@ -157,7 +169,6 @@ const DIRECT_TOOL_PRIORITY = [
   'run_project_check',
   'git_diff',
   'git_status',
-  'read_multiple_files',
   'get_file_info',
   'search_code',
   'write_plan',
@@ -320,6 +331,31 @@ function discoveryWords(value: string): string[] {
   )
 }
 
+/**
+ * Why a name is not resolvable as a deferred tool, phrased so the next call is
+ * obvious.
+ *
+ * The gateway tools are *direct* — they are always in the native surface. A
+ * model that reaches them through `call_available_tool` has made a predictable
+ * mistake, and Anodex used to answer it with "No deferred tool named
+ * describe_available_tool. Use find_available_tool first", which is true,
+ * unhelpful, and sends the model somewhere that cannot help either.
+ *
+ * Observed in a real run: a schema mismatch told the model to "call
+ * describe_available_tool and try again"; the model, already inside
+ * `call_available_tool`, wrapped that call too and got the missing-tool error.
+ * Anodex's own advice walked it into a dead end.
+ */
+function explainUnknownDeferredTool(name: string): string {
+  if ((GATEWAY_TOOL_NAMES as readonly string[]).includes(name)) {
+    return (
+      `"${name}" is one of the always-available gateway tools, not a deferred one. ` +
+      'Call it directly rather than through call_available_tool.'
+    )
+  }
+  return `No deferred tool named "${name}". Use find_available_tool first.`
+}
+
 function describeDeferredTool(
   functions: Record<string, ToolFunction>,
   name: string,
@@ -327,7 +363,7 @@ function describeDeferredTool(
 ): string {
   const resolvedName = resolveDeferredToolName(functions, name)
   const tool = functions[resolvedName]
-  if (!tool) return `No deferred tool named "${name}". Use find_available_tool first.`
+  if (!tool) return explainUnknownDeferredTool(name)
   const parameters: unknown = tool.params
   const serialized = JSON.stringify(
     {
@@ -355,7 +391,7 @@ async function callDeferredTool(
 ): Promise<unknown> {
   const resolvedName = resolveDeferredToolName(functions, name)
   const tool = functions[resolvedName]
-  if (!tool) throw new Error(`No deferred tool named "${name}". Use find_available_tool first.`)
+  if (!tool) throw new Error(explainUnknownDeferredTool(name))
 
   let args: unknown
   try {
@@ -371,7 +407,8 @@ async function callDeferredTool(
   if (validationError) {
     throw new Error(
       `Arguments for "${resolvedName}" do not match its schema: ${validationError} ` +
-        'Call describe_available_tool and try again.'
+        'Call describe_available_tool directly — it is a normal tool, not something to pass ' +
+        'through call_available_tool — then retry with corrected arguments.'
     )
   }
   return await tool.handler(args)

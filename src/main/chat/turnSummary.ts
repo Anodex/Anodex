@@ -127,7 +127,7 @@ function describeVerification(calls: ToolCall[]): string | null {
     .filter(
       (verification): verification is NonNullable<typeof verification> => verification !== null
     )
-    .filter((verification) => BUILD_OR_TEST_COMMAND.test(verification.command))
+    .filter((verification) => isVerificationCommand(verification.command))
 
   if (verifications.length === 0) {
     if (!calls.some(isDurableChange)) return null
@@ -265,6 +265,37 @@ function describeCaveats(input: TurnSummaryInput): string | null {
   return caveats.length > 0 ? `**Check** ${caveats.join('; ')}` : null
 }
 
+/**
+ * Whether anything at all has checked the newest change.
+ *
+ * A build/test/type-check/lint command that ran after it, or a screenshot taken
+ * after it. Exported so the continuation brief can tell the model the same
+ * thing mid-task that this account tells the user at the end — a live 16K run
+ * made five successful edits, said "let me inspect the visual result", never
+ * called the tool, and closed by reporting the fix as working. The account
+ * below caught it; nothing had told the model while it could still act.
+ */
+export function hasVerificationOfChange(calls: ToolCall[]): boolean {
+  // A check command is a `command`-kind call, so it is a durable change by the
+  // same rule — and measuring "after the last change" naively would mean a
+  // build could never count as verifying anything, because it would always be
+  // the last change itself. The change that needs checking is the last one that
+  // is not a check.
+  const lastChange = calls.findLastIndex((call) => isDurableChange(call) && !isCheckCommand(call))
+  if (lastChange < 0) return true
+  return calls.some(
+    (call, index) =>
+      index > lastChange &&
+      (isCheckCommand(call) || (call.name === 'inspect_visual' && call.status === 'success'))
+  )
+}
+
+/** A successful build/test/type-check/lint run, as opposed to any other command. */
+function isCheckCommand(call: ToolCall): boolean {
+  const verification = parseRunCommandVerification(call)
+  return verification !== null && isVerificationCommand(verification.command)
+}
+
 /** Whether a screenshot was taken after the last change, and so shows it. */
 function hasVisualEvidenceOfChange(calls: ToolCall[]): boolean {
   const lastChange = calls.findLastIndex(isDurableChange)
@@ -386,6 +417,38 @@ const BUILD_OR_TEST_TOOLS = [
   'crystal',
   'scons'
 ]
+
+/**
+ * An interpreter running one of the project's own scripts, e.g.
+ * `python _smoke_test.py` or `node check.mjs`.
+ *
+ * The named-tool list cannot cover this. A project with no test framework
+ * verifies itself by running its own script, and for many small projects that
+ * is the only check there is. Measured: a turn ran `python _smoke_test.py` to a
+ * green exit and was still told "**Not verified** — no build, test, type-check
+ * or lint command ran", the exact false accusation that list exists to prevent,
+ * only for a plain-Python project instead of a C++ one. The same predicate
+ * feeds `hasVerificationOfChange`, so the continuation brief was also telling
+ * the model mid-task to go and verify what it had just verified.
+ *
+ * A script *file* is required, which is why this is separate from the word list
+ * rather than a bare `python` added to it. Models routinely use `python -c` to
+ * read things — this very turn ran `python -c "lines=open('ui.py')..."` — and
+ * counting that as proof the change works would turn a missing note into a
+ * false claim of verification, which is the worse direction for an honesty
+ * feature to fail in.
+ */
+const SCRIPT_RUN_COMMAND = new RegExp(
+  // Flags are allowed before the script (`python -u run.py`) except `-c`, whose
+  // argument is code rather than a file.
+  String.raw`\b(?:python3?|py|node|ruby|perl|php|Rscript|julia)\s+(?:-[^c\s]\S*\s+)*\S+\.(?:py|js|mjs|cjs|rb|pl|php|R|jl)\b`,
+  'i'
+)
+
+/** Whether a shell command is something that actually checks the change. */
+export function isVerificationCommand(command: string): boolean {
+  return BUILD_OR_TEST_COMMAND.test(command) || SCRIPT_RUN_COMMAND.test(command)
+}
 
 /**
  * `clang++`/`g++` are matched separately: `+` is not a word character, so a

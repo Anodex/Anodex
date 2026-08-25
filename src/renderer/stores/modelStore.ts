@@ -9,6 +9,7 @@ import type { RecommendedModel } from '@shared/recommendedModels'
 import { anodex } from '../lib/anodex'
 import { notifyError, useUiStore } from './uiStore'
 import { useSettingsStore } from './settingsStore'
+import { resolveModelContextSize } from '@shared/modelContextSize'
 
 const INITIAL_ENGINE: EngineState = { status: 'unloaded', generating: false, vision: false }
 
@@ -117,18 +118,29 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
   loadModel: async (model, overrides) => {
     const settings = useSettingsStore.getState().settings
+    // Per-model before global — see `resolveModelContextSize` for why a size
+    // chosen for one model must not follow the next one into the engine.
+    const contextSize = resolveModelContextSize(settings, model.path, overrides?.contextSize)
     set({ pendingPath: model.path })
     try {
       const result = await anodex.models.load({
         path: model.path,
         visionProjectorPath: model.visionProjectorPath,
-        contextSize: overrides?.contextSize ?? settings?.model.contextSize,
+        contextSize,
         gpuLayers: overrides?.gpuLayers ?? settings?.model.gpuLayers
       })
 
       if (result.ok) {
         set({ engine: result.value })
-        void useSettingsStore.getState().update({ lastModelPath: model.path })
+        // Keep the single number the settings UI shows honest about what is
+        // actually running, now that a remembered per-model size can differ
+        // from the global one.
+        void useSettingsStore.getState().update({
+          lastModelPath: model.path,
+          ...(contextSize !== undefined && contextSize !== settings?.model.contextSize
+            ? { model: { contextSize } }
+            : {})
+        })
         useUiStore.getState().notify({ kind: 'success', title: 'Model ready', message: model.name })
       } else {
         notifyError('Failed to load model', result.error.detail ?? result.error.message)

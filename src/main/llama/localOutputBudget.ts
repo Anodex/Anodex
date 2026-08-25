@@ -1,3 +1,31 @@
+/**
+ * The smallest reply allowance worth issuing a round with.
+ *
+ * A percentage-only reserve lets a tiny tool-enabled window issue a request
+ * that cannot finish one valid JSON call; an absolute 4096-token rule made
+ * small tool-free requests impossible by arithmetic. This derives the floor
+ * from capacity, then raises it to the known bounded write payload when tools
+ * are present.
+ *
+ * Lives here rather than in `LlamaVisionService`, which is where it was
+ * written and is still its main caller, because `reasoningOverrun` sizes the
+ * thinking budget against it and importing it from there would close the loop
+ * `LlamaVisionService -> LlamaServerRuntime -> reasoningOverrun`.
+ */
+export function minimumViableOutputTokens(contextSize: number, hasTools: boolean): number {
+  const scaled = Math.max(384, Math.min(2_048, Math.floor(contextSize * 0.12)))
+  return hasTools ? Math.max(scaled, MIN_TOOL_CALL_OUTPUT_TOKENS) : scaled
+}
+
+/**
+ * The reply room one bounded tool call needs end to end.
+ *
+ * A round issued with less than this cannot finish a large `write_file` call,
+ * and a cut-off call is replayed as the same malformed request rather than
+ * failing cleanly.
+ */
+const MIN_TOOL_CALL_OUTPUT_TOKENS = 1_280
+
 export interface LocalOutputBudgetInput {
   contextSize: number
   inputLimitTokens: number

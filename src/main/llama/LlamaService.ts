@@ -59,6 +59,14 @@ import {
   seedContextFromSnapshot
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
+import { gbnfSafeSchema } from './gbnfSafeSchema'
+import { resolveToolCallingWrapper, fabricatedResultStopTriggers } from './toolCallDialects'
+import {
+  createNativeLogTail,
+  describeNativeLoadFailure,
+  describeUnreadableModelFile,
+  type NativeLogTail
+} from './modelLoadDiagnostics'
 import { beginModelLoad, finishModelLoad } from './loadSentinel'
 import { DIRECT_ANSWER_BUDGETS } from './directAnswer'
 import { foldIntoRollingSummary } from './rollingSummary'
@@ -68,7 +76,7 @@ import {
   stripFallbackCall,
   type FallbackToolCall
 } from './toolCallFallback'
-import { stripLeakedChannelTokens, stripSubstantialCodeFences } from '@shared/toolCallText'
+import { stripLeakedEngineText, stripSubstantialCodeFences } from '@shared/toolCallText'
 import { PendingToolCallTracker } from './pendingToolCalls'
 import { appendThinking, shouldPromoteThinkingToAnswer } from './thinkingChannel'
 import {
@@ -388,6 +396,8 @@ class LlamaService extends EventEmitter {
   private status: EngineState['status'] = 'unloaded'
   private currentModel?: ModelInfo
   private contextSize?: number
+  /** Tail of llama.cpp's own log, read only when a load fails. */
+  private readonly nativeLog: NativeLogTail = createNativeLogTail()
   private gpuLayersUsed?: number
   private gpuLayersTotal?: number
   private error?: string
@@ -532,7 +542,15 @@ class LlamaService extends EventEmitter {
     await this.unloadInternal()
     // A new attempt supersedes any refusal on record, whatever its outcome.
     this.setState({ status: 'loading', model: info, error: undefined, refusedLoad: undefined })
-    log.info('Loading model', info.name)
+    // The requested size, and whether the caller actually named one. Without
+    // this the only record of a load is the size that came *out*, so a model
+    // running at half the configured context is indistinguishable from one the
+    // caller asked to be small — which cost a long investigation once already.
+    log.info('Loading model', info.name, {
+      requestedContextSize: requestedSize,
+      callerAskedFor: options.contextSize ?? null,
+      gpuLayers: options.gpuLayers ?? 'auto'
+    })
 
     // Everything below this line can take the whole process down without
     // raising anything catchable — see `loadSentinel.ts`. The record is
@@ -608,7 +626,7 @@ class LlamaService extends EventEmitter {
       log.info('Model ready:', info.name, `(ctx ${this.contextSize})`)
       return this.getState()
     } catch (error) {
-      const message = describeLoadError(error, info)
+      const message = describeLoadError(error, info, this.nativeLog.lines())
       log.error('Failed to load model:', message)
       await this.visionService.unload()
       await this.disposeModel()
@@ -1038,7 +1056,7 @@ class LlamaService extends EventEmitter {
       const grammar =
         params.options?.jsonSchema && functions == null && this.llama
           ? await this.llama.createGrammarForJsonSchema<GbnfJsonSchema>(
-              params.options.jsonSchema as GbnfJsonSchema
+              gbnfSafeSchema(params.options.jsonSchema) as GbnfJsonSchema
             )
           : undefined
       for (let round = 0; ; round++) {
@@ -1098,6 +1116,13 @@ class LlamaService extends EventEmitter {
           // per-turn token budget on pure repetition. `strength: 0.8` is the
           // library's own recommended default.
           dryRepeatPenalty: { strength: 0.8 },
+          // Halt the moment the model starts inventing a tool result rather
+          // than calling the tool — see `fabricatedResultStopTriggers`. The
+          // round handler below turns that stop into one plain request for the
+          // call it skipped.
+          customStopTriggers: fabricatedResultStopTriggers(
+            this.model?.fileInfo?.metadata?.general?.architecture
+          ),
           signal: genController.signal,
           ...(grammar ? { grammar } : { functions }),
           // Force a checkpoint after every native tool call. Wrappers such
@@ -1206,7 +1231,7 @@ class LlamaService extends EventEmitter {
         } catch (error) {
           const isContextShiftFailure = isContextShiftCrash(error)
           if (genController.signal.aborted) {
-            visibleContent = appendRoundText(visibleContent, stripLeakedChannelTokens(roundContent))
+            visibleContent = appendRoundText(visibleContent, stripLeakedEngineText(roundContent))
             if (roundSegment.trim()) {
               thinkingText = thinkingText
                 ? `${thinkingText}\n\n${roundSegment.trim()}`
@@ -1235,10 +1260,7 @@ class LlamaService extends EventEmitter {
             // the outer catch cannot decide whether a turn has work worth
             // keeping if the work is invisible to it.
             if (!genController.signal.aborted) {
-              visibleContent = appendRoundText(
-                visibleContent,
-                stripLeakedChannelTokens(roundContent)
-              )
+              visibleContent = appendRoundText(visibleContent, stripLeakedEngineText(roundContent))
               if (roundSegment.trim()) {
                 thinkingText = thinkingText
                   ? `${thinkingText}\n\n${roundSegment.trim()}`
@@ -1297,7 +1319,7 @@ class LlamaService extends EventEmitter {
         // through as literal text otherwise. Cleaned here, before any of the
         // detection logic below sees it, so a stray leaked tag can't also
         // confuse the fallback/stalled-intent checks.
-        roundContent = stripLeakedChannelTokens(roundContent)
+        roundContent = stripLeakedEngineText(roundContent)
 
         log.debug('Generation round complete', {
           round,
@@ -1325,6 +1347,28 @@ class LlamaService extends EventEmitter {
           stopped = true
           log.warn('Bounded local generation stop diagnostics', diagnostics.snapshot())
           break
+        }
+
+        // The model started writing a tool *result*, which only the engine may
+        // produce — see `fabricatedResultStopTriggers`. Generation was stopped
+        // at the marker, so the invented content was never written; what is
+        // missing is the call the model skipped. Ask for it once, plainly,
+        // spending a round from the same budget the fallback path uses.
+        //
+        // Syntax, not intent: this fires on a marker the model cannot
+        // legitimately emit, never on what a reply appears to claim.
+        if (
+          meta.stopReason === 'customStopTrigger' &&
+          functions != null &&
+          round < MAX_FALLBACK_ROUNDS
+        ) {
+          visibleContent = appendRoundText(visibleContent, roundContent)
+          prompt =
+            'You started writing a tool result yourself. Tool results come only from the ' +
+            'tools — anything you write there is invented. Call the tool you need and wait ' +
+            'for its real result, or, if the task is already done, say what you did.'
+          log.info('Stopped a fabricated tool result and asked for the call instead', { round })
+          continue
         }
 
         // Some local models fail to trigger node-llama-cpp's native function
@@ -1739,7 +1783,11 @@ class LlamaService extends EventEmitter {
     options: { maxTokens: number; temperature: number }
   ): Promise<string> {
     const nlc = await this.getModule()
-    let session = new nlc.LlamaChatSession({ contextSequence: sequence })
+    const toolWrapper = this.toolCallingWrapper(nlc)
+    let session = new nlc.LlamaChatSession({
+      contextSequence: sequence,
+      ...(toolWrapper ? { chatWrapper: toolWrapper as never } : {})
+    })
     // Qwen 3's chat template defaults to "thinking" mode — we want a direct
     // answer, not a reasoning monologue, so explicitly discourage it when
     // that's the resolved wrapper. Verified directly: without this,
@@ -1774,12 +1822,12 @@ class LlamaService extends EventEmitter {
       const finalText = meta.responseText || responseText || segmentText
       // These throwaway summarization sessions use the same chat wrappers
       // (e.g. Gemma4ChatWrapper) as the main conversation, so they're subject
-      // to the same special-token leak (see `stripLeakedChannelTokens`'s
+      // to the same special-token leak (see `stripLeakedEngineText`'s
       // docs). Compaction summaries in particular are now shown directly to
       // the user via the in-transcript compaction marker, not just fed back
       // as model context, so a leaked `<channel|>` here would be a new
       // user-visible bug rather than a harmless internal artifact.
-      return stripLeakedChannelTokens(finalText)
+      return stripLeakedEngineText(finalText)
     } finally {
       session.dispose()
     }
@@ -1858,9 +1906,13 @@ class LlamaService extends EventEmitter {
     }
 
     const nlc = await this.getModule()
+    // See `toolCallingWrapper`: a model whose tool calls the resolved wrapper
+    // cannot read back would otherwise narrate them as prose and call nothing.
+    const chatWrapper = this.toolCallingWrapper(nlc)
     this.session = new nlc.LlamaChatSession({
       contextSequence: this.contextSequence,
       systemPrompt: compacted.systemPrompt,
+      ...(chatWrapper ? { chatWrapper: chatWrapper as never } : {}),
       contextShift: {
         strategy: createBoundedContextShiftStrategy({
           // Context shifts occur inside an active generation. Keep this path
@@ -2219,7 +2271,7 @@ class LlamaService extends EventEmitter {
     if (!params.tools) return undefined
     const nlc = await this.getModule()
     const rawConfirm = params.tools.confirm
-    return buildTools(nlc.defineChatSessionFunction, {
+    const tools = buildTools(nlc.defineChatSessionFunction, {
       conversationId: params.conversationId,
       messageId: params.messageId,
       workspaceRoot: params.tools.workspaceRoot,
@@ -2276,6 +2328,20 @@ class LlamaService extends EventEmitter {
       // confirm as denied the moment this generation ends, however it ends.
       confirm: (request) => confirmRacingAbort(rawConfirm, request, signalBox)
     })
+    // node-llama-cpp compiles each tool's schema into GBNF on its own — and
+    // rejects bounds a cloud provider accepts happily. This is the only seam
+    // where the tool declarations meet that compiler, so it is where they are
+    // made safe for it; see `gbnfSafeSchema`'s doc comment for what fails and
+    // why the bound is dropped rather than lowered.
+    return Object.fromEntries(
+      Object.entries(tools).map(([name, fn]) => {
+        // `fn.params` is `any` (`ToolFunction = ChatSessionModelFunction<any>`)
+        // — narrowed to `unknown` before use, as `estimateToolSchemaTokens`
+        // above does, so it is never propagated unsafely.
+        const params: unknown = fn.params
+        return [name, params == null ? fn : { ...fn, params: gbnfSafeSchema(params) }]
+      })
+    )
   }
 
   /**
@@ -2306,7 +2372,17 @@ class LlamaService extends EventEmitter {
 
   private async createLlamaBackend(): Promise<Llama> {
     const nlc = await this.getModule()
-    this.llama = await nlc.getLlama()
+    // llama.cpp's own diagnostics never reach JS — a failed load rejects with a
+    // bare "Failed to load model" whatever the cause — so they are captured
+    // here instead. See `modelLoadDiagnostics.ts`.
+    this.llama = await nlc.getLlama({
+      logger: (level, message) => {
+        this.nativeLog.record(message)
+        if (level === nlc.LlamaLogLevel.error || level === nlc.LlamaLogLevel.fatal) {
+          log.warn('llama.cpp:', message)
+        }
+      }
+    })
     return this.llama
   }
 
@@ -2398,6 +2474,19 @@ class LlamaService extends EventEmitter {
       totalLayers: insights.totalLayers,
       rationale: buildFileRecommendationRationale(insights, contextSize, hardware, hasCapableGpu)
     }
+  }
+
+  /**
+   * The chat wrapper for the loaded model, or `undefined` to keep the one
+   * node-llama-cpp resolves on its own. See `toolCallDialects.ts` for which
+   * families need an override and why the list is deliberately short.
+   */
+  private toolCallingWrapper(nlc: LlamaModule): object | undefined {
+    return resolveToolCallingWrapper(
+      nlc,
+      this.model?.fileInfo?.metadata?.general?.architecture,
+      this.model?.fileInfo?.metadata?.tokenizer?.chat_template
+    )
   }
 
   private async getModule(): Promise<LlamaModule> {
@@ -2846,9 +2935,14 @@ async function describeInsufficientMemory(
  * than guess at a cause we can't reliably detect, add real, actionable
  * guidance to whatever the engine did report instead of surfacing it bare.
  */
-function describeLoadError(error: unknown, info: ModelInfo): string {
+function describeLoadError(error: unknown, info: ModelInfo, nativeLog: readonly string[]): string {
   const raw = error instanceof Error ? error.message : String(error)
   const base = raw || 'Failed to load model.'
+  // A cause llama.cpp actually named beats the generic memory guidance below,
+  // which is a guess — and a misleading one for a model that can never load on
+  // this build no matter how much memory is free.
+  const nativeCause = describeNativeLoadFailure(nativeLog) ?? describeUnreadableModelFile(raw)
+  if (nativeCause) return `${base} ${nativeCause}`
   return (
     `${base} This often happens when a model needs more RAM or VRAM than is ` +
     `currently available — try CPU-only mode, close other applications, or ` +

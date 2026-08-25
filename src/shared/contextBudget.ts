@@ -297,6 +297,18 @@ export function referenceContextChars(contextSize: number): number {
 export const FULL_REFERENCE_CONTEXT_CHARS = 5100
 
 /**
+ * Total character allowance for automatic supporting material in adaptive-v1.
+ *
+ * Workspace orientation, remembered facts, and past-chat excerpts all share
+ * this allowance. The old full-size value already reflects the amount of
+ * reference material Anodex found useful in a normal prompt; transcript recall
+ * now competes for it instead of becoming a third, unaccounted prompt segment.
+ */
+export function automaticReferenceContextChars(contextSize: number): number {
+  return Math.min(referenceContextChars(contextSize), FULL_REFERENCE_CONTEXT_CHARS)
+}
+
+/**
  * How much of its full size each reference section may use on this window,
  * from 0 to 1. Above roughly 16k this is 1 — there is no more workspace or
  * memory worth describing, so a bigger window simply spends less of itself on

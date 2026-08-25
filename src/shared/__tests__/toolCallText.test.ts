@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   detectToolCallText,
-  stripLeakedChannelTokens,
+  stripLeakedEngineText,
   stripSubstantialCodeFences,
   stripToolCallText
 } from '../toolCallText'
@@ -119,7 +119,7 @@ describe('stripSubstantialCodeFences', () => {
   })
 })
 
-describe('stripLeakedChannelTokens', () => {
+describe('stripLeakedEngineText', () => {
   it('removes all three observed leaked marker variants', () => {
     // Regression: observed live with a Gemma fine-tune — node-llama-cpp's
     // Gemma4ChatWrapper expects a paired `<|channel>thought` / `<channel|>`
@@ -127,21 +127,21 @@ describe('stripLeakedChannelTokens', () => {
     // internally. A model that doesn't reproduce that sequence exactly
     // leaves the wrapper unable to recognize the marker, so it falls
     // through into the visible reply as literal text.
-    expect(stripLeakedChannelTokens("I'll add the footer.<channel|>Done.")).toBe(
+    expect(stripLeakedEngineText("I'll add the footer.<channel|>Done.")).toBe(
       "I'll add the footer.Done."
     )
-    expect(stripLeakedChannelTokens('<channel>Some text</channel> after.')).toBe('Some text after.')
+    expect(stripLeakedEngineText('<channel>Some text</channel> after.')).toBe('Some text after.')
   })
 
   it('leaves ordinary text with no leaked marker untouched', () => {
     const reply = 'Done — the footer now has social icons and a copyright line.'
-    expect(stripLeakedChannelTokens(reply)).toBe(reply)
+    expect(stripLeakedEngineText(reply)).toBe(reply)
   })
 
   it('does not touch real HTML the model legitimately writes', () => {
     // Narrow by design: only the exact "channel" artifact shape is
     // stripped, not angle-bracketed content in general.
     const reply = 'Add `<div class="channel">` for the video channel section.'
-    expect(stripLeakedChannelTokens(reply)).toBe(reply)
+    expect(stripLeakedEngineText(reply)).toBe(reply)
   })
 })

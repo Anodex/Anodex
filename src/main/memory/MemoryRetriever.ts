@@ -29,6 +29,16 @@ export interface MemoryRetrievalOptions {
 export interface MemoryRetrievalResult {
   text: string
   entries: MemoryEntry[]
+  /**
+   * One rendered line per entry in `entries`, same order and same length.
+   *
+   * The shared automatic-reference packer treats a memory entry as indivisible
+   * and drops whole ones when the window cannot afford them all, so it needs the
+   * lines separately rather than pre-joined — and the 1:1 pairing is what lets
+   * the caller report exactly the entries the model was given. See
+   * `AutomaticReferenceSource` in `contextPlanner.ts`.
+   */
+  lines: string[]
 }
 
 export function buildMemoryContext(
@@ -67,7 +77,7 @@ export function buildMemoryContext(
     usedChars += line.length
   }
 
-  return lines.length ? { text: lines.join('\n'), entries: used } : null
+  return lines.length ? { text: lines.join('\n'), entries: used, lines } : null
 }
 
 function gatherEntries(projectId: string | null, options: MemoryRetrievalOptions): MemoryEntry[] {

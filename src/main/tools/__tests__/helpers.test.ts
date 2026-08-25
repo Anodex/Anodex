@@ -8,6 +8,7 @@ import {
   runReadTool
 } from '../helpers'
 import { createMockContext, captureCalls, captureConfirmations } from './test-helpers'
+import { LOOP_GUARD_LIMIT } from '../loopGuard'
 
 /**
  * An absolute workspace root on whatever OS is running the suite.
@@ -632,7 +633,7 @@ describe('model-result runtime budget clamping', () => {
       run: () => Promise.resolve({ modelResult: 'x'.repeat(100) })
     })
 
-    expect(result).toContain('truncated, 100 bytes total')
+    expect(result).toContain('the first 20 of 100 bytes')
     expect(result.startsWith('x'.repeat(20))).toBe(true)
   })
 
@@ -683,7 +684,7 @@ describe('model-result runtime budget clamping', () => {
     })
 
     expect(result.startsWith('z'.repeat(15))).toBe(true)
-    expect(result).toContain('truncated, 1000 bytes total')
+    expect(result).toContain('the first 15 of 1000 bytes')
   })
 
   it('returns an explicit no-room message instead of an empty or misleading result', async () => {
@@ -775,9 +776,10 @@ describe('runGuardedToolWithPrepare — provisional card handoff', () => {
     )
 
     expect(result).toBe('Error: oldText not found in foo.ts')
-    expect(calls).toHaveLength(1)
-    expect(calls[0].id).toBe('provisional-2')
-    expect(calls[0].status).toBe('error')
+    // `running` then `error`, both on the one card — the preflight now runs
+    // before `prepare()` so the loop guard can count a prepare-stage failure.
+    expect(calls.map((call) => call.status)).toEqual(['running', 'error'])
+    expect(calls.every((call) => call.id === 'provisional-2')).toBe(true)
     // Claimed exactly once, so nothing is left for the round sweep to mark
     // "Interrupted" and nothing is double-claimed by a later call.
     expect(tracker.claimed()).toBe(1)
@@ -794,8 +796,91 @@ describe('runGuardedToolWithPrepare — provisional card handoff', () => {
       () => Promise.resolve({ modelResult: 'unreachable' })
     )
 
-    expect(calls).toHaveLength(1)
-    expect(calls[0].id).toEqual(expect.any(String))
-    expect(calls[0].status).toBe('error')
+    expect(calls.map((call) => call.status)).toEqual(['running', 'error'])
+    expect(new Set(calls.map((call) => call.id)).size).toBe(1)
+  })
+
+  // The loop-guard blind spot this ordering exists to close: every failure
+  // raised in `prepare()` used to bypass the ledger entirely, so a model could
+  // reissue the same rejected write without limit. Eight identical
+  // `append_file` refusals in one measured turn were counted as zero.
+  it('counts a repeated prepare failure toward the loop guard', async () => {
+    const { calls, emit } = captureCalls()
+    const ctx = { ...createMockContext(root), emit, claimPendingToolCallId: () => undefined }
+
+    const attempt = (): Promise<string> =>
+      runGuardedToolWithPrepare(
+        ctx,
+        {
+          name: 'append_file',
+          kind: 'write',
+          title: 'Append to foo.ts',
+          risk: 'safe',
+          args: { path: 'foo.ts', content: 'same every time' }
+        },
+        () => Promise.reject(new Error('payload too large')),
+        () => Promise.resolve({ modelResult: 'unreachable' })
+      )
+
+    const results: string[] = []
+    for (let i = 0; i < LOOP_GUARD_LIMIT + 1; i++) results.push(await attempt())
+
+    expect(results.slice(0, LOOP_GUARD_LIMIT)).toEqual(
+      Array(LOOP_GUARD_LIMIT).fill('Error: payload too large')
+    )
+    expect(results.at(-1)).toContain('this looks like a loop, not progress')
+    expect(calls.some((call) => call.detail === 'Blocked: repeated identical call')).toBe(true)
+  })
+})
+
+/**
+ * The loop this note exists to break, measured live: a turn spent 27 reads and
+ * zero writes cycling through the same five files five times. Two of them were
+ * over the per-result cap, and the old note — "(truncated, N bytes total)" —
+ * never said that re-reading returns the identical prefix, so re-reading looked
+ * like a way to see the rest.
+ */
+describe('truncated tool results', () => {
+  const bigFile = 'x'.repeat(40_000)
+
+  async function resultFor(name: string, cap: number): Promise<string> {
+    const ctx = { ...createMockContext(WORKSPACE_ROOT) }
+    ctx.modelResultBudget = { current: null }
+    return runReadTool(ctx, {
+      name,
+      kind: 'read',
+      title: `Read big.ts`,
+      modelResultCap: cap,
+      run: () => Promise.resolve({ modelResult: bigFile })
+    })
+  }
+
+  it('warns that repeating the call returns the same prefix', async () => {
+    const result = await resultFor('read_file', 5_000)
+    expect(result).toContain('truncated')
+    expect(result).toContain('same prefix')
+  })
+
+  it('names the range tools for a file read, so there is a way forward', async () => {
+    const result = await resultFor('read_file', 5_000)
+    expect(result).toContain('read_file_range')
+    expect(result).toContain('code_outline')
+  })
+
+  it('reports how much was shown against the real total', async () => {
+    const result = await resultFor('read_file', 5_000)
+    expect(result).toContain(String(bigFile.length))
+  })
+
+  it('does not suggest range reads for a tool that has no ranges', async () => {
+    const result = await resultFor('run_command', 5_000)
+    expect(result).toContain('same prefix')
+    expect(result).not.toContain('read_file_range')
+  })
+
+  it('adds no truncation note to a result that fits', async () => {
+    const result = await resultFor('read_file', 80_000)
+    expect(result).toContain(bigFile)
+    expect(result).not.toContain('truncated')
   })
 })

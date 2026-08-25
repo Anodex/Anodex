@@ -28,7 +28,9 @@ import { createLogger } from '../utils/logger'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
-import { resolveLocalOutputBudget } from './localOutputBudget'
+import { minimumViableOutputTokens, resolveLocalOutputBudget } from './localOutputBudget'
+import { FILE_WRITE_CHUNK_TARGET_CHARS } from '../tools/mutationTools'
+import { MAX_REASONING_OVERRUNS, reasoningOverrunGuidance } from './reasoningOverrun'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
 import { isDroppedStreamError } from './droppedStreamError'
 import {
@@ -136,7 +138,6 @@ const IMAGE_TOKEN_ESTIMATE = 768
  * be cut off and replayed as the same malformed request. Stop earlier so the
  * bounded chat runner can rebuild the turn with compacted history.
  */
-const MIN_TOOL_CALL_OUTPUT_TOKENS = 1_280
 /**
  * Start a fresh stateless context epoch before the active turn becomes
  * difficult to recover. The outer bounded chat runner will summarize the
@@ -155,18 +156,10 @@ const PROTECTED_RECENT_TOOL_RESULTS = 2
  * collapse into a single count. See `collapseEvidenceDescriptors`.
  */
 const KEPT_EVIDENCE_DESCRIPTORS = 12
-/**
- * The next output must be large enough for the kind of request we are about to
- * make. A percentage-only reserve lets a tiny tool-enabled window issue a
- * request that cannot finish one valid JSON call; an absolute 4096-token rule
- * made small tool-free requests impossible by arithmetic. This derives the
- * floor from capacity, then raises it to the known bounded write payload when
- * tools are present.
- */
-export function minimumViableOutputTokens(contextSize: number, hasTools: boolean): number {
-  const scaled = Math.max(384, Math.min(2_048, Math.floor(contextSize * 0.12)))
-  return hasTools ? Math.max(scaled, MIN_TOOL_CALL_OUTPUT_TOKENS) : scaled
-}
+// Defined in `localOutputBudget` so `reasoningOverrun` can size against it
+// without closing an import loop back through this file. Re-exported because
+// this is where callers have always found it.
+export { minimumViableOutputTokens } from './localOutputBudget'
 
 /**
  * Reserve enough room for one bounded result landing before the next round.
@@ -412,6 +405,23 @@ export class LlamaVisionService {
     let effectiveMaxTokens = requestedMaxTokens ?? DEFAULT_MAX_TOKENS
     let toolCallRecoveries = 0
     let fallbackRounds = 0
+    /** Rounds whose reasoning was cut off at its budget — see `reasoningOverrun.ts`. */
+    let reasoningOverruns = 0
+    /**
+     * Count one reasoning overrun and queue the corrective prompt, carrying the
+     * tail of the reasoning back so the next round continues instead of
+     * re-deriving it — see `reasoningOverrun.ts` for why that matters.
+     */
+    const recordReasoningOverrun = (round: number, reasoning: string, roundMs: number): void => {
+      reasoningOverruns += 1
+      log.warn('Reasoning outran the room this round had for it', {
+        round,
+        reasoningChars: reasoning.length,
+        overruns: reasoningOverruns,
+        roundMs
+      })
+      messages.push({ role: 'user', content: reasoningOverrunGuidance(reasoning) })
+    }
     for (let round = 0; round < maxToolRounds; round++) {
       if (params.signal?.aborted) {
         stopped = true
@@ -543,6 +553,14 @@ export class LlamaVisionService {
       // parse of the half-written call. Ending here instead keeps the text and
       // completed tool work from the rounds that did fit.
       if (measured && inputLimitTokens - measured.fixedTokens < minimumOutput) {
+        // The reply ceiling this turn really had, before the break below leaves
+        // the loop without ever reaching the budget call that normally sets it.
+        // Reporting the *requested* ceiling here is what made a 4K probe's
+        // record say the effective maximum output was 4,096 on a turn whose
+        // fixed input had already outgrown the window — the one number in that
+        // record a reader would use to size the problem, and it was the one
+        // number that was wrong.
+        effectiveMaxTokens = Math.max(0, inputLimitTokens - measured.fixedTokens)
         // Two different faults, and conflating them sends the user after the
         // wrong thing. On the first round nothing has accumulated yet, so the
         // *fixed* input — system prompt, project rules, tool schemas — is what
@@ -753,7 +771,10 @@ export class LlamaVisionService {
             preview,
             runtimeOutput: this.runtime.recentOutput()
           })
-          messages.push({ role: 'user', content: truncatedToolCallGuidance(preview) })
+          messages.push({
+            role: 'user',
+            content: truncatedToolCallGuidance(preview, toolCallRecoveries - 1)
+          })
           continue
         }
         // Same rule the cloud providers follow, and for the same reason: a
@@ -788,6 +809,10 @@ export class LlamaVisionService {
       if (outputTokens === 0) {
         outputTokens += Math.ceil((roundContent.length + roundThinking.length) / 4)
       }
+      // Kept so the reasoning-overrun recovery below can undo *this* round's
+      // contribution — a round that is retried was not lost — without clearing
+      // a limit an earlier round really did hit.
+      const tokenLimitBeforeRound: boolean = tokenLimit
       if (finishReason === 'length') tokenLimit = true
 
       const calls = [...pendingCalls.values()]
@@ -839,6 +864,24 @@ export class LlamaVisionService {
         }
       }
 
+      // A round that spent its whole allowance reasoning and was cut off before
+      // it acted did not "ask for nothing more" — it ran out of room. Ending
+      // the turn there is what made the next cycle restart the same task and
+      // re-emit the same opening verbatim; see `reasoningOverrun.ts`. One
+      // bounded corrective round instead, on the same terms as the truncated
+      // tool-call recovery above.
+      if (
+        calls.length === 0 &&
+        toolFunctions &&
+        finishReason === 'length' &&
+        roundContent.trim().length === 0 &&
+        roundThinking.trim().length > 0 &&
+        reasoningOverruns < MAX_REASONING_OVERRUNS
+      ) {
+        tokenLimit = tokenLimitBeforeRound
+        recordReasoningOverrun(round, roundThinking, Date.now() - roundStartedAt)
+        continue
+      }
       if (calls.length === 0 || !toolFunctions) {
         // The model asked for nothing more. If it also said nothing this round,
         // its last act was the previous round's tool call and it never came
@@ -1235,21 +1278,38 @@ export class LlamaVisionService {
 }
 
 /**
+ * Sizes asked for on successive truncation recoveries, in characters.
+ *
+ * The first is the chunk size every write tool already advertises. Repeating it
+ * after it has just failed is asking for the same thing again — a live run was
+ * told "under 4000 characters" by the tool description, overran anyway with a
+ * 10,507-character payload, was told it again by this prompt, and overran
+ * again. The second attempt names a size small enough that the round's
+ * remaining room is not in question.
+ */
+const TRUNCATION_RETRY_CHARS = [FILE_WRITE_CHUNK_TARGET_CHARS, 1_200] as const
+
+/**
  * Corrective prompt for a tool call that never finished emitting.
  *
  * Says what happened, and — critically — asks for a *different* shape rather
  * than a repeat. A verbatim retry of a call that already overran reproduces
  * the same failure at the same cost, which on a slow local model means many
  * more minutes for the same outcome.
+ *
+ * `attempt` is 0-based, and the size shrinks with it for the same reason: the
+ * shape has to change, and "smaller" is the only dimension the model can act on
+ * without knowing how much room the round actually had.
  */
-function truncatedToolCallGuidance(preview: string | undefined): string {
+function truncatedToolCallGuidance(preview: string | undefined, attempt: number): string {
+  const limit = TRUNCATION_RETRY_CHARS[Math.min(attempt, TRUNCATION_RETRY_CHARS.length - 1)]
   return [
     'Your previous tool call was cut off before its arguments were complete, so it could not be run',
     preview ? ` (it ended at: ${preview}).` : '.',
     ' Nothing was written and nothing changed.',
     ' Do not repeat that call as-is. If you were writing a long file, use a small first',
-    ' write_file call followed by short append_file calls. Keep every content payload under',
-    ' 4000 characters. Otherwise, answer without the tool call.'
+    ` write_file call followed by short append_file calls. Keep every content payload under`,
+    ` ${limit} characters. Otherwise, answer without the tool call.`
   ].join('')
 }
 

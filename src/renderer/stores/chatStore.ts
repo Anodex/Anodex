@@ -836,6 +836,9 @@ export const useChatStore = create<ChatState>()(
           message.content = content
           message.stats = result.value.stats
           message.contextBudget = result.value.contextBudget
+          if (result.value.contextAssemblies?.length) {
+            message.contextAssemblies = result.value.contextAssemblies
+          }
           message.blocks = reconcileMessageBlocks(
             message.blocks,
             content,

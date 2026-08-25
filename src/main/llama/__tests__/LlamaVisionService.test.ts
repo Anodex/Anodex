@@ -93,7 +93,10 @@ vi.mock('openai', () => {
           if (round.error && !round.chunks?.length) throw round.error
           const chunks = round.chunks ?? []
           const failAfter = round.error
+          // A real `Stream` exposes the request's AbortController, which the
+          // reasoning-budget cut uses to stop llama-server mid-generation.
           return Promise.resolve({
+            controller: new AbortController(),
             [Symbol.asyncIterator]: function* () {
               for (const chunk of chunks) yield chunk
               if (failAfter) throw failAfter
@@ -165,6 +168,9 @@ vi.mock('../../models/ModelReliabilityStore', () => ({
     recordFabrication: (...args: unknown[]) => mocks.reliability.push(['fabrication', ...args])
   }
 }))
+
+import { MAX_REASONING_OVERRUNS } from '../reasoningOverrun'
+import { FILE_WRITE_CHUNK_TARGET_CHARS } from '../../tools/mutationTools'
 
 const {
   LlamaVisionService,
@@ -477,6 +483,35 @@ describe('LlamaVisionService.generate', () => {
     expect(guidance?.content).toContain('cut off')
     expect(guidance?.content).toContain('Nothing was written')
     expect(guidance?.content).toContain('Do not repeat that call as-is')
+  })
+
+  it('asks for a smaller payload each time, not the size that just failed', async () => {
+    // A live run was told "under 4000 characters" by the tool description,
+    // overran anyway with a 10,507-character payload, was told the same number
+    // again by this prompt, and overran again. Repeating a size that has just
+    // failed is not asking for a different shape.
+    mocks.toolFunctions = {
+      write_file: {
+        description: 'Write.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    mocks.rounds.push({ error: truncatedToolCall() })
+    mocks.rounds.push({ error: truncatedToolCall() })
+    mocks.rounds.push({ chunks: [textChunk('ok', 'stop')] })
+
+    await (await service()).generate(params({ tools: withTools }))
+
+    // Every request shares the one mutating `messages` array, so the sequence
+    // has to be read out of its final state rather than per request.
+    const sent = mocks.requests[0].messages as Array<{ role: string; content: string }>
+    const sizesAsked = sent
+      .map((message) => /under (\d+) characters/.exec(String(message.content))?.[1])
+      .filter((size): size is string => size !== undefined)
+      .map(Number)
+
+    expect(sizesAsked).toEqual([FILE_WRITE_CHUNK_TARGET_CHARS, 1_200])
   })
 
   it('never repairs and runs the partial arguments', async () => {
@@ -954,6 +989,30 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.stopReason).toBe('fixed-context-limit')
   })
 
+  it('reports the reply ceiling a turn that never started actually had', async () => {
+    // The 4K probe in `docs/CONTEXT_OS_HANDOFF.md` recorded an effective output
+    // maximum of 4,096 on a turn whose fixed input had already outgrown the
+    // window — the one number a reader would use to size the problem, and the
+    // one that was wrong. The loop broke out on exhaustion before ever reaching
+    // the budget call that sets this, so the *requested* ceiling was reported.
+    mocks.countTokens = (text) => (text === 'Build a website.' ? 10 : 9_000)
+    mocks.rounds.push({ chunks: [textChunk('unreachable', 'stop')] })
+
+    const outcome = await (
+      await service(8_192)
+    ).generate(params({ tools: withTools, options: { maxTokens: 4_096 } }))
+
+    const budget = outcome.contextBudget!
+    expect(outcome.stopReason).toBe('fixed-context-limit')
+    expect(budget.requestedMaxOutputTokens).toBe(4_096)
+    // What was left of the input limit once the fixed input was measured —
+    // never the ceiling that was asked for.
+    expect(budget.effectiveMaxOutputTokens).toBe(
+      Math.max(0, budget.inputLimitTokens - budget.fixedTokens)
+    )
+    expect(budget.effectiveMaxOutputTokens).toBeLessThan(4_096)
+  })
+
   it('reclaims room from earlier results without orphaning a tool call', async () => {
     let call = 0
     mocks.toolFunctions = {
@@ -1247,6 +1306,123 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.content).toBe('Step 1 done.')
     expect(outcome.stopped).toBe(true)
     expect(outcome.stopReason).toBe('runtime-stalled')
+  })
+
+  /**
+   * The failure these three reproduce, from conversation
+   * `c_2b538bf0-db08-4d2e-ad7e-c196d30d380e`: single reasoning segments of
+   * 63,882 and 75,715 characters against a 15,875-token reply cap, in a turn
+   * that ran 19.7 minutes and changed no files. A round that thought until it
+   * was cut off produced no call and no text, which ended the turn; the runner
+   * opened a fresh cycle, and the model re-emitted the same opening sentence,
+   * the same `list_directory` and the same `read_file`. See
+   * `reasoningOverrun.ts`.
+   */
+  describe('reasoning that outruns its round', () => {
+    function reasoningChunk(text: string): StreamChunk {
+      return { choices: [{ delta: { reasoning_content: text } }] }
+    }
+
+    /** One tool so the round structurally requires a visible call. */
+    function oneTool(handler = vi.fn(() => Promise.resolve('ok'))) {
+      return {
+        list_directory: {
+          description: 'List a directory.',
+          params: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+          handler
+        }
+      }
+    }
+
+    it('recovers a round the server itself cut at the token limit mid-thought', async () => {
+      mocks.toolFunctions = oneTool()
+      // Under the budget, so the client-side cut never fires — the server ends
+      // the round at its own cap with reasoning only and nothing to show.
+      mocks.rounds.push({
+        chunks: [
+          reasoningChunk('Now I have the full picture. The camera model is'),
+          { choices: [{ delta: {}, finish_reason: 'length' }] }
+        ]
+      })
+      mocks.rounds.push({ chunks: [toolCallChunk('list_directory', '{"path":"."}')] })
+      mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+      const outcome = await (await service(32_768)).generate(params({ tools: withTools }))
+
+      expect(outcome.content).toContain('Done.')
+      // `token-limit` on a round that was retried, not lost, would send the
+      // runner into another cycle for work that already completed.
+      expect(outcome.stopped).toBe(false)
+      expect(outcome.stopReason).toBeUndefined()
+    })
+
+    it('still reports a token limit the recovered round did not cause', async () => {
+      mocks.toolFunctions = oneTool()
+      // Round 0 loses real visible output to the cap — a genuine token limit.
+      mocks.rounds.push({
+        chunks: [
+          toolCallChunk('list_directory', '{"path":"."}'),
+          { choices: [{ delta: { content: 'Half a sen' }, finish_reason: 'length' }] }
+        ]
+      })
+      mocks.rounds.push({
+        chunks: [
+          reasoningChunk('More planning'),
+          { choices: [{ delta: {}, finish_reason: 'length' }] }
+        ]
+      })
+      mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+      const outcome = await (await service(32_768)).generate(params({ tools: withTools }))
+
+      expect(outcome.stopped).toBe(true)
+      expect(outcome.stopReason).toBe('token-limit')
+    })
+
+    it('stops correcting once the overrun allowance is spent', async () => {
+      mocks.toolFunctions = oneTool()
+      // One more thinking-only round than the allowance covers.
+      for (let i = 0; i < MAX_REASONING_OVERRUNS + 1; i++) {
+        mocks.rounds.push({
+          chunks: [
+            reasoningChunk('More planning'),
+            { choices: [{ delta: {}, finish_reason: 'length' }] }
+          ]
+        })
+      }
+      mocks.rounds.push({ chunks: [textChunk('unreachable', 'stop')] })
+
+      const outcome = await (await service(32_768)).generate(params({ tools: withTools }))
+
+      // The turn ends rather than spending itself on corrections.
+      expect(outcome.content).not.toContain('unreachable')
+      expect(mocks.requests).toHaveLength(MAX_REASONING_OVERRUNS + 1)
+      expect(outcome.stopped).toBe(true)
+    })
+
+    it('hands the model back the reasoning it was cut off mid-way through', async () => {
+      // Without this the corrective round cannot see its own work — llama.cpp
+      // does not replay reasoning into history — and a live probe measured it
+      // re-deriving the same plan until the turn ran out.
+      mocks.toolFunctions = oneTool()
+      mocks.rounds.push({
+        chunks: [
+          reasoningChunk('the camera target is (tx, ty, tz)'),
+          { choices: [{ delta: {}, finish_reason: 'length' }] }
+        ]
+      })
+      mocks.rounds.push({ chunks: [toolCallChunk('list_directory', '{"path":"."}')] })
+      mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+      await (await service(32_768)).generate(params({ tools: withTools }))
+
+      const sent = mocks.requests[0].messages as Array<{ role: string; content: unknown }>
+      const correction = sent.find(
+        (message) =>
+          message.role === 'user' && String(message.content).includes('do not start over')
+      )
+      expect(String(correction?.content)).toContain('the camera target is (tx, ty, tz)')
+    })
   })
 })
 

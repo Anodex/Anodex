@@ -157,8 +157,8 @@ describe('run_command', () => {
         : 'for i in $(seq 1 3000); do echo line$i; done'
     const result = await tool.handler({ command })
 
-    expect(result.length).toBeLessThan(4100)
-    expect(result).toMatch(/truncated, \d+ bytes total/)
+    expect(result.length).toBeLessThan(4250)
+    expect(result).toMatch(/truncated: showing the first \d+ of \d+ bytes/)
   })
 
   it('says a command timed out instead of reporting a null exit code', async () => {
