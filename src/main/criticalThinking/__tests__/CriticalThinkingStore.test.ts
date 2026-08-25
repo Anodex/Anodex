@@ -12,7 +12,34 @@ import { DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY } from '../criticalThinkingRe
 
 const temporaryDirectories: string[] = []
 
+/**
+ * Every store a test opened, so cleanup can let its writes finish.
+ *
+ * Loading a file that is not already in normalized form schedules a write that
+ * nothing in the test awaits (see `CriticalThinkingStore.persist`). When the
+ * test then ends, that write races the directory removal below and can recreate
+ * `runs.json` while `rm` is walking the tree -- which surfaced as a macOS-only
+ * CI failure, `ENOTEMPTY: directory not empty`, in a test that had nothing to do
+ * with writing. Windows and Linux happened to win the race; nothing guaranteed
+ * they would.
+ *
+ * Opening through `openStore` rather than asking each test to remember a flush,
+ * so a test added later cannot reintroduce the race by omission.
+ */
+const openStores: CriticalThinkingStore[] = []
+
+function openStore(directory: string): CriticalThinkingStore {
+  const store = new CriticalThinkingStore()
+  openStores.push(store)
+  store.init(directory)
+  return store
+}
+
 afterEach(async () => {
+  // Rejections are the point of one test here ("reports a failed write"), and a
+  // store left holding that error rethrows it on every later flush. Cleanup is
+  // not the place to re-raise it.
+  await Promise.all(openStores.splice(0).map((store) => store.flush().catch(() => {})))
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -190,8 +217,7 @@ describe('CriticalThinkingStore persistence', () => {
   it('coalesces progress updates and flushes the latest state', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'anodex-critical-store-'))
     temporaryDirectories.push(directory)
-    const store = new CriticalThinkingStore()
-    store.init(directory)
+    const store = openStore(directory)
     const run = store.create({ question: 'Original', provider: 'local', model: null })
     await store.flush()
 
@@ -210,8 +236,7 @@ describe('CriticalThinkingStore persistence', () => {
     temporaryDirectories.push(parent)
     const directory = join(parent, 'store')
     await mkdir(directory)
-    const store = new CriticalThinkingStore()
-    store.init(directory)
+    const store = openStore(directory)
     await rm(directory, { recursive: true, force: true })
 
     const run = store.create({ question: 'Retry me', provider: 'local', model: null })
@@ -242,8 +267,7 @@ describe('CriticalThinkingStore loading', () => {
     const truncated = '[{"id":"critical_old","question":"Half a fi'
     const directory = await storeDirectory(truncated)
 
-    const store = new CriticalThinkingStore()
-    store.init(directory)
+    const store = openStore(directory)
     store.create({ question: 'New investigation', provider: 'local', model: null })
     await store.flush()
 
@@ -255,8 +279,7 @@ describe('CriticalThinkingStore loading', () => {
   })
 
   it('still opens on an empty list so the feature is usable', async () => {
-    const store = new CriticalThinkingStore()
-    store.init(await storeDirectory('not json at all'))
+    const store = openStore(await storeDirectory('not json at all'))
 
     expect(store.list()).toEqual([])
   })
@@ -272,8 +295,7 @@ describe('CriticalThinkingStore loading', () => {
       JSON.stringify([{ id: 'critical_bad', plan: { steps: 'not-an-array' } }, good])
     )
 
-    const store = new CriticalThinkingStore()
-    store.init(directory)
+    const store = openStore(directory)
 
     expect(store.list().map((run) => run.id)).toEqual(['critical_good'])
   })
@@ -284,8 +306,7 @@ describe('CriticalThinkingStore loading', () => {
     const before = new Date(2020, 0, 1)
     await utimes(join(directory, 'runs.json'), before, before)
 
-    const store = new CriticalThinkingStore()
-    store.init(directory)
+    const store = openStore(directory)
     await store.flush()
 
     expect((await stat(join(directory, 'runs.json'))).mtime.getTime()).toBeGreaterThan(
@@ -305,8 +326,7 @@ describe('CriticalThinkingStore loading', () => {
     const before = new Date(2020, 0, 1)
     await utimes(join(directory, 'runs.json'), before, before)
 
-    const store = new CriticalThinkingStore()
-    store.init(directory)
+    const store = openStore(directory)
     await store.flush()
 
     expect((await stat(join(directory, 'runs.json'))).mtime.getTime()).toBe(before.getTime())
@@ -317,8 +337,7 @@ describe('CriticalThinkingStore loading', () => {
       JSON.stringify([normalizeCriticalThinkingRun(makeRun('researching'))], null, 2)
     )
 
-    const store = new CriticalThinkingStore()
-    store.init(directory)
+    const store = openStore(directory)
 
     expect(store.list()[0]).toMatchObject({ status: 'partial' })
   })
