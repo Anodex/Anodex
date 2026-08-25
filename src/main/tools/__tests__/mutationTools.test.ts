@@ -46,6 +46,50 @@ describe('edit_file', () => {
     expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('hello there')
   })
 
+  /**
+   * The re-read an edit used to force is the single largest source of wasted
+   * calls in a long turn -- see `editEcho.ts`. Proven end to end here rather
+   * than only on the helper, because the seam that failed was the tool
+   * answering "Edited a.txt." and nothing else.
+   */
+  it('answers with the edited region and its new line numbers, so no re-read is needed', async () => {
+    const before = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n')
+    await writeFile(join(workspace, 'a.txt'), before)
+    const ctx = createMockContext(workspace)
+    const tool = editFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; oldText: string; newText: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      path: 'a.txt',
+      oldText: 'line 10',
+      newText: 'CHANGED'
+    })
+
+    expect(result).toContain('Edited a.txt (1 replacement).')
+    expect(result).toContain('of 20 after the edit')
+    expect(result).toContain('CHANGED')
+    expect(result).toContain('line 9')
+    expect(result).toContain('line 11')
+  })
+
+  it('states how far line numbers moved when an edit changes the line count', async () => {
+    await writeFile(join(workspace, 'a.txt'), ['a', 'b', 'c'].join('\n'))
+    const ctx = createMockContext(workspace)
+    const tool = editFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; oldText: string; newText: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      path: 'a.txt',
+      oldText: 'b',
+      newText: ['b1', 'b2'].join('\n')
+    })
+
+    expect(result).toContain('gained 1 line')
+    expect(result).toContain('have shifted')
+  })
+
   it('rejects an empty oldText with a clear, actionable error instead of the uniqueness check', async () => {
     await writeFile(join(workspace, 'a.txt'), 'hello world')
     const ctx = createMockContext(workspace)

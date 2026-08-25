@@ -6,8 +6,16 @@ import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { assertFileStateUnchanged } from './fileState'
 import { runGuardedToolWithPrepare } from './helpers'
 import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
+import { describeEditResult } from './editEcho'
+import { clampModelResultCap } from './modelResultBudget'
 
 const PREVIEW_CHARS = 400
+/**
+ * Room an edit may spend quoting its own result back. Sized as a window, not a
+ * file: see `editEcho.ts` for why an edit answers with content at all.
+ */
+const EDIT_ECHO_MAX_CHARS = 3_000
+
 const MAX_PATCH_REPLACEMENTS = 20
 /**
  * The chunk size a write is *asked* for, in every tool description that
@@ -256,7 +264,8 @@ export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
 export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Replace an exact, unique block of text within a file. The old text must appear exactly once.',
+      'Replace an exact, unique block of text within a file. The old text must appear exactly once.' +
+      'Answers with the edited lines and their new line numbers, so you do not need to read the file again to check the result.',
     params: {
       type: 'object',
       properties: {
@@ -323,9 +332,16 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
           // reported them as "the file changed".
           await assertFileStateUnchanged(file, originalBuffer, 'edit')
           await writeFile(file, updated, 'utf-8')
+          const echo = describeEditResult({
+            relativePath,
+            original,
+            updated,
+            charBudget: clampModelResultCap(EDIT_ECHO_MAX_CHARS, ctx.modelResultBudget.current),
+            action: '1 replacement'
+          })
           return {
-            modelResult: `Edited ${relativePath}.`,
-            detail: '1 replacement',
+            modelResult: echo.modelResult,
+            detail: echo.detail,
             diff: diffOrUndefined(relativePath, original, updated),
             checkpointChanges: [{ path: relativePath, before: original, after: updated }]
           }
@@ -380,7 +396,7 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
  */
 export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Replace lines startLine..endLine (1-based, inclusive) of a file with newText. Use this instead of edit_file when you know where the code is but no longer have its exact text in view — every read tool reports line numbers. Pass an empty newText to delete the range. Keep newText under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters; replace a smaller range if it would be longer.`,
+    description: `Replace lines startLine..endLine (1-based, inclusive) of a file with newText. Use this instead of edit_file when you know where the code is but no longer have its exact text in view — every read tool reports line numbers. Pass an empty newText to delete the range. Keep newText under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters; replace a smaller range if it would be longer. Answers with the edited lines and their new line numbers, so you do not need to read the file again to check the result.`,
     params: {
       type: 'object',
       properties: {
@@ -482,16 +498,22 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
         async ({ file, relativePath, original, originalBuffer, updated, replacedCount, start }) => {
           await assertFileStateUnchanged(file, originalBuffer, 'edit')
           await writeFile(file, updated, 'utf-8')
-          const newLineCount = updated.split('\n').length
+          // Reporting the new total is what lets the next call address the file
+          // correctly without re-reading it: after an edit that changes the line
+          // count, every anchor below `start` has shifted, and the model has no
+          // other way to know by how much. `describeEditResult` states that and
+          // also quotes the region back, which is the other half of what a
+          // re-read was being spent on.
+          const echo = describeEditResult({
+            relativePath,
+            original,
+            updated,
+            charBudget: clampModelResultCap(EDIT_ECHO_MAX_CHARS, ctx.modelResultBudget.current),
+            action: `${replacedCount} line(s) replaced starting at line ${start}`
+          })
           return {
-            // Reporting the new total is what lets the next call address the
-            // file correctly without re-reading it: after an edit that changes
-            // the line count, every anchor below `start` has shifted, and the
-            // model has no other way to know by how much.
-            modelResult:
-              `Replaced ${replacedCount} line(s) starting at line ${start} in ${relativePath}. ` +
-              `The file now has ${newLineCount} lines; line numbers below line ${start} have shifted.`,
-            detail: `${replacedCount} line(s)`,
+            modelResult: echo.modelResult,
+            detail: echo.detail,
             diff: diffOrUndefined(relativePath, original, updated),
             checkpointChanges: [{ path: relativePath, before: original, after: updated }]
           }
