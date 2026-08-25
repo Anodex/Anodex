@@ -1,4 +1,5 @@
 import type { ToolCall } from '@shared/tools.types'
+import { changedSymbol } from './changedSymbol'
 
 /**
  * A short, plain description of what a collapsed run of tool calls did.
@@ -52,12 +53,28 @@ export function summarizeWork(calls: readonly ToolCall[]): string | null {
   return failed > 0 ? `${summary} — ${failed} failed` : summary
 }
 
-/** Name the file when a turn touched exactly one, count them when it touched several. */
+/**
+ * Name the file when a turn touched exactly one, count them when it touched
+ * several — and say *where* in the file when the diff makes that clear, so the
+ * label reads "edited update_focus in camera.py" rather than only naming a file
+ * that moved.
+ */
 function describeEdits(edits: readonly ToolCall[]): string {
   const paths = uniquePaths(edits)
-  if (paths.length === 1) return `edited ${basename(paths[0])}`
   if (paths.length > 1) return `edited ${plural(paths.length, 'file')}`
-  return plural(edits.length, 'change')
+  if (paths.length === 0) return plural(edits.length, 'change')
+
+  const file = basename(paths[0])
+  // Only when one edit landed in the file. Several edits have several subjects,
+  // and naming just the last one would misrepresent the rest.
+  const symbols = new Set(
+    edits.map((edit) => changedSymbol(edit.diff)).filter((name): name is string => name !== null)
+  )
+  if (edits.length === 1 && symbols.size === 1) {
+    const [only] = [...symbols]
+    return `edited ${only} in ${file}`
+  }
+  return `edited ${file}`
 }
 
 /**

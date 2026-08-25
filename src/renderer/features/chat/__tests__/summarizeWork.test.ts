@@ -40,6 +40,29 @@ describe('summarizeWork', () => {
     )
   })
 
+  /** Where a change landed, not just which file moved. */
+  it('names the function a single edit landed in', () => {
+    const before = ['import math', '', 'def update_focus(self):', '    self.x = 1'].join('\n')
+    const after = ['import math', '', 'def update_focus(self):', '    self.x = 2'].join('\n')
+    const edit = call('write', {
+      name: 'edit_file',
+      title: 'Edit camera.py',
+      touchedPaths: ['src/camera.py'],
+      diff: { path: 'src/camera.py', before, after }
+    })
+    expect(summarizeWork([edit])).toBe('Edited update_focus in camera.py')
+  })
+
+  it('falls back to the file when the diff names no single subject', () => {
+    const edit = call('write', {
+      name: 'write_file',
+      title: 'Write camera.py',
+      touchedPaths: ['src/camera.py'],
+      diff: { path: 'src/camera.py', before: 'old', after: 'entirely new' }
+    })
+    expect(summarizeWork([edit])).toBe('Edited camera.py')
+  })
+
   it('counts once there is more than one subject', () => {
     expect(summarizeWork([wrote('a.ts'), wrote('b.ts'), wrote('a.ts')])).toBe('Edited 2 files')
     expect(summarizeWork([ran('a'), ran('b')])).toBe('Ran 2 commands')
