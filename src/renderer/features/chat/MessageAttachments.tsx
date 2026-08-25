@@ -61,11 +61,14 @@ function InlineImageAttachment({
   const [visionContextUpdating, setVisionContextUpdating] = useState(false)
   const [visionContextError, setVisionContextError] = useState('')
 
+  // Keyed on the path, not the attachment object: the object identity changes
+  // on every parent render, which re-ran this and re-read the file each time.
+  const attachmentPath = attachment.path
   useEffect(() => {
     let cancelled = false
     setDataUrl(null)
     setUnavailable(false)
-    void loadAttachmentImage(attachment).then((result) => {
+    void loadAttachmentImage(attachmentPath).then((result) => {
       if (cancelled) return
       setDataUrl(result)
       setUnavailable(result === null)
@@ -73,7 +76,7 @@ function InlineImageAttachment({
     return () => {
       cancelled = true
     }
-  }, [attachment, attempt])
+  }, [attachmentPath, attempt])
 
   const locate = async (): Promise<void> => {
     setLocating(true)

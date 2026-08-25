@@ -79,7 +79,7 @@ describe('MessageAttachments', () => {
       }
     })
 
-    await expect(loadAttachmentImage(IMAGE_ATTACHMENT)).resolves.toBe(
+    await expect(loadAttachmentImage(IMAGE_ATTACHMENT.path)).resolves.toBe(
       'data:image/png;base64,cGl4ZWxz'
     )
     expect(anodexMocks.getAbsolutePath).not.toHaveBeenCalled()
@@ -102,9 +102,9 @@ describe('MessageAttachments', () => {
       }
     })
 
-    await expect(loadAttachmentImage({ ...IMAGE_ATTACHMENT, path: 'art/robot.png' })).resolves.toBe(
-      'data:image/png;base64,cGl4ZWxz'
-    )
+    await expect(
+      loadAttachmentImage({ ...IMAGE_ATTACHMENT, path: 'art/robot.png' }.path)
+    ).resolves.toBe('data:image/png;base64,cGl4ZWxz')
     expect(anodexMocks.readFile).toHaveBeenCalledWith('C:\\Workspace\\art\\robot.png')
   })
 
@@ -114,6 +114,6 @@ describe('MessageAttachments', () => {
       error: { code: 'attachments.read-failed', message: 'Could not read that file.' }
     })
 
-    await expect(loadAttachmentImage(IMAGE_ATTACHMENT)).resolves.toBeNull()
+    await expect(loadAttachmentImage(IMAGE_ATTACHMENT.path)).resolves.toBeNull()
   })
 })
