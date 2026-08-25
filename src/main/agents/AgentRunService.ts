@@ -10,6 +10,7 @@ import { conversationStore } from '../conversations/ConversationStore'
 import { appendBackgroundTurn } from '../conversations/backgroundTurn'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
+import { describeTurnOutcome } from '../chat/turnSummary'
 import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
@@ -242,6 +243,7 @@ class AgentRunService {
       // loop ever starts — see `runPreflightReason`'s doc comment for why
       // that needs a check here, before the loop, and not just the
       // post-turn one already further down.
+      let lastOutcome: string | null = null
       const preflightReason = runPreflightReason(run, startTurn, tokensUsed, workedMs())
       if (preflightReason) {
         this.finish(run.id, conversation.id, 'stopped', null, preflightReason)
@@ -257,6 +259,7 @@ class AgentRunService {
         const {
           finished,
           summary,
+          outcome,
           stopped,
           stopReason,
           stopDetail,
@@ -277,6 +280,7 @@ class AgentRunService {
         if (fabricationDetected) flaggedTurns += 1
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
+        if (outcome) lastOutcome = outcome
 
         if (stopped && !isRecoverableGenerationStop(stopReason)) {
           this.finish(
@@ -311,11 +315,21 @@ class AgentRunService {
           this.sendCheckIn(run, conversation, turnsUsed, tokensUsed)
         }
       }
+      // A run that spends its budget still owes an account of itself. The
+      // model-written `summary` only exists when it called `finish_goal`, and a
+      // run that ran out of turns never got there -- so this reported nothing
+      // at all, on exactly the runs nobody was watching. Observed live: a run
+      // stopped at 20/20 turns having left the workspace with a build error,
+      // and said only "Stopped after 20 turns without finishing."
+      //
+      // `describeTurnOutcome` is derived from the settled tool record rather
+      // than written by the model, so it states what happened rather than what
+      // was intended, and cannot claim work that did not occur.
       this.finish(
         run.id,
         conversation.id,
         'stopped',
-        null,
+        lastOutcome,
         `Stopped after ${run.maxTurns} turns without finishing.`
       )
     } catch (error) {
@@ -526,6 +540,8 @@ class AgentRunService {
   ): Promise<{
     finished: boolean
     summary: string | null
+    /** A factual account of the turn, derived from the settled tool record. */
+    outcome: string | null
     stopped: boolean
     stopReason?: GenerationStopReason
     /** See `GenerateOutcome.stopDetail`'s doc comment. */
@@ -618,6 +634,17 @@ class AgentRunService {
     return {
       finished: Boolean(finishCall),
       summary: finishCall?.detail ?? null,
+      // What this turn actually did, from the settled record. Kept separate
+      // from `summary` because that one is the model's own closing statement
+      // and only exists when it called `finish_goal`.
+      outcome: describeTurnOutcome({
+        calls,
+        plan: latestPlan,
+        stopped: result.stopped,
+        blockedGathering: 0,
+        unverifiedPaths: [],
+        endedBecause: null
+      }),
       stopped: result.stopped,
       stopReason: result.stopReason,
       stopDetail: result.stopDetail,
