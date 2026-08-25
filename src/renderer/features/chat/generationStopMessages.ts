@@ -97,9 +97,15 @@ export function describeGenerationStop(
         errorKind: 'bounded'
       }
     case 'time-limit':
+      // Deliberately does not name a number. This said "its 15-minute turn
+      // budget" while the limit is a user setting anywhere from 1 to 120
+      // minutes -- a reader who had set 40 was told a figure that was simply
+      // wrong, about the one thing the message exists to explain. Pointing at
+      // the control is more useful than a number anyway, and matches how the
+      // turn outcome refers to the same limit.
       return {
         error:
-          'This reply reached its 15-minute turn budget. The text and completed tool work above were preserved.',
+          'This reply reached your per-turn time limit (Settings → Generation). The text and completed tool work above were preserved.',
         errorKind: 'bounded'
       }
     case 'tool-call-truncated':
