@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TEXT_EXT } from '@shared/textFileExtensions'
+import { SKIP_DIRS } from '@shared/skipDirectories'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
@@ -129,16 +130,7 @@ export function normalizeReadFileRangeArgs(
   }
 }
 
-export const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'out',
-  '.next',
-  '.cache',
-  'build',
-  '.turbo'
-])
+export { SKIP_DIRS } from '@shared/skipDirectories'
 
 /** list_directory — enumerate a folder inside the workspace. */
 export const listDirectoryTool: WorkspaceToolFactory = (define, ctx) =>
