@@ -6,8 +6,23 @@ export type AgentRunStatus = 'running' | 'needs-review' | 'done' | 'stopped' | '
 /** Default number of turns a run gets before it's stopped as budget-exhausted. */
 export const DEFAULT_MAX_TURNS = 8
 
-/** Hard ceiling a user can configure `maxTurns` up to. */
-export const MAX_MAX_TURNS = 20
+/**
+ * Hard ceiling a user can configure `maxTurns` up to.
+ *
+ * Sized against the other two budgets rather than picked on its own. A run is
+ * bounded by turns, tokens and time together, and any one of them stops it --
+ * but at 20 the turn budget was roughly three times tighter than the others, so
+ * in practice it was the only one that ever fired. Measured on a real run: it
+ * stopped at 20/20 turns having spent 151k of its 500k tokens and half its
+ * time, and left the work unfinished with a broken build.
+ *
+ * At the ~7.5k tokens a turn actually costs, the 500k token ceiling is about 66
+ * turns, so 60 puts the three roughly in step. Raising it removes a limit
+ * rather than adding one: tokens and elapsed time still bound a runaway, and
+ * the default stays at {@link DEFAULT_MAX_TURNS} so nothing changes for a run
+ * that does not ask for more.
+ */
+export const MAX_MAX_TURNS = 60
 
 /** Default cumulative token budget for a run, across every turn. */
 export const DEFAULT_MAX_TOKENS = 50_000
