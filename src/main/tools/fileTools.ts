@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TEXT_EXT } from '@shared/textFileExtensions'
-import { SKIP_DIRS } from '@shared/skipDirectories'
+import { isSkippedDirectory } from '@shared/skipDirectories'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
@@ -778,7 +778,9 @@ async function walk(dir: string, root: string, needle: string, results: string[]
     if (results.length >= SEARCH_HARD_CAP) return
     const full = join(dir, entry.name)
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) await walk(full, root, needle, results)
+      if (!isSkippedDirectory(entry.name, toWorkspaceRelative(root, full))) {
+        await walk(full, root, needle, results)
+      }
       continue
     }
     if (!TEXT_EXT.test(entry.name)) continue
@@ -821,7 +823,7 @@ async function walkNames(
     const relativePath = toWorkspaceRelative(root, full)
     if (entry.isDirectory()) {
       if (includeDirectories && matches(relativePath)) results.push(`${relativePath}/`)
-      if (!SKIP_DIRS.has(entry.name))
+      if (!isSkippedDirectory(entry.name, relativePath))
         await walkNames(full, root, matches, includeDirectories, results)
       continue
     }
