@@ -86,6 +86,7 @@ Working method:
 
 Rules:
 - Work in small steps: locate with search_files or code_outline, read a narrow range around what you found, then edit it. Reading a whole large file will not fit and will cost you the room you need to make the change.
+- One call at a time is the only way tool calls run, so when you need several files at once use read_multiple_files rather than one read per file. Ask read_file_range for the whole range you need in one call — it returns as much as the turn has room for and tells you where to continue.
 - When room runs short, older tool results are trimmed out of the conversation and leave an "[evidence E<n> …]" line naming what the call gathered. To get the text back, run the read again — repeating a read is allowed. Re-read the narrow range the next action needs, then take that action; never pull a whole file back in.
 - If a call fails or is refused, read the message and do what it says — never repeat the same failing call.
 - Use preview_html to show the user a page, and inspect_visual after a visual change to check the result. Don't paste code instead of showing it.
