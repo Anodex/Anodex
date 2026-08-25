@@ -7,7 +7,7 @@ import { basename, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
-const LLAMA_CPP_RELEASE = 'b10091'
+const LLAMA_CPP_RELEASE = 'b10549'
 const ROOT = resolve(import.meta.dirname, '..')
 const RESOURCE_ROOT = resolve(ROOT, 'resources', 'llama-server')
 const TARGET = resolve(RESOURCE_ROOT, `${process.platform}-${process.arch}`)
@@ -16,27 +16,27 @@ const MARKER = join(TARGET, '.release.json')
 const assets = {
   'win32-x64': {
     name: `llama-${LLAMA_CPP_RELEASE}-bin-win-vulkan-x64.zip`,
-    sha256: '28343a65a93b95250315747e1c23f09f7dc02f51d97225cde98c4738a06d95de'
+    sha256: '8e7b0e6382a5bcbf57c79cf54b61483e9f7b26561d4413f28095cdaee256207b'
   },
   'win32-arm64': {
     name: `llama-${LLAMA_CPP_RELEASE}-bin-win-cpu-arm64.zip`,
-    sha256: '5d6a24de7b5965123371deff4f806c47af85ec48b1e3c15fe977c8db86218a0e'
+    sha256: '88453b6c9ca186885ac22b3505f5591381068d830ebc622a499af73a3607d8c2'
   },
   'darwin-arm64': {
     name: `llama-${LLAMA_CPP_RELEASE}-bin-macos-arm64.tar.gz`,
-    sha256: '0f6e5fd33629139793c705997cecc084c49045cf23f4b71b6dd489b9de5dc70f'
+    sha256: '71e4b31afb020d6b71894eb8d1f2c0693038aec3f41f672f9fafb5055c8f2226'
   },
   'darwin-x64': {
     name: `llama-${LLAMA_CPP_RELEASE}-bin-macos-x64.tar.gz`,
-    sha256: '2b325afcf90c114a36f5a0ab475d84dd9f47f9f63b8ac5a66903b83d7cb1a777'
+    sha256: '94177680843a187881ae54021bbad8211c40797cab0df923ef17ee735e3ade09'
   },
   'linux-x64': {
     name: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-vulkan-x64.tar.gz`,
-    sha256: '8636767e0fdf440247913e4ba46a33fe02b8f13181bb11756ab890d73fdecdb4'
+    sha256: '7e3a48ce9d6445cc7296691c240ab75d417558be999716209eaa70a06170a6b3'
   },
   'linux-arm64': {
     name: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-vulkan-arm64.tar.gz`,
-    sha256: 'd9294f1afcd28299e08377af185f3a653e3c89d225437c3043898e129e9f743c'
+    sha256: '9e8bd06b973a91625a5a27f5222c568dc6bf77ba091d2c781f0db74ba33c095d'
   }
 }
 
