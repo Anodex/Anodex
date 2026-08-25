@@ -418,7 +418,7 @@ describe('web_search tool', () => {
     }
     const result = await tool.handler({ query: 'hello world' })
 
-    expect(result.length).toBeLessThan(4100)
-    expect(result).toMatch(/truncated, \d+ bytes total/)
+    expect(result.length).toBeLessThan(4250)
+    expect(result).toMatch(/truncated: showing the first \d+ of \d+ bytes/)
   })
 })

@@ -49,13 +49,48 @@ function rememberResult(modelResult: string): string {
     : modelResult
 }
 
-function truncateModelResult(modelResult: string, cap: number): string {
+/**
+ * Tools whose truncated result can be continued by asking for a narrower part
+ * of the same file, which is the advice worth giving alongside the cut.
+ */
+const RANGE_READABLE_TOOLS = new Set([
+  'read_file',
+  'read_file_range',
+  'read_multiple_files',
+  'code_outline'
+])
+
+/**
+ * Trim a result to the room this turn has for it, and say what to do about it.
+ *
+ * The note used to read only `(truncated, N bytes total)`. That states the fact
+ * and withholds the one thing the model needs: that the *same* call returns the
+ * *same* prefix. Without it, re-reading looks like a way to see the rest of the
+ * file, and a model whose earlier result was evicted will do exactly that.
+ * Measured: one turn spent 27 reads and zero writes cycling through the same
+ * five files five times, because two of them were over the per-result cap and
+ * the note gave no way forward.
+ *
+ * Not a small-file edge case. The cap is a share of what is left of the window,
+ * so on a tight context most real source files exceed it — that turn's cap was
+ * ~10,000 characters against a 15,915-character file.
+ */
+function truncateModelResult(modelResult: string, cap: number, toolName?: string): string {
   if (cap <= 0) {
     return '(No room left in the active context for this result. Continue in a fresh turn, or narrow the request — e.g. a smaller line range or a more specific search.)'
   }
-  return modelResult.length > cap
-    ? `${modelResult.slice(0, cap)}\n… (truncated, ${modelResult.length} bytes total)`
-    : modelResult
+  if (modelResult.length <= cap) return modelResult
+  // Only worth spending the words where the result itself is substantial. On a
+  // cap of a few dozen characters the guidance would dwarf the content it is
+  // explaining, and the byte counts alone already say what happened.
+  const nextStep =
+    cap < MIN_CONTENT_CHARS_BESIDE_MARKER
+      ? ''
+      : toolName !== undefined && RANGE_READABLE_TOOLS.has(toolName)
+        ? ' Repeating it returns this same prefix — use code_outline or read_file_range to read further.'
+        : ' Repeating it returns this same prefix — narrow the request.'
+  return `${modelResult.slice(0, cap)}
+… (truncated: showing the first ${cap} of ${modelResult.length} bytes.${nextStep})`
 }
 
 /**
@@ -82,21 +117,22 @@ function retainAsEvidence(
   // or a no-op notice. Recording those would file control messages in the
   // catalogue alongside the real reads, so the task's own account of what it
   // has gathered would overstate it.
-  if (!madeProgress) return truncateModelResult(modelResult, cap)
+  if (!madeProgress) return truncateModelResult(modelResult, cap, spec.name)
   const record = ctx.ledger.evidence.record({
     tool: spec.name,
     label: spec.title,
     body: modelResult
   })
-  if (!record) return truncateModelResult(modelResult, cap)
+  if (!record) return truncateModelResult(modelResult, cap, spec.name)
   // The descriptor is part of the result the model receives, so it is paid for
   // out of the same budget rather than added on top of it. A cap is a promise
   // about how much of the context one call may take, and quietly exceeding it
   // is how the accounting the transports plan against stops being true.
   const descriptor = ctx.ledger.evidence.descriptor(record)
   const room = cap - descriptor.length - 1
-  if (room < MIN_CONTENT_CHARS_BESIDE_MARKER) return truncateModelResult(modelResult, cap)
-  return withEvidenceMarker(truncateModelResult(modelResult, room), descriptor)
+  if (room < MIN_CONTENT_CHARS_BESIDE_MARKER)
+    return truncateModelResult(modelResult, cap, spec.name)
+  return withEvidenceMarker(truncateModelResult(modelResult, room, spec.name), descriptor)
 }
 
 /**
