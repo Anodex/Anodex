@@ -148,6 +148,18 @@ const DIRECT_TOOL_PRIORITY = [
   'append_file',
   'run_command',
   'read_file',
+  // Directly after `read_file`, and above the visual tools, because it is the
+  // cheapest way out of the failure this whole ordering exists to prevent.
+  // Sitting at the end of this list it was past `maxDirectToolsForContext`'s
+  // ceiling of 16 and therefore deferred at *every* context size, on every
+  // machine — so a model needing several files reached for `read_file` once per
+  // file instead. Measured: a turn read the same five files five times over, 27
+  // reads and zero writes, work one batched call would have done once.
+  //
+  // It stays below `read_file` deliberately. On a small window batching several
+  // files is the more dangerous call, and the ceiling keeps it deferred there
+  // while handing it to the 32K-and-above windows that have room to use it.
+  'read_multiple_files',
   'find_files',
   'patch_file',
   'inspect_visual',
@@ -157,7 +169,6 @@ const DIRECT_TOOL_PRIORITY = [
   'run_project_check',
   'git_diff',
   'git_status',
-  'read_multiple_files',
   'get_file_info',
   'search_code',
   'write_plan',

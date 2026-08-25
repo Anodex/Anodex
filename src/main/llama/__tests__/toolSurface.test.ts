@@ -183,6 +183,32 @@ describe('bounded tool surface', () => {
     })
   })
 
+  /**
+   * `read_multiple_files` sat at the end of the priority list, past
+   * `maxDirectToolsForContext`'s ceiling of 16, so it was deferred at *every*
+   * context size on every machine — and a model needing several files called
+   * `read_file` once per file instead. A measured turn read the same five files
+   * five times over.
+   */
+  it('offers batched reading directly once the window has room for it', () => {
+    const ranked = rankToolNames({
+      read_multiple_files: tool('Read several files.'),
+      inspect_visual: tool('Screenshot a page.'),
+      preview_html: tool('Preview a page.'),
+      show_image: tool('Show an image.'),
+      read_file: tool('Read a file.')
+    })
+
+    // Above the visual tools, below the single-file read it complements.
+    expect(ranked.indexOf('read_multiple_files')).toBeGreaterThan(ranked.indexOf('read_file'))
+    expect(ranked.indexOf('read_multiple_files')).toBeLessThan(ranked.indexOf('inspect_visual'))
+    expect(ranked.indexOf('read_multiple_files')).toBeLessThan(maxDirectToolsForContext(32_768))
+  })
+
+  it('still defers batched reading on a window too small to spend on it', () => {
+    expect(maxDirectToolsForContext(8_192)).toBeLessThan(11)
+  })
+
   it('rejects malformed deferred arguments before invoking the original tool', async () => {
     const handler = vi.fn(() => Promise.resolve('ok'))
     const result = boundToolSurface({
