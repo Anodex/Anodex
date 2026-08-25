@@ -3,6 +3,7 @@ import { basename, join } from 'node:path'
 import type { FileTouch, ProjectMemory, ProjectRecallEvent } from '@shared/projectMemory.types'
 import { wordSet } from '@shared/textSimilarity'
 import { referenceContextShare } from '@shared/contextBudget'
+import { SKIP_DIRS } from '@shared/skipDirectories'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { codeIndexer } from '../codeIndex/CodeIndexer'
 import { PROJECT_NOTES_FILENAME } from './projectNotesTool'
@@ -60,17 +61,6 @@ function charBudget(contextSize?: number): CharBudget {
     spec: Math.floor(FULL_SPEC_CHARS * share)
   }
 }
-
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'out',
-  '.next',
-  '.cache',
-  'build',
-  '.turbo'
-])
 
 interface CacheEntry {
   root: string

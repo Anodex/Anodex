@@ -15,6 +15,10 @@ function call(kind: ToolKind, overrides: Partial<ToolCall> & { name?: string } =
 
 const wrote = (path: string): ToolCall =>
   call('write', { name: 'edit_file', title: `Edit ${path}`, touchedPaths: [path] })
+const read = (path: string): ToolCall =>
+  call('read', { name: 'read_file', title: `Read ${path}`, touchedPaths: [path] })
+const ran = (command: string): ToolCall =>
+  call('command', { name: 'run_command', title: `Run: ${command}` })
 
 describe('summarizeWork', () => {
   it('says nothing when there is nothing settled to describe', () => {
@@ -22,28 +26,39 @@ describe('summarizeWork', () => {
     expect(summarizeWork([call('read', { status: 'running' })])).toBeNull()
   })
 
-  it('names the file when exactly one was changed', () => {
-    expect(summarizeWork([wrote('src/app/ui.py')])).toBe('edited ui.py')
+  /** It sits beside the model's own prose, so it should read like prose. */
+  it('reads as a sentence, capitalised', () => {
+    expect(summarizeWork([wrote('src/app/ui.py')])).toBe('Edited ui.py')
+    expect(summarizeWork([call('plan')])).toBe('Updated the plan')
   })
 
-  it('counts files when several were changed', () => {
-    expect(summarizeWork([wrote('a.ts'), wrote('b.ts'), wrote('a.ts')])).toBe('edited 2 files')
+  it('names its subject rather than counting, when there is one', () => {
+    expect(summarizeWork([ran('npm test')])).toBe('Ran npm test')
+    expect(summarizeWork([read('src/physics.py')])).toBe('Read physics.py')
+    expect(summarizeWork([call('web', { title: 'Search "orbital mechanics"' })])).toBe(
+      'Searched for orbital mechanics'
+    )
+  })
+
+  it('counts once there is more than one subject', () => {
+    expect(summarizeWork([wrote('a.ts'), wrote('b.ts'), wrote('a.ts')])).toBe('Edited 2 files')
+    expect(summarizeWork([ran('a'), ran('b')])).toBe('Ran 2 commands')
   })
 
   it('leads with changes, because what a turn altered matters most', () => {
-    const summary = summarizeWork([call('read'), call('read'), wrote('main.py'), call('command')])
-    expect(summary).toBe('edited main.py, 1 command and read 2 files')
+    expect(summarizeWork([read('a.ts'), read('b.ts'), wrote('main.py'), ran('pytest')])).toBe(
+      'Edited main.py, ran pytest and read 2 files'
+    )
   })
 
-  it('reads as a sentence, with a word before the last item', () => {
-    expect(summarizeWork([call('command'), call('read')])).toBe('1 command and read 1 file')
+  it('puts a word before the last item, not a comma', () => {
+    expect(summarizeWork([ran('ls'), read('a.ts')])).toBe('Ran ls and read a.ts')
   })
 
-  it('singular and plural both read correctly', () => {
-    expect(summarizeWork([call('command')])).toContain('1 command')
-    expect(summarizeWork([call('command'), call('command')])).toContain('2 commands')
-    expect(summarizeWork([call('web')])).toContain('1 search')
-    expect(summarizeWork([call('web'), call('web')])).toContain('2 searches')
+  it('keeps a long command to a glance', () => {
+    const summary = summarizeWork([ran('python -m pytest tests/ -k "integration and slow" -vv')])
+    expect(summary!.length).toBeLessThan(60)
+    expect(summary).toContain('…')
   })
 
   /**
@@ -56,8 +71,7 @@ describe('summarizeWork', () => {
   })
 
   it('mentions plan bookkeeping only when it is all that happened', () => {
-    expect(summarizeWork([call('plan')])).toBe('updated the plan')
-    expect(summarizeWork([call('plan'), wrote('a.ts')])).toBe('edited a.ts')
+    expect(summarizeWork([call('plan'), wrote('a.ts')])).toBe('Edited a.ts')
   })
 
   it('describes a change with no recorded path without inventing one', () => {

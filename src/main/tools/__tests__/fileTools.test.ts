@@ -248,6 +248,34 @@ describe('AI file tools', () => {
       expect(result).toContain('a.txt:1:')
     })
 
+    /**
+     * `.anodex` holds Anodex's own per-message checkpoint snapshots — copies of
+     * the user's files. Unskipped, it filled the whole 200-match search budget
+     * with those copies and the walk never reached the real source, because it
+     * sorts before most project folders. Measured live: every one of the first
+     * 200 matches came from `.anodex/checkpoints`, and the model concluded
+     * "search tools are misbehaving" and read whole files by hand instead.
+     * It also worsens the longer a project is used, since a checkpoint is
+     * written per message.
+     */
+    it('ignores Anodex own checkpoint copies of the workspace', async () => {
+      await mkdir(join(workspace, '.anodex', 'checkpoints'), { recursive: true })
+      await writeFile(
+        join(workspace, '.anodex', 'checkpoints', 'snapshot.json'),
+        '{"before":"needle everywhere","after":"needle everywhere"}'
+      )
+      await writeFile(join(workspace, 'real.py'), 'needle in the real source')
+      const ctx = createMockContext(workspace)
+      const tool = searchFilesTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { query: string; path?: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ query: 'needle' })
+
+      expect(result).toContain('real.py')
+      expect(result).not.toContain('.anodex')
+    })
+
     it('scopes the search to a subdirectory when given', async () => {
       await mkdir(join(workspace, 'sub'))
       await writeFile(join(workspace, 'root.txt'), 'needle')
