@@ -1,3 +1,4 @@
+import type { Plan } from '@shared/plan.types'
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
 import { hasStaleVisualEvidence } from './turnProgress'
@@ -69,10 +70,55 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
                 'summary instead of reporting it as working.'
             )
           }
+          // A run that ends with plan steps still open is ending early, and the
+          // summary is the only place a reader learns which it was. Neither
+          // existing guard covers this: `madeChange` asks whether anything
+          // happened at all, and the visual check asks whether the last change
+          // was seen -- a run can pass both having landed one step of three.
+          //
+          // What prompted the look was a run that called finish_goal at turn 5
+          // of 44 with none of its three plan steps done. That one was honest
+          // ("Stopped at the point of instrumenting drawCorona...") and so
+          // would still pass here -- the case this catches is the other one,
+          // where an early stop is written up as though it were a success.
+          //
+          // Refused rather than blocked, in the same shape as the guards above.
+          // Abandoning a step is legitimate -- it may turn out unnecessary or
+          // impossible -- so this only asks for it to be said out loud.
+          const openSteps = openPlanSteps(ctx.plan.current)
+          if (openSteps.length > 0 && !summaryAccountsForOpenSteps(summary)) {
+            throw new Error(
+              `The plan for this run still has ${openSteps.length} step(s) that are not ` +
+                `complete: ${openSteps.map((step) => JSON.stringify(step)).join(', ')}. ` +
+                'Either finish them and call finish_goal again, or say plainly in the summary ' +
+                'which ones you are leaving undone and why — a run that stops early reads as a ' +
+                'run that succeeded unless the summary says otherwise.'
+            )
+          }
           return Promise.resolve({ modelResult: 'Run finished.', detail: summary })
         }
       })
   })
+
+/** Titles of the plan steps that are not yet complete. */
+function openPlanSteps(plan: Plan | null): string[] {
+  if (!plan) return []
+  return plan.steps.filter((step) => step.status !== 'completed').map((step) => step.title)
+}
+
+/**
+ * Whether the summary already owns up to stopping short.
+ *
+ * Deliberately a low bar. The guard exists so an early finish cannot be
+ * mistaken for a complete one, and a summary that says "stopped at", "could
+ * not" or "still outstanding" has already done that job — demanding more would
+ * turn a nudge into a wording exam the model has to guess its way past.
+ */
+function summaryAccountsForOpenSteps(summary: string): boolean {
+  return /\b(unfinished|incomplete|not (?:yet )?(?:done|complete|finished|working)|still (?:open|outstanding|broken|failing)|remain(?:s|ing)?|could not|couldn't|unable to|stopped (?:at|short|before)|left undone|did not finish|didn't finish|blocked)\b/i.test(
+    summary
+  )
+}
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
