@@ -68,18 +68,47 @@ describe('currentTaskPhase', () => {
 })
 
 describe('liveActivityLabel', () => {
-  it('uses the current running tool title instead of a guessed model state', () => {
+  it('describes the running tool as work in progress, not a finished record', () => {
     expect(
       liveActivityLabel(
         [call({ title: 'Read src/renderer/features/chat/MessageBubble.tsx', status: 'running' })],
         false
       )
-    ).toBe('Read src/renderer/features/chat/MessageBubble.tsx')
+    ).toBe('Reading MessageBubble.tsx')
   })
 
-  it('uses only conservative labels when no tool reports the current work', () => {
-    expect(liveActivityLabel([], false)).toBe('Preparing response')
-    expect(liveActivityLabel([call({ status: 'success' })], false)).toBe('Preparing next step')
+  it('shows a title it cannot rephrase unchanged rather than inventing grammar', () => {
+    expect(liveActivityLabel([call({ title: 'Git status', status: 'running' })], false)).toBe(
+      'Git status'
+    )
+  })
+
+  /**
+   * The gap between two calls is the model deciding what to do next. The step
+   * that just finished is the only thing about that moment actually known, so
+   * it is what the indicator names -- rather than the contentless "Preparing
+   * next step" this used to sit on.
+   */
+  it('names the step just finished while the model decides on the next one', () => {
+    expect(liveActivityLabel([call({ title: 'Run: pytest', status: 'success' })], false)).toBe(
+      'Thinking after running pytest'
+    )
+    expect(
+      liveActivityLabel(
+        [
+          call({ title: 'Read a.py', status: 'success' }),
+          call({ title: 'Edit b.py', status: 'error' })
+        ],
+        false
+      )
+    ).toBe('Thinking after editing b.py')
+  })
+
+  it('falls back to plain wording when nothing has happened it can name', () => {
+    expect(liveActivityLabel([], false)).toBe('Thinking')
+    expect(liveActivityLabel([call({ title: 'Git status', status: 'success' })], false)).toBe(
+      'Thinking'
+    )
     expect(liveActivityLabel([], true)).toBe('Writing response')
   })
 })

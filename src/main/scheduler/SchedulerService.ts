@@ -216,6 +216,7 @@ class SchedulerService {
         createdAt: Date.now(),
         stats: result.stats,
         contextBudget: result.contextBudget,
+        contextAssemblies: result.contextAssemblies,
         memoryUsed: result.memoryUsed,
         thinking: result.thinking,
         toolCalls: toolCallsById.size > 0 ? [...toolCallsById.values()] : undefined

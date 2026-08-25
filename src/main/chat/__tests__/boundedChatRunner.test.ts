@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { runGeneration, type RunGenerationIo, type RunGenerationResult } from '../runGeneration'
@@ -16,6 +16,18 @@ vi.mock('../runGeneration', () => ({
 // for `vi.mock`'s hoisted registration to reference a `const` declared later
 // in this same file — unlike `vi.hoisted`, which runs before this file's own
 // imports initialize and can't touch them at all.
+// Real defaults, so the deadline is computed from the shipped 15-minute limit
+// rather than a number invented here. A test may reassign the field.
+const settings = { generation: { turnTimeLimitMinutes: 15 as number | null } }
+
+vi.mock('../../settings/SettingsStore', () => ({
+  settingsStore: { get: () => settings }
+}))
+
+vi.mock('../../llama/LlamaService', () => ({
+  llamaService: { getState: () => ({ contextSize: 16_384 }) }
+}))
+
 vi.mock('../../projects/ProjectStore', () => ({
   projectStore: {
     getState: () => ({
@@ -431,6 +443,102 @@ describe('runBoundedChatGeneration', () => {
     // The work, one continuation the open plan earns, then the bookkeeping pass.
     expect(mockedRunGeneration).toHaveBeenCalledTimes(3)
     expect(mockedRunGeneration.mock.calls[2][1].enabledTools).toEqual(new Set(['update_plan_step']))
+  })
+
+  /**
+   * The user's "Turn time limit" only ever reached `GenerationBudget`, which is
+   * constructed inside `runGeneration` — so it bounded one cycle while the turn
+   * itself was bounded only by `MAX_CYCLES`. At the default that is a setting
+   * reading fifteen minutes and permitting six hours; measured turns ran 36 and
+   * 50 minutes against a 40-minute limit.
+   */
+  describe('turn time limit', () => {
+    /**
+     * A cycle that stops recoverably, so the runner *wants* to continue, and
+     * that does genuinely new work — the tool call and the prose both have to
+     * differ every cycle or the cross-cycle no-progress guard ends the turn
+     * first and the deadline is never what is being measured.
+     */
+    function recoverableCycle(elapsedMs: number): void {
+      mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+        const n = mockedRunGeneration.mock.calls.length
+        io.onActivity?.({
+          id: `edit-${n}`,
+          name: 'edit_file',
+          kind: 'write',
+          title: `Edit file-${n}.ts`,
+          status: 'success',
+          result: `Edited file-${n}.ts`
+        })
+        now += elapsedMs
+        return Promise.resolve(
+          result({
+            content: `Partial work on file-${n}.`,
+            stopped: true,
+            stopReason: 'tool-limit',
+            stats: { tokens: 5, durationMs: elapsedMs, tokensPerSecond: 1 }
+          })
+        )
+      })
+    }
+
+    let now = 0
+    beforeEach(() => {
+      mockedRunGeneration.mockReset()
+      now = 1_000_000
+      vi.spyOn(Date, 'now').mockImplementation(() => now)
+    })
+    afterEach(() => vi.restoreAllMocks())
+
+    it('stops taking cycles once the limit has passed', async () => {
+      // Each cycle burns most of the 15-minute default, so the second one ends
+      // past the deadline and no third may start.
+      for (let i = 0; i < 5; i++) recoverableCycle(10 * 60_000)
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(cycleCallCount()).toBe(2)
+      expect(outcome.content).toContain('turn time limit')
+    })
+
+    /**
+     * Observed live: a two-cycle turn whose second cycle ended on its round
+     * budget, stopped by the turn deadline. The outcome block said so
+     * correctly; the error banner above it announced the provider-round budget
+     * instead, which was not why the turn ended and carried no advice.
+     */
+    it('reports the deadline as the reason, not whatever the last cycle hit', async () => {
+      for (let i = 0; i < 5; i++) recoverableCycle(10 * 60_000)
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.stopReason).toBeUndefined()
+      expect(outcome.turnOutcome).toContain('turn time limit')
+      expect(outcome.turnOutcome).toContain('continue')
+    })
+
+    it('never cuts a cycle short — the deadline only refuses the next one', async () => {
+      // One cycle running long past the limit still returns its work intact.
+      recoverableCycle(60 * 60_000)
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(cycleCallCount()).toBe(1)
+      expect(outcome.content).toContain('Partial work on file-')
+    })
+
+    it('keeps continuing when the user has set no limit', async () => {
+      settings.generation.turnTimeLimitMinutes = null
+      for (let i = 0; i < 4; i++) recoverableCycle(60 * 60_000)
+      mockedRunGeneration.mockImplementationOnce(() =>
+        Promise.resolve(result({ content: 'Finished.' }))
+      )
+
+      await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      // Hours of cycles, and the only thing that ended it was the work.
+      expect(cycleCallCount()).toBeGreaterThan(2)
+    })
   })
 
   /**
@@ -1661,7 +1769,13 @@ describe('runBoundedChatGeneration', () => {
     // so only the hard cycle cap itself ends the loop.
     expect(cycleCallCount()).toBe(24)
     expect(outcome.stopped).toBe(true)
-    expect(outcome.stopReason).toBe('tool-limit')
+    // The last cycle's own reason ('tool-limit') is not why the turn ended --
+    // the cycle ceiling is -- and the turn outcome says so with what to do
+    // next. Reporting both printed two different reasons for one stop, the
+    // wrong one as the headline. See `supersededStopReason`.
+    expect(outcome.stopReason).toBeUndefined()
+    expect(outcome.turnOutcome).toContain('tool-calling rounds for a single reply')
+    expect(outcome.turnOutcome).toContain('continue')
   })
 
   it('stops a continuation when the next cycle only repeats prior work', async () => {

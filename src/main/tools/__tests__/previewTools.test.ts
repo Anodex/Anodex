@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { prepareHtmlPreviewSource } from '../previewTools'
+import {
+  describeSkippedPreviewAssets,
+  prepareHtmlPreviewSource,
+  type SkippedPreviewAsset
+} from '../previewTools'
 
 let workspaceRoot: string
 
@@ -160,6 +164,44 @@ describe('prepareHtmlPreviewSource', () => {
           maxContentChars: 500
         }
       )
-    ).rejects.toThrow(/too large/i)
+    ).rejects.toThrow(/over the .* inline-preview limit/i)
+  })
+
+  it('points an oversized preview at the tool that can render it', async () => {
+    write('big.css', 'a'.repeat(2000))
+
+    await expect(
+      prepareHtmlPreviewSource(
+        workspaceRoot,
+        'index.html',
+        '<link rel="stylesheet" href="big.css">',
+        { maxContentChars: 500 }
+      )
+    ).rejects.toThrow(/inspect_visual/)
+  })
+
+  it('reports a local asset too big to inline instead of dropping it silently', async () => {
+    // A vendored library is the realistic case: over the per-asset cap, so the
+    // `srcDoc` runs without it and the page renders blank.
+    write('vendor.js', 'x'.repeat(300 * 1024))
+    const skipped: SkippedPreviewAsset[] = []
+
+    const content = await prepareHtmlPreviewSource(
+      workspaceRoot,
+      'index.html',
+      '<script src="vendor.js"></script>',
+      {},
+      skipped
+    )
+
+    expect(content).toContain('src="vendor.js"')
+    expect(skipped).toEqual([{ url: 'vendor.js', bytes: 300 * 1024 }])
+    const described = describeSkippedPreviewAssets(skipped)
+    expect(described).toContain('vendor.js')
+    expect(described).toContain('inspect_visual')
+  })
+
+  it('says nothing when every asset fitted', () => {
+    expect(describeSkippedPreviewAssets([])).toBeNull()
   })
 })

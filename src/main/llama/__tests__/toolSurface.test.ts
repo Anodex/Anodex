@@ -103,6 +103,112 @@ describe('bounded tool surface', () => {
     expect(result.deferredToolNames).toHaveLength(12)
   })
 
+  /**
+   * A dead end found in a real run's log. A schema mismatch told the model to
+   * "call describe_available_tool and try again"; the model was already inside
+   * `call_available_tool`, so it wrapped that call too — and got "No deferred
+   * tool named describe_available_tool. Use find_available_tool first", which
+   * sends it somewhere that also cannot help. Anodex's own advice walked it
+   * into a loop.
+   */
+  describe('gateway tools reached through the gateway', () => {
+    function routed(): ReturnType<typeof boundToolSurface> {
+      return boundToolSurface({
+        allFunctions: {
+          send_email: tool('Send an email.'),
+          web_search: tool('Search the web.'),
+          remember_fact: tool('Remember a fact.'),
+          draft_email: tool('Draft an email.')
+        },
+        define: fakeDefine,
+        targetFixedTokens: 300,
+        measureFixedTokens: fixedCost
+      })
+    }
+
+    it('says a gateway tool is direct instead of calling it missing', async () => {
+      await expect(
+        routed().functions.call_available_tool.handler({
+          name: 'describe_available_tool',
+          argumentsJson: '{"name":"send_email"}'
+        })
+      ).rejects.toThrow(/gateway tools, not a deferred one/)
+    })
+
+    it('tells the model to call it directly, not through the gateway', async () => {
+      await expect(
+        routed().functions.call_available_tool.handler({
+          name: 'find_available_tool',
+          argumentsJson: '{"query":"email"}'
+        })
+      ).rejects.toThrow(/Call it directly/)
+    })
+
+    it('still reports a genuinely unknown tool as unknown', async () => {
+      await expect(
+        routed().functions.call_available_tool.handler({
+          name: 'no_such_tool',
+          argumentsJson: '{}'
+        })
+      ).rejects.toThrow(/No deferred tool named "no_such_tool"/)
+    })
+
+    it('does not send a schema mismatch back through the gateway', async () => {
+      // The message that started the loop. It must not read as "pass
+      // describe_available_tool to call_available_tool", which is exactly what
+      // the model did.
+      const strict = {
+        description: 'Write a plan.',
+        params: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] },
+        handler: vi.fn(() => Promise.resolve('ok'))
+      } as ToolFunction
+      const result = boundToolSurface({
+        allFunctions: {
+          write_plan: strict,
+          web_search: tool('Search the web.'),
+          remember_fact: tool('Remember a fact.'),
+          draft_email: tool('Draft an email.')
+        },
+        define: fakeDefine,
+        targetFixedTokens: 300,
+        measureFixedTokens: fixedCost
+      })
+
+      await expect(
+        result.functions.call_available_tool.handler({
+          name: 'write_plan',
+          argumentsJson: '{}'
+        })
+      ).rejects.toThrow(/describe_available_tool directly/)
+    })
+  })
+
+  /**
+   * `read_multiple_files` sat at the end of the priority list, past
+   * `maxDirectToolsForContext`'s ceiling of 16, so it was deferred at *every*
+   * context size on every machine — and a model needing several files called
+   * `read_file` once per file instead. A measured turn read the same five files
+   * five times over.
+   */
+  it('offers batched reading directly once the window has room for it', () => {
+    const ranked = rankToolNames({
+      read_multiple_files: tool('Read several files.'),
+      inspect_visual: tool('Screenshot a page.'),
+      preview_html: tool('Preview a page.'),
+      show_image: tool('Show an image.'),
+      read_file: tool('Read a file.')
+    })
+
+    // Above the visual tools, below the single-file read it complements.
+    expect(ranked.indexOf('read_multiple_files')).toBeGreaterThan(ranked.indexOf('read_file'))
+    expect(ranked.indexOf('read_multiple_files')).toBeLessThan(ranked.indexOf('inspect_visual'))
+    expect(ranked.indexOf('read_multiple_files')).toBeLessThan(maxDirectToolsForContext(32_768))
+  })
+
+  it('still defers batched reading on a window too small to spend on it', () => {
+    expect(maxDirectToolsForContext(8_192)).toBeLessThan(11)
+  })
+
   it('rejects malformed deferred arguments before invoking the original tool', async () => {
     const handler = vi.fn(() => Promise.resolve('ok'))
     const result = boundToolSurface({

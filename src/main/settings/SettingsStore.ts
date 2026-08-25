@@ -6,6 +6,7 @@ import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import { DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
+import { isContextAssemblyStrategy } from '@shared/contextPlanner'
 import {
   DEFAULT_KEYBOARD_SHORTCUTS,
   isBindableShortcut,
@@ -652,6 +653,8 @@ function assertKnownKeys(
     // This is an intentionally open string-to-string record. Its keys are
     // absolute model paths, so they cannot appear in the canonical defaults.
     if (`${path}${key}` === 'visionProjectorPaths') continue
+    // Open record for the same reason: keyed by absolute model path.
+    if (`${path}${key}` === 'modelContextSizes') continue
     if (isPlainObject(refValue)) {
       // A whole settings block replaced by a scalar or an array. `deepMerge`
       // only recurses when both sides are objects, so it would take the value
@@ -689,6 +692,12 @@ export function validatePatch(patch: SettingsPatch): void {
     if (!isFiniteNumber(generation.topP) || generation.topP < 0 || generation.topP > 1) {
       throw new Error('generation.topP must be a finite number between 0 and 1')
     }
+  }
+  if (
+    generation?.contextAssemblyStrategy !== undefined &&
+    !isContextAssemblyStrategy(generation.contextAssemblyStrategy)
+  ) {
+    throw new Error('generation.contextAssemblyStrategy must be "current" or "adaptive-v1"')
   }
   for (const [name, entry] of Object.entries(patch.provider ?? {})) {
     if (name === 'active' || typeof entry !== 'object' || entry === null) continue
@@ -748,6 +757,26 @@ export function validatePatch(patch: SettingsPatch): void {
       )
     ) {
       throw new Error('visionProjectorPaths must map model paths to non-empty projector paths')
+    }
+  }
+
+  if (patch.modelContextSizes !== undefined) {
+    if (
+      typeof patch.modelContextSizes !== 'object' ||
+      patch.modelContextSizes === null ||
+      Array.isArray(patch.modelContextSizes) ||
+      Object.entries(patch.modelContextSizes).some(
+        ([modelPath, contextSize]) =>
+          // `null` is the removal sentinel (see `REMOVABLE_SETTING_PATHS`).
+          !modelPath.trim() ||
+          (contextSize !== null &&
+            (typeof contextSize !== 'number' ||
+              !Number.isFinite(contextSize) ||
+              !Number.isInteger(contextSize) ||
+              contextSize <= 0))
+      )
+    ) {
+      throw new Error('modelContextSizes must map model paths to positive whole token counts')
     }
   }
 

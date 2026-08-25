@@ -2,7 +2,7 @@ import type { Plan } from '@shared/plan.types'
 import type { ToolCall } from '@shared/tools.types'
 import { describe, expect, it } from 'vitest'
 import type { PathClaimIssue } from '../../tools/pathClaimVerification'
-import { describeTurnOutcome, isDurableChange } from '../turnSummary'
+import { describeTurnOutcome, isDurableChange, isVerificationCommand } from '../turnSummary'
 
 function call(overrides: Partial<ToolCall> & Pick<ToolCall, 'name' | 'kind'>): ToolCall {
   return {
@@ -34,6 +34,48 @@ function summary(overrides: Partial<Parameters<typeof describeTurnOutcome>[0]> =
     }) ?? ''
   )
 }
+
+describe('isVerificationCommand', () => {
+  /**
+   * The false accusation this guards, measured live: a turn ran
+   * `python _smoke_test.py` to a green exit three times and was still told
+   * "**Not verified** — no build, test, type-check or lint command ran". A
+   * project with no test framework verifies itself by running its own script,
+   * and for many small projects that is the only check there is.
+   */
+  it('counts an interpreter running one of the project’s scripts', () => {
+    expect(isVerificationCommand('cd Sandbox/UniverseSandbox; python _smoke_test.py')).toBe(true)
+    expect(isVerificationCommand('cd app && python -u run_checks.py')).toBe(true)
+    expect(isVerificationCommand('node check.mjs')).toBe(true)
+    expect(isVerificationCommand('ruby spec_runner.rb')).toBe(true)
+  })
+
+  /**
+   * The opposite error, and the worse one for an honesty feature: `python -c`
+   * is how a model *reads* things — the same live turn used it to count lines
+   * in a file — so treating it as proof would turn a missing note into a false
+   * claim that the change was checked.
+   */
+  it('does not count an inline snippet as having checked anything', () => {
+    expect(
+      isVerificationCommand(`python -c "lines=open('ui.py').readlines(); print(len(lines))"`)
+    ).toBe(false)
+    expect(isVerificationCommand('python -c "print(1)"')).toBe(false)
+  })
+
+  it('still counts the named build and test tools', () => {
+    expect(isVerificationCommand('npm test')).toBe(true)
+    expect(isVerificationCommand('cargo test')).toBe(true)
+    expect(isVerificationCommand('pytest -q')).toBe(true)
+    expect(isVerificationCommand('g++ -o main main.cpp')).toBe(true)
+  })
+
+  it('does not count ordinary inspection', () => {
+    expect(isVerificationCommand('ls -la')).toBe(false)
+    expect(isVerificationCommand('cat main.py')).toBe(false)
+    expect(isVerificationCommand('git status')).toBe(false)
+  })
+})
 
 describe('describeTurnOutcome', () => {
   it('says nothing for an ordinary conversational reply', () => {

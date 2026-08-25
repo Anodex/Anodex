@@ -25,6 +25,8 @@
  * recorded in its settled tool calls.
  */
 
+import { DEEPSEEK_CALL_BEGIN, DEEPSEEK_SEP } from '@shared/deepSeekMarkers'
+
 export interface FallbackToolCall {
   name: string
   arguments: Record<string, unknown>
@@ -64,6 +66,29 @@ const TAG_ATTRIBUTE = /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g
  */
 const FUNCTION_TAG = /<function=([\w-]+)>/gi
 const PARAMETER_BLOCK = /<parameter=([\w-]+)>([\s\S]*?)(?:<\/parameter>|(?=<parameter=)|$)/gi
+/**
+ * DeepSeek's own call syntax, leaked as text: the tool name follows
+ * `<｜tool▁sep｜>` and the arguments sit in a separate fenced JSON block, so
+ * neither half is a `{"name": …, "arguments": …}` object and every other shape
+ * here misses it — `JSON_FENCE` captured the arguments and then rejected them
+ * for having no `name`.
+ *
+ * A backstop rather than the primary path: the wrapper now declares DeepSeek's
+ * call sections properly (see `deepSeekWrapper.ts`), so these calls are read
+ * back natively. Before it did, only the first call of a section matched the
+ * configured prefix and one live turn leaked eight — inventing an `edit_file`
+ * success, a `run_command` transcript, and a web server on port 8000 while
+ * changing nothing on disk. Keeping the parser costs nothing and the failure it
+ * covers is silent, expensive, and produces confident fiction.
+ */
+const DEEPSEEK_CALL = new RegExp(
+  // `String.raw` so the backslashes reach `RegExp` intact — in a plain template
+  // literal `\s` is just `s`. `\x60` is a backtick, spelled that way so the
+  // fence needs no escaping inside the raw literal.
+  String.raw`${DEEPSEEK_CALL_BEGIN}\s*(?:function)?\s*${DEEPSEEK_SEP}\s*([\w-]+)\s*\n?\x60{3}(?:json)?\s*\n?([\s\S]*?)\x60{3}`,
+  'g'
+)
+
 const TRAILING_WRAPPER = /^(?:\s*<\/function>)?(?:\s*<\/tool_call>)?/
 const LEADING_WRAPPER = /<tool_call>\s*$/
 
@@ -95,6 +120,7 @@ interface Candidate {
 function extractCandidates(text: string): Candidate[] {
   const candidates: Candidate[] = []
 
+  candidates.push(...extractDeepSeekCandidates(text))
   for (const match of text.matchAll(TOOL_CALL_TAG)) {
     candidates.push({ matchedText: match[0], jsonText: match[1] })
   }
@@ -129,6 +155,34 @@ function extractCandidates(text: string): Candidate[] {
   }
   const trailingJson = extractTrailingJsonObject(text)
   if (trailingJson) candidates.push(trailingJson)
+
+  return candidates
+}
+
+/**
+ * See `DEEPSEEK_CALL`. One candidate per leaked call.
+ *
+ * `matchedText` deliberately runs from the call marker to the end of the
+ * response rather than stopping at the closing fence. Everything the model
+ * writes past a leaked call is a continuation reasoned on a tool result it
+ * never received — in the observed turn, literal `<｜tool▁output▁begin｜>`
+ * blocks holding invented file contents. Only the text *before* the first
+ * leaked call was written with real information, so that is all that survives
+ * into the reply; the recovered call then runs for real and the caller
+ * re-prompts with its actual result.
+ */
+function extractDeepSeekCandidates(text: string): Candidate[] {
+  const candidates: Candidate[] = []
+
+  for (const match of text.matchAll(DEEPSEEK_CALL)) {
+    candidates.push({
+      matchedText: text.slice(match.index),
+      jsonText: JSON.stringify({
+        name: match[1],
+        arguments: parseJsonLoosely(match[2].trim()) ?? {}
+      })
+    })
+  }
 
   return candidates
 }
@@ -262,6 +316,9 @@ export function findPotentialToolCallTextStart(text: string): number {
     text.indexOf('<tool_call'),
     // Held back for the same reason as `<tool_call`: it can appear without one.
     text.indexOf('<function='),
+    // Same reason: a leaked DeepSeek call is raw payload, not prose the user
+    // should watch arrive.
+    text.indexOf(DEEPSEEK_CALL_BEGIN),
     text.indexOf('```json'),
     text.indexOf('```\n{'),
     text.indexOf('``` \n{'),

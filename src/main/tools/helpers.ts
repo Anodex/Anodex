@@ -19,6 +19,7 @@ import { clampModelResultCap } from './modelResultBudget'
 import { recordCompletedCall } from './turnProgress'
 import { effectiveToolKind } from './commandEffect'
 import { withEvidenceMarker } from './evidenceStore'
+import { createLogger } from '../utils/logger'
 
 /** Truncated tool output retained for cross-session memory. */
 const MAX_REMEMBERED_RESULT = 2000
@@ -49,13 +50,48 @@ function rememberResult(modelResult: string): string {
     : modelResult
 }
 
-function truncateModelResult(modelResult: string, cap: number): string {
+/**
+ * Tools whose truncated result can be continued by asking for a narrower part
+ * of the same file, which is the advice worth giving alongside the cut.
+ */
+const RANGE_READABLE_TOOLS = new Set([
+  'read_file',
+  'read_file_range',
+  'read_multiple_files',
+  'code_outline'
+])
+
+/**
+ * Trim a result to the room this turn has for it, and say what to do about it.
+ *
+ * The note used to read only `(truncated, N bytes total)`. That states the fact
+ * and withholds the one thing the model needs: that the *same* call returns the
+ * *same* prefix. Without it, re-reading looks like a way to see the rest of the
+ * file, and a model whose earlier result was evicted will do exactly that.
+ * Measured: one turn spent 27 reads and zero writes cycling through the same
+ * five files five times, because two of them were over the per-result cap and
+ * the note gave no way forward.
+ *
+ * Not a small-file edge case. The cap is a share of what is left of the window,
+ * so on a tight context most real source files exceed it — that turn's cap was
+ * ~10,000 characters against a 15,915-character file.
+ */
+function truncateModelResult(modelResult: string, cap: number, toolName?: string): string {
   if (cap <= 0) {
     return '(No room left in the active context for this result. Continue in a fresh turn, or narrow the request — e.g. a smaller line range or a more specific search.)'
   }
-  return modelResult.length > cap
-    ? `${modelResult.slice(0, cap)}\n… (truncated, ${modelResult.length} bytes total)`
-    : modelResult
+  if (modelResult.length <= cap) return modelResult
+  // Only worth spending the words where the result itself is substantial. On a
+  // cap of a few dozen characters the guidance would dwarf the content it is
+  // explaining, and the byte counts alone already say what happened.
+  const nextStep =
+    cap < MIN_CONTENT_CHARS_BESIDE_MARKER
+      ? ''
+      : toolName !== undefined && RANGE_READABLE_TOOLS.has(toolName)
+        ? ' Repeating it returns this same prefix — use code_outline or read_file_range to read further.'
+        : ' Repeating it returns this same prefix — narrow the request.'
+  return `${modelResult.slice(0, cap)}
+… (truncated: showing the first ${cap} of ${modelResult.length} bytes.${nextStep})`
 }
 
 /**
@@ -82,21 +118,22 @@ function retainAsEvidence(
   // or a no-op notice. Recording those would file control messages in the
   // catalogue alongside the real reads, so the task's own account of what it
   // has gathered would overstate it.
-  if (!madeProgress) return truncateModelResult(modelResult, cap)
+  if (!madeProgress) return truncateModelResult(modelResult, cap, spec.name)
   const record = ctx.ledger.evidence.record({
     tool: spec.name,
     label: spec.title,
     body: modelResult
   })
-  if (!record) return truncateModelResult(modelResult, cap)
+  if (!record) return truncateModelResult(modelResult, cap, spec.name)
   // The descriptor is part of the result the model receives, so it is paid for
   // out of the same budget rather than added on top of it. A cap is a promise
   // about how much of the context one call may take, and quietly exceeding it
   // is how the accounting the transports plan against stops being true.
   const descriptor = ctx.ledger.evidence.descriptor(record)
   const room = cap - descriptor.length - 1
-  if (room < MIN_CONTENT_CHARS_BESIDE_MARKER) return truncateModelResult(modelResult, cap)
-  return withEvidenceMarker(truncateModelResult(modelResult, room), descriptor)
+  if (room < MIN_CONTENT_CHARS_BESIDE_MARKER)
+    return truncateModelResult(modelResult, cap, spec.name)
+  return withEvidenceMarker(truncateModelResult(modelResult, room, spec.name), descriptor)
 }
 
 /**
@@ -205,23 +242,10 @@ interface GuardedToolSpec extends ReadToolSpec {
  * rather than throwing (which would abort the whole generation).
  */
 export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): Promise<string> {
-  const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
-  const limitMessage = ctx.beforeTool?.(spec.name, spec.args) ?? null
-  if (limitMessage) {
-    ctx.emit({
-      id,
-      name: spec.name,
-      kind: spec.kind,
-      title: spec.title,
-      status: 'error',
-      detail: 'Blocked: execution budget reached',
-      result: limitMessage
-    })
-    return limitMessage
-  }
-  ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const repeat = reviewRepeat(ctx, spec, id)
-  if (repeat.blocked) return repeat.blocked
+  const preflight = beginToolCall(ctx, spec)
+  const { id } = preflight
+  if (preflight.blocked) return preflight.blocked
+  const repeat: RepeatReview = { advice: preflight.advice }
   try {
     const { modelResult, detail, plan, preview, madeProgress = true } = await spec.run()
     ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress })
@@ -266,6 +290,55 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   }
 }
 
+/** What a completed preflight established about a call that is about to run. */
+interface ToolCallPreflight {
+  /** The card this call reports on, claimed once for the whole call. */
+  id: string
+  /** Set when the call must not run at all; this is the model-facing reason. */
+  blocked?: string
+  /** A correction to append to the result of a call that is still allowed to run. */
+  advice?: string
+}
+
+/**
+ * Everything that must happen before a tool's own work begins: claim the UI
+ * card, charge the execution budget, show the call as running, and let the task
+ * ledger decide whether it should run at all.
+ *
+ * Shared by all three entry points so the order can never drift between them,
+ * and — the reason it was extracted — so it can run exactly once for a
+ * prepare-then-run pair. `runGuardedToolWithPrepare` used to reach the ledger
+ * only after its `prepare()` step had succeeded, which meant every failure
+ * raised in `prepare()` was invisible to the loop guard: a size-limit refusal,
+ * a path outside the workspace, a missing file, an `edit_file` whose `oldText`
+ * is no longer in the file. Those are the *commonest* write failures, and a
+ * model repeating one got the identical error back forever with nothing
+ * counting the repeats. Observed directly: eight byte-identical `append_file`
+ * calls, each rejected for the same over-limit payload, none of them counted.
+ */
+function beginToolCall(
+  ctx: ToolRuntimeContext,
+  spec: { name: string; kind: ToolKind; title: string; args?: unknown }
+): ToolCallPreflight {
+  const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
+  const limitMessage = ctx.beforeTool?.(spec.name, spec.args) ?? null
+  if (limitMessage) {
+    ctx.emit({
+      id,
+      name: spec.name,
+      kind: spec.kind,
+      title: spec.title,
+      status: 'error',
+      detail: 'Blocked: execution budget reached',
+      result: limitMessage
+    })
+    return { id, blocked: limitMessage }
+  }
+  ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
+  const repeat = reviewRepeat(ctx, spec, id)
+  return { id, blocked: repeat.blocked, advice: repeat.advice }
+}
+
 /**
  * Ask the task ledger what to do about this call, and emit the outcome when it
  * must not run.
@@ -279,6 +352,17 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
  * `TaskLedger.reviewCall` and `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1 for the
  * livelock that refusing it produced.
  */
+/**
+ * Scoped so a turn cut short by the loop guard says *what* was repeating, at the
+ * moment it happens.
+ *
+ * The cycle log records `stopReason: "loop-guard"` and nothing else, and the
+ * blocked call is only visible in the conversation JSON -- which is not written
+ * until the whole turn ends. A live run that stalls is exactly when that detail
+ * is wanted and exactly when it was unavailable.
+ */
+const log = createLogger('tools:loop-guard')
+
 function reviewRepeat(
   ctx: ToolRuntimeContext,
   spec: {
@@ -316,6 +400,13 @@ function reviewRepeat(
         ''
       )
   ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress: false })
+  log.warn('Blocked a repeating tool call', {
+    tool: spec.name,
+    kind: spec.kind,
+    title: spec.title,
+    detail: verdict.detail,
+    aborting
+  })
   ctx.emit({
     id,
     name: spec.name,
@@ -407,25 +498,18 @@ function markProgress(ctx: ToolRuntimeContext, spec: { name: string; kind: ToolK
  */
 export async function runGuardedTool(
   ctx: ToolRuntimeContext,
-  spec: GuardedToolSpec
+  spec: GuardedToolSpec,
+  /**
+   * A preflight already performed by the caller. `runGuardedToolWithPrepare`
+   * passes its own so the call is counted, budgeted and card-claimed exactly
+   * once across the prepare-then-run pair; direct callers omit it.
+   */
+  done?: ToolCallPreflight
 ): Promise<string> {
-  const id = ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID()
-  const limitMessage = ctx.beforeTool?.(spec.name, spec.args) ?? null
-  if (limitMessage) {
-    ctx.emit({
-      id,
-      name: spec.name,
-      kind: spec.kind,
-      title: spec.title,
-      status: 'error',
-      detail: 'Blocked: execution budget reached',
-      result: limitMessage
-    })
-    return limitMessage
-  }
-  ctx.emit({ id, name: spec.name, kind: spec.kind, title: spec.title, status: 'running' })
-  const repeat = reviewRepeat(ctx, spec, id)
-  if (repeat.blocked) return repeat.blocked
+  const preflight = done ?? beginToolCall(ctx, spec)
+  const { id } = preflight
+  if (preflight.blocked) return preflight.blocked
+  const repeat: RepeatReview = { advice: preflight.advice }
 
   try {
     const permissionDecision = resolvePermission(ctx.permissionMode, spec.risk)
@@ -586,6 +670,10 @@ interface PreparedGuardedCall<TData> {
  * call arguments. A `prepare()` failure (bad input, file not found, sandbox
  * violation) is reported exactly like a `run()` failure: a clean resolved
  * error string and no confirm prompt for a call that's already known to fail.
+ *
+ * The preflight (card, budget, loop guard) runs *before* `prepare()` and its
+ * result is handed to `runGuardedTool`, so the pair is treated as the single
+ * call it is. See {@link beginToolCall} for the failure this ordering fixes.
  */
 export async function runGuardedToolWithPrepare<TData>(
   ctx: ToolRuntimeContext,
@@ -596,25 +684,26 @@ export async function runGuardedToolWithPrepare<TData>(
   prepare: () => Promise<PreparedGuardedCall<TData>>,
   run: (data: TData) => Promise<ToolOutcome>
 ): Promise<string> {
+  const preflight = beginToolCall(ctx, spec)
+  if (preflight.blocked) return preflight.blocked
+
   let prepared: PreparedGuardedCall<TData>
   try {
     prepared = await prepare()
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     ctx.emit({
-      // Claimed here, exactly as `runGuardedTool` and `runReadTool` do on
-      // their own first line. This path used to mint a fresh id instead, and
-      // it is the one path where that is most visible: `write_file`,
+      // The card claimed by the preflight, not a fresh one. `write_file`,
       // `edit_file`, and `patch_file` are simultaneously the only tools with a
       // provisional streaming card (`PendingToolCallTracker`'s `TRACKED_TOOLS`)
       // and all users of this function. A failing `prepare()` — a path outside
       // the workspace, a missing file, an `oldText` that isn't in the file,
-      // which is edit_file's single commonest failure — therefore emitted the
-      // real error onto a brand-new card while the card the user had watched
-      // fill in was left unclaimed, to be swept at the end of the round as
+      // which is edit_file's single commonest failure — used to emit the real
+      // error onto a brand-new card while the card the user had watched fill
+      // in was left unclaimed, to be swept at the end of the round as
       // "Interrupted". One failed call, two cards, and the one naming the
       // actual reason was not the one attached to the call they were watching.
-      id: ctx.claimPendingToolCallId?.(spec.name) ?? randomUUID(),
+      id: preflight.id,
       name: spec.name,
       kind: spec.kind,
       title: spec.title,
@@ -625,11 +714,15 @@ export async function runGuardedToolWithPrepare<TData>(
     return `Error: ${message}`
   }
 
-  return runGuardedTool(ctx, {
-    ...spec,
-    confirmDetail: prepared.confirmDetail,
-    confirmDiff: prepared.confirmDiff,
-    confirmEmailDraft: prepared.confirmEmailDraft,
-    run: () => run(prepared.data)
-  })
+  return runGuardedTool(
+    ctx,
+    {
+      ...spec,
+      confirmDetail: prepared.confirmDetail,
+      confirmDiff: prepared.confirmDiff,
+      confirmEmailDraft: prepared.confirmEmailDraft,
+      run: () => run(prepared.data)
+    },
+    preflight
+  )
 }

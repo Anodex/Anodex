@@ -1,4 +1,4 @@
-import { useRef, type ChangeEvent } from 'react'
+import { useEffect, useRef, type ChangeEvent } from 'react'
 import type { AppSettings, SettingsPatch } from '@shared/settings.types'
 import { useEmailStore } from '../../../../stores/emailStore'
 import { useUiStore } from '../../../../stores/uiStore'
@@ -8,6 +8,7 @@ import { SelectControl, TextControl, ToggleControl } from '../../controls'
 import { UsageActivitySection } from './UsageActivitySection'
 import { AssistantStyleSection } from './AssistantStyleSection'
 import pageStyles from '../../SettingsPage.module.css'
+import { avatarNeedsDownscale, downscaleAvatar } from './avatarImage'
 import styles from './ProfileSettings.module.css'
 
 interface ProfileSettingsProps {
@@ -30,13 +31,33 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
   const address = useEmailStore((state) => state.status?.address ?? '')
   const accountCount = useEmailStore((state) => state.status?.accounts.length ?? 0)
 
+  // Shrink an avatar stored before it was bounded, once, in place. Existing
+  // profiles otherwise keep paying the full-size cost on every settings write
+  // until the user happens to choose a new picture — and re-encoding keeps the
+  // picture they already chose rather than clearing it.
+  useEffect(() => {
+    const stored = profile.avatarBase64
+    if (!avatarNeedsDownscale(stored)) return
+    let cancelled = false
+    void downscaleAvatar(stored as string).then((avatarBase64) => {
+      if (!cancelled && avatarBase64 !== stored) void update({ profile: { avatarBase64 } })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [profile.avatarBase64, update])
+
   const handleAvatarChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => {
-      const result = reader.result as string
-      void update({ profile: { avatarBase64: result } })
+      // Downscaled before it is stored — see `downscaleAvatar`. Settings are
+      // rewritten whole on every change, so a full-size photo here is paid for
+      // by every later setting the user touches.
+      void downscaleAvatar(reader.result as string).then((avatarBase64) =>
+        update({ profile: { avatarBase64 } })
+      )
     }
     reader.readAsDataURL(file)
   }

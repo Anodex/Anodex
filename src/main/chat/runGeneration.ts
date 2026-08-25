@@ -25,16 +25,27 @@ import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import {
+  allocateContextBudget,
   cloudContextWindowTokens,
   DEFAULT_RECALL_WINDOW_FRACTION,
   type CloudProvider
 } from '@shared/contextBudget'
+import {
+  assembleAutomaticReferenceContext,
+  charsPerToken,
+  normalizeContextAssemblyStrategy,
+  type ContextAssemblyReport,
+  type PromptCalibration
+} from '@shared/contextPlanner'
 import { composeSystemPrompt } from '@shared/prompts'
 import { buildContextEpochSystemPrompt, capContextEpochHandoff } from '@shared/contextPrompt'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
 import { llamaService, type GenerateOutcome, type GenerateParams } from '../llama/LlamaService'
-import { boundHistoryForStatelessProvider } from '../llama/contextAssembler'
+import {
+  boundHistoryForStatelessProvider,
+  historyPrefixFingerprint
+} from '../llama/contextAssembler'
 import { MESSAGE_FRAMING_TOKENS, visionToolSchemaReserveTokens } from '../llama/LlamaVisionService'
 import { CLOUD_SUMMARY_CHUNK_TOKEN_BUDGET, summaryChunkBudgetForContext } from '../llama/compaction'
 import { ROLLING_SUMMARY_TOKEN_CEILING } from '../llama/rollingSummary'
@@ -48,7 +59,7 @@ import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { tokenActivityStore } from '../stats/TokenActivityStore'
-import { buildWorkspaceContext } from '../tools/workspaceContext'
+import { buildWorkspaceContextParts } from '../tools/workspaceContext'
 import { buildMemoryContext } from '../memory/MemoryRetriever'
 import { buildTranscriptRecallContext } from '../recall/transcriptRecallContext'
 import { skillStore } from '../skills/SkillStore'
@@ -138,6 +149,20 @@ export interface RunGenerationResult {
   contextEpochCause?: 'proactive' | 'in-turn'
   /** Exact local fixed-context/tool accounting for this turn. */
   contextBudget?: ContextBudgetUsage
+  /** Content-free account of automatic supporting context selected for this generation. */
+  contextAssembly?: ContextAssemblyReport
+  /**
+   * What this turn's rendered system prompt actually cost, for the next one to
+   * plan against. Only present when the transport counted it — see
+   * `PromptCalibration`.
+   */
+  promptCalibration?: PromptCalibration
+  /**
+   * Reports for every provider cycle when a bounded caller combines multiple
+   * generations into one assistant reply. A direct generation returns only the
+   * singular contextAssembly field.
+   */
+  contextAssemblies?: ContextAssemblyReport[]
   /** Memory entries retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts retrieved and injected into context for this turn, if any. */
@@ -341,6 +366,25 @@ export function resolveHistoryBounding(
 }
 
 /**
+ * Tool-schema cost to plan the automatic-reference allowance against.
+ *
+ * The transport's own reserve when it publishes one (local vision), and
+ * otherwise the shared allocation's tool-schema budget — which is what decides
+ * how many schemas are worth exposing on this window in the first place. Both
+ * are planning numbers: the transports measure the real rendered schemas later
+ * and report them in `ContextBudgetUsage`.
+ */
+function toolSchemaPlanningTokens(
+  bounding: { toolSchemaReserveTokens: number } | null,
+  contextWindowTokens: number | undefined,
+  hasTools: boolean
+): number {
+  if (!hasTools) return 0
+  if (bounding && bounding.toolSchemaReserveTokens > 0) return bounding.toolSchemaReserveTokens
+  return contextWindowTokens ? allocateContextBudget(contextWindowTokens).toolSchemas : 0
+}
+
+/**
  * The active model's context window, for callers that must size something
  * against real capacity before the transport has measured anything — currently
  * `composeSystemPrompt`, which picks the compact core prompt on a small window.
@@ -482,6 +526,7 @@ export async function runGeneration(
   // model, not whatever's loaded locally.
   const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
   const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
+  const contextWindowTokens = activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id)
 
   const memory = includeReferenceContext
     ? buildMemoryContext(
@@ -491,7 +536,7 @@ export async function runGeneration(
           crossChatEnabled: settings.memory.crossChatEnabled,
           personalEnabled: settings.memory.personalEnabled
         },
-        activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id)
+        contextWindowTokens
       )
     : null
 
@@ -515,27 +560,114 @@ export async function runGeneration(
     activeProject?.instructions,
     activeProject?.githubRepository
   )
-  const workspaceContext =
+  const workspace =
     hasWorkspaceTools && workspaceRoot
-      ? buildWorkspaceContext(
+      ? buildWorkspaceContextParts(
           workspaceRoot,
           activeProject?.id ?? null,
           request.prompt,
-          activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id)
+          contextWindowTokens
         )
       : null
-  const systemPrompt = composeSystemPrompt({
+
+  // Resolved before the prompt is composed rather than after: `adaptive-v1`'s
+  // allowance is what the window has left once tool schemas are paid for, so
+  // the reserve has to be known while there is still a decision to make about
+  // automatic material. Nothing here depends on the prompt.
+  //
+  // `tools != null`, not `hasWorkspaceTools`: tool schemas are registered
+  // whenever tools are enabled at all — a chat with no workspace folder still
+  // carries the user-file, email and web surfaces, and so still pays for them.
+  const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io, tools != null)
+
+  // Two passes over the same composer. The first prices everything the user
+  // chose — rules, style, skills, plan, the request itself, and the protected
+  // continuation checkpoints — with no automatic reference material in it. That
+  // measurement is the input to the capacity contract, which then decides how
+  // much automatic material the window can actually afford. Composing once and
+  // budgeting against a fraction of the window instead is what let a 4K model
+  // admit 3,918 characters of workspace and recall into a prompt whose fixed
+  // cost had already outgrown the window.
+  const composeParts = {
     hasWorkspaceTools,
-    contextWindowTokens: activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id),
+    contextWindowTokens,
     hasProject: Boolean(activeProject),
     assistantStyle: settings.assistantStyle.globalStyle,
     projectRules,
-    activeSkillContext,
-    workspaceContext,
-    memoryContext: memory?.text ?? null,
-    transcriptRecallContext: transcriptRecall?.text ?? null
+    activeSkillContext
+  }
+  // What the reference *headers* cost, as opposed to the material under them.
+  //
+  // `composeSystemPrompt` wraps each automatic section in a heading and a
+  // preamble — the memory one alone runs to several hundred characters — and
+  // those exist only because material was admitted. Pricing the base prompt
+  // without them undercounted the fixed cost by 1,337 characters on a
+  // three-section prompt, so the allowance was spent on room that the headers
+  // had already taken. Measured against the real composer rather than
+  // estimated, for the same reason `fitRenderedHandoff` measures its own render.
+  const presentSources = {
+    workspaceContext: workspace ? 'x' : null,
+    memoryContext: memory ? 'x' : null,
+    transcriptRecallContext: transcriptRecall ? 'x' : null
+  }
+  const presentCount = Object.values(presentSources).filter(Boolean).length
+  const referenceFramingChars = Math.max(
+    0,
+    composeSystemPrompt({ ...composeParts, ...presentSources }).length -
+      composeSystemPrompt(composeParts).length -
+      presentCount
+  )
+  const currentPlanBlock = renderCurrentPlan(request.plan)
+  // The same capped handoff the prompt below renders, not the raw one: pricing
+  // the uncapped form would charge for text no model ever sees and shrink the
+  // automatic allowance to pay for it.
+  const cappedContextEpoch = request.contextEpoch
+    ? capContextEpochHandoff(request.contextEpoch, bounding?.contextWindowTokens)
+    : undefined
+  const protectedSegments = [
+    composeSystemPrompt(composeParts),
+    currentPlanBlock,
+    request.continuationBrief,
+    cappedContextEpoch ? buildContextEpochSystemPrompt(undefined, cappedContextEpoch) : undefined,
+    request.prompt
+  ].filter((part): part is string => Boolean(part))
+  const promptCharsPerToken = charsPerToken(request.promptCalibration)
+  const automaticReferenceContext = assembleAutomaticReferenceContext({
+    strategy: normalizeContextAssemblyStrategy(settings.generation.contextAssemblyStrategy),
+    contextWindowTokens,
+    fixedPromptTokens: Math.ceil(
+      (protectedSegments.join('\n\n').length + referenceFramingChars) / promptCharsPerToken
+    ),
+    toolSchemaTokens: toolSchemaPlanningTokens(bounding, contextWindowTokens, tools != null),
+    calibration: request.promptCalibration,
+    sources: [
+      {
+        id: 'workspace',
+        // Orientation and project recall are separately droppable — see
+        // `buildWorkspaceContextParts`.
+        units: workspace ? [workspace.summary, workspace.activity] : [],
+        separator: '\n\n'
+      },
+      { id: 'memory', units: memory?.lines ?? [] },
+      { id: 'transcript-recall', units: transcriptRecall?.blocks ?? [], separator: '\n' }
+    ]
   })
-  let modelSystemPrompt = [systemPrompt, renderCurrentPlan(request.plan)]
+  const systemPrompt = composeSystemPrompt({
+    ...composeParts,
+    workspaceContext: automaticReferenceContext.texts.workspace,
+    memoryContext: automaticReferenceContext.texts.memory,
+    transcriptRecallContext: automaticReferenceContext.texts['transcript-recall']
+  })
+  // Only what the model was actually given. The retrievers rank more than the
+  // window can always afford, and reporting their full selection would have the
+  // UI credit the reply with memory entries and past-chat excerpts that the
+  // packer deferred — provenance that contradicts the prompt.
+  const memoryUsed = memory?.entries.slice(0, automaticReferenceContext.includedUnits.memory)
+  const transcriptRecallUsed = transcriptRecall?.results.slice(
+    0,
+    automaticReferenceContext.includedUnits['transcript-recall']
+  )
+  let modelSystemPrompt = [systemPrompt, currentPlanBlock, request.continuationBrief]
     .filter((part): part is string => Boolean(part))
     .join('\n\n')
 
@@ -570,18 +702,12 @@ export async function runGeneration(
   let boundedSystemPrompt: string | undefined = modelSystemPrompt
   let boundedHistory = request.history
   let contextUpdate: ConversationContext | undefined
-  // `tools != null`, not `hasWorkspaceTools`: tool schemas are registered
-  // whenever tools are enabled at all — a chat with no workspace folder still
-  // carries the user-file, email and web surfaces, and so still pays for them.
-  const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io, tools != null)
-  if (request.contextEpoch) {
+  if (cappedContextEpoch) {
     // The handoff is deliberately rendered *before* `boundHistoryForStatelessProvider`
     // computes its history budget. It is protected from history eviction, but it
-    // is still fixed prompt cost and must be charged exactly once.
-    modelSystemPrompt = buildContextEpochSystemPrompt(
-      modelSystemPrompt,
-      capContextEpochHandoff(request.contextEpoch, bounding?.contextWindowTokens)
-    )
+    // is still fixed prompt cost and must be charged exactly once — including in
+    // the capacity contract above, which priced this exact capped form.
+    modelSystemPrompt = buildContextEpochSystemPrompt(modelSystemPrompt, cappedContextEpoch)
   }
   if (bounding) {
     const bounded = await boundHistoryForStatelessProvider(
@@ -627,7 +753,11 @@ export async function runGeneration(
           cause: 'pressure',
           throughMessageId: bounded.compactedThroughMessageId,
           coveredTurns: bounded.coveredTurns ?? bounded.omittedTurns,
-          continuityDigest: bounded.summary
+          continuityDigest: bounded.summary,
+          sourcePrefixFingerprint: historyPrefixFingerprint(
+            request.history,
+            bounded.compactedThroughMessageId
+          )
         })
       }
     }
@@ -648,9 +778,14 @@ export async function runGeneration(
         throughMessageId: bounded.compactedThroughMessageId,
         coveredTurns:
           bounded.coveredTurns ?? currentLedgerRevision(activeContext)?.coveredTurns ?? 0,
-        continuityDigest: bounded.summary
+        continuityDigest: bounded.summary,
+        sourcePrefixFingerprint: historyPrefixFingerprint(
+          request.history,
+          bounded.compactedThroughMessageId
+        )
       })
     }
+    if (bounded.snapshotStale) automaticReferenceContext.report.staleHistorySnapshot = true
   }
 
   let outcome: GenerateOutcome
@@ -790,8 +925,17 @@ export async function runGeneration(
     contextEpochCause: outcome.contextEpochCause,
     endedOnToolCall: outcome.endedOnToolCall,
     contextBudget: outcome.contextBudget,
-    memoryUsed: memory?.entries,
-    transcriptRecallUsed: transcriptRecall?.results,
+    contextAssembly: automaticReferenceContext.report,
+    // The transport counted the exact prompt composed above, so the next cycle
+    // can stop guessing at four characters per token and use what this one
+    // measured. `systemTokens` covers the rendered system prompt and its
+    // framing, which is what `boundedSystemPrompt` holds.
+    promptCalibration:
+      outcome.contextBudget && outcome.contextBudget.systemTokens > 0
+        ? { chars: (boundedSystemPrompt ?? '').length, tokens: outcome.contextBudget.systemTokens }
+        : undefined,
+    memoryUsed,
+    transcriptRecallUsed,
     webSources: webSourceRegistry.list(),
     webSearchAttempted: webSourceRegistry.attempted,
     context: contextUpdate ?? (contextReconciliation.changed ? activeContext : undefined),

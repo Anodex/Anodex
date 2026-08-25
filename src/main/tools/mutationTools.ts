@@ -6,16 +6,56 @@ import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { assertFileStateUnchanged } from './fileState'
 import { runGuardedToolWithPrepare } from './helpers'
 import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
+import { describeEditResult } from './editEcho'
+import { clampModelResultCap } from './modelResultBudget'
 
 const PREVIEW_CHARS = 400
+/**
+ * Room an edit may spend quoting its own result back. Sized as a window, not a
+ * file: see `editEcho.ts` for why an edit answers with content at all.
+ */
+const EDIT_ECHO_MAX_CHARS = 3_000
+
 const MAX_PATCH_REPLACEMENTS = 20
 /**
- * Keep one model-generated write small enough that a tool call can finish and
- * the next continuation round still has room. Larger new files are assembled
- * with append_file, which also gives compaction a sequence of bounded tool
- * results instead of one giant JSON argument.
+ * The chunk size a write is *asked* for, in every tool description that
+ * mentions one. Small enough that a tool call can finish and the next
+ * continuation round still has room, and it gives compaction a sequence of
+ * bounded tool results instead of one giant JSON argument.
+ *
+ * Advice, not enforcement — see {@link MAX_FILE_WRITE_CONTENT_CHARS}.
  */
-export const MAX_FILE_WRITE_CONTENT_CHARS = 4_000
+export const FILE_WRITE_CHUNK_TARGET_CHARS = 4_000
+
+/**
+ * The largest payload actually accepted. A sanity bound, deliberately far
+ * above {@link FILE_WRITE_CHUNK_TARGET_CHARS}.
+ *
+ * **Never named in a tool description.** It was, briefly, and a number that
+ * large is the one a model anchors on: a live run emitted a 10,507-character
+ * `write_file` into a round with 3,920 tokens of room and was cut off
+ * mid-argument, having been told both "about 4,000 characters" and "hard limit
+ * 64,000" in the same sentence. Descriptions state only the size to aim for;
+ * this appears solely in the error raised when it is genuinely exceeded.
+ *
+ * These were one constant, and refusing anything over the chunk target was a
+ * loop generator. By the time a handler sees the payload the model has already
+ * spent the tokens to produce it; rejecting it recovers nothing and discards
+ * work that is complete and safe to apply. What it does instead is hand the
+ * model an error whose only remedy — "split it up" — the model must implement
+ * by regenerating the same content, which small local models simply do not do:
+ * a measured run reissued the *same* 6,201-character `append_file` eight times
+ * in a row, was refused every time for the same reason, and finished the turn
+ * with none of it on disk.
+ *
+ * The chunking advice still reaches the model where it can help, before
+ * generation, through the tool descriptions. Enforcement past that point only
+ * needs to stop a runaway payload, and a payload that arrived whole is by
+ * definition not truncated: writing it is one atomic operation, strictly safer
+ * than the chunk-then-append sequence a refusal forces, which leaves the file
+ * invalid if the turn ends part-way through.
+ */
+export const MAX_FILE_WRITE_CONTENT_CHARS = 64_000
 /**
  * Files larger than this don't get a stored diff: a full before/after copy of
  * a huge file would bloat persisted conversation JSON for a diff that's hard
@@ -37,7 +77,7 @@ export function diffOrUndefined(
 /** write_file - create or overwrite a text file. */
 export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Create or overwrite a text file within the workspace. The content payload is limited to ${MAX_FILE_WRITE_CONTENT_CHARS} characters; for a longer new file, write the first chunk and use append_file for the remaining chunks.`,
+    description: `Create or overwrite a text file within the workspace. Keep the content under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters: a longer file must be a first chunk plus append_file calls, because one long payload runs out of room part-way through and is lost entirely.`,
     params: {
       type: 'object',
       properties: {
@@ -45,7 +85,7 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
         content: {
           type: 'string',
           maxLength: MAX_FILE_WRITE_CONTENT_CHARS,
-          description: `The first or complete file contents, no more than ${MAX_FILE_WRITE_CONTENT_CHARS} characters. Use append_file for the rest of a long file.`
+          description: `The file contents, under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters. For a longer file write a first chunk this size and use append_file for the rest.`
         }
       },
       required: ['path', 'content']
@@ -64,8 +104,8 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
         async () => {
           if (args.content.length > MAX_FILE_WRITE_CONTENT_CHARS) {
             throw new Error(
-              `write_file content was ${args.content.length} characters; the limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. ` +
-                'Write a short first chunk, then use append_file for the remaining content.'
+              `write_file content was ${args.content.length} characters; the hard limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. ` +
+                `Write a first chunk of about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters, then use append_file for the remaining content.`
             )
           }
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
@@ -116,19 +156,23 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
  * Refuse a `write_file` that would replace a substantial existing file with a
  * far smaller payload.
  *
- * `write_file` overwrites, and its content is capped at
- * `MAX_FILE_WRITE_CONTENT_CHARS` — so rewriting anything larger means a first
- * chunk plus a run of `append_file` calls, and a turn that stops part-way
- * through that sequence leaves the file truncated. Not hypothetical: a live run
- * replaced a 41,455-byte working module with a 1,839-byte first chunk, never
- * appended (the tool was not in its native surface), ran out of provider
- * rounds, and left an unparseable stub where the user's page had been.
+ * `write_file` overwrites, and a model that cannot emit a long file in one call
+ * rewrites it as a first chunk plus a run of `append_file` calls — a turn that
+ * stops part-way through that sequence leaves the file truncated. Not
+ * hypothetical: a live run replaced a 41,455-byte working module with a
+ * 1,839-byte first chunk, never appended (the tool was not in its native
+ * surface), ran out of provider rounds, and left an unparseable stub where the
+ * user's page had been.
  *
- * The cap and the overwrite semantics were each individually defensible, and
- * together they are a data-loss machine on any model that cannot reliably
+ * Overwrite semantics and chunked rewrites are each individually defensible,
+ * and together they are a data-loss machine on any model that cannot reliably
  * finish a ten-call sequence. Incremental in-place edits do not have that
  * property — the file is valid after every one — so that is what this points
  * at, leaving `delete_file` as the explicit path for genuinely starting over.
+ *
+ * Raising the accepted payload to `MAX_FILE_WRITE_CONTENT_CHARS` shrank how
+ * often this can fire without weakening it: a whole-file rewrite that arrives
+ * whole is no longer cut down to a first chunk, so it is no longer a shrink.
  *
  * Fires only for an existing file of real size being cut down substantially.
  * Creating a file, rewriting a small one, and any rewrite that keeps or grows
@@ -159,7 +203,7 @@ const MAX_OVERWRITE_SHRINK_RATIO = 0.5
 /** append_file - append text to an existing UTF-8 text file. */
 export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Append text to an existing UTF-8 file within the workspace. Each content payload is limited to ${MAX_FILE_WRITE_CONTENT_CHARS} characters. Use this for long new files after a small write_file call.`,
+    description: `Append text to an existing UTF-8 file within the workspace. Use this for long new files after a first write_file call. Keep each chunk under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters, for the same reason.`,
     params: {
       type: 'object',
       properties: {
@@ -167,7 +211,7 @@ export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
         content: {
           type: 'string',
           maxLength: MAX_FILE_WRITE_CONTENT_CHARS,
-          description: `Text to append to the end of the file, no more than ${MAX_FILE_WRITE_CONTENT_CHARS} characters.`
+          description: `Text to append to the end of the file, under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters.`
         }
       },
       required: ['path', 'content']
@@ -186,8 +230,8 @@ export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
         async () => {
           if (args.content.length > MAX_FILE_WRITE_CONTENT_CHARS) {
             throw new Error(
-              `append_file content was ${args.content.length} characters; the limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. ` +
-                'Split the remaining content into another short append_file call.'
+              `append_file content was ${args.content.length} characters; the hard limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. ` +
+                `Append about ${FILE_WRITE_CHUNK_TARGET_CHARS} characters now and put the rest in a following append_file call.`
             )
           }
           const file = resolveInWorkspace(ctx.workspaceRoot, args.path)
@@ -220,7 +264,8 @@ export const appendFileTool: WorkspaceToolFactory = (define, ctx) =>
 export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Replace an exact, unique block of text within a file. The old text must appear exactly once.',
+      'Replace an exact, unique block of text within a file. The old text must appear exactly once.' +
+      'Answers with the edited lines and their new line numbers, so you do not need to read the file again to check the result.',
     params: {
       type: 'object',
       properties: {
@@ -287,9 +332,16 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
           // reported them as "the file changed".
           await assertFileStateUnchanged(file, originalBuffer, 'edit')
           await writeFile(file, updated, 'utf-8')
+          const echo = describeEditResult({
+            relativePath,
+            original,
+            updated,
+            charBudget: clampModelResultCap(EDIT_ECHO_MAX_CHARS, ctx.modelResultBudget.current),
+            action: '1 replacement'
+          })
           return {
-            modelResult: `Edited ${relativePath}.`,
-            detail: '1 replacement',
+            modelResult: echo.modelResult,
+            detail: echo.detail,
             diff: diffOrUndefined(relativePath, original, updated),
             checkpointChanges: [{ path: relativePath, before: original, after: updated }]
           }
@@ -344,7 +396,7 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
  */
 export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Replace lines startLine..endLine (1-based, inclusive) of a file with newText. Use this instead of edit_file when you know where the code is but no longer have its exact text in view — every read tool reports line numbers. Pass an empty newText to delete the range. The payload is limited to ${MAX_FILE_WRITE_CONTENT_CHARS} characters.`,
+    description: `Replace lines startLine..endLine (1-based, inclusive) of a file with newText. Use this instead of edit_file when you know where the code is but no longer have its exact text in view — every read tool reports line numbers. Pass an empty newText to delete the range. Keep newText under ${FILE_WRITE_CHUNK_TARGET_CHARS} characters; replace a smaller range if it would be longer. Answers with the edited lines and their new line numbers, so you do not need to read the file again to check the result.`,
     params: {
       type: 'object',
       properties: {
@@ -387,7 +439,7 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
         async () => {
           if (args.newText.length > MAX_FILE_WRITE_CONTENT_CHARS) {
             throw new Error(
-              `replace_lines newText was ${args.newText.length} characters; the limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. Replace a smaller range, or make several calls working from the bottom of the file upward so earlier line numbers stay valid.`
+              `replace_lines newText was ${args.newText.length} characters; the hard limit is ${MAX_FILE_WRITE_CONTENT_CHARS}. Replace a smaller range, or make several calls working from the bottom of the file upward so earlier line numbers stay valid.`
             )
           }
           const start = Math.floor(args.startLine)
@@ -446,16 +498,22 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
         async ({ file, relativePath, original, originalBuffer, updated, replacedCount, start }) => {
           await assertFileStateUnchanged(file, originalBuffer, 'edit')
           await writeFile(file, updated, 'utf-8')
-          const newLineCount = updated.split('\n').length
+          // Reporting the new total is what lets the next call address the file
+          // correctly without re-reading it: after an edit that changes the line
+          // count, every anchor below `start` has shifted, and the model has no
+          // other way to know by how much. `describeEditResult` states that and
+          // also quotes the region back, which is the other half of what a
+          // re-read was being spent on.
+          const echo = describeEditResult({
+            relativePath,
+            original,
+            updated,
+            charBudget: clampModelResultCap(EDIT_ECHO_MAX_CHARS, ctx.modelResultBudget.current),
+            action: `${replacedCount} line(s) replaced starting at line ${start}`
+          })
           return {
-            // Reporting the new total is what lets the next call address the
-            // file correctly without re-reading it: after an edit that changes
-            // the line count, every anchor below `start` has shifted, and the
-            // model has no other way to know by how much.
-            modelResult:
-              `Replaced ${replacedCount} line(s) starting at line ${start} in ${relativePath}. ` +
-              `The file now has ${newLineCount} lines; line numbers below line ${start} have shifted.`,
-            detail: `${replacedCount} line(s)`,
+            modelResult: echo.modelResult,
+            detail: echo.detail,
             diff: diffOrUndefined(relativePath, original, updated),
             checkpointChanges: [{ path: relativePath, before: original, after: updated }]
           }

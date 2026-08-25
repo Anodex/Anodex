@@ -4,6 +4,7 @@ import {
   assembleModelContext,
   boundHistoryForStatelessProvider,
   historyBudgetTokens,
+  historyPrefixFingerprint,
   MAX_MODEL_TOOL_RESULT_CHARS,
   projectHistoryForModel,
   rememberToolCallForModel,
@@ -357,6 +358,38 @@ describe('seedContextFromSnapshot', () => {
 
     expect(seeded.applied).toBe(false)
     expect(seeded.history).toEqual(history)
+  })
+
+  it('rejects a fingerprinted snapshot after its represented history was edited', () => {
+    const history: ChatHistoryTurn[] = [
+      { id: 'm1', role: 'user', content: 'old request' },
+      { id: 'm2', role: 'assistant', content: 'old answer' },
+      { id: 'm3', role: 'user', content: 'latest request' }
+    ]
+    const fingerprint = historyPrefixFingerprint(history, 'm2')
+    const context = {
+      ledger: {
+        version: 1 as const,
+        current: {
+          id: 'ctx1',
+          createdAt: 1,
+          cause: 'pressure' as const,
+          throughMessageId: 'm2',
+          coveredTurns: 2,
+          continuityDigest: 'A compact account of the old exchange.',
+          sourcePrefixFingerprint: fingerprint
+        }
+      }
+    }
+
+    expect(seedContextFromSnapshot('system', history, context).applied).toBe(true)
+
+    const edited = [{ ...history[0], content: 'edited old request' }, ...history.slice(1)]
+    const seeded = seedContextFromSnapshot('system', edited, context)
+
+    expect(seeded.applied).toBe(false)
+    expect(seeded.stale).toBe(true)
+    expect(seeded.history).toEqual(edited)
   })
 })
 

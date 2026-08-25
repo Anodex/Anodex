@@ -7,6 +7,7 @@ import type { WebSource } from './webSources.types'
 import type { TranscriptRecallResult } from './transcriptRecall.types'
 import type { ConversationContext, ConversationContextSnapshot } from './context.types'
 import type { CheckpointSummary } from './checkpoint.types'
+import type { ContextAssemblyReport, PromptCalibration } from './contextPlanner'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 
@@ -162,6 +163,8 @@ export interface ChatMessage {
   stats?: GenerationStats
   /** Exact fixed-context/tool accounting reported by the local engine for this turn. */
   contextBudget?: ContextBudgetUsage
+  /** Content-free automatic-reference assembly reports for this assistant turn's provider cycles. */
+  contextAssemblies?: ContextAssemblyReport[]
   /** Tool invocations made by the assistant during this turn. */
   toolCalls?: ToolCall[]
   /**
@@ -299,6 +302,23 @@ export interface ChatRequest {
    * preceding cycle has settled.
    */
   contextEpoch?: ContextEpochHandoff
+  /**
+   * Settled task state for a continuation cycle — see `continuationBrief.ts`.
+   *
+   * Rendered into the protected system segment for the same reason as
+   * `contextEpoch`, and never appended to history: the bounded runner rebuilds
+   * it every cycle, so carrying it in the prompt would leave one stale copy per
+   * cycle in the transcript. Absent on the first cycle of a reply, and whenever
+   * a `contextEpoch` handoff is present — that handoff already states this.
+   */
+  continuationBrief?: string
+  /**
+   * What the previous cycle's rendered system prompt actually cost, so this one
+   * can size the automatic-reference allowance against a measured
+   * characters-per-token ratio instead of the fixed approximation. Absent on the
+   * first cycle, where nothing has been measured yet.
+   */
+  promptCalibration?: PromptCalibration
 }
 
 /**
@@ -498,6 +518,8 @@ export interface ChatResult {
   context?: ConversationContext
   /** Exact fixed-context/tool accounting reported by the local engine for this turn. */
   contextBudget?: ContextBudgetUsage
+  /** Content-free automatic-reference assembly reports for the reply's provider cycles. */
+  contextAssemblies?: ContextAssemblyReport[]
   /** Memory entries that were retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */

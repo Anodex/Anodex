@@ -4,7 +4,8 @@ import type {
   ChatHistoryTurn,
   ChatRequest,
   ContextEpochHandoff,
-  GenerationStats
+  GenerationStats,
+  GenerationStopReason
 } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
@@ -15,9 +16,12 @@ import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { findUnverifiedPathClaims } from '../tools/pathClaimVerification'
 import { describeTurnOutcome, isDurableChange } from './turnSummary'
 import { isObservationalRunCommand, observationalCommandIdentity } from '../tools/commandEffect'
-import { progressFromSettledCalls } from '../tools/turnProgress'
+import { isReadLikeCall, progressFromSettledCalls } from '../tools/turnProgress'
+import { buildContinuationBrief, outstandingVerification } from './continuationBrief'
 import { projectStore } from '../projects/ProjectStore'
 import { llamaService } from '../llama/LlamaService'
+import { settingsStore } from '../settings/SettingsStore'
+import { interactiveBudgetForContext } from './GenerationBudget'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { withEpochHandoff } from '@shared/context.types'
 import { createLogger } from '../utils/logger'
@@ -140,6 +144,42 @@ const EPOCH_EVIDENCE_INDEX_ENTRIES = 12
 const GOAL_MAX_TOTAL_MS = 30 * 60_000
 
 /**
+ * When this reply must stop taking new cycles, from the user's "Turn time
+ * limit" setting. `null` when they have set no limit.
+ *
+ * The setting was only ever reaching `GenerationBudget`, which is constructed
+ * *inside* `runGeneration` — so it bounded one cycle, and the only whole-turn
+ * bound was `MAX_CYCLES`. At the default that is twenty-four fifteen-minute
+ * cycles: a setting that reads as fifteen minutes permitting six hours.
+ * Measured turns ran 36 and 50 minutes against a 40-minute limit.
+ *
+ * Enforced the way `goalDeadline` already is — by declining to start another
+ * cycle, never by aborting one mid-flight. A cycle that is part-way through a
+ * write finishes it, so the deadline can never be the reason a file is left
+ * half-written; the cost of that choice is overshooting by at most the length
+ * of the cycle in progress.
+ *
+ * Read through the same expression `runGeneration` uses, so the per-cycle
+ * budget and this total can never disagree about what the user asked for.
+ *
+ * This bounds every caller of the bounded runner, which is chat and the
+ * Scheduler — the latter through its own `SCHEDULED_TASK_BUDGET`, so a
+ * scheduled task's whole reply is now held to the ten minutes that budget
+ * always named rather than ten minutes per cycle. Agent runs are unaffected:
+ * they call `runGeneration` directly and pace themselves with `agentBudgets`.
+ */
+function resolveTurnDeadline(io: RunGenerationIo): number | null {
+  const limitMs = (
+    io.executionBudget ??
+    interactiveBudgetForContext(
+      llamaService.getState().contextSize,
+      settingsStore.get().generation.turnTimeLimitMinutes
+    )
+  ).maxDurationMs
+  return limitMs === null ? null : Date.now() + limitMs
+}
+
+/**
  * Continuation nudge for a goal run. Unlike `CHAT_CONTINUE_PROMPT`, this turn
  * *does* have a standing goal and a termination tool, so it names both — the
  * same shape as Agent's `CONTINUE_PROMPT` in `agentPrompts.ts`.
@@ -234,6 +274,7 @@ export async function runBoundedChatGeneration(
   let last: RunGenerationResult | undefined
   const memoryUsed: NonNullable<RunGenerationResult['memoryUsed']> = []
   const transcriptRecallUsed: NonNullable<RunGenerationResult['transcriptRecallUsed']> = []
+  const contextAssemblies: NonNullable<RunGenerationResult['contextAssembly']>[] = []
   // One registry for the whole reply, not one per cycle: the citation ids the
   // model writes have to mean the same page from the first cycle to the last.
   const webSources = new WebSourceRegistry()
@@ -256,12 +297,25 @@ export async function runBoundedChatGeneration(
   const goal = request.goal?.trim() || null
   const originalObjective = buildRecoveryObjective(request, goal)
   const goalDeadline = goal ? Date.now() + GOAL_MAX_TOTAL_MS : null
+  const turnDeadline = resolveTurnDeadline(io)
   const cycleCeiling = goal ? GOAL_MAX_CYCLES : MAX_CYCLES
   let goalFinished = false
   let goalBlockedReason: string | null = null
   let goalSummary: string | undefined
   let contextEpoch: ContextEpochHandoff | undefined
   let contextEpochCount = 0
+  /**
+   * The window the last cycle actually ran in, for sizing the continuation
+   * brief. Taken from the transport's own report rather than asked of the local
+   * engine, so a cloud or vision turn sizes against its own capacity.
+   */
+  let lastContextWindowTokens: number | undefined
+  /**
+   * What the previous cycle's system prompt actually cost the transport, so the
+   * next one plans against a measured characters-per-token ratio rather than a
+   * fixed guess. See `PromptCalibration`.
+   */
+  let promptCalibration: RunGenerationResult['promptCalibration']
   let recoveryOnlyCycles = 0
   let recoveryChurnDetected = false
   /** Extra cycles spent resuming a turn that stopped with plan steps still open. */
@@ -276,8 +330,22 @@ export async function runBoundedChatGeneration(
    * randomly". A turn that merely finished answering leaves this `null`.
    */
   let chatEndReason: string | null = null
+  /** Set when the runner stopped a turn it would otherwise have continued. */
+  let ranOutOfTurnBudget = false
 
   for (let cycle = 0; cycle < cycleCeiling; cycle++) {
+    // Every cycle after the first opens with what the task has actually settled.
+    // Suppressed when an epoch handoff is present, because that handoff is the
+    // same account in fuller form and two would just repeat each other. See
+    // `continuationBrief.ts` for why the fixed nudge alone was not enough.
+    const continuationBrief =
+      cycle > 0 && !contextEpoch
+        ? (buildContinuationBrief({
+            objective: originalObjective,
+            calls: [...completedToolCalls.values()],
+            contextWindowTokens: lastContextWindowTokens
+          }) ?? undefined)
+        : undefined
     let novelToolActivityThisCycle = false
     // Keyed by call id, same shape/reasoning as `AgentRunService.runTurn`'s
     // `toolCallsById`: a call's *latest* status (running → terminal)
@@ -286,7 +354,16 @@ export async function runBoundedChatGeneration(
     // below, carrying only the tool calls it actually made.
     const toolCallsById = new Map<string, ToolCall>()
     const result = await runGeneration(
-      { ...request, history, prompt, context, plan: currentPlan, contextEpoch },
+      {
+        ...request,
+        history,
+        prompt,
+        context,
+        plan: currentPlan,
+        contextEpoch,
+        continuationBrief,
+        promptCalibration
+      },
       {
         ...io,
         ledger,
@@ -325,6 +402,9 @@ export async function runBoundedChatGeneration(
     if (result.fabricationDetected) fabricationDetectedAnyCycle = true
     if (result.memoryUsed) memoryUsed.push(...result.memoryUsed)
     if (result.transcriptRecallUsed) transcriptRecallUsed.push(...result.transcriptRecallUsed)
+    if (result.contextAssembly) contextAssemblies.push(result.contextAssembly)
+    lastContextWindowTokens = result.contextBudget?.contextSize ?? lastContextWindowTokens
+    promptCalibration = result.promptCalibration ?? promptCalibration
     if (result.context) context = result.context
 
     settleInterruptedReadCalls(toolCallsById, completedToolCalls, cycle, io)
@@ -459,11 +539,13 @@ export async function runBoundedChatGeneration(
       planContinuations < MAX_OPEN_PLAN_CONTINUATIONS
     if (stalledWithOpenPlan) planContinuations++
     const withinGoalDeadline = goalDeadline === null || Date.now() < goalDeadline
+    const withinTurnDeadline = turnDeadline === null || Date.now() < turnDeadline
     const canContinue =
       (recoveredStop || goalStillOpen || stalledWithOpenPlan) &&
       madeProgressThisCycle &&
       cycle < cycleCeiling - 1 &&
       withinGoalDeadline &&
+      withinTurnDeadline &&
       !io.signal?.aborted &&
       !contextRecoveryBlocked
 
@@ -494,19 +576,24 @@ export async function runBoundedChatGeneration(
       if (goal !== null && !goalFinished) {
         goalBlockedReason ??= describeGoalStop({
           aborted: Boolean(io.signal?.aborted),
-          outOfTime: !withinGoalDeadline,
+          outOfTime: !withinGoalDeadline || !withinTurnDeadline,
           outOfCycles: cycle >= cycleCeiling - 1,
           madeProgress: madeProgressThisCycle,
           recoveryChurn,
           stopped: result.stopped
         })
       } else if (goal === null) {
+        // The runner wanted to keep going and its own outer budget stopped it.
+        // Distinct from a cycle that simply had nothing more to offer -- see
+        // `supersededStopReason`.
+        ranOutOfTurnBudget = !withinTurnDeadline || cycle >= cycleCeiling - 1
         chatEndReason = describeChatStop({
           wantedToContinue: recoveredStop || stalledWithOpenPlan,
           planExhausted:
             currentPlan !== null &&
             madeRealToolProgress &&
             planContinuations >= MAX_OPEN_PLAN_CONTINUATIONS,
+          outOfTime: !withinTurnDeadline,
           outOfCycles: cycle >= cycleCeiling - 1,
           madeProgress: madeProgressThisCycle,
           contextRecoveryBlocked,
@@ -679,7 +766,11 @@ export async function runBoundedChatGeneration(
     turnOutcome: outcome ?? undefined,
     stats,
     stopped: recoveryChurnDetected || finalResult.stopped,
-    stopReason: recoveryChurnDetected ? 'no-progress' : finalResult.stopReason,
+    // `supersededStopReason`: once the runner has explained the ending itself,
+    // the last cycle's reason is no longer the turn's reason.
+    stopReason: recoveryChurnDetected
+      ? 'no-progress'
+      : supersededStopReason(finalResult.stopReason, chatEndReason, ranOutOfTurnBudget),
     goalOutcome:
       goal === null
         ? undefined
@@ -690,6 +781,7 @@ export async function runBoundedChatGeneration(
     fabricationDetected: fabricationDetectedAnyCycle,
     memoryUsed: memoryUsed.length > 0 ? memoryUsed : undefined,
     transcriptRecallUsed: transcriptRecallUsed.length > 0 ? transcriptRecallUsed : undefined,
+    contextAssemblies: contextAssemblies.length > 0 ? contextAssemblies : undefined,
     webSources: webSources.list(),
     webSearchAttempted: webSources.attempted,
     context
@@ -812,7 +904,15 @@ function buildContextEpochHandoff(input: {
     // work or as a rendering-affecting change.
     progress: progressFromSettledCalls(input.calls.map(asProgressCall)),
     priorFixedTokens: input.priorFixedTokens,
+    // Derived from the same settled state the continuation brief uses, rather
+    // than a fixed sentence. The note this replaced — "after a
+    // rendering-affecting change, inspect the result again" — is true on every
+    // turn and so says nothing about this one. It matters most here: once an
+    // epoch starts the brief is suppressed for the rest of the reply, and an 8K
+    // run took twelve epochs, so this note is the only place the outstanding
+    // verification can still reach the model.
     verificationNote:
+      outstandingVerification(settledCalls) ??
       'Preserve the existing evidence gate: after a rendering-affecting change, inspect the result again before claiming success.'
   }
 }
@@ -914,16 +1014,6 @@ function activePlan(
 ): NonNullable<ChatRequest['plan']> | null {
   if (!plan || plan.steps.length === 0) return null
   return plan.steps.some((step) => step.status !== 'completed') ? plan : null
-}
-
-/**
- * Some local models use the shell for ordinary reads. Preserve the command's
- * approval behavior, but classify its task effect from Anodex's own recorded
- * title so read-only PowerShell/CLI queries do not masquerade as mutations in
- * recovery, visual-verification, or progress state.
- */
-function isReadLikeCall(call: Pick<ToolCall, 'name' | 'kind' | 'title'>): boolean {
-  return call.kind === 'read' || isObservationalRunCommand(call)
 }
 
 function asProgressCall(call: ToolCall): ToolCall {
@@ -1028,9 +1118,48 @@ function canReconcilePlan(
  * that would be noise on every well-behaved turn. This speaks only when the
  * turn was mid-flight and something denied it another round.
  */
+/**
+ * The reason to *report* for a turn that ran as several cycles.
+ *
+ * A bounded cycle ends with the reason that cycle hit -- it ran out of provider
+ * rounds, or output tokens, or its own time. That reason is real, and for a turn
+ * the runner then resumes it is also invisible and unimportant. It only reaches
+ * the user when the runner decides to stop, and at that point it is usually not
+ * why the turn ended: the runner stopped for an outer reason of its own, which
+ * `describeChatStop` has already stated in the turn outcome, in the user's terms
+ * and with what to do about it.
+ *
+ * Observed live: a turn ran two cycles, the second ending on its round budget,
+ * and the runner then declined to start a third because the turn had passed the
+ * user's turn time limit. The outcome block said so correctly -- "it reached
+ * your turn time limit (Settings -> Generation). Say 'continue' to resume" --
+ * while the error banner above it said the reply had reached its provider-round
+ * budget. Both were printed. Only one was the reason, and the wrong one was the
+ * one styled as the headline and the one carrying no advice.
+ *
+ * So a recoverable inner stop stands down, but only in that exact situation: the
+ * runner hit its own turn deadline or cycle ceiling on a turn it would have kept
+ * running. A cycle that stopped because it had nothing more to give -- no
+ * progress, a repeated call, blocked context recovery -- is not contradicted by
+ * its own reason, and that reason is often the more informative of the two, so
+ * it still gets said. So does a genuine failure (`'fixed-context-limit'`, an
+ * unknown reason), which the runner did not choose and the outcome block does
+ * not cover. `chatEndReason` is null for a turn that ended naturally or that the
+ * user stopped, leaving both of those untouched as well.
+ */
+function supersededStopReason(
+  stopReason: GenerationStopReason | undefined,
+  chatEndReason: string | null,
+  ranOutOfTurnBudget: boolean
+): GenerationStopReason | undefined {
+  if (chatEndReason === null || !ranOutOfTurnBudget) return stopReason
+  return isRecoverableGenerationStop(stopReason) ? undefined : stopReason
+}
+
 function describeChatStop(reason: {
   wantedToContinue: boolean
   planExhausted: boolean
+  outOfTime: boolean
   outOfCycles: boolean
   madeProgress: boolean
   contextRecoveryBlocked: boolean
@@ -1041,6 +1170,9 @@ function describeChatStop(reason: {
   if (!reason.wantedToContinue && !reason.planExhausted) return null
   if (reason.contextRecoveryBlocked) {
     return 'it ran out of room to recover what it had already read. Say "continue" to resume with a fresh context.'
+  }
+  if (reason.outOfTime) {
+    return 'it reached your turn time limit (Settings → Generation). Say "continue" to resume.'
   }
   if (reason.outOfCycles) {
     return `it reached the limit of ${MAX_CYCLES} tool-calling rounds for a single reply. Say "continue" to resume.`

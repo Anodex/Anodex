@@ -3,6 +3,7 @@ import { basename, join } from 'node:path'
 import type { FileTouch, ProjectMemory, ProjectRecallEvent } from '@shared/projectMemory.types'
 import { wordSet } from '@shared/textSimilarity'
 import { referenceContextShare } from '@shared/contextBudget'
+import { SKIP_DIRS } from '@shared/skipDirectories'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { codeIndexer } from '../codeIndex/CodeIndexer'
 import { PROJECT_NOTES_FILENAME } from './projectNotesTool'
@@ -61,17 +62,6 @@ function charBudget(contextSize?: number): CharBudget {
   }
 }
 
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'out',
-  '.next',
-  '.cache',
-  'build',
-  '.turbo'
-])
-
 interface CacheEntry {
   root: string
   /** Part of the key: a context-size change must not serve a stale budget. */
@@ -93,6 +83,32 @@ export function buildWorkspaceContext(
   retrievalQuery = '',
   contextSize?: number
 ): string {
+  const { summary, activity } = buildWorkspaceContextParts(
+    root,
+    projectId,
+    retrievalQuery,
+    contextSize
+  )
+  return activity ? `${summary}\n\n${activity}` : summary
+}
+
+/**
+ * The same summary as two independently droppable pieces.
+ *
+ * The orientation half (tree, README, scripts) is what a task needs before it
+ * can act at all; the activity half is ranked recall from earlier conversations
+ * in this project — genuinely useful, but the first thing worth giving up when
+ * the window cannot afford everything. Splitting them here means the shared
+ * automatic-reference packer can drop one whole piece instead of slicing
+ * through the middle of a file tree. See `AutomaticReferenceSource` in
+ * `contextPlanner.ts`.
+ */
+export function buildWorkspaceContextParts(
+  root: string,
+  projectId: string | null,
+  retrievalQuery = '',
+  contextSize?: number
+): { summary: string; activity: string } {
   const budget = charBudget(contextSize)
   // Inline rather than hoisted to a `stale` flag: the null check has to stay in
   // the condition for the compiler to know `cache` is populated afterwards.
@@ -112,8 +128,10 @@ export function buildWorkspaceContext(
   // same scoping as project memory below, since the index is persisted
   // per-project.
   if (projectId) codeIndexer.ensureFresh(projectId, root)
-  const activity = projectId ? buildActivitySummary(projectId, retrievalQuery) : ''
-  return activity ? `${cache.text}\n\n${activity}` : cache.text
+  return {
+    summary: cache.text,
+    activity: projectId ? buildActivitySummary(projectId, retrievalQuery) : ''
+  }
 }
 
 /**

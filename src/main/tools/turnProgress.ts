@@ -1,4 +1,5 @@
 import type { ToolCall, ToolKind } from '@shared/tools.types'
+import { isObservationalRunCommand } from './commandEffect'
 
 /**
  * What one generation turn has actually *done*, as opposed to what the model
@@ -49,6 +50,18 @@ const NON_WORK_KINDS = new Set<ToolKind>(['read', 'plan'])
  * evidence is the safe direction for a verification gate.
  */
 const RENDER_AFFECTING_KINDS = new Set<ToolKind>(['write', 'command', 'mcp'])
+
+/**
+ * Whether a call only looked at something.
+ *
+ * `kind` alone is not enough: `run_command` is a `command` whatever it did, so
+ * a `sed -n '1,40p'` would otherwise read as work. Kept here, beside the kind
+ * sets it belongs with, so the bounded runner's recovery accounting and the
+ * continuation brief cannot drift apart about what counts as reading.
+ */
+export function isReadLikeCall(call: Pick<ToolCall, 'name' | 'kind' | 'title'>): boolean {
+  return call.kind === 'read' || isObservationalRunCommand(call)
+}
 
 /**
  * Carried ordering from an earlier context epoch of the same bounded reply.
