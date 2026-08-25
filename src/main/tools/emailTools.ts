@@ -85,7 +85,7 @@ export const listEmailThreadsTool: ToolFactory = (define, ctx) =>
       properties: {
         limit: {
           type: 'number',
-          description: 'Optional maximum number of threads to return, up to 20.'
+          description: `Optional maximum number of threads to return, up to ${MAX_TOOL_THREADS}. Defaults to ${DEFAULT_TOOL_THREADS}.`
         },
         mailbox: {
           type: 'string',
@@ -119,7 +119,10 @@ export const searchEmailTool: ToolFactory = (define, ctx) =>
       type: 'object',
       properties: {
         query: { type: 'string', description: 'The search query.' },
-        limit: { type: 'number', description: 'Optional maximum number of results, up to 20.' },
+        limit: {
+          type: 'number',
+          description: `Optional maximum number of results, up to ${MAX_TOOL_THREADS}. Defaults to ${DEFAULT_TOOL_THREADS}.`
+        },
         account: ACCOUNT_PARAM
       },
       required: ['query']
@@ -856,7 +859,7 @@ export const batchEmailTool: ToolFactory = (define, ctx) =>
         },
         limit: {
           type: 'number',
-          description: `Maximum threads to act on, up to ${MAX_BATCH_THREADS}. Defaults to 25.`
+          description: `Maximum threads to act on, up to ${MAX_BATCH_THREADS}. Defaults to ${DEFAULT_BATCH_THREADS}.`
         },
         account: ACCOUNT_PARAM
       },
@@ -1088,8 +1091,11 @@ const BATCH_TITLES: Record<EmailFlagAction | 'move', string> = {
   move: 'Move'
 }
 
+/** Threads acted on when a caller names no limit. */
+const DEFAULT_BATCH_THREADS = 25
+
 function batchLimit(limit: number | undefined): number {
-  if (limit === undefined) return 25
+  if (limit === undefined) return DEFAULT_BATCH_THREADS
   return Math.min(Math.max(1, Math.floor(limit)), MAX_BATCH_THREADS)
 }
 
@@ -1310,8 +1316,11 @@ function formatDraft(draft: EmailDraft): { modelResult: string; detail: string }
  */
 const MAX_TOOL_THREADS = 20
 
+/** Threads returned when a caller names no limit. */
+const DEFAULT_TOOL_THREADS = 10
+
 function toolLimit(limit: number | undefined): number {
-  if (limit === undefined) return 10
+  if (limit === undefined) return DEFAULT_TOOL_THREADS
   return Math.min(Math.max(1, Math.floor(limit)), MAX_TOOL_THREADS)
 }
 
