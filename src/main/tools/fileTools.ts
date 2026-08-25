@@ -4,7 +4,7 @@ import { TEXT_EXT } from '@shared/textFileExtensions'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
-import { clampModelResultCap } from './modelResultBudget'
+import { clampModelResultCap, type ModelToolResultBudget } from './modelResultBudget'
 
 /**
  * Disk-safety ceiling only — how much of a file `read_file`/`read_file_range`
@@ -73,10 +73,51 @@ export interface ReadFileRangeArgs {
   endLine?: number
 }
 
+/**
+ * Source lines assumed per character when sizing a request against the char
+ * budget. Deliberately generous — over-estimating the line count costs
+ * nothing, because `boundLinesToCharBudget` trims the response to what
+ * actually fits, while under-estimating spends a whole extra round trip.
+ */
+const APPROX_CHARS_PER_LINE = 40
+
+/**
+ * Lines one call may ask for, scaled to the room this turn actually has.
+ *
+ * The cap used to be a flat 200 regardless of hardware, while the *result*
+ * budget scaled with the context window. On a large context that made the line
+ * cap — not memory — the binding constraint, so a model paged through a file
+ * 200 lines at a time when its budget could have carried a thousand. The cost
+ * is round trips, and they are the expensive part: this file's own history
+ * records two files taking 84 tool calls and an entire 15-minute budget to
+ * read.
+ *
+ * Safe to raise because it was never the real limit. The handler still trims
+ * the response to the measured character budget along whole line boundaries,
+ * so a request larger than the room simply comes back shorter, exactly as a
+ * 200-line request already did. The floor keeps small contexts behaving as
+ * before; the ceiling keeps one call from claiming an unreasonable share.
+ */
+export function maxRangeLinesFor(budget: ModelToolResultBudget | null): number {
+  if (!budget) return MAX_RANGE_LINES
+  const chars = Math.max(
+    0,
+    clampModelResultCap(MAX_FILE_BYTES, budget) - RANGE_HEADER_RESERVE_CHARS
+  )
+  const affordable = Math.floor(chars / APPROX_CHARS_PER_LINE)
+  return Math.max(MAX_RANGE_LINES, Math.min(affordable, MAX_RANGE_LINES_CEILING))
+}
+
+/** Upper bound on a single range request, however much room a turn has. */
+const MAX_RANGE_LINES_CEILING = 2_000
+
 /** Canonicalize every request to the range the tool can actually return. */
-export function normalizeReadFileRangeArgs(args: ReadFileRangeArgs): Required<ReadFileRangeArgs> {
+export function normalizeReadFileRangeArgs(
+  args: ReadFileRangeArgs,
+  maxLines: number = MAX_RANGE_LINES
+): Required<ReadFileRangeArgs> {
   const startLine = Number.isFinite(args.startLine) ? Math.max(1, Math.floor(args.startLine)) : 1
-  const maximumEnd = startLine + MAX_RANGE_LINES - 1
+  const maximumEnd = startLine + Math.max(1, maxLines) - 1
   const requestedEnd =
     args.endLine !== undefined && Number.isFinite(args.endLine)
       ? Math.floor(args.endLine)
@@ -400,7 +441,7 @@ export const getFileInfoTool: WorkspaceToolFactory = (define, ctx) =>
 /** read_file_range — read a specific 1-indexed line range from a text file. */
 export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description: `Read a specific range of lines from a text file. Lines are 1-indexed and inclusive. Returns at most ${MAX_RANGE_LINES} lines per call regardless of endLine; oversized or non-finite endLine values are equivalent to startLine + ${MAX_RANGE_LINES - 1}. The result states the next startLine for longer files.`,
+    description: `Read a specific range of lines from a text file. Lines are 1-indexed and inclusive. Returns as many lines as this turn's remaining context allows — at least ${MAX_RANGE_LINES}, more on a large context — so ask for the whole range you need rather than paging in fixed steps. The result states the next startLine when more remains.`,
     params: {
       type: 'object',
       properties: {
@@ -408,13 +449,16 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
         startLine: { type: 'number', description: 'First line to read (1-indexed).' },
         endLine: {
           type: 'number',
-          description: `Last line to read (1-indexed). Optional — if omitted, or if this range spans more than ${MAX_RANGE_LINES} lines, reads only the first ${MAX_RANGE_LINES} lines from startLine.`
+          description: `Last line to read (1-indexed). Optional. A range larger than the turn's remaining room is served from startLine as far as it reaches, and the result says where to continue.`
         }
       },
       required: ['path', 'startLine']
     } as const,
     handler: (args: ReadFileRangeArgs) => {
-      const normalized = normalizeReadFileRangeArgs(args)
+      const normalized = normalizeReadFileRangeArgs(
+        args,
+        maxRangeLinesFor(ctx.modelResultBudget.current)
+      )
       return runReadTool(ctx, {
         name: 'read_file_range',
         kind: 'read',

@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FileTouchAction } from '@shared/projectMemory.types'
+import { computeModelToolResultBudget, type ModelToolResultBudget } from '../modelResultBudget'
+import { maxRangeLinesFor, normalizeReadFileRangeArgs } from '../fileTools'
 import { createDirectoryTool, deleteDirectoryTool } from '../directoryTools'
 import { deleteFileTool, moveFileTool } from '../mutationTools'
 import {
@@ -1099,5 +1101,55 @@ describe('read_file_range coverage refusal escalation', () => {
 
     expect(afterMutation).not.toContain('Error:')
     expect(afterMutation).toContain('line 1')
+  })
+})
+
+/**
+ * The cap used to be a flat 200 lines regardless of hardware, while the result
+ * budget scaled with the window. On a large context that made the line cap —
+ * not memory — the binding constraint, so a model paged a file 200 lines at a
+ * time when its budget could carry a thousand. Round trips are the expensive
+ * part.
+ */
+describe('read range scales with the context budget', () => {
+  const budget = (contextSizeTokens: number, fixedTokens: number): ModelToolResultBudget =>
+    computeModelToolResultBudget({
+      contextSizeTokens,
+      inputLimitTokens: contextSizeTokens,
+      fixedTokens
+    })
+
+  it('keeps the old behaviour when no budget has been measured', () => {
+    expect(maxRangeLinesFor(null)).toBe(200)
+  })
+
+  it('never returns fewer lines than the old fixed cap', () => {
+    for (const ctx of [2_048, 4_096, 8_192, 16_384, 32_768, 65_536]) {
+      expect(maxRangeLinesFor(budget(ctx, Math.floor(ctx / 3)))).toBeGreaterThanOrEqual(200)
+    }
+  })
+
+  it('grows with the window, so a big context makes fewer round trips', () => {
+    const small = maxRangeLinesFor(budget(8_192, 3_000))
+    const large = maxRangeLinesFor(budget(65_536, 10_000))
+    expect(large).toBeGreaterThan(small * 4)
+  })
+
+  it('shrinks again as a turn fills up', () => {
+    const early = maxRangeLinesFor(budget(65_536, 10_000))
+    const late = maxRangeLinesFor(budget(65_536, 55_000))
+    expect(late).toBeLessThan(early)
+    expect(late).toBeGreaterThanOrEqual(200)
+  })
+
+  it('caps one request however much room there is', () => {
+    expect(maxRangeLinesFor(budget(1_048_576, 1_000))).toBeLessThanOrEqual(2_000)
+  })
+
+  it('applies the limit to the requested range', () => {
+    const wide = normalizeReadFileRangeArgs({ path: 'a.ts', startLine: 1, endLine: 9_999 }, 900)
+    expect(wide.endLine).toBe(900)
+    const narrow = normalizeReadFileRangeArgs({ path: 'a.ts', startLine: 1, endLine: 9_999 }, 200)
+    expect(narrow.endLine).toBe(200)
   })
 })
