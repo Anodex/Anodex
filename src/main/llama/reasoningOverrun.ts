@@ -87,6 +87,22 @@ import { defaultThoughtTokenBudget, minimumViableOutputTokens } from './localOut
  * many rounds the model still accumulates far more thinking than the 75,715
  * characters that one runaway round used to spend.
  *
+ * ## What this does not fix, and why raising it does not either
+ *
+ * Bounding the hidden channel does not stop a model reasoning; past the budget
+ * it can carry on in the *visible* one, where llama.cpp reports it as ordinary
+ * content. {@link REASONING_BUDGET_MESSAGE} is what makes that rare — measured
+ * 3,322 -> 247 characters on one round — but it does not make it impossible.
+ *
+ * Measured across two live turns on the same task: an ordinary UI turn spilled
+ * nothing, and a turn deriving spherical terminator geometry spilled 12,012
+ * characters. The tempting response is to raise this budget, and it was
+ * considered and rejected on the numbers: that derivation ran past 3,000
+ * tokens, so no value safe for a 2,048-token round would have contained it,
+ * while every increase costs room on exactly the tight rounds this is sized
+ * for. The spill is bounded, self-limiting and rare; starving a round of its
+ * tool call is neither.
+ *
  * Returns `null` when there is no context size to size against — an unmeasured
  * window must not become a guess. `null` means "pass no flag", which leaves
  * llama-server's own default in place.
