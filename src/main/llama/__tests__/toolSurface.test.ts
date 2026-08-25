@@ -441,14 +441,72 @@ describe('the deferred-tool gateway', () => {
 })
 
 describe('maxDirectToolsForContext', () => {
-  it('keeps a small core even for a small local context', () => {
-    expect(maxDirectToolsForContext(1_024)).toBe(6)
-    expect(maxDirectToolsForContext(0)).toBe(6)
+  /**
+   * `DIRECT_TOOL_PRIORITY`'s first ten entries are documented as a complete
+   * builder loop -- orient, read, locate, edit, run. The old floor of 6 cut
+   * into it: a 4,096-token context got seven tools and so had no `write_file`
+   * and no `run_command`, and 8,192 still had no `run_command`. Both stayed
+   * reachable through the gateway, at three round trips per write, on exactly
+   * the setup least able to afford them.
+   */
+  it('never drops below the complete builder loop, however small the context', () => {
+    expect(maxDirectToolsForContext(0)).toBe(10)
+    expect(maxDirectToolsForContext(1_024)).toBe(10)
+    expect(maxDirectToolsForContext(4_096)).toBe(10)
+    expect(maxDirectToolsForContext(8_192)).toBe(10)
   })
 
-  it('grows slowly with context and caps well below the old 24-schema surface', () => {
-    expect(maxDirectToolsForContext(8_192)).toBe(8)
-    expect(maxDirectToolsForContext(16_384)).toBe(10)
-    expect(maxDirectToolsForContext(1_000_000)).toBe(16)
+  /**
+   * Held at 16, a 262,144-token context saw exactly what a 40,960 one did while
+   * its entire deferred catalogue would have cost under 3% of the window.
+   */
+  it('gives a larger context more of the catalogue', () => {
+    expect(maxDirectToolsForContext(32_768)).toBe(14)
+    expect(maxDirectToolsForContext(65_536)).toBe(22)
+    // The ceiling is a coarse backstop; `boundToolSurface` measures each
+    // candidate against the real token budget and stops when it runs out.
+    expect(maxDirectToolsForContext(1_000_000)).toBe(32)
+  })
+})
+
+/**
+ * A search cannot surface a capability the model never thought to look for.
+ * `web_search` was configured and working, yet deferred on every machine at
+ * every context size, so a model reasoned from memory about a Win32 API rather
+ * than looking it up -- it had no way to learn the tool existed.
+ */
+describe('the deferred gateway names the whole catalogue', () => {
+  it('lists every tool by name in find_available_tool, deferred or not', () => {
+    const result = boundToolSurface({
+      // Six tools against a 500 budget forces routing, as elsewhere in this file.
+      allFunctions: {
+        read_file: tool('Read a file.'),
+        list_directory: tool('List directories.'),
+        web_search: tool('Search the public web.'),
+        send_email: tool('Send an email.'),
+        draft_email: tool('Draft an email.'),
+        remember_fact: tool('Save a personal memory.')
+      },
+      define: fakeDefine,
+      targetFixedTokens: 500,
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.routed).toBe(true)
+    const find = result.functions.find_available_tool as unknown as { description: string }
+    for (const name of ['read_file', 'list_directory', 'web_search', 'send_email']) {
+      expect(find.description).toContain(name)
+    }
+  })
+
+  it('says nothing extra when there is no catalogue to name', () => {
+    const result = boundToolSurface({
+      allFunctions: {},
+      define: fakeDefine,
+      targetFixedTokens: 500,
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.routed).toBe(false)
   })
 })
