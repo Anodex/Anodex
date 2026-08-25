@@ -23,10 +23,37 @@ export const GATEWAY_TOOL_COUNT = GATEWAY_TOOL_NAMES.length
  * Lives here rather than in each transport: it is the single knob deciding how
  * much of the catalog a model is told about directly, and both transports had
  * their own byte-identical copy of it with nothing keeping them in step.
+ *
+ * The floor is the length of the complete builder loop, not an arbitrary
+ * minimum -- see `DIRECT_TOOL_PRIORITY`, whose first ten entries are documented
+ * as "orient, read, locate, edit, run". The old floor of 6 cut into that loop:
+ * measured, a 4,096-token context got seven tools and therefore no `write_file`
+ * and no `run_command`, and an 8,192 one still had no `run_command`. Both are
+ * reachable through the gateway, but paying three round trips per write is the
+ * worst thing to ask of the setup least able to afford it.
+ *
+ * The ceiling is a coarse backstop, not the real limit: `boundToolSurface`
+ * measures each candidate against `targetFixedTokens` and stops when the budget
+ * is actually gone. Holding it at 16 meant a 262,144-token context saw exactly
+ * what a 40,960 one did, while its whole deferred catalog would have cost under
+ * 3% of the window. Room that exists should be used.
  */
 export function maxDirectToolsForContext(contextSize: number): number {
-  return Math.max(6, Math.min(16, Math.floor(Math.max(0, contextSize) / 4_096) + 6))
+  return Math.max(
+    COMPLETE_BUILDER_LOOP,
+    Math.min(MAX_DIRECT_TOOLS_CEILING, Math.floor(Math.max(0, contextSize) / 4_096) + 6)
+  )
 }
+
+/** The first N of `DIRECT_TOOL_PRIORITY` that form a self-sufficient build loop. */
+const COMPLETE_BUILDER_LOOP = 10
+
+/**
+ * A bound on how much of the catalog is worth documenting natively even when
+ * the window is enormous. Deliberately well above the old 16 -- the measured
+ * token check is what actually decides.
+ */
+const MAX_DIRECT_TOOLS_CEILING = 32
 
 const MAX_FIND_DESCRIPTION_CHARS = 320
 const MAX_SCHEMA_CHUNK_CHARS = 4_000
@@ -81,7 +108,7 @@ export function boundToolSurface(options: {
     }
   }
 
-  const gateway = createDeferredToolGateway(define)
+  const gateway = createDeferredToolGateway(define, allNames)
   const selected: Record<string, ToolFunction> = { ...gateway.functions }
   const directToolNames: string[] = []
 
@@ -167,14 +194,20 @@ const DIRECT_TOOL_PRIORITY = [
   'show_image',
   'create_directory',
   'run_project_check',
+  // Ahead of the git and stat tools deliberately: those three are each a
+  // `run_command` away (`git diff`, `git status`, `dir`), so deferring one
+  // costs a slightly longer call. Nothing in the catalogue substitutes for web
+  // research -- there is no shell equivalent of a configured search provider --
+  // so deferring these costs the capability itself. Rank by what has no
+  // fallback, not by what feels most file-shaped.
+  'web_search',
+  'fetch_url',
   'git_diff',
   'git_status',
   'get_file_info',
   'search_code',
   'write_plan',
   'update_plan_step',
-  'fetch_url',
-  'web_search',
   'remember_fact',
   'update_project_notes',
   'git_commit_summary',
@@ -194,7 +227,10 @@ export function rankToolNames(functions: Record<string, ToolFunction>): string[]
   })
 }
 
-function createDeferredToolGateway(define: DefineChatSessionFunction): Gateway {
+function createDeferredToolGateway(
+  define: DefineChatSessionFunction,
+  catalogNames: readonly string[]
+): Gateway {
   const deferred: DeferredToolBox = { current: {} }
   const defineGateway = define as unknown as (config: {
     description: string
@@ -204,7 +240,8 @@ function createDeferredToolGateway(define: DefineChatSessionFunction): Gateway {
 
   const find = defineGateway({
     description:
-      'Search tools whose full schemas were deferred to save context. Use this when the needed native tool is not already available, then call describe_available_tool before call_available_tool.',
+      'Search tools whose full schemas were deferred to save context. Use this when the needed native tool is not already available, then call describe_available_tool before call_available_tool. ' +
+      describeCatalog(catalogNames),
     params: {
       type: 'object',
       properties: {
@@ -268,6 +305,33 @@ function createDeferredToolGateway(define: DefineChatSessionFunction): Gateway {
     },
     deferred
   }
+}
+
+/**
+ * Name every tool that exists, so nothing is invisible.
+ *
+ * `find_available_tool` is a *search*: it scores a query against tool names and
+ * descriptions and returns nothing for a generic one. That is fine for "I know
+ * I need X, is X here?" and useless for "what am I not thinking of?" -- and the
+ * second is the case that actually bites. A model debugging a linker error does
+ * not think "a tool is missing"; it thinks "I need to understand this API", so
+ * it never queries, and a capability it never guessed at stays unreachable
+ * however good the gateway is.
+ *
+ * Observed: `web_search` sat below the direct-tool cutoff and was therefore
+ * deferred on every machine at every context size. It was configured and
+ * working, and the model reasoned from memory about a Win32 API instead of
+ * looking it up -- because it had no way to learn the tool existed.
+ *
+ * Names, not schemas: a name is ~3 tokens where a schema is ~150, so the whole
+ * catalogue costs about a tenth of a percent of a 64k window. Every entry is
+ * listed rather than only the deferred ones, because which tools are deferred
+ * is decided after this description is written, and a name the model can also
+ * call natively is harmless to repeat.
+ */
+function describeCatalog(catalogNames: readonly string[]): string {
+  if (catalogNames.length === 0) return ''
+  return `Every tool that exists, whether native or deferred: ${[...catalogNames].sort().join(', ')}.`
 }
 
 function findDeferredTools(functions: Record<string, ToolFunction>, query: string): string {
