@@ -232,3 +232,71 @@ describe('finish_goal — visual claims need post-change evidence', () => {
     expect(result).toContain('Run finished')
   })
 })
+
+/**
+ * A run wrote a three-step plan, landed none of them, and called finish_goal at
+ * turn 5 of 44 with a summary that said in its own words it had stopped
+ * mid-diagnosis. Both existing guards passed it: real work had happened, and
+ * the last change did precede the last visual inspection.
+ */
+describe('finish_goal and an unfinished plan', () => {
+  function withPlan(statuses: ReadonlyArray<'pending' | 'in_progress' | 'completed'>) {
+    const ctx = context()
+    ctx.progress.madeChange = true
+    ctx.plan.current = {
+      title: 'Visual quality',
+      updatedAt: 1,
+      steps: statuses.map((status, index) => ({
+        id: String(index),
+        title: ['Star corona', 'Procedural surfaces', 'HUD in headless render'][index] ?? 'Step',
+        status
+      }))
+    }
+    return finishGoalTool(createMockDefine(), ctx) as unknown as { handler: FinishGoalHandler }
+  }
+
+  it('refuses a completion claim while plan steps are still open', async () => {
+    const tool = withPlan(['pending', 'pending', 'pending'])
+
+    const result = await tool.handler({
+      summary: 'Build, --check and --out all verified passing; corona code verified correct.'
+    })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('3 step(s)')
+    expect(result).toContain('Star corona')
+  })
+
+  /** Abandoning a step is legitimate — it just has to be said out loud. */
+  it('accepts it when the summary owns up to stopping short', async () => {
+    const tool = withPlan(['completed', 'pending', 'pending'])
+
+    const result = await tool.handler({
+      summary:
+        'Corona landed. Surfaces and the headless HUD are still outstanding — ran out of ideas on the FBO path.'
+    })
+
+    expect(result).toContain('Run finished.')
+  })
+
+  it('accepts it when every step is complete', async () => {
+    const tool = withPlan(['completed', 'completed', 'completed'])
+
+    const result = await tool.handler({ summary: 'All three landed and verified.' })
+
+    expect(result).toContain('Run finished.')
+  })
+
+  /** A run with no plan is unaffected — most runs never write one. */
+  it('says nothing about a run that never wrote a plan', async () => {
+    const ctx = context()
+    ctx.progress.madeChange = true
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    const result = await tool.handler({ summary: 'Did the thing.' })
+
+    expect(result).toContain('Run finished.')
+  })
+})
