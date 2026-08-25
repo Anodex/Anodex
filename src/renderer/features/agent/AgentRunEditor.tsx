@@ -7,7 +7,12 @@ import {
   DEFAULT_MAX_DURATION_MINUTES,
   MAX_MAX_DURATION_MINUTES
 } from '@shared/agentRun.types'
-import { TOOL_CATALOG, type ToolKind } from '@shared/tools.types'
+import {
+  buildRunToolNames,
+  readOnlyRunToolNames,
+  TOOL_CATALOG,
+  type ToolKind
+} from '@shared/tools.types'
 import { ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL } from '@shared/anthropicModels'
 import { OPENAI_MODELS, DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
 import { useProjectStore } from '../../stores/projectStore'
@@ -150,8 +155,10 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   )
   const [limitsEnabled, setLimitsEnabled] = useState(seed?.limitsEnabled ?? true)
   const [requirePlan, setRequirePlan] = useState(seed?.requirePlan ?? true)
+  // A new run starts able to build. See `buildRunToolNames` for why the old
+  // default -- web access and nothing else -- made an unattended run useless.
   const [enabledTools, setEnabledTools] = useState<Set<string>>(
-    new Set(seed?.enabledTools ?? ['fetch_url', 'web_search'])
+    new Set(seed?.enabledTools ?? buildRunToolNames())
   )
   const [saving, setSaving] = useState(false)
   const [creatingProject, setCreatingProject] = useState(false)
@@ -418,6 +425,20 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
           <div className={styles.toolsHeader}>
             <span className={styles.label}>Tools this run can use</span>
             <div className={styles.toolsActions}>
+              <button
+                type="button"
+                className={styles.linkButton}
+                onClick={() => setEnabledTools(new Set(buildRunToolNames()))}
+              >
+                Build
+              </button>
+              <button
+                type="button"
+                className={styles.linkButton}
+                onClick={() => setEnabledTools(new Set(readOnlyRunToolNames()))}
+              >
+                Read only
+              </button>
               <button type="button" className={styles.linkButton} onClick={selectAllTools}>
                 Select all
               </button>
