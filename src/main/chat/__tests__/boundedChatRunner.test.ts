@@ -501,6 +501,22 @@ describe('runBoundedChatGeneration', () => {
       expect(outcome.content).toContain('turn time limit')
     })
 
+    /**
+     * Observed live: a two-cycle turn whose second cycle ended on its round
+     * budget, stopped by the turn deadline. The outcome block said so
+     * correctly; the error banner above it announced the provider-round budget
+     * instead, which was not why the turn ended and carried no advice.
+     */
+    it('reports the deadline as the reason, not whatever the last cycle hit', async () => {
+      for (let i = 0; i < 5; i++) recoverableCycle(10 * 60_000)
+
+      const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+      expect(outcome.stopReason).toBeUndefined()
+      expect(outcome.turnOutcome).toContain('turn time limit')
+      expect(outcome.turnOutcome).toContain('continue')
+    })
+
     it('never cuts a cycle short — the deadline only refuses the next one', async () => {
       // One cycle running long past the limit still returns its work intact.
       recoverableCycle(60 * 60_000)
@@ -1753,7 +1769,13 @@ describe('runBoundedChatGeneration', () => {
     // so only the hard cycle cap itself ends the loop.
     expect(cycleCallCount()).toBe(24)
     expect(outcome.stopped).toBe(true)
-    expect(outcome.stopReason).toBe('tool-limit')
+    // The last cycle's own reason ('tool-limit') is not why the turn ended --
+    // the cycle ceiling is -- and the turn outcome says so with what to do
+    // next. Reporting both printed two different reasons for one stop, the
+    // wrong one as the headline. See `supersededStopReason`.
+    expect(outcome.stopReason).toBeUndefined()
+    expect(outcome.turnOutcome).toContain('tool-calling rounds for a single reply')
+    expect(outcome.turnOutcome).toContain('continue')
   })
 
   it('stops a continuation when the next cycle only repeats prior work', async () => {
