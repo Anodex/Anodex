@@ -1,6 +1,8 @@
 import type { ChatMessage, MessageBlock } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
 import { sanitizeMessageTranscript } from '@shared/chatSanitizer'
+import { activityPhrase } from './activityPhrase'
+import { lowercaseFirst } from './labelText'
 
 /** A coarse label for what the assistant is doing during a coding turn. */
 export type TaskPhase = 'inspecting' | 'editing' | 'verifying' | 'responding'
@@ -285,16 +287,32 @@ export function currentTaskPhase(toolCalls: ToolCall[], hasContent: boolean): Ta
 }
 
 /**
- * A concise status for the live indicator beneath a streaming reply. Running
- * tool titles are emitted by Anodex itself, so they describe real work rather
- * than guessing at hidden model reasoning.
+ * A concise status for the live indicator beneath a streaming reply.
+ *
+ * Everything it says is drawn from tool calls Anodex emitted itself, so it
+ * describes real work rather than guessing at hidden model reasoning. What it
+ * adds over the raw title is tense and context: work in flight is phrased as
+ * happening ("Reading camera.py", not "Read camera.py"), and the gap between
+ * two calls -- where the model is deciding what to do next, and where the
+ * indicator used to sit on the contentless "Preparing next step" -- is named by
+ * the step that just finished, which is the one thing about that moment that is
+ * actually known.
  */
 export function liveActivityLabel(toolCalls: ToolCall[], hasContent: boolean): string {
   const running = [...toolCalls].reverse().find((call) => call.status === 'running')
-  if (running) return running.title.trim() || TASK_PHASE_LABEL[phaseForCall(running, false)]
-  return hasContent
-    ? 'Writing response'
-    : toolCalls.length > 0
-      ? 'Preparing next step'
-      : 'Preparing response'
+  if (running) {
+    return (
+      activityPhrase(running.title) ||
+      running.title.trim() ||
+      TASK_PHASE_LABEL[phaseForCall(running, false)]
+    )
+  }
+  if (hasContent) return 'Writing response'
+
+  const settled = [...toolCalls].reverse().find((call) => call.status !== 'running')
+  // Room for "Thinking after " and still fit the same one line.
+  const previous = settled ? activityPhrase(settled.title, THINKING_SUBJECT_CHARS) : null
+  return previous ? `Thinking after ${lowercaseFirst(previous)}` : 'Thinking'
 }
+
+const THINKING_SUBJECT_CHARS = 40

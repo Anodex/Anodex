@@ -1,5 +1,9 @@
 import type { ToolCall } from '@shared/tools.types'
 import { changedSymbol } from './changedSymbol'
+import { basename, capitalize, shorten } from './labelText'
+
+/** A named subject is a glance, not a quotation - the full text is one click away. */
+const SUBJECT_CHARS = 42
 
 /**
  * A short, plain description of what a collapsed run of tool calls did.
@@ -84,7 +88,7 @@ function describeEdits(edits: readonly ToolCall[]): string {
 function describeCommands(commands: readonly ToolCall[]): string {
   if (commands.length === 1) {
     const command = subjectOf(commands[0].title, 'Run:')
-    if (command) return `ran ${shorten(command)}`
+    if (command) return `ran ${shorten(command, SUBJECT_CHARS)}`
   }
   return `ran ${plural(commands.length, 'command')}`
 }
@@ -92,7 +96,7 @@ function describeCommands(commands: readonly ToolCall[]): string {
 function describeSearches(web: readonly ToolCall[]): string {
   if (web.length === 1) {
     const query = subjectOf(web[0].title, 'Search', 'Fetch')
-    if (query) return `searched for ${shorten(unquote(query))}`
+    if (query) return `searched for ${shorten(unquote(query), SUBJECT_CHARS)}`
   }
   return `made ${plural(web.length, 'web search', 'web searches')}`
 }
@@ -126,22 +130,12 @@ function subjectOf(title: string, ...prefixes: readonly string[]): string | null
   return null
 }
 
-/** Keep a named subject to a glance — the full text is one click away. */
-function shorten(text: string, max = 42): string {
-  const single = text.replace(/\s+/g, ' ').trim()
-  return single.length <= max ? single : `${single.slice(0, max - 1)}…`
-}
-
 /** Tool titles quote their subject (`Search "orbit"`); the label does not need to. */
 function unquote(text: string): string {
   const trimmed = text.trim()
   return trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length > 1
     ? trimmed.slice(1, -1)
     : trimmed
-}
-
-function basename(path: string): string {
-  return path.split('/').pop() ?? path
 }
 
 function plural(n: number, singular: string, many = `${singular}s`): string {
@@ -152,8 +146,4 @@ function plural(n: number, singular: string, many = `${singular}s`): string {
 function joinParts(parts: readonly string[]): string {
   if (parts.length === 1) return parts[0]
   return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
-}
-
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
 }
