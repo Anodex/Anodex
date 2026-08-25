@@ -45,9 +45,10 @@ export function TurnRecap({
   const calls = segments.flatMap((segment) => (segment.type === 'toolGroup' ? segment.calls : []))
   const resolvedComparison =
     comparison === undefined ? latestVisualComparison([], calls) : comparison
-  const hasImagePreview = calls.some((call) => call.preview?.kind === 'image')
-  const hasVisualResult = hasImagePreview || Boolean(resolvedComparison)
-  const [expanded, setExpanded] = useState(streaming || hasVisualResult)
+  // A settled reply opens collapsed, including one already on screen when a
+  // chat is reopened. See the settle effect below for why a visual result no
+  // longer forces it open.
+  const [expanded, setExpanded] = useState(streaming)
   const [settledMs, setSettledMs] = useState<number | null>(null)
   const [, forceTick] = useState(0)
   const wasStreaming = useRef(streaming)
@@ -61,20 +62,23 @@ export function TurnRecap({
 
   // The moment work finishes, snapshot the elapsed time and fold back down
   // after a beat so the final state is visible before it collapses.
+  //
+  // A turn that produced an image used to stay open, from when a screenshot
+  // was rare and was the point of the turn. `inspect_visual` is now routine --
+  // Anodex looks at its own render most turns -- so that exception had grown
+  // to mean "almost never collapse", which is the opposite of what a finished
+  // reply wants. The image is one click away, and the summary is what a reader
+  // needs first.
   useEffect(() => {
     if (wasStreaming.current && !streaming) {
       setSettledMs(Date.now() - startedAt)
       wasStreaming.current = streaming
-      if (hasVisualResult) {
-        setExpanded(true)
-        return undefined
-      }
       const timer = setTimeout(() => setExpanded(false), 900)
       return () => clearTimeout(timer)
     }
     wasStreaming.current = streaming
     return undefined
-  }, [hasVisualResult, streaming, startedAt])
+  }, [streaming, startedAt])
 
   const hasRunningCall = calls.some((call) => call.status === 'running')
   const elapsedMs = streaming ? Date.now() - startedAt : (finalDurationMs ?? settledMs ?? 0)
