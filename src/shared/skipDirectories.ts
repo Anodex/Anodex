@@ -4,22 +4,8 @@
  * walking into" stays a single definition instead of two lists that can
  * silently drift apart. Same reasoning as `TEXT_EXT` in
  * `textFileExtensions.ts`.
- *
- * `.anodex` is the important one and the reason this file exists. It is
- * Anodex's *own* per-project metadata — the checkpoint snapshots it writes for
- * every message — and it was not skipped by either list. Because the walk stops
- * at `SEARCH_HARD_CAP` matches and `.anodex` sorts before most project folders,
- * a search filled its entire budget with Anodex's own stored copies of the
- * user's files and never reached the real ones. Measured on a live run: every
- * one of the first 200 matches for `_label`, `_card` and `properties` came from
- * `.anodex/checkpoints`, and the model concluded "search tools are
- * misbehaving" and fell back to reading whole files by hand.
- *
- * It also gets worse the longer a project is used, because a checkpoint is
- * written per message — so the tool degrades exactly as a user invests in it.
  */
 export const SKIP_DIRS: ReadonlySet<string> = new Set([
-  '.anodex',
   'node_modules',
   '.git',
   'dist',
@@ -29,3 +15,34 @@ export const SKIP_DIRS: ReadonlySet<string> = new Set([
   'build',
   '.turbo'
 ])
+
+/**
+ * Workspace-relative directories that hold Anodex's own bookkeeping rather than
+ * the user's work.
+ *
+ * `.anodex/checkpoints` is the one that matters and the reason this exists: it
+ * stores a full copy of every file Anodex edits, once per message. Unskipped,
+ * a search spent its entire `SEARCH_HARD_CAP` budget inside those copies and
+ * never reached the real source, because `.anodex` sorts before most project
+ * folders. Measured live: all 200 first matches for `_label`, `_card` and
+ * `properties` came from checkpoints, and the model concluded "search tools are
+ * misbehaving" and read whole files by hand instead. It also degrades with use,
+ * since a checkpoint is written per message.
+ *
+ * Matched by path, not by name, because the rest of `.anodex` is genuinely the
+ * user's: `SPEC.md`, `changes/` proposals and project `skills/` are all things
+ * someone would reasonably search for. `listWorkspaceFiles` already draws the
+ * line in exactly this place.
+ */
+const INTERNAL_DIRS: readonly string[] = ['.anodex/checkpoints']
+
+/** Whether a walk should descend into this directory. */
+export function isSkippedDirectory(name: string, workspaceRelativePath: string): boolean {
+  if (SKIP_DIRS.has(name)) return true
+  return INTERNAL_DIRS.includes(normalizeSeparators(workspaceRelativePath))
+}
+
+/** Windows walks produce backslash paths; the list above is written with slashes. */
+function normalizeSeparators(value: string): string {
+  return value.split(String.fromCharCode(92)).join('/')
+}
