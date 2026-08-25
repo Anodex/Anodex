@@ -6,6 +6,7 @@ import { ThoughtsSection } from './ThoughtsSection'
 import { ToolCallCard } from './ToolCallCard'
 import { VisualComparison } from './VisualComparison'
 import { latestVisualComparison, type VisualComparisonPair } from './visualComparisonPair'
+import { summarizeWork } from './summarizeWork'
 import styles from './TurnRecap.module.css'
 
 type WorkSegment = Extract<RenderSegment, { type: 'thinking' | 'toolGroup' }>
@@ -72,11 +73,14 @@ export function TurnRecap({
 
   const hasRunningCall = calls.some((call) => call.status === 'running')
   const elapsedMs = streaming ? Date.now() - startedAt : (finalDurationMs ?? settledMs ?? 0)
+  // Named from the settled calls rather than left as "Work details", which
+  // told the reader nothing about whether a turn read one file or rewrote six.
+  const work = summarizeWork(calls)
   const label = streaming
     ? `Working for ${formatDuration(elapsedMs)}`
     : showTotalDuration
-      ? `Worked for ${formatDuration(elapsedMs)}`
-      : 'Work details'
+      ? `Worked for ${formatDuration(elapsedMs)}${work ? ` · ${work}` : ''}`
+      : (work ?? 'Work details')
 
   return (
     <div className={styles.turnHead}>
