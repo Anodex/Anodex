@@ -19,6 +19,7 @@ import { clampModelResultCap } from './modelResultBudget'
 import { recordCompletedCall } from './turnProgress'
 import { effectiveToolKind } from './commandEffect'
 import { withEvidenceMarker } from './evidenceStore'
+import { createLogger } from '../utils/logger'
 
 /** Truncated tool output retained for cross-session memory. */
 const MAX_REMEMBERED_RESULT = 2000
@@ -351,6 +352,17 @@ function beginToolCall(
  * `TaskLedger.reviewCall` and `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1 for the
  * livelock that refusing it produced.
  */
+/**
+ * Scoped so a turn cut short by the loop guard says *what* was repeating, at the
+ * moment it happens.
+ *
+ * The cycle log records `stopReason: "loop-guard"` and nothing else, and the
+ * blocked call is only visible in the conversation JSON -- which is not written
+ * until the whole turn ends. A live run that stalls is exactly when that detail
+ * is wanted and exactly when it was unavailable.
+ */
+const log = createLogger('tools:loop-guard')
+
 function reviewRepeat(
   ctx: ToolRuntimeContext,
   spec: {
@@ -388,6 +400,13 @@ function reviewRepeat(
         ''
       )
   ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress: false })
+  log.warn('Blocked a repeating tool call', {
+    tool: spec.name,
+    kind: spec.kind,
+    title: spec.title,
+    detail: verdict.detail,
+    aborting
+  })
   ctx.emit({
     id,
     name: spec.name,
