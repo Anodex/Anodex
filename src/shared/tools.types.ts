@@ -565,3 +565,66 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   }
 ]
+
+/**
+ * Tools a coding-style unattended run should not reach for by default.
+ *
+ * Two groups, for two different reasons. Destructive file operations are
+ * excluded because an unattended run has nobody to catch a wrong path;
+ * everything else it does is checkpointed and reversible, and these are the
+ * ones that are not worth defaulting on. The rest -- email, scheduling, image
+ * generation -- are simply a different job, and sweeping them into a build run
+ * would hand it reach it has no reason to have.
+ *
+ * Nothing here is *blocked*: every one is a checkbox away. This only decides
+ * what a run starts with. See `buildRunToolNames`.
+ */
+const NOT_IN_A_BUILD_RUN: ReadonlySet<string> = new Set([
+  'delete_file',
+  'delete_directory',
+  'move_file',
+  'schedule_task',
+  'generate_image',
+  'computer_control',
+  'remember_fact'
+])
+
+/** Whether a tool is part of somebody else's job rather than a build. */
+function isOffTopicForABuild(name: string): boolean {
+  return /email|thread|mailbox|attachment/i.test(name)
+}
+
+/**
+ * What an unattended run should start with: enough to read a project, change
+ * it, run it, and keep a plan.
+ *
+ * The default used to be `['fetch_url', 'web_search']` -- web access and
+ * nothing else. In a feature whose whole description is "hand off a goal and
+ * Anodex works it unattended", a run started on the defaults could not read a
+ * file, edit one, or run a command, so it could not do the thing it was for.
+ * Observed live: a run stopped before completion with nothing to show.
+ *
+ * Project-scoped tools are included whether or not a project is selected yet.
+ * The editor renders them disabled until one is, and the save filter drops
+ * whatever is still unavailable, so choosing a project simply lights them up
+ * rather than needing the defaults recomputed.
+ */
+export function buildRunToolNames(): string[] {
+  return TOOL_CATALOG.filter(
+    (tool) =>
+      !tool.requiresHumanApproval &&
+      !NOT_IN_A_BUILD_RUN.has(tool.name) &&
+      !isOffTopicForABuild(tool.name)
+  ).map((tool) => tool.name)
+}
+
+/** Everything that only looks: for a run meant to investigate, not change. */
+export function readOnlyRunToolNames(): string[] {
+  return TOOL_CATALOG.filter(
+    (tool) =>
+      (tool.kind === 'read' || tool.kind === 'web') &&
+      !tool.requiresHumanApproval &&
+      !NOT_IN_A_BUILD_RUN.has(tool.name) &&
+      !isOffTopicForABuild(tool.name)
+  ).map((tool) => tool.name)
+}
