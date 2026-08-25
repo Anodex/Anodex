@@ -468,7 +468,8 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
           const anchorMismatch = describeAnchorMismatch(
             args.expectedFirstLine,
             lines[start - 1],
-            start
+            start,
+            lines
           )
           if (anchorMismatch) throw new Error(anchorMismatch)
 
@@ -533,7 +534,8 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
 function describeAnchorMismatch(
   expected: string | undefined,
   actual: string | undefined,
-  line: number
+  line: number,
+  lines: readonly string[] = []
 ): string | null {
   const wanted = expected?.trim() ?? ''
   if (!wanted) {
@@ -548,7 +550,40 @@ function describeAnchorMismatch(
   return (
     `Line ${line} does not match expectedFirstLine, so the line numbers are stale and this edit was not applied. ` +
     `Expected: ${JSON.stringify(wanted)}. Found: ${JSON.stringify(found)}. ` +
-    'Read the file again to get current line numbers, then retry.'
+    whereItActuallyIs(wanted, lines, line)
+  )
+}
+
+/**
+ * Point at the line the anchor text is really on, when there is exactly one.
+ *
+ * The mismatch message used to end with "read the file again", which costs a
+ * read and a retry to recover from -- and the file is right here. Measured on
+ * one agent run: five calls lost to this, every one a line number that had
+ * moved by a handful of rows after the model's own edit, with the text still
+ * present and unambiguous.
+ *
+ * Only when the text appears exactly once. Several matches cannot be resolved
+ * without guessing which one was meant, and guessing is what the interlock
+ * exists to prevent; no match at all means it really has gone and re-reading is
+ * genuinely the right advice.
+ */
+function whereItActuallyIs(wanted: string, lines: readonly string[], attempted: number): string {
+  const matches: number[] = []
+  for (let index = 0; index < lines.length; index++) {
+    if (lines[index].trim() === wanted) {
+      matches.push(index + 1)
+      if (matches.length > 1) break
+    }
+  }
+  if (matches.length !== 1) return 'Read the file again to get current line numbers, then retry.'
+  const found = matches[0]
+  const moved = found - attempted
+  const direction = moved > 0 ? 'down' : 'up'
+  return (
+    `That text is now on line ${found} (${Math.abs(moved)} ` +
+    `${Math.abs(moved) === 1 ? 'line' : 'lines'} ${direction}). ` +
+    'Retry there, shifting the rest of the range by the same amount.'
   )
 }
 

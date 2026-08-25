@@ -777,6 +777,61 @@ describe('replace_lines', () => {
     expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\ntwo\nthree\n')
   })
 
+  /**
+   * The old message ended at "read the file again", which costs a read and a
+   * retry. One agent run lost five calls to it -- every one a line that had
+   * moved a few rows after the model's own edit, text still present and
+   * unambiguous. The file is right there, so say where it went.
+   */
+  it('says where the anchor text actually moved to', async () => {
+    await writeFile(join(workspace, 'a.txt'), ['aaa', 'bbb', 'ccc', 'target', 'eee'].join('\n'))
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: 'REPLACED',
+      expectedFirstLine: 'target'
+    })
+
+    expect(result).toContain('now on line 4')
+    expect(result).toContain('2 lines down')
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toContain('bbb')
+  })
+
+  /** Guessing which one was meant is the thing the interlock exists to stop. */
+  it('falls back to re-reading when the text appears more than once', async () => {
+    await writeFile(join(workspace, 'a.txt'), ['aaa', 'bbb', 'dup', 'ccc', 'dup'].join('\n'))
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: 'REPLACED',
+      expectedFirstLine: 'dup'
+    })
+
+    expect(result).toContain('Read the file again')
+    expect(result).not.toContain('now on line')
+  })
+
+  it('still says to re-read when the text is genuinely gone', async () => {
+    await writeFile(join(workspace, 'a.txt'), ['aaa', 'bbb', 'ccc'].join('\n'))
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: 'REPLACED',
+      expectedFirstLine: 'vanished'
+    })
+
+    expect(result).toContain('Read the file again')
+  })
+
   it('accepts an anchor that differs only in surrounding whitespace', async () => {
     await writeFile(join(workspace, 'a.txt'), 'one\n    indented\nthree\n')
     const ctx = createMockContext(workspace)
