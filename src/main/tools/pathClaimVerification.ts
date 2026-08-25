@@ -79,6 +79,7 @@ export async function findUnverifiedPathClaims(
 ): Promise<PathClaimIssue[]> {
   if (!workspaceRoot) return []
   const issues: PathClaimIssue[] = []
+  const knownRoots = new Map<string, boolean>()
   for (const candidate of extractCandidatePaths(content)) {
     let absolute: string
     try {
@@ -98,13 +99,61 @@ export async function findUnverifiedPathClaims(
     try {
       info = await stat(absolute)
     } catch {
-      issues.push({ path: candidate, reason: 'not-found' })
+      // Missing, but is it even a claim about this project? See
+      // `rootDirectoryExists`.
+      if (await rootDirectoryExists(workspaceRoot, candidate, knownRoots)) {
+        issues.push({ path: candidate, reason: 'not-found' })
+      }
       continue
     }
     if (!info.isFile()) continue
     issues.push({ path: candidate, reason: 'not-inspected' })
   }
   return issues
+}
+
+/**
+ * Whether a missing path's own top directory is part of this workspace.
+ *
+ * A path can only be a *claim about this project* if its root belongs to the
+ * project. `src/main/ipc/tool.handlers.ts` is one: `src/` is real, the file is
+ * not, and that is the fabrication this check exists to catch. `GL/gl.h` is
+ * not: there is no `GL/` here because it is a Windows SDK header, and the
+ * reply naming it in an `#include` is simply correct.
+ *
+ * Without this, the check told a model that its own working `#include
+ * <GL/gl.h>` was "likely fabricated or misspelled" -- observed live during a
+ * C++ build. That is worse than saying nothing: it is a confident false
+ * accusation about correct code, and the obvious way for a model to act on it
+ * is to break something that worked. Every language has this shape --
+ * `<sys/stat.h>`, `<boost/asio.hpp>`, `os/path` -- so it is not a C++ quirk.
+ *
+ * The trade, stated plainly: a fabricated path under a directory that does not
+ * exist either (`lib/utils.ts` in a project with no `lib/`) now goes unflagged.
+ * That is the right way round. Missing an exotic fabrication costs a little
+ * assurance; accusing correct code costs trust and invites a real regression.
+ */
+async function rootDirectoryExists(
+  workspaceRoot: string,
+  candidate: string,
+  cache: Map<string, boolean>
+): Promise<boolean> {
+  const segments = candidate
+    .split('/')
+    .filter((part) => part !== '' && part !== '.' && part !== '..')
+  // No directory component at all (a bare `foo.ts`) is not evidence either way.
+  if (segments.length < 2) return false
+  const root = segments[0]
+  const cached = cache.get(root)
+  if (cached !== undefined) return cached
+  let exists = false
+  try {
+    exists = (await stat(resolveInWorkspace(workspaceRoot, root))).isDirectory()
+  } catch {
+    exists = false
+  }
+  cache.set(root, exists)
+  return exists
 }
 
 /** A calm, factual note appended to a reply's own text — `null` when there's nothing to flag. */
