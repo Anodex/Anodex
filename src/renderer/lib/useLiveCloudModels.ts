@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { anodex } from '../../lib/anodex'
+import { anodex } from './anodex'
 import type { OpenAiModelOption } from '@shared/openaiModels'
 
 /**

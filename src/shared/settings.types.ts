@@ -195,7 +195,7 @@ export interface AnthropicProviderSettings {
 export interface OpenAiProviderSettings {
   /** User's OpenAI API key. Stored locally in settings, same as the web search provider keys. */
   apiKey: string
-  /** OpenAI model id used for chat generations, e.g. `gpt-5.6` or `gpt-5.1-codex`. */
+  /** OpenAI model id used for chat generations, e.g. `gpt-5.6` or `gpt-5.3-codex`. */
   model: string
   /** Self-imposed daily token budget for this provider; `null` means no cap. Warn-only — never blocks a send. */
   dailyTokenCap: number | null

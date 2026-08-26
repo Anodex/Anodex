@@ -4,6 +4,7 @@ import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
 import type { ProviderSettings } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
+import { useLiveCloudModels } from '../../lib/useLiveCloudModels'
 import { useModelStore } from '../../stores/modelStore'
 import { useProviderUsageStore } from '../../stores/providerUsageStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -230,6 +231,12 @@ export function ModelStatusMenu(): JSX.Element {
   )
   const openaiModel = useSettingsStore((s) => s.settings?.provider.openai.model)
   const openaiKeySet = useSettingsStore((s) => Boolean(s.settings?.provider.openai.apiKey.trim()))
+  // Listed models come from what the key can actually reach, so a retired model
+  // stops appearing here — see `useLiveCloudModels`.
+  const openAiModels = useLiveCloudModels('openai', OPENAI_MODELS).map((option) => ({
+    id: option.value,
+    label: option.label
+  }))
   const anthropicDailyCap = useSettingsStore((s) => s.settings?.provider.anthropic.dailyTokenCap)
   const openaiDailyCap = useSettingsStore((s) => s.settings?.provider.openai.dailyTokenCap)
   const anthropicUsage = useProviderUsageStore((s) => s.snapshots.anthropic)
@@ -379,7 +386,7 @@ export function ModelStatusMenu(): JSX.Element {
               <div className={styles.sectionLabel}>OpenAI</div>
               <ProviderUsageGauges snapshot={openaiUsage} dailyCap={openaiDailyCap} />
               {sortActiveFirst(
-                OPENAI_MODELS,
+                openAiModels,
                 (option) => providerActive === 'openai' && openaiModel === option.id
               ).map((option) => (
                 <button

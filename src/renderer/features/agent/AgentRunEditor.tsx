@@ -15,7 +15,7 @@ import {
 } from '@shared/tools.types'
 import { ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL } from '@shared/anthropicModels'
 import { OPENAI_MODELS, DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
-import { useLiveCloudModels } from './useLiveCloudModels'
+import { useLiveCloudModels } from '../../lib/useLiveCloudModels'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAgentStore } from '../../stores/agentStore'
 import { useSettingsStore } from '../../stores/settingsStore'
