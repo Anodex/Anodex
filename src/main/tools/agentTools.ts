@@ -86,13 +86,14 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
           // Abandoning a step is legitimate -- it may turn out unnecessary or
           // impossible -- so this only asks for it to be said out loud.
           const openSteps = openPlanSteps(ctx.plan.current)
-          if (openSteps.length > 0 && !summaryAccountsForOpenSteps(summary)) {
+          if (openSteps.length > 0 && !toldAboutOpenSteps.has(ctx)) {
+            toldAboutOpenSteps.add(ctx)
             throw new Error(
               `The plan for this run still has ${openSteps.length} step(s) that are not ` +
                 `complete: ${openSteps.map((step) => JSON.stringify(step)).join(', ')}. ` +
                 'Either finish them and call finish_goal again, or say plainly in the summary ' +
-                'which ones you are leaving undone and why — a run that stops early reads as a ' +
-                'run that succeeded unless the summary says otherwise.'
+                'which of them you are leaving undone and why — name the step, so a run that ' +
+                'stops early cannot read as one that succeeded.'
             )
           }
           return Promise.resolve({ modelResult: 'Run finished.', detail: summary })
@@ -107,18 +108,23 @@ function openPlanSteps(plan: Plan | null): string[] {
 }
 
 /**
- * Whether the summary already owns up to stopping short.
+ * Runs already told, this generation, that their plan still has open steps.
  *
- * Deliberately a low bar. The guard exists so an early finish cannot be
- * mistaken for a complete one, and a summary that says "stopped at", "could
- * not" or "still outstanding" has already done that job — demanding more would
- * turn a nudge into a wording exam the model has to guess its way past.
+ * Two attempts at reading the summary both failed, and the second failure is
+ * the instructive one. Looking for phrases like "still outstanding" passed a
+ * summary opening "The goal is complete", because "the two remaining
+ * verification tasks" -- describing finished work -- contains "remaining".
+ * Tightening it to require the summary to *name* an open step passed
+ * "corona code verified correct" for an open step called "Star corona".
+ *
+ * The two cases are not separable by keyword: naming a step while claiming it
+ * works looks exactly like naming it while admitting it does not. So this stops
+ * guessing at prose. The first `finish_goal` with open steps is refused and
+ * told which they are; a second call goes through. The model gets one
+ * unmissable prompt to reconsider, the decision stays its own, and there is
+ * nothing to word around.
  */
-function summaryAccountsForOpenSteps(summary: string): boolean {
-  return /\b(unfinished|incomplete|not (?:yet )?(?:done|complete|finished|working)|still (?:open|outstanding|broken|failing)|remain(?:s|ing)?|could not|couldn't|unable to|stopped (?:at|short|before)|left undone|did not finish|didn't finish|blocked)\b/i.test(
-    summary
-  )
-}
+const toldAboutOpenSteps = new WeakSet<object>()
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text

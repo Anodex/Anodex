@@ -267,16 +267,26 @@ describe('finish_goal and an unfinished plan', () => {
     expect(result).toContain('Star corona')
   })
 
-  /** Abandoning a step is legitimate — it just has to be said out loud. */
-  it('accepts it when the summary owns up to stopping short', async () => {
+  /**
+   * Refused once, then the decision is the model's. Two attempts at reading the
+   * summary both failed -- "the two remaining verification tasks" satisfied a
+   * phrase check while claiming completion, and "corona code verified correct"
+   * satisfied a name check for an open step called "Star corona". Naming a step
+   * while claiming it works is not separable by keyword from naming it while
+   * admitting it does not.
+   */
+  it('lets the second call through, so the prompt cannot be worded around', async () => {
     const tool = withPlan(['completed', 'pending', 'pending'])
+    const claim = {
+      summary: 'The goal is complete. I completed the two remaining verification tasks.'
+    }
 
-    const result = await tool.handler({
-      summary:
-        'Corona landed. Surfaces and the headless HUD are still outstanding — ran out of ideas on the FBO path.'
-    })
+    const refused = await tool.handler(claim)
+    expect(refused).toContain('Error')
+    expect(refused).toContain('2 step(s)')
 
-    expect(result).toContain('Run finished.')
+    const second = await tool.handler(claim)
+    expect(second).toContain('Run finished.')
   })
 
   it('accepts it when every step is complete', async () => {
