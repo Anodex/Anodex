@@ -62,6 +62,7 @@ const api: AnodexApi = {
   },
   provider: {
     verifyKey: (request) => ipcRenderer.invoke(IpcChannel.Provider.verifyKey, request),
+    listModels: (provider) => ipcRenderer.invoke(IpcChannel.Provider.listModels, provider),
     getUsageSnapshot: () => ipcRenderer.invoke(IpcChannel.Provider.getUsageSnapshot),
     onUsageChanged: (listener) =>
       subscribe<ProviderUsageSnapshot>(IpcChannel.Provider.usageChanged, listener)

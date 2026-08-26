@@ -461,4 +461,39 @@ export async function verifyOpenAiKey(apiKey: string, model: string): Promise<vo
   }
 }
 
+/**
+ * Model ids this key can actually reach, newest first.
+ *
+ * The picker used to offer a hardcoded list, and a hardcoded list goes stale:
+ * `gpt-5.1-codex` was still on it after it stopped being served, so choosing it
+ * failed the run outright with "404 Model not found" and nothing in the UI
+ * suggested which ids would have worked. Two accounts can also see different
+ * models, so no fixed list can be right for everyone.
+ *
+ * Metadata only — `models.list` spends no tokens. Returns an empty array rather
+ * than throwing when the key is missing or the call fails, so the caller can
+ * fall back to the curated list and the picker still works offline.
+ */
+export async function listOpenAiModels(apiKey: string): Promise<string[]> {
+  const key = apiKey.trim()
+  if (!key) return []
+  try {
+    const client = new OpenAI({ apiKey: key, timeout: VERIFY_KEY_TIMEOUT_MS })
+    const page = await client.models.list()
+    return page.data
+      .map((model) => model.id)
+      .filter((id) => CHAT_MODEL_ID.test(id))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Chat-capable ids, filtered from everything an account can see — the raw list
+ * also carries embeddings, moderation, audio and image models, none of which
+ * can run a generation.
+ */
+const CHAT_MODEL_ID = /^(?:gpt|o[0-9]|chatgpt)/i
+
 export const openAiProvider: LlmProvider = new OpenAiProvider()

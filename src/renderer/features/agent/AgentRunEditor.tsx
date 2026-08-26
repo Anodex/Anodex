@@ -15,6 +15,7 @@ import {
 } from '@shared/tools.types'
 import { ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL } from '@shared/anthropicModels'
 import { OPENAI_MODELS, DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
+import { useLiveCloudModels } from './useLiveCloudModels'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAgentStore } from '../../stores/agentStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -173,11 +174,14 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     goal.trim().length > 0 &&
     (!limitsEnabled || (maxTurns >= 1 && maxTokens >= 1 && maxDurationMinutes >= 1))
 
+  // Offered models come from what the key can actually reach — see
+  // `useLiveCloudModels` for why a hardcoded list is not enough.
+  const openAiOptions = useLiveCloudModels(provider, OPENAI_MODELS)
   const modelOptions =
     provider === 'anthropic'
       ? ANTHROPIC_MODELS.map((m) => ({ label: m.label, value: m.id }))
       : provider === 'openai'
-        ? OPENAI_MODELS.map((m) => ({ label: m.label, value: m.id }))
+        ? openAiOptions
         : []
 
   const handleProviderChange = (value: string): void => {
