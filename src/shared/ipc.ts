@@ -186,6 +186,8 @@ export const IpcChannel = {
   Provider: {
     /** Test whether a cloud provider API key (and configured model) actually works. */
     verifyKey: 'provider:verify-key',
+    /** Model ids a configured cloud key can actually reach, for the model picker. */
+    listModels: 'provider:list-models',
     /** Current usage snapshot for every cloud provider, computed on demand. */
     getUsageSnapshot: 'provider:get-usage-snapshot',
     /** main → renderer broadcast whenever a cloud provider's usage snapshot changes. */
@@ -556,6 +558,12 @@ export interface AnodexApi {
   provider: {
     /** Makes a cheap, metadata-only API call to confirm the key (and model) actually work. */
     verifyKey(request: VerifyProviderKeyRequest): Promise<Result<true>>
+    /**
+     * Model ids the stored key can actually reach, newest first. Empty when
+     * there is no key or the provider cannot be reached — the caller falls back
+     * to its curated list rather than showing an empty picker.
+     */
+    listModels(provider: CloudProviderId): Promise<string[]>
     /** Current usage snapshot for every cloud provider Anodex has any data for. */
     getUsageSnapshot(): Promise<Partial<Record<CloudProviderId, ProviderUsageSnapshot>>>
     onUsageChanged(listener: (snapshot: ProviderUsageSnapshot) => void): () => void

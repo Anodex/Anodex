@@ -4,6 +4,8 @@ import type { CloudProviderId } from '@shared/providerUsage.types'
 import { ok, err, toErrorMessage } from '@shared/result'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
+import { listOpenAiModels } from '../llm/OpenAiProvider'
+import { settingsStore } from '../settings/SettingsStore'
 import { verifyAnthropicKey } from '../llm/AnthropicProvider'
 import { verifyOpenAiKey } from '../llm/OpenAiProvider'
 import { verifyAzureKey } from '../llm/AzureOpenAiProvider'
@@ -50,6 +52,17 @@ export function registerProviderHandlers(): void {
   // freshly opened dropdown reflects usage from earlier today even before
   // this session's first generation (rateLimit stays whatever was last
   // captured live this session, `null` if none yet).
+  // The model picker used to offer a hardcoded list, which goes stale:
+  // `gpt-5.1-codex` outlived the model itself and a run chose it and died on
+  // "404 Model not found". Two accounts can also see different models, so the
+  // only truthful list is the one the key itself reports.
+  ipcMain.handle(IpcChannel.Provider.listModels, async (_event, provider: CloudProviderId) => {
+    if (provider !== 'openai') return []
+    const key = settingsStore.get().provider.openai.apiKey?.trim()
+    if (!key) return []
+    return listOpenAiModels(key)
+  })
+
   ipcMain.handle(IpcChannel.Provider.getUsageSnapshot, () => {
     providerUsageStore.recordTodayTokens(
       'anthropic',
