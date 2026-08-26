@@ -1,5 +1,6 @@
 import type { ChatSessionModelFunction } from 'node-llama-cpp'
 import type { DefineChatSessionFunction, ToolFunction } from '../tools/types'
+import { ToolGuidanceError } from '../tools/ToolGuidanceError'
 
 const GATEWAY_TOOL_NAMES = [
   'find_available_tool',
@@ -455,21 +456,21 @@ async function callDeferredTool(
 ): Promise<unknown> {
   const resolvedName = resolveDeferredToolName(functions, name)
   const tool = functions[resolvedName]
-  if (!tool) throw new Error(explainUnknownDeferredTool(name))
+  if (!tool) throw new ToolGuidanceError(explainUnknownDeferredTool(name))
 
   let args: unknown
   try {
     args = JSON.parse(argumentsJson) as unknown
   } catch {
-    throw new Error('argumentsJson must be a valid JSON object string.')
+    throw new ToolGuidanceError('argumentsJson must be a valid JSON object string.')
   }
   if (args == null || typeof args !== 'object' || Array.isArray(args)) {
-    throw new Error('argumentsJson must decode to a JSON object.')
+    throw new ToolGuidanceError('argumentsJson must decode to a JSON object.')
   }
   const schema: unknown = tool.params
   const validationError = validateAgainstSchema(args, schema)
   if (validationError) {
-    throw new Error(
+    throw new ToolGuidanceError(
       `Arguments for "${resolvedName}" do not match its schema: ${validationError} ` +
         'Call describe_available_tool directly — it is a normal tool, not something to pass ' +
         'through call_available_tool — then retry with corrected arguments.'

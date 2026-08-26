@@ -55,6 +55,7 @@ import { basename } from 'node:path'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { detectFallbackToolCall, stripFallbackCall } from './toolCallFallback'
 import { createTurnProgress } from '../tools/turnProgress'
+import { ToolGuidanceError } from '../tools/ToolGuidanceError'
 import {
   createVisualInputQueue,
   drainVisualInputs,
@@ -1570,7 +1571,15 @@ async function runTool(
     return typeof result === 'string' ? result : JSON.stringify(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    log.error(`Tool "${call.name}" threw:`, error)
+    // A guidance refusal is the design working -- the model reads it, corrects
+    // itself and carries on. Logging those at `error` with a stack made the
+    // level meaningless: in one sweep of a live log, five of eighteen entries
+    // were this case and every one was benign. A genuine throw still gets both.
+    if (error instanceof ToolGuidanceError) {
+      log.debug(`Tool "${call.name}" refused the call:`, message)
+    } else {
+      log.error(`Tool "${call.name}" threw:`, error)
+    }
     return message
   }
 }
