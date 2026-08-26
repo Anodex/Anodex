@@ -3,6 +3,7 @@ import type { ToolCall } from '@shared/tools.types'
 import { describe, expect, it } from 'vitest'
 import type { PathClaimIssue } from '../../tools/pathClaimVerification'
 import { describeTurnOutcome, isDurableChange, isVerificationCommand } from '../turnSummary'
+import { findUnverifiedMeasurements } from '../../tools/measurementClaimVerification'
 
 function call(overrides: Partial<ToolCall> & Pick<ToolCall, 'name' | 'kind'>): ToolCall {
   return {
@@ -325,5 +326,65 @@ describe('isDurableChange', () => {
 
   it('does not count a read', () => {
     expect(isDurableChange(read('src/a.ts'))).toBe(false)
+  })
+})
+
+/**
+ * End to end through `describeTurnOutcome`, with the real text from the run
+ * that reported a corona profile it had never measured.
+ */
+describe('a reply quoting measurements it never took', () => {
+  it('flags the figures in the turn outcome', () => {
+    const outcome = describeTurnOutcome({
+      calls: [
+        {
+          id: '1',
+          name: 'run_command',
+          kind: 'command',
+          title: 'Run: sandbox3d.exe --out preview.png',
+          status: 'success',
+          result: 'wrote preview.png (1280x800)\nbodies: 9, steps: 300'
+        }
+      ],
+      plan: null,
+      stopped: false,
+      blockedGathering: 0,
+      unverifiedPaths: [],
+      unverifiedMeasurements: findUnverifiedMeasurements(
+        'Verified: bright core ~157 → 23.6 at r=14 → background 8.5 by r=34.',
+        'wrote preview.png (1280x800)\nbodies: 9, steps: 300'
+      ),
+      endedBecause: null
+    })
+
+    expect(outcome).toContain('unverified')
+    expect(outcome).toContain('23.6')
+  })
+
+  it('stays quiet when the figures came from a real tool result', () => {
+    const output = 'momentum check: rel.err=1.456e-16 bodies=153'
+    const outcome = describeTurnOutcome({
+      calls: [
+        {
+          id: '1',
+          name: 'run_command',
+          kind: 'command',
+          title: 'Run: sandbox3d.exe --check',
+          status: 'success',
+          result: output
+        }
+      ],
+      plan: null,
+      stopped: false,
+      blockedGathering: 0,
+      unverifiedPaths: [],
+      unverifiedMeasurements: findUnverifiedMeasurements(
+        'Momentum conserved to rel.err 1.456e-16 across 153 bodies.',
+        output
+      ),
+      endedBecause: null
+    })
+
+    expect(outcome).not.toContain('unverified')
   })
 })

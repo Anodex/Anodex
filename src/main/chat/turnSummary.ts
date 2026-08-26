@@ -3,6 +3,10 @@ import type { ToolCall } from '@shared/tools.types'
 import { isObservationalRunCommand } from '../tools/commandEffect'
 import { parseRunCommandVerification } from '../tools/commandTools'
 import type { PathClaimIssue } from '../tools/pathClaimVerification'
+import {
+  describeUnverifiedMeasurements,
+  type MeasurementClaim
+} from '../tools/measurementClaimVerification'
 
 /**
  * The closing account of a reply, rendered from what actually settled.
@@ -41,6 +45,11 @@ export interface TurnSummaryInput {
   blockedGathering: number
   /** Paths the reply named but never touched — see `findUnverifiedPathClaims`. */
   unverifiedPaths: PathClaimIssue[]
+  /**
+   * Figures the reply stated as measured that appear in no tool output — see
+   * `findUnverifiedMeasurements`. Optional so existing callers are unaffected.
+   */
+  unverifiedMeasurements?: MeasurementClaim[]
   /**
    * Why the turn stopped continuing when it wanted to keep going — see
    * `describeChatStop`. `null` when it simply finished answering.
@@ -255,6 +264,11 @@ function describeCaveats(input: TurnSummaryInput): string | null {
       `mentioned ${untouched.map((issue) => `\`${issue.path}\``).join(', ')} without opening ${untouched.length === 1 ? 'it' : 'them'} this task`
     )
   }
+  // A quoted measurement that appears in no tool output was never taken. The
+  // path check's numeric sibling — see `findUnverifiedMeasurements` for the run
+  // that reported a corona profile it had not measured.
+  const measurements = describeUnverifiedMeasurements(input.unverifiedMeasurements ?? [])
+  if (measurements) caveats.push(measurements)
   if (hasStaleVisualEvidence(input.calls)) {
     caveats.push(
       'the last change came after the most recent screenshot, so nothing here shows it — ' +

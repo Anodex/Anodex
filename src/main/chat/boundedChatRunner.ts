@@ -14,6 +14,7 @@ import { isRecoverableGenerationStop } from './recoverableStop'
 import { createTaskLedger } from '../tools/taskLedger'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { findUnverifiedPathClaims } from '../tools/pathClaimVerification'
+import { findUnverifiedMeasurements } from '../tools/measurementClaimVerification'
 import { describeTurnOutcome, isDurableChange } from './turnSummary'
 import { isObservationalRunCommand, observationalCommandIdentity } from '../tools/commandEffect'
 import { isReadLikeCall, progressFromSettledCalls } from '../tools/turnProgress'
@@ -756,6 +757,12 @@ export async function runBoundedChatGeneration(
     stopped: finalResult.stopped,
     blockedGathering: ledger.blockedGathering,
     unverifiedPaths,
+    // Everything the tools actually returned this turn, so a figure the reply
+    // quotes as measured can be checked against a real source.
+    unverifiedMeasurements: findUnverifiedMeasurements(
+      combinedContent,
+      [...completedToolCalls.values()].map((call) => call.result ?? '').join('\n')
+    ),
     endedBecause: chatEndReason
   })
   const finalContent = `${combinedContent}${outcome ?? ''}`
