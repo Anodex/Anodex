@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AppSettings, SettingsPatch } from '@shared/settings.types'
 import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
+import { useLiveCloudModels } from '../../../../lib/useLiveCloudModels'
 import { GOOGLE_MODELS } from '@shared/googleModels'
 import { XAI_MODELS } from '@shared/xaiModels'
 import { DEEPSEEK_MODELS } from '@shared/deepseekModels'
@@ -236,11 +237,6 @@ const ANTHROPIC_MODEL_OPTIONS = ANTHROPIC_MODELS.map((model) => ({
   value: model.id
 }))
 
-const OPENAI_MODEL_OPTIONS = OPENAI_MODELS.map((model) => ({
-  label: model.label,
-  value: model.id
-}))
-
 function parseDailyCapInput(value: string): number | null | undefined {
   const trimmed = value.trim()
   if (!trimmed) return null
@@ -387,6 +383,9 @@ export function ProviderConnectionsPanel({
   onUpdate: (patch: SettingsPatch) => Promise<void>
   onOpenModels: () => void
 }): JSX.Element {
+  // Offered models come from what the key can actually reach, so a model that
+  // has been retired stops being listed here — see `useLiveCloudModels`.
+  const openAiModelOptions = useLiveCloudModels('openai', OPENAI_MODELS)
   const [selectedId, setSelectedId] = useState<ProviderId>(settings.provider.active)
   const [filter, setFilter] = useState<ProviderFilter>('all')
   const [search, setSearch] = useState('')
@@ -628,7 +627,7 @@ export function ProviderConnectionsPanel({
                   control={
                     <SelectControl
                       value={settings.provider.openai.model}
-                      options={OPENAI_MODEL_OPTIONS}
+                      options={openAiModelOptions}
                       onChange={(value) =>
                         void onUpdate({ provider: { openai: { model: value } } })
                       }
