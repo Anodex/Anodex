@@ -32,10 +32,23 @@ export function useLiveCloudModels(
       setLive(null)
       return undefined
     }
+    // The preload bridge is only rebuilt when the app restarts, so a renderer
+    // hot-reloaded onto an older preload does not have this method yet. A
+    // synchronous "not a function" throw is caught here for the same reason an
+    // empty result falls back: the curated list still works, and throwing took
+    // out the whole editor rather than one dropdown.
     let cancelled = false
-    void anodex.provider.listModels('openai').then((ids) => {
-      if (!cancelled) setLive(ids.length > 0 ? ids : null)
-    })
+    try {
+      void Promise.resolve(anodex.provider.listModels('openai'))
+        .then((ids) => {
+          if (!cancelled) setLive(ids.length > 0 ? ids : null)
+        })
+        .catch(() => {
+          if (!cancelled) setLive(null)
+        })
+    } catch {
+      setLive(null)
+    }
     return () => {
       cancelled = true
     }
