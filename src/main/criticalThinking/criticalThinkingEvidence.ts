@@ -246,6 +246,57 @@ function fitInitialEvidenceSection(
     : null
 }
 
+/**
+ * Shortest run of quoted text worth checking against the evidence. Below this,
+ * a quotation is a word or a phrase whose appearance in the sources is not
+ * meaningful and whose absence is not evidence of anything.
+ */
+const MIN_VERIFIABLE_QUOTE_CHARS = 20
+
+/**
+ * The quotations in a block, paired in the order they appear.
+ *
+ * A straight `"` is both an opening and a closing mark, so no single regular
+ * expression can tell them apart locally. The previous pattern could not, and
+ * the consequence was severe: when a quotation was shorter than the length
+ * floor it was skipped, and its *closing* quote was then free to open a match
+ * that ran to the next quotation's opening one. What got checked was the prose
+ * between two quotations.
+ *
+ * Measured on a real report, that produced "quotes" like
+ * `" here. I should soften this claim. Actually, the task says "` -- ordinary
+ * sentences, markdown table pipes and citation markers swept up as if quoted.
+ * None of it was in any source, because none of it was ever a quotation, and
+ * the run rejected a sound 25,458-character report over 21 such phantoms before
+ * falling back to dumping raw excerpts.
+ *
+ * Scanning left to right and pairing each opening mark with the next matching
+ * closing one removes the ambiguity: a mark that closes a quotation cannot also
+ * open the next. Newlines are deliberately allowed inside a span, since a
+ * markdown block quote is the ordinary way to present a multi-line quotation.
+ * An unterminated quotation yields nothing -- there is no span to check.
+ */
+function quotedSpans(block: string): string[] {
+  const spans: string[] = []
+  let openedAt = -1
+  let openedWith = ''
+  for (let index = 0; index < block.length; index++) {
+    const character = block[index]
+    if (openedAt >= 0) {
+      if (openedWith === '“' ? character === '”' : character === '"') {
+        spans.push(block.slice(openedAt + 1, index))
+        openedAt = -1
+      }
+      continue
+    }
+    if (character === '“' || character === '"') {
+      openedAt = index
+      openedWith = character
+    }
+  }
+  return spans
+}
+
 function fitEvidenceLine(line: string, limit: number): string | null {
   if (line.length <= limit) return line
   const markerEnd = line.indexOf('] ') + 2
@@ -313,11 +364,12 @@ export function validateResearchReport(
     // would hit by accident. Blocks are split on blank lines and the class
     // cannot cross a quote character, so a match still cannot run past the
     // quotation it belongs to.
-    for (const match of block.matchAll(/[“"]([^”"]{20,})[”"]/g)) {
-      const quote = normalizeQuote(stripBlockQuoteMarkers(match[1]))
+    for (const raw of quotedSpans(block)) {
+      if (raw.length < MIN_VERIFIABLE_QUOTE_CHARS) continue
+      const quote = normalizeQuote(stripBlockQuoteMarkers(raw))
       if (!citedPassages.some((passage) => passage.includes(quote))) {
         collector.safety.push(
-          `Quoted text is not present in its cited fetched passages: “${truncateIssue(match[1]).slice(0, 80)}”`
+          `Quoted text is not present in its cited fetched passages: “${truncateIssue(raw).slice(0, 80)}”`
         )
       }
     }
