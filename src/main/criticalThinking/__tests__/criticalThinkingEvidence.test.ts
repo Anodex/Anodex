@@ -1102,3 +1102,41 @@ describe('criticalThinkingEvidence — a chart value cited to the wrong passage'
     expect(result.issues.some((issue) => issue.startsWith('Chart value'))).toBe(false)
   })
 })
+
+describe('criticalThinkingEvidence — figures too small to check', () => {
+  it('does not call an unverifiable small integer fabrication', () => {
+    // Measured across the stored runs: of 16 figures reported as fabricated,
+    // 14 were present in the run's own evidence, and every false one was a
+    // bare integer -- 11 through 17, 35, 36. "12" occurs in almost any page,
+    // so finding it proves nothing and missing it disproves nothing. Each of
+    // those cost the whole report, since one safety issue makes a draft
+    // unusable and hands the run to its fallback.
+    const report = 'The tier list runs to 12 entries [[S1:P1]].'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(result.safetyIssues).toEqual([])
+    expect(result.issues.some((issue) => issue.includes('could not be checked against'))).toBe(true)
+  })
+
+  it('still checks a figure specific enough to mean something', () => {
+    // A unit, a decimal, or three digits all make a figure verifiable.
+    for (const claim of ['99 percent', '4.5', '106906']) {
+      const result = validateResearchReport(
+        `The result was ${claim} [[S1:P1]].`,
+        artifacts,
+        sources
+      )
+      expect(result.safetyIssues.some((issue) => issue.startsWith(`Numeric claim ${claim}`))).toBe(
+        true
+      )
+    }
+  })
+
+  it('accepts a small integer that is in the cited passage', () => {
+    // Nothing about the threshold should change a figure that verifies.
+    const result = validateResearchReport('It rose 18 percent [[S1:P1]].', artifacts, sources)
+
+    expect(result.safetyIssues).toEqual([])
+    expect(result.issues.some((issue) => issue.startsWith('Numeric claim'))).toBe(false)
+  })
+})
