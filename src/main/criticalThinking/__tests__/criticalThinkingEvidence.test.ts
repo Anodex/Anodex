@@ -865,3 +865,45 @@ describe('criticalThinkingEvidence — quotation pairing', () => {
     ).toEqual([])
   })
 })
+
+describe('criticalThinkingEvidence — edited quotations', () => {
+  it('accepts a quotation shortened with an ellipsis', () => {
+    // Real report, faulted for this: "at first intimidating amount of… options".
+    // The text was genuinely in the source; only the middle was left out.
+    const report = 'Findings [[S1:P1]]. "The measured improvement… Teams reported better focus."'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.filter((issue) => issue.startsWith('Quoted text is not present'))
+    ).toEqual([])
+  })
+
+  it('accepts a word altered in brackets to fit the sentence', () => {
+    // Real report, faulted for "freeze[s] the entire planet".
+    const report = 'Findings [[S1:P1]]. "Team[s] reported better focus." Nothing else.'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.filter((issue) => issue.startsWith('Quoted text is not present'))
+    ).toEqual([])
+  })
+
+  it('will not let an ellipsis stitch a quotation out of order', () => {
+    // The mark may shorten a quotation; it may not reorder the source.
+    const report = 'Findings [[S1:P1]]. "Teams reported better focus… The measured improvement"'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+
+  it('still reports a fabricated quotation that contains an ellipsis', () => {
+    const report = 'Findings [[S1:P1]]. "Teams reported total collapse… of every measured outcome"'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+})

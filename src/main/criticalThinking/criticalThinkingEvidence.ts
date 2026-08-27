@@ -247,6 +247,51 @@ function fitInitialEvidenceSection(
 }
 
 /**
+ * Shortest run either side of an elision that still identifies its source. Long
+ * enough that "the" or "of course" cannot bridge a fabricated quotation.
+ */
+const MIN_ELISION_FRAGMENT_CHARS = 12
+
+/**
+ * Whether a quotation appears in a passage, honouring the two marks careful
+ * writers use when quoting: `…` for text left out, and `[]` for a word altered
+ * to fit the sentence around it.
+ *
+ * Exact substring matching rejected both. A real report was faulted for
+ * `freeze[s] the entire planet` and `at first intimidating amount of… options`
+ * -- correctly marked edits of text that was genuinely in the sources. Careful
+ * quoting was treated as fabrication, which is precisely backwards.
+ *
+ * An elision still has to be honest: every fragment must appear in the same
+ * passage, in the order written, so the mark can shorten a quotation but cannot
+ * stitch one together from unrelated places.
+ */
+function quotationAppearsIn(quote: string, passage: string): boolean {
+  return quotationVariants(quote).some((variant) => appearsAcrossElisions(variant, passage))
+}
+
+/** `[s]` means the source reads either with that fragment or without it. */
+function quotationVariants(quote: string): string[] {
+  if (!quote.includes('[')) return [quote]
+  return [quote, quote.replace(/\[[^\]]*\]/g, ''), quote.replace(/\[([^\]]*)\]/g, '$1')]
+}
+
+function appearsAcrossElisions(quote: string, passage: string): boolean {
+  const fragments = quote
+    .split(/\s*(?:…|\.\.\.)\s*/)
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length >= MIN_ELISION_FRAGMENT_CHARS)
+  if (fragments.length === 0) return passage.includes(quote)
+  let cursor = 0
+  for (const fragment of fragments) {
+    const at = passage.indexOf(fragment, cursor)
+    if (at < 0) return false
+    cursor = at + fragment.length
+  }
+  return true
+}
+
+/**
  * Shortest run of quoted text worth checking against the evidence. Below this,
  * a quotation is a word or a phrase whose appearance in the sources is not
  * meaningful and whose absence is not evidence of anything.
@@ -367,7 +412,7 @@ export function validateResearchReport(
     for (const raw of quotedSpans(block)) {
       if (raw.length < MIN_VERIFIABLE_QUOTE_CHARS) continue
       const quote = normalizeQuote(stripBlockQuoteMarkers(raw))
-      if (!citedPassages.some((passage) => passage.includes(quote))) {
+      if (!citedPassages.some((passage) => quotationAppearsIn(quote, passage))) {
         collector.safety.push(
           `Quoted text is not present in its cited fetched passages: “${truncateIssue(raw).slice(0, 80)}”`
         )
