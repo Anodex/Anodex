@@ -942,3 +942,49 @@ describe('criticalThinkingEvidence — punctuation inside a quotation', () => {
     ).toBe(true)
   })
 })
+
+describe('criticalThinkingEvidence — a quotation cited to the wrong passage', () => {
+  const twoPassages: ToolArtifact[] = [
+    {
+      ...(artifacts[0] as WebFetchArtifact),
+      passages: [
+        { id: 'P1', text: 'The measured improvement was 18 percent.', score: 100 },
+        { id: 'P2', text: 'Teams reported better focus after the change.', score: 90 }
+      ]
+    }
+  ]
+
+  it('reports a misattributed quotation as coverage, not fabrication', () => {
+    // Measured on a live report: 3 of 16 flagged quotations were real text on
+    // the cited page under a different marker, and 13 were on no page at all.
+    // Reporting both as fabrication buried the ones that were.
+    const report = 'Findings [[S1:P1]]. They wrote "Teams reported better focus after the change."'
+    const result = validateResearchReport(report, twoPassages, sources)
+
+    expect(
+      result.safetyIssues.filter((issue) => issue.startsWith('Quoted text is not present'))
+    ).toEqual([])
+    expect(result.issues.some((issue) => issue.startsWith('Quotation is on the cited page'))).toBe(
+      true
+    )
+  })
+
+  it('still calls it fabrication when the text is on no fetched page', () => {
+    const report = 'Findings [[S1:P1]]. They wrote "a total collapse of every measured outcome."'
+    const result = validateResearchReport(report, twoPassages, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+
+  it('says nothing when the quotation matches the passage actually cited', () => {
+    const report = 'Findings [[S1:P2]]. They wrote "Teams reported better focus after the change."'
+    const result = validateResearchReport(report, twoPassages, sources)
+
+    expect(result.safetyIssues).toEqual([])
+    expect(result.issues.some((issue) => issue.startsWith('Quotation is on the cited page'))).toBe(
+      false
+    )
+  })
+})
