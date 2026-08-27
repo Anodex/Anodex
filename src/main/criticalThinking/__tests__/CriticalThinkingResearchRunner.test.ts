@@ -962,6 +962,41 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(modelCalls).toBe(0)
   })
 
+  it('gives a resumed run a fresh evidence allowance', async () => {
+    // The cap is a lifetime one, so an investigation that reached it stopped
+    // the instant a resume restarted it -- the same dead end the per-step round
+    // cap had, one limiter along. Observed live: a resumed run spent one minute
+    // researching, ended its step with `evidence-limit`, and went straight back
+    // to synthesis having gathered nothing new.
+    const run = makeRun()
+    run.researchPolicy.maxVerifiedSourcesPerRun = 1
+    run.steps[0].evidenceIds = ['artifact_cap']
+    // Rebased the way a resume does it: the source already gathered no longer
+    // counts against the allowance the user just asked for.
+    run.evidenceBudgetBase = 1
+    let modelCalls = 0
+    const harness = createHarness({
+      run,
+      runModel: () => {
+        modelCalls++
+        return Promise.resolve(generation('{"queries":["now it may look"]}'))
+      }
+    })
+    harness.artifacts.push({
+      id: 'artifact_cap',
+      conversationId: run.id,
+      messageId: 'message_cap',
+      createdAt: 1,
+      research: { stepId: run.steps[0].id, roundId: 'round_cap' },
+      ...fetchDraft('https://cap.example/report')
+    })
+
+    await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(run.steps[0].terminationReason).not.toBe('evidence-limit')
+    expect(modelCalls).toBeGreaterThan(0)
+  })
+
   it('enforces the pinned lifetime verified-evidence cap before new work', async () => {
     const run = makeRun()
     run.researchPolicy.maxVerifiedSourcesPerRun = 1

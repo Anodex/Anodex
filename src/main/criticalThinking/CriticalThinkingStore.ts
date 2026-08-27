@@ -246,6 +246,9 @@ export function normalizeCriticalThinkingRun(run: CriticalThinkingRun): Critical
     ...run,
     status,
     researchPolicy: normalizeResearchPolicy(run.researchPolicy),
+    ...(typeof run.evidenceBudgetBase === 'number' && Number.isFinite(run.evidenceBudgetBase)
+      ? { evidenceBudgetBase: nonNegativeInteger(run.evidenceBudgetBase) }
+      : {}),
     report: run.report ?? '',
     sources: mergeSources(sources, []),
     steps: legacySteps.map(normalizeStep),

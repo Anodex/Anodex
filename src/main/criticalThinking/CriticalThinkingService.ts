@@ -217,7 +217,13 @@ class CriticalThinkingService {
       report: '',
       synthesisDiagnostics: null,
       lastError: null,
-      steps: reopenUnfinishedSteps(run.steps)
+      steps: reopenUnfinishedSteps(run.steps),
+      // The evidence ceiling is a lifetime one, so an investigation that
+      // reached it would stop the instant this resume restarted it -- the same
+      // dead end the per-step round cap had, one limiter along. Rebasing here
+      // buys the allowance the user just asked for; everything already
+      // gathered stays available to cite.
+      evidenceBudgetBase: verifiedSourceCount(run.sources)
     })
     this.broadcastRunsChanged()
     void this.runResearch(updated)
@@ -1952,6 +1958,11 @@ function isRecoveredStage(stage: CriticalThinkingSynthesisStage): boolean {
     stage === 'deterministic-fallback' ||
     stage === 'section-fallback'
   )
+}
+
+/** Sources that were actually fetched, which is what the evidence ceiling counts. */
+function verifiedSourceCount(sources: CriticalThinkingRun['sources']): number {
+  return sources.filter((source) => source.verified).length
 }
 
 function reopenUnfinishedSteps(steps: CriticalThinkingStepState[]): CriticalThinkingStepState[] {
