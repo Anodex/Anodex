@@ -40,6 +40,37 @@ function minimumCitedBlocks(approvedStepCount: number): number {
   return Math.max(1, Math.min(3, approvedStepCount))
 }
 
+/**
+ * How much text may be discarded as preamble. Narration on the way to a report
+ * is a sentence or three; a response carrying more than this before its title
+ * is not a report with a preface, and keeping only its tail would lose more
+ * than it cleaned up.
+ */
+const MAX_PREAMBLE_CHARS = 2_000
+
+/**
+ * Drop what the model wrote on its way to the report.
+ *
+ * A repair pass routinely narrates before it produces anything: "I'll repair
+ * the report by checking each flagged quote against the evidence packet", then
+ * "Here is the complete repaired report:", then the report. All of it was
+ * scored as report text, so the narration itself failed the contract for
+ * carrying no citation -- three fresh issues on top of the ones being repaired.
+ * Measured on a real run, a repair scored 18 issues against the draft's 14 and
+ * lost, purely on its own preface, so repair could not improve anything.
+ *
+ * A report always opens with its title -- the contract requires one and reports
+ * it missing -- so anything before the first top-level heading is preface by
+ * construction.
+ */
+function withoutModelPreamble(content: string): string {
+  const heading = /^\s{0,3}#\s+\S/m.exec(content)
+  if (!heading || heading.index === 0) return content
+  if (!content.slice(0, heading.index).trim()) return content.slice(heading.index)
+  if (heading.index > MAX_PREAMBLE_CHARS) return content
+  return content.slice(heading.index)
+}
+
 export function evaluateReportCandidate(
   content: string,
   artifacts: ToolArtifact[],
@@ -48,7 +79,7 @@ export function evaluateReportCandidate(
 ): ReportCandidate {
   // Normalized before anything reads it, so the validators and the renderer
   // see the same markers the stored report will carry.
-  const trimmed = normalizeCitationMarkers(content.trim())
+  const trimmed = normalizeCitationMarkers(withoutModelPreamble(content).trim())
   const citation = validateResearchReport(trimmed, artifacts, sources)
   const contract = validateReportContract(trimmed, approvedStepCount)
   const safe = citation.safetyIssues.length === 0
