@@ -305,9 +305,9 @@ describe('Critical Thinking research policy', () => {
 
 describe('Critical Thinking run budget', () => {
   it('gives a local provider more wall-clock than a cloud one', () => {
-    // Measured live: a 6-step plan on a local model reached step 2 of 6 in
-    // 64.9 minutes against the 60-minute cap. It ran out of clock, not rounds
-    // (21 available, an 18-round plan) — local generation is simply slower.
+    // Measured live: a 6-step plan on a local model spent 64.9 minutes against
+    // the 60-minute cap -- it finished its rounds with no headroom left, so a
+    // plan that used its full round allowance would have been cut off.
     const local = researchRunBudgetMs('local')
     const cloud = researchRunBudgetMs('openai')
     expect(cloud).toBe(DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxRunMs)
