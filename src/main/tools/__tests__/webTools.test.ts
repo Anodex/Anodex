@@ -9,6 +9,7 @@ import {
 } from '../webTools'
 import { WebSourceRegistry } from '../WebSourceRegistry'
 import { createMockContext, createMockDefine } from './test-helpers'
+import { tinyPdf } from './tinyPdf'
 
 describe('AI web tools', () => {
   beforeEach(() => {
@@ -195,21 +196,46 @@ describe('AI web tools', () => {
       })
 
       it('discards an unsupported content type instead of leaving it open', async () => {
-        // The likeliest one in ordinary use: a model follows a link to a PDF and
-        // gets a large body nothing was ever going to parse.
+        // PDFs used to be the example here; they are read now, so this guards
+        // the release path with a type that still has nothing to parse.
         const pdfBody = bodyWithCancel()
         globalThis.fetch = vi.fn().mockResolvedValue({
           ok: true,
           status: 200,
           statusText: 'OK',
-          headers: new Map([['content-type', 'application/pdf']]),
+          headers: new Map([['content-type', 'application/zip']]),
           body: pdfBody
         })
 
-        const artifact = await fetchUrlEvidence('https://example.com/paper.pdf', 'evidence')
+        const artifact = await fetchUrlEvidence('https://example.com/bundle.zip', 'evidence')
 
         expect(pdfBody.cancel).toHaveBeenCalledTimes(1)
         expect(artifact.warnings.join(' ')).toContain('Unsupported content type')
+      })
+
+      it('reads a PDF instead of discarding it', async () => {
+        // A live research run lost its MIT, Harvard and Stanford sources this
+        // way -- the scholarly class the source ranker rates highest -- while
+        // keeping the marketing blogs beside them, because those were HTML.
+        const bytes = tinyPdf('Bundled scenarios Solar System')
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/pdf']]),
+          body: bodyWithCancel(),
+          arrayBuffer: () =>
+            Promise.resolve(
+              bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+            )
+        })
+
+        const artifact = await fetchUrlEvidence('https://example.com/paper.pdf', 'scenarios')
+
+        expect(artifact.warnings.join(' ')).not.toContain('Unsupported content type')
+        expect(artifact.passages.map((passage) => passage.text).join(' ')).toContain(
+          'Bundled scenarios Solar System'
+        )
       })
 
       it('discards an error response body before reporting the status', async () => {
