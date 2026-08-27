@@ -280,6 +280,81 @@ describe('AI web tools', () => {
         expect(String(fetchSpy.mock.calls[0][0])).toContain('universesandbox.com')
       })
 
+      it('retries a refused wiki article through the wiki API', async () => {
+        // Fandom answers /wiki/<title> with 403 but serves the same article
+        // from api.php. A research step lost the page listing a game's
+        // built-in scenarios this way and spent three rounds asking for it.
+        const article = '<p>Universe Sandbox includes several built-in simulations.</p>'
+        const fetchSpy = vi
+          .fn()
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Map(),
+            body: bodyWithCancel()
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Map([['content-type', 'application/json']]),
+            body: null,
+            text: () => Promise.resolve(JSON.stringify({ parse: { text: { '*': article } } }))
+          })
+        globalThis.fetch = fetchSpy
+
+        const artifact = await fetchUrlEvidence(
+          'https://example.fandom.com/wiki/Included_Simulations',
+          'built-in simulations'
+        )
+
+        expect(String(fetchSpy.mock.calls[1][0])).toContain('/api.php')
+        expect(String(fetchSpy.mock.calls[1][0])).toContain('page=Included_Simulations')
+        expect(artifact.passages.map((passage) => passage.text).join(' ')).toContain(
+          'built-in simulations'
+        )
+      })
+
+      it('does not reach for the wiki API on a path that is not an article', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 403,
+          statusText: 'Forbidden',
+          headers: new Map(),
+          body: bodyWithCancel()
+        })
+
+        await expect(
+          fetchUrlEvidence('https://example.com/members/private', 'anything')
+        ).rejects.toThrow('HTTP 403')
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+      })
+
+      it('reports the refusal when the wiki API answers with something else', async () => {
+        globalThis.fetch = vi
+          .fn()
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Map(),
+            body: bodyWithCancel()
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Map([['content-type', 'application/json']]),
+            body: null,
+            text: () => Promise.resolve('{"error":{"code":"missingtitle"}}')
+          })
+
+        await expect(
+          fetchUrlEvidence('https://example.fandom.com/wiki/Nope', 'anything')
+        ).rejects.toThrow('HTTP 403')
+      })
+
       it('discards an error response body before reporting the status', async () => {
         const errorBody = bodyWithCancel()
         globalThis.fetch = vi.fn().mockResolvedValue({
