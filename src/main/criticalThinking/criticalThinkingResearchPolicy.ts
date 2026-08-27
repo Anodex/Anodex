@@ -1,4 +1,7 @@
-import type { CriticalThinkingCoverageAssessment } from '@shared/criticalThinking.types'
+import type {
+  CriticalThinkingCoverageAssessment,
+  CriticalThinkingProvider
+} from '@shared/criticalThinking.types'
 import type { SearchResult } from '../tools/search/types'
 import { MAX_COMPACT_SOURCES } from './criticalThinkingSources'
 import { criticalThinkingSourceAuthorityScore } from './criticalThinkingSourceAuthority'
@@ -21,6 +24,28 @@ export const DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY = {
   maxVerifiedSourcesPerRun: MAX_COMPACT_SOURCES,
   maxRunMs: 60 * 60_000
 } as const
+
+/**
+ * The wall-clock budget a run gets, given what its provider can actually do in
+ * an hour.
+ *
+ * The 60-minute default is calibrated for cloud latency, where a research round
+ * is seconds. A local model is roughly an order of magnitude slower per round --
+ * measured here, a 27B model on one llama-server slot spends minutes on a single
+ * round -- so the same hour buys a fraction of the research.
+ *
+ * Observed live: a six-step plan on a local model reached step 2 of 6 and
+ * returned `partial`, having spent 64.9 minutes against the cap. It did not run
+ * out of rounds (21 available, a six-step plan needs 18); it ran out of clock.
+ *
+ * Raising the ceiling for the slower provider rather than lowering the plan's
+ * ambition: the round, search and fetch budgets still bound the work, and a user
+ * who wants a shorter run can set `maxRunMs` directly.
+ */
+export function researchRunBudgetMs(provider: CriticalThinkingProvider): number {
+  const base = DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxRunMs
+  return provider === 'local' ? base * 3 : base
+}
 
 export interface ResearchSearchBatch {
   query: string

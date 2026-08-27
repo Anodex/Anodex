@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { CriticalThinkingCoverageAssessment } from '@shared/criticalThinking.types'
 import {
+  DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY,
   assessmentIsSufficient,
   mapWithConcurrency,
+  researchRunBudgetMs,
   selectResearchCandidates
 } from '../criticalThinkingResearchPolicy'
 
@@ -298,5 +300,18 @@ describe('Critical Thinking research policy', () => {
     expect(results.slice(1)).toSatisfy((entries: PromiseSettledResult<number>[]) =>
       entries.every((entry) => entry.status === 'rejected' && entry.reason instanceof Error)
     )
+  })
+})
+
+describe('Critical Thinking run budget', () => {
+  it('gives a local provider more wall-clock than a cloud one', () => {
+    // Measured live: a 6-step plan on a local model reached step 2 of 6 in
+    // 64.9 minutes against the 60-minute cap. It ran out of clock, not rounds
+    // (21 available, an 18-round plan) — local generation is simply slower.
+    const local = researchRunBudgetMs('local')
+    const cloud = researchRunBudgetMs('openai')
+    expect(cloud).toBe(DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxRunMs)
+    expect(local).toBeGreaterThan(cloud)
+    expect(local).toBeGreaterThan(65 * 60_000)
   })
 })
