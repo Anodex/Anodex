@@ -34,13 +34,14 @@ export const DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY = {
  * measured here, a 27B model on one llama-server slot spends minutes on a single
  * round -- so the same hour buys a fraction of the research.
  *
- * Observed live: a six-step plan on a local model reached step 2 of 6 and
- * returned `partial`, having spent 64.9 minutes against the cap. It did not run
- * out of rounds (21 available, a six-step plan needs 18); it ran out of clock.
+ * Measured live: a six-step plan on a local model spent 64.9 minutes against
+ * the 60-minute cap. It finished its rounds first, so the cap did not truncate
+ * that particular run -- but it had no headroom left either, and a run whose
+ * steps need their full round allowance would be cut off mid-plan.
  *
- * Raising the ceiling for the slower provider rather than lowering the plan's
- * ambition: the round, search and fetch budgets still bound the work, and a user
- * who wants a shorter run can set `maxRunMs` directly.
+ * This is headroom, not a fix for a specific failure: the round, search and
+ * fetch budgets still bound the work, a run that finishes early still finishes
+ * early, and a user who wants a shorter one can set `maxRunMs` directly.
  */
 export function researchRunBudgetMs(provider: CriticalThinkingProvider): number {
   const base = DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxRunMs
