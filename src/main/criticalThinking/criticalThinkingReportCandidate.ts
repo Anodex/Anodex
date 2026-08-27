@@ -28,11 +28,37 @@ export interface ReportCandidate {
    * beats a blunt-but-valid fallback; an unsafe or threadbare draft does not.
    */
   usable: boolean
+  /**
+   * Quotations the evidence could not confirm. Kept apart from the rest of the
+   * safety issues because they are disclosable: the report says what it could
+   * not trace and the reader is told, rather than the whole report being
+   * replaced by one that says less. See `unverifiedQuotationsTolerated`.
+   */
+  unverifiedQuotations: string[]
   issueCount: number
   /** Combined citation-safety and report-completeness issues, for the final user-facing message. */
   issues: string[]
   citedSubstantiveBlockCount: number
   length: number
+}
+
+const UNVERIFIED_QUOTATION_PREFIX = 'Quoted text is not present'
+
+/**
+ * Share of a report's cited blocks that may carry an untraceable quotation
+ * before the report stops being worth disclosing and starts being worth
+ * refusing. A report quoting mostly text nobody can find is not a report with
+ * some loose attributions.
+ */
+const MAX_UNVERIFIED_QUOTATION_SHARE = 0.5
+
+function isUnverifiedQuotationIssue(issue: string): boolean {
+  return issue.startsWith(UNVERIFIED_QUOTATION_PREFIX)
+}
+
+function unverifiedQuotationsTolerated(count: number, citedBlockCount: number): boolean {
+  if (count === 0) return true
+  return count <= Math.ceil(Math.max(1, citedBlockCount) * MAX_UNVERIFIED_QUOTATION_SHARE)
 }
 
 /** Mirrors `validateReportContract`'s cited-block floor: mildly scales with plan size. */
@@ -82,12 +108,28 @@ export function evaluateReportCandidate(
   const trimmed = normalizeCitationMarkers(withoutModelPreamble(content).trim())
   const citation = validateResearchReport(trimmed, artifacts, sources)
   const contract = validateReportContract(trimmed, approvedStepCount)
+  const unverifiedQuotations = citation.safetyIssues.filter(isUnverifiedQuotationIssue)
+  const otherSafetyIssues = citation.safetyIssues.filter(
+    (issue) => !isUnverifiedQuotationIssue(issue)
+  )
   const safe = citation.safetyIssues.length === 0
   return {
     content: trimmed,
     overallValid: citation.valid && contract.valid,
     safe,
-    usable: safe && contract.citedSubstantiveBlockCount >= minimumCitedBlocks(approvedStepCount),
+    unverifiedQuotations,
+    // A handful of untraceable quotations no longer costs the whole report.
+    // They are disclosed in its limits section instead, so the reader is told
+    // exactly which words are the report's own rather than a source's -- while
+    // a fabricated figure or an invented citation still makes it unusable, and
+    // so does a report whose quotations are mostly untraceable.
+    usable:
+      otherSafetyIssues.length === 0 &&
+      unverifiedQuotationsTolerated(
+        unverifiedQuotations.length,
+        contract.citedSubstantiveBlockCount
+      ) &&
+      contract.citedSubstantiveBlockCount >= minimumCitedBlocks(approvedStepCount),
     issueCount: citation.issues.length + contract.issues.length,
     issues: [...citation.issues, ...contract.issues],
     citedSubstantiveBlockCount: contract.citedSubstantiveBlockCount,
@@ -122,4 +164,67 @@ export function chooseBetterReportCandidate(
       : repaired
   }
   return repaired.length > original.length ? repaired : original
+}
+
+/** Heading a report uses for what its evidence could not settle. */
+const LIMITS_HEADING =
+  / {0,3}#{1,6}\s*(?:\d+[.)]?\s*)*(?:limits?|limitations?|open questions?|caveats?)\b/i
+
+/**
+ * Tell the reader which quotations could not be traced, in the report's own
+ * limits section.
+ *
+ * A quotation the evidence cannot confirm used to cost the entire report: it
+ * made the draft unsafe, and an assembled fallback that quotes nothing won
+ * instead. Measured on a live run, that traded a report organised around the
+ * user's question -- feature ranking, build tiers, a recommendation -- for one
+ * organised around the research steps, carrying six blocks of raw excerpts.
+ *
+ * Disclosure keeps the analysis and keeps the reader informed, which is the
+ * property that actually matters: nobody is told these are a source's words.
+ */
+export function discloseUnverifiedQuotations(content: string, issues: string[]): string {
+  const quotations = issues.map(quotedTextFromIssue).filter((text): text is string => Boolean(text))
+  if (quotations.length === 0) return content
+
+  const body = [
+    '**Quotations that could not be matched to their cited source:**',
+    '',
+    ...[...new Set(quotations)].map((quotation) => `- “${quotation}”`),
+    '',
+    'Treat these as the report’s paraphrase, not as the source’s words.'
+  ].join('\n')
+
+  const lines = content.split('\n')
+  const limitsAt = lines.findIndex((line) => LIMITS_HEADING.test(line))
+  if (limitsAt < 0) {
+    return `${content.trimEnd()}\n\n## Limits and Open Questions\n\n${body}\n`
+  }
+
+  // The limits section ends at the next heading of the same level or higher, so
+  // the disclosure sits with the other limits rather than after the sources.
+  const level = headingLevel(lines[limitsAt])
+  let endAt = lines.length
+  for (let index = limitsAt + 1; index < lines.length; index++) {
+    const nextLevel = headingLevel(lines[index])
+    if (nextLevel > 0 && nextLevel <= level) {
+      endAt = index
+      break
+    }
+  }
+
+  const before = lines.slice(0, endAt).join('\n').trimEnd()
+  const after = lines.slice(endAt).join('\n').trimStart()
+  return after ? `${before}\n\n${body}\n\n${after}` : `${before}\n\n${body}\n`
+}
+
+/** Heading depth of a markdown line, or 0 when the line is not a heading. */
+function headingLevel(line: string): number {
+  return /^ {0,3}(#{1,6})\s/.exec(line)?.[1].length ?? 0
+}
+
+/** The quoted text out of an issue line, which wraps it in curly quotes. */
+function quotedTextFromIssue(issue: string): string | null {
+  const match = /“([\s\S]*)”\s*$/.exec(issue)
+  return match ? match[1] : null
 }
