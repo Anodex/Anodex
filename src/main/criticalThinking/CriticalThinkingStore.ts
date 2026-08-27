@@ -12,7 +12,10 @@ import type {
   CriticalThinkingStepState
 } from '@shared/criticalThinking.types'
 import { createLogger } from '../utils/logger'
-import { DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY } from './criticalThinkingResearchPolicy'
+import {
+  DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY,
+  researchRunBudgetMs
+} from './criticalThinkingResearchPolicy'
 import { mergeSources } from './criticalThinkingSources'
 
 const log = createLogger('critical-thinking-store')
@@ -68,7 +71,12 @@ export class CriticalThinkingStore {
       status: 'planning',
       provider: input.provider,
       model: input.model,
-      researchPolicy: { ...DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY },
+      researchPolicy: {
+        ...DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY,
+        // A local model spends minutes on a round where a cloud one spends
+        // seconds — see `researchRunBudgetMs`.
+        maxRunMs: researchRunBudgetMs(input.provider)
+      },
       plan: null,
       report: '',
       sources: [],
