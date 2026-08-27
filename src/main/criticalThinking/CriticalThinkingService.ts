@@ -894,10 +894,19 @@ class CriticalThinkingService {
       run.sources
     )
     const limitedSteps = run.steps.some((step) => step.status !== 'completed')
+    // "Completed" means nothing in the report is false, not that it is
+    // flawless. Requiring zero issues of any kind demoted a 43,000-character
+    // report to "complete with gaps" over a single uncited lead-in line, which
+    // told the reader far less than it implied. Safety issues still demote --
+    // those are claims the evidence does not support -- and so does a report
+    // missing the sections the contract requires, a limited step, or a report
+    // that had to be assembled by recovery. The coverage gaps are still
+    // reported to the reader, they just no longer overturn the verdict.
     const status =
       repairStopReason === 'user'
         ? 'stopped'
-        : candidate.overallValid &&
+        : candidate.safe &&
+            candidate.structurallyValid &&
             !limitedSteps &&
             !repairStopReason &&
             !isRecoveredStage(selectedStage)
