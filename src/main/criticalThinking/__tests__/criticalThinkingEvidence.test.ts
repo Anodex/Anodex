@@ -169,7 +169,12 @@ describe('Critical Thinking evidence pipeline', () => {
       artifacts,
       sources
     )
-    expect(validation).toEqual({ valid: true, issues: [], safetyIssues: [] })
+    expect(validation).toEqual({
+      valid: true,
+      issues: [],
+      safetyIssues: [],
+      unverifiedQuotationText: []
+    })
   })
 
   it('requires an exact quote to appear in the source cited beside it', () => {
@@ -225,8 +230,18 @@ describe('Critical Thinking evidence pipeline', () => {
 
     expect(packet).toContain('[S1:P1] The measured improvement')
     expect(packet).toContain('[S1:P2] A later focused fetch')
-    expect(earlierValidation).toEqual({ valid: true, issues: [], safetyIssues: [] })
-    expect(laterValidation).toEqual({ valid: true, issues: [], safetyIssues: [] })
+    expect(earlierValidation).toEqual({
+      valid: true,
+      issues: [],
+      safetyIssues: [],
+      unverifiedQuotationText: []
+    })
+    expect(laterValidation).toEqual({
+      valid: true,
+      issues: [],
+      safetyIssues: [],
+      unverifiedQuotationText: []
+    })
   })
 
   it('matches equivalent numeric formatting without substring false positives', () => {
@@ -240,7 +255,7 @@ describe('Critical Thinking evidence pipeline', () => {
         [participantArtifact],
         sources
       )
-    ).toEqual({ valid: true, issues: [], safetyIssues: [] })
+    ).toEqual({ valid: true, issues: [], safetyIssues: [], unverifiedQuotationText: [] })
     expect(
       validateResearchReport(
         'The study enrolled 100 participants [[S1:P1]].',
@@ -265,7 +280,7 @@ describe('Critical Thinking evidence pipeline', () => {
     ).toBe(false)
     expect(
       validateResearchReport('The rate was 5% [[S1:P1]].', [percentArtifact], sources)
-    ).toEqual({ valid: true, issues: [], safetyIssues: [] })
+    ).toEqual({ valid: true, issues: [], safetyIssues: [], unverifiedQuotationText: [] })
   })
 
   it('recognizes exact decimals when HTML table cells collapse against labels', () => {
@@ -286,7 +301,7 @@ describe('Critical Thinking evidence pipeline', () => {
         [collapsedTableArtifact],
         sources
       )
-    ).toEqual({ valid: true, issues: [], safetyIssues: [] })
+    ).toEqual({ valid: true, issues: [], safetyIssues: [], unverifiedQuotationText: [] })
   })
 
   it('requires chart blocks to match the renderer grammar and cite their values', () => {
@@ -299,7 +314,7 @@ describe('Critical Thinking evidence pipeline', () => {
 
     expect(
       validateResearchReport(`Supported finding [[S1:P1]].\n\n${validChart}`, artifacts, sources)
-    ).toEqual({ valid: true, issues: [], safetyIssues: [] })
+    ).toEqual({ valid: true, issues: [], safetyIssues: [], unverifiedQuotationText: [] })
     expect(
       validateResearchReport(`Supported finding [[S1:P1]].\n\n${invalidChart}`, artifacts, sources)
         .issues
@@ -336,7 +351,8 @@ describe('Critical Thinking evidence pipeline', () => {
     expect(validateResearchReport(chart, [doseArtifact], sources)).toEqual({
       valid: true,
       issues: [],
-      safetyIssues: []
+      safetyIssues: [],
+      unverifiedQuotationText: []
     })
   })
 

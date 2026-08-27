@@ -35,6 +35,8 @@ export interface ReportCandidate {
    * replaced by one that says less. See `unverifiedQuotationsTolerated`.
    */
   unverifiedQuotations: string[]
+  /** The same quotations as exact report text, for locating and acting on them. */
+  unverifiedQuotationText: string[]
   issueCount: number
   /** Combined citation-safety and report-completeness issues, for the final user-facing message. */
   issues: string[]
@@ -118,6 +120,7 @@ export function evaluateReportCandidate(
     overallValid: citation.valid && contract.valid,
     safe,
     unverifiedQuotations,
+    unverifiedQuotationText: citation.unverifiedQuotationText,
     // A handful of untraceable quotations no longer costs the whole report.
     // They are disclosed in its limits section instead, so the reader is told
     // exactly which words are the report's own rather than a source's -- while
@@ -227,4 +230,36 @@ function headingLevel(line: string): number {
 function quotedTextFromIssue(issue: string): string | null {
   const match = /“([\s\S]*)”\s*$/.exec(issue)
   return match ? match[1] : null
+}
+
+/**
+ * Take the quotation marks off text the evidence could not confirm.
+ *
+ * A local model writes some quotations from memory rather than from the packet
+ * in front of it. Traced on a live run, six of nine flagged quotations appeared
+ * in none of that run's passages, findings, plan or question -- they were
+ * recalled marketing and review copy, dressed as quotation. No prompt fixes
+ * that: the model believes it is quoting.
+ *
+ * So the marks come off deterministically. The sentence keeps its text and its
+ * citation and becomes the report's own paraphrase, which is what it always
+ * was; what disappears is the claim that a source used those words. That is the
+ * property worth defending, and defending it this way costs none of the
+ * analysis -- the alternative was discarding the whole report and shipping a
+ * log of research steps instead.
+ */
+export function neutraliseUnverifiedQuotations(content: string, quotations: string[]): string {
+  let result = content
+  for (const quotation of quotations) {
+    for (const [open, close] of [
+      ['“', '”'],
+      ['"', '"']
+    ]) {
+      const marked = `${open}${quotation}${close}`
+      // Split/join rather than a regex: a quotation is arbitrary text and may
+      // carry regex metacharacters.
+      if (result.includes(marked)) result = result.split(marked).join(quotation)
+    }
+  }
+  return result
 }

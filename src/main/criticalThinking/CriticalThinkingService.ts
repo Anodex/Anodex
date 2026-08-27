@@ -61,6 +61,7 @@ import {
   chooseBetterReportCandidate,
   discloseUnverifiedQuotations,
   evaluateReportCandidate,
+  neutraliseUnverifiedQuotations,
   type ReportCandidate
 } from './criticalThinkingReportCandidate'
 import { parseResearchPlan } from './criticalThinkingResearchOutput'
@@ -671,6 +672,22 @@ class CriticalThinkingService {
     let selectedStage: CriticalThinkingSynthesisStage = 'draft'
     recordDiagnostic(
       reportCandidateDiagnostic('draft', candidate, synthesisStopReason, undefined, thinkingChars)
+    )
+    // A local model writes some quotations from memory rather than from the
+    // packet in front of it, and no prompt fixes that -- it believes it is
+    // quoting. Taking the marks off is deterministic and costs none of the
+    // analysis: the sentence keeps its text and its citation and becomes the
+    // report's own paraphrase, which is what it always was. Only the claim that
+    // a source used those words goes. Scored against the original so this can
+    // never make a report worse.
+    candidate = chooseBetterReportCandidate(
+      candidate,
+      evaluateReportCandidate(
+        neutraliseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotationText),
+        artifacts,
+        run.sources,
+        approvedStepCount
+      )
     )
     let repairStopReason: GenerationStopReason | undefined
     if (!candidate.overallValid) {
