@@ -907,3 +907,38 @@ describe('criticalThinkingEvidence — edited quotations', () => {
     ).toBe(true)
   })
 })
+
+describe('criticalThinkingEvidence — punctuation inside a quotation', () => {
+  it('accepts a quotation carrying the comma its own sentence needed', () => {
+    // English convention puts a comma inside the closing mark, so a quotation
+    // ending a clause carries punctuation the source does not have. Observed
+    // live on "dynamically responds to your window size," and two others in
+    // one report.
+    const report =
+      'Findings [[S1:P1]]. As they put it, "Teams reported better focus," and moved on.'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.filter((issue) => issue.startsWith('Quoted text is not present'))
+    ).toEqual([])
+  })
+
+  it('still reports a quotation whose words differ from the source', () => {
+    // Only trailing punctuation is forgiven. The text itself must match.
+    const report = 'Findings [[S1:P1]]. They said "Teams reported total collapse of focus,"'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+
+  it('does not forgive punctuation in the middle of a quotation', () => {
+    const report = 'Findings [[S1:P1]]. They said "Teams, reported better focus."'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+})

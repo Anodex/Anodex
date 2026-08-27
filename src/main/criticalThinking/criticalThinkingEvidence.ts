@@ -267,7 +267,29 @@ const MIN_ELISION_FRAGMENT_CHARS = 12
  * stitch one together from unrelated places.
  */
 function quotationAppearsIn(quote: string, passage: string): boolean {
-  return quotationVariants(quote).some((variant) => appearsAcrossElisions(variant, passage))
+  return quotationVariants(quote).some(
+    (variant) =>
+      appearsAcrossElisions(variant, passage) ||
+      appearsAcrossElisions(withoutTrailingSentencePunctuation(variant), passage)
+  )
+}
+
+/**
+ * Drop punctuation that belongs to the quoting sentence rather than the source.
+ *
+ * The dominant English convention puts a comma or period inside the closing
+ * quotation mark, so a quotation ending a clause carries punctuation the source
+ * does not have. Exact matching then failed a correct quotation on a character
+ * the writer was required to put there -- observed live on
+ * `"dynamically responds to your window size,"`,
+ * `"Create copy of included simulations,"` and
+ * `"individualise each section,"` in one report.
+ *
+ * Only trailing punctuation is dropped, and only for the retry: a quotation
+ * whose text genuinely differs from the source still fails.
+ */
+function withoutTrailingSentencePunctuation(quote: string): string {
+  return quote.replace(/[\s,.;:!?]+$/, '')
 }
 
 /** `[s]` means the source reads either with that fragment or without it. */
