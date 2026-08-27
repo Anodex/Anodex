@@ -169,3 +169,44 @@ describe('decodeEntities', () => {
     expect(decodeEntities('&#xD800;')).toBe('&#xD800;')
   })
 })
+
+describe('attribute values', () => {
+  it('keeps a > inside a single-quoted attribute out of the text', () => {
+    // Wikipedia carries an article's whole template source in a single-quoted
+    // data-mw attribute, and that JSON contains `>`. Tag matching ended at
+    // that `>`, so the rest of the JSON became body text and research runs
+    // quoted `{{cite web ...}}` back as if it were prose.
+    const html =
+      `<div data-mw='{"parts":[{"template":{"wt":"&lt;/ref>"},` +
+      `"genre":{"wt":"[[Simulation]]"}}]}'>Real prose here.</div>`
+    const text = htmlToReadableText(html)
+
+    expect(text).toContain('Real prose here.')
+    expect(text).not.toContain('{"wt"')
+    expect(text).not.toContain('genre')
+    expect(text).not.toContain('[[Simulation]]')
+  })
+
+  it('keeps a > inside a double-quoted attribute out of the text', () => {
+    const text = htmlToReadableText('<p title="a > b">Visible.</p>')
+
+    expect(text).toContain('Visible.')
+    expect(text).not.toContain('a > b')
+  })
+
+  it('still recognises tags whose attributes were dropped', () => {
+    // The layout passes key off tag names, so stripping values must not stop
+    // a list or a line break from producing its whitespace.
+    const text = htmlToReadableText(
+      `<ul class='x'><li id='a'>One</li><li id='b'>Two</li></ul><p>After<br class='y'/>Split</p>`
+    )
+
+    expect(text).toContain('* One')
+    expect(text).toContain('* Two')
+    expect(text).toContain('After\nSplit')
+  })
+
+  it('leaves ordinary text containing a greater-than sign alone', () => {
+    expect(htmlToReadableText('<p>3 &gt; 2 is true</p>')).toContain('3 > 2 is true')
+  })
+})
