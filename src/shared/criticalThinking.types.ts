@@ -165,6 +165,12 @@ export interface CriticalThinkingRun {
   /** Cloud model pinned when the run is created; local runs use the loaded model. */
   model: string | null
   researchPolicy: CriticalThinkingResearchPolicy
+  /**
+   * Verified sources already gathered when this run was last resumed. The
+   * run's evidence ceiling counts from here, so resuming an investigation that
+   * has reached it buys a fresh allowance rather than stopping immediately.
+   */
+  evidenceBudgetBase?: number
   plan: Plan | null
   report: string
   sources: CriticalThinkingSource[]

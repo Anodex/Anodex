@@ -179,7 +179,7 @@ export class CriticalThinkingResearchRunner {
           await this.deps.checkpoint()
           return { status: 'completed', stopped: false, runBudgetReached: false }
         }
-        if (verifiedUrlCount(artifacts) >= policy.maxVerifiedSourcesPerRun) {
+        if (spentEvidenceCount(run, artifacts) >= policy.maxVerifiedSourcesPerRun) {
           return await this.limitStep('evidence-limit', true)
         }
         if (
@@ -537,7 +537,7 @@ export class CriticalThinkingResearchRunner {
       const remainingBudget = Math.max(0, policy.maxFetchesPerRun - usage.fetches)
       const remainingEvidenceCapacity = Math.max(
         0,
-        policy.maxVerifiedSourcesPerRun - verifiedUrlCount(persistedArtifacts)
+        policy.maxVerifiedSourcesPerRun - spentEvidenceCount(run, persistedArtifacts)
       )
       if (remainingEvidenceCapacity === 0) {
         return {
@@ -1035,6 +1035,22 @@ function trailingEmptyRoundCount(
     count++
   }
   return count
+}
+
+/**
+ * Verified sources gathered against the run's *current* evidence allowance.
+ *
+ * The ceiling is a lifetime one, counted from everything the run has ever
+ * verified, so an investigation that reached it stopped the instant a resume
+ * restarted it -- the same dead end the per-step round cap had, one limiter
+ * along. Observed live: a resumed run ended a step with `evidence-limit`
+ * after eight rounds, having filled its allowance on earlier attempts.
+ *
+ * A resume rebases the count, so the user gets the allowance they just asked
+ * for while everything already gathered stays available to cite.
+ */
+function spentEvidenceCount(run: CriticalThinkingRun, artifacts: ToolArtifact[]): number {
+  return Math.max(0, verifiedUrlCount(artifacts) - (run.evidenceBudgetBase ?? 0))
 }
 
 function currentStep(run: CriticalThinkingRun): CriticalThinkingStepState {
