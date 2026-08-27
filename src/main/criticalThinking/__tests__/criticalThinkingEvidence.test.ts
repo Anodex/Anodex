@@ -1004,3 +1004,48 @@ describe('criticalThinkingEvidence — a quotation cited to the wrong passage', 
     )
   })
 })
+
+describe('criticalThinkingEvidence — a figure cited to the wrong passage', () => {
+  const twoPassages: ToolArtifact[] = [
+    {
+      ...(artifacts[0] as WebFetchArtifact),
+      passages: [
+        { id: 'P1', text: 'Teams reported better focus after the change.', score: 100 },
+        { id: 'P2', text: 'In Fall 2011 the team hired two more developers.', score: 90 }
+      ]
+    }
+  ]
+
+  it('reports a misattributed figure as coverage, not fabrication', () => {
+    // Measured on a live report: two years, both verbatim in the presskit the
+    // run had fetched, were reported as fabrication because the marker pointed
+    // at a different passage. That alone made the report unusable and sent the
+    // run to its fallback.
+    const report = 'The team grew in 2011 [[S1:P1]].'
+    const result = validateResearchReport(report, twoPassages, sources)
+
+    expect(result.safetyIssues).toEqual([])
+    expect(
+      result.issues.some((issue) => issue.startsWith('Numeric claim 2011 is on the cited page'))
+    ).toBe(true)
+  })
+
+  it('still calls it fabrication when the figure is on no fetched page', () => {
+    const report = 'The team grew in 2008 [[S1:P1]].'
+    const result = validateResearchReport(report, twoPassages, sources)
+
+    expect(
+      result.safetyIssues.some((issue) =>
+        issue.startsWith('Numeric claim 2008 is not present in its cited evidence')
+      )
+    ).toBe(true)
+  })
+
+  it('says nothing when the figure is in the passage actually cited', () => {
+    const report = 'The team grew in 2011 [[S1:P2]].'
+    const result = validateResearchReport(report, twoPassages, sources)
+
+    expect(result.safetyIssues).toEqual([])
+    expect(result.issues.some((issue) => issue.startsWith('Numeric claim'))).toBe(false)
+  })
+})
