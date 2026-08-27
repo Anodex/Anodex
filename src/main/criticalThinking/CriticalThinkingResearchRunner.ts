@@ -1025,10 +1025,21 @@ function stepMayTakeAnotherRound(
 ): boolean {
   const spent = spentRoundCount(step)
   if (spent < policy.maxRoundsPerStep) return true
-  const unfinishedAfterThisOne = run.steps.filter(
-    (other) => other.id !== step.id && other.status !== 'completed' && other.status !== 'limited'
-  ).length
-  return roundsUsed + 1 + unfinishedAfterThisOne * policy.maxRoundsPerStep <= policy.maxRoundsPerRun
+  // Reserve what the other unfinished steps still have *left* of their
+  // guarantee, not a full allowance each. Reserving the full amount counted
+  // rounds those steps had already spent, so by the time any step wanted an
+  // extra one the sum always exceeded the run budget and nothing could ever
+  // draw on the spare — measured live, a six-step run still stopped three
+  // steps at exactly three rounds with six of its twenty-one unused.
+  const reservedForOthers = run.steps
+    .filter(
+      (other) => other.id !== step.id && other.status !== 'completed' && other.status !== 'limited'
+    )
+    .reduce(
+      (total, other) => total + Math.max(0, policy.maxRoundsPerStep - spentRoundCount(other)),
+      0
+    )
+  return roundsUsed + 1 + reservedForOthers <= policy.maxRoundsPerRun
 }
 
 /**

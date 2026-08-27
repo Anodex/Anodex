@@ -335,6 +335,59 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(harness.run.steps[0].rounds.length).toBeGreaterThan(1)
   })
 
+  it('draws on spare rounds even when other steps have already spent theirs', async () => {
+    // The case the first attempt missed, because its test had one step and so
+    // nothing to reserve for. Reserving a *full* allowance for every unfinished
+    // step counted rounds those steps had already used, so the sum always
+    // exceeded the run budget and the spare was unreachable. Measured live: a
+    // six-step run stopped three steps at exactly three rounds with six of its
+    // twenty-one rounds unused.
+    //
+    // Numbers mirror that run in miniature: the budget is tight enough that
+    // reserving a full allowance for the two unfinished steps denies the extra
+    // round, while reserving what they actually still owe permits it.
+    const run = makeRun()
+    run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1, maxRoundsPerRun: 4 }
+    const alreadySpent = { ...run.steps[0], rounds: [{ id: 'r1', index: 0, status: 'completed' }] }
+    run.steps.push(
+      { ...alreadySpent, id: 'step_2', title: 'Second', status: 'researching' },
+      { ...alreadySpent, id: 'step_3', title: 'Third', status: 'researching' }
+    )
+    const harness = createHarness({
+      run,
+      runModel: (phase) =>
+        Promise.resolve(
+          phase === 'query'
+            ? generation('{"queries":["q"]}')
+            : generation(
+                assessmentJson({
+                  finding: 'Still insufficient.',
+                  verdict: 'continue',
+                  evidenceBasis: 'insufficient',
+                  remainingGaps: ['Keep looking.'],
+                  nextQueries: ['another']
+                })
+              )
+        ),
+      search: () =>
+        Promise.resolve({
+          provider: 'test',
+          results: [{ title: 'A', url: 'https://a.example/r', snippet: 'Evidence' }]
+        })
+    })
+
+    const usage = emptyUsage()
+    await harness.runner.run(new AbortController().signal, usage, 1)
+    expect(harness.run.steps[0].rounds).toHaveLength(1)
+
+    // The other two steps have spent their rounds too, which the run budget
+    // has to account for.
+    usage.rounds = 3
+    await harness.runner.run(new AbortController().signal, usage, 1)
+
+    expect(harness.run.steps[0].rounds.length).toBeGreaterThan(1)
+  })
+
   it('will not let one step spend the allowance the remaining steps are owed', async () => {
     const run = makeRun()
     run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1, maxRoundsPerRun: 3 }
