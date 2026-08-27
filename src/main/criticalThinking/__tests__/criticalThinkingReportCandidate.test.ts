@@ -3,6 +3,7 @@ import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import {
   chooseBetterReportCandidate,
+  discloseUnverifiedQuotations,
   evaluateReportCandidate
 } from '../criticalThinkingReportCandidate'
 
@@ -180,5 +181,90 @@ describe('model preamble', () => {
     const candidate = evaluateReportCandidate(mostlyProse, [artifact()], [SOURCE], 1)
 
     expect(candidate.content.startsWith('Some uncited prose.')).toBe(true)
+  })
+})
+
+describe('unverified quotations', () => {
+  const UNTRACEABLE =
+    'Quoted text is not present in its cited fetched passages: “set as system center”'
+
+  it('discloses them in the report’s own limits section', () => {
+    const report = `${WELL_FORMED}\n\n## Limits and Open Questions\n\nNothing on pricing.`
+    const disclosed = discloseUnverifiedQuotations(report, [UNTRACEABLE])
+
+    expect(disclosed).toContain('Nothing on pricing.')
+    expect(disclosed).toContain('could not be matched to their cited source')
+    expect(disclosed).toContain('set as system center')
+    // The analysis itself is untouched.
+    expect(disclosed).toContain('Bee venom triggers a sharper pain response')
+  })
+
+  it('keeps the disclosure inside limits, before the sections that follow', () => {
+    // WELL_FORMED is the real shape: Limits, then Sources, then Conclusion.
+    // The disclosure belongs with the limits, not appended after everything.
+    const disclosed = discloseUnverifiedQuotations(WELL_FORMED, [UNTRACEABLE])
+
+    const existingLimit = disclosed.indexOf('Repeat-sting behavior')
+    const disclosureAt = disclosed.indexOf('could not be matched')
+    const sourcesAt = disclosed.indexOf('## Sources')
+
+    expect(disclosureAt).toBeGreaterThan(existingLimit)
+    expect(disclosureAt).toBeLessThan(sourcesAt)
+    expect(disclosed).toContain('## Conclusion')
+  })
+
+  it('adds a limits section when the report has none', () => {
+    const noLimits = `# Title
+
+## Findings
+
+Something [[S1:P1]].`
+    const disclosed = discloseUnverifiedQuotations(noLimits, [UNTRACEABLE])
+
+    expect(disclosed).toContain('## Limits and Open Questions')
+    expect(disclosed).toContain('set as system center')
+    expect(disclosed.indexOf('## Limits')).toBeGreaterThan(disclosed.indexOf('## Findings'))
+  })
+
+  it('changes nothing when every quotation checked out', () => {
+    expect(discloseUnverifiedQuotations(WELL_FORMED, [])).toBe(WELL_FORMED)
+  })
+
+  it('keeps a report usable when a quotation cannot be traced', () => {
+    // The whole point: a report answering the question must not be replaced by
+    // one that says less merely because one attribution is loose.
+    const withBadQuote = WELL_FORMED.replace(
+      'Bee venom triggers a sharper pain response than wasp venom [[S1:P1]].',
+      'Bee venom triggers a sharper pain response than wasp venom [[S1:P1]]. ' +
+        'They wrote "a total collapse of every measured outcome" [[S1:P1]].'
+    )
+    const candidate = evaluateReportCandidate(withBadQuote, [artifact()], [SOURCE], 1)
+
+    expect(candidate.unverifiedQuotations.length).toBeGreaterThan(0)
+    expect(candidate.safe).toBe(false)
+    expect(candidate.usable).toBe(true)
+  })
+
+  it('still refuses a report whose quotations are mostly untraceable', () => {
+    const fabricated = `# Fabricated\n\n## Executive Summary\n\n${[
+      'They said "a total collapse of every measured outcome" [[S1:P1]].',
+      'And "another sentence that appears in no source at all" [[S1:P1]].',
+      'And "a third invented line nobody ever wrote down" [[S1:P1]].',
+      'And "a fourth invented line nobody ever wrote down" [[S1:P1]].'
+    ].join('\n\n')}`
+    const candidate = evaluateReportCandidate(fabricated, [artifact()], [SOURCE], 1)
+
+    expect(candidate.usable).toBe(false)
+  })
+
+  it('still refuses a report with a fabricated figure', () => {
+    // Only quotations are disclosable. An invented number stays fatal.
+    const withBadNumber = WELL_FORMED.replace(
+      'Bee venom triggers a sharper pain response than wasp venom [[S1:P1]].',
+      'The improvement was 91.7 percent [[S1:P1]].'
+    )
+    const candidate = evaluateReportCandidate(withBadNumber, [artifact()], [SOURCE], 1)
+
+    expect(candidate.usable).toBe(false)
   })
 })

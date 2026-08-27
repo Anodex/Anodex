@@ -59,6 +59,7 @@ import {
 } from './criticalThinkingFallbackReport'
 import {
   chooseBetterReportCandidate,
+  discloseUnverifiedQuotations,
   evaluateReportCandidate,
   type ReportCandidate
 } from './criticalThinkingReportCandidate'
@@ -855,7 +856,13 @@ class CriticalThinkingService {
       })
     }
 
-    const report = renderResearchCitations(candidate.content, run.sources)
+    // Disclosed before the citations are rendered, so an untraceable
+    // quotation is named in the report's own limits rather than costing the
+    // whole report -- see `discloseUnverifiedQuotations`.
+    const report = renderResearchCitations(
+      discloseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotations),
+      run.sources
+    )
     const limitedSteps = run.steps.some((step) => step.status !== 'completed')
     const status =
       repairStopReason === 'user'
@@ -1679,7 +1686,13 @@ class CriticalThinkingService {
       run.sources,
       stepsWithEvidence
     )
-    const report = renderResearchCitations(candidate.content, run.sources)
+    // Disclosed before the citations are rendered, so an untraceable
+    // quotation is named in the report's own limits rather than costing the
+    // whole report -- see `discloseUnverifiedQuotations`.
+    const report = renderResearchCitations(
+      discloseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotations),
+      run.sources
+    )
     const synthesisDiagnostics = run.synthesisDiagnostics
       ? {
           ...run.synthesisDiagnostics,
