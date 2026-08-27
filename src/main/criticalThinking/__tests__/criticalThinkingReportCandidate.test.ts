@@ -145,3 +145,38 @@ A third substantiated finding on pain mechanism follows here [[S1:P1]].`
     )
   })
 })
+
+describe('model preamble', () => {
+  it('scores the report, not the narration the model wrote first', () => {
+    // Measured on a real run: a repair pass narrated "I'll repair the report
+    // by checking each flagged quote..." then "Here is the complete repaired
+    // report:" then the report. The narration was scored as report text,
+    // carried no citation, and cost the repair three issues of its own -- so
+    // it lost to the draft it was meant to improve.
+    const narrated =
+      "I'll repair the report by checking each flagged quote against the evidence packet.\n\n" +
+      'Key findings from the packet before I write: the venom comparison holds.\n\n' +
+      'Here is the complete repaired report:\n\n' +
+      WELL_FORMED
+
+    const clean = evaluateReportCandidate(WELL_FORMED, [artifact()], [SOURCE], 1)
+    const withPreamble = evaluateReportCandidate(narrated, [artifact()], [SOURCE], 1)
+
+    expect(withPreamble.issues).toEqual(clean.issues)
+    expect(withPreamble.valid).toBe(clean.valid)
+  })
+
+  it('leaves a report that already starts with its title alone', () => {
+    const candidate = evaluateReportCandidate(WELL_FORMED, [artifact()], [SOURCE], 1)
+    expect(candidate.content.startsWith('# Bee and Wasp Sting Comparison')).toBe(true)
+  })
+
+  it('keeps a response whose heading is too late to be a preface', () => {
+    // Guard against silently discarding the bulk of a response that merely
+    // happens to carry a heading near the end.
+    const mostlyProse = `${'Some uncited prose. '.repeat(140)}\n\n${WELL_FORMED}`
+    const candidate = evaluateReportCandidate(mostlyProse, [artifact()], [SOURCE], 1)
+
+    expect(candidate.content.startsWith('Some uncited prose.')).toBe(true)
+  })
+})
