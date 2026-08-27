@@ -355,18 +355,145 @@ export function looksLikeBoilerplatePassage(text: string): boolean {
   return sentenceEnders <= 1
 }
 
+/**
+ * Words carried by the phrasing of a question rather than its subject. They are
+ * excluded from scoring because they say nothing about which passage answers it.
+ *
+ * Without this the ranker was driven almost entirely by them: for the focus
+ * "What are the built-in scenarios and presets that ship with Universe Sandbox",
+ * a filler paragraph of "the ... and ... that ..." scored 5200 while the
+ * paragraph actually listing the scenarios scored 100. The answer ranked 52x
+ * below the noise and fell outside the top MAX_PASSAGES, so the research model
+ * reported that evidence as never retrieved and re-requested it every round
+ * until the step ran out of rounds.
+ */
+const FOCUS_STOP_WORDS = new Set([
+  'about',
+  'after',
+  'all',
+  'also',
+  'and',
+  'any',
+  'are',
+  'because',
+  'been',
+  'before',
+  'being',
+  'between',
+  'both',
+  'but',
+  'can',
+  'could',
+  'did',
+  'does',
+  'each',
+  'for',
+  'from',
+  'had',
+  'has',
+  'have',
+  'her',
+  'here',
+  'his',
+  'how',
+  'into',
+  'its',
+  'itself',
+  'just',
+  'like',
+  'made',
+  'make',
+  'many',
+  'may',
+  'might',
+  'more',
+  'most',
+  'much',
+  'must',
+  'not',
+  'now',
+  'off',
+  'once',
+  'only',
+  'other',
+  'our',
+  'out',
+  'over',
+  'own',
+  'same',
+  'she',
+  'should',
+  'since',
+  'some',
+  'such',
+  'than',
+  'that',
+  'the',
+  'their',
+  'them',
+  'then',
+  'there',
+  'these',
+  'they',
+  'this',
+  'those',
+  'through',
+  'too',
+  'under',
+  'until',
+  'use',
+  'used',
+  'using',
+  'very',
+  'was',
+  'were',
+  'what',
+  'when',
+  'where',
+  'which',
+  'while',
+  'who',
+  'why',
+  'will',
+  'with',
+  'would',
+  'you',
+  'your'
+])
+
+/**
+ * How much a passage earns for covering one more distinct focus term. It
+ * dominates repetition so that a passage touching several parts of the question
+ * outranks one repeating a single word, which is the shape an answer usually has.
+ */
+const DISTINCT_TERM_WEIGHT = 100
+
+/**
+ * Repeats of an already-counted term still carry signal, but with sharply
+ * diminishing returns so a long passage cannot win on volume alone.
+ */
+const REPEAT_HITS_PER_TERM_CAP = 3
+
 export function extractFocusedPassages(text: string, focus: string): EvidencePassage[] {
   const normalized = text.replace(/\r/g, '').trim()
   if (!normalized) return []
-  const terms = [...new Set(focus.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])].slice(0, 24)
+  const terms = focusTerms(focus)
   const chunks = normalized
     .split(/\n{2,}/)
     .flatMap((paragraph) => splitLongPassage(paragraph.trim(), MAX_PASSAGE_CHARS))
     .filter((chunk) => Boolean(chunk) && !looksLikeBoilerplatePassage(chunk))
   const ranked = chunks.map((passage, index) => {
     const lower = passage.toLowerCase()
-    const termHits = terms.reduce((sum, term) => sum + countOccurrences(lower, term), 0)
-    return { passage, index, score: termHits * 100 - index * 0.01 }
+    let distinct = 0
+    let repeats = 0
+    for (const term of terms) {
+      const hits = countWordOccurrences(lower, term)
+      if (!hits) continue
+      distinct += 1
+      repeats += Math.min(hits - 1, REPEAT_HITS_PER_TERM_CAP)
+    }
+    const score = distinct * DISTINCT_TERM_WEIGHT + repeats - index * 0.01
+    return { passage, index, score }
   })
   ranked.sort((a, b) => b.score - a.score || a.index - b.index)
   return ranked.slice(0, MAX_PASSAGES).map((item, index) => ({
@@ -374,6 +501,15 @@ export function extractFocusedPassages(text: string, focus: string): EvidencePas
     text: item.passage,
     score: Math.max(0, Math.round(item.score * 100) / 100)
   }))
+}
+
+/** The subject words of a focus: what is left once phrasing is removed. */
+function focusTerms(focus: string): string[] {
+  const words = focus.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []
+  const meaningful = [...new Set(words)].filter((word) => !FOCUS_STOP_WORDS.has(word))
+  // A focus made entirely of stop words leaves nothing to rank on. Fall back to
+  // the raw words so ordering stays deterministic rather than arbitrary.
+  return (meaningful.length ? meaningful : [...new Set(words)]).slice(0, 24)
 }
 
 function splitLongPassage(text: string, maxChars: number): string[] {
@@ -385,14 +521,25 @@ function splitLongPassage(text: string, maxChars: number): string[] {
   return passages
 }
 
-function countOccurrences(text: string, term: string): number {
+/**
+ * Occurrences of `term` as a whole word. Substring matching counted "are"
+ * inside "software" and "the" inside "other", so a passage could score highly
+ * on a focus term it never actually mentions.
+ */
+function countWordOccurrences(text: string, term: string): number {
   let count = 0
   let offset = 0
   while ((offset = text.indexOf(term, offset)) !== -1) {
-    count++
+    const before = offset === 0 ? '' : text[offset - 1]
+    const after = text[offset + term.length] ?? ''
+    if (!isWordCharacter(before) && !isWordCharacter(after)) count += 1
     offset += term.length
   }
   return count
+}
+
+function isWordCharacter(value: string): boolean {
+  return value !== '' && /[a-z0-9]/.test(value)
 }
 
 function extractHtmlTitle(html: string): string {

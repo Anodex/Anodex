@@ -454,3 +454,42 @@ describe('AI web tools', () => {
     })
   })
 })
+
+describe('focused passage ranking', () => {
+  const FOCUS = 'What are the built-in scenarios and presets that ship with Universe Sandbox'
+  const ANSWER =
+    'Bundled scenarios: Solar System, Earth Moon Collision, Tidal Locking, Habitable Zone, Rings of Saturn.'
+  const STOPWORD_FILLER =
+    'The team and the community and the forums are the place that the users with the questions and the ideas '.repeat(
+      4
+    )
+
+  it('ranks the passage that answers the focus above stopword filler', () => {
+    // Regression: scoring counted every word of the focus, so this filler
+    // scored 5200 to the answer's 100 purely on "the"/"and"/"that"/"with".
+    const passages = extractFocusedPassages([STOPWORD_FILLER, ANSWER].join('\n\n'), FOCUS)
+    expect(passages[0].text).toContain('Solar System')
+  })
+
+  it('does not score a term that only appears inside a longer word', () => {
+    // "are" used to match "software", "ship" used to match "relationship".
+    const substringOnly = 'Our software relationship management platform handles the sandbox.'
+    const passages = extractFocusedPassages(
+      [substringOnly, ANSWER].join('\n\n'),
+      'are ship scenarios presets'
+    )
+    expect(passages[0].text).toContain('Solar System')
+  })
+
+  it('prefers breadth of focus terms over repetition of one term', () => {
+    const repeated = 'scenarios scenarios scenarios scenarios scenarios scenarios scenarios'
+    const broad = 'The presets and scenarios that ship with Universe Sandbox are listed here.'
+    const passages = extractFocusedPassages([repeated, broad].join('\n\n'), FOCUS)
+    expect(passages[0].text).toBe(broad)
+  })
+
+  it('still ranks deterministically when the focus is only stop words', () => {
+    const passages = extractFocusedPassages([ANSWER, STOPWORD_FILLER].join('\n\n'), 'what are the')
+    expect(passages).toHaveLength(2)
+  })
+})
