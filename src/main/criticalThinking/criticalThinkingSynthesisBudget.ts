@@ -1,8 +1,24 @@
 import type { CriticalThinkingProvider } from '@shared/criticalThinking.types'
 import { cloudContextWindowTokens } from '@shared/contextBudget'
 
-const MAX_PROMPT_CHARS = 80_000
-const MAX_EVIDENCE_CHARS = 36_000
+/**
+ * Absolute rails on prompt size, not the working limit.
+ *
+ * Everything below is derived from the context the model actually has, which is
+ * the right shape -- but these two ceilings were low enough to cancel that out.
+ * Measured on a real 65,536-token run: the context allowed 141,312 prompt
+ * characters and the ceiling admitted 80,000; the evidence share allowed 46,400
+ * and the ceiling admitted 36,000. The run had gathered 119,843 characters of
+ * passages across 57 pages, so **30% of its own evidence reached the model** --
+ * and its steps kept reporting facts as missing that were sitting in the
+ * evidence store unread.
+ *
+ * They are now high enough that the context share governs on any window a local
+ * model realistically runs, and they remain only as a guard against a very
+ * large context producing an absurd prompt.
+ */
+const MAX_PROMPT_CHARS = 240_000
+const MAX_EVIDENCE_CHARS = 140_000
 /**
  * A research report is a long-form artifact, and a reasoning-tuned model pays
  * for it twice: once in hidden thinking, once in the report itself. Measured
