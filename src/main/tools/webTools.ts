@@ -7,6 +7,7 @@ import type { EvidencePassage, WebFetchArtifactDraft } from '@shared/toolArtifac
 import type { ToolFactory } from './types'
 import { recordToolArtifact } from './types'
 import { runReadTool } from './helpers'
+import { extractPdfText } from './pdfText'
 
 const FETCH_TIMEOUT_MS = 30_000
 const MAX_FETCH_BYTES = 1_000_000
@@ -133,7 +134,12 @@ export async function fetchUrlEvidence(
   signal?: AbortSignal
 ): Promise<WebFetchArtifactDraft> {
   const response = await fetchUrl(rawUrl, signal)
-  const extracted = await extractPageEvidence(response.body, focus, signal)
+  const extracted = await extractPageEvidence(
+    response.body,
+    focus,
+    signal,
+    isPdfContentType(response.contentType)
+  )
   if (signal?.aborted) throw abortError()
   const warnings = [...response.warnings]
   if (extracted.passages.length === 0) {
@@ -231,6 +237,34 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
             warnings: [`Unsupported content type: ${contentType}`]
           }
         }
+        if (isPdfContentType(contentType)) {
+          const pdf = await readResponseBytes(response, MAX_FETCH_BYTES)
+          // A PDF that is a scan, or is malformed, throws here. That is a
+          // warning rather than a failed fetch: the run keeps the source and
+          // its metadata and moves on, exactly as it did when every PDF was
+          // discarded, instead of losing the whole round to one bad file.
+          try {
+            return {
+              body: await extractPdfText(pdf.bytes),
+              finalUrl: current.toString(),
+              status: response.status,
+              contentType,
+              truncated: pdf.truncated,
+              warnings: pdf.truncated ? [`Response exceeded ${MAX_FETCH_BYTES} bytes.`] : []
+            }
+          } catch (error) {
+            return {
+              body: '',
+              finalUrl: current.toString(),
+              status: response.status,
+              contentType,
+              truncated: pdf.truncated,
+              warnings: [
+                `Could not read that PDF: ${error instanceof Error ? error.message : String(error)}`
+              ]
+            }
+          }
+        }
         const body = await readResponseBody(response, MAX_FETCH_BYTES)
         return {
           body: body.text,
@@ -280,14 +314,35 @@ async function discardBody(response: Response): Promise<void> {
   }
 }
 
+function isPdfContentType(contentType: string): boolean {
+  return contentType === 'application/pdf' || contentType === 'application/x-pdf'
+}
+
 function isReadableContentType(contentType: string): boolean {
   return (
+    isPdfContentType(contentType) ||
     contentType === 'unknown' ||
     contentType.startsWith('text/') ||
     contentType === 'application/xhtml+xml' ||
     contentType === 'application/json' ||
     contentType.endsWith('+json')
   )
+}
+
+/**
+ * The byte-level twin of `readResponseBody`, for a format that has to be parsed
+ * rather than decoded. Shares the same byte ceiling so one large file cannot
+ * cost more than any other.
+ */
+async function readResponseBytes(
+  response: Response,
+  maxBytes: number
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  const buffer = await response.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+  return bytes.byteLength > maxBytes
+    ? { bytes: bytes.subarray(0, maxBytes), truncated: true }
+    : { bytes, truncated: false }
 }
 
 async function readResponseBody(
@@ -726,7 +781,12 @@ function asError(error: unknown, fallback: string): Error {
 function extractPageEvidence(
   body: string,
   focus: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  // A PDF arrives already extracted to plain text. Running it through the HTML
+  // reader would treat a literal `<` in the prose as the start of a tag and
+  // would flatten the blank lines that mark its page boundaries, which are what
+  // passage splitting keys on.
+  isPlainText = false
 ): Promise<{
   title: string
   contentHash: string
@@ -747,9 +807,9 @@ function extractPageEvidence(
             return
           }
           try {
-            const text = htmlToReadableText(body)
+            const text = isPlainText ? body : htmlToReadableText(body)
             resolve({
-              title: extractHtmlTitle(body),
+              title: isPlainText ? '' : extractHtmlTitle(body),
               contentHash: createHash('sha256').update(body).digest('hex'),
               contentChars: text.length,
               passages: extractFocusedPassages(text, focus)

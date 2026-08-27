@@ -1,4 +1,5 @@
 import { htmlToPlainText } from './mime'
+import { extractPdfText } from '../tools/pdfText'
 
 /**
  * Text extraction for email attachments the model should *read* rather than
@@ -16,9 +17,6 @@ import { htmlToPlainText } from './mime'
  * PDF would otherwise fill the model's whole context with one tool result.
  */
 export const MAX_ATTACHMENT_TEXT_CHARS = 20_000
-
-/** How many PDF pages are worth walking before the cap makes the rest moot. */
-const MAX_PDF_PAGES = 50
 
 /** Decoded straight from bytes; no parsing beyond a charset assumption. */
 const PLAIN_TEXT_TYPES = new Set([
@@ -61,7 +59,8 @@ export async function extractAttachmentText(
 ): Promise<ExtractedText> {
   const type = normalizeType(mimeType, filename)
 
-  if (type === 'application/pdf') return capped(await extractPdfText(data))
+  if (type === 'application/pdf')
+    return capped(await extractPdfText(data, { maxChars: MAX_ATTACHMENT_TEXT_CHARS }))
   if (HTML_TYPES.has(type)) return capped(htmlToPlainText(decodeText(data)))
   if (PLAIN_TEXT_TYPES.has(type)) return capped(decodeText(data))
 
@@ -119,63 +118,4 @@ function capped(text: string): ExtractedText {
   return trimmed.length > MAX_ATTACHMENT_TEXT_CHARS
     ? { text: trimmed.slice(0, MAX_ATTACHMENT_TEXT_CHARS), truncated: true }
     : { text: trimmed, truncated: false }
-}
-
-/**
- * Extract a PDF's text layer with pdf.js.
- *
- * Loaded through a dynamic `import()` because the package is ESM-only and the
- * main process is CommonJS — the same arrangement `node-llama-cpp` uses. The
- * worker is disabled and `isEvalSupported` turned off: this runs in the main
- * process against a file a stranger emailed, so it gets the most restricted
- * parser configuration pdf.js offers.
- */
-async function extractPdfText(data: Buffer): Promise<string> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-
-  const document = await pdfjs.getDocument({
-    // Copied because pdf.js takes ownership of the buffer it is handed and
-    // detaches it; the caller still needs its own bytes afterwards.
-    data: new Uint8Array(data),
-    isEvalSupported: false,
-    disableFontFace: true,
-    useSystemFonts: false,
-    useWorkerFetch: false
-  }).promise
-
-  try {
-    const pages: string[] = []
-    const pageCount = Math.min(document.numPages, MAX_PDF_PAGES)
-    let length = 0
-    for (
-      let pageNumber = 1;
-      pageNumber <= pageCount && length < MAX_ATTACHMENT_TEXT_CHARS;
-      pageNumber++
-    ) {
-      const page = await document.getPage(pageNumber)
-      try {
-        const content = await page.getTextContent()
-        const text = content.items
-          .map((item) => ('str' in item ? item.str : ''))
-          .join(' ')
-          .replace(/[ \t]+/g, ' ')
-          .trim()
-        if (text) {
-          pages.push(text)
-          length += text.length
-        }
-      } finally {
-        page.cleanup()
-      }
-    }
-
-    if (pages.length === 0) {
-      throw new Error(
-        'That PDF has no text layer — it is most likely a scan. It would need OCR to read.'
-      )
-    }
-    return pages.join('\n\n')
-  } finally {
-    await document.destroy()
-  }
 }
