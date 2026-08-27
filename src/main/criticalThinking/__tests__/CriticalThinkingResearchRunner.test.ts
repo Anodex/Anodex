@@ -224,6 +224,73 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(harness.run.steps[0].terminationReason).not.toBe('no-progress')
   })
 
+  it('gives a step reopened by a resume a fresh round allowance', async () => {
+    // The per-step cap is a lifetime one counted from the rounds on the step,
+    // so a step that stopped as `rounds-exhausted` re-limited itself the
+    // instant a resume restarted it -- without searching or reading anything.
+    // "Resume to keep looking", the only recovery the UI offers for an
+    // incomplete run, could not look. `roundBudgetBase` rebases the cap.
+    const run = makeRun()
+    run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1 }
+    let queryCalls = 0
+    const harness = createHarness({
+      run,
+      runModel: (phase) => {
+        if (phase === 'query') {
+          queryCalls++
+          return Promise.resolve(generation(`{"queries":["query ${queryCalls}"]}`))
+        }
+        return Promise.resolve(
+          generation(
+            assessmentJson({
+              finding: 'Still insufficient.',
+              verdict: 'continue',
+              evidenceBasis: 'insufficient',
+              remainingGaps: ['Keep looking.'],
+              nextQueries: ['another query']
+            })
+          )
+        )
+      },
+      search: (query) =>
+        Promise.resolve({
+          provider: 'test',
+          results: [
+            {
+              title: 'A',
+              url: `https://${query.replace(/\s+/g, '-')}.example/report`,
+              snippet: 'Evidence'
+            }
+          ]
+        })
+    })
+
+    // Spend the step's whole allowance.
+    await harness.runner.run(new AbortController().signal, emptyUsage(), 1)
+    expect(harness.run.steps[0].status).toBe('limited')
+    expect(harness.run.steps[0].terminationReason).toBe('rounds-exhausted')
+    const roundsWhenExhausted = harness.run.steps[0].rounds.length
+
+    // Without a rebase, restarting the step limits it again having done nothing.
+    harness.run.steps[0] = {
+      ...harness.run.steps[0],
+      status: 'pending',
+      terminationReason: undefined
+    }
+    await harness.runner.run(new AbortController().signal, emptyUsage(), 1)
+    expect(harness.run.steps[0].rounds).toHaveLength(roundsWhenExhausted)
+
+    // Rebased the way a resume does it, the step researches again.
+    harness.run.steps[0] = {
+      ...harness.run.steps[0],
+      status: 'pending',
+      terminationReason: undefined,
+      roundBudgetBase: harness.run.steps[0].rounds.length
+    }
+    await harness.runner.run(new AbortController().signal, emptyUsage(), 1)
+    expect(harness.run.steps[0].rounds.length).toBeGreaterThan(roundsWhenExhausted)
+  })
+
   it('enforces the lifetime round cap across repeated wave-capped calls, not just within one call', async () => {
     const run = makeRun()
     run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 2 }
