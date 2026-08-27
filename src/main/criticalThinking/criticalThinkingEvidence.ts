@@ -434,11 +434,23 @@ export function validateResearchReport(
     for (const raw of quotedSpans(block)) {
       if (raw.length < MIN_VERIFIABLE_QUOTE_CHARS) continue
       const quote = normalizeQuote(stripBlockQuoteMarkers(raw))
-      if (!citedPassages.some((passage) => quotationAppearsIn(quote, passage))) {
-        collector.safety.push(
-          `Quoted text is not present in its cited fetched passages: “${truncateIssue(raw).slice(0, 80)}”`
+      if (citedPassages.some((passage) => quotationAppearsIn(quote, passage))) continue
+      // The text may still be on the cited page, under a different passage
+      // marker. That is a citation pointing a line or two off, not a quotation
+      // of something nobody wrote -- and reporting the two the same way buried
+      // the ones that mattered.
+      const wholeSourceText = passagesForCitations(block, passagesByUrl, sourceById, true).map(
+        normalizeQuote
+      )
+      if (wholeSourceText.some((passage) => quotationAppearsIn(quote, passage))) {
+        collector.coverage.push(
+          `Quotation is on the cited page but under a different passage marker: “${truncateIssue(raw).slice(0, 80)}”`
         )
+        continue
       }
+      collector.safety.push(
+        `Quoted text is not present in its cited fetched passages: “${truncateIssue(raw).slice(0, 80)}”`
+      )
     }
   })
 
@@ -508,13 +520,24 @@ function withoutStructuralNumbering(text: string): string {
 function passagesForCitations(
   text: string,
   passagesByUrl: Map<string, EvidencePassage[]>,
-  sourceById: Map<string, CriticalThinkingSource>
+  sourceById: Map<string, CriticalThinkingSource>,
+  /**
+   * Ignore the passage number and take everything fetched from the cited page.
+   *
+   * Used only to tell two different mistakes apart. Quoting text that is on the
+   * cited page but under a different passage marker is a citation that points a
+   * line or two off; quoting text that is on no fetched page at all is the
+   * model presenting its own words as a source's. Measured on a live report,
+   * 3 of 16 flagged quotations were the first kind and 13 the second -- and
+   * calling the first kind fabrication buried the ones that were.
+   */
+  wholeSource = false
 ): string[] {
   return [...text.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)].flatMap((citation) => {
     const source = sourceById.get(citation[1])
     const passages = source ? passagesByUrl.get(canonicalResearchUrl(source.url)) : undefined
     return (passages ?? [])
-      .filter((passage) => !citation[2] || passage.id === citation[2])
+      .filter((passage) => wholeSource || !citation[2] || passage.id === citation[2])
       .map((passage) => passage.text)
   })
 }
