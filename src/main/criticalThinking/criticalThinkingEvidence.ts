@@ -506,6 +506,22 @@ function validateNumericClaims(
       if (number.length === 1 && !number.endsWith('%')) continue
       const evidenceText = passagesForCitations(paragraph, passagesByUrl, sourceById).join(' ')
       if (numberAppears(evidenceText, number)) continue
+      // A small bare integer cannot be checked in either direction: "12" occurs
+      // in almost any page, so finding it proves nothing and not finding it in
+      // one passage disproves nothing. Calling that fabrication is a claim this
+      // check cannot support.
+      //
+      // Measured across the stored runs: of 16 figures reported as fabricated,
+      // 14 were present in the run's own evidence, and every false one was a
+      // bare integer below the threshold -- 11 through 17, 35, 36. Each cost
+      // the whole report, because one safety issue makes a draft unusable and
+      // hands the run to its fallback.
+      if (!isVerifiableFigure(number)) {
+        collector.coverage.push(
+          `Numeric claim ${number} could not be checked against the cited evidence.`
+        )
+        continue
+      }
       // Same distinction the quotation check makes: a figure that is on the
       // cited page but under a different passage marker is a citation pointing
       // a line or two off, not an invented number. Measured on a live report,
@@ -970,6 +986,22 @@ function boundedText(value: unknown, maxLength: number): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Whether a figure is distinctive enough that its presence in the evidence
+ * means something.
+ *
+ * A unit, a decimal point, or three or more digits all make a figure specific
+ * enough to verify -- a percentage, a measurement, a year, a count in the
+ * thousands. A bare one- or two-digit integer does not: it is a list position
+ * or a small tally as often as a claim, and it appears in almost any page.
+ */
+function isVerifiableFigure(value: string): boolean {
+  const raw = value.trim().toLowerCase()
+  if (/%$|\bpercent\b|\bpercentage\s+points?$/.test(raw)) return true
+  if (raw.includes('.')) return true
+  return (raw.match(/\d/g) ?? []).length >= 3
 }
 
 function numberAppears(text: string, value: number | string): boolean {
