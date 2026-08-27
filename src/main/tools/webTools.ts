@@ -194,7 +194,7 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
   signal?.addEventListener('abort', onAbort, { once: true })
 
   try {
-    let current = assertPublicUrl(rawUrl)
+    let current = serverRenderedUrl(assertPublicUrl(rawUrl))
     for (let hop = 0; ; hop++) {
       if (hop > MAX_REDIRECTS) {
         throw new Error('Too many redirects.')
@@ -218,7 +218,7 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
           if (!location) {
             throw new Error(`HTTP ${response.status} redirect with no Location header.`)
           }
-          current = assertPublicUrl(new URL(location, current).toString())
+          current = serverRenderedUrl(assertPublicUrl(new URL(location, current).toString()))
           continue
         }
         if (!response.ok) {
@@ -312,6 +312,39 @@ async function discardBody(response: Response): Promise<void> {
   } catch {
     // Already errored or locked; the connection teardown below covers it.
   }
+}
+
+/**
+ * Hosts that answer a plain HTTP request with a JavaScript shell, and the
+ * server-rendered host that serves the same content as HTML.
+ *
+ * Measured on the same Reddit thread: `www.reddit.com` returns HTTP 200 with
+ * 8,468 bytes that extract to zero readable characters, while
+ * `old.reddit.com` returns 60,155 bytes that extract to 2,390. A research run
+ * fetched seven Reddit threads, got nothing readable from any of them, and
+ * spent a whole plan step re-requesting the community sentiment it had in fact
+ * already asked for -- the fetches looked successful, so nothing reported a
+ * problem.
+ *
+ * This is a per-host transport workaround, not a general rule, and it is only
+ * worth carrying for hosts a research run reaches often.
+ */
+const SERVER_RENDERED_HOSTS = new Map([
+  ['reddit.com', 'old.reddit.com'],
+  ['www.reddit.com', 'old.reddit.com']
+])
+
+/**
+ * Swap a known JavaScript-shell host for the one that serves the same page as
+ * HTML. The result is still the page the caller asked for, so it stays the URL
+ * that gets cited.
+ */
+function serverRenderedUrl(url: URL): URL {
+  const replacement = SERVER_RENDERED_HOSTS.get(url.hostname.toLowerCase())
+  if (!replacement) return url
+  const rewritten = new URL(url.toString())
+  rewritten.hostname = replacement
+  return rewritten
 }
 
 function isPdfContentType(contentType: string): boolean {
