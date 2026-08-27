@@ -66,6 +66,19 @@ export function criticalThinkingSourceClass(
   ) {
     return 'general-reference'
   }
+  // Download portals and app-listing aggregators republish a vendor's own
+  // copy wrapped in advertising. They are never the primary source for what
+  // a product does, yet they rank alongside it without this.
+  //
+  // Observed live: a question about a commercial game cited `softonic.com`
+  // for a factual claim while the vendor's own site was also in the results.
+  // Both scored 0 — aggregator and primary source were indistinguishable to
+  // the ranker, and Wikipedia scored below both.
+  if (AGGREGATOR_HOST.test(host)) return 'commercial'
+  // The named hosts below are the residue of one past pest-control
+  // investigation. Kept because removing them is untested churn, but they
+  // are not a general rule — a pattern describing a *kind* of source, like
+  // the one above, belongs here instead.
   if (
     /\b(blog|pest control|exterminator|sponsored|advertisement)\b/.test(searchable) ||
     /\b(pest|terminix|ehrlich|beekeeping|bestbees|medicalnewstoday)\b/.test(host)
@@ -74,6 +87,14 @@ export function criticalThinkingSourceClass(
   }
   return 'unclassified'
 }
+
+/**
+ * Software download portals and app-listing aggregators. They carry no
+ * original reporting: the text is the vendor's own description surrounded by
+ * download buttons, often years stale.
+ */
+const AGGREGATOR_HOST =
+  /(^|\.)(softonic|filehippo|uptodown|malavida|softpedia|majorgeeks|apkpure|apkmirror|slideshare|scribd)\./
 
 export function isPreferredCriticalThinkingSource(
   value: string | URL,
