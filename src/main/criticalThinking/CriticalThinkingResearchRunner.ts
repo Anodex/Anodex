@@ -30,6 +30,7 @@ import {
 } from './criticalThinkingSynthesisBudget'
 import {
   assessmentIsSufficient,
+  effectiveRunBudgets,
   mapWithConcurrency,
   selectResearchCandidates,
   type ResearchSearchBatch
@@ -168,6 +169,10 @@ export class CriticalThinkingResearchRunner {
         const run = this.deps.getRun()
         const step = currentStep(run)
         const policy = run.researchPolicy
+        // The configured run budgets are sized to exactly what the steps are
+        // guaranteed, so a full-size plan has nothing spare by construction.
+        // See `effectiveRunBudgets`.
+        const budgets = effectiveRunBudgets(policy, run.steps.length)
         const artifacts = this.deps.listArtifacts()
         const persistedAssessment = latestAcceptedAssessment(step, artifacts)
         if (persistedAssessment) {
@@ -184,19 +189,19 @@ export class CriticalThinkingResearchRunner {
           return await this.limitStep('evidence-limit', true)
         }
         if (
-          usage.searches >= policy.maxSearchesPerRun ||
-          usage.fetches >= policy.maxFetchesPerRun
+          usage.searches >= budgets.maxSearchesPerRun ||
+          usage.fetches >= budgets.maxFetchesPerRun
         ) {
           return await this.limitStep('tool-limit', true)
         }
         if (
-          !stepMayTakeAnotherRound(run, step, policy, usage.rounds) ||
-          usage.rounds >= policy.maxRoundsPerRun
+          !stepMayTakeAnotherRound(run, step, policy, usage.rounds, budgets.maxRoundsPerRun) ||
+          usage.rounds >= budgets.maxRoundsPerRun
         ) {
           if (stepHasReportableCoverage(step, artifacts, run.sources)) {
-            return await this.completeStepAtResearchLimit(usage.rounds >= policy.maxRoundsPerRun)
+            return await this.completeStepAtResearchLimit(usage.rounds >= budgets.maxRoundsPerRun)
           }
-          return await this.limitStep('rounds-exhausted', usage.rounds >= policy.maxRoundsPerRun)
+          return await this.limitStep('rounds-exhausted', usage.rounds >= budgets.maxRoundsPerRun)
         }
 
         let round = resumableRound(step)
@@ -1021,7 +1026,8 @@ function stepMayTakeAnotherRound(
   run: CriticalThinkingRun,
   step: CriticalThinkingStepState,
   policy: CriticalThinkingResearchPolicy,
-  roundsUsed: number
+  roundsUsed: number,
+  maxRoundsPerRun: number
 ): boolean {
   const spent = spentRoundCount(step)
   if (spent < policy.maxRoundsPerStep) return true
@@ -1039,7 +1045,7 @@ function stepMayTakeAnotherRound(
       (total, other) => total + Math.max(0, policy.maxRoundsPerStep - spentRoundCount(other)),
       0
     )
-  return roundsUsed + 1 + reservedForOthers <= policy.maxRoundsPerRun
+  return roundsUsed + 1 + reservedForOthers <= maxRoundsPerRun
 }
 
 /**

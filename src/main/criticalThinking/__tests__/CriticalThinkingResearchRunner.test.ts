@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   CriticalThinkingActivity,
   CriticalThinkingRoundState,
+  CriticalThinkingStepState,
   CriticalThinkingRun
 } from '@shared/criticalThinking.types'
 import type { WebFetchArtifactDraft, ToolArtifact } from '@shared/toolArtifacts.types'
@@ -348,7 +349,23 @@ describe('CriticalThinkingResearchRunner', () => {
     // round, while reserving what they actually still owe permits it.
     const run = makeRun()
     run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1, maxRoundsPerRun: 4 }
-    const alreadySpent = { ...run.steps[0], rounds: [{ id: 'r1', index: 0, status: 'completed' }] }
+    const alreadySpent: CriticalThinkingStepState = {
+      ...run.steps[0],
+      rounds: [
+        {
+          id: 'r1',
+          index: 0,
+          status: 'completed',
+          queries: [],
+          selectedUrls: [],
+          evidenceIds: [],
+          finding: '',
+          assessment: null,
+          startedAt: 1,
+          completedAt: 2
+        }
+      ]
+    }
     run.steps.push(
       { ...alreadySpent, id: 'step_2', title: 'Second', status: 'researching' },
       { ...alreadySpent, id: 'step_3', title: 'Third', status: 'researching' }
@@ -421,10 +438,16 @@ describe('CriticalThinkingResearchRunner', () => {
 
     const usage = emptyUsage()
     await harness.runner.run(new AbortController().signal, usage, 1)
+    expect(harness.run.steps[0].rounds).toHaveLength(1)
+
+    // Enough of the run's budget already spent that the two untouched steps
+    // need every round that is left. Their guarantee is not this step's to
+    // take, even though this step would happily use it.
+    usage.rounds = 3
     await harness.runner.run(new AbortController().signal, usage, 1)
 
-    // One round used, two steps still owed one each: no spare to draw on.
     expect(harness.run.steps[0].rounds).toHaveLength(1)
+    expect(harness.run.steps[0].terminationReason).toBe('rounds-exhausted')
   })
 
   it('enforces the lifetime round cap across repeated wave-capped calls, not just within one call', async () => {
