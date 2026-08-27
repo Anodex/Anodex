@@ -1,6 +1,5 @@
 import type {
   CriticalThinkingActivity,
-  CriticalThinkingResearchPolicy,
   CriticalThinkingRoundState,
   CriticalThinkingRun,
   CriticalThinkingStepState,
@@ -30,7 +29,6 @@ import {
 } from './criticalThinkingSynthesisBudget'
 import {
   assessmentIsSufficient,
-  effectiveRunBudgets,
   mapWithConcurrency,
   selectResearchCandidates,
   type ResearchSearchBatch
@@ -169,10 +167,6 @@ export class CriticalThinkingResearchRunner {
         const run = this.deps.getRun()
         const step = currentStep(run)
         const policy = run.researchPolicy
-        // The configured run budgets are sized to exactly what the steps are
-        // guaranteed, so a full-size plan has nothing spare by construction.
-        // See `effectiveRunBudgets`.
-        const budgets = effectiveRunBudgets(policy, run.steps.length)
         const artifacts = this.deps.listArtifacts()
         const persistedAssessment = latestAcceptedAssessment(step, artifacts)
         if (persistedAssessment) {
@@ -189,19 +183,19 @@ export class CriticalThinkingResearchRunner {
           return await this.limitStep('evidence-limit', true)
         }
         if (
-          usage.searches >= budgets.maxSearchesPerRun ||
-          usage.fetches >= budgets.maxFetchesPerRun
+          usage.searches >= policy.maxSearchesPerRun ||
+          usage.fetches >= policy.maxFetchesPerRun
         ) {
           return await this.limitStep('tool-limit', true)
         }
         if (
-          !stepMayTakeAnotherRound(run, step, policy, usage.rounds, budgets.maxRoundsPerRun) ||
-          usage.rounds >= budgets.maxRoundsPerRun
+          spentRoundCount(step) >= policy.maxRoundsPerStep ||
+          usage.rounds >= policy.maxRoundsPerRun
         ) {
           if (stepHasReportableCoverage(step, artifacts, run.sources)) {
-            return await this.completeStepAtResearchLimit(usage.rounds >= budgets.maxRoundsPerRun)
+            return await this.completeStepAtResearchLimit(usage.rounds >= policy.maxRoundsPerRun)
           }
-          return await this.limitStep('rounds-exhausted', usage.rounds >= budgets.maxRoundsPerRun)
+          return await this.limitStep('rounds-exhausted', usage.rounds >= policy.maxRoundsPerRun)
         }
 
         let round = resumableRound(step)
@@ -1005,47 +999,6 @@ function resumableRound(step: CriticalThinkingStepState): CriticalThinkingRoundS
   return latest && ['querying', 'searching', 'reading', 'assessing'].includes(latest.status)
     ? latest
     : null
-}
-
-/**
- * Whether this step may run another round.
- *
- * `maxRoundsPerStep` is the allowance every step is *guaranteed*, not a hard
- * ceiling. Treating it as a ceiling left the run's own budget unspent:
- * measured on a live six-step plan, every step stopped at exactly three
- * rounds, four of them still short of coverage, while three of the run's
- * twenty-one rounds were never used at all. Budget the run was allowed to
- * spend simply evaporated, and four steps came back `limited` for want of it.
- *
- * A step may draw on that spare capacity, but only while every step that has
- * not finished could still take its full guaranteed allowance afterwards -- so
- * one hungry step can use what is going spare without starving the steps
- * behind it.
- */
-function stepMayTakeAnotherRound(
-  run: CriticalThinkingRun,
-  step: CriticalThinkingStepState,
-  policy: CriticalThinkingResearchPolicy,
-  roundsUsed: number,
-  maxRoundsPerRun: number
-): boolean {
-  const spent = spentRoundCount(step)
-  if (spent < policy.maxRoundsPerStep) return true
-  // Reserve what the other unfinished steps still have *left* of their
-  // guarantee, not a full allowance each. Reserving the full amount counted
-  // rounds those steps had already spent, so by the time any step wanted an
-  // extra one the sum always exceeded the run budget and nothing could ever
-  // draw on the spare — measured live, a six-step run still stopped three
-  // steps at exactly three rounds with six of its twenty-one unused.
-  const reservedForOthers = run.steps
-    .filter(
-      (other) => other.id !== step.id && other.status !== 'completed' && other.status !== 'limited'
-    )
-    .reduce(
-      (total, other) => total + Math.max(0, policy.maxRoundsPerStep - spentRoundCount(other)),
-      0
-    )
-  return roundsUsed + 1 + reservedForOthers <= maxRoundsPerRun
 }
 
 /**

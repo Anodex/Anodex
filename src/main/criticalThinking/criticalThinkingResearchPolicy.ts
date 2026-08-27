@@ -1,7 +1,6 @@
 import type {
   CriticalThinkingCoverageAssessment,
-  CriticalThinkingProvider,
-  CriticalThinkingResearchPolicy
+  CriticalThinkingProvider
 } from '@shared/criticalThinking.types'
 import type { SearchResult } from '../tools/search/types'
 import { MAX_COMPACT_SOURCES } from './criticalThinkingSources'
@@ -44,47 +43,6 @@ export const DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY = {
  * fetch budgets still bound the work, a run that finishes early still finishes
  * early, and a user who wants a shorter one can set `maxRunMs` directly.
  */
-/**
- * Headroom above what a plan's steps are guaranteed, so "spare capacity" can
- * actually exist.
- *
- * The run budgets are sized to exactly the guaranteed allocation -- 21 rounds
- * is seven steps times three -- which reads as generous and behaves as a
- * straitjacket: a seven-step plan has nothing spare by construction, so a step
- * that needs one more round can never have one no matter how close it is.
- *
- * Measured live: a six-step run left three of its rounds unused while three
- * steps stopped one round short of coverage, their gap counts still falling.
- * A seven-step run then consumed all 21 and limited every step, the last on
- * the search/fetch ceiling rather than rounds.
- *
- * Half a round per step is deliberately modest: enough that a few steps can
- * finish what they started, not enough to change what a run costs.
- */
-export interface EffectiveRunBudgets {
-  maxRoundsPerRun: number
-  maxSearchesPerRun: number
-  maxFetchesPerRun: number
-}
-
-export function effectiveRunBudgets(
-  policy: CriticalThinkingResearchPolicy,
-  stepCount: number
-): EffectiveRunBudgets {
-  const steps = Math.max(1, stepCount)
-  const guaranteed = steps * policy.maxRoundsPerStep
-  const maxRoundsPerRun = Math.max(policy.maxRoundsPerRun, guaranteed + Math.ceil(steps / 2))
-  // Searches and fetches are budgeted per round, so they scale with it or they
-  // simply become the next ceiling to hit -- which is what limited the seventh
-  // step of that run on `tool-limit` rather than rounds.
-  const scale = maxRoundsPerRun / Math.max(1, policy.maxRoundsPerRun)
-  return {
-    maxRoundsPerRun,
-    maxSearchesPerRun: Math.ceil(policy.maxSearchesPerRun * scale),
-    maxFetchesPerRun: Math.ceil(policy.maxFetchesPerRun * scale)
-  }
-}
-
 export function researchRunBudgetMs(provider: CriticalThinkingProvider): number {
   const base = DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY.maxRunMs
   return provider === 'local' ? base * 3 : base

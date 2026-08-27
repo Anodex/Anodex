@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type {
   CriticalThinkingActivity,
   CriticalThinkingRoundState,
-  CriticalThinkingStepState,
   CriticalThinkingRun
 } from '@shared/criticalThinking.types'
 import type { WebFetchArtifactDraft, ToolArtifact } from '@shared/toolArtifacts.types'
@@ -272,11 +271,16 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(harness.run.steps[0].terminationReason).toBe('rounds-exhausted')
     const roundsWhenExhausted = harness.run.steps[0].rounds.length
 
-    // Rebased the way a resume does it, the step researches again. (The
-    // per-step allowance is no longer the only thing that can permit another
-    // round -- a step may also draw on the run's spare capacity -- so this
-    // asserts the outcome the rebase exists for, not that nothing else could
-    // have produced it.)
+    // Without a rebase, restarting the step limits it again having done nothing.
+    harness.run.steps[0] = {
+      ...harness.run.steps[0],
+      status: 'pending',
+      terminationReason: undefined
+    }
+    await harness.runner.run(new AbortController().signal, emptyUsage(), 1)
+    expect(harness.run.steps[0].rounds).toHaveLength(roundsWhenExhausted)
+
+    // Rebased the way a resume does it, the step researches again.
     harness.run.steps[0] = {
       ...harness.run.steps[0],
       status: 'pending',
@@ -285,169 +289,6 @@ describe('CriticalThinkingResearchRunner', () => {
     }
     await harness.runner.run(new AbortController().signal, emptyUsage(), 1)
     expect(harness.run.steps[0].rounds.length).toBeGreaterThan(roundsWhenExhausted)
-  })
-
-  it('lets a step draw on the run’s spare rounds rather than leaving them unspent', async () => {
-    // Measured on a live six-step plan: every step stopped at exactly three
-    // rounds, four of them still short of coverage, while three of the run's
-    // twenty-one rounds were never used. Budget the run was allowed to spend
-    // simply evaporated, and four steps came back `limited` for want of it.
-    const run = makeRun()
-    run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1, maxRoundsPerRun: 6 }
-    let queryCalls = 0
-    const harness = createHarness({
-      run,
-      runModel: (phase) => {
-        if (phase === 'query') {
-          queryCalls++
-          return Promise.resolve(generation(`{"queries":["query ${queryCalls}"]}`))
-        }
-        return Promise.resolve(
-          generation(
-            assessmentJson({
-              finding: 'Still insufficient.',
-              verdict: 'continue',
-              evidenceBasis: 'insufficient',
-              remainingGaps: ['Keep looking.'],
-              nextQueries: ['another query']
-            })
-          )
-        )
-      },
-      search: (query) =>
-        Promise.resolve({
-          provider: 'test',
-          results: [
-            {
-              title: 'A',
-              url: `https://${query.replace(/\s+/g, '-')}.example/report`,
-              snippet: 'Evidence'
-            }
-          ]
-        })
-    })
-
-    const usage = emptyUsage()
-    await harness.runner.run(new AbortController().signal, usage, 1)
-    await harness.runner.run(new AbortController().signal, usage, 1)
-
-    // The guaranteed allowance was one round; the run had five to spare and
-    // only this step to spend them on.
-    expect(harness.run.steps[0].rounds.length).toBeGreaterThan(1)
-  })
-
-  it('draws on spare rounds even when other steps have already spent theirs', async () => {
-    // The case the first attempt missed, because its test had one step and so
-    // nothing to reserve for. Reserving a *full* allowance for every unfinished
-    // step counted rounds those steps had already used, so the sum always
-    // exceeded the run budget and the spare was unreachable. Measured live: a
-    // six-step run stopped three steps at exactly three rounds with six of its
-    // twenty-one rounds unused.
-    //
-    // Numbers mirror that run in miniature: the budget is tight enough that
-    // reserving a full allowance for the two unfinished steps denies the extra
-    // round, while reserving what they actually still owe permits it.
-    const run = makeRun()
-    run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1, maxRoundsPerRun: 4 }
-    const alreadySpent: CriticalThinkingStepState = {
-      ...run.steps[0],
-      rounds: [
-        {
-          id: 'r1',
-          index: 0,
-          status: 'completed',
-          queries: [],
-          selectedUrls: [],
-          evidenceIds: [],
-          finding: '',
-          assessment: null,
-          startedAt: 1,
-          completedAt: 2
-        }
-      ]
-    }
-    run.steps.push(
-      { ...alreadySpent, id: 'step_2', title: 'Second', status: 'researching' },
-      { ...alreadySpent, id: 'step_3', title: 'Third', status: 'researching' }
-    )
-    const harness = createHarness({
-      run,
-      runModel: (phase) =>
-        Promise.resolve(
-          phase === 'query'
-            ? generation('{"queries":["q"]}')
-            : generation(
-                assessmentJson({
-                  finding: 'Still insufficient.',
-                  verdict: 'continue',
-                  evidenceBasis: 'insufficient',
-                  remainingGaps: ['Keep looking.'],
-                  nextQueries: ['another']
-                })
-              )
-        ),
-      search: () =>
-        Promise.resolve({
-          provider: 'test',
-          results: [{ title: 'A', url: 'https://a.example/r', snippet: 'Evidence' }]
-        })
-    })
-
-    const usage = emptyUsage()
-    await harness.runner.run(new AbortController().signal, usage, 1)
-    expect(harness.run.steps[0].rounds).toHaveLength(1)
-
-    // The other two steps have spent their rounds too, which the run budget
-    // has to account for.
-    usage.rounds = 3
-    await harness.runner.run(new AbortController().signal, usage, 1)
-
-    expect(harness.run.steps[0].rounds.length).toBeGreaterThan(1)
-  })
-
-  it('will not let one step spend the allowance the remaining steps are owed', async () => {
-    const run = makeRun()
-    run.researchPolicy = { ...run.researchPolicy, maxRoundsPerStep: 1, maxRoundsPerRun: 3 }
-    // Two more steps still to run, each owed its guaranteed round.
-    run.steps.push(
-      { ...run.steps[0], id: 'step_2', title: 'Second', status: 'pending', rounds: [] },
-      { ...run.steps[0], id: 'step_3', title: 'Third', status: 'pending', rounds: [] }
-    )
-    const harness = createHarness({
-      run,
-      runModel: (phase) =>
-        Promise.resolve(
-          phase === 'query'
-            ? generation('{"queries":["q"]}')
-            : generation(
-                assessmentJson({
-                  finding: 'Still insufficient.',
-                  verdict: 'continue',
-                  evidenceBasis: 'insufficient',
-                  remainingGaps: ['Keep looking.'],
-                  nextQueries: ['another']
-                })
-              )
-        ),
-      search: () =>
-        Promise.resolve({
-          provider: 'test',
-          results: [{ title: 'A', url: 'https://a.example/r', snippet: 'Evidence' }]
-        })
-    })
-
-    const usage = emptyUsage()
-    await harness.runner.run(new AbortController().signal, usage, 1)
-    expect(harness.run.steps[0].rounds).toHaveLength(1)
-
-    // Enough of the run's budget already spent that the two untouched steps
-    // need every round that is left. Their guarantee is not this step's to
-    // take, even though this step would happily use it.
-    usage.rounds = 3
-    await harness.runner.run(new AbortController().signal, usage, 1)
-
-    expect(harness.run.steps[0].rounds).toHaveLength(1)
-    expect(harness.run.steps[0].terminationReason).toBe('rounds-exhausted')
   })
 
   it('enforces the lifetime round cap across repeated wave-capped calls, not just within one call', async () => {
