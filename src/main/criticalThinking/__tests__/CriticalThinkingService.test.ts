@@ -867,6 +867,13 @@ A second substantiated point about the underlying pain mechanism follows [[S1:P1
     expect(persisted?.report).not.toContain('Research result:')
     expect(persisted?.synthesisDiagnostics?.strategy).toBe('hierarchical-recovery')
     expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('hierarchical-report')
+    // A recovered report validates easily -- it is assembled from verified
+    // excerpts, so it quotes nothing it cannot prove -- and used to let a run
+    // report `completed` while the analysis the question asked for had been
+    // discarded. Observed live: a run finished `completed` shipping a log
+    // organised by research step with twelve blocks of raw excerpts.
+    expect(persisted?.status).toBe('partial')
+    expect(persisted?.lastError).toContain('assembled from verified excerpts')
     expect(persisted?.synthesisDiagnostics?.attempts.map((attempt) => attempt.stage)).toEqual([
       'draft',
       'repair',

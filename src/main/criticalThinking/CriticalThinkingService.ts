@@ -867,7 +867,10 @@ class CriticalThinkingService {
     const status =
       repairStopReason === 'user'
         ? 'stopped'
-        : candidate.overallValid && !limitedSteps && !repairStopReason
+        : candidate.overallValid &&
+            !limitedSteps &&
+            !repairStopReason &&
+            !isRecoveredStage(selectedStage)
           ? 'completed'
           : 'partial'
     synthesisDiagnostics = {
@@ -880,7 +883,13 @@ class CriticalThinkingService {
       stats,
       synthesisDiagnostics,
       plan: status === 'completed' ? completePlan(run.plan) : run.plan,
-      lastError: reportLastError(candidate, limitedSteps, repairStopReason, run.steps)
+      lastError: reportLastError(
+        candidate,
+        limitedSteps,
+        repairStopReason,
+        run.steps,
+        selectedStage
+      )
     })
     showToastWindow({
       title: status === 'completed' ? 'Critical Thinking complete' : 'Partial research ready',
@@ -1873,6 +1882,30 @@ function normalizePlan(plan: Plan): Plan {
  * itself immediately, without spending anything. Completed steps keep their
  * findings and are never revisited.
  */
+/**
+ * Stages that assemble a report because the model's own was refused, rather
+ * than because the model wrote one.
+ *
+ * A recovered report passes validation easily -- it is built out of verified
+ * excerpts, so it quotes nothing it cannot prove -- and a run could therefore
+ * report `completed` while the analysis the user asked for had been discarded.
+ * Observed live: a run finished `completed` shipping a log organised by
+ * research step with twelve blocks of raw excerpts, having thrown away a
+ * 23,478-character report carrying the feature ranking, the build tiers and the
+ * recommendation the question asked for.
+ *
+ * Recovery is worth doing -- it is far better than nothing -- but it is not the
+ * same outcome, and saying so is the difference between a run the user can
+ * trust and one that overstates itself.
+ */
+function isRecoveredStage(stage: CriticalThinkingSynthesisStage): boolean {
+  return (
+    stage === 'hierarchical-report' ||
+    stage === 'deterministic-fallback' ||
+    stage === 'section-fallback'
+  )
+}
+
 function reopenUnfinishedSteps(steps: CriticalThinkingStepState[]): CriticalThinkingStepState[] {
   return steps.map((step) =>
     step.status === 'completed'
@@ -2065,13 +2098,24 @@ function reportLastError(
   candidate: ReportCandidate,
   limitedSteps: boolean,
   repairStopReason: GenerationStopReason | undefined,
-  steps: CriticalThinkingStepState[]
+  steps: CriticalThinkingStepState[],
+  selectedStage: CriticalThinkingSynthesisStage
 ): string | null {
   if (repairStopReason) {
     return `Report repair stopped early. ${stoppedReasonMessage(repairStopReason)}`
   }
+  // A recovered report validates easily because it is assembled from verified
+  // excerpts, so without this it could read as an unqualified success while the
+  // analysis the question asked for had been discarded.
+  const recovered = isRecoveredStage(selectedStage)
+    ? 'This report was assembled from verified excerpts because the written report did not pass its evidence checks. It is organised by research step rather than around your question.'
+    : null
   if (candidate.overallValid) {
-    return limitedSteps ? limitedResearchMessage(steps) : null
+    const limits = limitedSteps ? limitedResearchMessage(steps) : null
+    return [recovered, limits].filter(Boolean).join(' ') || null
+  }
+  if (recovered) {
+    return limitedSteps ? `${recovered} ${limitedResearchMessage(steps)}` : recovered
   }
   if (candidate.safe) {
     const base =
