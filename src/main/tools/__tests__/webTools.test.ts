@@ -238,6 +238,48 @@ describe('AI web tools', () => {
         )
       })
 
+      it('fetches a JavaScript-shell host through its server-rendered twin', async () => {
+        // www.reddit.com answers with HTTP 200 and an 8KB script shell that
+        // extracts to nothing; old.reddit.com serves the same thread as HTML.
+        // A research run read seven threads this way and got zero characters
+        // from every one, with no warning that anything had gone wrong.
+        const fetchSpy = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'text/html']]),
+          body: null,
+          text: () =>
+            Promise.resolve('<html><body><p>Saves and scenarios both work.</p></body></html>')
+        })
+        globalThis.fetch = fetchSpy
+
+        const artifact = await fetchUrlEvidence(
+          'https://www.reddit.com/r/universesandbox/comments/1abc/saves',
+          'scenarios'
+        )
+
+        expect(String(fetchSpy.mock.calls[0][0])).toContain('old.reddit.com')
+        expect(artifact.finalUrl).toContain('old.reddit.com')
+        expect(artifact.passages.length).toBeGreaterThan(0)
+      })
+
+      it('leaves an ordinary host alone', async () => {
+        const fetchSpy = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'text/html']]),
+          body: null,
+          text: () => Promise.resolve('<html><body><p>Scenarios listed here.</p></body></html>')
+        })
+        globalThis.fetch = fetchSpy
+
+        await fetchUrlEvidence('https://universesandbox.com/support/', 'scenarios')
+
+        expect(String(fetchSpy.mock.calls[0][0])).toContain('universesandbox.com')
+      })
+
       it('discards an error response body before reporting the status', async () => {
         const errorBody = bodyWithCancel()
         globalThis.fetch = vi.fn().mockResolvedValue({
