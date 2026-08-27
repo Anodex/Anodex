@@ -29,6 +29,12 @@ export interface ReportCandidate {
    */
   usable: boolean
   /**
+   * The report carries the sections the contract requires. Separate from
+   * `overallValid`, which also demands complete citation coverage: a report can
+   * be structurally whole and still leave a lead-in line uncited.
+   */
+  structurallyValid: boolean
+  /**
    * Quotations the evidence could not confirm. Kept apart from the rest of the
    * safety issues because they are disclosable: the report says what it could
    * not trace and the reader is told, rather than the whole report being
@@ -118,6 +124,7 @@ export function evaluateReportCandidate(
   return {
     content: trimmed,
     overallValid: citation.valid && contract.valid,
+    structurallyValid: contract.valid,
     safe,
     unverifiedQuotations,
     unverifiedQuotationText: citation.unverifiedQuotationText,

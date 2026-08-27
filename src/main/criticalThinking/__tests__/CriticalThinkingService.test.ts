@@ -696,6 +696,56 @@ describe('CriticalThinkingService synthesis: artifact-first termination semantic
     expect(report).toContain('could not be matched to their cited source')
   })
 
+  it('completes a report that is true but leaves a lead-in line uncited', async () => {
+    // Requiring zero issues of any kind demoted a 43,000-character report to
+    // "complete with gaps" over one uncited label. The gap is still reported;
+    // it just no longer overturns the verdict.
+    const run = seedSynthesisRun()
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: VALID_DRAFT.replace(
+            '## Findings',
+            '## Findings\n\n**Complaints and requests**, in order of substantiveness:\n'
+          ),
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      // The uncited lead-in still triggers a repair pass. It returns nothing,
+      // so the draft is what gets judged.
+      .mockImplementation(() =>
+        Promise.resolve({ content: '', stats: EMPTY_STATS, stopped: false })
+      )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('completed')
+    expect(persisted?.lastError).toContain('citation-coverage')
+  })
+
+  it('stays partial when the report is missing a section the contract requires', async () => {
+    const run = seedSynthesisRun()
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          // The contract requires a limits section and a summary/conclusion.
+          // Renaming the limits heading removes one of the two.
+          content: VALID_DRAFT.replace('## Limits and Open Questions', '## Notes'),
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementation(() =>
+        Promise.resolve({ content: '', stats: EMPTY_STATS, stopped: false })
+      )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    expect(mocks.runs.get(run.id)?.status).toBe('partial')
+  })
+
   it('completes a token-limited but valid draft instead of discarding it as partial', async () => {
     const run = seedSynthesisRun()
     mocks.runGeneration.mockImplementationOnce(() =>
