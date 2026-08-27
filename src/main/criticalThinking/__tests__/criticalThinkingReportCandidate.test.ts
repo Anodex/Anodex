@@ -258,14 +258,40 @@ Something [[S1:P1]].`
     expect(candidate.usable).toBe(false)
   })
 
-  it('still refuses a report with a fabricated figure', () => {
-    // Only quotations are disclosable. An invented number stays fatal.
+  it('ships a report carrying one untraceable figure, and discloses it', () => {
+    // A figure cannot be neutralised the way a quotation can — it stands in the
+    // text either way — so the only question is whether the reader is told. One
+    // loose figure is not worth trading the whole analysis for.
     const withBadNumber = WELL_FORMED.replace(
       'Bee venom triggers a sharper pain response than wasp venom [[S1:P1]].',
       'The improvement was 91.7 percent [[S1:P1]].'
     )
     const candidate = evaluateReportCandidate(withBadNumber, [artifact()], [SOURCE], 1)
 
+    expect(candidate.safe).toBe(false)
+    expect(candidate.usable).toBe(true)
+    expect(candidate.unverifiedFigures).toHaveLength(1)
+    expect(
+      discloseUnverifiedQuotations(candidate.content, [], candidate.unverifiedFigures)
+    ).toContain('Figures the evidence could not account for')
+  })
+
+  it('refuses a report whose figures cannot be trusted at all', () => {
+    // The allowance is deliberately short. Past it, the reader is better served
+    // by the fallback than by a report whose numbers are mostly unsupported.
+    const withBadNumbers = WELL_FORMED.replace(
+      'Bee venom triggers a sharper pain response than wasp venom [[S1:P1]].',
+      [
+        'The improvement was 91.7 percent [[S1:P1]].',
+        '',
+        'A second reading gave 44.2 percent [[S1:P1]].',
+        '',
+        'A third gave 77.9 percent [[S1:P1]].'
+      ].join('\n')
+    )
+    const candidate = evaluateReportCandidate(withBadNumbers, [artifact()], [SOURCE], 1)
+
+    expect(candidate.unverifiedFigures.length).toBeGreaterThan(2)
     expect(candidate.usable).toBe(false)
   })
 })

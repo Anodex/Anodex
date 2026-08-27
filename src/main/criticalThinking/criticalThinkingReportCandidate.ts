@@ -41,6 +41,13 @@ export interface ReportCandidate {
    * replaced by one that says less. See `unverifiedQuotationsTolerated`.
    */
   unverifiedQuotations: string[]
+  /**
+   * Figures the evidence could not account for, after the checks that tell a
+   * misplaced citation from an invention have run. Kept apart for the same
+   * reason as quotations — they are disclosable — but on a far shorter leash,
+   * since a figure cannot be neutralised the way a quotation can.
+   */
+  unverifiedFigures: string[]
   /** The same quotations as exact report text, for locating and acting on them. */
   unverifiedQuotationText: string[]
   issueCount: number
@@ -60,8 +67,34 @@ const UNVERIFIED_QUOTATION_PREFIX = 'Quoted text is not present'
  */
 const MAX_UNVERIFIED_QUOTATION_SHARE = 0.5
 
+/**
+ * A figure the evidence cannot account for, after the checks that tell a
+ * misplaced citation from an invention have already run.
+ */
+const UNVERIFIED_FIGURE_PREFIXES = ['Numeric claim', 'Chart value']
+
+/**
+ * How many untraceable figures a report may carry and still be worth shipping.
+ *
+ * Deliberately far tighter than the quotation allowance, and absolute rather
+ * than a share. A quotation can be neutralised -- take the marks off and the
+ * sentence becomes the report's own words, claiming nothing about a source. A
+ * figure cannot: it stays in the text as an assertion either way, and the only
+ * thing disclosure changes is whether the reader is told it is unverified. So
+ * one or two is a report with a loose figure; more than that is a report whose
+ * numbers cannot be trusted, and the reader is better served by the fallback.
+ */
+const MAX_UNVERIFIED_FIGURES = 2
+
 function isUnverifiedQuotationIssue(issue: string): boolean {
   return issue.startsWith(UNVERIFIED_QUOTATION_PREFIX)
+}
+
+function isUnverifiedFigureIssue(issue: string): boolean {
+  return (
+    UNVERIFIED_FIGURE_PREFIXES.some((prefix) => issue.startsWith(prefix)) &&
+    issue.includes('not present')
+  )
 }
 
 function unverifiedQuotationsTolerated(count: number, citedBlockCount: number): boolean {
@@ -117,8 +150,9 @@ export function evaluateReportCandidate(
   const citation = validateResearchReport(trimmed, artifacts, sources)
   const contract = validateReportContract(trimmed, approvedStepCount)
   const unverifiedQuotations = citation.safetyIssues.filter(isUnverifiedQuotationIssue)
+  const unverifiedFigures = citation.safetyIssues.filter(isUnverifiedFigureIssue)
   const otherSafetyIssues = citation.safetyIssues.filter(
-    (issue) => !isUnverifiedQuotationIssue(issue)
+    (issue) => !isUnverifiedQuotationIssue(issue) && !isUnverifiedFigureIssue(issue)
   )
   const safe = citation.safetyIssues.length === 0
   return {
@@ -127,14 +161,21 @@ export function evaluateReportCandidate(
     structurallyValid: contract.valid,
     safe,
     unverifiedQuotations,
+    unverifiedFigures,
     unverifiedQuotationText: citation.unverifiedQuotationText,
-    // A handful of untraceable quotations no longer costs the whole report.
-    // They are disclosed in its limits section instead, so the reader is told
-    // exactly which words are the report's own rather than a source's -- while
-    // a fabricated figure or an invented citation still makes it unusable, and
-    // so does a report whose quotations are mostly untraceable.
+    // Neither a handful of untraceable quotations nor one or two untraceable
+    // figures costs the whole report any more. Both are disclosed in its limits
+    // section, so the reader is told which words are the report's own rather
+    // than a source's and which numbers the evidence could not account for.
+    //
+    // An invented citation still makes a report unusable, and so does one whose
+    // quotations are mostly untraceable or whose figures run past a very short
+    // allowance -- the alternative on offer is a report organised around the
+    // research steps, which is worth having only when this one cannot be
+    // trusted at all.
     usable:
       otherSafetyIssues.length === 0 &&
+      unverifiedFigures.length <= MAX_UNVERIFIED_FIGURES &&
       unverifiedQuotationsTolerated(
         unverifiedQuotations.length,
         contract.citedSubstantiveBlockCount
@@ -193,17 +234,42 @@ const LIMITS_HEADING =
  * Disclosure keeps the analysis and keeps the reader informed, which is the
  * property that actually matters: nobody is told these are a source's words.
  */
-export function discloseUnverifiedQuotations(content: string, issues: string[]): string {
+export function discloseUnverifiedQuotations(
+  content: string,
+  issues: string[],
+  figureIssues: string[] = []
+): string {
   const quotations = issues.map(quotedTextFromIssue).filter((text): text is string => Boolean(text))
-  if (quotations.length === 0) return content
+  const figures = [...new Set(figureIssues.map(figureFromIssue).filter(Boolean))]
+  if (quotations.length === 0 && figures.length === 0) return content
 
-  const body = [
-    '**Quotations that could not be matched to their cited source:**',
-    '',
-    ...[...new Set(quotations)].map((quotation) => `- “${quotation}”`),
-    '',
-    'Treat these as the report’s paraphrase, not as the source’s words.'
-  ].join('\n')
+  const sections: string[] = []
+  if (quotations.length > 0) {
+    sections.push(
+      [
+        '**Quotations that could not be matched to their cited source:**',
+        '',
+        ...[...new Set(quotations)].map((quotation) => `- “${quotation}”`),
+        '',
+        'Treat these as the report’s paraphrase, not as the source’s words.'
+      ].join('\n')
+    )
+  }
+  if (figures.length > 0) {
+    // Named separately from the quotations because the reader has to do
+    // something different with them: a quotation has already been stripped of
+    // its marks, while a figure still stands in the text as an assertion.
+    sections.push(
+      [
+        '**Figures the evidence could not account for:**',
+        '',
+        ...figures.map((figure) => `- ${figure}`),
+        '',
+        'These were not found in any page this investigation read. Check them before relying on them.'
+      ].join('\n')
+    )
+  }
+  const body = sections.join('\n\n')
 
   const lines = content.split('\n')
   const limitsAt = lines.findIndex((line) => LIMITS_HEADING.test(line))
@@ -231,6 +297,11 @@ export function discloseUnverifiedQuotations(content: string, issues: string[]):
 /** Heading depth of a markdown line, or 0 when the line is not a heading. */
 function headingLevel(line: string): number {
   return /^ {0,3}(#{1,6})\s/.exec(line)?.[1].length ?? 0
+}
+
+/** The figure out of an issue line such as "Numeric claim 32,000 is not present...". */
+function figureFromIssue(issue: string): string | null {
+  return /^(?:Numeric claim|Chart value)\s+(.+?)\s+is not present/.exec(issue)?.[1] ?? null
 }
 
 /** The quoted text out of an issue line, which wraps it in curly quotes. */
