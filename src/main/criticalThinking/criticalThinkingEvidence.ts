@@ -505,9 +505,23 @@ function validateNumericClaims(
     for (const number of numbers) {
       if (number.length === 1 && !number.endsWith('%')) continue
       const evidenceText = passagesForCitations(paragraph, passagesByUrl, sourceById).join(' ')
-      if (!numberAppears(evidenceText, number)) {
-        collector.safety.push(`Numeric claim ${number} is not present in its cited evidence.`)
+      if (numberAppears(evidenceText, number)) continue
+      // Same distinction the quotation check makes: a figure that is on the
+      // cited page but under a different passage marker is a citation pointing
+      // a line or two off, not an invented number. Measured on a live report,
+      // two such years -- both verbatim in the presskit the run had fetched --
+      // were reported as fabrication, and that alone made the report unusable
+      // and sent the run to its fallback.
+      const wholeSourceText = passagesForCitations(paragraph, passagesByUrl, sourceById, true).join(
+        ' '
+      )
+      if (numberAppears(wholeSourceText, number)) {
+        collector.coverage.push(
+          `Numeric claim ${number} is on the cited page but under a different passage marker.`
+        )
+        continue
       }
+      collector.safety.push(`Numeric claim ${number} is not present in its cited evidence.`)
     }
   }
 }
