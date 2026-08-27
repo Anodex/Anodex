@@ -1,5 +1,6 @@
 import type {
   CriticalThinkingActivity,
+  CriticalThinkingResearchPolicy,
   CriticalThinkingRoundState,
   CriticalThinkingRun,
   CriticalThinkingStepState,
@@ -189,7 +190,7 @@ export class CriticalThinkingResearchRunner {
           return await this.limitStep('tool-limit', true)
         }
         if (
-          spentRoundCount(step) >= policy.maxRoundsPerStep ||
+          !stepMayTakeAnotherRound(run, step, policy, usage.rounds) ||
           usage.rounds >= policy.maxRoundsPerRun
         ) {
           if (stepHasReportableCoverage(step, artifacts, run.sources)) {
@@ -999,6 +1000,35 @@ function resumableRound(step: CriticalThinkingStepState): CriticalThinkingRoundS
   return latest && ['querying', 'searching', 'reading', 'assessing'].includes(latest.status)
     ? latest
     : null
+}
+
+/**
+ * Whether this step may run another round.
+ *
+ * `maxRoundsPerStep` is the allowance every step is *guaranteed*, not a hard
+ * ceiling. Treating it as a ceiling left the run's own budget unspent:
+ * measured on a live six-step plan, every step stopped at exactly three
+ * rounds, four of them still short of coverage, while three of the run's
+ * twenty-one rounds were never used at all. Budget the run was allowed to
+ * spend simply evaporated, and four steps came back `limited` for want of it.
+ *
+ * A step may draw on that spare capacity, but only while every step that has
+ * not finished could still take its full guaranteed allowance afterwards -- so
+ * one hungry step can use what is going spare without starving the steps
+ * behind it.
+ */
+function stepMayTakeAnotherRound(
+  run: CriticalThinkingRun,
+  step: CriticalThinkingStepState,
+  policy: CriticalThinkingResearchPolicy,
+  roundsUsed: number
+): boolean {
+  const spent = spentRoundCount(step)
+  if (spent < policy.maxRoundsPerStep) return true
+  const unfinishedAfterThisOne = run.steps.filter(
+    (other) => other.id !== step.id && other.status !== 'completed' && other.status !== 'limited'
+  ).length
+  return roundsUsed + 1 + unfinishedAfterThisOne * policy.maxRoundsPerStep <= policy.maxRoundsPerRun
 }
 
 /**
