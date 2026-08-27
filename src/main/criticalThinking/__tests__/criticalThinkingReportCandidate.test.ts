@@ -4,7 +4,8 @@ import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import {
   chooseBetterReportCandidate,
   discloseUnverifiedQuotations,
-  evaluateReportCandidate
+  evaluateReportCandidate,
+  neutraliseUnverifiedQuotations
 } from '../criticalThinkingReportCandidate'
 
 const SOURCE: CriticalThinkingSource = {
@@ -266,5 +267,72 @@ Something [[S1:P1]].`
     const candidate = evaluateReportCandidate(withBadNumber, [artifact()], [SOURCE], 1)
 
     expect(candidate.usable).toBe(false)
+  })
+})
+
+describe('neutralising a quotation the evidence cannot confirm', () => {
+  it('takes the marks off and leaves the sentence otherwise intact', () => {
+    // Traced on a live run: 6 of 9 flagged quotations appeared in none of that
+    // run's passages, findings, plan or question — recalled copy dressed as
+    // quotation. No prompt fixes that, so the marks come off deterministically.
+    const content = 'They called it "a total collapse of every measured outcome" [[S1:P1]].'
+    const result = neutraliseUnverifiedQuotations(content, [
+      'a total collapse of every measured outcome'
+    ])
+
+    expect(result).toBe('They called it a total collapse of every measured outcome [[S1:P1]].')
+  })
+
+  it('handles curly marks as well as straight ones', () => {
+    const content = 'They called it “a total collapse” and moved on.'
+    expect(neutraliseUnverifiedQuotations(content, ['a total collapse'])).toBe(
+      'They called it a total collapse and moved on.'
+    )
+  })
+
+  it('leaves quotations it was not asked about alone', () => {
+    const content = 'They said "Teams reported better focus." and also "something else entirely."'
+    const result = neutraliseUnverifiedQuotations(content, ['something else entirely.'])
+
+    expect(result).toContain('"Teams reported better focus."')
+    expect(result).not.toContain('"something else entirely."')
+  })
+
+  it('copes with a quotation containing regex metacharacters', () => {
+    const content = 'It reads "cost (per unit) rose 12% [see *note*]" in the filing.'
+    const result = neutraliseUnverifiedQuotations(content, [
+      'cost (per unit) rose 12% [see *note*]'
+    ])
+
+    expect(result).toBe('It reads cost (per unit) rose 12% [see *note*] in the filing.')
+  })
+
+  it('changes nothing when there is nothing to neutralise', () => {
+    expect(neutraliseUnverifiedQuotations(WELL_FORMED, [])).toBe(WELL_FORMED)
+  })
+
+  it('turns an unusable draft into a usable one without touching the analysis', () => {
+    // The whole point: the report that answers the question ships, and the
+    // claim that a source used those words does not.
+    const invented = 'a total collapse of every measured outcome'
+    const withInvented = WELL_FORMED.replace(
+      'Bee venom triggers a sharper pain response than wasp venom [[S1:P1]].',
+      `Bee venom triggers a sharper pain response than wasp venom [[S1:P1]]. ` +
+        `Reviewers described "${invented}" [[S1:P1]].`
+    )
+    const before = evaluateReportCandidate(withInvented, [artifact()], [SOURCE], 1)
+    expect(before.safe).toBe(false)
+    expect(before.unverifiedQuotationText).toContain(invented)
+
+    const after = evaluateReportCandidate(
+      neutraliseUnverifiedQuotations(before.content, before.unverifiedQuotationText),
+      [artifact()],
+      [SOURCE],
+      1
+    )
+    expect(after.safe).toBe(true)
+    expect(after.content).toContain('Bee venom triggers a sharper pain response')
+    expect(after.content).toContain(invented)
+    expect(after.content).not.toContain(`"${invented}"`)
   })
 })

@@ -21,6 +21,13 @@ export interface ReportValidationResult {
    * fallback (see `criticalThinkingReportCandidate.ts`).
    */
   safetyIssues: string[]
+  /**
+   * The exact text of each quotation the evidence could not confirm, untruncated
+   * so a caller can find it in the report and act on it. `safetyIssues` carries
+   * the same quotations as reader-facing messages, shortened for display, which
+   * is no use for locating the original.
+   */
+  unverifiedQuotationText: string[]
 }
 
 /** Routes each validation issue to fabrication ("safety") vs completeness ("coverage"). */
@@ -376,6 +383,7 @@ export function validateResearchReport(
   sources: CriticalThinkingSource[]
 ): ReportValidationResult {
   const collector: IssueCollector = { safety: [], coverage: [] }
+  const unverifiedQuotationText: string[] = []
   const sourceById = new Map(trustedVerifiedSources(sources).map((source) => [source.id, source]))
   const passagesByUrl = fetchedPassagesByUrl(artifacts)
   const citations = [...report.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)]
@@ -448,6 +456,7 @@ export function validateResearchReport(
         )
         continue
       }
+      unverifiedQuotationText.push(raw)
       collector.safety.push(
         `Quoted text is not present in its cited fetched passages: “${truncateIssue(raw).slice(0, 80)}”`
       )
@@ -464,7 +473,7 @@ export function validateResearchReport(
   }
   const safetyIssues = [...new Set(collector.safety)]
   const issues = [...new Set([...collector.safety, ...collector.coverage])]
-  return { valid: issues.length === 0, issues, safetyIssues }
+  return { valid: issues.length === 0, issues, safetyIssues, unverifiedQuotationText }
 }
 
 function validateNumericClaims(
