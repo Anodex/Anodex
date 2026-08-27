@@ -1140,3 +1140,39 @@ describe('criticalThinkingEvidence — figures too small to check', () => {
     expect(result.issues.some((issue) => issue.startsWith('Numeric claim'))).toBe(false)
   })
 })
+
+describe('criticalThinkingEvidence — a figure cited to the wrong source', () => {
+  const twoSources: CriticalThinkingSource[] = [
+    ...sources,
+    { id: 'S2', title: 'Store page', url: 'https://example.com/store', verified: true }
+  ]
+  const twoArtifacts: ToolArtifact[] = [
+    artifacts[0] as WebFetchArtifact,
+    {
+      ...(artifacts[0] as WebFetchArtifact),
+      id: 'artifact_2',
+      requestedUrl: 'https://example.com/store',
+      finalUrl: 'https://example.com/store',
+      passages: [{ id: 'P1', text: 'The game costs 29.99 on the store.', score: 100 }]
+    }
+  ]
+
+  it('reports a figure found under another fetched source as a citation error', () => {
+    // Measured live: of three figures reported as fabricated, the price 29.99
+    // and the year 2015 were both in the run's evidence under other sources.
+    // Each cost the whole report, because one safety issue makes a draft
+    // unusable and hands the run to its fallback.
+    const result = validateResearchReport('It costs 29.99 [[S1:P1]].', twoArtifacts, twoSources)
+
+    expect(result.safetyIssues).toEqual([])
+    expect(result.issues.some((issue) => issue.includes('cited to the wrong source'))).toBe(true)
+  })
+
+  it('still calls it fabrication when the figure is in nothing the run fetched', () => {
+    const result = validateResearchReport('It costs 88.44 [[S1:P1]].', twoArtifacts, twoSources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Numeric claim 88.44 is not present'))
+    ).toBe(true)
+  })
+})

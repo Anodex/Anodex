@@ -483,6 +483,16 @@ function validateNumericClaims(
   collector: IssueCollector,
   exempt: Set<string>
 ): void {
+  // Every passage the run fetched, joined once. Built lazily because most
+  // reports never need it — only a figure that failed both the cited passage
+  // and the cited page gets this far.
+  let fetchedText: string | undefined
+  const allFetchedText = (): string => {
+    fetchedText ??= [...passagesByUrl.values()]
+      .flatMap((passages) => passages.map((passage) => passage.text))
+      .join(' \n ')
+    return fetchedText
+  }
   for (const paragraph of report.split(/\n{2,}/)) {
     const citations = [...paragraph.matchAll(/\[\[(S\d+)(?::(P\d+))?\]\]/g)]
     // Strip citation markers and structural outline numbering ("1.1", "2.3")
@@ -535,6 +545,20 @@ function validateNumericClaims(
         collector.coverage.push(
           `Numeric claim ${number} is on the cited page but under a different passage marker.`
         )
+        continue
+      }
+      // Widened to everything the run fetched, not just the cited page. A
+      // figure that reached this point is distinctive -- a unit, a decimal, or
+      // three digits -- so finding it anywhere in the evidence is real proof
+      // the model read it rather than invented it, and pointing at the wrong
+      // page is a citation error, not a fabrication.
+      //
+      // Measured on a live run: of three figures reported as fabricated, the
+      // price 29.99 and the year 2015 were both in the run's evidence under
+      // other sources; only one was genuinely absent. Each of the two cost the
+      // whole report.
+      if (numberAppears(allFetchedText(), number)) {
+        collector.coverage.push(`Numeric claim ${number} is cited to the wrong source.`)
         continue
       }
       collector.safety.push(`Numeric claim ${number} is not present in its cited evidence.`)
