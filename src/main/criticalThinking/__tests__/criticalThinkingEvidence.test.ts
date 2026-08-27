@@ -806,3 +806,62 @@ describe('criticalThinkingEvidence — how far a pulled-out quote may reach for 
     ).toBe(true)
   })
 })
+
+describe('criticalThinkingEvidence — quotation pairing', () => {
+  it('does not treat the prose between two quotations as a quotation', () => {
+    // A straight `"` opens and closes, so when a quotation fell under the
+    // length floor its closing mark was free to open a match running to the
+    // next quotation's opening one. The prose in between was then checked
+    // against the sources, found absent, and reported as fabricated.
+    // A real report lost 21 phantoms this way and was thrown out for them.
+    const report =
+      'The study is clear [[S1:P1]]. The toggle is "repel" here. ' +
+      'I should soften this claim, because the task says "Teams reported better focus." now.'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.filter((issue) => issue.startsWith('Quoted text is not present'))
+    ).toEqual([])
+  })
+
+  it('still reports a quotation that is not in the evidence', () => {
+    // The promise this module exists to keep. The pairing fix must not buy
+    // quiet by checking less.
+    const report = 'The study is clear [[S1:P1]]. "Teams reported a total collapse of output."'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.some((issue) => issue.startsWith('Quoted text is not present'))
+    ).toBe(true)
+  })
+
+  it('pairs curly quotation marks with their own closing mark', () => {
+    const report = 'The study is clear [[S1:P1]]. “Teams reported better focus.” Nothing else.'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(result.safetyIssues).toEqual([])
+  })
+
+  it('ignores an unterminated quotation rather than inventing a span', () => {
+    const report = 'The study is clear [[S1:P1]]. Then someone wrote "an opening mark and no close'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.filter((issue) => issue.startsWith('Quoted text is not present'))
+    ).toEqual([])
+  })
+
+  it('does not sweep citation markers or table pipes into a quotation', () => {
+    // The shape seen in the real report: spans that began at one quotation's
+    // closing mark ran through markdown table structure and citation markers.
+    const report =
+      'Findings [[S1:P1]]. A short "tag" follows.\n\n' +
+      '| Feature | Evidence |\n| Lasers [[S1:P1]] | Marketed |\n\n' +
+      'And then "Teams reported better focus." closes it.'
+    const result = validateResearchReport(report, artifacts, sources)
+
+    expect(
+      result.safetyIssues.filter((issue) => issue.startsWith('Quoted text is not present'))
+    ).toEqual([])
+  })
+})
