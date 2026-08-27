@@ -179,7 +179,7 @@ Report requirements:
 - Use informative subsections and comparison tables when they make the evidence easier to evaluate.
 - Give every substantive paragraph or list/table block at least one exact internal citation marker such as [[S1]] or [[S1:P2]], and cite each material claim with the evidence that supports it.
 - Use only source and passage IDs present in the evidence packet. Never write a raw URL.
-- Exact quotations must appear verbatim in a stored passage (Unicode punctuation and whitespace may normalize).
+- Exact quotations must appear verbatim in a stored passage (Unicode punctuation and whitespace may normalize). If you are not copying the exact characters from a passage in front of you, write the point in your own words with a citation and no quotation marks. Quotation marks are a claim that a source used those words, not emphasis.
 - When a quantitative comparison materially improves understanding, include an evidence-backed bar, line, or pie chart using a fenced chart block with strict JSON in this shape:
   \`\`\`chart
   {"type":"bar","title":"Descriptive title","labels":["A","B"],"datasets":[{"label":"Series","values":[12,18]}],"unit":"%","source":"[[S1:P2]]","note":"Optional context"}
