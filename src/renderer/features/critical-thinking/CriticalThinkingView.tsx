@@ -523,13 +523,12 @@ function RunDetail(props: RunDetailProps): JSX.Element {
   const { run } = props
   const firstLight = useReportFirstLight(run.id, Boolean(run.report))
   const active = isActiveStatus(run.status)
-  const lifetimeEvidenceLimit = run.steps.some(
-    (step) => step.terminationReason === 'evidence-limit'
-  )
-  const resumable =
-    ['partial', 'stopped', 'failed'].includes(run.status) &&
-    Boolean(run.plan) &&
-    (!lifetimeEvidenceLimit || !run.report)
+  // A run that stopped on the lifetime evidence ceiling used to have Resume
+  // hidden, and rightly so: the ceiling counted everything the investigation
+  // had ever fetched, so resuming re-limited the step immediately and gathered
+  // nothing. A resume now rebases that allowance, so the button does what it
+  // says again and hiding it would strand exactly the runs that need it.
+  const resumable = ['partial', 'stopped', 'failed'].includes(run.status) && Boolean(run.plan)
   const reportReady =
     run.status === 'completed' || run.status === 'partial' || run.status === 'stopped'
   return (
