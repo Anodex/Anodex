@@ -195,6 +195,7 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
 
   try {
     let current = serverRenderedUrl(assertPublicUrl(rawUrl))
+    let unwrapMediaWiki = false
     for (let hop = 0; ; hop++) {
       if (hop > MAX_REDIRECTS) {
         throw new Error('Too many redirects.')
@@ -223,6 +224,13 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
         }
         if (!response.ok) {
           await discardBody(response)
+          const viaApi =
+            response.status === 403 && !unwrapMediaWiki ? mediaWikiApiUrl(current) : null
+          if (viaApi) {
+            current = assertPublicUrl(viaApi.toString())
+            unwrapMediaWiki = true
+            continue
+          }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`)
         }
         const contentType = response.headers.get('content-type')?.split(';')[0].trim() || 'unknown'
@@ -266,6 +274,22 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
           }
         }
         const body = await readResponseBody(response, MAX_FETCH_BYTES)
+        if (unwrapMediaWiki) {
+          const article = mediaWikiArticleHtml(body.text)
+          if (!article) {
+            throw new Error('HTTP 403: Forbidden')
+          }
+          return {
+            body: article,
+            finalUrl: current.toString(),
+            status: response.status,
+            // The payload is JSON, but what came out of it is the article's own
+            // HTML, so the reader downstream should treat it as such.
+            contentType: 'text/html',
+            truncated: body.truncated,
+            warnings: body.truncated ? [`Response exceeded ${MAX_FETCH_BYTES} bytes.`] : []
+          }
+        }
         return {
           body: body.text,
           finalUrl: current.toString(),
@@ -345,6 +369,44 @@ function serverRenderedUrl(url: URL): URL {
   const rewritten = new URL(url.toString())
   rewritten.hostname = replacement
   return rewritten
+}
+
+/**
+ * A wiki article's URL rewritten to the same wiki's MediaWiki API, or null when
+ * the URL is not an article path.
+ *
+ * Fandom -- which hosts a wiki for most games, films and franchises, so a
+ * research run reaches it often -- refuses `/wiki/<title>` outright. Measured on
+ * one article: the HTML page answers HTTP 403 with 5,854 bytes of refusal, while
+ * `api.php?action=parse` on the same host answers HTTP 200 with the article,
+ * 4,981 characters of it. A live research step spent three rounds reporting that
+ * no source listed a game's built-in scenarios; the page that lists them had
+ * been selected and silently lost to that 403.
+ *
+ * Keyed on the article path rather than the host, so it works for any MediaWiki
+ * site, and only ever tried after a refusal, so an ordinary fetch is unchanged.
+ */
+function mediaWikiApiUrl(url: URL): URL | null {
+  const article = /^\/wiki\/(.+)$/.exec(url.pathname)
+  if (!article) return null
+  const title = decodeURIComponent(article[1])
+  if (!title || title.includes('/')) return null
+  const api = new URL(`${url.origin}/api.php`)
+  api.searchParams.set('action', 'parse')
+  api.searchParams.set('page', title)
+  api.searchParams.set('prop', 'text')
+  api.searchParams.set('format', 'json')
+  return api
+}
+
+/** The article HTML inside an `action=parse` payload, or null if it is not one. */
+function mediaWikiArticleHtml(payload: string): string | null {
+  try {
+    const parsed = JSON.parse(payload) as { parse?: { text?: Record<string, string> } }
+    return parsed.parse?.text?.['*'] ?? null
+  } catch {
+    return null
+  }
 }
 
 function isPdfContentType(contentType: string): boolean {
