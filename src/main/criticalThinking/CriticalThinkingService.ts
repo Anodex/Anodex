@@ -112,6 +112,13 @@ import {
 import { headlessConfirm } from '../tools/headlessConfirm'
 
 const log = createLogger('critical-thinking-service')
+/**
+ * Share of a run's evidence budget one section may claim. A section covers a
+ * single step, so it needs less than the full report -- but proportionally
+ * less, so a larger context still buys it more.
+ */
+const SECTION_EVIDENCE_SHARE = 0.5
+
 const MAX_QUESTION_CHARS = 8_000
 const MAX_PLAN_STEPS = 12
 const MAX_PLAN_STEP_CHARS = 240
@@ -957,7 +964,13 @@ class CriticalThinkingService {
         run.sources,
         Math.max(
           0,
-          Math.min(limits.maxEvidenceChars, 18_000, limits.maxPromptChars - basePrompt.length)
+          Math.min(
+            // A section reasons about one step, so it needs less evidence than
+            // the whole report -- a share of the run's budget rather than a flat
+            // ceiling, which stopped a larger context buying a fuller section.
+            Math.floor(limits.maxEvidenceChars * SECTION_EVIDENCE_SHARE),
+            limits.maxPromptChars - basePrompt.length
+          )
         )
       )
       if (!evidencePacket) continue
@@ -1133,7 +1146,9 @@ class CriticalThinkingService {
     const overviewBase = buildCriticalThinkingOverviewPrompt(question, '')
     const boundedSections = boundPromptItems(
       sectionItems,
-      Math.max(0, Math.min(36_000, limits.maxPromptChars - overviewBase.length))
+      // Bounded by what the prompt can hold, not by a flat ceiling: these are
+      // the written sections, and truncating them drops finished work.
+      Math.max(0, limits.maxPromptChars - overviewBase.length)
     ).join('\n\n')
     // The overview returned zero characters on a live run: its 2,048
     // ceiling left nothing after hidden reasoning, so the report fell back to

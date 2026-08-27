@@ -163,7 +163,9 @@ describe('model preamble', () => {
     const withPreamble = evaluateReportCandidate(narrated, [artifact()], [SOURCE], 1)
 
     expect(withPreamble.issues).toEqual(clean.issues)
-    expect(withPreamble.valid).toBe(clean.valid)
+    expect(withPreamble.overallValid).toBe(clean.overallValid)
+    expect(withPreamble.safe).toBe(clean.safe)
+    expect(withPreamble.citedSubstantiveBlockCount).toBe(clean.citedSubstantiveBlockCount)
   })
 
   it('leaves a report that already starts with its title alone', () => {
