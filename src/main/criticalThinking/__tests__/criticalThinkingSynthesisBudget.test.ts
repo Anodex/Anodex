@@ -18,7 +18,11 @@ describe('Critical Thinking synthesis budgets', () => {
     expect(medium.maxOutputTokens).toBeLessThan(cloud.maxOutputTokens)
     expect(small.maxEvidenceChars).toBeLessThan(medium.maxEvidenceChars)
     expect(medium.maxEvidenceChars).toBeLessThan(cloud.maxEvidenceChars)
-    expect(cloud.maxEvidenceChars).toBe(36_000)
+    // The flat 36,000 ceiling this line used to pin was cancelling the
+    // scaling above: a 65,536-token run reached only 30% of the evidence it
+    // had gathered. A large context is now governed by its share.
+    expect(cloud.maxEvidenceChars).toBeGreaterThan(36_000)
+    expect(cloud.maxEvidenceChars).toBe(Math.floor(cloud.maxPromptChars * 0.58))
   })
 
   it('uses the active local context and conservative cloud catalog fallback', () => {
@@ -63,5 +67,37 @@ describe('Critical Thinking synthesis budgets', () => {
         expect(limits.thoughtTokens).toBeGreaterThanOrEqual(0)
       }
     })
+  })
+})
+
+describe('Critical Thinking budgets on a large context', () => {
+  it('lets the context share govern instead of a flat ceiling', () => {
+    // Measured on a real 65,536-token run: the context allowed 141,312 prompt
+    // characters and a flat ceiling admitted 80,000; the evidence share allowed
+    // 46,400 and a flat ceiling admitted 36,000. The run held 119,843
+    // characters of passages, so 30% of its own evidence reached the model
+    // while its steps reported those very facts as missing.
+    const big = criticalThinkingSynthesisLimits(65_536, 8_192)
+
+    expect(big.maxPromptChars).toBeGreaterThan(80_000)
+    expect(big.maxEvidenceChars).toBeGreaterThan(36_000)
+    // Still bounded by what the context can actually hold.
+    expect(big.maxPromptChars).toBeLessThanOrEqual((big.contextTokens - big.maxOutputTokens) * 3)
+  })
+
+  it('grows the evidence budget as the context grows', () => {
+    const small = criticalThinkingSynthesisLimits(32_768, 8_192)
+    const large = criticalThinkingSynthesisLimits(131_072, 8_192)
+
+    expect(large.maxEvidenceChars).toBeGreaterThan(small.maxEvidenceChars)
+  })
+
+  it('leaves a small local context exactly as it was', () => {
+    // The raised rails must not change behaviour for modest hardware, where
+    // the share has always governed.
+    const tiny = criticalThinkingSynthesisLimits(8_192, 8_192)
+
+    expect(tiny.maxPromptChars).toBe((tiny.contextTokens - tiny.maxOutputTokens - 1_024) * 3)
+    expect(tiny.maxEvidenceChars).toBe(Math.floor(tiny.maxPromptChars * 0.58))
   })
 })
