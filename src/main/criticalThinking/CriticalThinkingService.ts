@@ -680,6 +680,12 @@ class CriticalThinkingService {
     // report's own paraphrase, which is what it always was. Only the claim that
     // a source used those words goes. Scored against the original so this can
     // never make a report worse.
+    //
+    // Remembered separately because neutralising erases the evidence that it
+    // happened: the neutralised candidate reports no unverified quotations, so
+    // without this the reader would never be told which attributions were
+    // dropped.
+    const neutralisedQuotations: string[] = [...candidate.unverifiedQuotations]
     candidate = chooseBetterReportCandidate(
       candidate,
       evaluateReportCandidate(
@@ -873,11 +879,18 @@ class CriticalThinkingService {
       })
     }
 
-    // Disclosed before the citations are rendered, so an untraceable
-    // quotation is named in the report's own limits rather than costing the
-    // whole report -- see `discloseUnverifiedQuotations`.
+    // Applied to whichever stage won, not just the draft: a repair produces its
+    // own quotations and can outscore a draft that was already neutralised, so
+    // doing this earlier only let the marks back in. Measured on a live run --
+    // the shipped report still read `A long-tenured reviewer: "Universe Sandbox
+    // is truly one of the most mesmerising..."` over text on no page it read.
+    // Neutralised first, then disclosed, so the limits section names quotations
+    // that are no longer presented as anyone's words.
     const report = renderResearchCitations(
-      discloseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotations),
+      discloseUnverifiedQuotations(
+        neutraliseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotationText),
+        [...new Set([...neutralisedQuotations, ...candidate.unverifiedQuotations])]
+      ),
       run.sources
     )
     const limitedSteps = run.steps.some((step) => step.status !== 'completed')
@@ -1712,11 +1725,18 @@ class CriticalThinkingService {
       run.sources,
       stepsWithEvidence
     )
-    // Disclosed before the citations are rendered, so an untraceable
-    // quotation is named in the report's own limits rather than costing the
-    // whole report -- see `discloseUnverifiedQuotations`.
+    // Applied to whichever stage won, not just the draft: a repair produces its
+    // own quotations and can outscore a draft that was already neutralised, so
+    // doing this earlier only let the marks back in. Measured on a live run --
+    // the shipped report still read `A long-tenured reviewer: "Universe Sandbox
+    // is truly one of the most mesmerising..."` over text on no page it read.
+    // Neutralised first, then disclosed, so the limits section names quotations
+    // that are no longer presented as anyone's words.
     const report = renderResearchCitations(
-      discloseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotations),
+      discloseUnverifiedQuotations(
+        neutraliseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotationText),
+        candidate.unverifiedQuotations
+      ),
       run.sources
     )
     const synthesisDiagnostics = run.synthesisDiagnostics

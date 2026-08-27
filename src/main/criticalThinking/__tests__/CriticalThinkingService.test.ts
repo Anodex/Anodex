@@ -668,6 +668,34 @@ describe('CriticalThinkingService synthesis: artifact-first termination semantic
     expect(persisted?.report).toContain('Primary study')
   })
 
+  it('never ships a quotation the evidence could not confirm, still wrapped in its marks', async () => {
+    // Measured on a live run: the draft was neutralised, a repair then
+    // outscored it carrying its own untraceable quotations, and the shipped
+    // report still read `A long-tenured reviewer: "Universe Sandbox is truly
+    // one of the most mesmerising..."` over text on no page the run read.
+    // Neutralising the draft alone was not enough — it has to apply to
+    // whichever stage wins.
+    const invented = 'the single most mesmerising simulation of recent years'
+    const run = seedSynthesisRun()
+    mocks.runGeneration.mockImplementationOnce(() =>
+      Promise.resolve({
+        content: VALID_DRAFT.replace(
+          '## Findings',
+          `## Findings\n\nA reviewer called it "${invented}" [[S1:P1]].\n`
+        ),
+        stats: EMPTY_STATS,
+        stopped: false
+      })
+    )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const report = mocks.runs.get(run.id)?.report ?? ''
+    expect(report).toContain(invented)
+    expect(report).not.toContain(`"${invented}"`)
+    expect(report).toContain('could not be matched to their cited source')
+  })
+
   it('completes a token-limited but valid draft instead of discarding it as partial', async () => {
     const run = seedSynthesisRun()
     mocks.runGeneration.mockImplementationOnce(() =>

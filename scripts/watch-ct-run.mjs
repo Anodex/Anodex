@@ -14,7 +14,10 @@ const RUNNING = new Set([
   'writing'
 ])
 
-const read = () => Object.values(JSON.parse(fs.readFileSync(file, 'utf8')))[0]
+const read = () =>
+  Object.values(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(
+    (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
+  )[0]
 
 let last = ''
 for (;;) {
