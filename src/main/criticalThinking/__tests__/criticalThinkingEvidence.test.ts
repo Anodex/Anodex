@@ -1049,3 +1049,56 @@ describe('criticalThinkingEvidence — a figure cited to the wrong passage', () 
     expect(result.issues.some((issue) => issue.startsWith('Numeric claim'))).toBe(false)
   })
 })
+
+describe('criticalThinkingEvidence — a chart value cited to the wrong passage', () => {
+  const twoPassages: ToolArtifact[] = [
+    {
+      ...(artifacts[0] as WebFetchArtifact),
+      passages: [
+        { id: 'P1', text: 'Bee stings were the more painful of the two.', score: 100 },
+        { id: 'P2', text: 'Bee scored 82% and wasp scored 61% for reported pain.', score: 90 }
+      ]
+    }
+  ]
+
+  const chart = (source: string): string =>
+    [
+      'Findings [[S1:P1]].',
+      '',
+      '```chart',
+      JSON.stringify({
+        type: 'bar',
+        title: 'Reported pain',
+        labels: ['Bee', 'Wasp'],
+        datasets: [{ label: 'Pain', values: [82, 61] }],
+        unit: '%',
+        source
+      }),
+      '```'
+    ].join('\n')
+
+  it('reports a misattributed chart value as coverage, not fabrication', () => {
+    // A chart cites one passage for a whole series, so its values routinely sit
+    // a passage or two from the marker.
+    const result = validateResearchReport(chart('[[S1:P1]]'), twoPassages, sources)
+
+    expect(result.safetyIssues).toEqual([])
+    expect(
+      result.issues.some((issue) => issue.startsWith('Chart value 82 % is on the cited page'))
+    ).toBe(true)
+  })
+
+  it('still calls it fabrication when the value is on no fetched page', () => {
+    const invented = chart('[[S1:P1]]').replace('[82,61]', '[99,61]')
+    const result = validateResearchReport(invented, twoPassages, sources)
+
+    expect(result.safetyIssues.some((issue) => issue.startsWith('Chart value 99 %'))).toBe(true)
+  })
+
+  it('says nothing when the value is in the passage actually cited', () => {
+    const result = validateResearchReport(chart('[[S1:P2]]'), twoPassages, sources)
+
+    expect(result.safetyIssues).toEqual([])
+    expect(result.issues.some((issue) => issue.startsWith('Chart value'))).toBe(false)
+  })
+})

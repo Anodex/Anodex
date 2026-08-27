@@ -885,12 +885,28 @@ function validateCharts(
         continue
       }
       const evidenceText = passagesForCitations(chart.source, passagesByUrl, sourceById).join(' ')
+      // A chart cites one passage for a whole series, so its values routinely
+      // sit a passage or two away from the marker. Same distinction the
+      // quotation and numeric checks make: on the cited page under a different
+      // marker is a citation pointing slightly off, not an invented figure.
+      const wholeSourceText = passagesForCitations(
+        chart.source,
+        passagesByUrl,
+        sourceById,
+        true
+      ).join(' ')
       for (const value of chart.datasets.flatMap((dataset) => dataset.values)) {
-        if (!chartValueAppears(evidenceText, value, chart.unit)) {
-          collector.safety.push(
-            `Chart value ${value}${chart.unit ? ` ${chart.unit}` : ''} is not present with the same unit in its cited evidence passage.`
+        if (chartValueAppears(evidenceText, value, chart.unit)) continue
+        const label = `${value}${chart.unit ? ` ${chart.unit}` : ''}`
+        if (chartValueAppears(wholeSourceText, value, chart.unit)) {
+          collector.coverage.push(
+            `Chart value ${label} is on the cited page but under a different passage marker.`
           )
+          continue
         }
+        collector.safety.push(
+          `Chart value ${label} is not present with the same unit in its cited evidence passage.`
+        )
       }
     } catch {
       collector.safety.push('A chart block is not valid JSON.')
