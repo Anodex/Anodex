@@ -889,7 +889,8 @@ class CriticalThinkingService {
     const report = renderResearchCitations(
       discloseUnverifiedQuotations(
         neutraliseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotationText),
-        [...new Set([...neutralisedQuotations, ...candidate.unverifiedQuotations])]
+        [...new Set([...neutralisedQuotations, ...candidate.unverifiedQuotations])],
+        candidate.unverifiedFigures
       ),
       run.sources
     )
@@ -1744,7 +1745,8 @@ class CriticalThinkingService {
     const report = renderResearchCitations(
       discloseUnverifiedQuotations(
         neutraliseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotationText),
-        candidate.unverifiedQuotations
+        candidate.unverifiedQuotations,
+        candidate.unverifiedFigures
       ),
       run.sources
     )
