@@ -94,6 +94,12 @@ export interface CriticalThinkingStepState {
   uncertainties: string[]
   rounds: CriticalThinkingRoundState[]
   terminationReason?: CriticalThinkingTerminationReason
+  /**
+   * Rounds already spent when this step was last reopened by a resume. The
+   * per-step round cap counts from here, so resuming an exhausted step buys it
+   * a fresh allowance instead of re-limiting it the moment it starts.
+   */
+  roundBudgetBase?: number
 }
 
 export interface CriticalThinkingActivity {

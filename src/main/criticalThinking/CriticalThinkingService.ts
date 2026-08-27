@@ -1864,7 +1864,20 @@ function reopenUnfinishedSteps(steps: CriticalThinkingStepState[]): CriticalThin
   return steps.map((step) =>
     step.status === 'completed'
       ? step
-      : { ...step, status: 'pending' as const, terminationReason: undefined }
+      : {
+          ...step,
+          status: 'pending' as const,
+          terminationReason: undefined,
+          // The per-step round cap is a lifetime one, counted from the rounds
+          // already on the step. A step that stopped because it ran out of
+          // rounds therefore re-limited itself the instant a resume restarted
+          // it, without searching or reading anything -- so "Resume to keep
+          // looking", the one recovery the UI offers for an incomplete run,
+          // could not look. Rebasing the cap here gives the reopened step the
+          // allowance the user just asked for, while its evidence and history
+          // stay intact.
+          roundBudgetBase: step.rounds.length
+        }
   )
 }
 

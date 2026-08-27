@@ -1010,7 +1010,10 @@ function resumableRound(step: CriticalThinkingStepState): CriticalThinkingRoundS
  * limited on a later call.
  */
 function spentRoundCount(step: CriticalThinkingStepState): number {
-  return resumableRound(step) ? step.rounds.length - 1 : step.rounds.length
+  const spent = resumableRound(step) ? step.rounds.length - 1 : step.rounds.length
+  // Counted from where the last resume rebased it, so an explicit resume buys
+  // a fresh allowance rather than restarting an already-exhausted step.
+  return Math.max(0, spent - (step.roundBudgetBase ?? 0))
 }
 
 function trailingEmptyRoundCount(

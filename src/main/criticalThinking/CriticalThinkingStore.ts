@@ -420,6 +420,9 @@ function normalizeStep(step: unknown): CriticalThinkingStepState {
     rounds: Array.isArray(value.rounds)
       ? value.rounds.filter(isRecord).map((round, index) => normalizeRound(round, index))
       : [],
+    ...(typeof value.roundBudgetBase === 'number' && Number.isFinite(value.roundBudgetBase)
+      ? { roundBudgetBase: nonNegativeInteger(value.roundBudgetBase) }
+      : {}),
     ...(isTerminationReason(value.terminationReason)
       ? { terminationReason: value.terminationReason }
       : {})
