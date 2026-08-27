@@ -56,6 +56,7 @@ import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { detectFallbackToolCall, stripFallbackCall } from './toolCallFallback'
 import { createTurnProgress } from '../tools/turnProgress'
 import { ToolGuidanceError } from '../tools/ToolGuidanceError'
+import { repairLoneSurrogatesDeep } from './loneSurrogates'
 import {
   createVisualInputQueue,
   drainVisualInputs,
@@ -661,7 +662,11 @@ export class LlamaVisionService {
         const stream = await client.chat.completions.create(
           {
             model: connection.modelId,
-            messages,
+            // A surrogate pair cut in half by any upstream character budget
+            // serialises fine here and is then rejected by llama-server's JSON
+            // parser, failing the whole turn. Repaired at the last point before
+            // the SDK serialises, so no single truncation site has to remember.
+            messages: repairLoneSurrogatesDeep(messages),
             tools,
             tool_choice: tools ? 'auto' : undefined,
             parallel_tool_calls: false,
@@ -1155,7 +1160,11 @@ export class LlamaVisionService {
       // `chat_template_kwargs` is outside the OpenAI schema — a llama.cpp
       // extension the SDK serializes through untouched. Widened here rather
       // than on the literal above so the standard fields keep their checking.
-      { ...body, chat_template_kwargs: DIRECT_ANSWER_TEMPLATE_KWARGS } as typeof body & {
+      {
+        ...body,
+        messages: repairLoneSurrogatesDeep(body.messages),
+        chat_template_kwargs: DIRECT_ANSWER_TEMPLATE_KWARGS
+      } as typeof body & {
         chat_template_kwargs: Readonly<Record<string, unknown>>
       },
       { signal: options.signal }
