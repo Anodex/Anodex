@@ -1147,7 +1147,7 @@ describe('criticalThinkingEvidence — a figure cited to the wrong source', () =
     { id: 'S2', title: 'Store page', url: 'https://example.com/store', verified: true }
   ]
   const twoArtifacts: ToolArtifact[] = [
-    artifacts[0] as WebFetchArtifact,
+    artifacts[0],
     {
       ...(artifacts[0] as WebFetchArtifact),
       id: 'artifact_2',
