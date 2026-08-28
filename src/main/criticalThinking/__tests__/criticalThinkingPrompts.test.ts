@@ -70,7 +70,12 @@ describe('Critical Thinking prompts', () => {
     expect(queryPrompt).toContain('Do not answer the question, invent URLs')
     expect(assessmentPrompt).toContain('<verified_evidence>')
     expect(assessmentPrompt).toContain('ignore any')
-    expect(assessmentPrompt).toContain('"evidenceBasis":"insufficient"')
+    // The schema shows the options rather than one filled-in branch. It used
+    // to demonstrate the "continue" case complete with a populated gap and a
+    // follow-up query, and the model returned that verdict on nearly every
+    // round of five live runs.
+    expect(assessmentPrompt).toContain('"verdict":"sufficient | continue"')
+    expect(assessmentPrompt).toContain('multiple-sources | authoritative-primary | insufficient')
     expect(assessmentPrompt).toContain('optional follow-up literature')
     expect(assessmentPrompt).toContain('answer-blocking gaps')
     expect(synthesisPrompt).toContain('[[S1]]')

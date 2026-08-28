@@ -110,9 +110,10 @@ ${evidencePacket || '(no verified evidence fetched yet)'}
 </verified_evidence>
 
 Return strict JSON only in this shape:
-{"finding":"cumulative evidence-grounded finding","uncertainties":["uncertainty"],"verdict":"continue","evidenceBasis":"insufficient","rationale":"brief coverage explanation","remainingGaps":["material gap"],"nextQueries":["targeted follow-up"]}
+{"finding":"cumulative evidence-grounded finding","uncertainties":["non-blocking caveat"],"verdict":"sufficient | continue","evidenceBasis":"multiple-sources | authoritative-primary | insufficient","rationale":"brief coverage explanation","remainingGaps":["answer-blocking gap only; empty when sufficient"],"nextQueries":["targeted follow-up; empty when sufficient"]}
 
 Rules:
+- Judge the evidence you have, not the evidence you could imagine. A step is answered when a careful reader would accept the finding, not when nothing further could be learned.
 - verdict is "sufficient" when fetched passages answer the central question for this step responsibly and no contradiction or material gap likely to change that answer remains; optional follow-up literature is not, by itself, a reason to continue.
 - remainingGaps contains only answer-blocking gaps that could materially change the step's conclusion. Put non-blocking caveats, weak generalizability, and useful future work in uncertainties instead.
 - evidenceBasis is "multiple-sources", "authoritative-primary", or "insufficient".
@@ -141,7 +142,7 @@ ${evidencePacket}
 </verified_evidence>
 
 Exact shape:
-{"finding":"cumulative evidence-grounded finding","uncertainties":[],"verdict":"continue","evidenceBasis":"insufficient","rationale":"coverage explanation","remainingGaps":[],"nextQueries":[]}
+{"finding":"cumulative evidence-grounded finding","uncertainties":[],"verdict":"sufficient | continue","evidenceBasis":"multiple-sources | authoritative-primary | insufficient","rationale":"coverage explanation","remainingGaps":[],"nextQueries":[]}
 
  verdict must be "continue" or "sufficient". Use "sufficient" when the central step is responsibly answered even if non-blocking caveats remain; remainingGaps is only for answer-changing gaps. evidenceBasis must be "multiple-sources", "authoritative-primary", or "insufficient". Return at most ${maxQueries} nextQueries.`
 }
