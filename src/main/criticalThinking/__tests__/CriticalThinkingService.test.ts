@@ -725,6 +725,39 @@ describe('CriticalThinkingService synthesis: artifact-first termination semantic
     expect(persisted?.lastError).toContain('citation-coverage')
   })
 
+  it('completes a run whose only flaw was disclosed to the reader', async () => {
+    // Measured live: all six steps completed, the model's own report won
+    // single-pass, and the run still read `partial` because two quotations had
+    // been flagged -- quotations that are stripped of their marks and listed in
+    // the report's limits before it ships. Nothing false reached the reader, so
+    // judging the run on a flag describing the draft was the wrong test.
+    const run = seedSynthesisRun()
+    mocks.runGeneration
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          content: VALID_DRAFT.replace(
+            '## Findings',
+            '## Findings\n\nReviewers called it "a total collapse of every measured outcome" [[S1:P1]].\n'
+          ),
+          stats: EMPTY_STATS,
+          stopped: false
+        })
+      )
+      .mockImplementation(() =>
+        Promise.resolve({ content: '', stats: EMPTY_STATS, stopped: false })
+      )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('completed')
+    // The reader is told in the report itself: the quotation is stripped of its
+    // marks and named in the limits section, which is the notice. No separate
+    // warning is needed for a report that ships nothing false.
+    expect(persisted?.report).toContain('could not be matched to their cited source')
+    expect(persisted?.report).not.toContain('"a total collapse of every measured outcome"')
+  })
+
   it('stays partial when the report is missing a section the contract requires', async () => {
     const run = seedSynthesisRun()
     mocks.runGeneration
