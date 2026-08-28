@@ -912,7 +912,16 @@ class CriticalThinkingService {
     const status =
       repairStopReason === 'user'
         ? 'stopped'
-        : candidate.safe &&
+        : // `usable`, not `safe`: `safe` is computed before the report is
+          // neutralised and disclosed, so it still counts quotations that no
+          // longer appear as quotations in what ships. Judging the shipped
+          // report on a flag describing the draft made "nothing false" mean
+          // "nothing was ever wrong" -- measured live, a run with all six steps
+          // completed and the model's own report still read `partial` because
+          // two quotations had been disclosed. `usable` is the same condition
+          // with the disclosable issues accounted for, and the coverage note
+          // still tells the reader what was flagged.
+          candidate.usable &&
             candidate.structurallyValid &&
             !limitedSteps &&
             !repairStopReason &&
