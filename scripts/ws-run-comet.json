@@ -1,0 +1,8 @@
+{
+  "goal": "Add a user-placeable comet body type to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nA comet is a low-mass icy body on a steep elliptical orbit that grows a visible tail pointing directly away from the nearest star, longer the closer it gets. This must work end to end:\n\n- physics.py: a 'comet' body type that participates in gravity, merging and black-hole absorption like any other body.\n- sprites.py: an icy, irregular comet surface distinct from the existing types.\n- render/: draw the tail, scaled by distance to the nearest star and pointing away from it.\n- ui.py: a 'Comet' button in the toolbar next to the existing body buttons.\n- main.py: wire the button to an add_comet() action that places one at the current focus.\n- _smoke_test.py: add checks that a comet is created, that its tail direction points away from the star, and that the tail is longer when the comet is nearer the star.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken or remove any of them - and your new comet checks must pass too. Update _plan.md with what you did.",
+  "project": "Sandbox",
+  "maxTurns": 20,
+  "maxTokens": 300000,
+  "maxDurationMinutes": 120,
+  "requirePlan": true
+}

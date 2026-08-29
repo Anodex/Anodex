@@ -27,6 +27,8 @@ import { agentRunService } from './agents/AgentRunService'
 import { criticalThinkingStore } from './criticalThinking/CriticalThinkingStore'
 import { criticalThinkingService } from './criticalThinking/CriticalThinkingService'
 import { criticalThinkingEvidenceStore } from './criticalThinking/CriticalThinkingEvidenceStore'
+import { initCriticalThinkingAutorun } from './criticalThinking/criticalThinkingAutorun'
+import { initAgentAutorun } from './agents/agentAutorun'
 import { mcpServerStore } from './mcp/McpServerStore'
 import { mcpAuthStore } from './mcp/McpAuthStore'
 import { mcpManager } from './mcp/McpManager'
@@ -133,6 +135,10 @@ if (!app.requestSingleInstanceLock()) {
       registerIpcHandlers()
       createMainWindow()
       setTimeout(() => void updateService.check(), STARTUP_UPDATE_CHECK_DELAY_MS)
+      // Dev-only, and inert without `ANODEX_CT_AUTORUN`. Must follow window
+      // creation: the renderer is what restores the last local model.
+      initCriticalThinkingAutorun()
+      initAgentAutorun()
 
       // macOS: re-create a window when the dock icon is clicked with none open.
       app.on('activate', () => {

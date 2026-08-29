@@ -1,0 +1,9 @@
+{
+  "goal": "Build a small TypeScript command-line tool in this project, from scratch, with tests that actually pass.\n\nThe tool is a CSV to JSON converter called 'csvj'. It must handle the cases that make CSV parsing non-trivial: quoted fields, commas inside quotes, escaped double-quotes (\"\"), embedded newlines inside quoted fields, a configurable delimiter, CRLF and LF line endings, and a --no-header mode that emits arrays instead of objects. Malformed input (an unterminated quote) must fail with a clear message and a non-zero exit code, not a stack trace.\n\nDeliver:\n- package.json configured for TypeScript with vitest as the test runner and a 'test' script\n- tsconfig.json\n- src/parse.ts holding the parser as a pure function, with no I/O\n- src/cli.ts as the command-line entry point, reading a file path or stdin\n- src/parse.test.ts with tests covering every case listed above, including the malformed-input case\n- README.md with usage examples\n\nVerify by running 'npm install' and then 'npm test' in the project root. Every test must pass. Report the exact number of tests that ran and passed, and show the command output you based that on. Do not report success unless npm test actually ran and exited zero.",
+  "project": "TinyToolsTS",
+  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\TinyToolsTS",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}

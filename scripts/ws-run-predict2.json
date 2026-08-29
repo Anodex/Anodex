@@ -1,0 +1,8 @@
+{
+  "goal": "Finish orbit prediction in the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nA previous session started this: check what already exists before redoing anything. predict_path() in physics.py and the predicted-path drawing in render/ are believed done. What remains is the user-facing half and the tests.\n\n- ui.py: a 'Predict' toggle in the toolbar next to the existing toggles, if it is not already wired correctly.\n- main.py: wire the toggle so the predicted path appears and disappears.\n- _smoke_test.py: add checks that predict_path leaves the live bodies untouched, that a circular orbit predicts a path returning near its start, and that a body aimed into a black hole predicts a truncated path.\n\nWhile you are there, check ui.py for duplicated blocks left behind by an earlier double-applied patch, and remove any you find.\n\nUse palette.py for any colours rather than adding new literals. Work module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new prediction checks must pass too. Delete any temporary scripts you or a previous session created (files starting with an underscore other than _smoke_test.py and _plan.md).",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}

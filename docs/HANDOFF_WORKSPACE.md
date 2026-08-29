@@ -1,0 +1,344 @@
+# Workspace — handoff
+
+Updated 2026-08-28. Everything below that is a number was measured from the
+stored conversations, not from reasoning about the code. Where a claim is
+unverified it says so.
+
+## Rating: unchanged, not 9
+
+Seven runs: four clean, three failed. On the _current_ build (all five fixes)
+the record is clean, clean, fail — two consecutive, not three.
+
+The one genuinely new result is run 6: a clean run in a **different project, in
+a different language, on a different toolchain**, first attempt. That is the
+half of the 10/10 bar that hid five bugs in the Critical Thinking work, and it
+passed. The 9 is still unearned because the three-consecutive condition is not
+met.
+
+## What Workspace is
+
+The mode where Anodex works inside a project folder: file read/write tools,
+shell commands, git, structured project checks, plans, checkpoints, and the
+Workspace Dock. `docs/FEATURES.md` §"Workspace Tools" describes the surface.
+
+## The test workload
+
+Anodex builds a Python/tkinter **Universe Sandbox** game.
+
+```
+C:\Users\Owner\Desktop\Sandbox\Sandbox\UniverseSandbox
+```
+
+The path is doubled — the outer `Sandbox` is the workspace root and holds
+`.anodex/`; the inner one holds the game. The Anodex project is named
+`Sandbox` (`p_mt6bc8wx_0mno0`).
+
+**Anodex writes all of the game. You fix Anodex, never the game.** If a run
+produces broken game code, that is the finding. `python _smoke_test.py` runs
+headless and prints per-subsystem OK lines; run it before and after every
+session. It passed at the start and end of this one.
+
+## Clean-run criteria (confirmed with the user 2026-08-28)
+
+1. **The task is actually done** — `_smoke_test.py` passes and exercises the
+   feature asked for.
+2. **No silently-open plan steps** — every plan the run started ends complete,
+   _or_ the reply names the step left undone and why. Chosen over "every step
+   completed" because abandoning a step is legitimate when it is said out loud,
+   which is what `finish_goal`'s guard already asks for.
+3. **Tool calls are reliable** — failed-call rate under 5%.
+4. **No claim outruns the evidence** — cross-checked against `toolCalls`.
+5. **No pathological repetition** — no call signature repeated more than ~5×.
+
+**9/10** = three consecutive clean runs on different features. **10/10** = that
+plus a clean run in a different project, in a different language.
+
+## Read this before trusting any number: three instrumentation bugs
+
+All three had the same shape — **finding "the current thing" by recency or
+position instead of naming it** — and each produced a confident, wrong reading.
+
+1. **`ws-criteria.mjs` sorted by `conversation.updatedAt`.** Every stored file
+   shares an `updatedAt` of 2026-08-28T01:5x from a bulk store rewrite, so
+   "newest" was arbitrary: it scored a run from 08-23 while the genuinely newest
+   was 08-26. Real recency comes from `messages[].createdAt`.
+2. **Plan completion was read from `conversation.plan`.** That is a single slot
+   `write_plan` overwrites. One run scored "0/7 — a defect the user sees" had in
+   fact completed 6/6, 5/5 and 8/8 before starting a fourth plan. Plan history
+   is recoverable from the per-call `plan` snapshots, and that is what the
+   script reads now.
+3. **The run monitor used `runs[runs.length - 1]`.** `agent-runs/runs.json` is
+   not append-ordered, and a freshly started run is not written yet while the
+   previous finished one still is. It latched onto the finished run, saw `done`,
+   and reported the wrong run's result — exactly the failure `watch-ct-run.mjs`
+   was already documented for.
+
+## The corrected baseline
+
+The handoff's old headline — 1,378 calls, 10% failures — came from one outlier
+conversation (`Build Solar System Website`, last active 08-23) that predates the
+repetition work.
+
+| window                               | calls | failed         |
+| ------------------------------------ | ----- | -------------- |
+| all 78 conversations with tool calls | 6,313 | 389 (6%)       |
+| since 2026-08-24                     | 3,083 | 145 (**4.7%**) |
+
+So criterion 3 was **already met** before this session started. That number is
+also misleading on its own, because it averages over tools that never fail.
+
+### The real number: anchored edits fail ~22%
+
+Broken out by tool, `edit_file` / `replace_lines` / `patch_file` — editing an
+existing file, which is most of software work:
+
+| window                                    | anchored calls | failed    |
+| ----------------------------------------- | -------------- | --------- |
+| all time                                  | 769            | 165 (21%) |
+| after the edit echo (`6a3187b`, 08-25)    | 468            | 103 (22%) |
+| after the relocation hint too (`eea0103`) | 96             | 21 (22%)  |
+
+**Two careful, well-reasoned fixes in a row moved that number not at all.** Any
+further work here should be measured against this table, not against the 4.7%.
+
+### Why they fail — the assumed cause was wrong
+
+The code comments attribute it to the model's read being compacted out of
+context. Measured across post-echo failures:
+
+- **47%** happen when the model saw that file in the _immediately preceding_
+  call. Median gap: 2 calls. It has current information and still produces a bad
+  anchor. Eviction is not the cause.
+- **59 of 103** were preceded, _within the same assistant message_, by a
+  successful write to that same file. **69 of 95** messages containing anchored
+  edits contain more than one; several contain 20–36.
+
+The mechanism is batching: the model composes several edits against one view of
+the file, the first lands and shifts every line below it, and the rest arrive
+stale. Better reporting cannot reach them — they were written before any result
+existed. That is why the echo did nothing.
+
+**This is the single most important finding in this document.** The same
+batching mechanism explains the `finish_goal` failure below, and probably
+explains other things not yet looked at.
+
+## What was fixed
+
+Five changes. Four narrow an existing over-guard rather than adding one; the
+fifth raises a cap that was destroying the disclosure another guard demands.
+Each was tested by stashing the fix and confirming the test failed _for the
+right reason_, with the "bar still holds" tests passing in both states.
+
+### 1. `finish_goal`'s evidence gate measured the turn, not the task
+
+`AgentRunService` calls `runGeneration` once per turn, so a run that did its
+work in turn 3 began turn 4 with `madeChange: false`. `CONTINUE_PROMPT` then
+asks it to finish, and the gate refused — telling it to "create or edit a file,
+run a command" when the work was already done. Measured: five refusals of that
+shape in five runs; two never recovered, one ended blank with its plan at 0/5.
+
+`priorTaskProgress` in `turnProgress.ts` reads the answer off the history the
+request already carries, so it survives a resumed run. Only `madeChange`
+carries; the ordering fields stay fresh so `hasStaleVisualEvidence` is not
+silently tightened.
+
+### 2. `replace_lines` refused an edit it could place
+
+Its own refusal read _"That text is now on line 40 — retry there, shifting the
+rest of the range by the same amount"_ — a complete description of the correct
+edit, handed back as an error. When `expectedFirstLine` matches exactly one
+line, the anchor has done its whole job and the line number is the redundant
+half. `relocateToAnchor` now places the edit and says it moved. Zero matches,
+several matches and a missing anchor still refuse with the wording they had, and
+`describeSeamDuplication` still guards the far end.
+
+The old relocation-hint helper was deleted: once a unique match is placed, its
+only working branch was unreachable.
+
+### 3. `edit_file` said nothing about a near miss
+
+It had the whole file in hand and reported only "the text to replace was not
+found". It now reports what the file actually says where the text nearly
+matched, under the same uniqueness rule. **Fired zero times in live runs so
+far — unvalidated.**
+
+### 5. A run's summary was capped below the disclosure it was required to make
+
+`MAX_SUMMARY_CHARS` was 1,000 in the first agent-runs commit (`ac482a7`,
+07-10), when the summary was a short outcome note. The open-steps guard later
+gave it a second job — name the steps you are leaving undone and why — and
+nobody resized it.
+
+Measured on run 7: it finished with 4 of 7 steps open and wrote a careful
+account of both halves. It was cut mid-word at exactly 1,000 characters, after
+item 5 of 7, so the two steps it abandoned were never named. The disclosure the
+guard exists to force was destroyed by the cap on the field it forces it into.
+
+Now 4,000, and truncation says `[cut off by Anodex]` rather than trailing into
+an ellipsis a reader cannot tell from the model's own punctuation.
+
+### 4. The open-steps reconsideration spanned a generation, not a turn
+
+`finish_goal` refuses once when plan steps are open, then lets the next call
+through — one unmissable prompt to reconsider. But a model emits several calls
+in one response, all written before any result comes back, so a second
+`finish_goal` in that batch is a _sibling_ of the refused one, not a
+reconsideration of it.
+
+Measured: **10 of the 32** stored messages containing `finish_goal` contain more
+than one. Run 3 died on exactly this: it called `finish_goal` by accident, was
+refused, wrote in its own reply _"I accidentally called finish_goal — the plan
+is still open, let me get back to executing it"_, carried on working, and then
+had four more calls from the same batch accepted. It stopped at 1 of 8 steps
+with 12 turns and 260,000 tokens unspent.
+
+The refusal now stands for the rest of the generation that earned it and lifts
+on the next one, keyed on the `TaskLedger` (whose lifetime is already the whole
+run, so this needed no plumbing). A run that means to stop early still can, and
+its summary is still never parsed — it just has to say so on a turn that has
+seen the answer.
+
+## The measured record
+
+| run | task                                 | result                                                        |
+| --- | ------------------------------------ | ------------------------------------------------------------- |
+| 1   | split `rendering.py` into `render/`  | **clean** — 6/6, 0/85 failed, smoke green                     |
+| 2   | add comet body type                  | **clean** — 8/8, 5/125 failed (4%), 5 new checks green        |
+| 3   | colour palette                       | **fail** — accidental `finish_goal` at turn 8, 1/8 steps      |
+| 4   | colour palette, fixes live           | **fail** — spent all 20 turns, 2/6 steps                      |
+| 5   | colour palette, 40 turns             | **clean** — 8/8, 0/65 failed, claims verified                 |
+| 6   | TypeScript CSV→JSON CLI, new project | **clean** — 7/7, 4% failed, tool verified working             |
+| 7   | orbit prediction                     | **fail** — 3/7 steps, 7x repetition, smoke checks never added |
+
+Run 1 did not exercise either fix (tool mix was `write_file` 11 vs `edit_file`
+3 — a split-into-new-files refactor structurally avoids the anchor path). Run 2
+did: 4 of its 11 anchored edits failed, and both failing anchors occur exactly
+once in the file, so `relocateToAnchor` would have placed all three stale ones.
+
+Run 4 made **zero** `finish_goal` calls, so fix 4 was **not exercised** there.
+What run 4 does establish is the negative: tightening that guard caused no
+livelock. `relocateToAnchor` fired **once** live in run 4 — real, but n=19
+anchored calls is far too small to claim it moved the 22%.
+
+Every failed run left the workspace **working** (`ALL CHECKS PASSED` after each).
+A run that exhausts its budget or stops early does not leave broken code.
+
+### Run 6 is the one that moved the picture
+
+Verified independently rather than trusted: `npm test` run directly (31
+passing), then the CLI exercised by hand against embedded commas, escaped `""`,
+embedded newlines, CRLF, `--delimiter`, `--no-header`, and malformed input
+returning exit 1 with a clear message and no stack trace.
+
+It produced the first live evidence for two fixes:
+
+- **Fix 4 caught its target.** Three `finish_goal` calls in one batch: the first
+  refused for the open step "Run npm install and npm test", the next two refused
+  by the new turn-spanning rule. Under the old code the second would have
+  succeeded and ended the run at 6/7 with the tests never run — a success claim
+  on unverified work. The model then ran them and finished honestly at 7/7.
+- **The anchor path was finally exercised**: 12 anchored edits, **0 failures**,
+  with one relocation firing live.
+
+Live anchored-edit data across runs 5-7 is now 25 calls with 2 failures (8%)
+against a 21-22% baseline drawn from 769 calls. Suggestive, not conclusive.
+
+## Known-unfixed, with evidence
+
+### Shell surveying is invisible to the gathering guard
+
+`taskLedger`'s gathering streak counts `read`/`web`/`plan` kinds; **any**
+successful `run_command` resets it to zero. Run 4 spent ~170 of its 208 calls
+gathering, 82 of them shell inspection scripts (`python -c "src=open('sprites.py').read()..."`,
+`Select-String -Path ui.py`, `python _final_scan.py`). Peak streak never
+approached the soft limit of 22, so the guard built for "all input, no output"
+runs cannot fire against a model that surveys through the shell.
+
+**Deliberately not fixed.** Anodex's own `isObservationalCommand` would not
+classify `python -c "...open(...).read()..."` as read-only either, so wiring in
+the existing predicate does not catch these. Writing a new classifier means
+guessing what a shell command does, and guessing wrong in the other direction
+blocks builds and tests as "gathering" — a worse failure than the one it fixes.
+Note that run 3 had **zero** such commands and disproved this theory; run 4
+proved it. A measurement that kills a theory on one run does not kill it
+generally.
+
+### A Start click that produced nothing
+
+The user started a run from the GUI and no `AgentRun` was created
+(`AgentRunStore.create` persists immediately, and `runs.json` stayed `[]`), no
+conversation appeared, and neither log recorded an error. Never diagnosed. A
+Start button that silently does nothing is a real defect if it recurs.
+
+### Blank trailing assistant messages
+
+Four agent runs end with an empty assistant message. The `durationMs: 1`,
+zero-token signature and the ~20 ms gap after the previous turn are consistent
+with the run being stopped rather than a generation bug, and the agent-run
+records that would settle it were cleared on 08-27. The empty bubbles _are_
+visible in the transcript. Unresolved — not built for.
+
+### An insertion-style patch applied twice duplicates code
+
+Run 7 issued `patch_file` against `ui.py` twice with the same 5 replacements.
+A patch whose `newText` contains its `oldText` (the ordinary way to insert a
+line) is not idempotent, so the second application duplicated the block — three
+duplicated blocks in that file. The model detected and repaired it itself and
+the smoke test passed, so this was self-correcting here.
+
+Not acted on: tool arguments are not persisted, so it cannot be shown from the
+store that the two patches were byte-identical, and one self-corrected
+observation is not grounds for changing how patches apply. Worth watching.
+
+**Not caused by `relocateToAnchor`** — the only relocation in run 7 was on
+`physics.py`, and it placed correctly.
+
+### Plan ticking is back-loaded
+
+Run 1's plan sat at 2/6 from turn 3 to turn 8 and jumped to 6/6 in the final
+turn. It passes criterion 2, but for six of nine turns the Plan panel
+under-reported what was done. One observation; not acted on.
+
+## Tooling
+
+- `scripts/ws-criteria.mjs` — scores a stored conversation against the five
+  criteria. `ALL=1` for one line per conversation, `VERBOSE=1` for every failed
+  call. **Start here.** Reads plan _history_, not the surviving slot.
+- `scripts/ws-watch.mjs` — waits for a _new_ conversation, then polls it.
+- `src/main/agents/agentAutorun.ts` — dev-only harness that starts an agent run
+  from `ANODEX_AGENT_AUTORUN` (a JSON spec path) and approves its plan, removing
+  the GUI from the measurement loop. Inert without the variable, refuses to arm
+  in a packaged build, and **throws on an unknown project name** rather than
+  falling back to a workspace-less run.
+- Run specs: `scripts/ws-run-*.json`.
+
+## Method notes that cost time to learn
+
+- **Check provenance before acting on a number.** The 4,000-character write cap
+  looked like the clearest "users cannot build what they want" limit in the
+  data — 25 refusals, the same 6,201-character payload reissued eight times.
+  It was **already fixed** (`fbfa1c0`, `456ae8b`, 08-23/24) and every refusal in
+  the store predates the fix. Re-fixing it would have been the third patch to
+  that mechanism.
+- **A check that flags nothing is usually inert, not satisfied.** Criterion 4's
+  first implementation ("did any command run this turn") flagged 0 of 40 claims.
+  Requiring a command that _could have produced the claimed evidence_ flags 2 of
+  39 and identifies both as backed earlier — so it discriminates, and the real
+  answer is that these runs do not claim verification they never performed.
+- **Recency is not identity.** See the three instrumentation bugs above.
+- **Fixtures must reproduce the failure.** A seam-guard test failed and nearly
+  had me "fix" working code; the fixture used `third()`, which
+  `isSubstantialLine` correctly ignores as too short.
+
+## What to do next, in order
+
+1. **Finish the palette question.** Run 5 (40 turns) tests whether the task is
+   simply larger than 20 turns. If it still stalls, the shell-surveying problem
+   above is the likely cause and deserves a properly designed fix.
+2. **A different project in a different language.** This is the highest-value
+   remaining test and the 10/10 condition. The autorun harness resolves a
+   project by name, so the project must already exist in `projects.json`;
+   creating one currently needs the GUI.
+3. **Validate fix 3.** The `edit_file` near-miss hint has never fired live.
+4. Only then consider the shell-surveying guard, and only with a design that
+   cannot misclassify a build or a test as gathering.

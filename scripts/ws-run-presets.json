@@ -1,0 +1,8 @@
+{
+  "goal": "Add selectable scenario presets to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThe user should be able to load a starting scenario from the toolbar and have the simulation reset to it. Provide at least these four, each physically sensible so it actually behaves as named when run:\n\n- 'Solar System' — the existing default scene.\n- 'Binary Star' — two stars orbiting a common barycentre, with a couple of planets on wider orbits.\n- 'Three-Body Chaos' — three comparable masses in a configuration that visibly diverges.\n- 'Black Hole Encounter' — a black hole passing through a small planetary system.\n\nWire it end to end:\n- physics.py (or a new scenarios.py if that is cleaner): a function per preset returning a fresh list of bodies, with orbital velocities derived properly rather than guessed, so bound orbits stay bound.\n- ui.py: a scenario chooser in the toolbar, using palette.py colours rather than new literals.\n- main.py: selecting a preset resets the engine, camera and trails to that scenario.\n- _smoke_test.py: add checks that every preset builds without error, that each produces the expected number of bodies, that the binary star system stays bound over a few hundred steps, and that total momentum is conserved in each.\n\nWork module by module and re-run the smoke test as you go. Verify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new preset checks must pass too. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
