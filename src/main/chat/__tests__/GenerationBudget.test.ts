@@ -135,3 +135,53 @@ describe('GenerationBudget', () => {
     vi.useRealTimers()
   })
 })
+
+describe('the tool-limit soft gate is bounded', () => {
+  function budgetAtLimit() {
+    const budget = new GenerationBudget({
+      maxTools: 1,
+      maxProviderRounds: 50,
+      maxContextShifts: 50,
+      maxDurationMs: null
+    })
+    expect(budget.beforeTool()).toBeNull() // the one allowed call
+    return budget
+  }
+
+  it('keeps inviting the model to wrap up for a few calls', () => {
+    // The gate is an invitation, not a wall: a model reaching for one or two
+    // more tools while it finishes is behaving normally and still gets told.
+    const budget = budgetAtLimit()
+
+    expect(budget.beforeTool()).not.toBeNull()
+    expect(budget.beforeTool()).not.toBeNull()
+    expect(budget.signal.aborted).toBe(false)
+  })
+
+  it('stops the turn once the model plainly is not wrapping up', () => {
+    // The measured failure: a run answered the gate with 940 further calls —
+    // 632 find_skill, 290 search_files — each blocked, each a full round trip,
+    // burning 43,207 tokens before the turn ended. The identical-call loop
+    // guard never saw it, because the queries differed every time.
+    const budget = budgetAtLimit()
+    for (let i = 0; i < 20; i++) budget.beforeTool()
+
+    expect(budget.signal.aborted).toBe(true)
+    expect(budget.stopReason).toBe('tool-limit')
+  })
+
+  it('leaves a run that respects the gate untouched', () => {
+    // A turn that never reaches its tool limit must be unaffected: this bounds
+    // the refusal path only.
+    const budget = new GenerationBudget({
+      maxTools: 10,
+      maxProviderRounds: 50,
+      maxContextShifts: 50,
+      maxDurationMs: null
+    })
+    for (let i = 0; i < 10; i++) expect(budget.beforeTool()).toBeNull()
+
+    expect(budget.signal.aborted).toBe(false)
+    expect(budget.stopReason).toBeUndefined()
+  })
+})

@@ -87,12 +87,25 @@ export function interactiveBudgetForContext(
 }
 
 /** One-turn wall-clock/tool budget shared by every model provider. */
+/**
+ * How many tool calls may be refused after a budget gate closes before the turn
+ * is stopped outright.
+ *
+ * Generous on purpose: the gate exists so a model can notice, consume what it
+ * has and write a reply, and a model that reaches for one or two more tools
+ * while doing that is behaving normally. This only catches the model that never
+ * notices at all.
+ */
+const MAX_BLOCKED_AFTER_LIMIT = 8
+
 export class GenerationBudget {
   private readonly controller = new AbortController()
   private readonly timer: ReturnType<typeof setTimeout> | undefined
   private readonly onOuterAbort: () => void
   private toolAttempts = 0
   private contextShifts = 0
+  /** Tool calls refused since the soft gate closed — see `beforeTool`. */
+  private blockedAfterLimit = 0
   private reason: GenerationStopReason | undefined
 
   constructor(
@@ -117,7 +130,23 @@ export class GenerationBudget {
   }
 
   beforeTool(): string | null {
-    if (this.reason) return limitMessage(this.reason)
+    if (this.reason) {
+      // The soft gate is an invitation to wrap up, not a wall, so a model that
+      // asks for one or two more tools still gets told rather than cut off.
+      // But it only works on a model that reads it: a live run answered the
+      // gate with 940 further calls (632 `find_skill`, 290 `search_files`),
+      // each blocked, each a full round trip, and the turn burned 43,207 tokens
+      // before ending. The identical-call loop guard never saw it because the
+      // queries differed every time.
+      //
+      // So the invitation is bounded. Past this many refusals the model is not
+      // wrapping up, and continuing to answer it costs a generation cycle per
+      // call for nothing. `tool-limit` is a recoverable stop, so this ends the
+      // turn and the run continues from what was settled.
+      this.blockedAfterLimit++
+      if (this.blockedAfterLimit > MAX_BLOCKED_AFTER_LIMIT) this.stop(this.reason)
+      return limitMessage(this.reason)
+    }
     this.toolAttempts++
     if (this.toolAttempts > this.policy.maxTools) {
       // Soft-gate further tools so the model can consume this result and
