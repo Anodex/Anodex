@@ -11,6 +11,22 @@ import { extractPdfText } from './pdfText'
 
 const FETCH_TIMEOUT_MS = 30_000
 const MAX_FETCH_BYTES = 1_000_000
+/**
+ * PDFs get their own, much larger budget because they cannot be read in part.
+ * A PDF's cross-reference table and trailer -- which carry `/Root` -- sit at
+ * the END of the file, so cutting one at a byte cap does not yield less text,
+ * it yields nothing at all: pdf.js rejects the document with "Invalid Root
+ * reference". HTML truncates gracefully, which is why one cap served both
+ * until a research run measured the difference.
+ *
+ * Measured on a live run, 11 of 48 fetches returned HTTP 200 and zero
+ * characters, and they were disproportionately the authoritative sources the
+ * question needed -- DOE, PNNL, MIT and govinfo technical reports. Every one
+ * that was sampled fell between 1.3MB and 3.3MB, i.e. just past the old cap.
+ * This is set well clear of that range rather than at its edge; it is still a
+ * hard bound, and the bytes are transient -- only the extracted text is kept.
+ */
+const MAX_PDF_FETCH_BYTES = 16_000_000
 const MAX_PASSAGES = 8
 const MAX_PASSAGE_CHARS = 900
 const MAX_TITLE_CHARS = 300
@@ -246,7 +262,7 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
           }
         }
         if (isPdfContentType(contentType)) {
-          const pdf = await readResponseBytes(response, MAX_FETCH_BYTES)
+          const pdf = await readResponseBytes(response, MAX_PDF_FETCH_BYTES)
           // A PDF that is a scan, or is malformed, throws here. That is a
           // warning rather than a failed fetch: the run keeps the source and
           // its metadata and moves on, exactly as it did when every PDF was
@@ -258,7 +274,7 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
               status: response.status,
               contentType,
               truncated: pdf.truncated,
-              warnings: pdf.truncated ? [`Response exceeded ${MAX_FETCH_BYTES} bytes.`] : []
+              warnings: pdf.truncated ? [`Response exceeded ${MAX_PDF_FETCH_BYTES} bytes.`] : []
             }
           } catch (error) {
             return {
@@ -268,7 +284,14 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
               contentType,
               truncated: pdf.truncated,
               warnings: [
-                `Could not read that PDF: ${error instanceof Error ? error.message : String(error)}`
+                `Could not read that PDF: ${error instanceof Error ? error.message : String(error)}`,
+                // Naming the truncation matters more than it looks: cutting a
+                // PDF short is itself what makes it unparseable, so without
+                // this the stored warning reads as a corrupt file and the byte
+                // cap -- the actual cause, and the fixable one -- is invisible.
+                ...(pdf.truncated
+                  ? [`Response exceeded ${MAX_PDF_FETCH_BYTES} bytes and was truncated.`]
+                  : [])
               ]
             }
           }

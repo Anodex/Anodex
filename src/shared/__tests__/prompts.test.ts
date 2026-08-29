@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CODING_AGENT_PROMPT,
+  ISOLATED_WRITING_PROMPT,
   COMPACT_CODING_AGENT_PROMPT,
   composeSystemPrompt,
   coreAgentPrompt,
@@ -9,6 +10,70 @@ import {
   READ_ONLY_WORKSPACE_NOTE,
   WORKSPACE_REFERENCE_NOTE
 } from '../prompts'
+
+describe('composeSystemPrompt: isolated writing phases', () => {
+  // Measured on a live Critical Thinking run: the synthesis draft came back as
+  // 648 characters reading "I'll write the report directly in chat (no
+  // workspace is selected...)" followed by a <tool_call> for search_files, and
+  // the repair came back as 217 characters of <function=web_search>. The phase
+  // runs with `enabledTools` empty, so none of those tools exist -- but it was
+  // still being handed the coding-agent prompt telling it that every action
+  // happens through a tool call, plus NO_WORKSPACE_NOTE telling it in as many
+  // words that it "can still ... use web tools". The model did as it was told
+  // and the report was lost.
+  it('omits the coding-agent prompt', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: false,
+      hasProject: false,
+      isolatedWriting: true
+    })
+    expect(prompt).not.toContain(CODING_AGENT_PROMPT)
+    expect(prompt).not.toContain(COMPACT_CODING_AGENT_PROMPT)
+    expect(prompt).toContain(ISOLATED_WRITING_PROMPT)
+  })
+
+  it('never tells a tool-free phase that web tools are available', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: false,
+      hasProject: false,
+      isolatedWriting: true
+    })
+    expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
+    expect(prompt).not.toMatch(/web tools/i)
+  })
+
+  it('drops workspace, memory and past-chat reference sections', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      isolatedWriting: true,
+      workspaceContext: 'WORKSPACE-MARKER',
+      memoryContext: 'MEMORY-MARKER',
+      transcriptRecallContext: 'RECALL-MARKER',
+      projectRules: 'RULES-MARKER'
+    })
+    expect(prompt).not.toContain('WORKSPACE-MARKER')
+    expect(prompt).not.toContain('MEMORY-MARKER')
+    expect(prompt).not.toContain('RECALL-MARKER')
+    expect(prompt).not.toContain('RULES-MARKER')
+  })
+
+  it('still carries the environment section, which dates the research', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: false,
+      hasProject: false,
+      isolatedWriting: true,
+      now: new Date('2026-08-28T00:00:00Z')
+    })
+    expect(environmentDateFromPrompt(prompt)).toBeTruthy()
+  })
+
+  it('leaves the ordinary composed prompt untouched', () => {
+    const prompt = composeSystemPrompt({ hasWorkspaceTools: false, hasProject: false })
+    expect(prompt).toContain(NO_WORKSPACE_NOTE)
+    expect(prompt).not.toContain(ISOLATED_WRITING_PROMPT)
+  })
+})
 
 describe('composeSystemPrompt', () => {
   it('includes the no-workspace note when no workspace is selected', () => {

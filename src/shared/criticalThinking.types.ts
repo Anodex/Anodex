@@ -143,6 +143,16 @@ export interface CriticalThinkingSynthesisAttemptDiagnostic {
   usable: boolean
   valid: boolean
   citedBlockCount: number
+  /**
+   * The report-contract (structural) issues alone.
+   *
+   * `issues` mixes citation and contract issues and is capped at 24; a report
+   * with 24 unverified quotations therefore pushed every structural issue off
+   * the end, so a run recorded as `structurally-invalid` stored nothing saying
+   * which section was missing. Kept separate rather than reordered, because
+   * the order of `issues` is also what the repair prompt is built from.
+   */
+  contractIssues?: string[]
   issues: string[]
 }
 
@@ -152,8 +162,47 @@ export interface CriticalThinkingSynthesisDiagnostics {
   verifiedSourceCount: number
   evidencePacketChars: number
   strategy: 'single-pass' | 'hierarchical-recovery' | 'deterministic-fallback'
+  /**
+   * The stage that produced the prose that shipped. Deliberately not set to
+   * `'chart'`: a chart is appended to whichever report won, so recording it
+   * here erased which stage actually wrote the report -- and, since a recovered
+   * stage is what demotes a run to `partial`, an assembled-from-excerpts report
+   * that happened to carry a number could report as an unqualified success.
+   */
   selectedStage: CriticalThinkingSynthesisStage | null
+  /** Whether an evidence chart was appended to the selected report. */
+  chartAdded: boolean
   attempts: CriticalThinkingSynthesisAttemptDiagnostic[]
+  /** Why the run finished `completed` or `partial`. Absent until it finishes. */
+  completion?: CriticalThinkingCompletionDiagnostic
+}
+
+/**
+ * The completion verdict, decomposed.
+ *
+ * A run that had researched every step and shipped the model's own report still
+ * read `partial`, and nothing stored said which of the four conditions had
+ * failed -- the attempt issues are recorded, but the counts the verdict is
+ * actually computed from are not, and the stored report is the neutralised,
+ * disclosed, citation-rendered one rather than the candidate that was judged.
+ * Working it out meant re-deriving it from truncated attempt text.
+ *
+ * This is a record of a decision already made, not a new check.
+ */
+export interface CriticalThinkingCompletionDiagnostic {
+  /** Each condition `completed` requires, as it was evaluated. */
+  usable: boolean
+  structurallyValid: boolean
+  limitedSteps: boolean
+  recoveredStage: boolean
+  repairStopped: boolean
+  /** The counts `usable` is computed from, so a false verdict names its cause. */
+  otherSafetyIssueCount: number
+  unverifiedQuotationCount: number
+  unverifiedFigureCount: number
+  citedSubstantiveBlockCount: number
+  /** The conditions that were not met, in the order the verdict tests them. */
+  blockers: string[]
 }
 
 /** A persisted Critical Thinking investigation and its final evidence-backed report. */

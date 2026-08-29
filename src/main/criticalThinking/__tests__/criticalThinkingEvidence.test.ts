@@ -711,6 +711,131 @@ describe('sections about what the evidence does not cover', () => {
   })
 })
 
+describe('criticalThinkingEvidence — a malformed chart block', () => {
+  // Measured live on a minimum-wage question: a 36,121-character report with 31
+  // cited substantive blocks, real elasticities and named city comparisons was
+  // rejected as unusable, and the run shipped a 25,217-character report
+  // assembled from ~1,300-character excerpt fallbacks instead. The only
+  // disqualifying issue was "A chart block does not match the supported chart
+  // schema" -- every other issue was disclosable.
+  //
+  // A block that cannot be parsed cannot assert anything false; it cannot even
+  // render. Treating it as fabrication is the guard claiming something it has
+  // no way to know. The block is dropped and the reader is told, rather than
+  // the analysis being replaced by one that says less.
+  it('reports a malformed chart as a coverage gap, not a safety issue', () => {
+    const report = `## Findings
+
+The measured improvement was 18 percent [[S1:P1]].
+
+\`\`\`chart
+{"type":"bar","nonsense":true}
+\`\`\``
+
+    const validation = validateResearchReport(report, artifacts, sources)
+
+    expect(validation.safetyIssues).toEqual([])
+    expect(validation.issues.join(' ')).toContain('chart')
+  })
+
+  it('reports an unparseable chart as a coverage gap, not a safety issue', () => {
+    const report = `## Findings
+
+The measured improvement was 18 percent [[S1:P1]].
+
+\`\`\`chart
+{not json at all
+\`\`\``
+
+    const validation = validateResearchReport(report, artifacts, sources)
+
+    expect(validation.safetyIssues).toEqual([])
+    expect(validation.issues.join(' ')).toContain('chart')
+  })
+
+  // The distinction that has to survive: a chart whose VALUES are absent from
+  // the evidence is still asserting a figure nothing supports.
+  it('still treats a chart value absent from the evidence as a safety issue', () => {
+    const report = `## Findings
+
+The measured improvement was 18 percent [[S1:P1]].
+
+\`\`\`chart
+{"type":"bar","title":"Made up","labels":["A","B"],"datasets":[{"label":"x","values":[99999,88888]}],"source":"[[S1:P1]]"}
+\`\`\``
+
+    const validation = validateResearchReport(report, artifacts, sources)
+
+    expect(validation.safetyIssues.join(' ')).toContain('99999')
+  })
+})
+
+describe('criticalThinkingEvidence — identifiers that merely contain digits', () => {
+  // Measured on a live run about heat pumps: "UL 1995" was reported as
+  // "Numeric claim 1995 is not present in its cited evidence" -- a SAFETY
+  // issue, which alone makes a report unusable and hands the run to its
+  // fallback. So were 454, 410 and 290, which are the refrigerants R-454B,
+  // R-410A and R-290, and 1847877, which is an OSTI record number inside a
+  // URL. None of these are quantities, and none can be verified against
+  // evidence in any meaningful sense. A check that fires on correct
+  // behaviour is worse than no check.
+  it('does not treat a numbered reference to an instrument as a numeric claim', () => {
+    const report = `## Findings
+
+Certification follows Article 6 and Annex 3 of Regulation 1689, testing to UL 1995 and ISO 9001 [[S1:P1]].`
+
+    const text = validateResearchReport(report, artifacts, sources).issues.join(' ')
+
+    expect(text).not.toContain('1995')
+    expect(text).not.toContain('1689')
+    expect(text).not.toContain('9001')
+  })
+
+  it('does not treat an alphanumeric product or report code as a numeric claim', () => {
+    const report = `## Findings
+
+The R-454B and R-410A units were compared in PNNL-31571 [[S1:P1]].`
+
+    const text = validateResearchReport(report, artifacts, sources).issues.join(' ')
+
+    expect(text).not.toContain('454')
+    expect(text).not.toContain('410')
+    expect(text).not.toContain('31571')
+  })
+
+  it('does not treat digits inside a URL as a numeric claim', () => {
+    const report = `## Findings
+
+The evaluation is published at https://www.osti.gov/biblio/1847877 [[S1:P1]].`
+
+    const text = validateResearchReport(report, artifacts, sources).issues.join(' ')
+
+    expect(text).not.toContain('Numeric claim 1847877')
+  })
+
+  // The point is that identifiers are not claims -- not that numbers standing
+  // beside them stop being checked. A real measurement still faces the evidence.
+  it('still checks a real measurement standing beside an identifier', () => {
+    const report = `## Findings
+
+Under Article 6, the R-410A unit reached 7.42 COP at rated conditions [[S1:P1]].`
+
+    const text = validateResearchReport(report, artifacts, sources).issues.join(' ')
+
+    expect(text).toContain('7.42')
+  })
+
+  it('still checks a plain quantity that happens to follow a letter word', () => {
+    const report = `## Findings
+
+The fleet covered 12,500 kilometres in the trial [[S1:P1]].`
+
+    const text = validateResearchReport(report, artifacts, sources).issues.join(' ')
+
+    expect(text).toContain('12,500')
+  })
+})
+
 describe('criticalThinkingEvidence — a citation whose case or spacing slipped', () => {
   it('canonicalizes a lone marker so the validators can see it', () => {
     // Every regex downstream matches uppercase with no padding, and a single
