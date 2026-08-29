@@ -1,0 +1,8 @@
+{
+  "goal": "Add orbit prediction to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nWhen a body is selected, draw the path it is predicted to follow: integrate a throwaway copy of the simulation forward a few hundred steps without disturbing the live one, and draw the resulting points as a fading trail ahead of the body. The prediction must account for gravity from all other bodies, and must stop early if the body would be absorbed by a black hole or merge with something.\n\nWire it in end to end:\n- physics.py: a pure predict_path(bodies, index, steps) helper that returns the predicted points and never mutates the live simulation state.\n- render/: draw the predicted path for the selected body, fading with distance along the path.\n- ui.py: a 'Predict' toggle in the toolbar, next to the existing toggles.\n- main.py: wire the toggle so the path appears and disappears.\n- _smoke_test.py: add checks that predict_path leaves the live bodies untouched, that a circular orbit predicts a path returning near its start, and that a body aimed into a black hole predicts a truncated path.\n\nWork module by module and re-run the smoke test as you go, rather than surveying everything before making any change. Use palette.py for any colours you need rather than adding new literals.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new prediction checks must pass too. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}

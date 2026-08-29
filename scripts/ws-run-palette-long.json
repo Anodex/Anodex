@@ -1,0 +1,8 @@
+{
+  "goal": "Introduce a single named colour palette for the Universe Sandbox game in Sandbox/UniverseSandbox, and use it everywhere.\n\nA previous session may have started this: check what already exists before redoing anything. Sandbox/UniverseSandbox/palette.py should hold named constants for every colour the game uses (HUD text, panel backgrounds, buttons, body types, star glow, trails, starfield, black hole, comet tail, and so on), each with a short comment saying where it is used.\n\nReplace the hard-coded colour literals throughout the existing modules with references to those names: ui.py, sprites.py, main.py, and every module under render/. A literal like '#ffcc66' or 'white' should become palette.HUD_ACCENT or similar. Where the same colour is used for genuinely different purposes, give it a name per purpose rather than sharing one.\n\nDo not change how anything looks. This is a rename of values, not a redesign. Work module by module and re-run the smoke test as you go, rather than surveying everything before making any change.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them. Then confirm no stray colour literals remain outside palette.py in the modules you changed, and report how many literals you replaced and how many named constants you ended up with. Finally, delete any temporary scan scripts you created.",
+  "project": "Sandbox",
+  "maxTurns": 40,
+  "maxTokens": 600000,
+  "maxDurationMinutes": 240,
+  "requirePlan": true
+}

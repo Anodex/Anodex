@@ -1,0 +1,8 @@
+{
+  "goal": "Refactor Sandbox/UniverseSandbox/rendering.py (686 lines) into a rendering package, without changing behaviour.\n\nSplit it into Sandbox/UniverseSandbox/render/ with focused modules - projection and depth sorting, body/sprite drawing, starfield and orbit trails, and HUD/overlay drawing - plus an __init__.py that re-exports the same public names rendering.py exports today, so main.py, ui.py and _smoke_test.py keep working. Update every import across the project. Delete the old rendering.py once nothing imports it.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. It must still print ALL CHECKS PASSED with the same per-subsystem OK lines. You may update _smoke_test.py's import lines, but do not change, weaken or remove any of its checks.",
+  "project": "Sandbox",
+  "maxTurns": 20,
+  "maxTokens": 300000,
+  "maxDurationMinutes": 120,
+  "requirePlan": true
+}
