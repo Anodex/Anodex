@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { finishGoalTool } from '../agentTools'
 import { runGuardedTool, runReadTool } from '../helpers'
+import type { ToolCall } from '@shared/tools.types'
 import type { ToolRuntimeContext } from '../types'
 import { createMockContext, createMockDefine, captureCalls } from './test-helpers'
-import { recordCompletedCall } from '../turnProgress'
+import { createTaskLedger } from '../taskLedger'
+import { createTurnProgress, priorTaskProgress, recordCompletedCall } from '../turnProgress'
 
 type FinishGoalHandler = (args: { summary: string }) => Promise<string>
 
@@ -37,7 +39,11 @@ describe('finish_goal', () => {
     expect(result).toContain('summary was empty')
   })
 
-  it('truncates a very long summary', async () => {
+  it('truncates a very long summary, and says that it did', async () => {
+    // A summary cut mid-word with a bare ellipsis reads as a model that lost
+    // its thread. It matters here because the open-steps guard requires the
+    // summary to name what was left undone, and a silent cut can remove exactly
+    // that.
     const { calls, emit } = captureCalls()
     const ctx = { ...context(), emit }
     ctx.progress.madeChange = true
@@ -45,11 +51,30 @@ describe('finish_goal', () => {
       handler: FinishGoalHandler
     }
 
-    await tool.handler({ summary: 'a'.repeat(2000) })
+    await tool.handler({ summary: 'a'.repeat(9000) })
 
     const finalCall = calls[calls.length - 1]
     expect(finalCall.status).toBe('success')
-    expect(finalCall.detail!.length).toBeLessThan(1001)
+    expect(finalCall.detail!.length).toBeLessThanOrEqual(4000)
+    expect(finalCall.detail).toContain('cut off by Anodex')
+  })
+
+  it('gives a real multi-step account room to name what it left undone', async () => {
+    // The measured failure: a run finished with 4 of 7 steps open and wrote a
+    // careful account of both halves. It was cut at 1,000 characters after item
+    // 5, so the steps it abandoned were never named.
+    const { calls, emit } = captureCalls()
+    const ctx = { ...context(), emit }
+    ctx.progress.madeChange = true
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+    const account = `${'Completed the parser and the renderer. '.repeat(30)}Left undone: the UI toggle, because the toolbar refactor is not finished.`
+
+    await tool.handler({ summary: account })
+
+    const finalCall = calls[calls.length - 1]
+    expect(finalCall.detail).toContain('Left undone: the UI toggle')
   })
 
   it('refuses to report success when no other tool call has succeeded this turn', async () => {
@@ -240,9 +265,13 @@ describe('finish_goal — visual claims need post-change evidence', () => {
  * the last change did precede the last visual inspection.
  */
 describe('finish_goal and an unfinished plan', () => {
-  function withPlan(statuses: ReadonlyArray<'pending' | 'in_progress' | 'completed'>) {
+  function withPlan(
+    statuses: ReadonlyArray<'pending' | 'in_progress' | 'completed'>,
+    ledger?: ToolRuntimeContext['ledger']
+  ) {
     const ctx = context()
     ctx.progress.madeChange = true
+    if (ledger) ctx.ledger = ledger
     ctx.plan.current = {
       title: 'Visual quality',
       updatedAt: 1,
@@ -274,19 +303,25 @@ describe('finish_goal and an unfinished plan', () => {
    * satisfied a name check for an open step called "Star corona". Naming a step
    * while claiming it works is not separable by keyword from naming it while
    * admitting it does not.
+   *
+   * That is unchanged: this summary is one that defeated both checks, and it is
+   * still accepted without any inspection of its wording. What moved is *when* —
+   * the second call has to come from a later turn, because a repeat inside the
+   * same batch was written before the refusal existed and cannot be a
+   * reconsideration of it.
    */
-  it('lets the second call through, so the prompt cannot be worded around', async () => {
-    const tool = withPlan(['completed', 'pending', 'pending'])
+  it('lets a later turn through, so the prompt cannot be worded around', async () => {
+    const ledger = createTaskLedger()
     const claim = {
       summary: 'The goal is complete. I completed the two remaining verification tasks.'
     }
 
-    const refused = await tool.handler(claim)
+    const refused = await withPlan(['completed', 'pending', 'pending'], ledger).handler(claim)
     expect(refused).toContain('Error')
     expect(refused).toContain('2 step(s)')
 
-    const second = await tool.handler(claim)
-    expect(second).toContain('Run finished.')
+    const nextTurn = await withPlan(['completed', 'pending', 'pending'], ledger).handler(claim)
+    expect(nextTurn).toContain('Run finished.')
   })
 
   it('accepts it when every step is complete', async () => {
@@ -306,6 +341,162 @@ describe('finish_goal and an unfinished plan', () => {
     }
 
     const result = await tool.handler({ summary: 'Did the thing.' })
+
+    expect(result).toContain('Run finished.')
+  })
+})
+
+describe("finish_goal across an agent run's turns", () => {
+  // `AgentRunService` calls `runGeneration` once per turn, so each turn builds a
+  // fresh `TurnProgress`. These exercise the composition `runGeneration` now
+  // performs: seed the turn from what earlier turns actually did.
+  function turnAfter(history: { toolCalls?: ToolCall[] }[]): ToolRuntimeContext {
+    const ctx = context()
+    ctx.progress = createTurnProgress(priorTaskProgress(history))
+    return ctx
+  }
+
+  const wroteAFile: { toolCalls?: ToolCall[] }[] = [
+    {
+      toolCalls: [
+        { id: '1', name: 'write_file', kind: 'write', title: 'Write main.cpp', status: 'success' }
+      ]
+    }
+  ]
+
+  it('accepts a completion whose work landed in an earlier turn', async () => {
+    // The measured failure: a run wrote files in turn 3, was asked by
+    // CONTINUE_PROMPT to finish in turn 4, and was told to "create or edit a
+    // file, run a command" — work it had already done.
+    const ctx = turnAfter(wroteAFile)
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    const result = await tool.handler({ summary: 'Built and verified the renderer.' })
+
+    expect(result).toContain('Run finished.')
+  })
+
+  it('still refuses a completion claim on a task where nothing was ever done', async () => {
+    // The bar the original guard set, unchanged: observed live, a local model
+    // claimed "Created hello2.txt" three turns running without ever calling
+    // write_file. Reading and planning must still not satisfy it.
+    const ctx = turnAfter([
+      {
+        toolCalls: [
+          { id: '1', name: 'read_file', kind: 'read', title: 'Read main.cpp', status: 'success' },
+          { id: '2', name: 'write_plan', kind: 'plan', title: 'Plan: fix', status: 'success' }
+        ]
+      }
+    ])
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    const result = await tool.handler({ summary: 'Created hello2.txt.' })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('Nothing has been done yet this turn')
+  })
+
+  it('still refuses on a task whose only earlier attempt failed', async () => {
+    const ctx = turnAfter([
+      {
+        toolCalls: [
+          { id: '1', name: 'write_file', kind: 'write', title: 'Write x', status: 'error' }
+        ]
+      }
+    ])
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    expect(await tool.handler({ summary: 'Wrote the file.' })).toContain('Error')
+  })
+})
+
+describe('finish_goal reconsideration spans a turn, not a batch', () => {
+  // A model emits several tool calls in one response, all written before any of
+  // their results come back. A second finish_goal sitting in that same batch is
+  // therefore a sibling of the refused one, not a reconsideration of it.
+  function planned(ledger: ToolRuntimeContext['ledger']): ToolRuntimeContext {
+    const ctx = context()
+    ctx.progress.madeChange = true
+    ctx.ledger = ledger
+    ctx.plan.current = {
+      title: 'Palette',
+      steps: [
+        { id: 'a', title: 'Survey the colour literals', status: 'completed' },
+        { id: 'b', title: 'Create palette.py', status: 'pending' },
+        { id: 'c', title: 'Replace the literals', status: 'pending' }
+      ],
+      updatedAt: 0
+    }
+    return ctx
+  }
+
+  function tool(ctx: ToolRuntimeContext) {
+    return finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+  }
+
+  it('refuses the first call and names the open steps', async () => {
+    const ctx = planned(createTaskLedger())
+
+    const result = await tool(ctx).handler({ summary: 'All done.' })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('2 step(s) that are not complete')
+    expect(result).toContain('Create palette.py')
+  })
+
+  it('refuses a repeat from the same turn, which cannot have seen the refusal', async () => {
+    // The measured failure: a run was refused, said in its own reply "I
+    // accidentally called finish_goal", carried on working, and then had four
+    // more calls from the same batch accepted — ending at 1 of 8 steps with 12
+    // turns unspent.
+    const ctx = planned(createTaskLedger())
+    await tool(ctx).handler({ summary: 'All done.' })
+
+    const second = await tool(ctx).handler({ summary: 'All done.' })
+
+    expect(second).toContain('Error')
+    expect(second).toContain('already told this turn')
+    expect(second).not.toContain('Run finished.')
+  })
+
+  it("accepts it on the next turn, so stopping early stays the run's own call", async () => {
+    // The bar this must not raise: a run that genuinely means to stop early is
+    // still allowed to, it just has to say so once its previous turn came back.
+    const ledger = createTaskLedger()
+    const firstTurn = planned(ledger)
+    await tool(firstTurn).handler({ summary: 'All done.' })
+
+    const nextTurn = planned(ledger)
+    const result = await tool(nextTurn).handler({
+      summary: 'Stopping: palette.py is written but the replacements are not done.'
+    })
+
+    expect(result).toContain('Run finished.')
+  })
+
+  it('never asks twice when the plan is actually finished', async () => {
+    const ctx = planned(createTaskLedger())
+    for (const step of ctx.plan.current!.steps) step.status = 'completed'
+
+    const result = await tool(ctx).handler({ summary: 'Everything done.' })
+
+    expect(result).toContain('Run finished.')
+  })
+
+  it('leaves a run with no plan alone entirely', async () => {
+    const ctx = context()
+    ctx.progress.madeChange = true
+    ctx.plan.current = null
+
+    const result = await tool(ctx).handler({ summary: 'Done, no plan was used.' })
 
     expect(result).toContain('Run finished.')
   })
