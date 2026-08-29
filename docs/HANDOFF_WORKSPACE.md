@@ -421,6 +421,54 @@ two criteria sit at opposite ends of it. Run 2 landed in the middle.
 This is why "three consecutive clean runs" may not be reachable by running more
 runs on this model. It needs the efficiency problem solved, not more attempts.
 
+### Verdict: the re-reads are model behaviour, not Anodex's context handling
+
+Measured across every stored run with 60+ calls. Wasteful repeats - an identical
+call with nothing in between that could have changed its answer - occur at a
+roughly **constant rate of 18.6 per 100 calls**, and correlate with neither
+thing Anodex controls:
+
+| relationship              | correlation | n   |
+| ------------------------- | ----------- | --- |
+| retained context vs waste | **-0.15**   | 31  |
+| run length vs waste       | **-0.11**   | 45  |
+
+If eviction drove the re-reads, retaining more context would reduce them. It
+does not. If it were an accumulation effect, longer runs would be worse. They
+are not. Both are flat.
+
+The mechanism was traced properly before concluding this. History does not grow
+steadily - it collapses and rebuilds as compaction fires roughly every five
+turns, dropping ~60% each time (33,144 -> 13,794 tokens at turn 4 of one run,
+31,846 -> 12,454 at turn 10). Trimmed tool results are replaced by an evidence
+descriptor ending "body trimmed; read it again if you need it", which is an
+explicit invitation to re-read. That looked like the cause and is not: runs that
+retained far more context wasted just as much.
+
+**Six explanations tested and refuted**, each with the measurement that killed
+it:
+
+1. The edit echo (`6a3187b`) - anchored-edit failures 22% before, 22% after.
+2. An explicit prompt instruction ("read each file once") - no effect at all.
+3. History eviction via `recallWindowFraction` 0.4 -> 0.75 - waste got _worse_
+   (19.4 vs 13.0-19.0), and the first comparison was confounded by run length.
+4. Retained context generally - correlation -0.15 across 31 runs.
+5. Run length - correlation -0.11 across 45 runs.
+6. A loop-guard threshold on repeats-since-change - blocks 0.6% of calls and
+   none of them in the run that actually failed criterion 5.
+
+**Every remaining lever requires refusing a re-read**, and that was tried before
+this work began: it caused the context livelock recorded in
+`anodex-context-livelock-fix`, where eviction told the model to re-run tools the
+coverage tracker then refused. The fix then was to supply rather than refuse.
+Refusing again would trade a measured 18.6% inefficiency for a failure mode that
+stops runs dead.
+
+The one untried direction consistent with what has worked is **supplying more,
+not less**: replacing a bare evidence descriptor with something useful about the
+trimmed content - a code outline of the file rather than "3,100 chars, body
+trimmed". Untested, and it is the only idea left that does not involve refusing.
+
 ### A loop-guard threshold does not solve it (measured, do not rebuild)
 
 The obvious fix - count repeats since the last durable change rather than in the
