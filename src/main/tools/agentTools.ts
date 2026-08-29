@@ -112,9 +112,11 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
               throw new Error(
                 `The plan for this run still has ${openSteps.length} step(s) that are not ` +
                   `complete: ${openSteps.map((step) => JSON.stringify(step)).join(', ')}. ` +
-                  'Either finish them and call finish_goal again on a later turn, or say plainly ' +
-                  'in the summary which of them you are leaving undone and why — name the step, ' +
-                  'so a run that stops early cannot read as one that succeeded.'
+                  'If you have already done any of them, mark them with update_plan_step — the ' +
+                  'plan is the record, and work that is done but unmarked reads as work that was ' +
+                  'skipped. Otherwise finish them and call finish_goal again on a later turn, or ' +
+                  'say plainly in the summary which you are leaving undone and why — name the ' +
+                  'step, so a run that stops early cannot read as one that succeeded.'
               )
             }
             if (toldIn === ctx) {

@@ -501,3 +501,67 @@ describe('finish_goal reconsideration spans a turn, not a batch', () => {
     expect(result).toContain('Run finished.')
   })
 })
+
+describe('the open-steps prompt offers the option the model actually needs', () => {
+  function plannedRun(): ToolRuntimeContext {
+    const ctx = context()
+    ctx.progress.madeChange = true
+    ctx.plan.current = {
+      title: 'Status bar',
+      steps: [
+        { id: 'a', title: 'Draw the bar', status: 'completed' },
+        { id: 'b', title: 'Report the exit code and delete temporary scripts', status: 'pending' }
+      ],
+      updatedAt: 0
+    }
+    return ctx
+  }
+
+  it('tells a model that already did the work to mark it, not redo it', async () => {
+    // Measured across 13 runs on the current build: the final plan step was
+    // never once attempted with update_plan_step. In at least three the work
+    // was demonstrably done — one ran the smoke test, reported the exit code
+    // and deleted its temporary scripts, which was verbatim what its unmarked
+    // final step asked for. The guard fires at exactly the right moment and
+    // offered only "finish them" or "say what you left undone", so a model that
+    // had finished read it as a demand for more work.
+    const ctx = plannedRun()
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    const result = await tool.handler({ summary: 'Status bar done.' })
+
+    expect(result).toContain('update_plan_step')
+    expect(result).toContain('Report the exit code')
+  })
+
+  it('still lets a run stop early after being told', async () => {
+    // The bar this must not raise: the decision stays the model's, and the
+    // summary is still never parsed.
+    const ledger = createTaskLedger()
+    const first = plannedRun()
+    first.ledger = ledger
+    await (
+      finishGoalTool(createMockDefine(), first) as unknown as { handler: FinishGoalHandler }
+    ).handler({ summary: 'Stopping.' })
+
+    const next = plannedRun()
+    next.ledger = ledger
+    const result = await (
+      finishGoalTool(createMockDefine(), next) as unknown as { handler: FinishGoalHandler }
+    ).handler({ summary: 'Stopping: the last step is not worth doing.' })
+
+    expect(result).toContain('Run finished.')
+  })
+
+  it('says nothing when the plan is already complete', async () => {
+    const ctx = plannedRun()
+    for (const step of ctx.plan.current!.steps) step.status = 'completed'
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    expect(await tool.handler({ summary: 'All done.' })).toContain('Run finished.')
+  })
+})
