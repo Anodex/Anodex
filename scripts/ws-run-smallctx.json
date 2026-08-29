@@ -1,0 +1,8 @@
+{
+  "goal": "Add a compact 'universe summary' helper to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThis is deliberately small in scope. Add to physics.py a pure function summarise_universe(bodies) that returns a dict with: body count, total mass, the name of the most massive body, the number of each body type present, and whether any black hole is present. It must not mutate anything.\n\nThen add checks to _smoke_test.py that the summary is correct for the default Solar System scenario and for a scenario containing a black hole, and that calling it twice returns equal results without changing the bodies.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new summary checks must pass too. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 25,
+  "maxTokens": 300000,
+  "maxDurationMinutes": 120,
+  "requirePlan": true
+}
