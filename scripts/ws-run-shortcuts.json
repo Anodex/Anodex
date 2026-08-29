@@ -1,0 +1,8 @@
+{
+  "goal": "Add keyboard shortcuts and an on-screen help overlay to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThe user should be able to drive the common actions from the keyboard and press '?' to see what the keys do.\n\n- ui.py: a shortcut registry mapping keys to named actions - at minimum play/pause (space), step once, speed up/down, toggle trails, toggle prediction, toggle diagnostics, and cycle the selected body. Expose it as data so the overlay and the tests can both read it rather than hard-coding the list twice.\n- render/: draw a help overlay listing every registered shortcut and its description, using palette.py colours rather than new literals. It must lay out without overflowing the canvas.\n- main.py: bind the keys and toggle the overlay on '?', and make sure a key that is already bound elsewhere does not fire twice.\n- _smoke_test.py: add checks that every registered shortcut has a non-empty description, that no key is bound to two different actions, that the overlay's drawn regions stay inside the canvas, and that toggling the overlay does not change the simulation state.\n\nThis is a complete-it task: every step must be finished, not surveyed. Work module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new shortcut checks must pass too. Report the exit code you actually saw. Delete any temporary scripts.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}

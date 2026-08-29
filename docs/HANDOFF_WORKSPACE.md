@@ -403,6 +403,44 @@ steps=[...])` - and the fallback parser knew only the Hermes/Qwen
   consecutive turns. The loop guard covers tool calls; the in-turn repetition
   guard covers one turn. One model, deliberately not built for.
 
+### Criteria 1 and 5 are in tension on this model
+
+Three runs on the baseline, same build, same settings, deliberately different
+lengths:
+
+| run                 | calls | plan | failed on                                           |
+| ------------------- | ----- | ---- | --------------------------------------------------- |
+| measurement tool    | 76    | 2/7  | **criterion 1** - stopped early, disclosed honestly |
+| diagnostics panel   | 81    | 6/6  | none - **clean**                                    |
+| shortcuts + overlay | 186   | 6/6  | **criterion 5** - 20.4 wasted per 100               |
+
+Short runs quit before finishing; long runs finish but repeat themselves. These
+are not separate problems: they are one behaviour at two run lengths, and the
+two criteria sit at opposite ends of it. Run 2 landed in the middle.
+
+This is why "three consecutive clean runs" may not be reachable by running more
+runs on this model. It needs the efficiency problem solved, not more attempts.
+
+### A loop-guard threshold does not solve it (measured, do not rebuild)
+
+The obvious fix - count repeats since the last durable change rather than in the
+loop guard's fixed 18-entry window, reusing the rule the gathering ledger
+already applies - was replayed against all 8,772 stored calls before being
+built. At a limit of 8 it blocks 0.6% of calls, and what it blocks is genuine
+waste: 21x `write_plan` thrash, 17x an identical `read_file_range`, 15x
+`update_plan_step`, 10x `find_skill` loops.
+
+**But it blocks nothing in the run that failed criterion 5.** Run 3's 38 wasted
+calls are not one signature repeated fifteen times; they are many files each
+re-read two or three times across 186 calls, and no threshold catches that
+shape. The 15x `run_command` that tripped the raw count is an edit-inspect-edit
+cycle - each inspection follows a write, so by the "could anything have changed"
+rule it is legitimate.
+
+A first formulation of the same rule, which let _any_ command reset the
+counters, blocked nothing anywhere: the runs are full of `python -c` inspection
+commands. Only a write should reset. That version is the one measured above.
+
 ### Repair from a broken workspace works
 
 Twice, on damage caused by two different models. Both times the baseline
