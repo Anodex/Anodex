@@ -783,7 +783,10 @@ describe('replace_lines', () => {
    * moved a few rows after the model's own edit, text still present and
    * unambiguous. The file is right there, so say where it went.
    */
-  it('says where the anchor text actually moved to', async () => {
+  it('applies the edit where the anchor text actually is', async () => {
+    // This used to be refused with "that text is now on line 4 — retry there",
+    // which described the correct edit and then declined to make it. The line
+    // the model named is still not touched: `bbb` survives.
     await writeFile(join(workspace, 'a.txt'), ['aaa', 'bbb', 'ccc', 'target', 'eee'].join('\n'))
     const ctx = createMockContext(workspace)
 
@@ -795,9 +798,11 @@ describe('replace_lines', () => {
       expectedFirstLine: 'target'
     })
 
-    expect(result).toContain('now on line 4')
-    expect(result).toContain('2 lines down')
-    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toContain('bbb')
+    expect(result).not.toContain('Error')
+    expect(result).toContain('stale by 2 line(s)')
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe(
+      ['aaa', 'bbb', 'ccc', 'REPLACED', 'eee'].join('\n')
+    )
   })
 
   /** Guessing which one was meant is the thing the interlock exists to stop. */
@@ -1118,5 +1123,263 @@ describe('write_file will not truncate a substantial file', () => {
     })
 
     expect(result).not.toContain('Error:')
+  })
+})
+
+describe('edit_file near-miss reporting', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-nearmiss-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  function tool(ctx: ReturnType<typeof createMockContext>) {
+    return editFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; oldText: string; newText: string }) => Promise<string>
+    }
+  }
+
+  const source = [
+    'function draw(scene) {',
+    '  const width = scene.width;',
+    '    ctx.clearRect(0, 0, width, height);',
+    '    ctx.fillStyle = accent;',
+    '  return scene;',
+    '}'
+  ].join('\n')
+
+  it('says what the file actually holds where the text nearly matched', async () => {
+    // The measured failure: the model reconstructs oldText from memory and
+    // loses the indentation. The file is already in hand, so the retry does
+    // not need a separate read to become exact.
+    await writeFile(join(workspace, 'draw.js'), source)
+    const ctx = createMockContext(workspace)
+
+    const result = await tool(ctx).handler({
+      path: 'draw.js',
+      oldText: ['ctx.clearRect(0, 0, width, height);', 'ctx.fillStyle = accent;'].join('\n'),
+      newText: 'ctx.fillStyle = accent;'
+    })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('line 3')
+    // The actual text, so the model can copy it rather than guess again.
+    expect(result).toContain('    ctx.clearRect(0, 0, width, height);')
+    expect(result).toContain('    ctx.fillStyle = accent;')
+  })
+
+  it('stays silent when the anchor line appears more than once', async () => {
+    // Same rule the numbered-edit relocation keeps: several candidates cannot
+    // be resolved without guessing which was meant, and guessing is what this
+    // interlock exists to prevent.
+    await writeFile(
+      join(workspace, 'dup.js'),
+      ['  const value = compute();', 'first();', '  const value = compute();'].join('\n')
+    )
+    const ctx = createMockContext(workspace)
+
+    const result = await tool(ctx).handler({
+      path: 'dup.js',
+      oldText: ['const value = compute();', 'second();'].join('\n'),
+      newText: 'x'
+    })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('The text to replace was not found')
+    expect(result).not.toContain('actually says')
+  })
+
+  it('stays silent when the text really is gone', async () => {
+    await writeFile(join(workspace, 'gone.js'), ['const a = 1;', 'const b = 2;'].join('\n'))
+    const ctx = createMockContext(workspace)
+
+    const result = await tool(ctx).handler({
+      path: 'gone.js',
+      oldText: 'const somethingEntirelyAbsent = 3;',
+      newText: 'x'
+    })
+
+    expect(result).toContain('The text to replace was not found')
+    expect(result).not.toContain('actually says')
+  })
+
+  it('still refuses the edit - this reports, it does not apply anything', async () => {
+    await writeFile(join(workspace, 'draw.js'), source)
+    const ctx = createMockContext(workspace)
+
+    await tool(ctx).handler({
+      path: 'draw.js',
+      oldText: ['ctx.clearRect(0, 0, width, height);', 'ctx.fillStyle = accent;'].join('\n'),
+      newText: 'WRECKED'
+    })
+
+    expect(await readFile(join(workspace, 'draw.js'), 'utf8')).toBe(source)
+  })
+})
+
+describe('replace_lines places an edit its anchor identifies', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-relocate-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  function lineTool(ctx: ReturnType<typeof createMockContext>) {
+    return replaceLinesTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: {
+        path: string
+        startLine: number
+        endLine: number
+        newText: string
+        expectedFirstLine?: string
+      }) => Promise<string>
+    }
+  }
+
+  // The measured failure: a model composes several edits against one view of a
+  // file; the first lands and shifts every line below it, and the rest arrive
+  // with line numbers that are stale by exactly that shift.
+  const shifted = [
+    'import os',
+    'import sys',
+    'ADDED = 1',
+    'ADDED = 2',
+    'def draw(scene):',
+    '    return scene',
+    'def close(scene):',
+    '    return None'
+  ].join('\n')
+
+  it('applies the edit where the anchor actually is, instead of refusing', async () => {
+    await writeFile(join(workspace, 'a.py'), shifted)
+    const ctx = createMockContext(workspace)
+
+    // The model thinks `def draw(scene):` is on line 3; two lines were inserted
+    // above it, so it is really on line 5.
+    const result = await lineTool(ctx).handler({
+      path: 'a.py',
+      startLine: 3,
+      endLine: 4,
+      newText: ['def draw(scene, tint):', '    return tint'].join('\n'),
+      expectedFirstLine: 'def draw(scene):'
+    })
+
+    expect(result).not.toContain('Error')
+    const after = await readFile(join(workspace, 'a.py'), 'utf8')
+    // The whole range moved by the same delta: the two `def draw` lines were
+    // replaced, and the untouched neighbours survived.
+    expect(after).toBe(
+      [
+        'import os',
+        'import sys',
+        'ADDED = 1',
+        'ADDED = 2',
+        'def draw(scene, tint):',
+        '    return tint',
+        'def close(scene):',
+        '    return None'
+      ].join('\n')
+    )
+  })
+
+  it('says that it moved, so a wrong picture of the file gets corrected', async () => {
+    await writeFile(join(workspace, 'a.py'), shifted)
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.py',
+      startLine: 3,
+      endLine: 4,
+      newText: ['def draw(scene, tint):', '    return tint'].join('\n'),
+      expectedFirstLine: 'def draw(scene):'
+    })
+
+    expect(result).toContain('stale by 2 line(s)')
+    expect(result).toContain('line 5')
+  })
+
+  // The three refusals below are the bar this must not lower. Each one passes
+  // before the relocation change as well as after it.
+  it('still refuses when the anchor could mean several places', async () => {
+    await writeFile(
+      join(workspace, 'dup.py'),
+      ['x = 1', '    return None', 'y = 2', '    return None', 'z = 3'].join('\n')
+    )
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'dup.py',
+      startLine: 1,
+      endLine: 1,
+      newText: 'WRECKED',
+      expectedFirstLine: '    return None'
+    })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('does not match expectedFirstLine')
+    expect(await readFile(join(workspace, 'dup.py'), 'utf8')).toContain('x = 1')
+  })
+
+  it('still refuses when the anchor text is genuinely gone', async () => {
+    await writeFile(join(workspace, 'a.py'), ['x = 1', 'y = 2'].join('\n'))
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.py',
+      startLine: 1,
+      endLine: 1,
+      newText: 'WRECKED',
+      expectedFirstLine: 'def somethingRemoved():'
+    })
+
+    expect(result).toContain('Error')
+    expect(await readFile(join(workspace, 'a.py'), 'utf8')).toBe(['x = 1', 'y = 2'].join('\n'))
+  })
+
+  it('still requires an anchor at all', async () => {
+    await writeFile(join(workspace, 'a.py'), ['x = 1', 'y = 2'].join('\n'))
+    const ctx = createMockContext(workspace)
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.py',
+      startLine: 1,
+      endLine: 1,
+      newText: 'WRECKED'
+    })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('expectedFirstLine is required')
+    expect(await readFile(join(workspace, 'a.py'), 'utf8')).toBe(['x = 1', 'y = 2'].join('\n'))
+  })
+
+  it('keeps the seam guard on the relocated range, not the requested one', async () => {
+    // The far end of the range is still protected after the move: repeating the
+    // line that follows it is refused exactly as it would be in place.
+    await writeFile(
+      join(workspace, 'a.py'),
+      ['pad', 'pad', 'first_call()', 'second_call()', 'total_mass = compute_total()'].join('\n')
+    )
+    const ctx = createMockContext(workspace)
+
+    // `total_mass = compute_total()` already sits immediately after the moved
+    // range, and it is substantial enough for the guard to care about.
+    const result = await lineTool(ctx).handler({
+      path: 'a.py',
+      startLine: 1,
+      endLine: 2,
+      newText: ['first_call()', 'total_mass = compute_total()'].join('\n'),
+      expectedFirstLine: 'first_call()'
+    })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('repeat a line')
   })
 })
