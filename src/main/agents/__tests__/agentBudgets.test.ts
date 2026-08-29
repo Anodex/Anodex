@@ -42,6 +42,16 @@ describe('budgetExceededReason', () => {
 describe('turnBudgetLeftovers', () => {
   const run = { maxTokens: 300_000, maxDurationMinutes: 120 }
 
+  it('does not blame the context window for a cause it cannot see', () => {
+    // A 65,536-token run that was simply inefficient was told its window was
+    // too small. How much a turn achieves depends on window, model and task,
+    // and none of that is visible here.
+    const message = turnBudgetLeftovers(run, 61_728, 50 * 60_000)
+
+    expect(message).not.toContain('smaller window')
+    expect(message).not.toContain('context window')
+  })
+
   it('names what a turn-exhausted run still had, so a mis-sized cap is visible', () => {
     // The measured case: an 8K run stopped at 25/25 turns having completed 0 of
     // 4 plan steps, with 28 tool calls, zero failures, and 1.9% of its tokens
@@ -51,7 +61,7 @@ describe('turnBudgetLeftovers', () => {
     expect(message).toContain('5,668')
     expect(message).toContain('300,000')
     expect(message).toContain('10 of 120 minutes')
-    expect(message).toContain('raising the turn limit')
+    expect(message).toContain('turn limit was the binding constraint')
   })
 
   it('reports under 1% as "<1" rather than rounding it away to zero', () => {
@@ -64,7 +74,7 @@ describe('turnBudgetLeftovers', () => {
     const message = turnBudgetLeftovers(run, 250_000, 100 * 60_000)
 
     expect(message).toContain('250,000')
-    expect(message).not.toContain('raising the turn limit')
+    expect(message).not.toContain('turn limit was the binding constraint')
   })
 
   it('does not divide by a zero token budget', () => {

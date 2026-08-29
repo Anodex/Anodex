@@ -57,9 +57,12 @@ export function turnBudgetLeftovers(
   // Only worth saying when the other budgets really were untouched; a run that
   // spent everything hit a real ceiling and needs no explaining away.
   if (tokenPct >= 50) return spent
+  // Deliberately no cause. How much a turn achieves depends on the context
+  // window, the model, and the task, and this code can see none of that. An
+  // earlier wording blamed a small context window, and then a 65,536-token run
+  // that had simply been inefficient reported that its window was too small.
   return (
-    `${spent} A turn holds as much work as the context window has room for, so a ` +
-    'smaller window needs more turns for the same task — raising the turn limit ' +
-    'will let this continue if it was making progress.'
+    `${spent} The turn limit was the binding constraint, not the budget — raise it ` +
+    'if the run was making progress.'
   )
 }
