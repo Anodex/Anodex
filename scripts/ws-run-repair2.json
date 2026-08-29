@@ -1,0 +1,8 @@
+{
+  "goal": "The Universe Sandbox game in Sandbox/UniverseSandbox is broken: python _smoke_test.py exits 1 with 4 errors.\n\nA previous session added a BookmarkTests class to _smoke_test.py that calls cam.snapshot(), cam.restore(...) and camera.interpolate(...), but never implemented those on the Camera class in camera.py. Diagnose it from the actual traceback rather than guessing.\n\nFix it by implementing what the tests require, properly:\n- camera.py: a pure snapshot() returning the camera's full state, a restore(state) that applies it, and an interpolate(a, b, t) that blends two snapshots. None may mutate their arguments, and snapshot() must not alias the live camera.\n\nDo not delete or weaken the BookmarkTests, and do not touch any of the existing checks - the file had 33 'OK:' lines and every one must still pass.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. It must exit 0 with every check passing. Report the exit code you actually saw. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}

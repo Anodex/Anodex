@@ -272,3 +272,46 @@ describe("Gemma's tool_code dialect", () => {
     expect(findPotentialToolCallTextStart(text)).toBeGreaterThan(-1)
   })
 })
+
+describe('tool_code with triple-quoted code arguments', () => {
+  const TOOLS2 = new Set(['edit_file', 'write_plan'])
+
+  it('reads code passed in a Python triple-quoted string', () => {
+    // Measured: DeepSeek-R1-Distill-32B made 4 tool calls in 30 turns. It was
+    // emitting `tool_code` correctly, but every edit carried its code as a
+    // triple-quoted argument, which is never valid JSON, so the parser
+    // abandoned the call and the model narrated edits it never made.
+    const text = [
+      '```tool_code',
+      'edit_file(path="camera.py", oldText="""class Camera:',
+      '    def __init__(self, a, b):""", newText="""class Camera:',
+      '    def __init__(self, a, b, c):""")',
+      '```'
+    ].join('\n')
+
+    const call = detectFallbackToolCall(text, TOOLS2)
+
+    expect(call?.name).toBe('edit_file')
+    expect(call?.arguments.path).toBe('camera.py')
+    expect(String(call?.arguments.oldText)).toContain('def __init__(self, a, b):')
+    expect(String(call?.arguments.newText)).toContain('def __init__(self, a, b, c):')
+  })
+
+  it('does not split a call down the middle of the code it carries', () => {
+    // The code inside a triple-quoted argument contains commas and brackets of
+    // its own; splitting on those would produce a call with the wrong shape,
+    // which is worse than producing none.
+    const text = '```tool_code\nedit_file(path="a.py", oldText="""f(x, y), [1, 2]""")\n```'
+
+    expect(detectFallbackToolCall(text, TOOLS2)?.arguments).toEqual({
+      path: 'a.py',
+      oldText: 'f(x, y), [1, 2]'
+    })
+  })
+
+  it('still refuses an unregistered name carrying triple-quoted code', () => {
+    const text = '```tool_code\nrm_rf(path="""/""")\n```'
+
+    expect(detectFallbackToolCall(text, TOOLS2)).toBeNull()
+  })
+})
