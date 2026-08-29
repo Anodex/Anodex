@@ -499,7 +499,9 @@ function validateNumericClaims(
     // before scanning for data: a numbered section heading is not a numeric
     // claim, and treating it as one produced a wall of false "Numeric claim
     // 1.1 has no evidence citation" against a genuinely well-cited report.
-    const claimText = withoutStructuralNumbering(paragraph.replace(/\[\[S\d+(?::P\d+)?\]\]/g, ''))
+    const claimText = withoutIdentifiers(
+      withoutStructuralNumbering(paragraph.replace(/\[\[S\d+(?::P\d+)?\]\]/g, ''))
+    )
     const numbers = extractNumbers(claimText)
     if (citations.length === 0) {
       // Coverage only, and never for a section whose subject is what the
@@ -909,6 +911,25 @@ function fetchedPassagesByUrl(artifacts: ToolArtifact[]): Map<string, EvidencePa
   return fetched
 }
 
+/**
+ * Drop chart blocks the schema cannot parse, so a broken decoration never
+ * reaches the reader.
+ *
+ * The counterpart to downgrading those blocks from safety to coverage: the
+ * report is no longer condemned for carrying one, and the block itself no
+ * longer ships. Chart blocks whose *values* are unsupported are left alone --
+ * those are handled as disclosable figures, like any other untraceable number.
+ */
+export function stripUnsupportedChartBlocks(report: string): string {
+  return report.replace(/```chart\s*([\s\S]*?)```\n?/g, (block: string, body: string) => {
+    try {
+      return parseChartForValidation(JSON.parse(body)) ? block : ''
+    } catch {
+      return ''
+    }
+  })
+}
+
 function validateCharts(
   report: string,
   passagesByUrl: Map<string, EvidencePassage[]>,
@@ -919,9 +940,14 @@ function validateCharts(
     try {
       const chart = parseChartForValidation(JSON.parse(match[1]))
       if (!chart) {
-        // A chart presented as evidence-backed but malformed is a safety
-        // concern — it would render a claim the schema can't vouch for.
-        collector.safety.push('A chart block does not match the supported chart schema.')
+        // Coverage, not safety. A block the schema cannot parse cannot assert
+        // anything false -- it cannot even render -- so calling it fabrication
+        // is the check claiming something it has no way to know. Measured
+        // live: this one issue made an otherwise disclosable 36,121-character
+        // report unusable, and the run shipped a 25,217-character assembly of
+        // raw excerpts in its place. The block is dropped before the report
+        // ships (see `stripUnsupportedChartBlocks`) and the reader is told.
+        collector.coverage.push('A chart block does not match the supported chart schema.')
         continue
       }
       const evidenceText = passagesForCitations(chart.source, passagesByUrl, sourceById).join(' ')
@@ -949,7 +975,8 @@ function validateCharts(
         )
       }
     } catch {
-      collector.safety.push('A chart block is not valid JSON.')
+      // Same reasoning as the schema case above: unparseable is broken, not false.
+      collector.coverage.push('A chart block is not valid JSON.')
     }
   }
 }
@@ -1048,6 +1075,50 @@ function numberAppears(text: string, value: number | string): boolean {
   if (!expected.startsWith('number:')) return false
   const figure = expected.slice('number:'.length)
   return candidates.some((candidate) => candidate.slice(candidate.indexOf(':') + 1) === figure)
+}
+
+/**
+ * Words that introduce a numbered reference to a named instrument rather than a
+ * quantity. "Article 6" points at a provision; "UL 1995" names a standard.
+ * Kept to labels that are unambiguously reference-introducing -- a word like
+ * "page" or "level" can precede a real measurement, so it is not here.
+ */
+const REFERENCE_LABELS =
+  'article|annex|section|sections|schedule|chapter|clause|subsection|paragraph|regulation|directive|standard|appendix|exhibit|form|rule|iso|iec|ansi|astm|ashrae|nfpa|ieee|rfc|ul|en'
+
+/**
+ * Strip the parts of a sentence that carry digits without making a quantitative
+ * claim, so only real figures are checked against the evidence.
+ *
+ * Measured on a live run: "UL 1995" was reported as `Numeric claim 1995 is not
+ * present in its cited evidence` -- a safety issue, which on its own makes a
+ * report unusable and hands the run to the excerpt fallback. The refrigerants
+ * R-454B, R-410A and R-290 produced the same three flags, and an OSTI record
+ * number inside a URL produced a fourth. None of these are measurements, and no
+ * amount of evidence could confirm or refute them as such.
+ *
+ * Applied to the report's claims only, never to the evidence being searched:
+ * the asymmetry is deliberate, and matches the one `numberAppears` already
+ * makes. Being reluctant to call something a claim costs nothing; being
+ * reluctant to find support for one would reject correct reports.
+ */
+function withoutIdentifiers(value: string): string {
+  return (
+    value
+      // A URL path or query never states a quantity.
+      .replace(/https?:\/\/\S+/gi, ' ')
+      // "Article 6", "ISO 9001", "Regulation 1689".
+      .replace(
+        new RegExp(`\\b(?:${REFERENCE_LABELS})\\.?\\s*(?:no\\.?\\s*)?#?\\s*\\d[\\d.\\-/]*`, 'gi'),
+        ' '
+      )
+      // Codes that bind letters to digits: R-454B, PNNL-31571, FSEC-PF-362-01.
+      // A separator or an all-caps prefix is required, so an ordinary quantity
+      // ("12,500 kilometres", "5°F") is never touched -- those run
+      // digits-then-letters, not letters-then-digits.
+      .replace(/\b[A-Za-z]{1,12}[-_]\d[\w\-./]*/g, ' ')
+      .replace(/\b[A-Z]{2,12}\d[\w\-./]*/g, ' ')
+  )
 }
 
 function extractNumbers(value: string): string[] {

@@ -398,6 +398,150 @@ describe('CriticalThinkingResearchRunner', () => {
     expect(harness.run.sources.filter((source) => source.verified)).toHaveLength(4)
   })
 
+  it('completes a step whose best sources are not academic', async () => {
+    // The completion fallback required two scholarly-or-official sources --
+    // a test of the SUBJECT's domain, not of the evidence's quality. For a
+    // commercial product the storefront, the vendor's own site and the
+    // community forum ARE the primary sources, and none is a journal or a
+    // .gov. Measured live: five Universe Sandbox steps were marked `limited`
+    // with 2,100-3,000 character findings over 9-15 verified pages, purely
+    // because no source was academic. Whole subject areas could never reach
+    // `completed` however good the research was.
+    let assessmentCalls = 0
+    let resultIndex = 0
+    const harness = createHarness({
+      runModel: (phase) => {
+        if (phase === 'query') {
+          return Promise.resolve(generation('{"queries":["step query"]}'))
+        }
+        assessmentCalls++
+        return Promise.resolve(
+          generation(
+            assessmentJson({
+              finding:
+                'The retrieved pages describe the subject in consistent detail across several independent places, with enough convergent specifics to support a bounded answer while still naming what was not retrieved.',
+              verdict: 'continue',
+              evidenceBasis: 'multiple-sources',
+              remainingGaps: ['One narrow angle was not retrieved.'],
+              nextQueries: ['another angle']
+            })
+          )
+        )
+      },
+      search: () =>
+        Promise.resolve({
+          provider: 'test',
+          results: Array.from({ length: 2 }, () => {
+            resultIndex++
+            return {
+              title: `Result ${resultIndex}`,
+              url: `https://steamcommunity.com/page/${resultIndex}`,
+              snippet: 'Evidence'
+            }
+          })
+        })
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('completed')
+    expect(assessmentCalls).toBeGreaterThanOrEqual(2)
+  })
+
+  it('does not read a step about conflicts of interest as unresolved contradiction', async () => {
+    // The veto looks for words meaning "the sources disagree". A bare
+    // \bconflict\b also matches a step whose SUBJECT is conflicts of
+    // interest. Measured live: the creatine funding-audit step had five
+    // scholarly sources and a 2,273-character finding, and was marked
+    // `limited` because its own topic word tripped the check.
+    let assessmentCalls = 0
+    let resultIndex = 0
+    const harness = createHarness({
+      runModel: (phase) => {
+        if (phase === 'query') {
+          return Promise.resolve(generation('{"queries":["step query"]}'))
+        }
+        assessmentCalls++
+        return Promise.resolve(
+          generation(
+            assessmentJson({
+              finding:
+                'The retrieved pages describe the subject in consistent detail across several independent places, with enough convergent specifics to support a bounded answer while still naming what was not retrieved.',
+              verdict: 'continue',
+              evidenceBasis: 'multiple-sources',
+              remainingGaps: [
+                'No conflict-of-interest disclosure was retrieved for the key trials.'
+              ],
+              nextQueries: ['another angle']
+            })
+          )
+        )
+      },
+      search: () =>
+        Promise.resolve({
+          provider: 'test',
+          results: Array.from({ length: 2 }, () => {
+            resultIndex++
+            return {
+              title: `Result ${resultIndex}`,
+              url: `https://pubmed.ncbi.nlm.nih.gov/page/${resultIndex}`,
+              snippet: 'Evidence'
+            }
+          })
+        })
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('completed')
+    expect(assessmentCalls).toBeGreaterThanOrEqual(2)
+  })
+
+  it('still refuses to complete a step resting on weak sources', async () => {
+    // The bar this fallback exists to hold. Passes before and after the
+    // change: an encyclopedia round-up is not a researched step, and
+    // loosening the authority test must not turn one into a completed one.
+    let assessmentCalls = 0
+    let resultIndex = 0
+    const harness = createHarness({
+      runModel: (phase) => {
+        if (phase === 'query') {
+          return Promise.resolve(generation('{"queries":["step query"]}'))
+        }
+        assessmentCalls++
+        return Promise.resolve(
+          generation(
+            assessmentJson({
+              finding:
+                'The retrieved pages describe the subject in consistent detail across several independent places, with enough convergent specifics to support a bounded answer while still naming what was not retrieved.',
+              verdict: 'continue',
+              evidenceBasis: 'multiple-sources',
+              remainingGaps: ['One narrow angle was not retrieved.'],
+              nextQueries: ['another angle']
+            })
+          )
+        )
+      },
+      search: () =>
+        Promise.resolve({
+          provider: 'test',
+          results: Array.from({ length: 2 }, () => {
+            resultIndex++
+            return {
+              title: `Result ${resultIndex}`,
+              url: `https://en.wikipedia.org/page/${resultIndex}`,
+              snippet: 'Evidence'
+            }
+          })
+        })
+    })
+
+    const result = await harness.runner.run(new AbortController().signal, emptyUsage())
+
+    expect(result.status).toBe('limited')
+    expect(assessmentCalls).toBeGreaterThanOrEqual(2)
+  })
+
   it('preserves an interrupted phase and resumes without repeating completed work', async () => {
     const round = makeRound({
       status: 'searching',

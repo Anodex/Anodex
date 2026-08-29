@@ -362,3 +362,44 @@ describe('neutralising a quotation the evidence cannot confirm', () => {
     expect(after.content).not.toContain(`"${invented}"`)
   })
 })
+
+describe('usable blockers', () => {
+  it('names nothing when the report is usable', () => {
+    const candidate = evaluateReportCandidate(WELL_FORMED, [artifact()], [SOURCE], 1)
+    expect(candidate.usable).toBe(true)
+    expect(candidate.usableBlockers).toEqual([])
+  })
+
+  it('names the invented citation that made the report unusable', () => {
+    // A citation to a source that was never fetched is the class that still
+    // costs a report everything, so the verdict has to be able to say so.
+    const invented = WELL_FORMED.replace('[[S1:P1]].', '[[S9:P1]].')
+    const candidate = evaluateReportCandidate(invented, [artifact()], [SOURCE], 1)
+    expect(candidate.usable).toBe(false)
+    expect(candidate.usableBlockers).toContain('other-safety-issues')
+    expect(candidate.otherSafetyIssues.length).toBeGreaterThan(0)
+  })
+
+  it('names a threadbare report rather than reporting it as merely unusable', () => {
+    const threadbare = `# Title
+
+## Executive Summary
+
+No citations here at all.
+
+## Conclusion
+
+Nothing was established.
+`
+    const candidate = evaluateReportCandidate(threadbare, [artifact()], [SOURCE], 3)
+    expect(candidate.usable).toBe(false)
+    expect(candidate.usableBlockers).toContain('too-few-cited-blocks')
+  })
+
+  it('stays consistent: usable is exactly the absence of blockers', () => {
+    for (const report of [WELL_FORMED, WELL_FORMED.replace('[[S1:P1]].', '[[S9:P1]].')]) {
+      const candidate = evaluateReportCandidate(report, [artifact()], [SOURCE], 1)
+      expect(candidate.usable).toBe(candidate.usableBlockers.length === 0)
+    }
+  })
+})

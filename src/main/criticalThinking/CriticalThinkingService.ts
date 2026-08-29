@@ -11,6 +11,7 @@ import type {
   CriticalThinkingRun,
   CriticalThinkingSynthesisAttemptDiagnostic,
   CriticalThinkingSynthesisDiagnostics,
+  CriticalThinkingCompletionDiagnostic,
   CriticalThinkingSynthesisStage,
   CriticalThinkingStepState
 } from '@shared/criticalThinking.types'
@@ -51,6 +52,7 @@ import {
 import {
   buildEvidencePacket,
   renderResearchCitations,
+  stripUnsupportedChartBlocks,
   validateResearchReport
 } from './criticalThinkingEvidence'
 import {
@@ -124,6 +126,22 @@ const SECTION_EVIDENCE_SHARE = 0.5
 const MAX_QUESTION_CHARS = 8_000
 const MAX_PLAN_STEPS = 12
 const MAX_PLAN_STEP_CHARS = 240
+/**
+ * Output budget for the planning phase.
+ *
+ * A plan at the schema's own limits -- 12 steps of up to 240 characters, plus
+ * their JSON structure and a title -- is roughly 3,300 characters, near 950
+ * tokens, before the model has reasoned at all. Planning used to cap its total
+ * at 1,536 tokens and, alone among the phases, passed no hidden-reasoning cap,
+ * so a thinking model could spend the entire budget reasoning and return
+ * nothing. Measured: a regulatory question failed outright with "reached its
+ * safe local output-token limit", no plan, no steps, no report.
+ *
+ * Half the budget is reserved for the plan itself, the same way
+ * `criticalThinkingSynthesisLimits` reserves a visible share for every other
+ * phase.
+ */
+const PLANNING_OUTPUT_TOKENS = 3_072
 const MAX_ACTIVITIES = 240
 /**
  * How the run's time budget is split. Synthesis is several bounded model
@@ -276,6 +294,8 @@ class CriticalThinkingService {
         Math.min(6_000, Math.floor(planningLimits.maxPromptChars * 0.35))
       )
 
+      const planOutputTokens = Math.min(PLANNING_OUTPUT_TOKENS, planningLimits.maxOutputTokens)
+      const planThoughtTokens = Math.floor(planOutputTokens / 2)
       const phase = await runStructuredPhase<Plan>(
         buildCriticalThinkingPlanPrompt(planningQuestion),
         controller.signal,
@@ -286,8 +306,8 @@ class CriticalThinkingService {
               prompt,
               controller.signal,
               false,
-              Math.min(1_536, planningLimits.maxOutputTokens),
-              undefined,
+              planOutputTokens,
+              planThoughtTokens,
               CRITICAL_THINKING_PLAN_SCHEMA
             ),
           parse: (content) => {
@@ -311,6 +331,19 @@ class CriticalThinkingService {
         if (phase.stopReason) {
           return this.finishPlanningStop(run.id, phase.stats, phase.stopReason)
         }
+        // Keep what the model actually wrote. A planning failure used to store
+        // its verdict and nothing else, so "could not produce a valid research
+        // plan" was the entire record -- measured live on a question that had
+        // planned successfully an hour earlier, leaving no way to tell a
+        // malformed step list from a truncated one from a schema mismatch.
+        this.recordActivity(run.id, {
+          id: randomUUID(),
+          kind: 'planning',
+          label: 'Plan rejected',
+          status: 'error',
+          detail: planningFailureDetail(phase.issues, phase.content),
+          createdAt: Date.now()
+        })
         this.finish(run.id, 'failed', {
           stats: phase.stats,
           lastError: 'The model could not produce a valid research plan. Try a clearer question.'
@@ -599,6 +632,7 @@ class CriticalThinkingService {
       evidencePacketChars: evidencePacket.length,
       strategy: 'single-pass',
       selectedStage: null,
+      chartAdded: false,
       attempts: []
     }
     const recordDiagnostic = (attempt: CriticalThinkingSynthesisAttemptDiagnostic): void => {
@@ -676,6 +710,7 @@ class CriticalThinkingService {
       approvedStepCount
     )
     let selectedStage: CriticalThinkingSynthesisStage = 'draft'
+    let chartAdded = false
     recordDiagnostic(
       reportCandidateDiagnostic('draft', candidate, synthesisStopReason, undefined, thinkingChars)
     )
@@ -817,7 +852,7 @@ class CriticalThinkingService {
         recordDiagnostic(chartRecovery.attempt)
         if (chartRecovery.candidate) {
           candidate = chartRecovery.candidate
-          selectedStage = 'chart'
+          chartAdded = true
         }
         if (chartRecovery.stopReason === 'user') repairStopReason = 'user'
       } catch (error) {
@@ -894,7 +929,12 @@ class CriticalThinkingService {
     // that are no longer presented as anyone's words.
     const report = renderResearchCitations(
       discloseUnverifiedQuotations(
-        neutraliseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotationText),
+        neutraliseUnverifiedQuotations(
+          // A chart block the schema cannot parse no longer condemns the
+          // report, so it must not reach the reader either.
+          stripUnsupportedChartBlocks(candidate.content),
+          candidate.unverifiedQuotationText
+        ),
         [...new Set([...neutralisedQuotations, ...candidate.unverifiedQuotations])],
         candidate.unverifiedFigures
       ),
@@ -931,7 +971,14 @@ class CriticalThinkingService {
     synthesisDiagnostics = {
       ...synthesisDiagnostics,
       completedAt: Date.now(),
-      selectedStage
+      selectedStage,
+      chartAdded,
+      completion: describeCompletion(
+        candidate,
+        limitedSteps,
+        repairStopReason,
+        isRecoveredStage(selectedStage)
+      )
     }
     this.finish(run.id, status, {
       report,
@@ -1474,6 +1521,12 @@ class CriticalThinkingService {
         sessionMode: 'isolated',
         includeReferenceContext: false,
         enabledTools: new Set(),
+        // No tools are registered for this phase, so the coding-agent prompt --
+        // which opens by saying every action happens through a tool call, and
+        // is followed by a note that web tools are still available -- describes
+        // a turn that cannot happen. Measured live, the model believed it and
+        // returned `<tool_call>` blocks instead of the report.
+        isolatedWriting: true,
         providerOverride: { provider: run.provider, model: run.model ?? undefined },
         permissionModeOverride: 'untethered',
         executionBudget: SYNTHESIS_BUDGET,
@@ -2036,7 +2089,10 @@ function reportCandidateDiagnostic(
     usable: candidate.usable,
     valid: candidate.overallValid,
     citedBlockCount: candidate.citedSubstantiveBlockCount,
-    issues: candidate.issues.slice(0, 24)
+    issues: candidate.issues.slice(0, 24),
+    ...(candidate.contractIssues.length > 0
+      ? { contractIssues: candidate.contractIssues.slice(0, 12) }
+      : {})
   }
 }
 
@@ -2162,6 +2218,43 @@ function stoppedReasonMessage(stopReason: GenerationStopReason | undefined): str
  * fallback gets a calm caveat rather than a wall of raw validation issues;
  * only a report that isn't even safe still shows the raw issue list.
  */
+/**
+ * Record which of the completion conditions held, so a `partial` verdict says
+ * why. Reads the same values the verdict above reads; it decides nothing.
+ */
+function describeCompletion(
+  candidate: ReportCandidate,
+  limitedSteps: boolean,
+  repairStopReason: GenerationStopReason | undefined,
+  recoveredStage: boolean
+): CriticalThinkingCompletionDiagnostic {
+  const blockers = [...candidate.usableBlockers]
+  if (!candidate.structurallyValid) blockers.push('structurally-invalid')
+  if (limitedSteps) blockers.push('limited-steps')
+  if (repairStopReason) blockers.push('repair-stopped')
+  if (recoveredStage) blockers.push('recovered-stage')
+  return {
+    usable: candidate.usable,
+    structurallyValid: candidate.structurallyValid,
+    limitedSteps,
+    recoveredStage,
+    repairStopped: Boolean(repairStopReason),
+    otherSafetyIssueCount: candidate.otherSafetyIssues.length,
+    unverifiedQuotationCount: candidate.unverifiedQuotations.length,
+    unverifiedFigureCount: candidate.unverifiedFigures.length,
+    citedSubstantiveBlockCount: candidate.citedSubstantiveBlockCount,
+    blockers
+  }
+}
+
+/** The parse issues plus a bounded excerpt of the raw response. */
+function planningFailureDetail(issues: string[], content: string): string {
+  const reason = issues.join(' ') || 'No parse issue was reported.'
+  const excerpt = content.trim()
+  if (!excerpt) return `${reason} The model returned no visible text.`
+  return truncate(`${reason} Model returned: ${excerpt}`, 1_500)
+}
+
 function reportLastError(
   candidate: ReportCandidate,
   limitedSteps: boolean,

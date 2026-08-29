@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  CriticalThinkingCompletionDiagnostic,
   CriticalThinkingCoverageAssessment,
   CriticalThinkingProvider,
   CriticalThinkingResearchPolicy,
@@ -307,6 +308,14 @@ function normalizeSynthesisDiagnostics(
               usable: attempt.usable === true,
               valid: attempt.valid === true,
               citedBlockCount: nonNegativeInteger(attempt.citedBlockCount),
+              ...(Array.isArray(attempt.contractIssues) && attempt.contractIssues.length > 0
+                ? {
+                    contractIssues: stringArray(attempt.contractIssues)
+                      .map((issue) => boundedStoreText(issue, 500))
+                      .filter(Boolean)
+                      .slice(0, 12)
+                  }
+                : {}),
               issues: stringArray(attempt.issues)
                 .map((issue) => boundedStoreText(issue, 500))
                 .filter(Boolean)
@@ -315,6 +324,7 @@ function normalizeSynthesisDiagnostics(
           ]
         })
     : []
+  const completion = normalizeCompletion(value.completion)
   return {
     startedAt: nonNegativeInteger(value.startedAt),
     completedAt: typeof value.completedAt === 'number' ? value.completedAt : null,
@@ -322,7 +332,35 @@ function normalizeSynthesisDiagnostics(
     evidencePacketChars: nonNegativeInteger(value.evidencePacketChars),
     strategy,
     selectedStage,
+    chartAdded: value.chartAdded === true,
+    ...(completion ? { completion } : {}),
     attempts
+  }
+}
+
+/**
+ * Keep the completion verdict across a restart.
+ *
+ * It was recorded on the run but not listed here, and this normaliser rebuilds
+ * every diagnostic field by name on load -- so the field survived until the app
+ * next started and then silently vanished. Measured: a run's `blockers` were
+ * read once from the live file and were gone from the same run an hour later,
+ * which is precisely when a stored diagnostic is most needed.
+ */
+function normalizeCompletion(value: unknown): CriticalThinkingCompletionDiagnostic | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  return {
+    usable: raw.usable === true,
+    structurallyValid: raw.structurallyValid === true,
+    limitedSteps: raw.limitedSteps === true,
+    recoveredStage: raw.recoveredStage === true,
+    repairStopped: raw.repairStopped === true,
+    otherSafetyIssueCount: nonNegativeInteger(raw.otherSafetyIssueCount),
+    unverifiedQuotationCount: nonNegativeInteger(raw.unverifiedQuotationCount),
+    unverifiedFigureCount: nonNegativeInteger(raw.unverifiedFigureCount),
+    citedSubstantiveBlockCount: nonNegativeInteger(raw.citedSubstantiveBlockCount),
+    blockers: stringArray(raw.blockers).slice(0, 12)
   }
 }
 

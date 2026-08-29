@@ -238,6 +238,68 @@ describe('AI web tools', () => {
         )
       })
 
+      it('reads a PDF larger than the HTML byte cap instead of truncating it away', async () => {
+        // Measured on a live run: 11 of 48 fetches returned HTTP 200 and zero
+        // characters, and they were disproportionately the authoritative
+        // primary sources -- DOE, PNNL, MIT, govinfo technical reports, all
+        // between 1.3MB and 3.3MB. A PDF keeps its cross-reference trailer at
+        // the END of the file, so cutting it at the byte cap does not truncate
+        // the text, it destroys the document: pdf.js then fails outright with
+        // "Invalid Root reference". HTML degrades gracefully under the same
+        // cap; a PDF is all-or-nothing, so it needs its own budget.
+        // The padding has to sit INSIDE the content stream, so the xref table
+        // and trailer still follow it at the end of the file -- that is what
+        // the byte cap cuts off, and why the parse fails outright rather than
+        // returning less text.
+        const padded = tinyPdf(`Measured COP at sub-freezing temperatures ${'x'.repeat(1_200_000)}`)
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/pdf']]),
+          body: bodyWithCancel(),
+          arrayBuffer: () =>
+            Promise.resolve(
+              padded.buffer.slice(padded.byteOffset, padded.byteOffset + padded.byteLength)
+            )
+        })
+
+        const artifact = await fetchUrlEvidence('https://example.gov/report.pdf', 'COP')
+
+        expect(artifact.warnings.join(' ')).not.toContain('Could not read that PDF')
+        expect(artifact.passages.map((passage) => passage.text).join(' ')).toContain(
+          'Measured COP at sub-freezing temperatures'
+        )
+      })
+
+      it('says a PDF was truncated when truncation is why it could not be read', async () => {
+        // The catch branch reported only the parser's own message, so the one
+        // fact that explained it -- that the file had been cut short -- was
+        // dropped. "Invalid Root reference" reads as a corrupt file; the real
+        // cause was the byte cap, and nothing stored said so.
+        const oversized = Buffer.alloc(40_000_000, 0x20)
+        Buffer.from('%PDF-1.4').copy(oversized, 0)
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/pdf']]),
+          body: bodyWithCancel(),
+          arrayBuffer: () =>
+            Promise.resolve(
+              oversized.buffer.slice(
+                oversized.byteOffset,
+                oversized.byteOffset + oversized.byteLength
+              )
+            )
+        })
+
+        const artifact = await fetchUrlEvidence('https://example.gov/huge.pdf', 'COP')
+
+        expect(artifact.warnings.join(' ')).toContain('Could not read that PDF')
+        expect(artifact.warnings.join(' ')).toMatch(/truncat|exceeded/i)
+      })
+
       it('fetches a JavaScript-shell host through its server-rendered twin', async () => {
         // www.reddit.com answers with HTTP 200 and an 8KB script shell that
         // extracts to nothing; old.reddit.com serves the same thread as HTML.

@@ -527,6 +527,30 @@ describe('CriticalThinkingService planning: artifact-first termination semantics
     })
   })
 
+  it('gives planning room for the largest legal plan, and caps its reasoning', async () => {
+    // Measured live: the EU AI Act question failed outright with "This step
+    // reached its safe local output-token limit" and produced no plan at all.
+    // Planning capped its total at 1,536 tokens and, alone among the phases,
+    // passed no hidden-reasoning cap -- so a thinking model could spend the
+    // whole budget reasoning and return nothing visible. The schema permits 12
+    // steps of up to 240 characters, which is roughly 950 tokens of JSON before
+    // a single token of reasoning.
+    const run = seedRun()
+    mockPlanResponse({ plan: VALID_PLAN, stopped: false })
+
+    await runPlanningDirectly(run)
+
+    const request = mocks.runGeneration.mock.calls[0]?.[0] as {
+      options?: { maxTokens?: number }
+    }
+    const maxTokens = request.options?.maxTokens ?? 0
+    expect(maxTokens).toBeGreaterThanOrEqual(3_000)
+    const thoughts = thoughtBudgetOf(request)
+    expect(thoughts).toBeDefined()
+    // At least half the budget has to survive for the plan itself.
+    expect(thoughts ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(Math.floor(maxTokens / 2))
+  })
+
   it('persists a valid plan after a recoverable token-limit stop instead of discarding it', async () => {
     const run = seedRun()
     mockPlanResponse({ plan: VALID_PLAN, stopped: true, stopReason: 'token-limit' })
@@ -639,6 +663,32 @@ describe('CriticalThinkingService planning: artifact-first termination semantics
     expect(persisted?.status).toBe('needs-review')
     expect(persisted?.plan?.title).toBe(VALID_PLAN.title)
     expect(mocks.runGeneration).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps what the model wrote when a plan is rejected', async () => {
+    // A planning failure stored its verdict and nothing else, so "could not
+    // produce a valid research plan" was the whole record. Measured live on a
+    // question that had planned successfully an hour before, that left no way
+    // to tell a malformed step list from a truncated one.
+    const run = seedRun()
+    mocks.runGeneration.mockImplementation(() =>
+      Promise.resolve({
+        content: '{"title":"Only one step","steps":["a single step"]}',
+        stats: EMPTY_STATS,
+        stopped: false
+      })
+    )
+
+    await runPlanningDirectly(run)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.status).toBe('failed')
+    const rejected = (persisted?.activities ?? []).find(
+      (activity) => activity.status === 'error' && activity.kind === 'planning'
+    )
+    expect(rejected).toBeDefined()
+    expect(rejected?.detail).toContain('a single step')
+    expect(rejected?.detail).toContain('at least 3')
   })
 
   it('remains an explicit failure, never a false review-ready plan, when persistence cannot flush', async () => {
@@ -1173,13 +1223,52 @@ The evidence supports the 59 versus 10 microgram comparison [[S1:P1]].`
     expect(persisted?.status).toBe('completed')
     expect(persisted?.report).toContain('## Evidence Charts')
     expect(persisted?.report).toContain('```chart')
-    expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('chart')
+    // The chart is appended to whichever report won, so the record has to keep
+    // naming the stage that wrote the prose. Overwriting it with 'chart' lost
+    // that -- and, because `isRecoveredStage` reads `selectedStage`, it also
+    // made an assembled-from-excerpts report that happened to carry a number
+    // report as an unqualified success.
+    expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('draft')
+    expect(persisted?.synthesisDiagnostics?.chartAdded).toBe(true)
     expect(persisted?.synthesisDiagnostics?.attempts.at(-1)).toMatchObject({
       stage: 'chart',
       safe: true,
       valid: true
     })
     expect(mocks.runGeneration).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks for the tool-free writing prompt on every synthesis phase', async () => {
+    // The phases pass an empty `enabledTools`, but that alone only stops tools
+    // being registered -- it does not stop the model being told it has them.
+    // Measured live: the draft returned 648 characters of "(no workspace is
+    // selected)" plus a <tool_call> for search_files, and the repair returned
+    // 217 characters of <function=web_search>.
+    const run = seedSynthesisRun()
+    mocks.runGeneration.mockImplementation(() =>
+      Promise.resolve({ content: VALID_DRAFT, stats: EMPTY_STATS, stopped: false })
+    )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    expect(mocks.runGeneration.mock.calls.length).toBeGreaterThan(0)
+    for (const [, io] of mocks.runGeneration.mock.calls) {
+      expect(io.enabledTools?.size ?? 0).toBe(0)
+      expect(io.isolatedWriting).toBe(true)
+    }
+  })
+
+  it('leaves chartAdded false when no chart was appended', async () => {
+    const run = seedSynthesisRun()
+    mocks.runGeneration.mockImplementation(() =>
+      Promise.resolve({ content: VALID_DRAFT, stats: EMPTY_STATS, stopped: false })
+    )
+
+    await runSynthesisDirectly(run, new AbortController().signal)
+
+    const persisted = mocks.runs.get(run.id)
+    expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('draft')
+    expect(persisted?.synthesisDiagnostics?.chartAdded).toBe(false)
   })
 
   it('keeps a valid quantitative report when optional chart selection fails', async () => {

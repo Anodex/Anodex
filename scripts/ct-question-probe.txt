@@ -1,0 +1,1 @@
+What is the current stable version of the Rust programming language, when was it released, and what were the main changes in it?

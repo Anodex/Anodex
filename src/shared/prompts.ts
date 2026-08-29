@@ -101,6 +101,30 @@ export const NO_WORKSPACE_NOTE = `No workspace folder is selected, so file and c
 /** Appended when a workspace is set but no project is open (read-only access). */
 export const READ_ONLY_WORKSPACE_NOTE = `A workspace folder is selected but no project is open, so you have read-only access this turn: list_directory, read_file, read_file_range, read_multiple_files, search_files, find_files, code_outline, get_file_info, git_status, git_diff, and git_commit_summary all work. write_file, edit_file, delete_file, move_file, create_directory, delete_directory, run_command, run_project_check, save_email_attachment, and update_project_notes are unavailable here on purpose — editing only happens inside a project. You can look at code, explain it, and suggest changes in chat, but if the user wants you to actually make them, tell them to open this folder as a Project first.`
 
+/**
+ * The system prompt for a bounded orchestration phase that must produce text
+ * and has no tools at all.
+ *
+ * Critical Thinking's synthesis, repair, section and overview phases run with
+ * `enabledTools` empty, but were still being handed the coding-agent prompt --
+ * which opens by saying every action happens through a tool call, and is
+ * followed by `NO_WORKSPACE_NOTE` telling the model it "can still ... use web
+ * tools". Measured on a live run, the draft came back as 648 characters of
+ * "I'll write the report directly in chat (no workspace is selected...)" and a
+ * `<tool_call>` for `search_files`; the repair was 217 characters of
+ * `<function=web_search>`. Three of seven sections went the same way. The
+ * report was assembled from excerpts instead, and the run reported `partial`.
+ *
+ * The model was not malfunctioning. It was following the prompt it was given.
+ */
+export const ISOLATED_WRITING_PROMPT = `You are writing one self-contained piece of text. Everything you need is in the message below.
+
+You have no tools on this turn — no file access, no web search, no page fetching, no workspace, no memory. There is nothing to look up and nothing to check: the material you were given is all the material there is. Do not emit tool calls, tool-call syntax, or XML function blocks; anything you write is the answer itself, delivered to the reader as written.
+
+If the material does not support part of what was asked, say so plainly in the text and carry on with the rest. Stating a gap is part of the job; going to look for more is not available to you.
+
+Write the requested text directly. Do not narrate what you are about to do, and do not open with a preamble about your approach — begin with the text itself.`
+
 export const TOOLING_UPDATE_NOTE = `Additional tool guidance: find_files, code_outline, preview_html, git_commit_summary, and run_project_check are available in project workflows. Prefer code_outline before reading many source files; prefer run_project_check over raw run_command for test/typecheck/lint/build verification; use git_commit_summary when drafting a commit message.`
 
 /**
@@ -259,6 +283,12 @@ export function coreAgentPrompt(contextWindowTokens: number | undefined): string
 }
 
 export interface SystemPromptParts {
+  /**
+   * This turn is a bounded, tool-free writing phase rather than an agent turn.
+   * Selects `ISOLATED_WRITING_PROMPT` and drops every other section except the
+   * environment. See that constant for the failure this exists to prevent.
+   */
+  isolatedWriting?: boolean
   /** Whether file/command tools are available (a workspace is set). */
   hasWorkspaceTools: boolean
   /**
@@ -290,6 +320,17 @@ export interface SystemPromptParts {
 
 /** Compose the full system prompt from its layered parts. */
 export function composeSystemPrompt(parts: SystemPromptParts): string {
+  // A tool-free writing phase gets none of the agent framing, and none of the
+  // retrieved reference material either: its prompt already carries the exact
+  // evidence it is allowed to use, and workspace files, memory or past chats
+  // reaching it would be uncited text competing with that evidence. The
+  // environment section stays -- a research report needs to know today's date.
+  if (parts.isolatedWriting) {
+    return [
+      ISOLATED_WRITING_PROMPT,
+      renderEnvironmentSection(parts.now ?? new Date(), parts.timeZone)
+    ].join('\n\n')
+  }
   const compact = coreAgentPrompt(parts.contextWindowTokens) === COMPACT_CODING_AGENT_PROMPT
   const sections: string[] = [coreAgentPrompt(parts.contextWindowTokens)]
 

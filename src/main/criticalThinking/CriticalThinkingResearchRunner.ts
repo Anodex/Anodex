@@ -38,7 +38,7 @@ import {
   isRecoverableContentStopReason,
   runStructuredPhase
 } from './criticalThinkingStructuredPhase'
-import { isPreferredCriticalThinkingSource } from './criticalThinkingSourceAuthority'
+import { isWeakCriticalThinkingSource } from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 /**
@@ -1294,11 +1294,14 @@ function stepHasReportableCoverage(
   if (spentRoundCount(step) < 2) return false
   const finding = step.finding.replace(/\s+/g, ' ').trim()
   if (finding.length < 160 || (finding.match(/\S+/g)?.length ?? 0) < 25) return false
+  // The phrase is stripped before the test because it names a SUBJECT, not a
+  // disagreement between sources. Measured live: a creatine step titled "Audit
+  // funding and conflicts of interest" carried five scholarly sources and a
+  // 2,273-character finding, and was held back because its own topic word
+  // matched a check looking for "the evidence contradicts itself".
   if (
     step.uncertainties.some((gap) =>
-      /\b(contradict|conflict|sources? disagree|cannot answer|unresolved whether|opposing)\b/i.test(
-        gap
-      )
+      UNRESOLVED_DISAGREEMENT.test(gap.replace(GAP_TOPIC_PHRASE, ' '))
     )
   ) {
     return false
@@ -1306,14 +1309,39 @@ function stepHasReportableCoverage(
 
   const urls = verifiedUrlsForStep(artifacts, step)
   if (urls.size < 4) return false
-  const preferredCount = sources.filter(
+  // Not "are the sources academic" but "are they better than junk".
+  //
+  // Requiring two scholarly-or-official sources tested the subject's domain
+  // rather than the evidence's quality: for a commercial product the
+  // storefront, the vendor's own site and the community forum are the primary
+  // sources, and none of them is a journal or a .gov. Measured live, that made
+  // `completed` unreachable for an entire subject area -- five Universe
+  // Sandbox steps were marked `limited` carrying 2,100-3,000 character
+  // findings over 9-15 verified pages, and a Bronze Age step was held back
+  // with a museum, a specialist archaeology journal and a university among its
+  // sources because only one of them ended in `.edu`.
+  //
+  // The bar this exists to hold is unchanged: an encyclopedia round-up or a
+  // page of aggregator copy is still not a researched step.
+  const substantialCount = sources.filter(
     (source) =>
       source.verified &&
       urls.has(canonicalResearchUrl(source.url)) &&
-      isPreferredCriticalThinkingSource(source.url, source.title, source.snippet)
+      !isWeakCriticalThinkingSource(source.url, source.title, source.snippet)
   ).length
-  return preferredCount >= 2
+  return substantialCount >= 2
 }
+
+/** Words meaning the evidence itself is at odds, not merely incomplete. */
+const UNRESOLVED_DISAGREEMENT =
+  /\b(contradict\w*|conflict\w*|sources? disagree|cannot answer|unresolved whether|opposing)\b/i
+
+/**
+ * A step whose SUBJECT is conflicts of interest is not a step whose sources
+ * disagree. Stripped before the disagreement test rather than excluded from it,
+ * so the word still counts everywhere it genuinely means a clash.
+ */
+const GAP_TOPIC_PHRASE = /conflicts?[-\s]of[-\s]interest/gi
 
 function verifiedUrlsForRound(
   artifacts: ToolArtifact[],

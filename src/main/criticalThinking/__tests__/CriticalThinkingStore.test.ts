@@ -164,6 +164,79 @@ describe('normalizeCriticalThinkingRun', () => {
     expect(normalized.sources[0].snippet).toHaveLength(500)
   })
 
+  it('keeps the completion verdict and the contract issues across a reload', () => {
+    // Both were recorded on the run but not rebuilt here, and this normaliser
+    // reconstructs every diagnostic field by name on load -- so they survived
+    // until the app next started and then silently vanished. Measured: a run's
+    // blockers were read from the live file, and were gone from that same run
+    // after the next launch, which is exactly when a stored diagnostic matters.
+    const run = makeRun('partial')
+    run.synthesisDiagnostics = {
+      startedAt: 10,
+      completedAt: 20,
+      verifiedSourceCount: 3,
+      evidencePacketChars: 2_000,
+      strategy: 'single-pass',
+      selectedStage: 'repair',
+      chartAdded: false,
+      completion: {
+        usable: true,
+        structurallyValid: false,
+        limitedSteps: true,
+        recoveredStage: false,
+        repairStopped: false,
+        otherSafetyIssueCount: 0,
+        unverifiedQuotationCount: 21,
+        unverifiedFigureCount: 0,
+        citedSubstantiveBlockCount: 40,
+        blockers: ['structurally-invalid', 'limited-steps']
+      },
+      attempts: [
+        {
+          stage: 'repair',
+          contentChars: 100,
+          content: 'x',
+          safe: false,
+          usable: true,
+          valid: false,
+          citedBlockCount: 40,
+          issues: ['a citation issue'],
+          contractIssues: ['The report is missing a limits, gaps, or open-questions section.']
+        }
+      ]
+    } as unknown as CriticalThinkingRun['synthesisDiagnostics']
+
+    const normalized = normalizeCriticalThinkingRun(run)
+
+    expect(normalized.synthesisDiagnostics?.completion).toMatchObject({
+      structurallyValid: false,
+      limitedSteps: true,
+      unverifiedQuotationCount: 21,
+      blockers: ['structurally-invalid', 'limited-steps']
+    })
+    expect(normalized.synthesisDiagnostics?.attempts[0].contractIssues).toEqual([
+      'The report is missing a limits, gaps, or open-questions section.'
+    ])
+  })
+
+  it('leaves a run with no completion verdict alone', () => {
+    const run = makeRun('partial')
+    run.synthesisDiagnostics = {
+      startedAt: 10,
+      completedAt: 20,
+      verifiedSourceCount: 1,
+      evidencePacketChars: 10,
+      strategy: 'single-pass',
+      selectedStage: 'draft',
+      chartAdded: false,
+      attempts: []
+    } as unknown as CriticalThinkingRun['synthesisDiagnostics']
+
+    const normalized = normalizeCriticalThinkingRun(run)
+
+    expect(normalized.synthesisDiagnostics?.completion).toBeUndefined()
+  })
+
   it('normalizes bounded synthesis diagnostics without breaking legacy runs', () => {
     const legacy = normalizeCriticalThinkingRun(makeRun('partial'))
     expect(legacy.synthesisDiagnostics).toBeNull()
@@ -176,6 +249,7 @@ describe('normalizeCriticalThinkingRun', () => {
       evidencePacketChars: 2_000,
       strategy: 'hierarchical-recovery',
       selectedStage: 'hierarchical-report',
+      chartAdded: false,
       attempts: [
         {
           stage: 'section',

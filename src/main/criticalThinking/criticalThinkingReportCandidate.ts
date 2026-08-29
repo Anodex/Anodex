@@ -50,9 +50,23 @@ export interface ReportCandidate {
   unverifiedFigures: string[]
   /** The same quotations as exact report text, for locating and acting on them. */
   unverifiedQuotationText: string[]
+  /**
+   * Safety issues that are neither disclosable quotations nor disclosable
+   * figures — an invented citation, an unfetched source, a malformed chart.
+   * Any one of these alone makes a report unusable, so recording the count is
+   * what lets a `partial` verdict name its own cause.
+   */
+  otherSafetyIssues: string[]
+  /**
+   * Which of `usable`'s conditions failed, named by this module because this is
+   * where the thresholds live. Empty when the candidate is usable.
+   */
+  usableBlockers: string[]
   issueCount: number
   /** Combined citation-safety and report-completeness issues, for the final user-facing message. */
   issues: string[]
+  /** The report-completeness issues alone, so a structural failure stays legible. */
+  contractIssues: string[]
   citedSubstantiveBlockCount: number
   length: number
 }
@@ -155,6 +169,19 @@ export function evaluateReportCandidate(
     (issue) => !isUnverifiedQuotationIssue(issue) && !isUnverifiedFigureIssue(issue)
   )
   const safe = citation.safetyIssues.length === 0
+  const usableBlockers: string[] = []
+  if (otherSafetyIssues.length > 0) usableBlockers.push('other-safety-issues')
+  if (unverifiedFigures.length > MAX_UNVERIFIED_FIGURES) {
+    usableBlockers.push('too-many-unverified-figures')
+  }
+  if (
+    !unverifiedQuotationsTolerated(unverifiedQuotations.length, contract.citedSubstantiveBlockCount)
+  ) {
+    usableBlockers.push('too-many-unverified-quotations')
+  }
+  if (contract.citedSubstantiveBlockCount < minimumCitedBlocks(approvedStepCount)) {
+    usableBlockers.push('too-few-cited-blocks')
+  }
   return {
     content: trimmed,
     overallValid: citation.valid && contract.valid,
@@ -163,6 +190,7 @@ export function evaluateReportCandidate(
     unverifiedQuotations,
     unverifiedFigures,
     unverifiedQuotationText: citation.unverifiedQuotationText,
+    otherSafetyIssues,
     // Neither a handful of untraceable quotations nor one or two untraceable
     // figures costs the whole report any more. Both are disclosed in its limits
     // section, so the reader is told which words are the report's own rather
@@ -173,16 +201,11 @@ export function evaluateReportCandidate(
     // allowance -- the alternative on offer is a report organised around the
     // research steps, which is worth having only when this one cannot be
     // trusted at all.
-    usable:
-      otherSafetyIssues.length === 0 &&
-      unverifiedFigures.length <= MAX_UNVERIFIED_FIGURES &&
-      unverifiedQuotationsTolerated(
-        unverifiedQuotations.length,
-        contract.citedSubstantiveBlockCount
-      ) &&
-      contract.citedSubstantiveBlockCount >= minimumCitedBlocks(approvedStepCount),
+    usable: usableBlockers.length === 0,
+    usableBlockers,
     issueCount: citation.issues.length + contract.issues.length,
     issues: [...citation.issues, ...contract.issues],
+    contractIssues: contract.issues,
     citedSubstantiveBlockCount: contract.citedSubstantiveBlockCount,
     length: trimmed.length
   }
