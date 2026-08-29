@@ -194,3 +194,81 @@ describe('detectFallbackToolCall with <function=…> pseudo-XML', () => {
     expect(findPotentialToolCallTextStart(text)).toBe('Let me search. '.length)
   })
 })
+
+describe("Gemma's tool_code dialect", () => {
+  const PLAN_TOOLS = new Set(['write_plan', 'read_file', 'edit_file'])
+
+  it('reads the call Gemma actually emits', () => {
+    // Measured: Gemma 3 27B could not start a run at all. Every call it made
+    // arrived in this shape and nothing recognised it, so no plan was ever
+    // produced and the run errored at turn 2. Told "You didn't call
+    // write_plan", it apologised and emitted the same block again.
+    const text = [
+      'Okay, here is the plan.',
+      '```tool_code',
+      'write_plan(title="Add Camera Bookmarks", steps=["Implement snapshot in camera.py", "Add buttons to ui.py"])',
+      '```'
+    ].join('\n')
+
+    const call = detectFallbackToolCall(text, PLAN_TOOLS)
+
+    expect(call?.name).toBe('write_plan')
+    expect(call?.arguments).toEqual({
+      title: 'Add Camera Bookmarks',
+      steps: ['Implement snapshot in camera.py', 'Add buttons to ui.py']
+    })
+  })
+
+  it('keeps a list argument whole rather than splitting on its commas', () => {
+    // Splitting naively would produce a call with the wrong shape, which is
+    // worse than producing none: a plan is the commonest list-valued argument
+    // Anodex receives.
+    const text = '```tool_code\nwrite_plan(title="T", steps=["a, with comma", "b"])\n```'
+
+    expect(detectFallbackToolCall(text, PLAN_TOOLS)?.arguments).toEqual({
+      title: 'T',
+      steps: ['a, with comma', 'b']
+    })
+  })
+
+  it('reads Python True/False/None', () => {
+    const text = '```tool_code\nedit_file(path="a.py", dryRun=True, backup=None)\n```'
+
+    expect(detectFallbackToolCall(text, PLAN_TOOLS)?.arguments).toEqual({
+      path: 'a.py',
+      dryRun: true,
+      backup: null
+    })
+  })
+
+  it('refuses a name that is not a registered tool', () => {
+    // The rule the whole module keeps: never guess a call into existence.
+    const text = '```tool_code\ndelete_everything(force=True)\n```'
+
+    expect(detectFallbackToolCall(text, PLAN_TOOLS)).toBeNull()
+  })
+
+  it('abandons the call rather than half-understanding its arguments', () => {
+    // A value this reader cannot parse means the whole candidate is dropped:
+    // a partly-read call would run with arguments the model did not give.
+    const text = '```tool_code\nwrite_plan(title=some_variable, steps=[])\n```'
+
+    expect(detectFallbackToolCall(text, PLAN_TOOLS)).toBeNull()
+  })
+
+  it('strips the fence from the text the user sees', () => {
+    const text = 'Here goes.\n```tool_code\nwrite_plan(title="T", steps=["a"])\n```\nDone.'
+    const call = detectFallbackToolCall(text, PLAN_TOOLS)!
+
+    const stripped = stripFallbackCall(text, call)
+
+    expect(stripped).not.toContain('tool_code')
+    expect(stripped).toContain('Here goes.')
+  })
+
+  it('holds back a fence that is still streaming', () => {
+    const text = 'Working on it.\n```tool_code\nwrite_plan(title="T"'
+
+    expect(findPotentialToolCallTextStart(text)).toBeGreaterThan(-1)
+  })
+})

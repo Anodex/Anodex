@@ -1,0 +1,8 @@
+{
+  "goal": "The Universe Sandbox game in Sandbox/UniverseSandbox is broken: python _smoke_test.py exits 1.\n\nA previous session added camera-bookmark UI to ui.py and left it half-wired. The traceback points at _find_button referencing self._widgets, which does not exist on the UI class.\n\nDiagnose it from the actual traceback rather than guessing, then fix it properly:\n- If the bookmark feature can be completed correctly, complete it: the buttons should exist, be found, and be wired to camera snapshot/restore.\n- If any of it is beyond repair, remove that part cleanly rather than leaving dead references.\n\nDo not weaken, delete or skip any existing check in _smoke_test.py to make it pass. The goal is a working game, not a passing test.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. It must exit 0 with every check passing, including the camera and prediction checks that were passing before. Report the exit code you actually saw. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
