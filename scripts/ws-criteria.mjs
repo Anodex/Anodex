@@ -152,44 +152,51 @@ function claimFlags(messages) {
 }
 
 /**
- * Criterion 5, counted honestly: a repeat is only waste when nothing changed
- * the thing being re-examined.
+ * Criterion 5, measured by degree rather than by a single worst count.
  *
- * A raw signature count cannot tell the two apart, and both mistakes are real.
- * Re-reading a file straight after editing it is correct — the earlier read
- * describes text that no longer exists. Re-running the smoke test after every
- * change is correct too, and a run was marked down for doing it three times.
- * Meanwhile the genuine waste is invisible in the same number.
+ * A repeated call is waste when nothing that could have changed its answer
+ * happened in between — the same rule the loop guard and the gathering ledger
+ * already use. For a file read that means a write to that same file; for
+ * anything else (a visual inspection, a shell command) it means any durable
+ * change at all.
  *
- * Measured on the current build: of 29 repeat whole-file reads, 5 followed an
- * edit to that file and 24 did not, with gaps of 9 to 86 calls. Those 24 are
- * the ones worth reporting.
+ * The raw signature count stays the pass/fail bar, because this measure was
+ * built to test whether that bar was wrong and found that it is not. Validated
+ * against the historical worst offenders, which must still fail: they run
+ * 10.7-49.5 wasteful repeats per 100 calls. A run that scored 7 on the raw
+ * count scored 14.6 here, in the same band — the crude bar and the careful one
+ * agree, so amending the bar would have been a loosening dressed as a fix.
  *
- * Commands are deliberately excluded from the waste count. Whether re-running
- * one was justified depends on what happened to the workspace, not on the
- * command text, and calling a repeated build or test wasteful is the error that
- * would push a run towards verifying less.
+ * Reported anyway because degree is what a fix has to move: "worst repeat 7"
+ * cannot show progress, while "29 wasted calls in 198" can.
  */
-function wastefulRereads(calls) {
+const FILE_READS = new Set(['read_file', 'read_file_range'])
+
+function wastefulRepeats(calls) {
   const target = (call) =>
     String(call.title ?? '')
-      .replace(/^(Edit|Read|Write|Append|Patch|Replace lines in|Replace lines)\s+/, '')
+      .replace(/^(Edit|Read|Write|Append|Patch|Replace lines in|Replace lines|Inspect)\s+/, '')
       .split(' ')[0]
-  const lastRead = new Map()
+  const lastSeen = new Map()
   const waste = []
   for (const [index, call] of calls.entries()) {
-    if (call.name !== 'read_file' || call.status !== 'success') continue
-    const file = target(call)
-    const previous = lastRead.get(file)
+    if (call.status !== 'success') continue
+    const signature = `${call.name}::${String(call.title ?? '').slice(0, 80)}`
+    const previous = lastSeen.get(signature)
     if (previous !== undefined) {
-      const changedBetween = calls
-        .slice(previous + 1, index)
-        .some(
-          (other) => other.status === 'success' && other.kind === 'write' && target(other) === file
-        )
-      if (!changedBetween) waste.push({ file, gap: index - previous })
+      const between = calls.slice(previous + 1, index)
+      const couldHaveChanged = FILE_READS.has(call.name)
+        ? between.some(
+            (other) =>
+              other.status === 'success' && other.kind === 'write' && target(other) === target(call)
+          )
+        : between.some(
+            (other) =>
+              other.status === 'success' && (other.kind === 'write' || other.kind === 'command')
+          )
+      if (!couldHaveChanged) waste.push({ signature, gap: index - previous })
     }
-    lastRead.set(file, index)
+    lastSeen.set(signature, index)
   }
   return waste
 }
@@ -224,7 +231,7 @@ function score(entry) {
   }
   const repeated = [...signatures.entries()].filter(([, n]) => n > 2).sort((a, b) => b[1] - a[1])
   const flags = claimFlags(messages)
-  const waste = wastefulRereads(calls)
+  const waste = wastefulRepeats(calls)
   return {
     flags,
     waste,
@@ -310,10 +317,12 @@ for (const [i, p] of r.plans.entries()) {
   )
 }
 if (r.plans.length === 0) console.log('              (no plan recorded)')
+const per100 = r.calls.length ? ((r.waste.length / r.calls.length) * 100).toFixed(1) : '0'
 console.log(
-  `re-read waste: ${r.waste.length} whole-file re-read(s) where nothing had changed the file`
+  `wasted calls:  ${r.waste.length} repeat(s) where nothing could have changed the answer (${per100} per 100)`
 )
-for (const w of r.waste.slice(0, 5)) console.log(`              ${w.file} (${w.gap} calls later)`)
+for (const w of r.waste.slice(0, 4))
+  console.log(`              ${w.signature.slice(0, 72)} (+${w.gap})`)
 console.log(`repeated:     ${r.repeated.length} call signatures used more than twice`)
 for (const [sig, n] of r.repeated.slice(0, 5)) console.log(`              ${n}x ${sig}`)
 const unbacked = r.flags.filter((f) => !f.earlier)

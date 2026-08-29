@@ -1,0 +1,8 @@
+{
+  "goal": "Add save and load of the simulation state to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThe user should be able to save the current universe to a JSON file and load it back, getting the same simulation they left. Round-tripping must be exact enough that stepping the loaded state gives the same trajectory as stepping the original.\n\nWire it end to end:\n- A new persistence.py: pure save_state(engine) -> dict and load_state(dict) -> bodies/settings, covering every body field (position, velocity, mass, radius, type, colour) plus simulation settings (collision mode, restitution, time scale, selected body). Include a schema version field, and reject a file with an unknown version with a clear error rather than crashing.\n- ui.py: 'Save' and 'Load' buttons in the toolbar, using palette.py colours.\n- main.py: wire the buttons to a file dialog, and reset the camera and trails appropriately on load.\n- _smoke_test.py: add checks that a save/load round trip preserves every body field exactly, that stepping the loaded state 100 times matches stepping the original 100 times, that an unknown schema version is rejected with a clear error, and that a comet and a black hole both survive the round trip.\n\nWork module by module and re-run the smoke test as you go. Read each file once before editing it and work from that, rather than re-reading it repeatedly.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new persistence checks must pass too. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
