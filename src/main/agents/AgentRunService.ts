@@ -22,7 +22,7 @@ import {
   PLAN_APPROVED_PROMPT,
   PLAN_RETRY_PROMPT
 } from './agentPrompts'
-import { budgetExceededReason } from './agentBudgets'
+import { budgetExceededReason, turnBudgetLeftovers } from './agentBudgets'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import { headlessConfirm } from '../tools/headlessConfirm'
@@ -336,7 +336,8 @@ class AgentRunService {
         conversation.id,
         'stopped',
         lastOutcome,
-        `Stopped after ${run.maxTurns} turns without finishing.`
+        `Stopped after ${run.maxTurns} turns without finishing. ` +
+          turnBudgetLeftovers(run, tokensUsed, workedMs())
       )
     } catch (error) {
       log.error('Agent run failed:', run.id, error)
