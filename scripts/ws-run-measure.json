@@ -1,0 +1,8 @@
+{
+  "goal": "Add a measurement tool to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThe user should be able to turn on a 'Measure' mode, click two bodies, and see the distance between them drawn as a line with a readable label, plus their relative speed.\n\nWire it end to end:\n- physics.py: pure helpers distance_between(a, b) and relative_speed(a, b) that never mutate their arguments.\n- render/: draw the measurement line and its label, using palette.py colours rather than new literals.\n- ui.py: a 'Measure' toggle in the toolbar next to the existing toggles.\n- main.py: wire the toggle and the two-body selection, clearing the measurement when the mode is turned off or a scenario is loaded.\n- _smoke_test.py: add checks that distance_between is symmetric and correct for a known pair, that relative_speed is zero for two bodies moving identically, and that neither helper modifies the bodies passed to it.\n\nWork module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new measurement checks must pass too. Report the exit code you actually saw. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
