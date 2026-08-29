@@ -3,7 +3,26 @@ import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
 import { hasStaleVisualEvidence } from './turnProgress'
 
-const MAX_SUMMARY_CHARS = 1000
+/**
+ * Room a run's closing summary gets.
+ *
+ * This was 1,000 characters in the first agent-runs commit, when the summary
+ * was a short outcome note. The open-steps guard later gave it a second job —
+ * "say plainly in the summary which of them you are leaving undone and why,
+ * name the step, so a run that stops early cannot read as one that succeeded"
+ * — and nobody resized it for that.
+ *
+ * Measured: an orbit-prediction run finished with 4 of 7 steps open and wrote a
+ * careful account of what it had and had not done. It was cut mid-word at
+ * exactly 1,000 characters, after item 5 of 7, so the two steps it had left
+ * undone were never named. The disclosure the guard exists to force was
+ * destroyed by the cap on the field it forces it into.
+ *
+ * The summary is rendered as a paragraph in `AgentView` and stored on the run;
+ * nothing about it is layout-sensitive, so the bound only needs to stop an
+ * unbounded model string being persisted.
+ */
+const MAX_SUMMARY_CHARS = 4_000
 
 /**
  * finish_goal — how an agent run ends itself cleanly. Only ever registered
@@ -86,15 +105,27 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
           // Abandoning a step is legitimate -- it may turn out unnecessary or
           // impossible -- so this only asks for it to be said out loud.
           const openSteps = openPlanSteps(ctx.plan.current)
-          if (openSteps.length > 0 && !toldAboutOpenSteps.has(ctx)) {
-            toldAboutOpenSteps.add(ctx)
-            throw new Error(
-              `The plan for this run still has ${openSteps.length} step(s) that are not ` +
-                `complete: ${openSteps.map((step) => JSON.stringify(step)).join(', ')}. ` +
-                'Either finish them and call finish_goal again, or say plainly in the summary ' +
-                'which of them you are leaving undone and why — name the step, so a run that ' +
-                'stops early cannot read as one that succeeded.'
-            )
+          if (openSteps.length > 0) {
+            const toldIn = openStepsToldIn.get(ctx.ledger)
+            if (toldIn === undefined) {
+              openStepsToldIn.set(ctx.ledger, ctx)
+              throw new Error(
+                `The plan for this run still has ${openSteps.length} step(s) that are not ` +
+                  `complete: ${openSteps.map((step) => JSON.stringify(step)).join(', ')}. ` +
+                  'Either finish them and call finish_goal again on a later turn, or say plainly ' +
+                  'in the summary which of them you are leaving undone and why — name the step, ' +
+                  'so a run that stops early cannot read as one that succeeded.'
+              )
+            }
+            if (toldIn === ctx) {
+              throw new Error(
+                'You were already told this turn that the plan has open steps. Repeating ' +
+                  'finish_goal in the same turn cannot be a reconsideration — this call was ' +
+                  'composed before that answer existed. Carry on with the work; if stopping is ' +
+                  'genuinely what you want, call finish_goal on your next turn and it will be ' +
+                  'accepted.'
+              )
+            }
           }
           return Promise.resolve({ modelResult: 'Run finished.', detail: summary })
         }
@@ -108,7 +139,9 @@ function openPlanSteps(plan: Plan | null): string[] {
 }
 
 /**
- * Runs already told, this generation, that their plan still has open steps.
+ * For each run, the generation in which it was last told its plan has open
+ * steps. Keyed on the ledger, whose lifetime is the whole run (see
+ * `TaskLedger`), so the answer survives from one turn to the next.
  *
  * Two attempts at reading the summary both failed, and the second failure is
  * the instructive one. Looking for phrases like "still outstanding" passed a
@@ -119,13 +152,40 @@ function openPlanSteps(plan: Plan | null): string[] {
  *
  * The two cases are not separable by keyword: naming a step while claiming it
  * works looks exactly like naming it while admitting it does not. So this stops
- * guessing at prose. The first `finish_goal` with open steps is refused and
- * told which they are; a second call goes through. The model gets one
- * unmissable prompt to reconsider, the decision stays its own, and there is
- * nothing to word around.
+ * guessing at prose. The model gets one unmissable prompt to reconsider, the
+ * decision stays its own, and there is nothing to word around.
+ *
+ * ## Why the prompt has to span a turn
+ *
+ * It used to be one refusal per *generation*, which the model could consume
+ * without ever seeing it. A model emits several tool calls in one response, and
+ * every one of them is written before any of their results come back -- so a
+ * second `finish_goal` sitting in the same batch is not a reconsideration, it
+ * is a sibling of the call that was refused.
+ *
+ * Measured: 10 of the 32 stored assistant messages containing `finish_goal`
+ * contain more than one, and one run ended on exactly this path. It called
+ * `finish_goal` by accident, was refused, wrote in its own reply "I
+ * accidentally called finish_goal -- the plan is still open, let me get back to
+ * executing it", carried on working, and then had four more `finish_goal` calls
+ * from the same batch accepted. The run stopped at 1 of 8 plan steps with 12 of
+ * its 20 turns and 260,000 of its 300,000 tokens unspent.
+ *
+ * So the refusal now stands for the rest of the generation that earned it, and
+ * lifts on the next one. A run that genuinely means to stop early says so on
+ * its next turn and is accepted; nothing is blocked, and the one thing that
+ * becomes impossible is ending a run by accident in a single batch.
  */
-const toldAboutOpenSteps = new WeakSet<object>()
+const openStepsToldIn = new WeakMap<object, object>()
 
+/**
+ * Say when the text was cut, rather than trailing off into an ellipsis a reader
+ * cannot tell from the model's own punctuation. A summary that stops mid-word
+ * with no explanation reads as a model that lost its thread, which is exactly
+ * the wrong conclusion when it was this code that did the cutting.
+ */
 function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+  if (text.length <= max) return text
+  const note = ' [cut off by Anodex]'
+  return `${text.slice(0, max - note.length)}${note}`
 }
