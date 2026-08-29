@@ -464,10 +464,40 @@ coverage tracker then refused. The fix then was to supply rather than refuse.
 Refusing again would trade a measured 18.6% inefficiency for a failure mode that
 stops runs dead.
 
-The one untried direction consistent with what has worked is **supplying more,
-not less**: replacing a bare evidence descriptor with something useful about the
-trimmed content - a code outline of the file rather than "3,100 chars, body
-trimmed". Untested, and it is the only idea left that does not involve refusing.
+### Seventh theory: a richer evidence descriptor. Built, measured, reverted.
+
+The one direction that did not involve refusing: replace the bare "3,100 chars,
+body trimmed" descriptor with the result's top-level lines, so a model that has
+lost a file body still knows its shape. Language-agnostic by construction -
+top-level position rather than a keyword list - and tested to stay under half
+the size of what it replaced.
+
+Waste on the next long run: **19.1 per 100, against an 18.6 mean and a 20.4
+comparable**. No effect.
+
+Reverted (`a37d670`..). A descriptor is paid for out of the same budget the body
+was, so ~200 characters of shape displace ~200 characters of real content. A
+change that does not reduce waste and does consume budget is a net loss, and
+keeping it would be accumulating machinery for its own sake.
+
+**Measurement note:** the marker could not be confirmed from stored data. Tool
+results are truncated to 2,001 characters for storage, and the descriptor is
+appended to the _model-facing_ text beyond that point. The code path is
+unconditional for any result over 240 characters, so it near-certainly fired,
+but "near-certainly" is the honest word. Anyone retrying this should instrument
+the emit first.
+
+### Where this leaves it
+
+Seven theories, six refuted by measurement and one built and reverted. Waste
+holds at ~18.6 per 100 calls and moves for nothing Anodex controls. Every
+remaining lever refuses a re-read, which caused the context livelock recorded in
+`anodex-context-livelock-fix`.
+
+The honest conclusion is that this is not fixable from Anodex's side without
+trading a measured inefficiency for a failure that stops runs dead. It is a
+property of how the model works, and the evidence for that is now the absence of
+any correlation rather than an absence of ideas.
 
 ### A loop-guard threshold does not solve it (measured, do not rebuild)
 
