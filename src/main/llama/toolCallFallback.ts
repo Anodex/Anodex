@@ -89,6 +89,21 @@ const DEEPSEEK_CALL = new RegExp(
   'g'
 )
 
+/**
+ * Gemma's own convention: a ```tool_code fence holding a Python-style call,
+ * `write_plan(title="…", steps=["…", "…"])`.
+ *
+ * Not a variant of the others — the body is a call expression, not JSON — so it
+ * needs its own reader. Measured: Gemma 3 27B could not start a run at all,
+ * because every call it made arrived in this shape and nothing here recognised
+ * it. Told "You didn't call write_plan", it apologised and emitted the same
+ * block again; it was not confused, it was speaking a dialect Anodex could not
+ * read.
+ */
+const TOOL_CODE_FENCE = /```tool_code\s*\n?([\s\S]*?)```/gi
+/** `name(...)` spanning the whole fence body, arguments captured whole. */
+const PYTHON_CALL = /^\s*([A-Za-z_][\w.]*)\s*\(([\s\S]*)\)\s*$/
+
 const TRAILING_WRAPPER = /^(?:\s*<\/function>)?(?:\s*<\/tool_call>)?/
 const LEADING_WRAPPER = /<tool_call>\s*$/
 
@@ -121,6 +136,7 @@ function extractCandidates(text: string): Candidate[] {
   const candidates: Candidate[] = []
 
   candidates.push(...extractDeepSeekCandidates(text))
+  candidates.push(...extractToolCodeCandidates(text))
   for (const match of text.matchAll(TOOL_CALL_TAG)) {
     candidates.push({ matchedText: match[0], jsonText: match[1] })
   }
@@ -171,6 +187,111 @@ function extractCandidates(text: string): Candidate[] {
  * into the reply; the recovered call then runs for real and the caller
  * re-prompts with its actual result.
  */
+/**
+ * Read Gemma's ```tool_code fences into the same JSON shape every other dialect
+ * is normalised to.
+ *
+ * Conservative in the way this module requires: keyword arguments only, values
+ * parsed as JSON after the three Python literals are rewritten, and the whole
+ * candidate abandoned the moment a value will not parse. A half-understood call
+ * is worse than an unrecognised one — `detectFallbackToolCall` still refuses
+ * any name that is not a registered tool, so a bad guess here would execute
+ * something the model did not ask for.
+ */
+function extractToolCodeCandidates(text: string): Candidate[] {
+  const candidates: Candidate[] = []
+  for (const fence of text.matchAll(TOOL_CODE_FENCE)) {
+    const call = PYTHON_CALL.exec(fence[1])
+    if (!call) continue
+    const args = parsePythonKeywordArgs(call[2])
+    if (!args) continue
+    candidates.push({
+      matchedText: fence[0],
+      jsonText: JSON.stringify({ name: call[1], arguments: args })
+    })
+  }
+  return candidates
+}
+
+/**
+ * `title="x", steps=["a", "b"]` into an arguments object, or null if any part
+ * of it is not understood.
+ *
+ * Splitting is done by depth rather than by a regex because argument values
+ * contain commas — a list of steps is the commonest single argument Anodex
+ * receives, and splitting it naively would produce a call with the wrong shape
+ * rather than no call at all.
+ */
+function parsePythonKeywordArgs(argText: string): Record<string, unknown> | null {
+  if (argText.trim() === '') return {}
+  const args: Record<string, unknown> = {}
+  for (const part of splitTopLevel(argText)) {
+    const eq = indexOfTopLevelEquals(part)
+    if (eq === -1) return null
+    const key = part.slice(0, eq).trim()
+    if (!/^[A-Za-z_]\w*$/.test(key)) return null
+    const value = part.slice(eq + 1).trim()
+    if (value === '') return null
+    try {
+      args[key] = JSON.parse(
+        value
+          .replace(/\bTrue\b/g, 'true')
+          .replace(/\bFalse\b/g, 'false')
+          .replace(/\bNone\b/g, 'null')
+      )
+    } catch {
+      // A bare single-quoted string is the one non-JSON form common enough to
+      // be worth reading; anything else is left unparsed rather than guessed.
+      const quoted = /^'([^']*)'$/.exec(value)
+      if (!quoted) return null
+      args[key] = quoted[1]
+    }
+  }
+  return args
+}
+
+/** Split on commas that sit outside brackets, braces and quotes. */
+function splitTopLevel(text: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let quote: string | null = null
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (quote) {
+      if (ch === quote && text[i - 1] !== '\\') quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'") quote = ch
+    else if (ch === '[' || ch === '{' || ch === '(') depth++
+    else if (ch === ']' || ch === '}' || ch === ')') depth--
+    else if (ch === ',' && depth === 0) {
+      parts.push(text.slice(start, i))
+      start = i + 1
+    }
+  }
+  parts.push(text.slice(start))
+  return parts.map((part) => part.trim()).filter((part) => part !== '')
+}
+
+/** The `=` that separates a keyword from its value, ignoring any inside it. */
+function indexOfTopLevelEquals(text: string): number {
+  let quote: string | null = null
+  let depth = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (quote) {
+      if (ch === quote && text[i - 1] !== '\\') quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'") quote = ch
+    else if (ch === '[' || ch === '{' || ch === '(') depth++
+    else if (ch === ']' || ch === '}' || ch === ')') depth--
+    else if (ch === '=' && depth === 0 && text[i + 1] !== '=') return i
+  }
+  return -1
+}
+
 function extractDeepSeekCandidates(text: string): Candidate[] {
   const candidates: Candidate[] = []
 
@@ -314,6 +435,8 @@ export function stripFallbackCall(text: string, call: FallbackToolCall): string 
 export function findPotentialToolCallTextStart(text: string): number {
   const starts = [
     text.indexOf('<tool_call'),
+    // Held back while it streams, like the other wrappers.
+    text.indexOf('```tool_code'),
     // Held back for the same reason as `<tool_call`: it can appear without one.
     text.indexOf('<function='),
     // Same reason: a leaked DeepSeek call is raw payload, not prose the user
