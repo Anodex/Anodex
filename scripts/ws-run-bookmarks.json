@@ -1,0 +1,8 @@
+{
+  "goal": "Add camera bookmarks to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThe user should be able to save the current camera view under a numbered slot and jump back to it later, with the view moving smoothly rather than snapping.\n\nWire it end to end:\n- camera.py: a pure snapshot() returning the camera's full state (position/target/zoom/rotation, whatever the camera actually holds) and a restore(state) that applies it, plus an interpolate(a, b, t) that blends two snapshots for the smooth move. None of these may mutate their arguments.\n- ui.py: bookmark buttons for at least four slots in the toolbar, showing which slots are filled, using palette.py colours rather than new literals.\n- main.py: wire saving and jumping, animating the transition over a short number of frames using interpolate.\n- _smoke_test.py: add checks that snapshot/restore round-trips the camera exactly, that interpolate at t=0 and t=1 returns the endpoints, that a mid-value lies between them, and that snapshot does not alias the live camera (mutating the snapshot must not move the camera).\n\nWork module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new bookmark checks must pass too. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
