@@ -102,6 +102,10 @@ const DEEPSEEK_CALL = new RegExp(
  */
 const TOOL_CODE_FENCE = /```tool_code\s*\n?([\s\S]*?)```/gi
 /** `name(...)` spanning the whole fence body, arguments captured whole. */
+/** A whole Python triple-quoted argument, taken literally. */
+const TQ = ['"""', "'''"]
+const TRIPLE_QUOTED = new RegExp(`^(?:${TQ[0]}|${TQ[1]})([\\s\\S]*)(?:${TQ[0]}|${TQ[1]})$`)
+
 const PYTHON_CALL = /^\s*([A-Za-z_][\w.]*)\s*\(([\s\S]*)\)\s*$/
 
 const TRAILING_WRAPPER = /^(?:\s*<\/function>)?(?:\s*<\/tool_call>)?/
@@ -232,6 +236,15 @@ function parsePythonKeywordArgs(argText: string): Record<string, unknown> | null
     if (!/^[A-Za-z_]\w*$/.test(key)) return null
     const value = part.slice(eq + 1).trim()
     if (value === '') return null
+    // Python's triple-quoted form, which is how a model passes code as an
+    // argument - the commonest shape for `edit_file`'s oldText/newText, and
+    // never valid JSON. Taken literally: its whole purpose is holding text
+    // that would otherwise need escaping.
+    const triple = TRIPLE_QUOTED.exec(value)
+    if (triple) {
+      args[key] = triple[1]
+      continue
+    }
     try {
       args[key] = JSON.parse(
         value
@@ -258,6 +271,13 @@ function splitTopLevel(text: string): string[] {
   let start = 0
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
+    if (!quote) {
+      const skipTo = tripleQuoteEnd(text, i)
+      if (skipTo !== null) {
+        i = skipTo
+        continue
+      }
+    }
     if (quote) {
       if (ch === quote && text[i - 1] !== '\\') quote = null
       continue
@@ -274,12 +294,31 @@ function splitTopLevel(text: string): string[] {
   return parts.map((part) => part.trim()).filter((part) => part !== '')
 }
 
+/**
+ * If a triple-quoted string opens at `index`, the index of its last closing
+ * character - otherwise null. Used to step over a code-bearing argument whole.
+ */
+function tripleQuoteEnd(text: string, index: number): number | null {
+  const opener = TQ.find((q) => text.startsWith(q, index))
+  if (!opener) return null
+  const close = text.indexOf(opener, index + 3)
+  // An unterminated block is a call still streaming in, not one to read.
+  return close === -1 ? text.length : close + 2
+}
+
 /** The `=` that separates a keyword from its value, ignoring any inside it. */
 function indexOfTopLevelEquals(text: string): number {
   let quote: string | null = null
   let depth = 0
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
+    if (!quote) {
+      const skipTo = tripleQuoteEnd(text, i)
+      if (skipTo !== null) {
+        i = skipTo
+        continue
+      }
+    }
     if (quote) {
       if (ch === quote && text[i - 1] !== '\\') quote = null
       continue
