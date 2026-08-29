@@ -1,0 +1,8 @@
+{
+  "goal": "Add a live status bar to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nAlong the bottom of the canvas, show: the active scenario name, body count, elapsed simulation time, current time scale, and the name of the selected body (or 'none'). It must update as the simulation runs and stay readable against the starfield.\n\n- physics.py: expose elapsed simulation time and time scale if they are not already available, as pure accessors that mutate nothing.\n- render/: draw the status bar, using palette.py colours rather than new literals, clamped so it never overflows the canvas.\n- ui.py: a 'Status bar' toggle in the toolbar.\n- main.py: wire the toggle and keep the bar's data current each frame.\n- _smoke_test.py: add checks that the status bar's regions stay inside the canvas, that it reports the correct body count and scenario name after loading a preset, and that toggling it does not change the simulation state.\n\nThis is a complete-it task: every step must be finished, not surveyed. Work module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new status-bar checks must pass too. Report the exit code you actually saw. Delete any temporary scripts.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
