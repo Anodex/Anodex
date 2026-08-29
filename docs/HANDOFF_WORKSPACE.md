@@ -4,7 +4,18 @@ Updated 2026-08-28. Everything below that is a number was measured from the
 stored conversations, not from reasoning about the code. Where a claim is
 unverified it says so.
 
-## Rating: unchanged, not 9
+## Rating: unchanged, and a single number is now the wrong shape
+
+The 9/10 bar - three consecutive clean runs - is still not met. But the larger
+finding is that a single rating describes one model: everything scored below is
+Qwen3.8-27B at 65,536 tokens on this machine. Five makes were tested and four of
+them exposed defects invisible from that baseline, two of which made a model
+completely unusable.
+
+Read the per-model table under "Compatibility across makes" before quoting any
+number here.
+
+## Rating on the baseline: unchanged, not 9
 
 Seven runs: four clean, three failed. On the _current_ build (all five fixes)
 the record is clean, clean, fail — two consecutive, not three.
@@ -342,6 +353,62 @@ observation is not grounds for changing how patches apply. Worth watching.
 Run 1's plan sat at 2/6 from turn 3 to turn 8 and jumped to 6/6 in the final
 turn. It passes criterion 2, but for six of nine turns the Plan panel
 under-reported what was done. One observation; not acted on.
+
+## Compatibility across makes
+
+Five models, same task, same 65,536-token window, same settings. Four of the
+five exposed an Anodex defect the baseline never could.
+
+| make                    | loads                                                   | tool calls                     | outcome                          |
+| ----------------------- | ------------------------------------------------------- | ------------------------------ | -------------------------------- |
+| Qwen3.8-27B (baseline)  | clean                                                   | reliable                       | 4 clean runs, 2 clean repairs    |
+| Muse-Glimmer-30B        | arch unsupported in-process, falls back to llama-server | fabricates calls as prose      | 0/6 steps in 30 turns            |
+| Devstral-Small-24B      | clean                                                   | 90% blocked in a loop          | broke the build, claimed success |
+| Gemma-3-27B             | clean                                                   | **was 0** - dialect unreadable | now 24 calls, still dishonest    |
+| DeepSeek-R1-Distill-32B | clean                                                   | **was 4** in 30 turns          | now 19, then drifts and loops    |
+
+### What was fixed as a result
+
+1. **Gemma's tool_code dialect was unreadable** (`90e9573`). Gemma emits a
+   fenced `tool_code` block holding a Python call - `write_plan(title=..., 
+steps=[...])` - and the fallback parser knew only the Hermes/Qwen
+   `<tool_call>` JSON shape. Every call it made was invisible; it could not
+   produce a plan and errored at turn 2. Told "You didn't call write_plan", it
+   apologised and emitted the identical block again.
+2. **Triple-quoted code arguments were dropped** (`17ccf6a`). DeepSeek emitted
+   the dialect correctly but passed code as a Python """ string, which is
+   never JSON, so the parser abandoned the call. That is the normal shape for an
+   editing tool, and two of five models use this dialect.
+3. **The tool-limit soft gate had no bound** (`4bcca99`). Devstral answered it
+   with 940 further calls - 632 `find_skill`, 290 `search_files` - each blocked,
+   each a full round trip, 43,207 tokens for nothing.
+4. **A finished run discarded its own factual record** (`f3e69a6`). Both
+   Devstral and Gemma claimed success on builds their own tests had just failed;
+   the settled account that contradicted them was thrown away in favour of the
+   claim. Both halves are now kept.
+
+### Still unfixed
+
+- **A transient parse failure ends a whole run.** Muse hit one unparseable
+  native call at turn 4 of 30 after 22 successful calls and the run was over, at
+  1.7% of its token budget. `recoverableStop.ts` treats soft ceilings as
+  turn-level and everything else as fatal; this sits closer to the former. Not
+  built for, because a retry that masks a model failing _every_ turn would burn
+  budget silently, and the frequency data to size it does not exist.
+- **"Vision model ready" is logged immediately after "failed to load model".**
+  Muse's architecture is unsupported in-process and the fallback is reported as
+  success. Debugging a real load failure, those two lines are indistinguishable.
+- **A model repeating an identical reply across turns is not caught.** DeepSeek
+  emitted byte-identical 3,126-character replies with zero tool calls for six
+  consecutive turns. The loop guard covers tool calls; the in-turn repetition
+  guard covers one turn. One model, deliberately not built for.
+
+### Repair from a broken workspace works
+
+Twice, on damage caused by two different models. Both times the baseline
+diagnosed from the actual traceback, fixed the code rather than deleting the
+failing test, and finished with 0% workspace-tool failures. This was untested at
+the start of the session.
 
 ## Tooling
 
