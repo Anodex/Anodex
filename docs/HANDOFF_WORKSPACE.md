@@ -15,7 +15,7 @@ completely unusable.
 Read the per-model table under "Compatibility across makes" before quoting any
 number here.
 
-## Rating on the baseline: unchanged, not 9
+### On the baseline specifically
 
 Seven runs: four clean, three failed. On the _current_ build (all five fixes)
 the record is clean, clean, fail — two consecutive, not three.
@@ -173,7 +173,7 @@ found". It now reports what the file actually says where the text nearly
 matched, under the same uniqueness rule. **Fired zero times in live runs so
 far — unvalidated.**
 
-### 5. A run's summary was capped below the disclosure it was required to make
+### 4. A run's summary was capped below the disclosure it was required to make
 
 `MAX_SUMMARY_CHARS` was 1,000 in the first agent-runs commit (`ac482a7`,
 07-10), when the summary was a short outcome note. The open-steps guard later
@@ -188,7 +188,7 @@ guard exists to force was destroyed by the cap on the field it forces it into.
 Now 4,000, and truncation says `[cut off by Anodex]` rather than trailing into
 an ellipsis a reader cannot tell from the model's own punctuation.
 
-### 4. The open-steps reconsideration spanned a generation, not a turn
+### 5. The open-steps reconsideration spanned a generation, not a turn
 
 `finish_goal` refuses once when plan steps are open, then lets the next call
 through — one unmissable prompt to reconsider. But a model emits several calls
@@ -559,13 +559,47 @@ the start of the session.
 
 ## What to do next, in order
 
-1. **Finish the palette question.** Run 5 (40 turns) tests whether the task is
-   simply larger than 20 turns. If it still stalls, the shell-surveying problem
-   above is the likely cause and deserves a properly designed fix.
-2. **A different project in a different language.** This is the highest-value
-   remaining test and the 10/10 condition. The autorun harness resolves a
-   project by name, so the project must already exist in `projects.json`;
-   creating one currently needs the GUI.
-3. **Validate fix 3.** The `edit_file` near-miss hint has never fired live.
-4. Only then consider the shell-surveying guard, and only with a design that
-   cannot misclassify a build or a test as gathering.
+Repetition is closed - see the seven-theory record above. Do not reopen it
+without a new measurement that distinguishes a cause; six explanations were
+refuted and a seventh was built and reverted.
+
+1. **Push.** Fifteen commits sit on local `main`. The pre-push hook refuses the
+   default branch by design; the sanctioned override is
+   `ANODEX_ALLOW_MAIN_PUSH=1 git push origin main`, which skips CI, or push a
+   branch and open a PR so CI runs.
+
+2. **Plan ticking - the one substantial thing never investigated.** Every recent
+   run leaves its plan one step short, and it is always the same step: the final
+   "run the test and report", performed but never marked. This is the dominant
+   criterion-2 failure and nothing has been measured about it. Start where the
+   repetition work started: read the store. Does `update_plan_step` get called
+   and fail, or never get called at all? The distinction decides whether this is
+   Anodex's or the model's, and it is a different question from repetition
+   because the model demonstrably _does_ the work.
+
+3. **Validate the two unproven fixes.** The `edit_file` near-miss hint has never
+   fired in a live run. The Gemma dialect reader took that model from 0 tool
+   calls to 24, but Gemma has not yet completed a task.
+
+4. **A transient parse failure ends a whole run.** Muse lost a 30-turn run at
+   turn 4 to one unparseable call after 22 good ones, at 1.7% of its budget.
+   Sizing a retry needs frequency data that does not exist: instrument how often
+   the provider raises it before deciding, because a retry that masks a model
+   failing _every_ turn burns a user's budget silently.
+
+5. **Contexts other than 65,536.** Everything measured is one window on one
+   machine. An 8K run functions but completes almost nothing per turn - the
+   budget-unit problem in `agentBudgets.ts` - and a realistic small-hardware
+   pairing (a 3B model at a small window) has never been tried.
+
+### Deliberately not on this list
+
+- **Anything that refuses a re-read.** It caused the context livelock in
+  `anodex-context-livelock-fix`.
+- **Widening the loop guard's window.** It would block re-running the smoke test
+  after every edit, which is correct behaviour.
+- **Giving `DEFAULT_RECALL_WINDOW_FRACTION` a ceiling.** The generality concern
+  is real - it is the only unbounded fraction, and it withholds more the better
+  the hardware - but the one experiment on retaining more history says it does
+  not help and may hurt. Contraindicated until something measures large contexts
+  directly.
