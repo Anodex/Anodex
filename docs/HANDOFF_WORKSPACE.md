@@ -278,6 +278,50 @@ with the run being stopped rather than a generation bug, and the agent-run
 records that would settle it were cleared on 08-27. The empty bubbles _are_
 visible in the transcript. Unresolved — not built for.
 
+### Repetition: the binding constraint, and no safe fix found
+
+Every failure on the current build after the fixes landed was criterion 5.
+Criteria 3 and 4 have not failed once. Measured as wasteful repeats — an
+identical call with nothing in between that could have changed its answer:
+
+| run              | calls | recall   | wasted per 100 |
+| ---------------- | ----- | -------- | -------------- |
+| orbit prediction | 184   | 0.4      | 19.0           |
+| scenario presets | 198   | 0.4      | 14.6           |
+| save/load        | 123   | 0.4      | 13.0           |
+| diagnostics      | 124   | **0.75** | **19.4**       |
+
+Three explanations were tested and all three died:
+
+1. **The edit echo** (`6a3187b`) was supposed to remove the need to re-read
+   after an edit. Anchored-edit failures were 22% before it and 22% after.
+2. **Prompting.** The save/load goal said outright "read each file once before
+   editing it and work from that, rather than re-reading it repeatedly." It
+   changed nothing: 8 reads of one file, 13.0 per 100.
+3. **History eviction.** Raising `recallWindowFraction` from 0.4 to 0.75 made
+   it _worse_ — the only 0.75 run is the worst of the four. An earlier
+   comparison appeared to support the theory and was confounded by run length.
+
+**This also contraindicates the generality fix below.** Giving the recall
+window a ceiling means retaining more history on large contexts, and the one
+experiment on retaining more history says it does not help and may hurt.
+
+The remaining levers are all known-harmful: refusing re-reads caused a context
+livelock (see `anodex-context-livelock-fix`), and widening the loop guard's
+18-entry window would block re-running the smoke test after each edit, which is
+correct behaviour. On the evidence available this is a model-behaviour ceiling
+rather than a defect the tooling can reach. Do not patch it a fourth time
+without a new measurement that distinguishes a cause.
+
+### `finish_goal` accepted a summary of "placeholder"
+
+With 4 of 7 plan steps open, a run was refused once and then finished with the
+literal summary `placeholder`. The guard deliberately never parses prose — two
+attempts at reading the summary failed before, and both failures are recorded
+above — so it cannot tell that from a real account. A length or content check
+would be gameable and would reject a legitimately terse honest summary. One
+occurrence, recorded rather than built for.
+
 ### An insertion-style patch applied twice duplicates code
 
 Run 7 issued `patch_file` against `ui.py` twice with the same 5 replacements.

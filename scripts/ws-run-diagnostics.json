@@ -1,0 +1,8 @@
+{
+  "goal": "Add an energy and momentum diagnostics panel to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThe user should be able to see, live, whether the simulation is conserving what it should: total kinetic energy, total potential energy, their sum, and total linear momentum, with a small history graph showing how the total energy has drifted since the scenario started.\n\nWire it end to end:\n- physics.py: pure total_kinetic_energy(bodies), total_potential_energy(bodies), total_momentum(bodies) helpers that allocate nothing per call beyond their result, plus an energy_drift_fraction against a stored baseline.\n- render/: draw a compact drift graph, using palette.py colours rather than new literals.\n- ui.py: a 'Diagnostics' toggle in the toolbar and a panel showing the four live numbers, formatted readably rather than as raw floats.\n- main.py: wire the toggle, and reset the baseline when a scenario or saved file is loaded.\n- _smoke_test.py: add checks that kinetic and potential energy are computed correctly for a known two-body configuration, that a circular orbit conserves total energy to a tight tolerance over 1000 steps, that a merge conserves momentum but not kinetic energy, and that the drift baseline resets on scenario load.\n\nWork module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new diagnostics checks must pass too. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
