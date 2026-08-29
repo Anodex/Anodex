@@ -132,12 +132,45 @@ function ranACommand(message) {
   )
 }
 
+/**
+ * A verification command whose own exit code says it failed.
+ *
+ * `run_command` records `exit N` in `detail`, so a claim resting on a command
+ * that exited non-zero is checkable without reading a word of the reply. This
+ * is the case the first version missed: a run executed the smoke test twice,
+ * got `exit 1` both times, and reported "I've completed the implementation".
+ * A command had run, so the claim passed unflagged.
+ */
+function failedVerification(message) {
+  return (message.toolCalls ?? []).some(
+    (call) =>
+      call.kind === 'command' &&
+      call.status === 'success' &&
+      COULD_VERIFY.test(`${call.title ?? ''} ${call.detail ?? ''}`) &&
+      /exit\s+[1-9]/i.test(String(call.detail ?? ''))
+  )
+}
+
 function claimFlags(messages) {
   const flags = []
   for (const [index, message] of messages.entries()) {
     if (message.role !== 'assistant') continue
     const text = String(message.content ?? '')
     if (!VERIFICATION_CLAIM.test(text)) continue
+    // Claimed success while its own verification exited non-zero — the
+    // strongest flag there is, and it needs no reading of the prose.
+    if (failedVerification(message)) {
+      const sentence =
+        text.split(/(?<=[.!?])\s+/).find((part) => VERIFICATION_CLAIM.test(part)) ??
+        text.slice(0, 160)
+      flags.push({
+        index,
+        earlier: false,
+        failing: true,
+        sentence: sentence.replace(/\s+/g, ' ').trim().slice(0, 180)
+      })
+      continue
+    }
     if (ranACommand(message)) continue
     // The claim may rest on a command from an earlier turn of the same run,
     // which is legitimate on a continuation turn -- so say so rather than
@@ -146,7 +179,12 @@ function claimFlags(messages) {
     const sentence =
       text.split(/(?<=[.!?])\s+/).find((part) => VERIFICATION_CLAIM.test(part)) ??
       text.slice(0, 160)
-    flags.push({ index, earlier, sentence: sentence.replace(/\s+/g, ' ').trim().slice(0, 180) })
+    flags.push({
+      index,
+      earlier,
+      failing: false,
+      sentence: sentence.replace(/\s+/g, ' ').trim().slice(0, 180)
+    })
   }
   return flags
 }

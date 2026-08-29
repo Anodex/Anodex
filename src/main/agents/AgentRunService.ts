@@ -302,7 +302,27 @@ class AgentRunService {
         // comment) only ends *this* turn, not the whole run — falls through
         // to the budget/check-in logic below, same as any other turn.
         if (finished) {
-          this.finish(run.id, conversation.id, 'done', summary, null)
+          // Keep the settled record next to the claim. `describeTurnOutcome` is
+          // derived from the tool record rather than written by the model — the
+          // reason the stopped path below already uses it — and that argument is
+          // strongest exactly here, where the model is asserting success.
+          //
+          // Measured: a run edited `ui.py`, ran the smoke test twice, got `exit
+          // 1` both times, wrote "The smoke test failed because `_find_button`
+          // is missing" in its own reply, and then finished with "I've completed
+          // the implementation of camera bookmarks". The workspace was left
+          // broken and the factual account of that turn was discarded in favour
+          // of the claim.
+          //
+          // Nothing is refused: a run that means to stop with a failing test
+          // still stops. The reader simply gets both halves.
+          this.finish(
+            run.id,
+            conversation.id,
+            'done',
+            withSettledOutcome(summary, lastOutcome),
+            null
+          )
           return
         }
 
@@ -756,3 +776,19 @@ function truncate(text: string, max: number): string {
 }
 
 export const agentRunService = new AgentRunService()
+
+/**
+ * Join a run's own summary to the factual account of its last turn.
+ *
+ * Exported for its own tests: the case that matters is a summary claiming
+ * success beside a record showing a failing command, and that pairing should be
+ * checkable without driving a whole run.
+ */
+export function withSettledOutcome(summary: string | null, outcome: string | null): string | null {
+  const claim = summary?.trim() ?? ''
+  const settled = outcome?.trim() ?? ''
+  if (!settled) return summary
+  if (!claim) return settled
+  if (claim.includes(settled)) return claim
+  return `${claim}\n\n${settled}`
+}

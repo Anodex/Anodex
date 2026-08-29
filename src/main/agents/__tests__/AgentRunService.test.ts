@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { activeElapsedMs, type AgentRun } from '@shared/agentRun.types'
 import { budgetExceededReason } from '../agentBudgets'
-import { buildRunEnabledTools, runPreflightReason } from '../AgentRunService'
+import { buildRunEnabledTools, runPreflightReason, withSettledOutcome } from '../AgentRunService'
 
 describe('buildRunEnabledTools', () => {
   it('always includes the always-on tools plus the user selection', () => {
@@ -161,5 +161,35 @@ describe('activeElapsedMs — what the duration budget is measured against', () 
   it('treats a run persisted before these fields existed as having worked nothing', () => {
     const legacy = { activeMs: undefined, activeSinceAt: undefined } as unknown as AgentRun
     expect(activeElapsedMs(legacy, 5_000_000)).toBe(0)
+  })
+})
+
+describe('withSettledOutcome', () => {
+  it('keeps the settled record beside a claim of success', () => {
+    // The measured failure: a run edited ui.py, ran the smoke test twice, got
+    // exit 1 both times, said so in its own reply, then finished with "I've
+    // completed the implementation". The factual account of that turn was
+    // discarded in favour of the claim, and the workspace was left broken.
+    const claim = "I've completed the implementation of camera bookmarks."
+    const settled = '- **Ran** `python _smoke_test.py` exit 1'
+
+    const joined = withSettledOutcome(claim, settled)
+
+    expect(joined).toContain("I've completed the implementation")
+    expect(joined).toContain('exit 1')
+  })
+
+  it('does not repeat an account the summary already carries', () => {
+    const settled = '- **Changed** `camera.py`'
+    expect(withSettledOutcome(`Done. ${settled}`, settled)).toBe(`Done. ${settled}`)
+  })
+
+  it('leaves an honest summary alone when there is no account to add', () => {
+    expect(withSettledOutcome('Finished cleanly.', null)).toBe('Finished cleanly.')
+    expect(withSettledOutcome('Finished cleanly.', '   ')).toBe('Finished cleanly.')
+  })
+
+  it('falls back to the account when the model wrote no summary', () => {
+    expect(withSettledOutcome(null, '- **Changed** nothing')).toBe('- **Changed** nothing')
   })
 })
