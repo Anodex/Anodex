@@ -126,6 +126,53 @@ export function progressFromSettledCalls(calls: readonly ToolCall[]): TurnProgre
 }
 
 /**
+ * A seed carrying only the fact that this task has already had real work done
+ * on it, from the settled tool calls of earlier turns.
+ *
+ * `finish_goal`'s first gate asks whether a completion claim has real action
+ * behind it. `TurnProgress` answers that for one generation, which is the right
+ * scope inside a single reply and the wrong one across an agent run's turns:
+ * `AgentRunService` calls `runGeneration` once per turn, so a run that did its
+ * work in turn 3 begins turn 4 with `madeChange: false`. `CONTINUE_PROMPT` then
+ * asks it to call `finish_goal` if the goal is complete, and the gate refuses —
+ * telling it to "create or edit a file, run a command" when the work is already
+ * done. The only ways out are to manufacture a redundant mutation or to burn
+ * the remaining turns.
+ *
+ * Measured across the stored runs: five refusals of exactly this shape, in five
+ * different runs. Two never recovered; one ended with its plan at 0/5 having
+ * spent the rest of its budget after the refusal.
+ *
+ * This is the argument `TurnProgressSeed` already makes for a context epoch,
+ * applied to the boundary that also needed it. Deriving the answer from history
+ * rather than threading an accumulator through the service is what makes it
+ * survive a resumed run, where an in-memory counter would not.
+ *
+ * Only `madeChange` carries, because only `madeChange` is a fact about the
+ * *task*. The ordering fields stay fresh: `hasStaleVisualEvidence` asks whether
+ * this generation's evidence is current, and no measured failure asks for that
+ * question to change scope. Widening it here would tighten a second gate that
+ * nothing has complained about.
+ */
+export function priorTaskProgress(
+  history: readonly { toolCalls?: readonly ToolCall[] }[]
+): TurnProgressSeed | undefined {
+  for (const turn of history) {
+    for (const call of turn.toolCalls ?? []) {
+      if (call.status !== 'success' || call.madeProgress === false) continue
+      if (NON_WORK_KINDS.has(call.kind)) continue
+      return {
+        madeChange: true,
+        completedCalls: 0,
+        lastChangeAt: null,
+        lastVisualInspectionAt: null
+      }
+    }
+  }
+  return undefined
+}
+
+/**
  * Record one successful tool call. Called from `runReadTool`/`runGuardedTool`
  * (see `helpers.ts`) for every call that completes without error.
  */

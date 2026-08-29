@@ -3,6 +3,7 @@ import type { ToolCall } from '@shared/tools.types'
 import {
   createTurnProgress,
   hasPostChangeVisualEvidence,
+  priorTaskProgress,
   progressFromSettledCalls,
   recordCompletedCall
 } from '../turnProgress'
@@ -115,5 +116,55 @@ describe('progressFromSettledCalls', () => {
       call({ name: 'write_plan', kind: 'plan' })
     ])
     expect(progress.madeChange).toBe(false)
+  })
+})
+
+describe("priorTaskProgress across an agent run's turns", () => {
+  it('reports work done in an earlier turn, so a later turn is not asked to redo it', () => {
+    const history = [
+      { toolCalls: [call({ name: 'read_file', kind: 'read' })] },
+      { toolCalls: [call({ name: 'write_file', kind: 'write' })] },
+      { toolCalls: [call({ name: 'read_file_range', kind: 'read' })] }
+    ]
+
+    expect(priorTaskProgress(history)).toEqual({
+      madeChange: true,
+      completedCalls: 0,
+      lastChangeAt: null,
+      lastVisualInspectionAt: null
+    })
+  })
+
+  it('carries no ordering, so this generation still judges its own visual evidence', () => {
+    // Deliberately narrow: widening the seed would tighten `hasStaleVisualEvidence`
+    // across turns, which no measured failure has asked for.
+    const seed = priorTaskProgress([{ toolCalls: [call({ name: 'write_file', kind: 'write' })] }])
+
+    expect(seed?.lastChangeAt).toBeNull()
+    expect(seed?.lastVisualInspectionAt).toBeNull()
+  })
+
+  it('says nothing when every earlier call only looked at things', () => {
+    const history = [
+      { toolCalls: [call({ name: 'read_file', kind: 'read' })] },
+      { toolCalls: [call({ name: 'write_plan', kind: 'plan' })] },
+      { toolCalls: [call({ name: 'update_plan_step', kind: 'plan' })] }
+    ]
+
+    expect(priorTaskProgress(history)).toBeUndefined()
+  })
+
+  it('does not count a failed change, or one that reported no progress', () => {
+    const history = [
+      { toolCalls: [call({ name: 'write_file', kind: 'write', status: 'error' })] },
+      { toolCalls: [call({ name: 'edit_file', kind: 'write', madeProgress: false })] }
+    ]
+
+    expect(priorTaskProgress(history)).toBeUndefined()
+  })
+
+  it('says nothing about a task that has not started', () => {
+    expect(priorTaskProgress([])).toBeUndefined()
+    expect(priorTaskProgress([{ toolCalls: undefined }])).toBeUndefined()
   })
 })

@@ -65,6 +65,7 @@ import { buildTranscriptRecallContext } from '../recall/transcriptRecallContext'
 import { skillStore } from '../skills/SkillStore'
 import { buildActiveSkillContext } from '../skills/activeSkillContext'
 import { parseRunCommandVerification } from '../tools/commandTools'
+import { priorTaskProgress } from '../tools/turnProgress'
 import { mcpManager } from '../mcp/McpManager'
 import type { TaskLedger } from '../tools/taskLedger'
 import { chatEvents } from './chatEvents'
@@ -111,6 +112,13 @@ export interface RunGenerationIo {
   includeReferenceContext?: boolean
   /** Force a fresh local session for a bounded phase; cloud calls are already isolated. */
   sessionMode?: GenerateParams['sessionMode']
+  /**
+   * This turn is a bounded, tool-free writing phase, not an agent turn: use
+   * `ISOLATED_WRITING_PROMPT` instead of the coding-agent system prompt. Set by
+   * orchestration phases that pass an empty `enabledTools` and need prose back.
+   * See `ISOLATED_WRITING_PROMPT` for the measured failure this prevents.
+   */
+  isolatedWriting?: boolean
   /** Evidence focus and durable artifact sink for research-oriented callers. */
   evidenceFocus?: string
   onArtifact?: (artifact: ToolArtifact) => void
@@ -513,7 +521,13 @@ export async function runGeneration(
         // gate. Without it `finish_goal` sees `madeChange: false` on a task
         // whose work completed in the previous epoch and demands another
         // mutation — duplicate work manufactured by the transition itself.
-        progressSeed: request.contextEpoch?.progress
+        //
+        // The same is true one level out, across an agent run's turns:
+        // `AgentRunService` calls this function once per turn and there is no
+        // epoch between them, so `priorTaskProgress` reads the answer off the
+        // history the request already carries. The epoch stays authoritative
+        // where both exist, since it also carries ordering this one does not.
+        progressSeed: request.contextEpoch?.progress ?? priorTaskProgress(request.history)
       }
     : undefined
 
@@ -589,6 +603,7 @@ export async function runGeneration(
   // admit 3,918 characters of workspace and recall into a prompt whose fixed
   // cost had already outgrown the window.
   const composeParts = {
+    isolatedWriting: io.isolatedWriting === true,
     hasWorkspaceTools,
     contextWindowTokens,
     hasProject: Boolean(activeProject),
