@@ -307,10 +307,12 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
             // from memory and lands here. Observed live: eleven of these in one
             // turn, each one a wasted round. `replace_lines` needs only the line
             // numbers, which every read reports and which are cheap to hold.
+            const nearMiss = whereOldTextNearlyIs(args.oldText, original)
             throw new Error(
               'The text to replace was not found in the file. Do not guess at it — if you no ' +
                 'longer have the exact text in view, use replace_lines with the line numbers ' +
-                'instead, or read that part of the file again to get the exact text first.'
+                'instead, or read that part of the file again to get the exact text first.' +
+                (nearMiss ? `\n\n${nearMiss}` : '')
             )
           }
           if (occurrences > 1) {
@@ -464,14 +466,21 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
               `startLine ${start} is beyond the file's ${lines.length} lines. Read the file again to get current line numbers.`
             )
           }
-          const clampedEnd = Math.min(end, lines.length)
-          const anchorMismatch = describeAnchorMismatch(
-            args.expectedFirstLine,
-            lines[start - 1],
-            start,
-            lines
-          )
-          if (anchorMismatch) throw new Error(anchorMismatch)
+          // The anchor's job is to identify the block being replaced. When it
+          // identifies exactly one line, that line *is* the block, and the line
+          // number the model supplied is redundant information that happens to
+          // be stale -- so the edit is placed rather than refused. See
+          // `relocateToAnchor` for the measurements behind that change.
+          const placement = relocateToAnchor(args.expectedFirstLine, lines, start, end)
+          if (typeof placement === 'string') throw new Error(placement)
+          const { start: effectiveStart, end: effectiveEnd, movedBy } = placement
+          const clampedEnd = Math.min(effectiveEnd, lines.length)
+          if (clampedEnd < effectiveStart) {
+            throw new Error(
+              `The anchor for this edit is on line ${effectiveStart}, but the range ends before ` +
+                'it once shifted. Read the file again and retry with current line numbers.'
+            )
+          }
 
           // Rejoining with '\n' preserves whatever the file already used,
           // because splitting on '\n' leaves any '\r' attached to the end of
@@ -480,23 +489,46 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
           // the line endings of the lines it touches and every later diff and
           // `oldText` lookup is off by one invisible character per line.
           const replacement = replacementLines(args.newText, original)
-          const seamDuplication = describeSeamDuplication(lines, replacement, start, clampedEnd)
+          const seamDuplication = describeSeamDuplication(
+            lines,
+            replacement,
+            effectiveStart,
+            clampedEnd
+          )
           if (seamDuplication) throw new Error(seamDuplication)
           const updated = [
-            ...lines.slice(0, start - 1),
+            ...lines.slice(0, effectiveStart - 1),
             ...replacement,
             ...lines.slice(clampedEnd)
           ].join('\n')
-          const replacedCount = clampedEnd - start + 1
+          const replacedCount = clampedEnd - effectiveStart + 1
           return {
             confirmDetail:
-              `In ${relativePath}, replace ${replacedCount} line(s) ${start}-${clampedEnd}:\n\n` +
-              `${preview(lines.slice(start - 1, clampedEnd).join('\n'))}\n\n-> with:\n\n${preview(args.newText || '(nothing — deleting the range)')}`,
+              `In ${relativePath}, replace ${replacedCount} line(s) ${effectiveStart}-${clampedEnd}:\n\n` +
+              `${preview(lines.slice(effectiveStart - 1, clampedEnd).join('\n'))}\n\n-> with:\n\n${preview(args.newText || '(nothing — deleting the range)')}`,
             confirmDiff: diffOrUndefined(relativePath, original, updated),
-            data: { file, relativePath, original, originalBuffer, updated, replacedCount, start }
+            data: {
+              file,
+              relativePath,
+              original,
+              originalBuffer,
+              updated,
+              replacedCount,
+              start: effectiveStart,
+              movedBy
+            }
           }
         },
-        async ({ file, relativePath, original, originalBuffer, updated, replacedCount, start }) => {
+        async ({
+          file,
+          relativePath,
+          original,
+          originalBuffer,
+          updated,
+          replacedCount,
+          start,
+          movedBy
+        }) => {
           await assertFileStateUnchanged(file, originalBuffer, 'edit')
           await writeFile(file, updated, 'utf-8')
           // Reporting the new total is what lets the next call address the file
@@ -512,8 +544,15 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
             charBudget: clampModelResultCap(EDIT_ECHO_MAX_CHARS, ctx.modelResultBudget.current),
             action: `${replacedCount} line(s) replaced starting at line ${start}`
           })
+          // Never silent: a relocated edit says so, so a model working from a
+          // wrong picture of the file is corrected rather than quietly
+          // accommodated.
+          const movedNote = movedBy
+            ? `Your line numbers were stale by ${Math.abs(movedBy)} line(s); the anchor was on ` +
+              `line ${start}, so that is where the replacement went.\n`
+            : ''
           return {
-            modelResult: echo.modelResult,
+            modelResult: `${movedNote}${echo.modelResult}`,
             detail: echo.detail,
             diff: diffOrUndefined(relativePath, original, updated),
             checkpointChanges: [{ path: relativePath, before: original, after: updated }]
@@ -523,6 +562,77 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
   })
 
 /**
+ * Where this numbered edit should actually be applied.
+ *
+ * Returns the range to use, or the message to refuse with.
+ *
+ * `expectedFirstLine` exists as an interlock: proof that the model's line
+ * numbers still describe the file, so a stale number cannot overwrite the wrong
+ * code. That is unchanged here. An edit whose anchor cannot be found, or which
+ * could mean several places, is still refused with exactly the wording it had.
+ *
+ * What changes is the case where the anchor is found exactly once, somewhere
+ * else. That was never ambiguous: the anchor names the block, the block is in
+ * one place, and the line number is the redundant half of the pair. Refusing
+ * there told the model "that text is now on line 40 - retry there, shifting the
+ * rest of the range by the same amount", which is a complete description of the
+ * correct edit, handed back with a demand that it be retyped.
+ *
+ * Measured rather than assumed:
+ *
+ * - Anchored edits fail 21% of the time across the whole store, and 22% in the
+ *   window after both the edit echo and the relocation hint landed. Two careful
+ *   fixes in a row moved that number not at all.
+ * - 59 of 103 post-echo failures were preceded, *within the same assistant
+ *   message*, by a successful write to that same file. 69 of 95 messages
+ *   containing anchored edits contain more than one; several contain 20-36.
+ *
+ * That is the mechanism. The model composes a batch of edits against one view
+ * of the file, the first lands and shifts every line below it, and the rest
+ * arrive stale. Better reporting cannot reach them: they were written before
+ * any result came back. The shift is uniform and the anchor proves where each
+ * block went, so the placement is recoverable by construction rather than by
+ * asking.
+ *
+ * The end of the range moves by the same delta as the start - the same
+ * arithmetic the refusal used to instruct - which is correct exactly when the
+ * block moved as a unit, that being what a uniform shift above it means.
+ * `describeSeamDuplication` still runs on the result, so the far end of the
+ * range keeps the protection it already had.
+ */
+function relocateToAnchor(
+  expectedFirstLine: string | undefined,
+  lines: readonly string[],
+  start: number,
+  end: number
+): { start: number; end: number; movedBy: number } | string {
+  const wanted = expectedFirstLine?.trim() ?? ''
+  if (!wanted) {
+    return (
+      'expectedFirstLine is required: give the current text of line ' +
+      `${start} so a stale line number cannot overwrite the wrong code. ` +
+      'Read that range again and retry with it.'
+    )
+  }
+  if ((lines[start - 1] ?? '').trim() === wanted) return { start, end, movedBy: 0 }
+
+  const matches: number[] = []
+  for (let index = 0; index < lines.length; index++) {
+    if (lines[index].trim() === wanted) {
+      matches.push(index + 1)
+      if (matches.length > 1) break
+    }
+  }
+  // Several matches cannot be resolved without choosing one, and no match means
+  // the text really has gone. Both stay refusals, with the wording they had.
+  if (matches.length !== 1) {
+    return describeAnchorMismatch(expectedFirstLine, lines[start - 1], start) ?? ''
+  }
+  const movedBy = matches[0] - start
+  return { start: matches[0], end: end + movedBy, movedBy }
+}
+
+/**
  * Refuse a numbered edit whose anchor no longer describes the file.
  *
  * Compared with surrounding whitespace stripped: a model recalling a line from
@@ -530,12 +640,17 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
  * sometimes, and failing on indentation alone would make the interlock so
  * irritating that callers would stop supplying the anchor — which is the one
  * outcome that actually costs safety.
+ *
+ * Only reached now when the anchor matches zero lines or several: a unique
+ * match is placed by `relocateToAnchor` rather than refused, so the advice here
+ * is genuinely the right advice. It used to end by naming the line the text had
+ * moved to, which was a complete description of the correct edit handed back as
+ * a refusal; that branch is gone because the edit is simply made.
  */
 function describeAnchorMismatch(
   expected: string | undefined,
   actual: string | undefined,
-  line: number,
-  lines: readonly string[] = []
+  line: number
 ): string | null {
   const wanted = expected?.trim() ?? ''
   if (!wanted) {
@@ -550,41 +665,65 @@ function describeAnchorMismatch(
   return (
     `Line ${line} does not match expectedFirstLine, so the line numbers are stale and this edit was not applied. ` +
     `Expected: ${JSON.stringify(wanted)}. Found: ${JSON.stringify(found)}. ` +
-    whereItActuallyIs(wanted, lines, line)
+    'Read the file again to get current line numbers, then retry.'
   )
 }
 
 /**
- * Point at the line the anchor text is really on, when there is exactly one.
+ * Say what the file actually holds where `oldText` nearly matched.
  *
- * The mismatch message used to end with "read the file again", which costs a
- * read and a retry to recover from -- and the file is right here. Measured on
- * one agent run: five calls lost to this, every one a line number that had
- * moved by a handful of rows after the model's own edit, with the text still
- * present and unambiguous.
+ * `whereItActuallyIs` for text instead of line numbers, and it exists for the
+ * same reason: the file is already in hand when the anchor fails, so telling
+ * the model to go and read it again spends a round on something already known.
  *
- * Only when the text appears exactly once. Several matches cannot be resolved
- * without guessing which one was meant, and guessing is what the interlock
- * exists to prevent; no match at all means it really has gone and re-reading is
- * genuinely the right advice.
+ * Measured across the stored runs: 107 anchor failures in the recent set,
+ * three quarters of all Workspace tool failures, and 81% of them are answered
+ * by an immediate re-read of the same file. `edit_file` accounts for the half
+ * that got no help at all — its message says only that the text was not found.
+ *
+ * The anchor is `oldText`'s first non-blank line, trimmed, because indentation
+ * is what a model reconstructing text from memory loses first while the line's
+ * content survives. The uniqueness rule is `whereItActuallyIs`'s, unchanged:
+ * several matches cannot be resolved without guessing which was meant, and
+ * guessing is what this interlock exists to prevent; no match means the text
+ * really has gone, and re-reading is then the right advice. Both fall back to
+ * saying nothing extra.
+ *
+ * Nothing is applied on this path — the edit stays refused either way. This
+ * only changes how much the model is told about why.
  */
-function whereItActuallyIs(wanted: string, lines: readonly string[], attempted: number): string {
+function whereOldTextNearlyIs(oldText: string, original: string): string | null {
+  const wantedLines = oldText.split('\n')
+  const anchor = wantedLines.find((line) => line.trim().length > 0)?.trim()
+  // A punctuation-only anchor ("}", "});") matches almost every block in a
+  // file. The uniqueness test below would usually reject it anyway; this keeps
+  // the one that slips through from pointing at an arbitrary line.
+  if (!anchor || anchor.length < 4) return null
+
+  const lines = original.split('\n')
   const matches: number[] = []
   for (let index = 0; index < lines.length; index++) {
-    if (lines[index].trim() === wanted) {
-      matches.push(index + 1)
-      if (matches.length > 1) break
+    if (lines[index].trim() === anchor) {
+      matches.push(index)
+      if (matches.length > 1) return null
     }
   }
-  if (matches.length !== 1) return 'Read the file again to get current line numbers, then retry.'
-  const found = matches[0]
-  const moved = found - attempted
-  const direction = moved > 0 ? 'down' : 'up'
+  if (matches.length !== 1) return null
+
+  const start = matches[0]
+  const end = Math.min(lines.length, start + wantedLines.length)
+  const actual = lines.slice(start, end).join('\n')
   return (
-    `That text is now on line ${found} (${Math.abs(moved)} ` +
-    `${Math.abs(moved) === 1 ? 'line' : 'lines'} ${direction}). ` +
-    'Retry there, shifting the rest of the range by the same amount.'
+    `That first line is on line ${start + 1}. What the file actually says at ` +
+    `lines ${start + 1}-${end}:\n${truncateEcho(actual)}\n` +
+    'Copy that exactly if it is the text you meant, or use replace_lines with those line numbers.'
   )
+}
+
+/** Keep a near-miss echo from crowding out the rest of the tool result. */
+function truncateEcho(text: string): string {
+  const MAX = 1_200
+  return text.length > MAX ? `${text.slice(0, MAX)}\n…(truncated)` : text
 }
 
 /**
