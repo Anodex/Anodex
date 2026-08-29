@@ -55,8 +55,6 @@ export interface EvidenceRecord {
   label: string
   /** Size of the model-facing text, before any context truncation. */
   chars: number
-  /** A few top-level lines of what was trimmed - see `digestOf`. */
-  digest?: string
 }
 
 /**
@@ -74,50 +72,6 @@ const MARKER_PREFIX = '[evidence '
 
 /** Matches a descriptor line this module produced. Anchored, whole-line. */
 const MARKER_LINE = /^\[evidence (E\d+) · .*\]$/
-
-/**
- * A few characters of shape, kept in place of a trimmed body.
- *
- * A descriptor used to say only how large the result was — "3,100 chars, body
- * trimmed" — which tells a model nothing except that re-reading would cost
- * something. Measured across 45 stored runs, wasteful repeats hold at about
- * 18.6 per 100 calls and correlate with neither retained context (-0.15) nor
- * run length (-0.11), so the re-reads are not eviction pressure and cannot be
- * fixed by keeping more. The one direction left is to make what *is* kept worth
- * having.
- *
- * Top-level lines are the digest because they are where declarations live in
- * almost every language — `class Camera:`, `export function draw(`, `func main(`,
- * `#include` — without this needing a list of languages it knows about. A file
- * whose structure is visible may not need re-reading at all; one that does is
- * unaffected, since the body is still recoverable by reading it.
- *
- * Deliberately tiny. This is paid for out of the same result budget the body
- * was, so a digest that grew towards the size of what it replaced would defeat
- * its own purpose.
- */
-const DIGEST_MAX_LINES = 8
-const DIGEST_MAX_CHARS = 220
-const DIGEST_MIN_LINE = 4
-const DIGEST_MAX_LINE = 100
-
-function digestOf(body: string): string | undefined {
-  const lines = body.split('\n')
-  const topLevel: string[] = []
-  for (const line of lines) {
-    // Indented lines are bodies; blank and over-long lines are noise.
-    if (/^\s/.test(line)) continue
-    const trimmed = line.trim()
-    if (trimmed.length < DIGEST_MIN_LINE || trimmed.length > DIGEST_MAX_LINE) continue
-    // Skip the tool's own framing, which is not part of what was read.
-    if (trimmed.startsWith('[') || trimmed.startsWith('Exit code')) continue
-    topLevel.push(trimmed)
-    if (topLevel.length >= DIGEST_MAX_LINES) break
-  }
-  if (topLevel.length === 0) return undefined
-  const joined = topLevel.join(' | ')
-  return joined.length > DIGEST_MAX_CHARS ? `${joined.slice(0, DIGEST_MAX_CHARS - 1)}…` : joined
-}
 
 export class TurnEvidenceStore {
   /**
@@ -142,8 +96,7 @@ export class TurnEvidenceStore {
       id: `E${this.records.length + 1}`,
       tool: input.tool,
       label: input.label.trim() || input.tool,
-      chars,
-      digest: digestOf(input.body)
+      chars
     }
     this.records.push(record)
     return record
@@ -157,8 +110,7 @@ export class TurnEvidenceStore {
    */
   descriptor(record: EvidenceRecord): string {
     const chars = record.chars.toLocaleString('en-US')
-    const shape = record.digest ? ` · shape: ${record.digest}` : ''
-    return `${MARKER_PREFIX}${record.id} · ${record.tool} · ${record.label} · ${chars} chars · body trimmed${shape}; read it again if you need the detail]`
+    return `${MARKER_PREFIX}${record.id} · ${record.tool} · ${record.label} · ${chars} chars · body trimmed; read it again if you need it]`
   }
 
   /**
