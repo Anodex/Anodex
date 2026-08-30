@@ -27,6 +27,35 @@ import { conversationStore } from './ConversationStore'
  * Returns what was saved, so a caller looping over several turns can carry it
  * forward instead of keeping its own increasingly stale copy.
  */
+/**
+ * Whether this message would show the reader nothing and record nothing.
+ *
+ * Measured: four agent runs end with an empty assistant message carrying
+ * `{tokens: 0, durationMs: 1}` — a duration that says no generation happened at
+ * all — which renders as an empty bubble in the transcript.
+ *
+ * Deliberately not "the content is empty". Blanks in the store were found
+ * holding real data: one carried 6,579 characters of reasoning alongside an
+ * `error` and `errorKind`, and several others carried an error with no visible
+ * reply. Dropping on emptiness alone would have destroyed exactly the records
+ * someone would go looking for after a failure.
+ *
+ * So a message is discarded only when every channel it could speak through is
+ * empty: no visible text, no tool calls, no reasoning, no error. A turn that
+ * genuinely produced nothing is already accounted for in the run's own record —
+ * `turnsUsed` counts it and the stop reason explains it — so the transcript
+ * gains nothing from an empty bubble.
+ */
+export function carriesNothing(message: ChatMessage): boolean {
+  if (message.role !== 'assistant') return false
+  return (
+    String(message.content ?? '').trim().length === 0 &&
+    (message.toolCalls?.length ?? 0) === 0 &&
+    !message.thinking &&
+    !message.error
+  )
+}
+
 export function appendBackgroundTurn(
   conversation: Conversation,
   newMessages: ChatMessage[]
@@ -34,7 +63,7 @@ export function appendBackgroundTurn(
   const current = conversationStore.get(conversation.id) ?? conversation
   const merged: Conversation = {
     ...current,
-    messages: [...current.messages, ...newMessages],
+    messages: [...current.messages, ...newMessages.filter((message) => !carriesNothing(message))],
     plan: conversation.plan ?? current.plan,
     context: conversation.context ?? current.context,
     archived: false,

@@ -30,19 +30,6 @@ of benefit would be guessing.
 **Where to start:** measure at 128K+ directly. The generality argument is sound;
 the benefit is unproven at any size tested so far.
 
-### 5. Blank trailing assistant messages
-
-Four agent runs end with an empty assistant message carrying
-`{tokens: 0, durationMs: 1}`, created ~20ms after the previous turn. Visible as
-an empty bubble in the transcript.
-
-**Why skipped:** the signature is consistent with the run being stopped rather
-than a generation fault, and the agent-run records that would say which were
-cleared on 08-27 before they could be read.
-
-**Where to start:** reproduce by stopping a run mid-flight and checking whether
-the empty message is persisted.
-
 ### 6. `finish_goal` accepts a summary with no substance
 
 A run finished with the literal summary `placeholder` while 4 of 7 plan steps
@@ -109,6 +96,34 @@ not Anodex, unless `update_plan_step` is seen failing.
 
 An entry moves here rather than being deleted, because _why it was skipped_
 and _what changed the decision_ are the parts worth having later.
+
+### Blank trailing assistant messages (was #5)
+
+Four agent runs end with an empty assistant message carrying
+`{tokens: 0, durationMs: 1}` — a duration saying no generation happened at all —
+rendering as an empty bubble in the transcript. Still present in the store and
+still exactly four, so the original count was right.
+
+**Was skipped for:** the agent-run records that would have identified them were
+cleared before they could be read.
+
+**What changed the decision:** the store answers it without those records. A
+sweep of 1,038 assistant messages found 19 blanks: 7 trailing, 12
+mid-conversation, and — importantly — **several carrying real data**. One held
+6,579 characters of reasoning alongside an `error` and `errorKind`; others
+carried an error with no visible reply.
+
+So the obvious fix was the wrong one. Dropping a message because its content is
+empty would have destroyed exactly the records someone goes looking for after a
+failure. `carriesNothing` discards a message only when every channel is empty:
+no visible text, no tool calls, no reasoning, no error. A turn that genuinely
+produced nothing is already accounted for — `turnsUsed` counts it and the stop
+reason explains it.
+
+**Not fixed at the source.** This stops the empty bubble being persisted; it
+does not explain why a turn occasionally costs 1ms and produces nothing. The
+`ms=5000`–`10000` blanks are a different thing again: a real generation that ran
+for seconds and returned nothing, which is the model, not Anodex.
 
 ### An insertion-style patch applied twice duplicated code (was #7)
 
