@@ -11,6 +11,7 @@ import {
   MAX_MAX_DURATION_MINUTES
 } from '@shared/agentRun.types'
 import { resolveModelContextSize } from '@shared/modelContextSize'
+import { describeRunProvenance } from './runProvenance'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
 
@@ -82,6 +83,11 @@ class AgentRunStore {
       enabledTools: request.enabledTools,
       provider: request.provider,
       model: request.provider === 'local' ? null : (request.model?.trim() ?? null),
+      // What actually produced this run, so its result can be compared later.
+      // `model` above is null for every local run by design - it routes a cloud
+      // request rather than describing anything - which left 43 stored runs
+      // unattributable and every comparison between them confounded.
+      ranWith: describeRunProvenance(request.provider, settingsStore.get()),
       // Both bounds scale with the window a turn actually gets - see
       // `maxTurnsCeilingFor`. At the reference window they are the old
       // constants exactly; on a smaller one they are larger, because a turn
