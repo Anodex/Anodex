@@ -1,0 +1,9 @@
+{
+  "goal": "This project folder is empty. Build a small Rust library crate in it from scratch.\n\nSet up a Cargo project (library, not binary) named `roman`, with no external dependencies.\n\nImplement two public functions in src/lib.rs:\n- `to_roman(n: u32) -> Result<String, String>` converting 1..=3999 to a Roman numeral, using the standard subtractive forms (4 is IV, 9 is IX, 40 is XL, 90 is XC, 400 is CD, 900 is CM). Anything outside 1..=3999 returns Err with a clear message.\n- `from_roman(s: &str) -> Result<u32, String>` parsing a Roman numeral back to its value, case-insensitively, returning Err with a clear message for anything malformed.\n\nAdd #[test] unit tests covering: the subtractive forms, a round-trip over every value in 1..=3999, both out-of-range errors, and at least three malformed inputs.\n\nVerify by running: cargo test. Report the exit code you actually saw and the number of tests that ran. Do not add dependencies and do not commit the target directory.",
+  "project": "RustScratch",
+  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\RustScratch",
+  "maxTurns": 30,
+  "maxTokens": 400000,
+  "maxDurationMinutes": 150,
+  "requirePlan": true
+}
