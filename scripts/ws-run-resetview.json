@@ -1,0 +1,8 @@
+{
+  "goal": "Add a 'Reset view' action to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nDeliberately small and self-contained. The user should be able to press a toolbar button (and the 'r' key) to return the camera to its default framing from wherever it has been moved.\n\n- camera.py: a pure default_view() returning the camera's starting state, and reset() that applies it. Neither may mutate anything it is given.\n- ui.py: a 'Reset view' button in the toolbar using palette.py colours, and the 'r' shortcut registered in the existing SHORTCUTS registry.\n- main.py: wire the button and the key.\n- _smoke_test.py: add checks that reset() restores the default framing after the camera has been moved, that default_view() does not alias live camera state, and that 'r' appears in the shortcut registry with a non-empty description.\n\nEvery step must be finished, not surveyed. Re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new reset checks must pass too. Report the exit code you actually saw. Delete any temporary scripts.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}

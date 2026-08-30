@@ -207,7 +207,7 @@ function extractToolCodeCandidates(text: string): Candidate[] {
   for (const fence of text.matchAll(TOOL_CODE_FENCE)) {
     const call = PYTHON_CALL.exec(fence[1])
     if (!call) continue
-    const args = parsePythonKeywordArgs(call[2])
+    const args = parseToolCodeArgs(call[2])
     if (!args) continue
     candidates.push({
       matchedText: fence[0],
@@ -215,6 +215,66 @@ function extractToolCodeCandidates(text: string): Candidate[] {
     })
   }
   return candidates
+}
+
+/**
+ * The argument list of a `tool_code` call, in either form the dialect uses.
+ *
+ * Gemma emits at least three shapes for the same call. Two are argument styles:
+ * keyword arguments, `write_plan(title="x", steps=[...])`, and a single object
+ * literal, `write_plan({ title: "x", steps: [...] })`. The second is not JSON —
+ * its keys are bare identifiers — so it was dropped, and a run that emitted it
+ * could not produce a plan at all.
+ *
+ * Tried as an object first because `{` cannot begin a keyword argument, so the
+ * two forms are unambiguous.
+ */
+function parseToolCodeArgs(argText: string): Record<string, unknown> | null {
+  const trimmed = argText.trim()
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    const parsed = parseObjectLiteral(trimmed)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  }
+  return parsePythonKeywordArgs(argText)
+}
+
+/**
+ * A JS/Python object literal with bare keys, as JSON.
+ *
+ * Only keys are repaired, and only outside strings: a step description may well
+ * contain a colon or a brace, and rewriting inside one would corrupt the very
+ * text the call is trying to pass. Anything that still will not parse is
+ * abandoned rather than guessed at, in keeping with the rest of this module.
+ */
+function parseObjectLiteral(text: string): unknown {
+  let out = ''
+  let quote: string | null = null
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (quote) {
+      out += ch
+      if (ch === quote && text[i - 1] !== '\\') quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      out += '"'
+      continue
+    }
+    // A bare identifier sitting where a key belongs.
+    const key = /^([A-Za-z_]\w*)(\s*:)/.exec(text.slice(i))
+    if (key && /[{,]\s*$/.test(out)) {
+      out += `"${key[1]}"${key[2]}`
+      i += key[0].length - 1
+      continue
+    }
+    out += ch
+  }
+  try {
+    return JSON.parse(out)
+  } catch {
+    return null
+  }
 }
 
 /**
