@@ -1104,17 +1104,56 @@ function applyTextPatch(
 
   let text = original
   let total = 0
+  let alreadyApplied = 0
   for (const [index, replacement] of replacements.entries()) {
     if (!replacement.oldText) {
       throw new Error(`Replacement ${index + 1} had an empty oldText.`)
+    }
+    if (isAlreadyApplied(text, replacement)) {
+      alreadyApplied++
+      continue
     }
     const result = applyOneReplacement(text, replacement, index + 1)
     text = result.text
     total += result.count
   }
 
+  if (alreadyApplied === replacements.length) {
+    throw new Error(
+      `Every replacement in this patch has already been applied to the file — nothing was ` +
+        `changed. Read the file before patching it again; applying an insertion twice is how a ` +
+        `block ends up duplicated.`
+    )
+  }
   if (text === original) throw new Error('Patch did not change the file.')
   return { text, count: total }
+}
+
+/**
+ * Whether this replacement has already been made, so applying it again would
+ * duplicate rather than change.
+ *
+ * Only insertions can reach this. A plain replacement is self-protecting: once
+ * `oldText` has become `newText` it is no longer in the file, so a repeat fails
+ * with "oldText was not found" and nothing is harmed. But the ordinary way to
+ * *insert* is a replacement whose `newText` contains its `oldText` —
+ * `"def step():"` becoming `"def total_mass(): ...
+
+def step():"` — and there
+ * `oldText` is still present afterwards, inside the text the first application
+ * wrote. The second application finds it and inserts again.
+ *
+ * Measured: one run issued the same five replacements twice against `ui.py` and
+ * left the block duplicated three times over. The model noticed and repaired it
+ * itself, which is luck rather than a guarantee.
+ *
+ * The test is deliberately narrow — the non-idempotent shape, and the file
+ * already containing exactly what this replacement would write. Anything else
+ * patches as it always did.
+ */
+function isAlreadyApplied(text: string, replacement: PatchReplacement): boolean {
+  if (!replacement.newText.includes(replacement.oldText)) return false
+  return text.includes(replacement.newText)
 }
 
 function applyOneReplacement(

@@ -56,19 +56,6 @@ honest summary.
 **Where to start:** probably nothing to do. Recorded because it is a real hole in
 the disclosure mechanism, not because a fix is obvious.
 
-### 7. An insertion-style `patch_file` applied twice duplicates code
-
-One run issued `patch_file` against `ui.py` twice with the same 5 replacements.
-A patch whose `newText` contains its `oldText` — the ordinary way to insert a
-line — is not idempotent, so the second application duplicated the block three
-times over. The model detected and repaired it itself.
-
-**Why skipped:** tool arguments are not persisted, so it cannot be shown from the
-store that the two patches were byte-identical. One self-corrected observation.
-
-**Where to start:** persist a hash of tool arguments, then re-measure. Without
-that, this is unprovable from stored data.
-
 ### 11. `finish_goal`'s plan gate is exactly one call deep
 
 The gate refused a finish with six open plan steps, and accepted the identical
@@ -122,6 +109,31 @@ not Anodex, unless `update_plan_step` is seen failing.
 
 An entry moves here rather than being deleted, because _why it was skipped_
 and _what changed the decision_ are the parts worth having later.
+
+### An insertion-style patch applied twice duplicated code (was #7)
+
+One run issued `patch_file` against `ui.py` twice with the same five
+replacements and left the block duplicated three times over. The model noticed
+and repaired it, which is luck rather than a guarantee.
+
+**Was skipped for:** tool arguments are not persisted, so it could not be shown
+from the store that the two patches were byte-identical — "unprovable from
+stored data".
+
+**What changed the decision:** it did not need proving from the store. The
+non-idempotent shape is visible in the code and reproducible in a test. A plain
+replacement is self-protecting — once `oldText` has become `newText` it is gone,
+so a repeat fails harmlessly with "oldText was not found". But the ordinary way
+to _insert_ is a replacement whose `newText` contains its `oldText`, and there
+`oldText` survives inside the text the first application wrote, so the second
+application finds it and inserts again.
+
+**Fixed** by detecting exactly that shape: `newText` contains `oldText`, and the
+file already contains `newText`. Such a replacement is skipped, and a patch
+where every replacement is already applied fails with a message saying so
+instead of duplicating. Narrow on purpose — anything that is not that shape
+patches as it always did, and the test that a plain replacement still refuses a
+vanished `oldText` is kept.
 
 ### Shell surveying was invisible to the gathering guard (was #2)
 
