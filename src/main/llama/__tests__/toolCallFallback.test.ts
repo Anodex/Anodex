@@ -315,3 +315,64 @@ describe('tool_code with triple-quoted code arguments', () => {
     expect(detectFallbackToolCall(text, TOOLS2)).toBeNull()
   })
 })
+
+describe('tool_code with an object-literal argument', () => {
+  const TOOLS3 = new Set(['write_plan', 'edit_file'])
+
+  it('reads the object form Gemma also emits', () => {
+    // Measured: after the keyword-argument form was supported, Gemma still
+    // could not start a run - it emitted the same call as a single object
+    // literal with bare keys, which is not JSON, so the call was dropped and no
+    // plan was ever produced.
+    const text = [
+      '```tool_code',
+      'write_plan({',
+      '  title: "Add Reset view",',
+      '  steps: [',
+      '    "Implement default_view() in camera.py",',
+      '    "Wire the button in main.py"',
+      '  ]',
+      '})',
+      '```'
+    ].join('\n')
+
+    const call = detectFallbackToolCall(text, TOOLS3)
+
+    expect(call?.name).toBe('write_plan')
+    expect(call?.arguments).toEqual({
+      title: 'Add Reset view',
+      steps: ['Implement default_view() in camera.py', 'Wire the button in main.py']
+    })
+  })
+
+  it('does not rewrite a colon inside a string', () => {
+    // Only keys are repaired, and only outside strings: a step description may
+    // contain a colon or a brace, and rewriting inside one would corrupt the
+    // text the call is trying to pass.
+    const text =
+      '```tool_code\nwrite_plan({ title: "Fix: the HUD", steps: ["a: b", "c {d}"] })\n```'
+
+    expect(detectFallbackToolCall(text, TOOLS3)?.arguments).toEqual({
+      title: 'Fix: the HUD',
+      steps: ['a: b', 'c {d}']
+    })
+  })
+
+  it('still reads the keyword form', () => {
+    const text = '```tool_code\nwrite_plan(title="T", steps=["a"])\n```'
+
+    expect(detectFallbackToolCall(text, TOOLS3)?.arguments).toEqual({ title: 'T', steps: ['a'] })
+  })
+
+  it('still refuses an unregistered name', () => {
+    const text = '```tool_code\nwipe_disk({ path: "/" })\n```'
+
+    expect(detectFallbackToolCall(text, TOOLS3)).toBeNull()
+  })
+
+  it('abandons an object it cannot parse rather than guessing', () => {
+    const text = '```tool_code\nwrite_plan({ title: someVariable })\n```'
+
+    expect(detectFallbackToolCall(text, TOOLS3)).toBeNull()
+  })
+})
