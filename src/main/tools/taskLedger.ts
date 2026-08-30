@@ -161,6 +161,18 @@ export class TaskLedger {
      * and achieving nothing. See below for why the difference matters.
      */
     refusedByLedger?: boolean
+    /**
+     * Whether this call is positive evidence that something changed.
+     *
+     * Only the gathering streak reads this. `madeProgress` is load-bearing for
+     * the `finish_goal` evidence gate, durable-change reporting and the
+     * runner's own progress checks, so it must keep meaning "this call did
+     * something" — a command that changed the workspace has to stay progress
+     * even when Anodex cannot tell that it did.
+     *
+     * Defaults to `madeProgress`, so every existing caller is unaffected.
+     */
+    provesChange?: boolean
   }): void {
     // A call this ledger refused is not evidence about the model; it is
     // evidence about the guard. Counting it made the streak self-feeding: past
@@ -181,8 +193,22 @@ export class TaskLedger {
       this.gatheringStreak++
       return
     }
-    if (GATHERING_KINDS.has(spec.kind)) this.gatheringStreak++
-    else this.gatheringStreak = 0
+    if (GATHERING_KINDS.has(spec.kind)) {
+      this.gatheringStreak++
+      return
+    }
+    // Absence of evidence is not evidence of progress. A command Anodex cannot
+    // classify used to reset the streak outright, which is how one run spent
+    // about 170 of 208 calls gathering - 82 of them shell scripts of the shape
+    // `python -c "open('ui.py').read()"` - while the guard built for exactly
+    // that never fired: each unrecognised script bought a free reset.
+    //
+    // Unknown is deliberately *neutral* rather than counted as gathering. This
+    // is what made the bug unfixable before: any rule that treated an unknown
+    // command as gathering would have made running the test suite or a build
+    // push a run toward being blocked, which is a worse failure than the one it
+    // fixes. Neutral cannot do that - it can only stop a free reset.
+    if (spec.provesChange ?? spec.madeProgress) this.gatheringStreak = 0
   }
 }
 

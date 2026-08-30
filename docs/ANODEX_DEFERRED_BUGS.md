@@ -13,22 +13,6 @@ reasoning for skipping stays readable later.
 
 ## Open
 
-### 2. Shell surveying is invisible to the gathering guard
-
-`taskLedger`'s gathering streak counts `read`/`web`/`plan` kinds. **Any**
-successful `run_command` resets it, including `python -c "open('ui.py').read()"`
-and `Select-String`. One run spent ~170 of 208 calls gathering, 82 of them shell
-inspection scripts, and the guard built for "all input, no output" never fired.
-
-**Why skipped:** `isObservationalCommand` exists but does not classify
-`python -c "...read()..."` as read-only either, so wiring it in does not fix it.
-Writing a new classifier risks marking a build or a test as "gathering", which
-would block real work — a worse failure than the one it fixes.
-
-**Where to start:** not a classifier. Consider whether a command that produced no
-file change and no non-zero exit should count as gathering, decided from the
-settled record rather than the command text.
-
 ### 3. `DEFAULT_RECALL_WINDOW_FRACTION` is the only unbounded budget fraction
 
 Every other budget in `contextBudget.ts` is `{fraction, floor, ceiling}` —
@@ -138,6 +122,43 @@ not Anodex, unless `update_plan_step` is seen failing.
 
 An entry moves here rather than being deleted, because _why it was skipped_
 and _what changed the decision_ are the parts worth having later.
+
+### Shell surveying was invisible to the gathering guard (was #2)
+
+One run spent about 170 of 208 calls gathering, 82 of them shell inspection
+scripts of the shape `python -c "open('ui.py').read()"`, and the guard built for
+"all input, no output" never fired.
+
+**Was skipped for:** the obvious fix is a classifier, and `isObservationalCommand`
+already fails to recognise `python -c "...read()..."`, so extending it does not
+generalise — a model can write an inspection script in any shape. Worse, any
+rule that made an unrecognised command _count as gathering_ would make running
+the test suite or a build push a run toward being blocked, which is a worse
+failure than the one it fixes.
+
+**What changed the decision:** the defect is not the missing classifier. It is
+that `run_command` reported `madeProgress: true` for anything it did not
+recognise as a read, and progress **resets** the streak. So each of those 82
+unrecognised scripts bought a free reset. Absence of evidence was being treated
+as evidence of progress.
+
+An unrecognised command is now **neutral**: it neither resets the streak nor
+counts toward it. That is what makes this safe — a build or a test suite still
+cannot push a run toward the guard, which is the exact risk that made this
+unfixable before. Only a command Anodex positively recognises as changing
+something (`isKnownMutatingCommand`) resets it.
+
+`madeProgress` is deliberately unchanged. It is load-bearing for the
+`finish_goal` evidence gate, durable-change reporting and the runner's own
+progress checks, so a command that changed the workspace must keep counting as
+progress even when Anodex cannot tell that it did. The streak asks a stricter
+question and reads a separate field.
+
+**Worth knowing:** the first wiring silently did nothing. `helpers.ts`
+destructures a tool's result explicitly, so the new field was dropped and the
+ledger-level tests passed against unchanged production behaviour — the same
+shape as the hardcoded blanks in agent turns. The regression test now drives
+`run_command` itself, and was checked to fail against the old code.
 
 ### The gathering guard fed itself (was #10)
 

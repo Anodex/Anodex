@@ -42,6 +42,12 @@ interface ToolOutcome {
   checkpointChanges?: CheckpointFileChange[]
   /** Explicitly false when a successful tool result is only a redirect/no-op. */
   madeProgress?: boolean
+  /**
+   * Positive evidence that something changed, for the gathering streak only —
+   * see `TaskLedger.recordOutcome`. Defaults to `madeProgress`; a tool sets it
+   * lower when it genuinely cannot tell what a call did.
+   */
+  provesChange?: boolean
 }
 
 function rememberResult(modelResult: string): string {
@@ -247,8 +253,19 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
   if (preflight.blocked) return preflight.blocked
   const repeat: RepeatReview = { advice: preflight.advice }
   try {
-    const { modelResult, detail, plan, preview, madeProgress = true } = await spec.run()
-    ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress })
+    const {
+      modelResult,
+      detail,
+      plan,
+      preview,
+      madeProgress = true,
+      provesChange
+    } = await spec.run()
+    ctx.ledger.recordOutcome({
+      kind: effectiveToolKind(spec, 'read'),
+      madeProgress,
+      provesChange
+    })
     const truncated = withGatheringAdvice(
       retainAsEvidence(
         ctx,
@@ -567,9 +584,14 @@ export async function runGuardedTool(
       diff,
       preview,
       checkpointChanges,
-      madeProgress = true
+      madeProgress = true,
+      provesChange
     } = await spec.run()
-    ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress })
+    ctx.ledger.recordOutcome({
+      kind: effectiveToolKind(spec, 'read'),
+      madeProgress,
+      provesChange
+    })
     const truncated = withGatheringAdvice(
       retainAsEvidence(
         ctx,

@@ -8,7 +8,7 @@ import {
   checkLongRunningServer,
   describeEmptySearchResult
 } from './commandGuidance'
-import { isObservationalCommand } from './commandEffect'
+import { isKnownMutatingCommand, isObservationalCommand } from './commandEffect'
 
 const COMMAND_TIMEOUT_MS = 60_000
 const MAX_COMMAND_TIMEOUT_MS = 5 * 60_000
@@ -123,7 +123,14 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
           return {
             modelResult: `${describeOutcome(terminated, code, timeoutMs)}\n\n${combined}${emptySearchNote}`,
             detail: terminated ? TERMINATION_DETAIL[terminated] : `exit ${code}`,
-            madeProgress: !isObservationalCommand(args.command)
+            // `madeProgress` stays as it was: a command that changed the
+            // workspace must count as progress for the finish_goal evidence
+            // gate even when Anodex cannot tell that it did.
+            madeProgress: !isObservationalCommand(args.command),
+            // The gathering streak asks a stricter question - is there positive
+            // evidence something changed - so an unrecognised command stops
+            // buying a free reset. See `recordOutcome`.
+            provesChange: isKnownMutatingCommand(args.command)
           }
         }
       })

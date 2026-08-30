@@ -304,3 +304,65 @@ describe('the gathering guard does not feed itself', () => {
     expect(streakFrom(after.message ?? '')).toBeGreaterThan(before)
   })
 })
+
+describe('an unrecognised command is not evidence of progress', () => {
+  function streakFrom(message: string): number {
+    return Number(/You have made (\d+) information-gathering calls/.exec(message)?.[1] ?? -1)
+  }
+
+  function streakAfter(ledger: ReturnType<typeof createTaskLedger>, key: string): number {
+    return streakFrom(ledger.reviewCall({ name: 'read_file', kind: 'read', key }).message ?? '')
+  }
+
+  // The measured failure: one run spent about 170 of 208 calls gathering, 82 of
+  // them shell scripts like `python -c "open('ui.py').read()"`, and the guard
+  // built for "all input, no output" never fired. Every one of those commands
+  // was unrecognised, and an unrecognised command counted as progress, so each
+  // one bought a free reset of the streak.
+  it('does not reset the streak for a command whose effect is unknown', () => {
+    const ledger = createTaskLedger()
+    for (let i = 0; i < 25; i++) ledger.recordOutcome({ kind: 'read', madeProgress: true })
+    const before = streakAfter(ledger, 'a')
+
+    ledger.recordOutcome({ kind: 'command', madeProgress: true, provesChange: false })
+
+    expect(streakAfter(ledger, 'b')).toBe(before)
+  })
+
+  // Nor does it count *toward* the guard. This is what kept the bug unfixable:
+  // any rule that made an unknown command look like gathering would have made
+  // running the test suite push a run toward being blocked.
+  it('does not push an unknown command toward the guard either', () => {
+    const ledger = createTaskLedger()
+    for (let i = 0; i < 25; i++) ledger.recordOutcome({ kind: 'read', madeProgress: true })
+    const before = streakAfter(ledger, 'a')
+
+    for (let i = 0; i < 20; i++) {
+      ledger.recordOutcome({ kind: 'command', madeProgress: true, provesChange: false })
+    }
+
+    expect(streakAfter(ledger, 'b')).toBe(before)
+  })
+
+  // A reset drops the streak below the soft limit, at which point the guard
+  // says nothing at all - so silence is what a reset looks like from here.
+  it('still resets on a command known to change something', () => {
+    const ledger = createTaskLedger()
+    for (let i = 0; i < 25; i++) ledger.recordOutcome({ kind: 'read', madeProgress: true })
+    expect(streakAfter(ledger, 'a')).toBeGreaterThan(0)
+
+    ledger.recordOutcome({ kind: 'command', madeProgress: true, provesChange: true })
+
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'b' }).message).toBeUndefined()
+  })
+
+  it('still resets on a real edit', () => {
+    const ledger = createTaskLedger()
+    for (let i = 0; i < 25; i++) ledger.recordOutcome({ kind: 'read', madeProgress: true })
+    expect(streakAfter(ledger, 'a')).toBeGreaterThan(0)
+
+    ledger.recordOutcome({ kind: 'write', madeProgress: true })
+
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'b' }).message).toBeUndefined()
+  })
+})
