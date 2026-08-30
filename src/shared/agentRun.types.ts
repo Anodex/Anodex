@@ -1,4 +1,5 @@
 import type { Plan } from './plan.types'
+import { allocateContextBudget } from './contextBudget'
 
 /** How an agent run currently stands. */
 export type AgentRunStatus = 'running' | 'needs-review' | 'done' | 'stopped' | 'error'
@@ -23,6 +24,61 @@ export const DEFAULT_MAX_TURNS = 8
  * that does not ask for more.
  */
 export const MAX_MAX_TURNS = 60
+
+/**
+ * The window the fixed turn constants above were sized against.
+ *
+ * `MAX_MAX_TURNS`'s own reasoning names it: "at the ~7.5k tokens a turn
+ * actually costs, the 500k token ceiling is about 66 turns, so 60 puts the
+ * three roughly in step". That 7.5k was measured on one model at one window,
+ * and it is the whole problem - measured across 40 stored runs, a turn costs
+ * between 94 and 10,802 tokens, a 115x spread.
+ */
+export const TURN_BUDGET_REFERENCE_CONTEXT = 65_536
+
+/**
+ * How much smaller a turn is here than at the reference window.
+ *
+ * A turn ends when the window fills, so the work one holds is its *working
+ * set* - the window minus the output reserve, the reference context and the
+ * tool schemas. Those have floors, so a small window loses proportionally more
+ * of itself to them: at 8,192 the working set is not an eighth of 65,536's but
+ * a ninth, and at 4,096 a twenty-fifth. Scaling on raw context size would miss
+ * that; `allocateContextBudget` already models it exactly.
+ *
+ * This is a ratio between two windows, not a constant fitted to a machine. The
+ * anchor is the pair the existing constants already assume.
+ */
+function turnWorkRatio(contextSize: number | undefined): number {
+  if (!contextSize || contextSize <= 0) return 1
+  const reference = allocateContextBudget(TURN_BUDGET_REFERENCE_CONTEXT).workingSet
+  const here = allocateContextBudget(contextSize).workingSet
+  if (here <= 0) return 1
+  return reference / here
+}
+
+/**
+ * The most turns a run may be configured with on this window.
+ *
+ * Measured: every run that hit its turn cap had spent almost none of the budget
+ * it was actually given - 1.9%, 2.2% and 3.4% of tokens on a small window. The
+ * run was ended by a count while the limits the user set were nowhere near
+ * reached, and 60 was the largest number the app would accept, so there was no
+ * way to configure around it.
+ *
+ * Never returns less than {@link MAX_MAX_TURNS}. Raising a ceiling removes a
+ * limit; lowering one adds a limit nobody asked for, and a large window would
+ * otherwise come out at 15. Tokens and elapsed time still bound a runaway, and
+ * they are what a run actually costs.
+ */
+export function maxTurnsCeilingFor(contextSize: number | undefined): number {
+  return Math.max(MAX_MAX_TURNS, Math.round(MAX_MAX_TURNS * turnWorkRatio(contextSize)))
+}
+
+/** The turn budget a new run starts with on this window. See {@link maxTurnsCeilingFor}. */
+export function defaultMaxTurnsFor(contextSize: number | undefined): number {
+  return Math.max(DEFAULT_MAX_TURNS, Math.round(DEFAULT_MAX_TURNS * turnWorkRatio(contextSize)))
+}
 
 /** Default cumulative token budget for a run, across every turn. */
 export const DEFAULT_MAX_TOKENS = 50_000
