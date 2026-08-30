@@ -1,0 +1,8 @@
+{
+  "goal": "Add orbit-trail controls to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThe user should be able to change how long the trails are and how quickly they fade, and turn them off entirely, with the change visible immediately.\n\n- render/: trail length and fade should come from settings rather than constants, and drawing must handle a length of zero without error.\n- ui.py: a trail-length slider and a fade slider in the toolbar, using palette.py colours, with their hit regions registered like every other widget.\n- main.py: wire both sliders so changes take effect on the next frame.\n- _smoke_test.py: add checks that a trail length of zero draws no trail items, that a longer length draws more items than a shorter one, that the fade setting changes the drawn colours, and that both slider regions are present and on-canvas.\n\nEvery step must be finished, not surveyed. Re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox and reading its exit code. It must exit 0 with all 53 existing 'OK:' checks still passing unchanged - do not weaken, remove or rewrite any of them - plus your new trail checks. Report the exit code you actually saw. Delete any temporary scripts.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
