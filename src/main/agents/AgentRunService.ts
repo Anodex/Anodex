@@ -27,6 +27,7 @@ import { isRecoverableGenerationStop } from '../chat/recoverableStop'
 import {
   assessTurnClaims,
   finishedWithNothingToShow,
+  idleRunReason,
   workspaceRootForProject
 } from './agentTurnClaims'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
@@ -245,6 +246,8 @@ class AgentRunService {
     let flaggedTurns = run.flaggedTurns
     /** Calls across the whole run that actually changed the workspace. */
     let durableChangesMade = 0
+    /** Consecutive turns that made no tool call at all - see `idleRunReason`. */
+    let idleTurns = 0
 
     try {
       // A plan-reviewed run's planning phase already spent turns/tokens
@@ -275,7 +278,8 @@ class AgentRunService {
           tokens,
           plan: nextPlan,
           fabricationDetected,
-          durableChanges
+          durableChanges,
+          toolCallsMade
         } = await this.runTurn(
           conversation,
           prompt,
@@ -288,6 +292,7 @@ class AgentRunService {
         tokensUsed += tokens
         if (nextPlan) plan = nextPlan
         durableChangesMade += durableChanges
+        idleTurns = toolCallsMade === 0 ? idleTurns + 1 : 0
         if (fabricationDetected) flaggedTurns += 1
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
@@ -358,6 +363,18 @@ class AgentRunService {
             'done',
             withSettledOutcome(summary, lastOutcome),
             null
+          )
+          return
+        }
+
+        const idleReason = idleRunReason(idleTurns)
+        if (idleReason) {
+          this.finish(
+            run.id,
+            conversation.id,
+            'stopped',
+            withSettledOutcome(null, lastOutcome),
+            idleReason
           )
           return
         }
@@ -615,6 +632,8 @@ class AgentRunService {
     fabricationDetected: boolean
     /** Settled calls this turn that actually changed the workspace. */
     durableChanges: number
+    /** Settled tool calls this turn, of any kind. See `idleRunReason`. */
+    toolCallsMade: number
   }> {
     const userMessage: ChatMessage = {
       id: generateId('agent_msg'),
@@ -734,7 +753,8 @@ class AgentRunService {
       tokens: result.stats.tokens,
       plan: latestPlan,
       fabricationDetected: result.fabricationDetected ?? claims.fabricationDetected,
-      durableChanges: calls.filter(isDurableChange).length
+      durableChanges: calls.filter(isDurableChange).length,
+      toolCallsMade: calls.length
     }
   }
 
