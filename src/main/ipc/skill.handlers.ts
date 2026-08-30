@@ -7,15 +7,8 @@ import type {
   SkillSaveRequest,
   SkillSummary
 } from '@shared/skill.types'
-import { projectStore } from '../projects/ProjectStore'
+import { workspaceRootForProject } from '../projects/workspaceRoot'
 import { skillStore } from '../skills/SkillStore'
-
-function workspaceRootForProject(projectId: string | null | undefined): string | null {
-  if (!projectId) return null
-  return (
-    projectStore.getState().projects.find((project) => project.id === projectId)?.folderPath ?? null
-  )
-}
 
 function toSummary(skill: {
   name: string

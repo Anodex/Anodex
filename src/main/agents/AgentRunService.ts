@@ -25,13 +25,9 @@ import {
 } from './agentPrompts'
 import { budgetExceededReason, turnBudgetLeftovers } from './agentBudgets'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
-import {
-  assessTurnClaims,
-  finishedWithNothingToShow,
-  idleRunReason,
-  stillUnverified,
-  workspaceRootForProject
-} from './agentTurnClaims'
+import { assessTurnClaims, stillUnverified } from './agentTurnClaims'
+import { finishedWithNothingToShow, idleRunReason } from './agentRunProgress'
+import { workspaceRootForProject } from '../projects/workspaceRoot'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import { headlessConfirm } from '../tools/headlessConfirm'
 
