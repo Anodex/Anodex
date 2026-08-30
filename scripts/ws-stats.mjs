@@ -62,12 +62,21 @@ function measure(run, conversation) {
 
   let calls = 0
   let failed = 0
+  // A call a guard turned away is Anodex working, not Anodex breaking. Pooling
+  // the two put a 4B run at "64% of tool calls failed" when 91% of those were
+  // refusals of a model repeating itself, and only one call in 455 was an
+  // actual fault. A dashboard that reads as a defect rate must not count
+  // correct behaviour as a defect.
+  let refused = 0
   let repeats = 0
   const seen = new Set()
   for (const message of conversation?.messages ?? []) {
     for (const call of message.toolCalls ?? []) {
       calls++
-      if (call.status === 'error') failed++
+      if (call.status === 'error') {
+        if (String(call.detail ?? '').startsWith('Blocked:')) refused++
+        else failed++
+      }
       const signature = `${call.name}::${String(call.title ?? '').slice(0, 60)}`
       if (seen.has(signature)) repeats++
       seen.add(signature)
@@ -81,6 +90,7 @@ function measure(run, conversation) {
     flagged: (run.flaggedTurns ?? 0) > 0,
     calls,
     failed,
+    refused,
     repeats,
     // Share of each budget actually spent. A run that stopped with all three
     // barely touched decided to stop; one that spent a budget was stopped.
@@ -136,8 +146,14 @@ for (const [key, rows] of [...groups.entries()].sort((a, b) => b[1].length - a[1
   )
   console.log(`  flagged             ${pct(rows.filter((r) => r.flagged).length, n)}`)
   console.log(
-    `  tool calls failed   ${pct(
+    `  tool calls faulted  ${pct(
       rows.reduce((a, r) => a + r.failed, 0),
+      calls
+    )}`
+  )
+  console.log(
+    `  refused by a guard  ${pct(
+      rows.reduce((a, r) => a + r.refused, 0),
       calls
     )}`
   )
