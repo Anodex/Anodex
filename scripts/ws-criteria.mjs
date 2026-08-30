@@ -218,8 +218,17 @@ function wastefulRepeats(calls) {
   const lastSeen = new Map()
   const waste = []
   for (const [index, call] of calls.entries()) {
-    if (call.status !== 'success') continue
     const signature = `${call.name}::${String(call.title ?? '').slice(0, 80)}`
+    // A refused repeat produced nothing and still cost a round trip, so it is
+    // waste without needing to ask whether anything changed. Skipping these
+    // made the measure blind to the worst run recorded: 642 identical
+    // `find_skill` calls, all blocked, scored 4.6 per 100 because every repeat
+    // was an error.
+    if (call.status === 'error') {
+      if (lastSeen.has(signature)) waste.push({ signature, gap: index - lastSeen.get(signature) })
+      lastSeen.set(signature, index)
+      continue
+    }
     const previous = lastSeen.get(signature)
     if (previous !== undefined) {
       const between = calls.slice(previous + 1, index)
