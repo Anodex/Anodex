@@ -1,0 +1,8 @@
+{
+  "goal": "Add a body editor to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nWith a body selected, the user should be able to change its mass, radius and colour, and delete it, with the simulation continuing correctly afterwards.\n\n- physics.py: pure helpers to apply an edit to a body and to remove one, preserving total momentum where that is physically meaningful and never mutating their arguments.\n- ui.py: an editor panel for the selected body with mass, radius and colour controls plus a Delete action, using palette.py colours rather than new literals, laid out so it never overflows the canvas.\n- main.py: wire the panel to the selection, and make sure deleting the selected body clears the selection, any measurement, and any prediction path referring to it.\n- _smoke_test.py: add checks that editing mass and radius takes effect, that deleting a body removes exactly one and leaves the rest untouched, that deleting the selected body clears the selection, and that the editor helpers do not mutate their inputs.\n\nThis is a complete-it task: every step must be finished, not surveyed. Work module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new editor checks must pass too. Report the exit code you actually saw. Delete any temporary scripts.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}

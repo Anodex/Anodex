@@ -348,6 +348,55 @@ observation is not grounds for changing how patches apply. Worth watching.
 **Not caused by `relocateToAnchor`** — the only relocation in run 7 was on
 `physics.py`, and it placed correctly.
 
+### Plan ticking: found, fixed, validated
+
+**The final plan step was never attempted.** Across all 13 current-build runs
+that ended with an incomplete plan, `update_plan_step` was called zero times for
+the last step - not called and refused, never called. When it is called it
+almost always succeeds, so ticking was never broken.
+
+In at least three of those runs the work was demonstrably done. One had the step
+"Report the actual exit code and delete any temporary scripts created" sitting
+`pending`, and its last three commands were the smoke test, `Remove-Item
+_final_out.txt` and `Remove-Item _probe_exit.py` - verbatim what the step asked,
+performed and unmarked.
+
+The cause was Anodex's own wording. The open-steps guard fires at exactly the
+right moment, with the plan in front of the model, and offered two options:
+"finish them" or "say which you are leaving undone". A model that had already
+finished read the first as a demand for more work and took the second. The
+option it needed - mark the step - was never mentioned. It is now, first.
+
+Validated on the identical task, same model, same settings:
+
+| measurement tool | plan    | waste/100 | failures     |
+| ---------------- | ------- | --------- | ------------ |
+| before           | 2/7     | 23.7      | -            |
+| after            | **7/7** | **5.0**   | **0 of 101** |
+
+The plan result is attributable. The waste drop is **not explained** - a run that
+completes and one that quits at 2/7 are not the same workload, and two later
+runs landed at 2.1 and 5.0 against an 18.6 mean. Worth investigating; not
+established.
+
+### Criterion 5: an amendment was tried and refused by its own test
+
+The raw "no signature repeated more than ~5x" bar now fails runs for
+re-running the smoke test after each edit - correct behaviour, and what the
+goals explicitly ask for. A body-editor run scored worst=6 (six `python
+_smoke_test.py` calls) while wasting only 2.1 per 100, the lowest of the
+session.
+
+Replacing it with a waste-based bar was tested against all 48 stored runs first.
+It preserves most verdicts **but passes the worst run of the session**: the
+Devstral run that made 642 identical `find_skill` calls, failed 90% of its calls,
+broke the build and claimed success, scores 4.6 waste - because its 940 blocked
+calls were failures, and the waste measure only counts successful repeats.
+
+So the raw bar catches a pathological loop that the waste bar misses, and the
+amendment was dropped. Both numbers are reported; the raw count remains the bar.
+Anyone revisiting this needs a measure that counts blocked repeats too.
+
 ### Plan ticking is back-loaded
 
 Run 1's plan sat at 2/6 from turn 3 to turn 8 and jumped to 6/6 in the final
