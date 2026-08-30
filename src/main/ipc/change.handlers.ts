@@ -1,15 +1,8 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type { ChangeSummary } from '@shared/change.types'
-import { projectStore } from '../projects/ProjectStore'
+import { workspaceRootForProject } from '../projects/workspaceRoot'
 import { changeStore } from '../changes/ChangeStore'
-
-function workspaceRootForProject(projectId: string | null | undefined): string | null {
-  if (!projectId) return null
-  return (
-    projectStore.getState().projects.find((project) => project.id === projectId)?.folderPath ?? null
-  )
-}
 
 function toSummary(change: {
   slug: string
