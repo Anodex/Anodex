@@ -1,0 +1,8 @@
+{
+  "goal": "Add a system-energy readout to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nThe user should be able to turn on an 'Energy' overlay showing the system's total kinetic energy, total potential energy, and their sum, updating as the simulation runs.\n\nWire it end to end:\n- physics.py: pure helpers kinetic_energy(bodies) and potential_energy(bodies) that never mutate their arguments. Use the same gravitational constant the simulation already uses rather than introducing a second one.\n- render/hud.py: draw the three figures as a readable block, using palette.py colours rather than new literals.\n- ui.py: an 'Energy' toggle in the toolbar next to the existing toggles.\n- main.py: wire the toggle, and clear the overlay when a scenario is loaded.\n- _smoke_test.py: add checks that kinetic_energy is zero when every body is at rest, that both helpers leave the bodies they are passed untouched, that potential_energy is negative for two attracting bodies, and that the toolbar toggle arms and disarms the overlay.\n\nWork module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new energy checks must pass too. Report the exit code you actually saw. Delete any temporary scripts you create.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
