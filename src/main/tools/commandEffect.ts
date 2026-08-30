@@ -68,6 +68,21 @@ const NON_ADVANCING_RE =
   /^(?:Start-Process|start|explorer|open|xdg-open|cmd(?:\.exe)?\s+\/c\s+start)\b[^|;&]*https?:\/\/|^(?:Start-Sleep|sleep|timeout(?:\.exe)?\s+\/t|ping\s+-n)\b/i
 
 /** Stable identity for differently-spelled reads of the same evidence. */
+/**
+ * Whether this command is one Anodex positively recognises as changing
+ * something — a write, a move, a `git commit`, a redirect into a file.
+ *
+ * Deliberately not the negation of {@link isObservationalCommand}. Most
+ * commands are neither: `python build.py`, `npm test`, `pytest`, anything a
+ * project defines for itself. Those are *unknown*, and the ledger treats
+ * unknown as neither progress nor gathering — see `recordOutcome`.
+ */
+export function isKnownMutatingCommand(command: string): boolean {
+  if (NON_ADVANCING_RE.test(command)) return false
+  if (isObservationalCommand(command)) return false
+  return MUTATION_RE.test(command) || SHELL_MUTATION_RE.test(command)
+}
+
 export function observationalCommandIdentity(command: string): string {
   const effective = unwrapPowerShellCommand(command)
   const normalized = effective.replace(/\\/g, '/').replace(/\s+/g, ' ').trim().toLowerCase()
