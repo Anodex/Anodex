@@ -46,20 +46,6 @@ of benefit would be guessing.
 **Where to start:** measure at 128K+ directly. The generality argument is sound;
 the benefit is unproven at any size tested so far.
 
-### 4. Starting a run from the GUI produced nothing, with no error anywhere
-
-The user clicked Start; no `AgentRun` was created (`AgentRunStore.create`
-persists immediately and `runs.json` stayed `[]`), no conversation appeared, and
-neither the dev log nor `%APPDATA%/anodex/logs/anodex.log` recorded anything
-after model-ready. Polled 150s.
-
-**Why skipped:** never reproduced — every subsequent run was started through the
-autorun harness, which bypasses the editor entirely.
-
-**Where to start:** the submit path in `AgentRunEditor.tsx` — `canSubmit`
-requires a non-empty goal and every budget ≥ 1, and an empty budget field
-disables submit with no visible reason.
-
 ### 5. Blank trailing assistant messages
 
 Four agent runs end with an empty assistant message carrying
@@ -201,6 +187,31 @@ could safely pass `false` for it.
 
 An entry moves here rather than being deleted, because _why it was skipped_
 and _what changed the decision_ are the parts worth having later.
+
+### Start produced nothing, with no error anywhere (was #4)
+
+The user clicked Start; no `AgentRun` was created, no conversation appeared, and
+neither the dev log nor `anodex.log` recorded anything. Polled 150s.
+
+**Was skipped for:** never reproduced. Every run since went through the autorun
+harness, which bypasses the editor entirely - so the one path with the bug was
+also the one path nothing was testing.
+
+**Found by reading it instead.** `RangeControl` reports
+`Number(event.target.value)`, and `Number('')` is `0`. Clearing the turn, token
+or time field therefore sets it to 0, which fails `canSave`'s `>= 1` check, which
+disables the Start button - with nothing anywhere saying so. A click on a
+disabled button does nothing, submits nothing, and logs nothing, which is
+exactly the report. A non-numeric entry gives `NaN` and fails the same way.
+
+**Fixed** by saying why: `startBlockedReason` names everything missing at once,
+and the button's `disabled` is derived from that same function, so the two can
+never disagree. No validation was added and nothing new is refused - the refusal
+was already there and simply silent.
+
+**Not proven against the original report.** This is a code-level match for the
+symptom, found by inspection, not a reproduction of that session. If a silent
+Start is ever seen again, it is a different bug.
 
 ### Turn budgets denominated in turns, not work (was #8)
 

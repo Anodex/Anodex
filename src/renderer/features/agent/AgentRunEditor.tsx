@@ -27,6 +27,7 @@ import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/Icon'
 import { RangeControl, SelectControl, ToggleControl } from '../settings/controls'
 import styles from './AgentRunEditor.module.css'
+import { startBlockedReason } from './startBlockedReason'
 
 type RunProvider = 'local' | 'anthropic' | 'openai'
 
@@ -182,9 +183,17 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const availableTools = TOOL_CATALOG.filter(
     (tool) => (!tool.requiresProject || hasProject) && !tool.requiresHumanApproval
   )
-  const canSave =
-    goal.trim().length > 0 &&
-    (!limitsEnabled || (maxTurns >= 1 && maxTokens >= 1 && maxDurationMinutes >= 1))
+  // One definition of the rule, so a disabled button and the reason shown next
+  // to it can never disagree about what is wrong. See `startBlockedReason` for
+  // the silent refusal this replaced.
+  const blockedReason = startBlockedReason({
+    goal,
+    limitsEnabled,
+    maxTurns,
+    maxTokens,
+    maxDurationMinutes
+  })
+  const canSave = blockedReason === null
 
   // Offered models come from what the key can actually reach — see
   // `useLiveCloudModels` for why a hardcoded list is not enough.
@@ -517,6 +526,11 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       </div>
 
       <div className={styles.footer}>
+        {blockedReason && (
+          <p className={styles.blockedReason} role="status">
+            {blockedReason}
+          </p>
+        )}
         <Button variant="secondary" onClick={onClose}>
           Cancel
         </Button>
