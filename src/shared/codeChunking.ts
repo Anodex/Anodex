@@ -1,4 +1,4 @@
-import { TEXT_EXT } from './textFileExtensions'
+import { isTextFile } from './textFileExtensions'
 import type { CodeChunk } from './codeIndex.types'
 
 /** Files larger than this are skipped entirely — generated/minified/lock files aren't worth indexing. */
@@ -22,13 +22,13 @@ export const MAX_CHUNK_CHARS = 2000
 /** Whether a file is worth semantically indexing at all, by extension and size. */
 export function shouldIndexFile(relativePath: string, sizeBytes: number): boolean {
   if (sizeBytes <= 0 || sizeBytes > MAX_INDEXABLE_FILE_BYTES) return false
-  return TEXT_EXT.test(relativePath)
+  return isTextFile(relativePath)
 }
 
 /**
  * Splits a file's text into overlapping line-window chunks. Deliberately not
  * AST-based — a fixed-size window is far simpler, works identically across
- * every language `TEXT_EXT` allows, and is "good enough" at the scale a
+ * every language `isTextFile` allows, and is "good enough" at the scale a
  * single project's semantic search needs (same standing philosophy as
  * `MemoryRetriever`'s own "cheap filter is enough at this scale" approach).
  * Skips whitespace-only chunks (common at a file's tail).
