@@ -177,14 +177,25 @@ export interface AgentRun {
   updatedAt: number
 }
 
+/**
+ * What a caller supplies to start a run; `AgentRunStore.create` fills the rest.
+ *
+ * Every budget is optional, and an omitted one is not "unlimited" - it takes
+ * the default for the window this model has (see {@link defaultMaxTurnsFor}),
+ * then is clamped to that window's ceiling. Passing a budget explicitly is
+ * honoured up to the same ceiling.
+ */
 export interface CreateAgentRunRequest {
   goal: string
   projectId: string | null
   enabledTools: string[]
   provider: 'local' | 'anthropic' | 'openai'
   model?: string | null
+  /** Omitted takes {@link defaultMaxTurnsFor}; capped by {@link maxTurnsCeilingFor}. */
   maxTurns?: number
+  /** Omitted takes `DEFAULT_MAX_TOKENS`; capped by `MAX_MAX_TOKENS`. */
   maxTokens?: number
+  /** Omitted takes `DEFAULT_MAX_DURATION_MINUTES`; capped by `MAX_MAX_DURATION_MINUTES`. */
   maxDurationMinutes?: number
   /** Defaults to true — pass false to let the run continue unbounded until it finishes itself. */
   limitsEnabled?: boolean
