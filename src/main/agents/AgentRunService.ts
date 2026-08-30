@@ -704,7 +704,10 @@ class AgentRunService {
     const claims = await assessTurnClaims(
       result.content,
       workspaceRootForProject(conversation.projectId),
-      ledger
+      ledger,
+      // Everything the tools actually returned this turn, so a figure the reply
+      // quotes as measured can be checked against a real source.
+      calls.map((call) => call.result ?? '').join(String.fromCharCode(10))
     )
 
     return {
@@ -719,6 +722,10 @@ class AgentRunService {
         stopped: result.stopped,
         blockedGathering: ledger.blockedGathering,
         unverifiedPaths: claims.unverifiedPaths,
+        unverifiedMeasurements: claims.unverifiedMeasurements,
+        // The agent loop reports its own ending at run level - see
+        // `turnBudgetLeftovers` - rather than per turn, so there is nothing
+        // truthful to put here.
         endedBecause: null
       }),
       stopped: result.stopped,

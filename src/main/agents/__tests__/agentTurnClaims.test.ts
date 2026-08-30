@@ -59,6 +59,23 @@ describe('assessTurnClaims', () => {
     }
   })
 
+  // Deliberately narrow: only numbers precise enough to have been measured
+  // rather than reasoned to. "57 checks" is not one, and flagging it would be
+  // the noise that makes a check get ignored.
+  it('notices a figure the reply states as measured that no tool printed', async () => {
+    const result = await assessTurnClaims(
+      'The profile falls from 157.42 to 23.681 at r=14.',
+      null,
+      new TaskLedger(),
+      'Exit code 0\nnran 12 checks'
+    )
+
+    expect(result.unverifiedMeasurements.length).toBeGreaterThan(0)
+    // A stated figure is a weaker signal than a file that was never touched,
+    // and only the path claims drive the reliability score - same as bounded.
+    expect(result.fabricationDetected).toBe(false)
+  })
+
   it('claims nothing when there is no workspace to check against', async () => {
     const result = await assessTurnClaims('I edited game/physics.py.', null, new TaskLedger())
 
