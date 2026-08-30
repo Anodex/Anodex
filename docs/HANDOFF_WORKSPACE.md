@@ -760,6 +760,60 @@ pure — checked independently. That is the behaviour the "do not rewrite what i
 there" instruction asks for, and it is the first run to be checked this closely
 and come back clean on every count.
 
+## The benchmark, and the first attributable numbers
+
+Everything measured before 2026-08-30 is **unattributable**. `AgentRun.model` is
+null for every local run by design - it routes a cloud request rather than
+describing anything - so six models were compared in one day and the record
+cannot say which run used which. `ranWith` now records the local model and the
+context window; `scripts/ws-stats.mjs` segments by it and keeps older runs under
+"unattributed" rather than pooling them.
+
+### Running it
+
+```
+node scripts/bench-reset.mjs <bench-name>     # restore the known start state
+ANODEX_AGENT_AUTORUN=scripts/<bench-name>.json npm run dev
+node scripts/ws-stats.mjs                     # segmented results
+```
+
+The reset matters more than it looks. The Universe Sandbox workload accumulates,
+so a task re-run finds the feature already built - one "regression test" finished
+in five turns and measured nothing, because an earlier session had done the work.
+
+### First baseline: Qwen3.8-27B-UD-Q4_K_M @ 65,536
+
+|                                |        |
+| ------------------------------ | ------ |
+| runs                           | 3      |
+| finished                       | 100%   |
+| plan complete                  | 100%   |
+| flagged                        | 0%     |
+| tool calls failed              | 0%     |
+| repeat calls                   | 21%    |
+| stopped early with budget left | 0 of 3 |
+
+All three verified against disk and then re-verified from outside the model's
+own tests:
+
+- **bench-1** (single file, pure functions): 3 turns, 13 checks. Mode tie-breaks
+  to the smallest value, all three `ValueError` paths carry messages, and
+  `median` does not reorder the caller's list - which was never asked for.
+- **bench-2** (multi-file package): 3 turns, 22 checks. `Money` is immutable via
+  `__slots__` with assignment blocked, stores only ints, and the module contains
+  no float conversion or true division - the "never use floats" constraint is
+  the one that could have been violated invisibly.
+- **bench-3** (fix three seeded defects): 3 turns, 5 checks. Three surgical
+  fixes, `test_parser.py` untouched, no wholesale rewrite.
+
+### What this baseline is not
+
+Three runs on one model at one window, on tasks deliberately smaller and cleaner
+than the Universe Sandbox work. It is a floor to detect regressions against, not
+evidence that Anodex scores 100% at anything. The unattributed 43 runs sit at 44%
+plan-complete on harder, messier tasks; the two numbers are not comparable and
+the tool refuses to combine them.
+
 ## Tooling
 
 - `scripts/ws-criteria.mjs` — scores a stored conversation against the five
