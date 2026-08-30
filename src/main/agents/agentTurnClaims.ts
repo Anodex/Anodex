@@ -98,3 +98,45 @@ export function finishedWithNothingToShow(input: {
   const steps = input.plan?.steps ?? []
   return steps.some((step) => step.status !== 'completed')
 }
+
+/**
+ * Consecutive do-nothing turns before a run is stopped.
+ *
+ * Above two on purpose. A turn that reasons and then acts on the next one is
+ * ordinary, and a limit of one or two would end runs that were about to work.
+ * Three in a row is a model that has stopped driving the loop.
+ */
+export const IDLE_TURN_LIMIT = 3
+
+/**
+ * Why a run is being stopped for doing nothing, or `null` to keep going.
+ *
+ * An agent turn can only deliver anything through a tool call - `finish_goal`
+ * included - so a turn with no calls at all has produced prose nobody will
+ * read. Nothing watched for a run of them, and runs sat spinning until their
+ * turn cap.
+ *
+ * Measured twice, on models three sizes apart. A Qwen3-4B run spent turns 22
+ * through 30 - nine consecutive turns - making no tool calls and then hit its
+ * limit with an empty workspace and a plan at 0/4. DeepSeek-R1-Distill-32B did
+ * the same for six turns, emitting byte-identical replies each time.
+ *
+ * Counted in tool calls rather than by comparing replies. Two models produced
+ * this and only one of them repeated itself, so the repetition was incidental;
+ * "did this turn do anything" is the question, and it needs no text comparison
+ * and behaves the same in every language.
+ *
+ * The reason states what was observed and nothing more. Why a model stopped
+ * calling tools is not knowable from here - a small context, an unparseable
+ * reply and a model that has simply given up all look identical at this level -
+ * and a run that guessed at the cause would be guessing in the user's name.
+ */
+export function idleRunReason(consecutiveIdleTurns: number): string | null {
+  if (consecutiveIdleTurns < IDLE_TURN_LIMIT) return null
+  return (
+    `Stopped after ${consecutiveIdleTurns} turns in a row without making a single tool call. ` +
+    'The model was still replying, but an agent run can only act - or finish - through a tool, ' +
+    'so those turns changed nothing and the next ones were unlikely to. Nothing here says why it ' +
+    'stopped calling tools; the transcript will show what it was saying instead.'
+  )
+}

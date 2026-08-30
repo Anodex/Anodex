@@ -13,7 +13,7 @@ reasoning for skipping stays readable later.
 
 ## Open
 
-### 1. A model repeating an identical reply across turns is never caught
+### 1. A model repeating an identical reply across turns is never caught — FIXED 2026-08-30
 
 DeepSeek-R1-Distill-32B emitted byte-identical 3,126-character replies with
 **zero tool calls** for six consecutive turns, and the run continued to its turn
@@ -21,12 +21,17 @@ limit. The loop guard covers repeated tool _calls_; the in-turn repetition guard
 covers a single turn. Nothing watches for a turn that produces the same prose
 again and again while doing nothing.
 
-**Why skipped:** one model, and the run ends on its turn budget anyway, which is
-now reported honestly. Building a cross-turn reply comparator on one observation
-is the accumulation pattern that has hurt this codebase before.
+**Was skipped for:** one model, and one observation.
 
-**Where to start:** count identical consecutive assistant replies with no
-settled tool calls; treat it as a `no-progress` stop rather than new machinery.
+**Reopened and fixed** when Qwen3-4B did the same thing at a different size and
+context — turns 22 through 30, nine consecutive turns, no tool calls at all,
+then the turn cap. Two models three sizes apart is no longer one observation.
+
+The fix counts consecutive turns that made **no tool call**, rather than
+comparing reply text. Only one of the two models repeated itself, so the
+repetition was incidental; an agent turn can only act or finish through a tool,
+so "did this turn do anything" is both the stronger question and one that needs
+no text comparison. See `idleRunReason` in `agentTurnClaims.ts`.
 
 ### 2. Shell surveying is invisible to the gathering guard
 
@@ -156,12 +161,15 @@ scrolled out of the window, `edit_file` needs exact existing text, and the read
 that would supply it is refused. That is the same class as the livelock in the
 `anodex-context-livelock-fix` memory.
 
-**Why skipped:** it did not reproduce. After `code_outline` stopped reporting
-"No source files found" and `__pycache__` stopped being walked, the same task on
-the same model finished in 16 turns without reaching the limit — consistent with
-the flailing having been caused by the bad signals, not by the guard. Writes
-were never blocked either, so the run always had a path out. One observation,
-and the run reported its ending honestly.
+**Why skipped:** it reproduced on the third run (10 calls refused, 30/30 turns,
+plan 0/4, nothing changed), so the "did not reproduce" note written after the
+second run was wrong. What changed is that the run now _says_ so — "Ended early
+— 10 further information-gathering call(s) were refused" — because the count it
+had was no longer thrown away. Left unfixed because the guard is not the cause:
+the model never managed a single valid edit call in any of the three runs, and
+writes were never blocked, so it always had a path out and did not take it.
+Loosening a guard that is correctly describing a stuck model would trade an
+honest stop for a longer one.
 
 **Where to start:** reproduce deliberately by forcing the streak past the hard
 limit at a small context. If it holds, the fix is not to weaken the guard but to
