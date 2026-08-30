@@ -13,26 +13,6 @@ reasoning for skipping stays readable later.
 
 ## Open
 
-### 1. A model repeating an identical reply across turns is never caught — FIXED 2026-08-30
-
-DeepSeek-R1-Distill-32B emitted byte-identical 3,126-character replies with
-**zero tool calls** for six consecutive turns, and the run continued to its turn
-limit. The loop guard covers repeated tool _calls_; the in-turn repetition guard
-covers a single turn. Nothing watches for a turn that produces the same prose
-again and again while doing nothing.
-
-**Was skipped for:** one model, and one observation.
-
-**Reopened and fixed** when Qwen3-4B did the same thing at a different size and
-context — turns 22 through 30, nine consecutive turns, no tool calls at all,
-then the turn cap. Two models three sizes apart is no longer one observation.
-
-The fix counts consecutive turns that made **no tool call**, rather than
-comparing reply text. Only one of the two models repeated itself, so the
-repetition was incidental; an agent turn can only act or finish through a tool,
-so "did this turn do anything" is both the stronger question and one that needs
-no text comparison. See `idleRunReason` in `agentTurnClaims.ts`.
-
 ### 2. Shell surveying is invisible to the gathering guard
 
 `taskLedger`'s gathering streak counts `read`/`web`/`plan` kinds. **Any**
@@ -118,25 +98,6 @@ store that the two patches were byte-identical. One self-corrected observation.
 
 **Where to start:** persist a hash of tool arguments, then re-measure. Without
 that, this is unprovable from stored data.
-
-### 8. Turn budgets are denominated in turns, not work
-
-A turn holds as much as the context window has room for: ~11 tool calls at
-65,536 tokens, ~1.2 at 8,192, because roughly 1,400 tokens of working room fits
-a single tool result. So `maxTurns: 25` means very different amounts of work on
-different hardware, while the token and time budgets mean the same everywhere. An
-8K run finished 0 of 4 plan steps at 25/25 turns with **1.9%** of its token
-budget spent.
-
-**Partly addressed:** `turnBudgetLeftovers` now reports what was left, so the
-user can see the turn cap was the binding constraint. The scaling itself is
-unfixed.
-
-**Why skipped:** every scaling rule needs a reference point, and fitting one to
-this machine is what the Critical Thinking work was undone by.
-
-**Where to start:** consider whether `maxTurns` should be a safety net rather
-than the primary bound, given tokens and time already bound cost correctly.
 
 ### 9. `MASK_AT_FRACTION` is defined but never used
 
@@ -236,6 +197,73 @@ could safely pass `false` for it.
 
 ---
 
+## Fixed, kept for the reasoning
+
+An entry moves here rather than being deleted, because _why it was skipped_
+and _what changed the decision_ are the parts worth having later.
+
+### Turn budgets denominated in turns, not work (was #8)
+
+A turn holds as much as the window has room for, so `maxTurns: 30` meant wildly
+different amounts of work on different hardware while the token and time
+budgets meant the same everywhere. Measured across 40 stored runs, a turn cost
+between **94 and 10,802 tokens** — a 115x spread. Every run that hit its turn
+cap had spent almost nothing of what it was granted: 1.9%, 2.2% and 3.4% of its
+token budget. `MAX_MAX_TURNS` was 60, so there was no configuring around it.
+
+**Was skipped for:** "every scaling rule needs a reference point, and fitting
+one to this machine is what the Critical Thinking work was undone by."
+
+**What changed the decision:** the reference point did not have to be invented.
+`MAX_MAX_TURNS`'s own comment already names the pair it assumes — ~7.5k tokens
+per turn at a 65,536 window — so scaling is a _ratio between two windows_ rather
+than a new fitted constant, and at that window nothing changes at all.
+
+Scaling is by **working set**, not raw context size: the output reserve,
+reference context and tool schemas have floors, so a small window loses
+proportionally more of itself to them. `allocateContextBudget` already models
+that exactly. At 8,192 the working set is a ninth of 65,536's, not an eighth.
+
+Neither bound can go _down_. Naive scaling hands a 200k window a ceiling of 15,
+and this file's own reasoning says raising a ceiling removes a limit while
+lowering one adds a limit nobody asked for. Tests pin that at 65k, 131k, 200k
+and 1M.
+
+**Answered, and the answer is no.** The same 4B/8,192 task that had failed three
+times at 30 turns was re-run with the scaled budget: 72 turns available, **24
+used**, 6,441 of 300,000 tokens, plan 0/4, nothing written. It ended on the
+idle-turn stop - "3 turns in a row without making a single tool call" - not on
+the turn cap.
+
+So the turn cap was a real bug and is fixed: it no longer binds, and the run now
+ends with a specific reason at turn 24 instead of grinding to 72 and reporting
+that it ran out of turns. But **the extra turns did not make the model
+succeed.** On this model at this window the binding constraint was never the
+budget; it was that the model stops driving the loop. Do not expect the turn fix
+to move completion rates.
+
+### A model that stops driving the loop (was #1)
+
+DeepSeek-R1-Distill-32B emitted byte-identical 3,126-character replies with
+**zero tool calls** for six consecutive turns, and the run continued to its turn
+limit. The loop guard covers repeated tool _calls_; the in-turn repetition guard
+covers a single turn. Nothing watches for a turn that produces the same prose
+again and again while doing nothing.
+
+**Was skipped for:** one model, and one observation.
+
+**Reopened and fixed** when Qwen3-4B did the same thing at a different size and
+context — turns 22 through 30, nine consecutive turns, no tool calls at all,
+then the turn cap. Two models three sizes apart is no longer one observation.
+
+The fix counts consecutive turns that made **no tool call**, rather than
+comparing reply text. Only one of the two models repeated itself, so the
+repetition was incidental; an agent turn can only act or finish through a tool,
+so "did this turn do anything" is both the stronger question and one that needs
+no text comparison. See `idleRunReason` in `agentTurnClaims.ts`.
+
+---
+
 ## Unvalidated fixes
 
 Not bugs — fixes that landed without a live run proving them.
@@ -245,6 +273,15 @@ Not bugs — fixes that landed without a live run proving them.
 - **One-shot provider retry.** Lets a run survive a single `provider-error`
   instead of ending on it. Landed after the only run that would have exercised
   it.
+- **The multi-language fixes** (`TEXT_EXT`, `SKIP_DIRS`, `code_outline`, the
+  toolchain line in the orientation summary). No live run has exercised them:
+  two Rust runs used `read_file` directly, because a one-file crate never needs
+  to search. They are covered instead by `multiLanguageSearch.test.ts`, which
+  drives the real search and listing tools over a real Rust layout — the level
+  the bug lived at. Treat that as the evidence, not a live run.
+- **Context-scaled turn budgets.** `maxTurnsCeilingFor` is unit-tested at seven
+  window sizes, and one live run started with 72 turns where it would have had 30. Whether the extra turns are _used well_ is a separate question that needs
+  more than one run.
 
 ---
 

@@ -1,0 +1,7 @@
+{
+  "goal": "Add a small helper to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nIn physics.py, add a pure function total_mass(bodies) that returns the sum of every body's mass, returns 0.0 for an empty list, and does not modify the bodies it is given.\n\nThen add one check to _smoke_test.py that it returns the right total for the default scenario and leaves the bodies untouched.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. It must exit 0 with every existing check still passing. Report the exit code you actually saw.",
+  "project": "Sandbox",
+  "maxTokens": 300000,
+  "maxDurationMinutes": 60,
+  "requirePlan": true
+}
