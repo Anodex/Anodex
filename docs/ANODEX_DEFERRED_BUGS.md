@@ -143,6 +143,46 @@ Observation masking is planned for but not implemented.
 nothing enforces is exactly the shape of the bug the file's own comments
 describe having fixed once before.
 
+### 10. The gathering guard blocks calls without ending the run
+
+A 4B model on an 8,192-token window hit `GATHERING_HARD_LIMIT` and had
+**22 subsequent calls refused** with "Blocked: gathering without progress".
+The streak lives for the whole run and only a durable change resets it, so
+once past the limit every remaining gathering call was refused and the run
+spent roughly fifteen turns of its thirty producing nothing.
+
+There is a real deadlock shape here: at a small context the earlier reads have
+scrolled out of the window, `edit_file` needs exact existing text, and the read
+that would supply it is refused. That is the same class as the livelock in the
+`anodex-context-livelock-fix` memory.
+
+**Why skipped:** it did not reproduce. After `code_outline` stopped reporting
+"No source files found" and `__pycache__` stopped being walked, the same task on
+the same model finished in 16 turns without reaching the limit — consistent with
+the flailing having been caused by the bad signals, not by the guard. Writes
+were never blocked either, so the run always had a path out. One observation,
+and the run reported its ending honestly.
+
+**Where to start:** reproduce deliberately by forcing the streak past the hard
+limit at a small context. If it holds, the fix is not to weaken the guard but to
+let a read through when the content it would return is no longer in the window —
+the guard's premise ("you already have this") is false once that is true.
+
+### 11. `finish_goal`'s plan gate is exactly one call deep
+
+The gate refused a finish with six open plan steps, and accepted the identical
+call on the very next turn with no work in between. That is the intended design
+— `openStepsToldIn` tells a model once and then stops arguing — but the gate is
+bypassed by retrying rather than by doing anything.
+
+**Why skipped:** deliberately. Refusing repeatedly is what made runs burn their
+budget fighting a gate, and the standing rule is to disclose rather than refuse.
+A run that finishes this way is now flagged instead, so the outcome is honest
+even though the gate is thin.
+
+**Where to start:** probably nothing. Recorded so the thinness is a known
+property rather than a surprise.
+
 ---
 
 ## Unvalidated fixes
@@ -163,6 +203,13 @@ Not bugs — fixes that landed without a live run proving them.
   appended to the model-facing result beyond that — the evidence descriptor, for
   instance — cannot be observed from a stored conversation. A check for it will
   silently find nothing and read as a negative result.
+- **`findUnverifiedPathClaims` only sees paths containing a separator.**
+  `PATH_PATTERN` requires `dir/file.ext`; a bare `physics.py` is never a
+  candidate. This is deliberate and must stay — without the separator,
+  `numpy.array`, `Math.random` and `self.value` all read as fabricated file
+  paths, and the module records two live incidents where a correct reply was
+  accused. A model that names bare filenames is simply outside what this check
+  can verify. Do not "fix" it.
 - **Tool call arguments are not persisted.** Any question of the form "were
   these two calls identical" is unanswerable from the store.
 - **`conversation.updatedAt` is unreliable.** A bulk store rewrite set every file
