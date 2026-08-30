@@ -85,34 +85,6 @@ store that the two patches were byte-identical. One self-corrected observation.
 **Where to start:** persist a hash of tool arguments, then re-measure. Without
 that, this is unprovable from stored data.
 
-### 10. The gathering guard blocks calls without ending the run
-
-A 4B model on an 8,192-token window hit `GATHERING_HARD_LIMIT` and had
-**22 subsequent calls refused** with "Blocked: gathering without progress".
-The streak lives for the whole run and only a durable change resets it, so
-once past the limit every remaining gathering call was refused and the run
-spent roughly fifteen turns of its thirty producing nothing.
-
-There is a real deadlock shape here: at a small context the earlier reads have
-scrolled out of the window, `edit_file` needs exact existing text, and the read
-that would supply it is refused. That is the same class as the livelock in the
-`anodex-context-livelock-fix` memory.
-
-**Why skipped:** it reproduced on the third run (10 calls refused, 30/30 turns,
-plan 0/4, nothing changed), so the "did not reproduce" note written after the
-second run was wrong. What changed is that the run now _says_ so — "Ended early
-— 10 further information-gathering call(s) were refused" — because the count it
-had was no longer thrown away. Left unfixed because the guard is not the cause:
-the model never managed a single valid edit call in any of the three runs, and
-writes were never blocked, so it always had a path out and did not take it.
-Loosening a guard that is correctly describing a stuck model would trade an
-honest stop for a longer one.
-
-**Where to start:** reproduce deliberately by forcing the streak past the hard
-limit at a small context. If it holds, the fix is not to weaken the guard but to
-let a read through when the content it would return is no longer in the window —
-the guard's premise ("you already have this") is false once that is true.
-
 ### 11. `finish_goal`'s plan gate is exactly one call deep
 
 The gate refused a finish with six open plan steps, and accepted the identical
@@ -166,6 +138,36 @@ not Anodex, unless `update_plan_step` is seen failing.
 
 An entry moves here rather than being deleted, because _why it was skipped_
 and _what changed the decision_ are the parts worth having later.
+
+### The gathering guard fed itself (was #10)
+
+A 4B model on an 8,192-token window hit `GATHERING_HARD_LIMIT` and had 22
+subsequent calls refused; a later run had 10. Both spent about half their turns
+making calls that could not run.
+
+**The mechanism, found by reading `recordOutcome`:** a call the ledger refused
+was recorded as a no-op, and a no-op increments the streak. So past the hard
+limit, _every refusal pushed the count higher_ — the guard's own output became
+its evidence, blocking could never stop, and the "N calls refused" figure
+reported to the user grew from the guard's activity rather than the model's.
+
+**Fixed** by not counting a call this ledger itself refused. That is not a
+loosening: the streak still stands wherever the model's own behaviour put it,
+still blocks there, and still resets only on a durable change. It stops the
+count being circular.
+
+**What is still open underneath it.** The deadlock shape is real and this does
+not address it: at a small window the earlier reads have scrolled out, an edit
+needs exact existing text, and the read that would supply it is refused. The
+guard's premise — "you already have this" — is false once the content has been
+evicted.
+
+It is left alone deliberately. Across three runs the model never managed a
+single valid edit call and writes were never blocked, so it always had a path
+out and did not take it. Loosening a guard that is correctly describing a stuck
+model would trade an honest stop for a longer one, and `idleRunReason` now ends
+these runs with a specific reason anyway. Reopen it only with a run where the
+model demonstrably _needed_ a refused read to proceed.
 
 ### Two budgets that nothing enforced (were #9 and #14)
 

@@ -258,3 +258,49 @@ describe('the gathering ladder counts shell reads as gathering', () => {
     ).toBe('run')
   })
 })
+
+describe('the gathering guard does not feed itself', () => {
+  function streakFrom(message: string): number {
+    return Number(/You have made (\d+) information-gathering calls/.exec(message)?.[1] ?? -1)
+  }
+
+  function gatherPast(ledger: ReturnType<typeof createTaskLedger>, count: number): void {
+    for (let i = 0; i < count; i++) ledger.recordOutcome({ kind: 'read', madeProgress: true })
+  }
+
+  // A call the ledger itself refused used to be recorded as a no-op, which
+  // incremented the very streak that caused the refusal. Once blocking began it
+  // could never stop: each refusal pushed the count higher, so the guard's own
+  // output became its evidence. Measured live at 22 and at 10 refusals, on runs
+  // that then spent half their turns making calls that could not run.
+  it('does not count its own refusals toward the streak', () => {
+    const ledger = createTaskLedger()
+    gatherPast(ledger, 40)
+    const first = ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'a' })
+    expect(first.action).toBe('block')
+    const before = streakFrom(first.message ?? '')
+
+    // Ten more refusals, recorded the way a blocked call is recorded.
+    for (let i = 0; i < 10; i++) {
+      ledger.recordOutcome({ kind: 'read', madeProgress: false, refusedByLedger: true })
+    }
+    const after = ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'b' })
+
+    expect(streakFrom(after.message ?? '')).toBe(before)
+  })
+
+  // The guard keeps its teeth: a call that genuinely ran and achieved nothing
+  // is still evidence about the model, and still counts.
+  it('still counts a real no-op', () => {
+    const ledger = createTaskLedger()
+    gatherPast(ledger, 40)
+    const before = streakFrom(
+      ledger.reviewCall({ name: 'r', kind: 'read', key: 'a' }).message ?? ''
+    )
+
+    ledger.recordOutcome({ kind: 'read', madeProgress: false })
+    const after = ledger.reviewCall({ name: 'r', kind: 'read', key: 'b' })
+
+    expect(streakFrom(after.message ?? '')).toBeGreaterThan(before)
+  })
+})

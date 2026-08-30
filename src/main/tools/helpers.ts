@@ -399,7 +399,11 @@ function reviewRepeat(
         ' Generation is being stopped now because this kept repeating after being told to stop.',
         ''
       )
-  ctx.ledger.recordOutcome({ kind: effectiveToolKind(spec, 'read'), madeProgress: false })
+  ctx.ledger.recordOutcome({
+    kind: effectiveToolKind(spec, 'read'),
+    madeProgress: false,
+    refusedByLedger: true
+  })
   log.warn('Blocked a repeating tool call', {
     tool: spec.name,
     kind: spec.kind,
