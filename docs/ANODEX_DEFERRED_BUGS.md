@@ -13,89 +13,27 @@ reasoning for skipping stays readable later.
 
 ## Open
 
-### 3. `DEFAULT_RECALL_WINDOW_FRACTION` is the only unbounded budget fraction
+_Nothing open as of 2026-08-30._ Everything found so far is either fixed below,
+or closed with a verdict at the end of this file. Add new findings here.
 
-Every other budget in `contextBudget.ts` is `{fraction, floor, ceiling}` —
-`OUTPUT_RESERVE`, `REFERENCE_CONTEXT`, `TOOL_SCHEMAS` — with the ceiling
-explicitly reasoned about ("reserving one would starve the working set on
-exactly the machines that paid for the most memory"). The recall window is a
-bare `0.4`. On a 200K-context machine it withholds ~120K for refill room no turn
-has ever used, and it gets worse the better the hardware.
-
-**Why skipped:** contraindicated by measurement. Bounding what is withheld means
-retaining _more_ history, and the one experiment on retaining more history (0.4
-vs 0.75) showed no benefit and possibly harm. Fixing the shape without evidence
-of benefit would be guessing.
-
-**Where to start:** measure at 128K+ directly. The generality argument is sound;
-the benefit is unproven at any size tested so far.
-
-### 6. `finish_goal` accepts a summary with no substance
-
-A run finished with the literal summary `placeholder` while 4 of 7 plan steps
-were open.
-
-**Why skipped:** the guard deliberately never parses the summary — two attempts
-at reading it failed before, and both failures are recorded in `agentTools.ts`.
-A length or content check is gameable and would reject a legitimately terse
-honest summary.
-
-**Where to start:** probably nothing to do. Recorded because it is a real hole in
-the disclosure mechanism, not because a fix is obvious.
-
-### 11. `finish_goal`'s plan gate is exactly one call deep
-
-The gate refused a finish with six open plan steps, and accepted the identical
-call on the very next turn with no work in between. That is the intended design
-— `openStepsToldIn` tells a model once and then stops arguing — but the gate is
-bypassed by retrying rather than by doing anything.
-
-**Why skipped:** deliberately. Refusing repeatedly is what made runs burn their
-budget fighting a gate, and the standing rule is to disclose rather than refuse.
-A run that finishes this way is now flagged instead, so the outcome is honest
-even though the gate is thin.
-
-**Where to start:** probably nothing. Recorded so the thinness is a known
-property rather than a surprise.
-
-### 12. `finish_goal` does not stop the turn it is called in
-
-One run called `finish_goal` three times in a row and all three returned "Run
-finished." The tool deliberately has "no special plumbing" — `AgentRunService`
-inspects the accumulated calls _after_ the generation — so the turn keeps going
-and the model can call it repeatedly.
-
-**Why skipped:** harmless as measured. The run ends after the turn either way,
-and the summary is taken from the first successful call. Adding abort plumbing
-to a design whose doc comment explains why it has none is not worth two wasted
-calls.
-
-**Where to start:** if it ever matters, the cheap version is a different message
-on the second and later calls ("already finishing; no further calls needed")
-rather than a third identical "Run finished."
-
-### 13. Plan ticking is not reliably fixed
-
-Recorded in `HANDOFF_WORKSPACE.md` as "found, fixed, validated" on the strength
-of one task going 2/7 to 7/7. Later runs disagree: a trail-controls run reached
-6/6, and an energy-overlay run reached **1/7** while doing real work — 48
-`write_file` calls, 63 `run_command` calls, and `update_plan_step` called four
-times with **zero failures**.
-
-So the tool works and the model simply stops calling it partway through. That
-makes it model behaviour rather than an Anodex defect, but the handoff's
-"validated" is too strong for what the evidence supports.
-
-**Why skipped:** nothing in Anodex is broken. Anodex cannot tick a step on the
-model's behalf without deciding a step is done, which it has no way to know.
-
-**Where to start:** treat the plan-completion criterion as measuring the model,
-not Anodex, unless `update_plan_step` is seen failing.
+---
 
 ## Fixed, kept for the reasoning
 
-An entry moves here rather than being deleted, because _why it was skipped_
-and _what changed the decision_ are the parts worth having later.
+An entry moves here rather than being deleted, because _why it was skipped_ and
+_what changed the decision_ are the parts worth having later.
+
+### finish_goal repeated in a turn said nothing useful (was #12)
+
+One run called `finish_goal` three times in a row and was told "Run finished."
+each time. The run does end — the turn loop inspects settled calls afterwards,
+which is why the tool deliberately has no abort plumbing — but an identical
+answer teaches the model nothing and spends two more calls.
+
+A repeat now says the run is already finishing and that nothing further will
+change the outcome, and is marked as no progress. The design is untouched: the
+first call still ends the run, and no plumbing was added to a tool whose doc
+comment explains why it has none.
 
 ### Blank trailing assistant messages (was #5)
 
@@ -370,6 +308,32 @@ Not bugs — fixes that landed without a live run proving them.
 ---
 
 ## Closed with a verdict — do not reopen without new measurement
+
+- **`DEFAULT_RECALL_WINDOW_FRACTION` has no ceiling.** It is the only budget in
+  `contextBudget.ts` without one, and on a 200K window it withholds ~120K. The
+  generality argument is sound and the fix is still contraindicated: bounding
+  what is withheld means replaying _more_ history, and the one experiment on
+  that (0.4 vs 0.75) showed no benefit and possibly harm. It cannot be measured
+  on this hardware, whose largest configured window is 65,536. **Reopen only
+  with a measurement at 128K+ showing replay depth changes an outcome.**
+
+- **`finish_goal` accepts a summary with no substance.** A run finished with the
+  literal summary `placeholder`. The guard deliberately never parses the summary
+  — two attempts at reading it failed before, and both failures are recorded in
+  `agentTools.ts`. It is now largely moot: the factual account is appended
+  beside the summary whatever the summary says, a finish with an untouched
+  workspace and open plan steps is flagged, and a length or content check would
+  still reject a legitimately terse honest summary.
+
+- **`finish_goal`'s plan gate.** Logged as "exactly one call deep", which
+  understated it. The gate refuses a same-turn repeat with an explanation and
+  accepts only on a _later_ turn, so a run cannot end itself by accident in one
+  batch. That is the intended design and it holds.
+
+- **Plan ticking.** `update_plan_step` works — called four times with zero
+  failures in the run that finished 1/7. The model stops calling it. Anodex
+  cannot tick a step on the model's behalf without deciding a step is done,
+  which it has no way to know. Plan completion measures the model, not Anodex.
 
 - **Wasteful repeated calls (~18.6 per 100).** Seven theories: six refuted by
   measurement, one built and reverted. Waste correlates with neither retained

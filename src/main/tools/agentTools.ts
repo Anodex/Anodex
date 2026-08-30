@@ -129,6 +129,23 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
               )
             }
           }
+          // A run ends after the turn that called this, not at the call
+          // itself — the turn loop inspects the settled calls afterwards, which
+          // is why this tool needs no abort plumbing. The consequence is that
+          // the model can keep calling it, and one run called it three times in
+          // a row and was told "Run finished." each time, which teaches it
+          // nothing and spends two more calls. Saying so costs nothing and is
+          // the honest answer: the first call already ended the run.
+          if (finishedIn.get(ctx.ledger) === ctx) {
+            return Promise.resolve({
+              modelResult:
+                'This run is already finishing — your earlier finish_goal call this turn ended ' +
+                'it. Nothing further is needed and no more calls will change the outcome.',
+              detail: summary,
+              madeProgress: false
+            })
+          }
+          finishedIn.set(ctx.ledger, ctx)
           return Promise.resolve({ modelResult: 'Run finished.', detail: summary })
         }
       })
@@ -179,6 +196,15 @@ function openPlanSteps(plan: Plan | null): string[] {
  * becomes impossible is ending a run by accident in a single batch.
  */
 const openStepsToldIn = new WeakMap<object, object>()
+
+/**
+ * The generation in which `finish_goal` has already been accepted.
+ *
+ * Keyed on the ledger and holding the context, the same shape as
+ * `openStepsToldIn` above and for the same reason: a turn is identified by the
+ * context object it was given, and the ledger outlives it.
+ */
+const finishedIn = new WeakMap<object, object>()
 
 /**
  * Say when the text was cut, rather than trailing off into an ellipsis a reader
