@@ -42,6 +42,11 @@ export class TaskLedger {
   private readonly loopGuard: LoopGuardState = createLoopGuardState()
   /** Settled gathering calls since the last durable change — see `GATHERING_*`. */
   private gatheringStreak = 0
+  /**
+   * A read owed to the model because an edit failed on a stale view of a file.
+   * See {@link noteStaleView}.
+   */
+  private readCredit = 0
   /** Gathering calls this task refused outright. Reported, never acted on. */
   private blockedGatheringCalls = 0
 
@@ -120,6 +125,13 @@ export class TaskLedger {
    */
   private reviewGathering(kind: ToolKind): LedgerVerdict | null {
     if (!GATHERING_KINDS.has(kind)) return null
+    // An edit just failed because the file does not say what the model thought,
+    // so this read is the repair, not more of the same. Spent immediately so a
+    // failing edit buys one look and not an amnesty.
+    if (this.readCredit > 0) {
+      this.readCredit--
+      return null
+    }
     if (this.gatheringStreak < GATHERING_SOFT_LIMIT) return null
 
     const message =
@@ -133,6 +145,26 @@ export class TaskLedger {
       return { action: 'block', detail: 'Blocked: gathering without progress', message }
     }
     return { action: 'advise', message }
+  }
+
+  /**
+   * An edit failed because the model's picture of the file was out of date.
+   *
+   * Measured: a 4B model at an 8,192-token window wrote a file with a syntax
+   * error, then had 76 reads refused while trying to repair it. Editing blind,
+   * every attempt failed with "the text to replace was not found" or "line N
+   * does not match expectedFirstLine" — and those failures are no-ops, so they
+   * never reset the streak. The run ended reporting it could not read a file
+   * that was sitting in the workspace.
+   *
+   * The gathering guard's premise is that the model already has what it is
+   * asking for. A `StaleFileViewError` is Anodex's own evidence that it does
+   * not, so it buys back exactly one read. The streak itself is untouched: if
+   * the model goes back to gathering without changing anything, the guard
+   * closes again immediately.
+   */
+  noteStaleView(): void {
+    this.readCredit++
   }
 
   /**

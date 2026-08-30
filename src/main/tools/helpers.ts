@@ -17,6 +17,7 @@ import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
 import { clampModelResultCap } from './modelResultBudget'
 import { recordCompletedCall } from './turnProgress'
+import { isStaleFileView } from './staleView'
 import { effectiveToolKind } from './commandEffect'
 import { withEvidenceMarker } from './evidenceStore'
 import { createLogger } from '../utils/logger'
@@ -294,6 +295,10 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
     return truncated
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // An edit that failed because the file does not say what the model thought
+    // is the one case where more reading is the repair rather than more of the
+    // same. See `TaskLedger.noteStaleView` for the run this comes from.
+    if (isStaleFileView(error)) ctx.ledger.noteStaleView()
     ctx.emit({
       id,
       name: spec.name,
@@ -623,6 +628,10 @@ export async function runGuardedTool(
     return truncated
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // An edit that failed because the file does not say what the model thought
+    // is the one case where more reading is the repair rather than more of the
+    // same. See `TaskLedger.noteStaleView` for the run this comes from.
+    if (isStaleFileView(error)) ctx.ledger.noteStaleView()
     ctx.emit({
       id,
       name: spec.name,
@@ -718,6 +727,10 @@ export async function runGuardedToolWithPrepare<TData>(
     prepared = await prepare()
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // `edit_file`, `patch_file` and `replace_lines` all fail here, and a stale
+    // view is their commonest failure, so this is the catch block that matters
+    // most for `noteStaleView` — see `staleView.ts`.
+    if (isStaleFileView(error)) ctx.ledger.noteStaleView()
     ctx.emit({
       // The card claimed by the preflight, not a fresh one. `write_file`,
       // `edit_file`, and `patch_file` are simultaneously the only tools with a
