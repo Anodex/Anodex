@@ -4,6 +4,7 @@ import type { ChatMessage, GenerationStopReason } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import { activeElapsedMs, type AgentRun, type CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { ToolCall } from '@shared/tools.types'
+import type { PathClaimIssue } from '../tools/pathClaimVerification'
 import type { Plan } from '@shared/plan.types'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
@@ -248,6 +249,14 @@ class AgentRunService {
     let durableChangesMade = 0
     /** Consecutive turns that made no tool call at all - see `idleRunReason`. */
     let idleTurns = 0
+    // Every settled call the run has made, for the account attached to its
+    // summary. That account used to be the *last turn's*, which is wrong in
+    // both directions once a run has more than one turn: a run that wrote 48
+    // files across sixteen turns ended with "Changed nothing - this reply only
+    // looked", because its final turn had only re-read a file. The heading on
+    // a run summary is read as the run's, so it has to be the run's.
+    const runCalls: ToolCall[] = []
+    const runUnverifiedPaths: PathClaimIssue[] = []
 
     try {
       // A plan-reviewed run's planning phase already spent turns/tokens
@@ -256,6 +265,19 @@ class AgentRunService {
       // that needs a check here, before the loop, and not just the
       // post-turn one already further down.
       let lastOutcome: string | null = null
+      // `stopped` and `endedBecause` are deliberately not set here: at run
+      // level, *why* the run ended is the `lastError` argument `finish` already
+      // receives, and this is the account of *what happened*. Keeping the two
+      // apart is why one outcome never carries two explanations.
+      const runOutcome = (): string | null =>
+        describeTurnOutcome({
+          calls: runCalls,
+          plan,
+          stopped: false,
+          blockedGathering: ledger.blockedGathering,
+          unverifiedPaths: runUnverifiedPaths,
+          endedBecause: null
+        }) ?? lastOutcome
       const preflightReason = runPreflightReason(run, startTurn, tokensUsed, workedMs())
       if (preflightReason) {
         this.finish(run.id, conversation.id, 'stopped', null, preflightReason)
@@ -279,7 +301,9 @@ class AgentRunService {
           plan: nextPlan,
           fabricationDetected,
           durableChanges,
-          toolCallsMade
+          toolCallsMade,
+          calls: turnCalls,
+          unverifiedPaths: turnUnverifiedPaths
         } = await this.runTurn(
           conversation,
           prompt,
@@ -293,6 +317,8 @@ class AgentRunService {
         if (nextPlan) plan = nextPlan
         durableChangesMade += durableChanges
         idleTurns = toolCallsMade === 0 ? idleTurns + 1 : 0
+        runCalls.push(...turnCalls)
+        runUnverifiedPaths.push(...turnUnverifiedPaths)
         if (fabricationDetected) flaggedTurns += 1
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
@@ -326,7 +352,7 @@ class AgentRunService {
             run.id,
             conversation.id,
             'stopped',
-            lastOutcome,
+            runOutcome(),
             terminalStopMessage(stopReason, stopDetail)
           )
           return
@@ -361,7 +387,7 @@ class AgentRunService {
             run.id,
             conversation.id,
             'done',
-            withSettledOutcome(summary, lastOutcome),
+            withSettledOutcome(summary, runOutcome()),
             null
           )
           return
@@ -373,7 +399,7 @@ class AgentRunService {
             run.id,
             conversation.id,
             'stopped',
-            withSettledOutcome(null, lastOutcome),
+            withSettledOutcome(null, runOutcome()),
             idleReason
           )
           return
@@ -408,7 +434,7 @@ class AgentRunService {
         run.id,
         conversation.id,
         'stopped',
-        lastOutcome,
+        runOutcome(),
         `Stopped after ${run.maxTurns} turns without finishing. ` +
           turnBudgetLeftovers(run, tokensUsed, workedMs())
       )
@@ -634,6 +660,10 @@ class AgentRunService {
     durableChanges: number
     /** Settled tool calls this turn, of any kind. See `idleRunReason`. */
     toolCallsMade: number
+    /** This turn's settled calls, accumulated for the run-level account. */
+    calls: ToolCall[]
+    /** Paths this turn's reply named but never touched. */
+    unverifiedPaths: PathClaimIssue[]
   }> {
     const userMessage: ChatMessage = {
       id: generateId('agent_msg'),
@@ -754,7 +784,9 @@ class AgentRunService {
       plan: latestPlan,
       fabricationDetected: result.fabricationDetected ?? claims.fabricationDetected,
       durableChanges: calls.filter(isDurableChange).length,
-      toolCallsMade: calls.length
+      toolCallsMade: calls.length,
+      calls,
+      unverifiedPaths: claims.unverifiedPaths
     }
   }
 
