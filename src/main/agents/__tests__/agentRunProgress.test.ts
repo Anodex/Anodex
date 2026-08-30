@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { finishedWithNothingToShow, IDLE_TURN_LIMIT, idleRunReason } from '../agentRunProgress'
+import {
+  finishedWithNothingToShow,
+  IDLE_TURN_LIMIT,
+  idleRunReason,
+  REFUSED_TURN_LIMIT,
+  refusedRunReason
+} from '../agentRunProgress'
 
 describe('finishedWithNothingToShow', () => {
   function plan(...statuses: string[]) {
@@ -66,6 +72,39 @@ describe('idleRunReason', () => {
     const reason = idleRunReason(IDLE_TURN_LIMIT) ?? ''
 
     expect(reason).toContain(String(IDLE_TURN_LIMIT))
+    expect(reason.toLowerCase()).not.toContain('context window')
+  })
+})
+
+describe('refusedRunReason', () => {
+  // Measured on bench-1 with a 4B at 8,192: the run made its last successful
+  // call at turn 19 and then spent 181 consecutive turns in which every call
+  // was refused - the loop guard answering "you've already called
+  // read_file_range with identical effective arguments" 181 times. It hit its
+  // 200-turn cap having spent 5% of its tokens.
+  //
+  // `idleRunReason` does not see this: those turns DO make tool calls, they are
+  // simply all refused.
+  it('stops a run whose every call has been refused for several turns', () => {
+    expect(refusedRunReason(REFUSED_TURN_LIMIT)).not.toBeNull()
+    expect(refusedRunReason(REFUSED_TURN_LIMIT)).toContain('refused')
+  })
+
+  it('says nothing before the limit', () => {
+    expect(refusedRunReason(REFUSED_TURN_LIMIT - 1)).toBeNull()
+    expect(refusedRunReason(0)).toBeNull()
+  })
+
+  // A model that hits a guard once or twice and then varies its call is working
+  // normally, so the limit has to be above that.
+  it('tolerates a couple of refused turns', () => {
+    expect(REFUSED_TURN_LIMIT).toBeGreaterThan(2)
+  })
+
+  it('states what was seen without naming a cause it cannot know', () => {
+    const reason = refusedRunReason(REFUSED_TURN_LIMIT) ?? ''
+
+    expect(reason).toContain(String(REFUSED_TURN_LIMIT))
     expect(reason.toLowerCase()).not.toContain('context window')
   })
 })
