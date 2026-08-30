@@ -1,0 +1,9 @@
+{
+  "goal": "This project folder is empty. Build a small Python package `ledger/` from scratch:\n\n- `ledger/money.py`: a pure `Money` class holding integer pence, with `add`, `subtract` and `format()` returning '\u00a31.50'. It must never use floats.\n- `ledger/account.py`: an `Account` that applies a list of transactions and reports a balance, rejecting a withdrawal that would overdraw with a clear error.\n- `ledger/__init__.py` exporting both.\n- `test_ledger.py` at the top level: a plain Python script (no pytest) covering money arithmetic, formatting, the overdraw rejection, and that Money is immutable. One 'OK:' line per check; exit 0 only if all pass.\n\nVerify by running: python test_ledger.py. Report the exit code you actually saw.",
+  "project": "Bench",
+  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\Bench",
+  "maxTurns": 30,
+  "maxTokens": 300000,
+  "maxDurationMinutes": 90,
+  "requirePlan": true
+}
