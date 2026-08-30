@@ -10,7 +10,7 @@ import { conversationStore } from '../conversations/ConversationStore'
 import { appendBackgroundTurn } from '../conversations/backgroundTurn'
 import { showToastWindow } from '../toastWindow'
 import { runGeneration } from '../chat/runGeneration'
-import { describeTurnOutcome } from '../chat/turnSummary'
+import { describeTurnOutcome, isDurableChange } from '../chat/turnSummary'
 import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
@@ -24,6 +24,11 @@ import {
 } from './agentPrompts'
 import { budgetExceededReason, turnBudgetLeftovers } from './agentBudgets'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
+import {
+  assessTurnClaims,
+  finishedWithNothingToShow,
+  workspaceRootForProject
+} from './agentTurnClaims'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import { headlessConfirm } from '../tools/headlessConfirm'
 
@@ -238,6 +243,8 @@ class AgentRunService {
     let tokensUsed = run.tokensUsed
     let plan = run.plan
     let flaggedTurns = run.flaggedTurns
+    /** Calls across the whole run that actually changed the workspace. */
+    let durableChangesMade = 0
 
     try {
       // A plan-reviewed run's planning phase already spent turns/tokens
@@ -267,7 +274,8 @@ class AgentRunService {
           stopDetail,
           tokens,
           plan: nextPlan,
-          fabricationDetected
+          fabricationDetected,
+          durableChanges
         } = await this.runTurn(
           conversation,
           prompt,
@@ -279,6 +287,7 @@ class AgentRunService {
         )
         tokensUsed += tokens
         if (nextPlan) plan = nextPlan
+        durableChangesMade += durableChanges
         if (fabricationDetected) flaggedTurns += 1
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
@@ -335,6 +344,14 @@ class AgentRunService {
           //
           // Nothing is refused: a run that means to stop with a failing test
           // still stops. The reader simply gets both halves.
+          // A finish that declares success with an untouched workspace and a
+          // plan still full of open steps is a claim the settled record does
+          // not support. The run still finishes - this only stops it being
+          // presented as an unqualified success.
+          if (finishedWithNothingToShow({ durableChanges: durableChangesMade, plan })) {
+            flaggedTurns += 1
+            agentRunStore.update(run.id, { flaggedTurns })
+          }
           this.finish(
             run.id,
             conversation.id,
@@ -596,6 +613,8 @@ class AgentRunService {
     plan: Plan | null
     /** See `AgentRun.flaggedTurns`'s doc comment. */
     fabricationDetected: boolean
+    /** Settled calls this turn that actually changed the workspace. */
+    durableChanges: number
   }> {
     const userMessage: ChatMessage = {
       id: generateId('agent_msg'),
@@ -677,6 +696,17 @@ class AgentRunService {
     // dropped from it.
     conversation.messages = saved.messages
 
+    // Both of these used to be hardcoded blanks here, so two signals the run
+    // already had were thrown away: the ledger's count of calls it refused, and
+    // the check on what the reply claimed. `fabricationDetected` documents
+    // itself as something unattended callers "surface afterwards rather than
+    // silently reporting success", and this is the unattended caller.
+    const claims = await assessTurnClaims(
+      result.content,
+      workspaceRootForProject(conversation.projectId),
+      ledger
+    )
+
     return {
       finished: Boolean(finishCall),
       summary: finishCall?.detail ?? null,
@@ -687,8 +717,8 @@ class AgentRunService {
         calls,
         plan: latestPlan,
         stopped: result.stopped,
-        blockedGathering: 0,
-        unverifiedPaths: [],
+        blockedGathering: ledger.blockedGathering,
+        unverifiedPaths: claims.unverifiedPaths,
         endedBecause: null
       }),
       stopped: result.stopped,
@@ -696,7 +726,8 @@ class AgentRunService {
       stopDetail: result.stopDetail,
       tokens: result.stats.tokens,
       plan: latestPlan,
-      fabricationDetected: result.fabricationDetected ?? false
+      fabricationDetected: result.fabricationDetected ?? claims.fabricationDetected,
+      durableChanges: calls.filter(isDurableChange).length
     }
   }
 
