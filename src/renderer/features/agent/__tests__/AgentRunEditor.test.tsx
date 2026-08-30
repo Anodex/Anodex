@@ -149,3 +149,48 @@ describe('tool access', () => {
     expect(document.body.textContent).not.toContain('wall-clock')
   })
 })
+
+/**
+ * The editor is the one surface the measurement harness never touches — every
+ * run in testing is started by `agentAutorun`, which bypasses this form
+ * entirely. That is how "clicked Start and nothing happened, with no error
+ * anywhere" survived: the path with the bug was the path nothing exercised.
+ */
+describe('why Start is unavailable', () => {
+  it('says what is missing instead of only disabling the button', () => {
+    open()
+
+    expect(screen.getByText('Start run').closest('button')).toHaveProperty('disabled', true)
+    expect(screen.getByText(/needs a goal/i)).toBeTruthy()
+  })
+
+  it('stops saying it once the goal is there', () => {
+    open()
+    fireEvent.change(goalField(), { target: { value: 'Summarize the changelog' } })
+
+    expect(screen.getByText('Start run').closest('button')).toHaveProperty('disabled', false)
+    expect(screen.queryByText(/needs a goal/i)).toBeNull()
+  })
+
+  it('treats a whitespace-only goal as missing', () => {
+    open()
+    fireEvent.change(goalField(), { target: { value: '   \n  ' } })
+
+    expect(screen.getByText('Start run').closest('button')).toHaveProperty('disabled', true)
+    expect(screen.getByText(/needs a goal/i)).toBeTruthy()
+  })
+
+  // The budgets are sliders with a minimum of 1 and a clamped seed, so they
+  // cannot reach a blocking value from this form at all. The checks on them in
+  // `startBlockedReason` are defence for programmatic callers, not a path a
+  // user can take — recorded here so nobody re-derives it from the code.
+  it('never blocks on a budget, because the sliders cannot leave range', () => {
+    open()
+    fireEvent.change(goalField(), { target: { value: 'Summarize the changelog' } })
+
+    for (const slider of screen.getAllByRole('slider')) {
+      expect(Number((slider as HTMLInputElement).value)).toBeGreaterThanOrEqual(1)
+    }
+    expect(screen.getByText('Start run').closest('button')).toHaveProperty('disabled', false)
+  })
+})

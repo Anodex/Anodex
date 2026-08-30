@@ -1,0 +1,8 @@
+{
+  "goal": "Add a body-trail length control and an orbit-path predictor to the Universe Sandbox game in Sandbox/UniverseSandbox.\n\nRead the existing code first and follow its conventions - do not rewrite what is there, and use palette.py colours rather than new literals.\n\n1. physics.py: a pure function predict_path(body, bodies, steps, dt) returning a list of (x, y) positions the body would follow, without mutating any body it is given.\n2. render/: draw the predicted path as a faint dashed line for the selected body only.\n3. ui.py: a 'Predict' toggle in the toolbar, next to the existing toggles.\n4. main.py: wire the toggle, and clear the prediction when a scenario is loaded.\n5. _smoke_test.py: add checks that predict_path leaves its inputs untouched, returns the requested number of points, is deterministic for the same inputs, and that the toolbar toggle arms and disarms the overlay.\n\nWork module by module and re-run the smoke test as you go.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. Every existing check must still pass unchanged - do not weaken, remove or rewrite any of them - and your new checks must pass too. Report the exit code you actually saw. Delete any temporary scripts.",
+  "project": "Sandbox",
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true,
+  "maxTurns": 30
+}
