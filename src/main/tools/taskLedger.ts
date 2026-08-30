@@ -153,7 +153,26 @@ export class TaskLedger {
    * runners, so the gathering streak measures work that actually happened
    * rather than work that was attempted.
    */
-  recordOutcome(spec: { kind: ToolKind; madeProgress: boolean }): void {
+  recordOutcome(spec: {
+    kind: ToolKind
+    madeProgress: boolean
+    /**
+     * True when *this ledger* refused the call, rather than the call running
+     * and achieving nothing. See below for why the difference matters.
+     */
+    refusedByLedger?: boolean
+  }): void {
+    // A call this ledger refused is not evidence about the model; it is
+    // evidence about the guard. Counting it made the streak self-feeding: past
+    // the hard limit every refusal pushed the count higher, so blocking could
+    // never stop, and the "N calls refused" figure reported to the user grew
+    // from the guard's own output. Measured live at 22 refusals and at 10, on
+    // runs that then spent half their turns making calls that could not run.
+    //
+    // The guard is not loosened by this. The streak still stands wherever the
+    // model's own behaviour put it, still blocks there, and still resets only
+    // on a durable change.
+    if (spec.refusedByLedger) return
     if (!spec.madeProgress) {
       // A refusal or a no-op. It consumed a round trip and produced nothing
       // durable, so it counts toward the streak whatever its kind — this is
