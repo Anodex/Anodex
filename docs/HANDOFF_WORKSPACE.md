@@ -348,7 +348,14 @@ observation is not grounds for changing how patches apply. Worth watching.
 **Not caused by `relocateToAnchor`** — the only relocation in run 7 was on
 `physics.py`, and it placed correctly.
 
-### Plan ticking: found, fixed, validated
+### Plan ticking: found, fixed, validated — "validated" is too strong
+
+Read the correction in `ANODEX_DEFERRED_BUGS.md` #13 first. The fix is real and
+`update_plan_step` works, but later runs reached 6/6 and 1/7 on other tasks, so
+one task going 2/7 to 7/7 did not validate it. Where a run leaves steps unticked
+while doing real work, the tool is being called successfully and then abandoned
+by the model, which makes plan completion a measure of the model rather than of
+Anodex.
 
 **The final plan step was never attempted.** Across all 13 current-build runs
 that ended with an incomplete plan, `update_plan_step` was called zero times for

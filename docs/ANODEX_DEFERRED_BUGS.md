@@ -191,6 +191,49 @@ even though the gate is thin.
 **Where to start:** probably nothing. Recorded so the thinness is a known
 property rather than a surprise.
 
+### 12. `finish_goal` does not stop the turn it is called in
+
+One run called `finish_goal` three times in a row and all three returned "Run
+finished." The tool deliberately has "no special plumbing" — `AgentRunService`
+inspects the accumulated calls _after_ the generation — so the turn keeps going
+and the model can call it repeatedly.
+
+**Why skipped:** harmless as measured. The run ends after the turn either way,
+and the summary is taken from the first successful call. Adding abort plumbing
+to a design whose doc comment explains why it has none is not worth two wasted
+calls.
+
+**Where to start:** if it ever matters, the cheap version is a different message
+on the second and later calls ("already finishing; no further calls needed")
+rather than a third identical "Run finished."
+
+### 13. Plan ticking is not reliably fixed
+
+Recorded in `HANDOFF_WORKSPACE.md` as "found, fixed, validated" on the strength
+of one task going 2/7 to 7/7. Later runs disagree: a trail-controls run reached
+6/6, and an energy-overlay run reached **1/7** while doing real work — 48
+`write_file` calls, 63 `run_command` calls, and `update_plan_step` called four
+times with **zero failures**.
+
+So the tool works and the model simply stops calling it partway through. That
+makes it model behaviour rather than an Anodex defect, but the handoff's
+"validated" is too strong for what the evidence supports.
+
+**Why skipped:** nothing in Anodex is broken. Anodex cannot tick a step on the
+model's behalf without deciding a step is done, which it has no way to know.
+
+**Where to start:** treat the plan-completion criterion as measuring the model,
+not Anodex, unless `update_plan_step` is seen failing.
+
+### 14. `TurnSummaryInput.stopped` is never read
+
+Declared in the interface, passed by both call sites, and used nowhere in
+`turnSummary.ts`. Harmless, but it is a field that looks load-bearing and is
+not — one call site was passing a carefully-derived value into nothing.
+
+**Why skipped:** cosmetic. Noted while confirming that a run-level account
+could safely pass `false` for it.
+
 ---
 
 ## Unvalidated fixes
