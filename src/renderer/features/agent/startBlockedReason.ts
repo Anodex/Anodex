@@ -16,10 +16,18 @@ export interface StartRequirements {
  * no run, no conversation, no error, and nothing in `anodex.log`, because
  * nothing was ever submitted.
  *
- * A cleared number field is all it takes. `RangeControl` reports
- * `Number(event.target.value)`, and `Number('')` is `0`, so emptying the turn,
- * token or time field silently fails its `>= 1` check. Typing something
- * non-numeric gives `NaN`, which fails every comparison including this one.
+ * The reachable cause is a missing goal — including a whitespace-only one,
+ * which looks filled in.
+ *
+ * The budget checks below are defence for programmatic callers, **not** a path
+ * a user can take. An earlier version of this comment claimed a cleared budget
+ * field was the cause, on the reasoning that `Number('')` is `0`; that is true
+ * of a number input and these are `RangeControl` sliders with a minimum of 1
+ * and a clamped seed, so a budget cannot reach a blocking value from the form
+ * at all. The checks are kept because `NaN` and `0` still fail correctly if a
+ * caller ever supplies them, and costing nothing is a poor reason to remove a
+ * correct check — but the claim was wrong and is corrected here rather than
+ * left to mislead.
  *
  * One definition of the rule, so the button's `disabled` and the message the
  * user reads can never disagree about what is wrong.

@@ -185,12 +185,16 @@ neither the dev log nor `anodex.log` recorded anything. Polled 150s.
 harness, which bypasses the editor entirely - so the one path with the bug was
 also the one path nothing was testing.
 
-**Found by reading it instead.** `RangeControl` reports
-`Number(event.target.value)`, and `Number('')` is `0`. Clearing the turn, token
-or time field therefore sets it to 0, which fails `canSave`'s `>= 1` check, which
-disables the Start button - with nothing anywhere saying so. A click on a
-disabled button does nothing, submits nothing, and logs nothing, which is
-exactly the report. A non-numeric entry gives `NaN` and fails the same way.
+**Found by reading it instead.** The Start button is disabled whenever the form
+is invalid, and said nothing about why. A click on a disabled button does
+nothing, submits nothing and logs nothing, which is exactly the report.
+
+**Correction.** The first version of this entry blamed a cleared budget field,
+reasoning that `Number('')` is `0`. That is true of a number input, and these
+are `RangeControl` sliders with a minimum of 1 and a clamped seed — a budget
+cannot reach a blocking value from the form at all. The one reachable cause is a
+missing goal, including a whitespace-only one, which looks filled in. The budget
+checks are kept as defence for programmatic callers and are documented as such.
 
 **Fixed** by saying why: `startBlockedReason` names everything missing at once,
 and the button's `disabled` is derived from that same function, so the two can
