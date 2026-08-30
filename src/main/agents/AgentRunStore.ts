@@ -3,14 +3,28 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
 import {
-  DEFAULT_MAX_TURNS,
-  MAX_MAX_TURNS,
+  defaultMaxTurnsFor,
+  maxTurnsCeilingFor,
   DEFAULT_MAX_TOKENS,
   MAX_MAX_TOKENS,
   DEFAULT_MAX_DURATION_MINUTES,
   MAX_MAX_DURATION_MINUTES
 } from '@shared/agentRun.types'
+import { resolveModelContextSize } from '@shared/modelContextSize'
+import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
+
+/**
+ * The context window a new run will actually have.
+ *
+ * Undefined for a cloud provider, whose window is the model's rather than a
+ * local setting; the turn helpers fall back to the fixed constants there, which
+ * is the behaviour that already existed.
+ */
+function runContextSize(): number | undefined {
+  const settings = settingsStore.get()
+  return resolveModelContextSize(settings, settings.lastModelPath ?? null)
+}
 
 const log = createLogger('agent-run-store')
 
@@ -68,7 +82,14 @@ class AgentRunStore {
       enabledTools: request.enabledTools,
       provider: request.provider,
       model: request.provider === 'local' ? null : (request.model?.trim() ?? null),
-      maxTurns: Math.min(request.maxTurns ?? DEFAULT_MAX_TURNS, MAX_MAX_TURNS),
+      // Both bounds scale with the window a turn actually gets - see
+      // `maxTurnsCeilingFor`. At the reference window they are the old
+      // constants exactly; on a smaller one they are larger, because a turn
+      // there holds a fraction of the work.
+      maxTurns: Math.min(
+        request.maxTurns ?? defaultMaxTurnsFor(runContextSize()),
+        maxTurnsCeilingFor(runContextSize())
+      ),
       turnsUsed: 0,
       flaggedTurns: 0,
       maxTokens: Math.min(request.maxTokens ?? DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS),

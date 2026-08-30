@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  DEFAULT_MAX_TURNS,
-  MAX_MAX_TURNS,
+  defaultMaxTurnsFor,
+  maxTurnsCeilingFor,
   DEFAULT_MAX_TOKENS,
   MAX_MAX_TOKENS,
   DEFAULT_MAX_DURATION_MINUTES,
@@ -18,6 +18,7 @@ import { OPENAI_MODELS, DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
 import { useLiveCloudModels } from '../../lib/useLiveCloudModels'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAgentStore } from '../../stores/agentStore'
+import { resolveModelContextSize } from '@shared/modelContextSize'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { anodex } from '../../lib/anodex'
@@ -141,8 +142,19 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   // Sliders can't represent a value below their own step, so a seed from an
   // older run typed into the number inputs (say 500 tokens) is pulled up to
   // the nearest position the track can actually show.
+  // Scaled to the window this model actually has - a turn at 8,192 holds a
+  // ninth of what one at 65,536 does, and 60 used to be the most the editor
+  // would accept, so a small window could not be given enough turns to finish.
+  const turnCeiling = maxTurnsCeilingFor(
+    resolveModelContextSize(settings, settings?.lastModelPath ?? null)
+  )
   const [maxTurns, setMaxTurns] = useState(
-    clamp(seed?.maxTurns ?? DEFAULT_MAX_TURNS, 1, MAX_MAX_TURNS)
+    clamp(
+      seed?.maxTurns ??
+        defaultMaxTurnsFor(resolveModelContextSize(settings, settings?.lastModelPath ?? null)),
+      1,
+      turnCeiling
+    )
   )
   const [maxTokens, setMaxTokens] = useState(
     clamp(seed?.maxTokens ?? DEFAULT_MAX_TOKENS, TOKEN_STEP, MAX_MAX_TOKENS)
@@ -380,14 +392,14 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
               <RangeControl
                 value={maxTurns}
                 min={1}
-                max={MAX_MAX_TURNS}
+                max={turnCeiling}
                 step={1}
                 onChange={setMaxTurns}
                 format={(value) => `${value} turns`}
               />
               <p className={styles.hint}>
-                Stops on its own after this many turns if it hasn&apos;t finished (max{' '}
-                {MAX_MAX_TURNS}).
+                Stops on its own after this many turns if it hasn&apos;t finished (max {turnCeiling}
+                ).
               </p>
             </div>
 
