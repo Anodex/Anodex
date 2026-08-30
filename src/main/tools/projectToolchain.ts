@@ -1,4 +1,6 @@
 import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { resolveInWorkspace } from './workspace'
 
 /**
@@ -185,6 +187,42 @@ const TOOLCHAINS: Array<{ toolchain: Toolchain; markers: string[] }> = [
 
 /** Extensions that identify a .NET project when no global.json is present. */
 const DOTNET_PROJECT_SUFFIXES = ['.csproj', '.fsproj', '.sln']
+
+/**
+ * A one-line description of what kind of project this is, for the orientation
+ * summary a task starts from.
+ *
+ * That summary was built from `package.json` alone, so a Node project was told
+ * its own script names and a Python, Rust, Go, Java or .NET project was told
+ * nothing at all about how it is built or tested — the same JavaScript
+ * assumption that made `code_outline` report "No source files found" and left
+ * whole languages out of `TEXT_EXT`.
+ *
+ * Returns `null` for Node deliberately. A `package.json` names its *real*
+ * scripts, and the summary already reads them; convention would only talk over
+ * a better signal.
+ *
+ * Synchronous and marker-only, because the orientation summary is built
+ * synchronously. It reads the same `TOOLCHAINS` table as `detectToolchain`, so
+ * there is no second list to drift.
+ *
+ * The wording says "conventional" because that is what these are: `pytest` is
+ * what a Python project usually uses, not something checked to exist here. The
+ * line would otherwise read as a discovered fact.
+ */
+export function describeProjectToolchain(root: string): string | null {
+  const found = TOOLCHAINS.find(
+    (entry) =>
+      entry.toolchain.id !== 'node' &&
+      entry.markers.some((marker) => existsSync(join(root, marker)))
+  )
+  if (!found) return null
+  const marker = found.markers.find((name) => existsSync(join(root, name)))
+  const commands = Object.entries(found.toolchain.commands)
+    .map(([kind, command]) => `${kind} \`${command}\``)
+    .join(', ')
+  return `Project type: ${found.toolchain.label} (from ${marker}) — conventional commands: ${commands}`
+}
 
 export async function detectToolchain(
   workspaceRoot: string | null,

@@ -3,6 +3,7 @@ import { basename, join } from 'node:path'
 import type { FileTouch, ProjectMemory, ProjectRecallEvent } from '@shared/projectMemory.types'
 import { wordSet } from '@shared/textSimilarity'
 import { referenceContextShare } from '@shared/contextBudget'
+import { describeProjectToolchain } from './projectToolchain'
 import { SKIP_DIRS } from '@shared/skipDirectories'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 import { codeIndexer } from '../codeIndex/CodeIndexer'
@@ -251,6 +252,12 @@ function build(root: string, budget: CharBudget): string {
       if (scripts.length) coreLines.push(`Scripts: ${scripts.join(', ')}`)
     }
   }
+
+  // Non-Node projects got no build/test information here at all, because the
+  // block above only knows `package.json`. `describeProjectToolchain` returns
+  // null for Node, so the real script names above are never talked over.
+  const toolchain = describeProjectToolchain(root)
+  if (toolchain) coreLines.push(toolchain)
 
   const tree = topLevelTree(root)
   if (tree.length) {
