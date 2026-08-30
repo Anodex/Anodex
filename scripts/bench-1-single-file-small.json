@@ -1,0 +1,9 @@
+{
+  "goal": "This project folder is empty. Write a single Python file `stats.py` with three pure functions: `mean(xs)`, `median(xs)` and `mode(xs)`. Each raises ValueError with a clear message on an empty list. `mode` returns the smallest value when several tie.\n\nAlso write `test_stats.py`: a plain Python script (no pytest) that checks each function on known inputs, checks the tie-breaking, checks all three error cases, prints one 'OK:' line per check, and exits 0 only if every check passed.\n\nVerify by running: python test_stats.py. Report the exit code you actually saw.",
+  "project": "Bench",
+  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\Bench",
+  "maxTurns": 200,
+  "maxTokens": 300000,
+  "maxDurationMinutes": 90,
+  "requirePlan": true
+}

@@ -366,3 +366,48 @@ describe('an unrecognised command is not evidence of progress', () => {
     expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'b' }).message).toBeUndefined()
   })
 })
+
+describe('a failed edit earns a read back', () => {
+  function gatherPast(ledger: ReturnType<typeof createTaskLedger>, count: number): void {
+    for (let i = 0; i < count; i++) ledger.recordOutcome({ kind: 'read', madeProgress: true })
+  }
+
+  /**
+   * Measured: a 4B model at 8,192 wrote a test file with an indentation error
+   * and then could not repair it. Its reads were refused — 76 of them — so it
+   * edited blind, and every attempt failed with "the text to replace was not
+   * found" or "line N does not match expectedFirstLine". Those failures are
+   * no-ops, so they never reset the streak, and the run ended reporting it
+   * could not read a file that was sitting in the workspace.
+   *
+   * The guard's premise is that the model already has what it is asking for.
+   * These errors are Anodex's own evidence that it does not.
+   */
+  it('lets a read through after an edit failed on a stale view', () => {
+    const ledger = createTaskLedger()
+    gatherPast(ledger, 40)
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'a' }).action).toBe('block')
+
+    ledger.noteStaleView()
+
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'b' }).action).toBe('run')
+  })
+
+  // One read, not an amnesty. A model that keeps failing edits must not be able
+  // to hold the guard open indefinitely by failing them.
+  it('grants exactly one read per failed edit', () => {
+    const ledger = createTaskLedger()
+    gatherPast(ledger, 40)
+    ledger.noteStaleView()
+
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'b' }).action).toBe('run')
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'c' }).action).toBe('block')
+  })
+
+  it('does nothing when the guard was not blocking anyway', () => {
+    const ledger = createTaskLedger()
+    ledger.noteStaleView()
+
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'a' }).action).toBe('run')
+  })
+})

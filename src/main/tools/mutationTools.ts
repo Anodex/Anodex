@@ -2,6 +2,7 @@ import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises
 import { dirname } from 'node:path'
 import type { ToolCallDiff } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
+import { StaleFileViewError } from './staleView'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { assertFileStateUnchanged } from './fileState'
 import { runGuardedToolWithPrepare } from './helpers'
@@ -308,7 +309,7 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
             // turn, each one a wasted round. `replace_lines` needs only the line
             // numbers, which every read reports and which are cheap to hold.
             const nearMiss = whereOldTextNearlyIs(args.oldText, original)
-            throw new Error(
+            throw new StaleFileViewError(
               'The text to replace was not found in the file. Do not guess at it — if you no ' +
                 'longer have the exact text in view, use replace_lines with the line numbers ' +
                 'instead, or read that part of the file again to get the exact text first.' +
@@ -472,7 +473,9 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
           // be stale -- so the edit is placed rather than refused. See
           // `relocateToAnchor` for the measurements behind that change.
           const placement = relocateToAnchor(args.expectedFirstLine, lines, start, end)
-          if (typeof placement === 'string') throw new Error(placement)
+          // A refused placement means the file does not say what the model
+          // thought — the case that earns a read back. See `staleView.ts`.
+          if (typeof placement === 'string') throw new StaleFileViewError(placement)
           const { start: effectiveStart, end: effectiveEnd, movedBy } = placement
           const clampedEnd = Math.min(effectiveEnd, lines.length)
           if (clampedEnd < effectiveStart) {

@@ -125,6 +125,44 @@ ledger-level tests passed against unchanged production behaviour — the same
 shape as the hardcoded blanks in agent turns. The regression test now drives
 `run_command` itself, and was checked to fail against the old code.
 
+### The gathering deadlock, reopened and fixed (was #10, second half)
+
+The first half — the guard counting its own refusals — was fixed earlier. The
+deadlock underneath was left open with an explicit condition: **reopen only with
+a run where the model demonstrably needed a refused read to proceed.**
+
+That run happened. A 4B model at an 8,192-token window, on `bench-1`, wrote a
+`test_stats.py` with an indentation error and then could not repair it:
+
+- **76** `read_file_range` calls refused with "You have made 34
+  information-gathering calls without changing anything"
+- editing blind as a result: 2 × "the text to replace was not found", 3 ×
+  "line N does not match expectedFirstLine"
+- those failures are no-ops, so they never reset the streak, and the refusals
+  continued
+- the run ended honestly reporting it "cannot access or read the content of
+  `test_stats.py` despite its presence in the workspace"
+
+Its `stats.py` was **correct** — verified independently against the tie-break,
+all three `ValueError` paths and non-mutation. Only the test file was broken,
+and the guard prevented the repair.
+
+**Fixed** by having an edit that fails on a stale view earn one read back.
+`StaleFileViewError` is a distinct error type rather than a message match — the
+messages are Anodex's own and would rot silently if reworded. The gathering
+streak itself is untouched: the credit is spent on the next read, so a model
+that goes back to gathering without changing anything is blocked again at once,
+and a model that keeps failing edits cannot hold the guard open.
+
+This is not a loosening on a hunch. The guard's premise is that the model
+already has what it is asking for, and these errors are Anodex's own evidence
+that it does not.
+
+**Worth knowing:** the first wiring missed the catch block that actually runs.
+`replace_lines`, `edit_file` and `patch_file` all fail through
+`runGuardedToolWithPrepare`, a third catch block, and the ledger tests passed
+against unchanged behaviour until an end-to-end test drove the real tool.
+
 ### The gathering guard fed itself (was #10)
 
 A 4B model on an 8,192-token window hit `GATHERING_HARD_LIMIT` and had 22
