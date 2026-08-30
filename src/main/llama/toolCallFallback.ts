@@ -256,6 +256,16 @@ function parseObjectLiteral(text: string): unknown {
       if (ch === quote && text[i - 1] !== '\\') quote = null
       continue
     }
+    // A triple-quoted value: the form a model uses to pass code, and never
+    // valid JSON. Consumed whole and re-emitted as a JSON string, so the code
+    // inside - which contains quotes, braces and newlines of its own - reaches
+    // the tool intact.
+    const tripleEnd = tripleQuoteEnd(text, i)
+    if (tripleEnd !== null) {
+      out += JSON.stringify(text.slice(i + 3, tripleEnd - 2))
+      i = tripleEnd
+      continue
+    }
     if (ch === '"' || ch === "'") {
       quote = ch
       out += '"'

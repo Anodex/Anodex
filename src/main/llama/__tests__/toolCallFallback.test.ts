@@ -376,3 +376,31 @@ describe('tool_code with an object-literal argument', () => {
     expect(detectFallbackToolCall(text, TOOLS3)).toBeNull()
   })
 })
+
+describe('tool_code: object literal carrying triple-quoted code', () => {
+  const T = new Set(['edit_file'])
+
+  it('reads code passed as a triple-quoted value inside an object', () => {
+    // The fourth shape found in one model. It reported "step 1 is complete"
+    // while nothing changed on disk, because the call was dropped silently.
+    const text = [
+      '```tool_code',
+      'edit_file({ path: "camera.py", oldText: """def to_camera(self, wx):""", newText: """def to_camera(self, wx, wy):""" })',
+      '```'
+    ].join('\n')
+
+    const call = detectFallbackToolCall(text, T)
+
+    expect(call?.name).toBe('edit_file')
+    expect(call?.arguments.path).toBe('camera.py')
+    expect(call?.arguments.oldText).toBe('def to_camera(self, wx):')
+    expect(call?.arguments.newText).toBe('def to_camera(self, wx, wy):')
+  })
+
+  it('keeps quotes and braces inside the code intact', () => {
+    const text =
+      '```tool_code\nedit_file({ path: "a.py", oldText: """print("hi") { x: 1 }""" })\n```'
+
+    expect(detectFallbackToolCall(text, T)?.arguments.oldText).toBe('print("hi") { x: 1 }')
+  })
+})
