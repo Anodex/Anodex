@@ -44,3 +44,45 @@ describe('code_outline', () => {
     }
   })
 })
+
+describe('code_outline in a project it cannot map', () => {
+  it('does not claim a directory full of Python has no source files', async () => {
+    const workspace = await makeWorkspace()
+    try {
+      await writeFile(join(workspace, 'physics.py'), 'def total_mass(bodies):\n    pass\n', 'utf-8')
+      await writeFile(join(workspace, 'ui.py'), 'class Camera:\n    pass\n', 'utf-8')
+      const ctx = createMockContext(workspace)
+      const tool = codeOutlineTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: unknown) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: '.' })
+
+      // The old message was "No source files found." — false, and it reads as
+      // "this directory has no code", which is the opposite of the truth.
+      expect(result).not.toContain('No source files found')
+      // It must say what it cannot do, and what is actually there.
+      expect(result).toContain('.py')
+      expect(result.toLowerCase()).toContain('javascript')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('still reports a genuinely empty directory as empty', async () => {
+    const workspace = await makeWorkspace()
+    try {
+      await mkdir(join(workspace, 'empty'), { recursive: true })
+      const ctx = createMockContext(workspace)
+      const tool = codeOutlineTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: unknown) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'empty' })
+
+      expect(result).toContain('No source files found')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+})

@@ -2,10 +2,19 @@
  * Directory names every workspace walk skips — shared by the search/find/
  * outline tools and by the workspace orientation summary, so "is this worth
  * walking into" stays a single definition instead of two lists that can
+ *
+ * A name earns a place here only when it is generated output or fetched
+ * dependencies in some ecosystem and is not plausibly hand-written source in
+ * another. That rules out `bin`, which is .NET build output but is a folder of
+ * scripts almost everywhere else, and `env`, which is too general to read as
+ * anything in particular. Skipping is not free: what is skipped cannot be
+ * searched, read or found, so a wrong entry hides the user's own work from
+ * every tool at once, and does it silently.
  * silently drift apart. Same reasoning as `TEXT_EXT` in
  * `textFileExtensions.ts`.
  */
 export const SKIP_DIRS: ReadonlySet<string> = new Set([
+  // JavaScript and TypeScript, which is all this list held for a long time.
   'node_modules',
   '.git',
   'dist',
@@ -13,7 +22,24 @@ export const SKIP_DIRS: ReadonlySet<string> = new Set([
   '.next',
   '.cache',
   'build',
-  '.turbo'
+  '.turbo',
+  // Python. Measured: a run in a Python project was shown `__pycache__/` in a
+  // directory listing and searched it, on a model with an 8,192-token window
+  // where that listing was a real fraction of everything it could hold.
+  '__pycache__',
+  '.venv',
+  'venv',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
+  '.tox',
+  // Rust, Java, Go, PHP, .NET, CocoaPods. Build output and vendored
+  // dependencies - the same thing `node_modules` and `dist` are here for.
+  'target',
+  'vendor',
+  '.gradle',
+  'obj',
+  'Pods'
 ])
 
 /**
