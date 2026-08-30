@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { TEXT_EXT } from '@shared/textFileExtensions'
+import { isTextFile } from '@shared/textFileExtensions'
 import { isSkippedDirectory } from '@shared/skipDirectories'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
@@ -409,7 +409,7 @@ export const getFileInfoTool: WorkspaceToolFactory = (define, ctx) =>
           // in-memory bound the line-range tool enforces; metadata stays
           // useful (size/type/mtime) with lineCount honestly null.
           const lineCount =
-            info.isFile() && TEXT_EXT.test(target) && info.size <= MAX_LINE_TOOL_SOURCE_BYTES
+            info.isFile() && isTextFile(target) && info.size <= MAX_LINE_TOOL_SOURCE_BYTES
               ? countLines(await readFile(target, 'utf-8'))
               : null
           const summary = {
@@ -783,7 +783,7 @@ async function walk(dir: string, root: string, needle: string, results: string[]
       }
       continue
     }
-    if (!TEXT_EXT.test(entry.name)) continue
+    if (!isTextFile(entry.name)) continue
     try {
       const info = await stat(full)
       if (info.size > MAX_FILE_BYTES * 4) continue
