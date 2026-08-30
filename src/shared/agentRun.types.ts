@@ -80,6 +80,17 @@ export function defaultMaxTurnsFor(contextSize: number | undefined): number {
   return Math.max(DEFAULT_MAX_TURNS, Math.round(DEFAULT_MAX_TURNS * turnWorkRatio(contextSize)))
 }
 
+/**
+ * What produced a run, for comparing results afterwards. See
+ * `describeRunProvenance` — descriptive only, never read to route anything.
+ */
+export interface RunProvenance {
+  /** Local model file name without path or extension; null when unknown. */
+  model: string | null
+  /** The context window the run actually had. */
+  contextSize: number | null
+}
+
 /** Default cumulative token budget for a run, across every turn. */
 export const DEFAULT_MAX_TOKENS = 50_000
 
@@ -109,6 +120,12 @@ export interface AgentRun {
   provider: 'local' | 'anthropic' | 'openai'
   /** Model id for `provider: 'anthropic' | 'openai'`; null for `'local'` (always whatever's loaded). */
   model: string | null
+  /**
+   * What actually ran, for local runs — see {@link RunProvenance}. Optional
+   * because runs recorded before this existed have no answer, and guessing one
+   * retrospectively would be worse than admitting it.
+   */
+  ranWith?: RunProvenance | null
   maxTurns: number
   turnsUsed: number
   /**
