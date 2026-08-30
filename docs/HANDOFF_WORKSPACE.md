@@ -741,6 +741,25 @@ Each cost time, and each will look wrong again to the next reader:
 The conservatism in this codebase is load-bearing and its reasons are written
 beside it. Read the comment before widening anything.
 
+### Live verification on the fixed build (2026-08-30, end of session)
+
+One run on the current build, 27B at 65,536, adding an orbit-path predictor
+across `physics.py`, `render/`, `ui.py`, `main.py` and the smoke test.
+
+**done at 11/30 turns, plan 7/7, 0 flagged, smoke test green at 61 checks (from
+59), no temporary files left.** Verified against disk rather than the summary,
+and then verified again from outside the model's own tests: the new
+`predict_path(body, bodies, steps, dt)` returns exactly the requested points, is
+pure, is deterministic, and returns `[]` for `steps <= 0`.
+
+Worth noting what it did with a collision it was not warned about. `predict_path`
+already existed with a different signature; rather than break the renderer and
+three existing checks, it made the function a dispatcher and moved the old body
+verbatim into `_predict_path_full`. The legacy call still works and is still
+pure — checked independently. That is the behaviour the "do not rewrite what is
+there" instruction asks for, and it is the first run to be checked this closely
+and come back clean on every count.
+
 ## Tooling
 
 - `scripts/ws-criteria.mjs` — scores a stored conversation against the five
