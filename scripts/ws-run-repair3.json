@@ -1,0 +1,8 @@
+{
+  "goal": "The Universe Sandbox game in Sandbox/UniverseSandbox is broken: python _smoke_test.py exits 1 with an IndentationError in ui.py around line 232.\n\nA previous session added a 'Reset View' button and left one line at the wrong indent level, inside a method where it does not belong. Diagnose it from the actual traceback.\n\nFix it properly: the button creation and its bindings should sit wherever the other toolbar buttons are created, at the correct indent, wired the same way they are. If the reset feature is half-built, finish it: camera.py should have a pure default_view() and reset(), ui.py a 'Reset View' button and an 'r' shortcut in the SHORTCUTS registry, and main.py the wiring.\n\nDo not delete or weaken any existing check in _smoke_test.py. Add checks that reset() restores the default framing after the camera has moved and that 'r' is in the shortcut registry.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox. It must exit 0 with every check passing. Report the exit code you actually saw. Delete any temporary scripts.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}

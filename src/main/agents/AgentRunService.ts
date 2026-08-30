@@ -233,6 +233,8 @@ class AgentRunService {
     const ledger = createTaskLedger()
     const startTurn = options?.startTurn ?? 1
     let turnsUsed = run.turnsUsed
+    /** One provider failure per run is retried rather than ending it. */
+    let providerRetryUsed = false
     let tokensUsed = run.tokensUsed
     let plan = run.plan
     let flaggedTurns = run.flaggedTurns
@@ -282,6 +284,23 @@ class AgentRunService {
         this.broadcastRunsChanged()
         if (outcome) lastOutcome = outcome
 
+        // A provider failure is not always the end of the road. Measured: one
+        // run of 29 died this way - a single unparseable tool call at turn 4 of
+        // 30, after 22 that parsed fine, with 1.7% of its token budget spent.
+        // Re-running the identical task got past that point, so the fault was
+        // transient.
+        //
+        // `provider-error` covers both that and a real outage (a rate limit, an
+        // invalid request), and the two are told apart only by the provider's
+        // own message. Matching on that text would be fragile and
+        // provider-specific, so this does not try: one retry, whatever the
+        // cause. A transient fault costs nothing and the run survives; a real
+        // outage costs one turn and then ends the run exactly as before.
+        if (stopped && stopReason === 'provider-error' && !providerRetryUsed) {
+          providerRetryUsed = true
+          log.warn('Provider failed on run', run.id, '- retrying once:', stopDetail ?? '')
+          continue
+        }
         if (stopped && !isRecoverableGenerationStop(stopReason)) {
           // Same reasoning as the budget stop below: a run that ends still owes
           // an account of itself, and this branch is the one that fires when
