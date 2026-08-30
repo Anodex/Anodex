@@ -85,16 +85,6 @@ store that the two patches were byte-identical. One self-corrected observation.
 **Where to start:** persist a hash of tool arguments, then re-measure. Without
 that, this is unprovable from stored data.
 
-### 9. `MASK_AT_FRACTION` is defined but never used
-
-`MASK_AT_FRACTION = 0.6` and `maskAtTokens` are computed in
-`allocateContextBudget` and consumed nowhere outside `contextBudget.ts`.
-Observation masking is planned for but not implemented.
-
-**Why skipped:** found while chasing something else; harmless, but a budget that
-nothing enforces is exactly the shape of the bug the file's own comments
-describe having fixed once before.
-
 ### 10. The gathering guard blocks calls without ending the run
 
 A 4B model on an 8,192-token window hit `GATHERING_HARD_LIMIT` and had
@@ -172,21 +162,31 @@ model's behalf without deciding a step is done, which it has no way to know.
 **Where to start:** treat the plan-completion criterion as measuring the model,
 not Anodex, unless `update_plan_step` is seen failing.
 
-### 14. `TurnSummaryInput.stopped` is never read
-
-Declared in the interface, passed by both call sites, and used nowhere in
-`turnSummary.ts`. Harmless, but it is a field that looks load-bearing and is
-not — one call site was passing a carefully-derived value into nothing.
-
-**Why skipped:** cosmetic. Noted while confirming that a run-level account
-could safely pass `false` for it.
-
----
-
 ## Fixed, kept for the reasoning
 
 An entry moves here rather than being deleted, because _why it was skipped_
 and _what changed the decision_ are the parts worth having later.
+
+### Two budgets that nothing enforced (were #9 and #14)
+
+`MASK_AT_FRACTION = 0.6` and a `maskAtTokens` on every allocation, for an
+observation-masking pass that was never built. `TurnSummaryInput.stopped`,
+declared and passed by both call sites and read nowhere.
+
+Both removed rather than left in place. `contextBudget.ts`'s own comments
+describe having once shipped a budget nothing enforced, and the doc on
+`maskAtTokens` stated as fact that masking happened — so a reader of that file
+would believe a feature existed that did not. That is worse than an unused
+field: it is a false claim in the place people go to understand the design.
+
+**If observation masking is ever implemented**, the threshold that was designed
+for it is 0.6 of the input limit, sitting below `ROTATE_AT_FRACTION`'s 0.8, on
+the reasoning that context degrades well before the hard limit so both should
+fire early and proportionally rather than at a constant. That is the whole of
+what was lost, and it is one line to restore.
+
+Removing `stopped` also removed a small trap: one call site was deriving a
+value carefully and passing it into nothing.
 
 ### Start produced nothing, with no error anywhere (was #4)
 

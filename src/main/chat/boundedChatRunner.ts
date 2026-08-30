@@ -754,7 +754,6 @@ export async function runBoundedChatGeneration(
   const outcome = describeTurnOutcome({
     calls: [...completedToolCalls.values()],
     plan: currentPlan,
-    stopped: finalResult.stopped,
     blockedGathering: ledger.blockedGathering,
     unverifiedPaths,
     // Everything the tools actually returned this turn, so a figure the reply
