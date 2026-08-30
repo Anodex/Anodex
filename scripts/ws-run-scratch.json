@@ -1,0 +1,9 @@
+{
+  "goal": "This project folder is empty. Build a small command-line tool in it from scratch.\n\nWrite a Python program `wordfreq.py` that takes a path to a text file as its only argument and prints the ten most frequent words, one per line, as 'word count', most frequent first. Words are case-insensitive and punctuation is not part of a word. Ties break alphabetically so the output is deterministic.\n\nIt must handle a missing argument and an unreadable file by printing a clear message and exiting non-zero, rather than raising a traceback.\n\nAlso write `test_wordfreq.py`: a plain Python script (no pytest) that creates its own temporary input files, checks the ordering, the tie-breaking, the case-insensitivity, and both error paths, prints one 'OK:' line per check, and exits 0 only if every check passed.\n\nVerify by running: python test_wordfreq.py. Report the exit code you actually saw. Delete any scratch files you create along the way.",
+  "project": "FromScratch",
+  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\FromScratch",
+  "maxTurns": 30,
+  "maxTokens": 300000,
+  "maxDurationMinutes": 120,
+  "requirePlan": true
+}
