@@ -26,7 +26,7 @@ import {
 import { budgetExceededReason, turnBudgetLeftovers } from './agentBudgets'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
 import { assessTurnClaims, stillUnverified } from './agentTurnClaims'
-import { finishedWithNothingToShow, idleRunReason } from './agentRunProgress'
+import { finishedWithNothingToShow, idleRunReason, refusedRunReason } from './agentRunProgress'
 import { workspaceRootForProject } from '../projects/workspaceRoot'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import { headlessConfirm } from '../tools/headlessConfirm'
@@ -246,6 +246,8 @@ class AgentRunService {
     let durableChangesMade = 0
     /** Consecutive turns that made no tool call at all - see `idleRunReason`. */
     let idleTurns = 0
+    /** Consecutive turns whose every call was refused - see `refusedRunReason`. */
+    let refusedTurns = 0
     // Every settled call the run has made, for the account attached to its
     // summary. That account used to be the *last turn's*, which is wrong in
     // both directions once a run has more than one turn: a run that wrote 48
@@ -327,6 +329,16 @@ class AgentRunService {
         if (nextPlan) plan = nextPlan
         durableChangesMade += durableChanges
         idleTurns = toolCallsMade === 0 ? idleTurns + 1 : 0
+        // A turn whose calls were all refused looks active by call count but
+        // achieved nothing. `Blocked:` is the detail every guard sets when it
+        // turns a call away, so this reads Anodex's own record rather than
+        // guessing from an error message.
+        const settled = turnCalls.length
+        const succeeded = turnCalls.filter((call) => call.status === 'success').length
+        const refused = turnCalls.filter((call) =>
+          String(call.detail ?? '').startsWith('Blocked:')
+        ).length
+        refusedTurns = settled > 0 && succeeded === 0 && refused > 0 ? refusedTurns + 1 : 0
         runCalls.push(...turnCalls)
         // Claims are settled once, at run end, against everything the run read
         // - see `stillUnverified`. A turn that names the file it is about to
@@ -406,7 +418,7 @@ class AgentRunService {
           return
         }
 
-        const idleReason = idleRunReason(idleTurns)
+        const idleReason = idleRunReason(idleTurns) ?? refusedRunReason(refusedTurns)
         if (idleReason) {
           this.finish(
             run.id,

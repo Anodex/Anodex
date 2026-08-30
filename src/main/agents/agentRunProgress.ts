@@ -83,3 +83,44 @@ export function idleRunReason(consecutiveIdleTurns: number): string | null {
     'stopped calling tools; the transcript will show what it was saying instead.'
   )
 }
+
+/**
+ * Consecutive turns in which every call was refused before a run is stopped.
+ *
+ * Above two, like {@link IDLE_TURN_LIMIT}: hitting a guard once or twice and
+ * then varying the call is ordinary work. Five in a row is a model that is not
+ * varying anything.
+ */
+export const REFUSED_TURN_LIMIT = 5
+
+/**
+ * Why a run is being stopped for getting nothing but refusals, or `null` to
+ * keep going.
+ *
+ * The sibling of {@link idleRunReason}, and needed because that one cannot see
+ * this: these turns *do* make tool calls, they are simply all refused, so a
+ * turn-call count reads them as active.
+ *
+ * Measured on bench-1 with a 4B model at an 8,192-token window. The run made
+ * its last successful call at turn 19, then spent **181 consecutive turns**
+ * where every call was refused — the loop guard answering "you've already
+ * called read_file_range with identical effective arguments" — and reached its
+ * 200-turn cap having spent 5% of its tokens. Ninety per cent of the run was
+ * spent being told no.
+ *
+ * A guard refusing a call is Anodex working correctly; a run continuing to make
+ * only refused calls for turn after turn is not. The guards say no to a call,
+ * and nothing was saying no to the pattern.
+ *
+ * States what was observed and nothing more. Why a model stopped varying its
+ * calls is not knowable from here.
+ */
+export function refusedRunReason(consecutiveRefusedTurns: number): string | null {
+  if (consecutiveRefusedTurns < REFUSED_TURN_LIMIT) return null
+  return (
+    `Stopped after ${consecutiveRefusedTurns} turns in a row in which every tool call was ` +
+    'refused. The calls were being rejected as repeats or as gathering without progress, and ' +
+    'nothing new was getting through, so those turns changed nothing and the next ones were ' +
+    'unlikely to. The transcript shows what it kept trying.'
+  )
+}
