@@ -575,6 +575,99 @@ diagnosed from the actual traceback, fixed the code rather than deleting the
 failing test, and finished with 0% workspace-tool failures. This was untested at
 the start of the session.
 
+## 2026-08-30: the small-model pairing, and what it exposed
+
+Everything before this was a 24-32B model on a 65,536-token window. The one
+configuration named by "any model, any size" and never tried was the realistic
+one for modest hardware: a small model on a small window. Qwen3-4B-Instruct at
+8,192 tokens, on a deliberately tiny task (one pure function plus one test
+check, `scripts/ws-run-tiny.json`).
+
+It never completed the task in three attempts. That result is about the model.
+What it exposed on the way is about Anodex, and all of it is general.
+
+### Anodex was telling non-JavaScript projects they had no code
+
+`code_outline` maps JavaScript and TypeScript only, and answered every other
+project with **"No source files found."** In a Python repository that is false,
+and it reads as "there is no code here" rather than "this tool does not speak
+that language". The run shows the cost directly: the model was told its project
+had no source files and spent the next twenty calls hunting for code
+`read_file_range` had already shown it. It now names what it passed over and
+points at the tools that work.
+
+`SKIP_DIRS` was a JavaScript list - `node_modules`, `dist`, `.next`, `.turbo` -
+and every workspace walk in the app uses it. A Python project had `__pycache__`
+and its virtualenv walked, searched and listed to the model as if they were the
+user's work; at 8K that listing is a real fraction of everything it can hold.
+
+`TEXT_EXT` decides what `search_files` will even open. Missing were Swift, Dart,
+Lua, Scala, Elixir, Clojure, Haskell, OCaml, F#, Julia, Nim, Zig, Groovy, Perl,
+R, Fortran and Objective-C, plus Terraform, Protobuf, GraphQL and CMake. A
+missing language does not search badly, it **searches to nothing** - the walk
+skips the file and reports "No matches found" for code that is plainly there.
+The regex also required a dot, so `Makefile`, `Dockerfile` and `Gemfile` were
+invisible; those now match by name.
+
+### The fabrication check never ran on agent runs at all
+
+`runTurn` passed hardcoded blanks where the turn's own evidence belonged:
+`unverifiedPaths: []` and `blockedGathering: 0`. `GenerateOutcome.fabrication`
+`Detected` documents itself as set by the bounded runner and surfaced by
+unattended callers "rather than silently reporting success" - and agent runs
+call `runGeneration` directly, so the flag was structurally always false on the
+one path where nobody is watching. The "Possible fabrication" badge could not
+appear on an agent run. The Scheduler was checked and is fine; it uses the
+bounded runner.
+
+The `blockedGathering: 0` blank was the same shape, and its repair is visible in
+a later run, which now ends with "Ended early - 10 further information-gathering
+call(s) were refused". That sentence had been unreachable.
+
+### A run reported success having done nothing
+
+Run 2 finished `done`, `flaggedTurns: 0`, with a summary saying the function
+"has been successfully implemented and verified" and that the smoke test "passed
+with exit code 0". It had made **no write, edit or patch call in sixteen turns**
+and the function was not in the file. `finish_goal` was refused once for six
+open plan steps and accepted on the immediate retry with no work in between,
+which is the intended "tell once, then stop arguing" design.
+
+Anodex's disclosure worked - the turn account underneath said "Changed nothing".
+The status did not. A finish with an untouched workspace and open plan steps is
+now flagged. Nothing is refused and no run finishes differently; the only thing
+withdrawn is the claim of unqualified success, and that claim was Anodex's.
+
+Note the wiring fix above would **not** have caught this run: it named bare
+filenames, and `PATH_PATTERN` requires a directory separator on purpose.
+
+### Nine turns doing nothing at all
+
+Run 3 spent turns 22 through 30 making **no tool calls whatsoever**, then hit
+the turn cap. This was already in the deferred log, skipped as one observation
+on DeepSeek-R1-32B. Qwen3-4B is a second, three sizes away, so it was reopened
+and fixed: three consecutive turns with no tool call now stop the run. Counted
+in tool calls, not reply text - only one of the two models repeated itself, so
+the repetition was incidental, and an agent turn can only act or finish through
+a tool.
+
+### Three checks that looked like bugs and were not
+
+Worth recording, because each cost time and each will look wrong again:
+
+- `findUnverifiedPathClaims` ignores a bare `physics.py`. Deliberate: without
+  the separator requirement, `numpy.array` and `Math.random` read as fabricated
+  paths, and the module records two live false accusations.
+- `findUnverifiedMeasurements` ignores "57 checks". Deliberate: only numbers
+  precise enough to have been measured, because a check that cries wolf gets
+  ignored.
+- A corrupt `.gguf` produced a genuinely good error naming the cause and the
+  fix. Recorded as correct behaviour.
+
+The pattern: the conservative checks in this codebase are conservative for
+reasons that are written down next to them. Read the comment before widening
+one.
+
 ## Tooling
 
 - `scripts/ws-criteria.mjs` — scores a stored conversation against the five
@@ -636,10 +729,17 @@ refuted and a seventh was built and reverted.
    the provider raises it before deciding, because a retry that masks a model
    failing _every_ turn burns a user's budget silently.
 
-5. **Contexts other than 65,536.** Everything measured is one window on one
-   machine. An 8K run functions but completes almost nothing per turn - the
-   budget-unit problem in `agentBudgets.ts` - and a realistic small-hardware
-   pairing (a 3B model at a small window) has never been tried.
+5. **Contexts other than 65,536.** Done for the small end - see the 2026-08-30
+   section. Qwen3-4B at 8,192 was tried three times and completed nothing, which
+   is the model; the Anodex defects it exposed are fixed. Still untried is the
+   _large_ end: nothing has run above 65,536, and
+   `DEFAULT_RECALL_WINDOW_FRACTION` withholds more the better the hardware.
+
+6. **Re-verify the idle-turn stop on a long legitimate run.** Three consecutive
+   turns with no tool call now end a run. The limit is above two so a
+   think-then-act turn is safe, but this is the only change here that can end a
+   run _early_, so it carries the most regression risk of anything in this
+   document. A full multi-module task on the 27B baseline is the check.
 
 ### Deliberately not on this list
 
