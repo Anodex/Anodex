@@ -1,0 +1,8 @@
+{
+  "goal": "The Universe Sandbox game in Sandbox/UniverseSandbox is broken: python _smoke_test.py exits 1.\n\nThe failing assertion is at the end of the run:\n  assert del_r is not None, \"delete button region missing (editor)\"\n\nA previous session added a 'Reset View' toolbar button and the body-editor's Delete button region is no longer being produced - most likely the new button displaced it in the toolbar layout, or its hit region is now off-canvas.\n\nDiagnose it from the actual failure rather than guessing. Fix the layout so both buttons exist and both hit regions are present and on-canvas. Do not delete or weaken that assertion or any other existing check - the file has 52 'OK:' lines and every one must still pass.\n\nVerify by running: python _smoke_test.py in Sandbox/UniverseSandbox and reading its exit code. It must exit 0. Report the exit code you actually saw, and do not report success unless you saw exit 0. Delete any temporary scripts.",
+  "project": "Sandbox",
+  "maxTurns": 30,
+  "maxTokens": 450000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
