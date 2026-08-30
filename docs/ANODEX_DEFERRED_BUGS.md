@@ -13,8 +13,37 @@ reasoning for skipping stays readable later.
 
 ## Open
 
-_Nothing open as of 2026-08-30._ Everything found so far is either fixed below,
-or closed with a verdict at the end of this file. Add new findings here.
+Add new findings here.
+
+### 1. A small window makes re-reading necessary, and the loop guard makes it impossible
+
+**Verified, not inferred.** The refused calls in the 4B runs carry exactly one
+distinct title each — `Read test_stats.py lines 1-200` refused 181 times, `Read
+ledger/money.py lines 1-200` refused 6 times. Same file, same range, every time:
+genuine byte-identical repeats, not different ranges being conflated.
+
+**Why the model repeats:** the reads _succeeded_. Calls 5 and 7 both returned
+the whole of `stats.py` (25 lines); calls 3 and 8 both returned the whole of
+`test_stats.py` (68 lines). At 8,192 tokens those results are evicted within a
+turn or two, so the model no longer has what it read and asks again. Rational
+given its memory, not faulty reasoning.
+
+**Why that becomes terminal:** reads are marked `rereadable`, so repeats are
+normally allowed — but `LOOP_GUARD_ABORT_AFTER` is 6, and once `shouldAbort`
+trips the count never decreases. That exact read is refused for the rest of the
+run. The model needs the file, cannot retain it, and Anodex stops showing it.
+
+**Not fixed, deliberately.** The obvious remedy — let the read through when the
+content is no longer in the window — is the livelock this codebase has already
+been burned by: a model that re-reads a file it cannot hold makes no progress
+either, it just fails more slowly. `refusedRunReason` now ends these runs in
+about five turns, which bounds the cost of the honest answer: _this file does not
+fit in this window alongside the work._
+
+**Where to start, if reopening:** decide it from the context budget rather than a
+call count — a re-read is waste when the content is still in the window and a
+necessity when it is not. `allocateContextBudget` knows the working set; nothing
+connects that to the loop guard today.
 
 ---
 
