@@ -169,11 +169,17 @@ const TOOL_SCHEMAS: BudgetRule = { fraction: 0.12, floor: 768, ceiling: 6144 }
 export const MIN_WORKING_SET_FRACTION = 0.35
 
 /**
- * Fractions of the input limit at which observation masking begins and at which
- * the turn hands off to a fresh context epoch. Context degrades well before the
- * hard limit, so both fire early, and proportionally rather than at a constant.
+ * The fraction of the input limit at which the turn hands off to a fresh
+ * context epoch. Context degrades well before the hard limit, so this fires
+ * early, and proportionally rather than at a constant.
+ *
+ * There was a `MASK_AT_FRACTION = 0.6` beside this, and a `maskAtTokens` in
+ * every allocation, for an observation-masking pass that was never built. Both
+ * were removed rather than left computed: this file's own comments describe
+ * having once shipped a budget nothing enforced, and the doc on the field
+ * asserted that masking happened. The threshold and its reasoning are recorded
+ * in `docs/ANODEX_DEFERRED_BUGS.md` for whoever implements it.
  */
-export const MASK_AT_FRACTION = 0.6
 export const ROTATE_AT_FRACTION = 0.8
 
 export interface ContextBudgetAllocation {
@@ -186,8 +192,6 @@ export interface ContextBudgetAllocation {
   toolSchemas: number
   /** Everything left for conversation and tool results. */
   workingSet: number
-  /** Begin masking old observations once the prompt passes this. */
-  maskAtTokens: number
   /** Hand off to a fresh epoch once the prompt passes this. */
   rotateAtTokens: number
   /** True when floors were scaled back because the window could not fit them. */
@@ -241,7 +245,6 @@ export function allocateContextBudget(contextSize: number): ContextBudgetAllocat
     contextSize: size,
     ...scaled,
     workingSet: Math.max(0, size - usedOverhead),
-    maskAtTokens: Math.floor(inputLimit * MASK_AT_FRACTION),
     rotateAtTokens: Math.floor(inputLimit * ROTATE_AT_FRACTION),
     constrained
   }

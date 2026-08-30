@@ -40,7 +40,6 @@ export interface TurnSummaryInput {
   /** The conversation's plan, if it has one. */
   plan: Plan | null | undefined
   /** Whether the turn ended on a stop that renders its own banner. */
-  stopped: boolean
   /** Gathering calls the task ledger refused — see `TaskLedger.blockedGathering`. */
   blockedGathering: number
   /** Paths the reply named but never touched — see `findUnverifiedPathClaims`. */

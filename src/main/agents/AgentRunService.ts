@@ -283,7 +283,6 @@ class AgentRunService {
           describeTurnOutcome({
             calls: runCalls,
             plan,
-            stopped: false,
             blockedGathering: ledger.blockedGathering,
             unverifiedPaths: unresolved,
             endedBecause: null
@@ -776,13 +775,13 @@ class AgentRunService {
     return {
       finished: Boolean(finishCall),
       summary: finishCall?.detail ?? null,
+      stopped: result.stopped,
       // What this turn actually did, from the settled record. Kept separate
       // from `summary` because that one is the model's own closing statement
       // and only exists when it called `finish_goal`.
       outcome: describeTurnOutcome({
         calls,
         plan: latestPlan,
-        stopped: result.stopped,
         blockedGathering: ledger.blockedGathering,
         unverifiedPaths: claims.unverifiedPaths,
         unverifiedMeasurements: claims.unverifiedMeasurements,
@@ -791,7 +790,6 @@ class AgentRunService {
         // truthful to put here.
         endedBecause: null
       }),
-      stopped: result.stopped,
       stopReason: result.stopReason,
       stopDetail: result.stopDetail,
       tokens: result.stats.tokens,

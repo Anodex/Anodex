@@ -69,7 +69,6 @@ describe('allocateContextBudget', () => {
       const allocation = allocateContextBudget(0)
       expect(allocation.workingSet).toBe(0)
       expect(workingSetFraction(allocation)).toBe(0)
-      expect(Number.isNaN(allocation.maskAtTokens)).toBe(false)
     })
   })
 
@@ -94,13 +93,13 @@ describe('allocateContextBudget', () => {
     it('fires proportionally, not at a constant', () => {
       const small = allocateContextBudget(8192)
       const large = allocateContextBudget(131072)
-      expect(large.maskAtTokens).toBeGreaterThan(small.maskAtTokens * 10)
+      expect(large.rotateAtTokens).toBeGreaterThan(small.rotateAtTokens * 10)
     })
 
-    it('always begins masking before rotating', () => {
+    it('rotates before the input limit, never at it', () => {
       for (const size of CONTEXT_SIZE_LADDER) {
         const allocation = allocateContextBudget(size)
-        expect(allocation.maskAtTokens).toBeLessThan(allocation.rotateAtTokens)
+        expect(allocation.rotateAtTokens).toBeLessThan(size)
       }
     })
 

@@ -28,7 +28,6 @@ function summary(overrides: Partial<Parameters<typeof describeTurnOutcome>[0]> =
     describeTurnOutcome({
       calls: [],
       plan: null,
-      stopped: false,
       blockedGathering: 0,
       unverifiedPaths: [],
       ...overrides
@@ -84,7 +83,6 @@ describe('describeTurnOutcome', () => {
       describeTurnOutcome({
         calls: [],
         plan: null,
-        stopped: false,
         blockedGathering: 0,
         unverifiedPaths: []
       })
@@ -251,7 +249,7 @@ describe('describeTurnOutcome', () => {
     // and told the user nothing — the banner does not reach them. A duplicate
     // explanation costs a line; a silent stop costs the whole account.
     it('still explains an ending even when the turn reports a stop', () => {
-      const text = summary({ calls: [read('a')], blockedGathering: 3, stopped: true })
+      const text = summary({ calls: [read('a')], blockedGathering: 3 })
       expect(text).toContain('**Ended early**')
       expect(text).toContain('What this reply did')
     })
@@ -347,7 +345,6 @@ describe('a reply quoting measurements it never took', () => {
         }
       ],
       plan: null,
-      stopped: false,
       blockedGathering: 0,
       unverifiedPaths: [],
       unverifiedMeasurements: findUnverifiedMeasurements(
@@ -375,7 +372,6 @@ describe('a reply quoting measurements it never took', () => {
         }
       ],
       plan: null,
-      stopped: false,
       blockedGathering: 0,
       unverifiedPaths: [],
       unverifiedMeasurements: findUnverifiedMeasurements(
