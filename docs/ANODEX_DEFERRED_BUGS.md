@@ -313,6 +313,31 @@ Not bugs — fixes that landed without a live run proving them.
 
 ## Closed with a verdict — do not reopen without new measurement
 
+- **Completion rate, measured by plan steps.** Of 43 stored runs: 19 finished
+  with a complete plan, 10 never finished, and **14 finished with plan steps
+  still open**. All 14 stopped voluntarily with more than 20% of every budget
+  left — most with 70–99% of their tokens unspent — and every one showed the
+  same pattern: **exactly one open-step refusal, then an accepted finish.** The
+  warning was delivered 14 times and closed a plan 0 times.
+
+  The obvious remedy is to make that warning persist until something changes.
+  It was built, tested, and **reverted before shipping**, because it is
+  contradicted by other evidence in this file: `update_plan_step` works and
+  models simply stop calling it, so an open plan step is not evidence the work
+  is undone. The run that finished 1/7 had done much of its work. Pressing
+  harder would refuse correct runs on data already known to be unreliable, and
+  `agentTools.test.ts` marks that boundary explicitly — "the bar this must not
+  raise".
+
+  **The deeper finding is that plan completion does not measure completion.** It
+  measures bookkeeping the model performs inconsistently. Anodex cannot know a
+  task's real success criteria, so it cannot measure completion in general —
+  which is why the work went into reporting honestly instead.
+
+  **Reopen with:** a measurement that separates "work not done" from "step not
+  ticked", by checking the workspace against each open step. Without that
+  separation, any pressure applied at `finish_goal` is applied blind.
+
 - **`DEFAULT_RECALL_WINDOW_FRACTION` has no ceiling.** It is the only budget in
   `contextBudget.ts` without one, and on a 200K window it withholds ~120K. The
   generality argument is sound and the fix is still contraindicated: bounding
