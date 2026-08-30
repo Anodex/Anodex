@@ -5,6 +5,8 @@ import {
   findUnverifiedMeasurements,
   type MeasurementClaim
 } from '../tools/measurementClaimVerification'
+import { existsSync } from 'node:fs'
+import { resolveInWorkspace } from '../tools/workspace'
 import type { TaskLedger } from '../tools/taskLedger'
 
 /** What a turn's reply claimed, checked against what the turn actually did. */
@@ -139,4 +141,48 @@ export function idleRunReason(consecutiveIdleTurns: number): string | null {
     'so those turns changed nothing and the next ones were unlikely to. Nothing here says why it ' +
     'stopped calling tools; the transcript will show what it was saying instead.'
   )
+}
+
+/**
+ * Which claimed paths are still unaccounted for once the run is over.
+ *
+ * A path claim is a run-level question, not a per-turn one. Assessed per turn
+ * it produced a false accusation immediately: a correct Rust run was badged
+ * "Possible fabrication" because its first turn wrote a plan saying it would
+ * work in `src/lib.rs` - its only call that turn was `write_plan` - and nothing
+ * had been read yet. Turn 2 read that file three times.
+ *
+ * An agent run's opening turn is normally exactly that: naming the files it is
+ * about to open. Treating an intention as a claim about completed work is the
+ * "cries wolf" failure this module's own comments warn about, and a false
+ * accusation on a correct run is worse than no check at all.
+ *
+ * The check keeps its teeth. A file named and never opened all run is still
+ * reported, which is the documented case - a synthesis turn inventing coverage
+ * of files it never read.
+ */
+export function stillUnverified(
+  claimed: PathClaimIssue[],
+  workspaceRoot: string | null,
+  ledger: TaskLedger
+): PathClaimIssue[] {
+  if (!workspaceRoot) return []
+  const seen = new Set<string>()
+  const remaining: PathClaimIssue[] = []
+  for (const issue of claimed) {
+    if (seen.has(issue.path)) continue
+    seen.add(issue.path)
+    let absolute: string
+    try {
+      absolute = resolveInWorkspace(workspaceRoot, issue.path)
+    } catch {
+      continue
+    }
+    // Read or written at any point in the run settles it.
+    if (ledger.reads.hasInteracted(absolute)) continue
+    // A path reported missing that now exists was created by the run itself.
+    if (issue.reason === 'not-found' && existsSync(absolute)) continue
+    remaining.push(issue)
+  }
+  return remaining
 }
