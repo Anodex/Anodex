@@ -675,6 +675,72 @@ The pattern: the conservative checks in this codebase are conservative for
 reasons that are written down next to them. Read the comment before widening
 one.
 
+### Later the same day: reporting, and the turn budget
+
+Four more fixes after the ones above, in the order they were found.
+
+**A run's summary described its last turn, not the run.** The account appended
+to a run summary came from `lastOutcome`. A run that wrote 48 files across
+sixteen turns ended with "Changed nothing - this reply only looked", because its
+final turn had only re-read a file. An earlier run read correctly only by
+coincidence: it genuinely had changed nothing all run. Settled calls and path
+claims now accumulate across the run. Verified live: a 23-turn run now reports
+"Changed `ui.py` (14 edits), `physics.py` (4 edits)" and "Plan all 7 steps
+complete".
+
+**Non-Node projects were told nothing about how they are built.** The
+orientation summary - the thing that means a task starts oriented rather than
+blind - was built from `package.json` alone. `projectToolchain` already knew
+Cargo, Go, Python, Maven and .NET, so this reuses that table. It returns null
+for Node deliberately, because a `package.json` names _real_ scripts and
+convention should not talk over a better signal.
+
+**Making the path-claim check reachable caused a false accusation.** Covered in
+its own section below. Read it before adding any check of this kind.
+
+**Turn budgets now scale to the window.** See `ANODEX_DEFERRED_BUGS.md`, the
+"Turn budgets denominated in turns" entry, for the measurement and the reasoning
+about why the reference point did not have to be invented.
+
+### The false accusation, and why it matters more than the fix
+
+Making `findUnverifiedPathClaims` run on agent turns was correct - it had been
+structurally unreachable there. Judging it **per turn** was not, and the very
+next run paid for it.
+
+A Rust run that did everything right - plan 4/4, `cargo test` passing, two clean
+edits, independently verified correct - was badged **"Possible fabrication"**.
+Its first turn wrote a plan saying it would work in `src/lib.rs`; that turn's
+only tool call was `write_plan`, so the file had not been read yet. Turn 2 read
+it three times.
+
+An agent run's opening turn is _normally_ naming the files it is about to open.
+An intention is not a claim about completed work. The bounded runner never had
+this problem because it judges a single reply. Claims now settle at run end
+against the whole run's coverage.
+
+`pathClaimVerification.ts` already recorded two incidents where a correct reply
+was accused, and the rule drawn from them: **a false accusation on a correct run
+is worse than no check at all.** This was the third. When a check is moved to a
+new surface, its unit of judgement has to move with it.
+
+### Four checks that looked broken and were right
+
+Each cost time, and each will look wrong again to the next reader:
+
+- `findUnverifiedPathClaims` ignores a bare `physics.py` - it requires a
+  directory separator, or `numpy.array` and `Math.random` read as fabricated
+  paths.
+- `findUnverifiedMeasurements` ignores "57 checks" - only numbers precise enough
+  to have been measured.
+- `list_directory` shows `target/` while `search_files` skips it. Deliberately
+  asymmetric: a listing states what is on disk, so hiding a real directory would
+  make it lie; searching build output drowns the answer in copies.
+- A corrupt `.gguf` produced an error naming the cause and the fix.
+
+The conservatism in this codebase is load-bearing and its reasons are written
+beside it. Read the comment before widening anything.
+
 ## Tooling
 
 - `scripts/ws-criteria.mjs` — scores a stored conversation against the five
@@ -712,7 +778,8 @@ Repetition is closed - see the seven-theory record above. Do not reopen it
 without a new measurement that distinguishes a cause; six explanations were
 refuted and a seventh was built and reverted.
 
-1. **Push.** Fifteen commits sit on local `main`. The pre-push hook refuses the
+1. **Push.** Commits sit unpushed on local `main` (46 as of 2026-08-30; check
+   with `git rev-list --count origin/main..main`). The pre-push hook refuses the
    default branch by design; the sanctioned override is
    `ANODEX_ALLOW_MAIN_PUSH=1 git push origin main`, which skips CI, or push a
    branch and open a PR so CI runs.
