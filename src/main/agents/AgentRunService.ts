@@ -29,6 +29,7 @@ import {
   assessTurnClaims,
   finishedWithNothingToShow,
   idleRunReason,
+  stillUnverified,
   workspaceRootForProject
 } from './agentTurnClaims'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
@@ -269,15 +270,30 @@ class AgentRunService {
       // level, *why* the run ended is the `lastError` argument `finish` already
       // receives, and this is the account of *what happened*. Keeping the two
       // apart is why one outcome never carries two explanations.
-      const runOutcome = (): string | null =>
-        describeTurnOutcome({
-          calls: runCalls,
-          plan,
-          stopped: false,
-          blockedGathering: ledger.blockedGathering,
-          unverifiedPaths: runUnverifiedPaths,
-          endedBecause: null
-        }) ?? lastOutcome
+      // Called exactly once, immediately before the run's record is written:
+      // every caller returns straight after. Path claims are settled here
+      // rather than per turn, against the coverage the whole run accumulated.
+      const runOutcome = (): string | null => {
+        const unresolved = stillUnverified(
+          runUnverifiedPaths,
+          workspaceRootForProject(conversation.projectId),
+          ledger
+        )
+        if (unresolved.length > 0) {
+          flaggedTurns += 1
+          agentRunStore.update(run.id, { flaggedTurns })
+        }
+        return (
+          describeTurnOutcome({
+            calls: runCalls,
+            plan,
+            stopped: false,
+            blockedGathering: ledger.blockedGathering,
+            unverifiedPaths: unresolved,
+            endedBecause: null
+          }) ?? lastOutcome
+        )
+      }
       const preflightReason = runPreflightReason(run, startTurn, tokensUsed, workedMs())
       if (preflightReason) {
         this.finish(run.id, conversation.id, 'stopped', null, preflightReason)
@@ -319,7 +335,10 @@ class AgentRunService {
         idleTurns = toolCallsMade === 0 ? idleTurns + 1 : 0
         runCalls.push(...turnCalls)
         runUnverifiedPaths.push(...turnUnverifiedPaths)
-        if (fabricationDetected) flaggedTurns += 1
+        // Deliberately not flagged per turn - see `stillUnverified`. A turn that
+        // names the file it is about to open has not claimed anything yet, and
+        // flagging it accused a correct run of fabricating.
+        if (fabricationDetected && turnUnverifiedPaths.length === 0) flaggedTurns += 1
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
         if (outcome) lastOutcome = outcome

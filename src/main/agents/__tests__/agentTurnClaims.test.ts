@@ -7,7 +7,8 @@ import {
   assessTurnClaims,
   finishedWithNothingToShow,
   IDLE_TURN_LIMIT,
-  idleRunReason
+  idleRunReason,
+  stillUnverified
 } from '../agentTurnClaims'
 
 async function workspace(): Promise<string> {
@@ -155,5 +156,54 @@ describe('idleRunReason', () => {
 
     expect(reason).toContain(String(IDLE_TURN_LIMIT))
     expect(reason.toLowerCase()).not.toContain('context window')
+  })
+})
+
+describe('stillUnverified', () => {
+  // The false accusation this exists for. A correct Rust run was badged
+  // "Possible fabrication" because its FIRST turn wrote a plan saying it would
+  // work in `src/lib.rs` - its only call that turn was `write_plan` - and the
+  // file had not been read yet. Turn 2 read it three times. Naming the file you
+  // are about to open is not a claim about work done, and an agent run's first
+  // turn is normally exactly that.
+  it('clears a path that a later turn went on to read', async () => {
+    const root = await workspace()
+    try {
+      await mkdir(join(root, 'src'), { recursive: true })
+      await writeFile(join(root, 'src', 'lib.rs'), 'pub fn x() {}', 'utf-8')
+      const ledger = new TaskLedger()
+      // Named in turn 1, before anything had been read.
+      const early = await assessTurnClaims('I will work in src/lib.rs.', root, ledger)
+      expect(early.unverifiedPaths.length).toBe(1)
+
+      // Turn 2 reads it.
+      ledger.reads.recordRange(join(root, 'src', 'lib.rs'), 1, 1)
+
+      expect(stillUnverified(early.unverifiedPaths, root, ledger)).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  // The check must keep its teeth: a file named all run and never opened is
+  // still the documented fabrication case.
+  it('keeps a path nothing ever touched', async () => {
+    const root = await workspace()
+    try {
+      await mkdir(join(root, 'src'), { recursive: true })
+      await writeFile(join(root, 'src', 'lib.rs'), 'pub fn x() {}', 'utf-8')
+      const ledger = new TaskLedger()
+      const claimed = await assessTurnClaims('I analysed src/lib.rs closely.', root, ledger)
+
+      expect(stillUnverified(claimed.unverifiedPaths, root, ledger)).toHaveLength(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('has nothing to do without a workspace', () => {
+    expect(
+      stillUnverified([{ path: 'a/b.rs', reason: 'not-found' }], null, new TaskLedger())
+    ).toEqual([])
   })
 })
