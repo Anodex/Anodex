@@ -565,3 +565,24 @@ describe('the open-steps prompt offers the option the model actually needs', () 
     expect(await tool.handler({ summary: 'All done.' })).toContain('Run finished.')
   })
 })
+
+describe('finish_goal called more than once in a turn', () => {
+  // A run called finish_goal three times in one turn and was told "Run
+  // finished." each time. The run does end - the turn loop inspects settled
+  // calls afterwards, which is why this tool deliberately has no abort plumbing
+  // - but the repeated identical answer teaches the model nothing and spends
+  // two more calls.
+  it('tells the model the run is already finishing', async () => {
+    const ctx = context()
+    ctx.progress.madeChange = true
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: unknown) => Promise<string>
+    }
+
+    const first = await tool.handler({ summary: 'Added the helper and ran the tests.' })
+    const second = await tool.handler({ summary: 'Added the helper and ran the tests.' })
+
+    expect(first).toContain('Run finished')
+    expect(second.toLowerCase()).toContain('already finishing')
+  })
+})
