@@ -1,12 +1,18 @@
 import type { Plan } from '@shared/plan.types'
 import { projectStore } from '../projects/ProjectStore'
 import { findUnverifiedPathClaims, type PathClaimIssue } from '../tools/pathClaimVerification'
+import {
+  findUnverifiedMeasurements,
+  type MeasurementClaim
+} from '../tools/measurementClaimVerification'
 import type { TaskLedger } from '../tools/taskLedger'
 
 /** What a turn's reply claimed, checked against what the turn actually did. */
 export interface TurnClaimAssessment {
   /** Paths the reply named that this task neither touched nor found on disk. */
   unverifiedPaths: PathClaimIssue[]
+  /** Figures the reply stated as measured that appear in no tool output. */
+  unverifiedMeasurements: MeasurementClaim[]
   /** See `AgentRun.flaggedTurns` — drives the "Possible fabrication" badge. */
   fabricationDetected: boolean
 }
@@ -37,10 +43,19 @@ export interface TurnClaimAssessment {
 export async function assessTurnClaims(
   content: string,
   workspaceRoot: string | null,
-  ledger: TaskLedger
+  ledger: TaskLedger,
+  toolOutput = ''
 ): Promise<TurnClaimAssessment> {
   const unverifiedPaths = await findUnverifiedPathClaims(content, workspaceRoot, ledger.reads)
-  return { unverifiedPaths, fabricationDetected: unverifiedPaths.length > 0 }
+  return {
+    unverifiedPaths,
+    // Only the path claims raise the fabrication flag, matching the bounded
+    // path exactly. A stated figure that no tool printed is worth showing the
+    // reader, but it is a weaker signal than a named file that was never
+    // touched, and it is not the one the reliability score is built on.
+    unverifiedMeasurements: findUnverifiedMeasurements(content, toolOutput),
+    fabricationDetected: unverifiedPaths.length > 0
+  }
 }
 
 /** The folder a run's project points at, or null when it has no project. */
