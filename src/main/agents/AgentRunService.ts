@@ -311,7 +311,6 @@ class AgentRunService {
           stopDetail,
           tokens,
           plan: nextPlan,
-          fabricationDetected,
           durableChanges,
           toolCallsMade,
           calls: turnCalls,
@@ -330,11 +329,11 @@ class AgentRunService {
         durableChangesMade += durableChanges
         idleTurns = toolCallsMade === 0 ? idleTurns + 1 : 0
         runCalls.push(...turnCalls)
+        // Claims are settled once, at run end, against everything the run read
+        // - see `stillUnverified`. A turn that names the file it is about to
+        // open has not claimed anything yet, and flagging it per turn accused a
+        // correct run of fabricating.
         runUnverifiedPaths.push(...turnUnverifiedPaths)
-        // Deliberately not flagged per turn - see `stillUnverified`. A turn that
-        // names the file it is about to open has not claimed anything yet, and
-        // flagging it accused a correct run of fabricating.
-        if (fabricationDetected && turnUnverifiedPaths.length === 0) flaggedTurns += 1
         agentRunStore.update(run.id, { turnsUsed, tokensUsed, plan, flaggedTurns })
         this.broadcastRunsChanged()
         if (outcome) lastOutcome = outcome
@@ -542,7 +541,10 @@ class AgentRunService {
       let plan = first.plan
       let turnsUsed = 1
       let tokensUsed = first.tokens
-      let flaggedTurns = run.flaggedTurns + (first.fabricationDetected ? 1 : 0)
+      // Not flagged from a planning turn: writing a plan *is* naming files
+      // that have not been read yet, which is the false accusation in its
+      // purest form. See `stillUnverified`.
+      const flaggedTurns = run.flaggedTurns
 
       // A real user Stop (or any internal stop other than a recoverable
       // turn-level one — see `isRecoverableGenerationStop`) must end the run
@@ -577,7 +579,6 @@ class AgentRunService {
         )
         turnsUsed = 2
         tokensUsed += retry.tokens
-        if (retry.fabricationDetected) flaggedTurns += 1
         if (retry.stopped && !isRecoverableGenerationStop(retry.stopReason)) {
           agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
           this.finish(
@@ -669,8 +670,6 @@ class AgentRunService {
     stopDetail?: string
     tokens: number
     plan: Plan | null
-    /** See `AgentRun.flaggedTurns`'s doc comment. */
-    fabricationDetected: boolean
     /** Settled calls this turn that actually changed the workspace. */
     durableChanges: number
     /** Settled tool calls this turn, of any kind. See `idleRunReason`. */
@@ -797,7 +796,6 @@ class AgentRunService {
       stopDetail: result.stopDetail,
       tokens: result.stats.tokens,
       plan: latestPlan,
-      fabricationDetected: result.fabricationDetected ?? claims.fabricationDetected,
       durableChanges: calls.filter(isDurableChange).length,
       toolCallsMade: calls.length,
       calls,

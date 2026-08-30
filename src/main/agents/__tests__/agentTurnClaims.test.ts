@@ -32,7 +32,7 @@ describe('assessTurnClaims', () => {
         ledger
       )
 
-      expect(result.fabricationDetected).toBe(true)
+      expect(result.unverifiedPaths).toHaveLength(1)
       expect(result.unverifiedPaths.map((issue) => issue.path)).toContain('game/physics.py')
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -52,7 +52,6 @@ describe('assessTurnClaims', () => {
         ledger
       )
 
-      expect(result.fabricationDetected).toBe(false)
       expect(result.unverifiedPaths).toEqual([])
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -72,14 +71,13 @@ describe('assessTurnClaims', () => {
 
     expect(result.unverifiedMeasurements.length).toBeGreaterThan(0)
     // A stated figure is a weaker signal than a file that was never touched,
-    // and only the path claims drive the reliability score - same as bounded.
-    expect(result.fabricationDetected).toBe(false)
+    // so it is reported to the reader but never raises the run's flag.
+    expect(result.unverifiedPaths).toEqual([])
   })
 
   it('claims nothing when there is no workspace to check against', async () => {
     const result = await assessTurnClaims('I edited game/physics.py.', null, new TaskLedger())
 
-    expect(result.fabricationDetected).toBe(false)
     expect(result.unverifiedPaths).toEqual([])
   })
 })

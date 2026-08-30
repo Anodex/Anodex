@@ -13,8 +13,6 @@ export interface TurnClaimAssessment {
   unverifiedPaths: PathClaimIssue[]
   /** Figures the reply stated as measured that appear in no tool output. */
   unverifiedMeasurements: MeasurementClaim[]
-  /** See `AgentRun.flaggedTurns` — drives the "Possible fabrication" badge. */
-  fabricationDetected: boolean
 }
 
 /**
@@ -53,8 +51,7 @@ export async function assessTurnClaims(
     // path exactly. A stated figure that no tool printed is worth showing the
     // reader, but it is a weaker signal than a named file that was never
     // touched, and it is not the one the reliability score is built on.
-    unverifiedMeasurements: findUnverifiedMeasurements(content, toolOutput),
-    fabricationDetected: unverifiedPaths.length > 0
+    unverifiedMeasurements: findUnverifiedMeasurements(content, toolOutput)
   }
 }
 
