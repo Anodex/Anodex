@@ -24,7 +24,15 @@ const args = new Map(
     return [k, v ?? true]
   })
 )
-const since = args.has('since') ? Date.parse(args.get('since')) : 0
+// `--since=2026-08-30` with no zone is parsed as local time, which is how an
+// earlier invocation silently matched nothing and printed "0 run(s)". A filter
+// that quietly removes everything is worse than no filter, so this says what it
+// understood and complains if it excluded the lot.
+const since = args.has('since') ? Date.parse(String(args.get('since'))) : 0
+if (args.has('since') && Number.isNaN(since)) {
+  console.error(`Could not read --since=${args.get('since')}. Use an ISO date, e.g. 2026-08-30.`)
+  process.exit(1)
+}
 const segmentBy = args.get('by') ?? 'model'
 
 function conversations() {
@@ -103,6 +111,18 @@ function pct(n, d) {
   return d === 0 ? '  n/a' : `${String(Math.round((100 * n) / d)).padStart(4)}%`
 }
 
+if (args.has('since')) {
+  console.log(`--since=${args.get('since')} read as ${new Date(since).toISOString()}`)
+}
+if (runs.length === 0) {
+  console.error(
+    'No runs matched. ' +
+      (args.has('since')
+        ? 'A date with no timezone is read as local time - try an earlier one, or drop --since.'
+        : 'No runs are stored yet.')
+  )
+  process.exit(1)
+}
 console.log(`\n${runs.length} run(s), segmented by ${segmentBy}\n`)
 for (const [key, rows] of [...groups.entries()].sort((a, b) => b[1].length - a[1].length)) {
   const n = rows.length
