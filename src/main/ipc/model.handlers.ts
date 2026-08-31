@@ -11,6 +11,7 @@ import { cancelDownload, downloadModel } from '../llama/modelDownloader'
 import { searchHuggingFaceModels, fetchTopModels } from '../models/huggingFaceCatalog'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { settingsStore } from '../settings/SettingsStore'
+import { forgetModelSettings } from './modelSettingsCleanup'
 import { sendToWindow } from '../broadcast'
 import { getHardware } from './system.handlers'
 import { computerControlService } from '../computerControl/ComputerControlService'
@@ -131,21 +132,12 @@ export function registerModelHandlers(): void {
       }
       await rm(path, { force: true })
 
-      const settings = settingsStore.get()
-      if (
-        settings.addedModelPaths.includes(path) ||
-        settings.lastModelPath === path ||
-        settings.visionProjectorPaths[path]
-      ) {
-        // `null` is the removal sentinel: patches are deep-merged, so passing a
-        // copy with the key deleted (or `lastModelPath: undefined`) would leave
-        // the stale entries in place forever.
-        settingsStore.update({
-          addedModelPaths: settings.addedModelPaths.filter((p) => p !== path),
-          lastModelPath: settings.lastModelPath === path ? null : settings.lastModelPath,
-          visionProjectorPaths: { [path]: null }
-        })
-      }
+      // Everything recorded *about* this model has to go with it, or the
+      // entries outlive the file — `modelContextSizes` most of all, since a
+      // context size is read back by path and is only meaningful for the model
+      // it was chosen for. See `forgetModelSettings` for the removal sentinel.
+      const forget = forgetModelSettings(settingsStore.get(), path)
+      if (forget) settingsStore.update(forget)
       return ok(null)
     } catch (error) {
       return err('models.delete-failed', 'Could not delete the model file.', toErrorMessage(error))
