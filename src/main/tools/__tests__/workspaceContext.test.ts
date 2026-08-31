@@ -97,9 +97,14 @@ describe('buildWorkspaceContext', () => {
   })
 
   it('caps the output length', async () => {
-    for (let i = 0; i < 500; i++) {
-      await writeFile(join(workspace, `file-${i}.txt`), 'x')
-    }
+    // Written concurrently, not in an awaited loop. Five hundred sequential
+    // writes fit inside vitest's 5s default on a warm machine and do not on a
+    // cold Windows CI runner, where this timed out and turned the whole build
+    // red on a docs-only commit. Same files, same assertion, no wall clock in
+    // the result.
+    await Promise.all(
+      Array.from({ length: 500 }, (_, i) => writeFile(join(workspace, `file-${i}.txt`), 'x'))
+    )
     const context = buildWorkspaceContext(workspace, null)
     expect(context.length).toBeLessThanOrEqual(2002)
   })
@@ -246,9 +251,10 @@ describe('buildWorkspaceContext', () => {
   })
 
   it('keeps SPEC.md even when a large top-level tree would otherwise fill the whole budget', async () => {
-    for (let i = 0; i < 500; i++) {
-      await writeFile(join(workspace, `file-${i}.txt`), 'x')
-    }
+    // Concurrent for the same reason as `caps the output length` above.
+    await Promise.all(
+      Array.from({ length: 500 }, (_, i) => writeFile(join(workspace, `file-${i}.txt`), 'x'))
+    )
     await mkdir(join(workspace, '.anodex'), { recursive: true })
     await writeFile(
       join(workspace, '.anodex', 'SPEC.md'),
