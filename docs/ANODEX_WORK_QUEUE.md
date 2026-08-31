@@ -14,10 +14,14 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
       `scripts/bench-verify/overnight.sh`)_
 - [ ] **Variance.** Every cell in the matrix is one run. A second pass over the
       baseline is running; anything that moves needs a third.
-- [ ] **The fallback tool-call parser across dialects.** `toolCallFallback.ts`
-      is what carries models with no native function calling, which is most of
-      "any model". Its dialect coverage has never been audited against real
-      output from models it has not seen.
+- [x] **The fallback tool-call parser across dialects.** Audited by probing it
+      with the shapes real families emit. Three failed: Mistral / Nemo / Mixtral
+      `[TOOL_CALLS]`, Command-R's `Action:` block, and `tool_name` in place of
+      `name`. A model in any of those families with no native function calling
+      could not drive Anodex at all. Fixed: arrays are read (first call taken),
+      `tool_name` and `parameters` are accepted as the aliases they are, and the
+      two family prefixes are stripped. Nine of twelve probed shapes parsed
+      before; twelve of twelve now.
 
 ## Next
 
