@@ -93,8 +93,23 @@ export function resolveToolCallingWrapper(
  * still only one wrong sentence long, instead of spending the whole budget
  * building on a fiction.
  */
+/**
+ * The one marker that belongs to no dialect, because Anodex writes it.
+ *
+ * `LlamaService` continues a fallback-parsed call by putting
+ * `Tool result for <name>:` into the prompt. That text is the harness speaking,
+ * so a model emitting it has started inventing results — the same argument as a
+ * dialect's own tool-output token, and for a string every model can see.
+ *
+ * Measured: gemma-3-27b wrote it on 6 of 44 turns and reasoned onward from
+ * invented file contents, claiming a `unittest` import and a `Product` class in
+ * a fixture that has neither. Across 571 turns of five other models it never
+ * appeared, so this costs nothing where it is not needed.
+ */
+const HARNESS_RESULT_MARKER = 'Tool result for '
+
 export function fabricatedResultStopTriggers(architecture: string | undefined): string[] {
   if (typeof architecture !== 'string' || architecture.length === 0) return []
   const dialect = DIALECTS.find((candidate) => candidate.matches(architecture.toLowerCase()))
-  return [...(dialect?.fabricatedResultMarkers ?? [])]
+  return [HARNESS_RESULT_MARKER, ...(dialect?.fabricatedResultMarkers ?? [])]
 }
