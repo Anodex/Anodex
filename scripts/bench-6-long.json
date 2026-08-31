@@ -1,0 +1,9 @@
+{
+  "goal": "The toolkit package in this project has twelve functions that raise NotImplementedError. Implement all of them so test_toolkit.py passes.\n\nThey are spread across toolkit/text.py, toolkit/numbers.py, toolkit/lists.py and toolkit/dates.py, three in each. Every docstring says what its function must do, and each is described more precisely by the checks in the test file.\n\nDo not change test_toolkit.py: the checks describe the behaviour, and editing them is not an implementation. Use only the standard library.\n\nWork module by module and re-run the test as you go, so partial progress is visible.\n\nVerify by running: python test_toolkit.py. Report the exit code you actually saw.",
+  "project": "Bench",
+  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\Bench",
+  "maxTurns": 80,
+  "maxTokens": 500000,
+  "maxDurationMinutes": 180,
+  "requirePlan": true
+}
