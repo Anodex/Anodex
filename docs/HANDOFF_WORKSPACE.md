@@ -862,6 +862,34 @@ untouched. Scoring from the run record alone would have called that a failure.
 tool calls before the `tool_code` shapes were added, 24 afterwards but never a
 finished task, and now completes two benchmarks with independent verification.
 
+### Context size, not model size, decided the small model's fate
+
+The same Qwen3-4B, same tasks, same everything but the window:
+
+| Qwen3-4B     | bench-1 (one file)               | bench-4 (5 defects, 4 files) |
+| ------------ | -------------------------------- | ---------------------------- |
+| **@ 8,192**  | fail, three attempts             | fail                         |
+| **@ 32,768** | **pass**, independently verified | fail                         |
+
+At 8,192 the working set is 4,753 tokens; at 32,768 it is 19,006. The bench-4
+sources alone are ~3,500, so at 8K there was almost nothing left to work in.
+Raising the window turned three failures into a pass on the single-file task
+without changing the model at all.
+
+It did **not** make the 4B capable of the five-defect task. So the guidance for
+modest hardware is two-sided, and both halves matter:
+
+- **Give a small model more context than seems necessary.** The failures at
+  8,192 read like incapacity and were not.
+- **Give it small tasks.** Multi-defect, multi-file work stayed out of reach at
+  four times the window.
+
+Worth knowing how nearly this was reported wrong: the first 32K run appeared to
+pass bench-4 too, because the float-money defect was invisible to the checks —
+`line_total(333, 100)` divides evenly, so the broken and correct paths agree to
+the penny. `scripts/bench-verify-fixture.mjs` now proves each defect is
+individually catchable before any result is trusted.
+
 ### A model can make the tests pass by editing the tests
 
 Devstral's `bench-5` run ends with `cargo test` passing and **the test file
