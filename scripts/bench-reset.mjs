@@ -10,6 +10,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { writeInventoryFixture, writeRustFixture } from './bench-fixtures.mjs'
+import { writeLongTaskFixture } from './bench-fixtures-long.mjs'
 
 const ROOT = path.join('C:', 'Users', 'Owner', 'Desktop', 'Sandbox', 'Bench')
 // A `-small` spec is the same benchmark with a turn budget sized for a small
@@ -137,6 +138,10 @@ if (name === 'bench-4-large-multi-file') {
 
 if (name === 'bench-5-rust') {
   writeRustFixture(ROOT)
+}
+
+if (name === 'bench-6-long') {
+  writeLongTaskFixture(ROOT)
 }
 
 console.log(`Bench reset for ${name || '(empty project)'} at ${ROOT}`)
