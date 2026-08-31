@@ -3,6 +3,7 @@ import {
   finishedWithNothingToShow,
   IDLE_TURN_LIMIT,
   idleRunReason,
+  noPlanReason,
   REFUSED_TURN_LIMIT,
   refusedRunReason
 } from '../agentRunProgress'
@@ -106,5 +107,35 @@ describe('refusedRunReason', () => {
 
     expect(reason).toContain(String(REFUSED_TURN_LIMIT))
     expect(reason.toLowerCase()).not.toContain('context window')
+  })
+})
+
+describe('noPlanReason', () => {
+  /**
+   * Measured on a 13B roleplay merge at 4,096 tokens: the run ended `error`
+   * after two turns and 399 tokens with "Could not produce a plan for review."
+   * Anodex behaved well — it tried, retried, and stopped cheaply rather than
+   * grinding thirty turns against a model that could not do the job. But the
+   * message named the symptom and left the user to guess the cause.
+   */
+  it('says what was actually seen', () => {
+    const reason = noPlanReason(2)
+
+    expect(reason).toContain('twice')
+    expect(reason.toLowerCase()).toContain('plan')
+  })
+
+  it('points at the likeliest cause without asserting it', () => {
+    const reason = noPlanReason(2).toLowerCase()
+
+    // The honest shape: name what a plan needs, and let the reader connect it
+    // to their model. Anodex cannot know why a given model failed.
+    expect(reason).toMatch(/tool|function/)
+    expect(reason).not.toMatch(/your model is|the model cannot|because the model/)
+  })
+
+  it('reads correctly after a single attempt', () => {
+    expect(noPlanReason(1)).toContain('once')
+    expect(noPlanReason(1)).not.toContain('twice')
   })
 })

@@ -124,3 +124,31 @@ export function refusedRunReason(consecutiveRefusedTurns: number): string | null
     'unlikely to. The transcript shows what it kept trying.'
   )
 }
+
+/**
+ * Why a run ended before it started, when the model produced no plan.
+ *
+ * Measured on a 13B roleplay merge at 4,096 tokens: the run ended after two
+ * turns and 399 tokens with "Could not produce a plan for review." Anodex
+ * behaved well - it asked, retried, and stopped cheaply rather than grinding
+ * thirty turns against a model that could not do the job - but the message
+ * named the symptom and left the reader to guess the cause.
+ *
+ * A plan comes from a tool call, so a model that cannot reliably call tools
+ * cannot start a run at all. That is worth saying, because it is the commonest
+ * reason a model fails here and the fix is to pick a different model rather
+ * than to change any setting.
+ *
+ * Stated as what a plan needs, never as a diagnosis of the model. Anodex cannot
+ * know why a particular model failed, and "your model does not support tool
+ * use" would be a guess with a confident face - the same mistake the phrase
+ * detectors made before they were removed.
+ */
+export function noPlanReason(attempts: number): string {
+  const tried = attempts > 1 ? 'twice' : 'once'
+  return (
+    `Asked ${tried} for a plan and did not get one, so the run could not start. A plan is made ` +
+    'by calling a tool, so this is where a model that cannot reliably call tools stops — check ' +
+    'the transcript for what it replied instead. Nothing here needs a settings change.'
+  )
+}

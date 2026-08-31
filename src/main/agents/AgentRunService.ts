@@ -26,7 +26,12 @@ import {
 import { budgetExceededReason, turnBudgetLeftovers } from './agentBudgets'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
 import { assessTurnClaims, stillUnverified } from './agentTurnClaims'
-import { finishedWithNothingToShow, idleRunReason, refusedRunReason } from './agentRunProgress'
+import {
+  finishedWithNothingToShow,
+  idleRunReason,
+  noPlanReason,
+  refusedRunReason
+} from './agentRunProgress'
 import { workspaceRootForProject } from '../projects/workspaceRoot'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import { headlessConfirm } from '../tools/headlessConfirm'
@@ -607,7 +612,9 @@ class AgentRunService {
       agentRunStore.update(run.id, { turnsUsed, tokensUsed, flaggedTurns })
 
       if (!plan) {
-        this.finish(run.id, conversation.id, 'error', null, 'Could not produce a plan for review.')
+        // `turnsUsed` is 1 when the first attempt produced a plan-less reply
+        // and 2 once the retry has also been spent - see `noPlanReason`.
+        this.finish(run.id, conversation.id, 'error', null, noPlanReason(turnsUsed))
         return
       }
 
