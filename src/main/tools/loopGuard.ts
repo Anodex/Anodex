@@ -26,6 +26,42 @@ interface QueryObservation {
   tokens: string[]
 }
 
+/**
+ * Forget the repeat history of re-readable calls, because the model no longer
+ * has what they returned.
+ *
+ * Called when a context epoch resets the model's history. Measured on a 4B
+ * model at an 8,192-token window: it read `test_stats.py` successfully, the
+ * result was evicted within a turn or two, it asked again, and after six
+ * identical asks `shouldAbort` refused that read for the rest of the run — 181
+ * refusals, for a file sitting in the workspace.
+ *
+ * The guard cannot otherwise tell a model stuck in a loop from one that has
+ * genuinely lost what it read; an epoch is precisely the event that separates
+ * them. Only the counters are cleared: nothing about what the *task* has
+ * established lives here, and re-reads remain bounded by the gathering ladder
+ * and by `projectHistoryForModel` collapsing identical reads to the newest.
+ */
+export function forgetRepeatsAcrossEpoch(
+  state: LoopGuardState,
+  /**
+   * Whether the most recent call was one that is safe to repeat. A write is
+   * not: re-writing identical content is not made necessary by eviction, and
+   * it is the shape that duplicated a block three times over in `patch_file`.
+   * Only the consecutive counter needs this guard — the read-specific history
+   * below is read-only by construction.
+   */
+  lastCallWasRereadable: boolean
+): void {
+  if (lastCallWasRereadable) {
+    state.lastKey = null
+    state.lastKeyCount = 0
+  }
+  state.recentKeys = []
+  state.recentStableReadKeys = []
+  state.recentQueries = []
+}
+
 export function createLoopGuardState(): LoopGuardState {
   return {
     lastKey: null,

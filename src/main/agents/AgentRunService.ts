@@ -727,6 +727,13 @@ class AgentRunService {
       }
     )
 
+    // The local provider reports when it ran out of context and had to reset
+    // the model's history. Agent runs never go through `boundedChatRunner`, so
+    // nothing else tells the ledger - and this is the path the failure was
+    // measured on: a 4B model at 8,192 tokens, re-reading a file it could no
+    // longer see, refused 181 times. See `TaskLedger.noteContextEpoch`.
+    if (result.contextEpochCause) ledger.noteContextEpoch()
+
     const assistantMessage: ChatMessage = {
       id: assistantMessageId,
       role: 'assistant',

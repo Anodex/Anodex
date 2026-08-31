@@ -411,3 +411,76 @@ describe('a failed edit earns a read back', () => {
     expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'a' }).action).toBe('run')
   })
 })
+
+describe('re-reading after the window was reset', () => {
+  function readTwice(ledger: ReturnType<typeof createTaskLedger>, times: number) {
+    let last
+    for (let i = 0; i < times; i++) {
+      last = ledger.reviewCall({
+        name: 'read_file_range',
+        kind: 'read',
+        key: 'read_file_range::test_stats.py 1-200',
+        rereadable: true
+      })
+    }
+    return last
+  }
+
+  /**
+   * Measured on a 4B model at an 8,192-token window: it read `test_stats.py`
+   * successfully, the result was evicted within a turn or two, it asked again,
+   * and after six identical asks `shouldAbort` refused that read for the rest
+   * of the run — 181 refusals. The file was sitting in the workspace.
+   *
+   * The loop guard cannot tell "stuck in a loop" from "the content is gone and
+   * I need it again". A context epoch is exactly the event that tells them
+   * apart: it resets the model's history, so a read from before it is no longer
+   * anything the model has.
+   */
+  it('forgives a repeated read once the model has lost the earlier result', () => {
+    const ledger = createTaskLedger()
+    expect(readTwice(ledger, 8)?.action).toBe('abort')
+
+    ledger.noteContextEpoch()
+
+    expect(readTwice(ledger, 1)?.action).toBe('run')
+  })
+
+  // The task's own knowledge survives an epoch - that is the ledger's stated
+  // contract, and only the model's *view* was reset.
+  it('keeps what the task established across the epoch', () => {
+    const ledger = createTaskLedger()
+    for (let i = 0; i < 25; i++) ledger.recordOutcome({ kind: 'read', madeProgress: true })
+    const before = ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'x' }).message
+
+    ledger.noteContextEpoch()
+
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'y' }).message).toBe(before)
+  })
+
+  // Without an epoch nothing changes: a model looping on the same read inside
+  // one window is still stuck, and still stopped.
+  it('still stops a loop that has not lost anything', () => {
+    const ledger = createTaskLedger()
+
+    expect(readTwice(ledger, 8)?.action).toBe('abort')
+    expect(readTwice(ledger, 1)?.action).toBe('abort')
+  })
+
+  // Forgiveness applies to reads, which are safe to repeat by construction.
+  // A mutation repeated identically is not the same question.
+  it('does not forgive a repeated write', () => {
+    const ledger = createTaskLedger()
+    let last
+    for (let i = 0; i < 8; i++) {
+      last = ledger.reviewCall({ name: 'write_file', kind: 'write', key: 'w::a.py' })
+    }
+    expect(last?.action).toBe('abort')
+
+    ledger.noteContextEpoch()
+
+    expect(ledger.reviewCall({ name: 'write_file', kind: 'write', key: 'w::a.py' }).action).toBe(
+      'abort'
+    )
+  })
+})

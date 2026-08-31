@@ -1,6 +1,7 @@
 import {
   checkLoopGuard,
   createLoopGuardState,
+  forgetRepeatsAcrossEpoch,
   loopGuardMessage,
   type LoopGuardState
 } from './loopGuard'
@@ -42,6 +43,8 @@ export class TaskLedger {
   private readonly loopGuard: LoopGuardState = createLoopGuardState()
   /** Settled gathering calls since the last durable change — see `GATHERING_*`. */
   private gatheringStreak = 0
+  /** Whether the last reviewed call was safe to repeat - see `noteContextEpoch`. */
+  private lastCallWasRereadable = false
   /**
    * A read owed to the model because an edit failed on a stale view of a file.
    * See {@link noteStaleView}.
@@ -99,6 +102,7 @@ export class TaskLedger {
     // `projectHistoryForModel`, so repeating one cannot compound context; the
     // gathering ladder still stops a turn that only looks; and `shouldAbort`
     // below remains the backstop against a model that has genuinely stuck.
+    this.lastCallWasRereadable = Boolean(spec.rereadable)
     if (spec.rereadable && !guard.shouldAbort) return { action: 'run' }
 
     return {
@@ -163,6 +167,21 @@ export class TaskLedger {
    * the model goes back to gathering without changing anything, the guard
    * closes again immediately.
    */
+  noteContextEpoch(): void {
+    // Only the repeat counters, and only for what is safe to repeat. The
+    // ledger's contract is that a context epoch resets the model's history and
+    // must not reset what the task has established - read coverage, evidence
+    // and the gathering streak all survive, because they describe the task
+    // rather than the model's view of it.
+    //
+    // What does not survive is the loop guard's memory of identical calls. That
+    // question is about the model's behaviour given its history, and after an
+    // epoch the history it was judged against is gone: asking again for a file
+    // whose contents it can no longer see is not a loop, it is the only way
+    // forward.
+    forgetRepeatsAcrossEpoch(this.loopGuard, this.lastCallWasRereadable)
+  }
+
   noteStaleView(): void {
     this.readCredit++
   }
