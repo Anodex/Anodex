@@ -1,0 +1,9 @@
+{
+  "goal": "The `inventory` package in this project has five defects. `test_inventory.py` fails.\n\nRead the code, work out what is wrong, and fix the package so every check passes.\n\nThe defects are spread across `inventory/models.py`, `inventory/pricing.py`, `inventory/stock.py` and `inventory/report.py` \u2014 more than one file is wrong, and one file has two separate problems. Each failing check names the behaviour that is wanted.\n\nDo not change `test_inventory.py`: the checks describe the behaviour, and editing them is not a fix. Do not rewrite the modules wholesale \u2014 repair what is broken and leave the rest, including the existing style and the rule that money is held in whole pence, never floats.\n\nVerify by running: python test_inventory.py. Report the exit code you actually saw.",
+  "project": "Bench",
+  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\Bench",
+  "maxTurns": 60,
+  "maxTokens": 400000,
+  "maxDurationMinutes": 120,
+  "requirePlan": true
+}

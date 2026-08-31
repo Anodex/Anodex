@@ -9,6 +9,7 @@
 // Usage: node scripts/bench-reset.mjs <bench-name>
 import fs from 'node:fs'
 import path from 'node:path'
+import { writeInventoryFixture } from './bench-fixtures.mjs'
 
 const ROOT = path.join('C:', 'Users', 'Owner', 'Desktop', 'Sandbox', 'Bench')
 const name = process.argv[2] ?? ''
@@ -95,6 +96,10 @@ if (name === 'bench-3-fix-existing') {
     ].join('\n'),
     'utf-8'
   )
+}
+
+if (name === 'bench-4-large-multi-file') {
+  writeInventoryFixture(ROOT)
 }
 
 console.log(`Bench reset for ${name || '(empty project)'} at ${ROOT}`)
