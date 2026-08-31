@@ -1,4 +1,5 @@
 import type { Plan } from './plan.types'
+import type { AgentRunProviderId } from './agentRunProviders'
 import { allocateContextBudget } from './contextBudget'
 
 /** How an agent run currently stands. */
@@ -117,8 +118,8 @@ export interface AgentRun {
   /** Tool names (see `TOOL_CATALOG`) this run may use, beyond the always-on skill tools. */
   enabledTools: string[]
   /** Which backend this run uses, independent of the user's global active provider. */
-  provider: 'local' | 'anthropic' | 'openai'
-  /** Model id for `provider: 'anthropic' | 'openai'`; null for `'local'` (always whatever's loaded). */
+  provider: AgentRunProviderId
+  /** Model id for any cloud provider; null for `'local'` (always whatever's loaded). */
   model: string | null
   /**
    * What actually ran, for local runs — see {@link RunProvenance}. Optional
@@ -206,7 +207,7 @@ export interface CreateAgentRunRequest {
   goal: string
   projectId: string | null
   enabledTools: string[]
-  provider: 'local' | 'anthropic' | 'openai'
+  provider: AgentRunProviderId
   model?: string | null
   /** Omitted takes {@link defaultMaxTurnsFor}; capped by {@link maxTurnsCeilingFor}. */
   maxTurns?: number

@@ -13,8 +13,14 @@ import {
   TOOL_CATALOG,
   type ToolKind
 } from '@shared/tools.types'
-import { ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL } from '@shared/anthropicModels'
-import { OPENAI_MODELS, DEFAULT_OPENAI_MODEL } from '@shared/openaiModels'
+import { OPENAI_MODELS } from '@shared/openaiModels'
+import {
+  agentRunModelCatalog,
+  agentRunProviderOptions,
+  defaultAgentRunModel,
+  seedAgentRunProvider,
+  type AgentRunProviderId
+} from '@shared/agentRunProviders'
 import { useLiveCloudModels } from '../../lib/useLiveCloudModels'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAgentStore } from '../../stores/agentStore'
@@ -28,8 +34,6 @@ import { Icon } from '../../components/Icon'
 import { RangeControl, SelectControl, ToggleControl } from '../settings/controls'
 import styles from './AgentRunEditor.module.css'
 import { startBlockedReason } from './startBlockedReason'
-
-type RunProvider = 'local' | 'anthropic' | 'openai'
 
 const KIND_ORDER: ToolKind[] = ['web', 'read', 'write', 'command', 'plan', 'mcp']
 const KIND_LABELS: Record<ToolKind, string> = {
@@ -69,7 +73,7 @@ function formatDuration(value: number): string {
 export interface AgentRunEditorSeed {
   goal?: string
   projectId?: string | null
-  provider?: RunProvider
+  provider?: AgentRunProviderId
   model?: string | null
   maxTurns?: number
   maxTokens?: number
@@ -91,54 +95,25 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const createRun = useAgentStore((s) => s.create)
   const settings = useSettingsStore((s) => s.settings)
 
-  const anthropicKeySet = Boolean(settings?.provider.anthropic.apiKey.trim())
-  const openaiKeySet = Boolean(settings?.provider.openai.apiKey.trim())
-  const providerOptions = [
-    { label: 'Local model', value: 'local' },
-    ...(anthropicKeySet ? [{ label: 'Claude (Anthropic)', value: 'anthropic' }] : []),
-    ...(openaiKeySet ? [{ label: 'ChatGPT / Codex (OpenAI)', value: 'openai' }] : [])
-  ]
-
-  // Agent runs only support local/Anthropic/OpenAI today (see `RunProvider`) —
-  // other globally-active providers (Grok, Kimi, etc.) fall back to Local
-  // here rather than mis-typing the run's own provider field. Extending
-  // Agent runs to the full provider set is a reasonable follow-up, not done
-  // as part of wiring up those providers for interactive chat.
-  const globalActiveAsRunProvider: RunProvider =
-    settings?.provider.active === 'anthropic' || settings?.provider.active === 'openai'
-      ? settings.provider.active
-      : 'local'
-
-  /**
-   * Only a provider this install can actually authenticate as.
-   *
-   * A retry seed carries the provider of a run created months ago, and the key
-   * behind it may have been removed since — leaving the select showing a value
-   * absent from its own options, and `Start run` creating a run that fails on
-   * its first turn. The same is true of the globally active provider, which the
-   * Settings panel can leave selected after a key is cleared.
-   */
-  const usableProvider = (candidate: RunProvider | undefined): RunProvider | undefined =>
-    candidate && providerOptions.some((option) => option.value === candidate)
-      ? candidate
-      : undefined
+  // Every provider this install can authenticate as, and which one a fresh
+  // editor starts on. Both come from `@shared/agentRunProviders` rather than a
+  // list maintained here, because a per-provider list in the agent layer is
+  // exactly what let agent runs support three providers while chat supported
+  // twelve — a DeepSeek user's run silently executing on a local model.
+  const providerOptions = settings ? agentRunProviderOptions(settings.provider) : []
 
   const [goal, setGoal] = useState(seed?.goal ?? '')
   const [projectId, setProjectId] = useState<string | null>(seed?.projectId ?? null)
-  const [provider, setProvider] = useState<RunProvider>(
-    usableProvider(seed?.provider) ?? usableProvider(globalActiveAsRunProvider) ?? 'local'
+  const [provider, setProvider] = useState<AgentRunProviderId>(() =>
+    settings ? seedAgentRunProvider(settings.provider, seed?.provider) : 'local'
   )
   const [model, setModel] = useState(() => {
-    if (seed?.provider === 'anthropic') return seed.model ?? DEFAULT_ANTHROPIC_MODEL
-    if (seed?.provider === 'openai') return seed.model ?? DEFAULT_OPENAI_MODEL
-    if (seed) return ''
-    if (settings?.provider.active === 'anthropic') {
-      return settings.provider.anthropic.model.trim() || DEFAULT_ANTHROPIC_MODEL
-    }
-    if (settings?.provider.active === 'openai') {
-      return settings.provider.openai.model.trim() || DEFAULT_OPENAI_MODEL
-    }
-    return ''
+    if (!settings) return ''
+    const initial = seedAgentRunProvider(settings.provider, seed?.provider)
+    // A retry keeps the model it ran with, but only when it is still the same
+    // provider — a seed's model id means nothing to a different one.
+    if (seed && seed.provider === initial && seed.model) return seed.model
+    return defaultAgentRunModel(settings.provider, initial)
   })
   // Sliders can't represent a value below their own step, so a seed from an
   // older run typed into the number inputs (say 500 tokens) is pulled up to
@@ -198,21 +173,20 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   // Offered models come from what the key can actually reach — see
   // `useLiveCloudModels` for why a hardcoded list is not enough.
   const openAiOptions = useLiveCloudModels(provider, OPENAI_MODELS)
+  const catalog = agentRunModelCatalog(provider)
   const modelOptions =
-    provider === 'anthropic'
-      ? ANTHROPIC_MODELS.map((m) => ({ label: m.label, value: m.id }))
-      : provider === 'openai'
-        ? openAiOptions
-        : []
+    provider === 'openai'
+      ? openAiOptions
+      : (catalog ?? []).map((choice) => ({ label: choice.label, value: choice.id }))
+
+  /** How this provider is named in the select, for prose that has to name it. */
+  const providerLabel =
+    providerOptions.find((option) => option.value === provider)?.label ?? provider
 
   const handleProviderChange = (value: string): void => {
-    const next = value as RunProvider
+    const next = value as AgentRunProviderId
     setProvider(next)
-    if (next === 'anthropic') {
-      setModel(settings?.provider.anthropic.model.trim() || DEFAULT_ANTHROPIC_MODEL)
-    } else if (next === 'openai') {
-      setModel(settings?.provider.openai.model.trim() || DEFAULT_OPENAI_MODEL)
-    }
+    if (settings) setModel(defaultAgentRunModel(settings.provider, next))
   }
 
   /**
@@ -354,7 +328,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
           </p>
         </label>
 
-        {provider !== 'local' && (
+        {modelOptions.length > 0 && (
           <label className={styles.field}>
             <span className={styles.label}>Model</span>
             <SelectControl value={model} onChange={setModel} options={modelOptions} />
@@ -387,9 +361,8 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
           </p>
           {!limitsEnabled && provider !== 'local' && (
             <p className={styles.riskNote}>
-              This run uses {provider === 'anthropic' ? 'Claude' : 'OpenAI'}, a paid API, with no
-              limits — it could run for a long time and use a meaningful number of paid tokens
-              before finishing or being stopped.
+              This run uses {providerLabel}, a paid API, with no limits — it could run for a long
+              time and use a meaningful number of paid tokens before finishing or being stopped.
             </p>
           )}
         </div>

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { buildRunToolNames } from '@shared/tools.types'
+import type { AgentRunProviderId } from '@shared/agentRunProviders'
 import { llamaService } from '../llama/LlamaService'
 import { projectStore } from '../projects/ProjectStore'
 import { agentRunService } from './AgentRunService'
@@ -55,7 +56,7 @@ interface AutorunSpec {
    */
   projectPath?: string
   enabledTools?: string[]
-  provider?: 'local' | 'anthropic' | 'openai'
+  provider?: AgentRunProviderId
   model?: string | null
   maxTurns?: number
   maxTokens?: number
@@ -74,19 +75,26 @@ const PLAN_TIMEOUT_MS = 20 * 60 * 1000
 async function driveRun(specPath: string): Promise<void> {
   try {
     const spec = readSpec(specPath)
-    log.info('Autorun armed:', spec.goal.slice(0, 120))
+    const provider = spec.provider ?? 'local'
+    log.info('Autorun armed:', provider, '-', spec.goal.slice(0, 120))
 
-    await waitFor(
-      () => llamaService.getState().status === 'ready',
-      MODEL_READY_TIMEOUT_MS,
-      'model to become ready'
-    )
+    // Only a local run has a model to wait for. Gating a cloud run on the local
+    // engine made a DeepSeek autorun sit here for fifteen minutes and then fail
+    // as 'model load or autorun failed' — a message describing a local problem
+    // that a cloud run does not have.
+    if (provider === 'local') {
+      await waitFor(
+        () => llamaService.getState().status === 'ready',
+        MODEL_READY_TIMEOUT_MS,
+        'model to become ready'
+      )
+    }
 
     const run = agentRunService.start({
       goal: spec.goal,
       projectId: resolveProjectId(spec.project, spec.projectPath),
       enabledTools: spec.enabledTools ?? buildRunToolNames(),
-      provider: spec.provider ?? 'local',
+      provider,
       model: spec.model ?? null,
       maxTurns: spec.maxTurns,
       maxTokens: spec.maxTokens,

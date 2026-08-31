@@ -1,4 +1,5 @@
 import type { AppSettings } from '@shared/settings.types'
+import type { AgentRunProviderId } from '@shared/agentRunProviders'
 import { resolveModelContextSize } from '@shared/modelContextSize'
 import type { RunProvenance } from '@shared/agentRun.types'
 
@@ -22,7 +23,7 @@ import type { RunProvenance } from '@shared/agentRun.types'
  * of them wrong.
  */
 export function describeRunProvenance(
-  provider: 'local' | 'anthropic' | 'openai',
+  provider: AgentRunProviderId,
   settings: Pick<AppSettings, 'model' | 'modelContextSizes' | 'lastModelPath'>
 ): RunProvenance | null {
   // A cloud run already records its model in `model`, and its window is the
