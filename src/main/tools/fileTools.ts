@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isTextFile } from '@shared/textFileExtensions'
+import { describeWorkspaceError } from './workspaceErrors'
 import { isSkippedDirectory } from '@shared/skipDirectories'
 import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
@@ -463,7 +464,12 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
         modelResultCap: MAX_FILE_BYTES,
         async run() {
           const file = resolveInWorkspace(ctx.workspaceRoot, normalized.path)
-          const info = await stat(file)
+          // A vanished or unreadable path is the commonest way a read fails,
+          // and Node's own message names an errno and the host's absolute path
+          // while saying nothing about what to do — see `describeWorkspaceError`.
+          const info = await stat(file).catch((error: unknown) => {
+            throw new Error(describeWorkspaceError(error, normalized.path))
+          })
           if (!info.isFile()) throw new Error('Path is not a file.')
           // See read_file's identical comment — coverage is only trusted
           // after reconciling with the file's current mtime, so a file
