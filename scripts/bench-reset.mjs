@@ -12,7 +12,10 @@ import path from 'node:path'
 import { writeInventoryFixture, writeRustFixture } from './bench-fixtures.mjs'
 
 const ROOT = path.join('C:', 'Users', 'Owner', 'Desktop', 'Sandbox', 'Bench')
-const name = process.argv[2] ?? ''
+// A `-small` spec is the same benchmark with a turn budget sized for a small
+// context window, so it needs the same fixture. Stripping the suffix here keeps
+// that fact in one place rather than in every caller.
+const name = (process.argv[2] ?? '').replace(/-small$/, '')
 
 // Refuse to empty anything that is not the benchmark folder. This deletes
 // files, so it checks rather than trusts.
