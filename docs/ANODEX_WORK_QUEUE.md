@@ -9,11 +9,15 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
 
 ## Now
 
-- [ ] **Mid-size context windows.** The matrix jumps 8,192 → 65,536 with nothing
-      between. 16,384 is what a lot of real hardware runs. _(running in
-      `scripts/bench-verify/overnight.sh`)_
-- [ ] **Variance.** Every cell in the matrix is one run. A second pass over the
-      baseline is running; anything that moves needs a third.
+- [x] **Mid-size context windows — done.** 16,384 tested on both a small and a
+      capable model. The 4B passes single-file work there, having failed it
+      three times at 8,192; the 27B loses one turn on the hardest task. The
+      threshold sits between the two, and the settings page now states the
+      working room so a user can see it.
+- [x] **Variance — done, and the baseline is stable.** Two full passes of
+      Qwen3.8-27B hours apart and across a dozen behaviour changes: 5/5 both
+      times, turns 3/3/3/4/4 then 3/5/3/5/4. So a single cell is worth reading
+      and a regression would show.
 - [x] **The fallback tool-call parser across dialects.** Audited by probing it
       with the shapes real families emit. Three failed: Mistral / Nemo / Mixtral
       `[TOOL_CALLS]`, Command-R's `Action:` block, and `tool_name` in place of
