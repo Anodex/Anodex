@@ -470,6 +470,11 @@ export async function runBoundedChatGeneration(
         cycleToolCalls?.some((call) => call.status === 'running' && !isReadLikeCall(call)) ?? false
       if (!unsafeNonTerminal) {
         contextEpochCount++
+        // The model is about to lose the transcript this cycle produced, so the
+        // loop guard's memory of what it asked for is about to describe a
+        // history the model no longer has. Asking again for a file it can no
+        // longer see is not a loop - see `TaskLedger.noteContextEpoch`.
+        ledger.noteContextEpoch()
         contextEpoch = buildContextEpochHandoff({
           epoch: contextEpochCount,
           cause: loopGuardRecovery ? 'loop-guard' : (result.contextEpochCause ?? 'in-turn'),
