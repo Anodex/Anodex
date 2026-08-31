@@ -1,30 +1,49 @@
 # Workspace — handoff
 
-Updated 2026-08-28. Everything below that is a number was measured from the
-stored conversations, not from reasoning about the code. Where a claim is
-unverified it says so.
+**Read `docs/ANODEX_DEFERRED_BUGS.md` alongside this.** It holds every known
+defect, why each was skipped or fixed, and the ones closed with a verdict that
+should not be reopened without new measurement.
 
-## Rating: unchanged, and a single number is now the wrong shape
+## Where this stands (2026-08-30)
 
-The 9/10 bar - three consecutive clean runs - is still not met. But the larger
-finding is that a single rating describes one model: everything scored below is
-Qwen3.8-27B at 65,536 tokens on this machine. Five makes were tested and four of
-them exposed defects invisible from that baseline, two of which made a model
-completely unusable.
+Anodex is **reliable on a capable model and honest on a weak one**. That second
+half is what changed today: it no longer claims work it did not do, no longer
+goes blind in non-JavaScript projects, and no longer grinds a whole budget away
+before admitting it is stuck.
 
-Read the per-model table under "Compatibility across makes" before quoting any
-number here.
+**Fourteen defects fixed, all found by running Anodex rather than reading it.**
+The list and the reasoning are in `ANODEX_DEFERRED_BUGS.md`; the ones that
+mattered most:
 
-### On the baseline specifically
+- Whole languages were invisible to `search_files`; `code_outline` told Python
+  and Rust projects they had no code; the orientation summary only understood
+  `package.json`.
+- The fabrication check was structurally unreachable on agent runs — the badge
+  built for unattended work could never appear.
+- A run's summary described its last turn as if it were the run: 48 files
+  written, reported as "Changed nothing".
+- A run could report `done` having changed nothing at all.
+- Turn budgets were fitted to one window, so an 8K run died at its cap having
+  spent 2% of its real budget, and 60 turns was the most the app would accept.
+- The gathering guard counted its own refusals, so it could never stop once it
+  started; and a failed edit could not earn back the read that would fix it.
+- A run could spend 181 consecutive turns being told no.
 
-Seven runs: four clean, three failed. On the _current_ build (all five fixes)
-the record is clean, clean, fail — two consecutive, not three.
+**Measurement is now on solid ground.** Every run records what produced it
+(`ranWith`), `scripts/ws-stats.mjs` segments by model and window and refuses to
+pool pre-provenance runs, and the benchmark starts from an identical state every
+time. Before this, six models were compared in one day and no stored run said
+which was which — every number drawn from them was confounded.
 
-The one genuinely new result is run 6: a clean run in a **different project, in
-a different language, on a different toolchain**, first attempt. That is the
-half of the 10/10 bar that hid five bugs in the Critical Thinking work, and it
-passed. The 9 is still unearned because the three-consecutive condition is not
-met.
+**What has not improved: completion rate.** Nothing here makes a weak model
+capable. The 4B still completes none of three benchmarks; what changed is that
+it fails in 17–33 turns with a specific reason instead of 200 with none.
+
+**Rating.** On what Anodex controls — tools that work in any language, honest
+reporting, not blocking legitimate work, degrading gracefully — this is a real
+move from the 7.5 the effort started at. I would put it at **8.5**, held back by
+one machine, one OS, cloud providers barely tested, and a GUI surface that the
+measurement harness still bypasses.
 
 ## What Workspace is
 
