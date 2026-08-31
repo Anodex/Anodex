@@ -1,0 +1,101 @@
+# What to investigate next
+
+Written 2026-08-31, at the end of a long measurement session. The ordering is
+deliberate and comes from one observation: **the last three defects were all
+found by reading code, and none by running a model.**
+
+- A silent Start button — found by reading `canSave`.
+- A deleted model leaving its context size behind — found by reading the delete
+  handler.
+- A stale run record read as a live run — found by reading a guard's own logic.
+
+Meanwhile the benchmark suite, which earned its keep early (the eviction
+deadlock, the 181-turn refusal loop, the language blindness, the fabrication
+marker), has lately been confirming what is already known. **A benchmark is
+worth running while it is still finding bugs.** Weight the effort accordingly.
+
+## 1. Audit the untested surfaces, largest first
+
+Direct code reading, cheapest per defect found.
+
+| File                     | Lines | Why it matters                            |
+| ------------------------ | ----- | ----------------------------------------- |
+| `LlamaService.ts`        | 3,002 | Every local generation goes through it    |
+| `htmlPreviewWindow.ts`   | 398   | Renders untrusted model output            |
+| `SchedulerStore.ts`      | 226   | Persists work that runs unattended        |
+| `CodeIndexer.ts`         | 183   | Feeds retrieval; wrong results are silent |
+| `computerControlTool.ts` | 175   | Drives the user's actual desktop          |
+
+`LlamaService` is the obvious first target by size, but `htmlPreviewWindow` and
+`computerControlTool` are the ones where a defect reaches outside Anodex.
+
+## 2. Provoke the failure modes still untested
+
+Tested and healthy so far: a missing file, a path escape, a directory where a
+file was expected, a corrupt `.gguf`, an unsuitable model, and a force-quit
+mid-run. Two of those produced fixes.
+
+Untested:
+
+- **A model that dies mid-generation.** Kill `llama-server` during a run.
+- **A disk that fills** while a checkpoint or a store is being written.
+- **A workspace file changed by something else** between read and edit — the
+  mtime reconciliation path exists and has never been exercised in anger.
+- **Two runs racing.** The mutex is in memory; nothing has tried to break it.
+
+## 3. Long-run paths, which duration alone reaches
+
+`bench-6` exists for this: twelve functions, twenty-two checks, long by
+structure rather than difficulty. It exercises compaction, the context-epoch
+handoff and the loop-guard forgiveness — where this codebase's hardest bugs have
+historically lived, and which a median five-turn run never touches.
+
+## 4. Cloud providers — now partly open
+
+The blocker here is fixed. Agent runs accepted only `local | anthropic | openai`
+while chat accepted twelve, so nine providers were unreachable in Workspace
+mode, and a run started with any of them **silently executed on the local
+model**. `@shared/agentRunProviders.ts` is now the single registry both layers
+read. Verified end to end: DeepSeek V4 Flash passed `bench-3` in 3 turns, and
+the fix was confirmed on disk, not from the run's own claim.
+
+`OpenAiProvider` (499 lines), `AnthropicProvider` (494) and
+`OpenAiCompatibleProvider` (615) are still the largest untested files after
+`LlamaService`, and one passing run is not coverage.
+
+### What the first cloud run measured
+
+|                | measured |
+| -------------- | -------- |
+| input tokens   | 118,013  |
+| output tokens  | 3,087    |
+| turns          | 3        |
+| input per turn | ~39,300  |
+
+**Input dominates by ~38:1**, and the per-turn figure is nearly all fixed
+prefix — system prompt, tool schemas, project context — resent every call,
+because only the node-llama-cpp path keeps a KV cache. Two things follow.
+
+**Costing.** At DeepSeek V4 Flash off-peak rates, a mean 11.2-turn run costs
+about $0.03 cached and $0.11 uncached; a five-run suite $0.15 to $0.52; a
+hundred suites $15 to $52.
+
+**A real observability gap.** Anodex records `inputTokens` and `outputTokens`
+and nothing else, so a cache hit and a cache miss are indistinguishable in the
+stats — despite being a **10x** difference in what the user is charged (DeepSeek
+bills cache hits at $0.007/1M against $0.22/1M). Every provider that offers
+prompt caching reports hit counts in its usage response and Anodex discards
+them. Worth recording before any cloud cost budget is built on top of numbers
+that cannot tell the two apart.
+
+## Deliberately not on this list
+
+- **More models for their own sake.** Knowing a model scores 2/5 rather than 3/5
+  describes the model, not Anodex. Run one when there is a question about
+  Anodex's behaviour that a new model would answer.
+- **Component tests by coverage ratio.** `workspace-dock` looked alarming at 15
+  components and one test, and has five derivations across eleven panels. Ratio
+  is not coverage.
+- **Anything that presses harder on open plan steps.** Three models have now
+  completed real, verified work while reporting plan 0/N. Pressing there refuses
+  correct runs.

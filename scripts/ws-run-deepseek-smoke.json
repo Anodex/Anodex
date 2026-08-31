@@ -1,0 +1,10 @@
+{
+  "goal": "Three functions in parser.py are wrong. Read parser.py and test_parser.py, work out what each defect is, and fix parser.py so every check in test_parser.py passes. Do not edit test_parser.py.",
+  "project": "Bench",
+  "projectPath": "C:/Users/Owner/Desktop/Sandbox/Bench",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "maxTurns": 20,
+  "limitsEnabled": true,
+  "requirePlan": true
+}
