@@ -842,70 +842,49 @@ own tests:
 - **bench-3** (fix three seeded defects): 3 turns, 5 checks. Three surgical
   fixes, `test_parser.py` untouched, no wholesale rewrite.
 
-### The full matrix, six models, verified against disk
+### The full matrix, verified against disk
 
-Every model ran the same three benchmarks from an identical reset state, and
-each result was checked on the filesystem **before the next reset wiped it** —
-the run record says what the model claimed, the disk says what it produced, and
-those disagreed repeatedly.
+Every model ran from an identical reset state, and each result was checked on the
+filesystem **before the next reset wiped it**.
 
-| Model @ window           | Work actually completed | Ticks plan steps          |
-| ------------------------ | ----------------------- | ------------------------- |
-| Qwen3.8-27B @ 65,536     | **3 / 3**               | yes (3/3, 5/5, 7/7)       |
-| DeepSeek-R1-32B @ 65,536 | 2 / 3                   | only on the one it failed |
-| Devstral-24B @ 65,536    | 2 / 3                   | never (0/3, 0/4, 0/5)     |
-| gemma-3-27B @ 65,536     | 2 / 3                   | never                     |
-| Muse-30B @ 65,536        | 1 / 3                   | rarely                    |
-| Qwen3-4B @ 8,192         | 0 / 3                   | never                     |
+| Model @ window        | b1  | b2  | b3  | b4  | b5  | passed  |
+| --------------------- | --- | --- | --- | --- | --- | ------- |
+| Qwen3.8-27B @ 65,536  | ✓   | ✓   | ✓   | ✓   | ✓   | **5/5** |
+| Devstral-24B @ 65,536 | ✓   | ✗   | ✓   | ✓   | ✗   | 3/5     |
+| DeepSeek-32B @ 65,536 | ✓   | ✗   | ✓   | ✗   | ✓   | 3/5     |
+| Muse-30B @ 65,536     | ✓   | ✗   | ✓   | ✗   | ✓   | 3/5     |
+| gemma-3-27B @ 65,536  | ✓   | ✗   | ✓   | ✗   | ✗   | 2/5     |
+| Qwen3-4B @ 8,192      | ✗   | ✗   | ✗   | ✗   | ✗   | 0/5     |
 
-**Plan completion does not measure completion — settled across six models.**
-DeepSeek's _only_ fully ticked plan (5/5) is its _only_ failing benchmark, while
-Devstral and Gemma completed real, independently verified work at 0/3, 0/4 and
-0/5. Only Qwen3.8-27B ticks reliably. Anything that pressed harder on open plan
-steps would have refused correct runs from three separate models — which is why
-the change built for that was reverted rather than shipped.
+b1 single file · b2 multi-file package · b3 fix three defects · b4 five defects
+across four files · b5 Rust crate. Devstral's b5 is a failure _because it edited
+the test file_; its `cargo test` passed.
 
-**A model's own tests prove nothing on their own.** Devstral's bench-2 test
-passed while its `Money` class had no `add` or `subtract` at all — it had
-implemented `__add__`/`__sub__` and written a test that only called `.format()`.
-A model writing its own tests tests what it wrote, not what was asked. Two of
-six models were caught this way.
+**The baseline is stable.** Two full passes of Qwen3.8-27B, hours apart and
+across a dozen behaviour changes: 5/5 both times, turn counts 3/3/3/4/4 then
+3/5/3/5/4. So a single result in this table is worth reading, and a change that
+moved the baseline would be visible.
 
-**Two runs did the work and never said so.** Gemma's bench-3 is recorded
-`stopped`, and its three seeded defects are genuinely fixed with the test file
-untouched. Scoring from the run record alone would have called that a failure.
+**The hard task is b2 and b4, not the language.** Four of six models fail the
+multi-file package; four of six fail the five-defect task; but four of six pass
+the Rust crate. Difficulty tracks the number of independent defects and files to
+hold at once, not Python versus Rust.
 
-**Gemma is the clearest evidence the dialect work landed.** It produced zero
-tool calls before the `tool_code` shapes were added, 24 afterwards but never a
-finished task, and now completes two benchmarks with independent verification.
+### The context threshold sits between 8,192 and 16,384
 
-### Context size, not model size, decided the small model's fate
+| Qwen3-4B | b1 (one file)        | b4 (five defects) |
+| -------- | -------------------- | ----------------- |
+| @ 8,192  | fail, three attempts | fail              |
+| @ 16,384 | **pass**             | fail              |
+| @ 32,768 | **pass**             | fail              |
 
-The same Qwen3-4B, same tasks, same everything but the window:
+The working set is 4,753 tokens at 8,192 and 9,504 at 16,384. Doubling the
+window is enough to turn three failures into a pass on single-file work, and no
+amount of window makes the five-defect task reachable for this model.
 
-| Qwen3-4B     | bench-1 (one file)               | bench-4 (5 defects, 4 files) |
-| ------------ | -------------------------------- | ---------------------------- |
-| **@ 8,192**  | fail, three attempts             | fail                         |
-| **@ 32,768** | **pass**, independently verified | fail                         |
-
-At 8,192 the working set is 4,753 tokens; at 32,768 it is 19,006. The bench-4
-sources alone are ~3,500, so at 8K there was almost nothing left to work in.
-Raising the window turned three failures into a pass on the single-file task
-without changing the model at all.
-
-It did **not** make the 4B capable of the five-defect task. So the guidance for
-modest hardware is two-sided, and both halves matter:
-
-- **Give a small model more context than seems necessary.** The failures at
-  8,192 read like incapacity and were not.
-- **Give it small tasks.** Multi-defect, multi-file work stayed out of reach at
-  four times the window.
-
-Worth knowing how nearly this was reported wrong: the first 32K run appeared to
-pass bench-4 too, because the float-money defect was invisible to the checks —
-`line_total(333, 100)` divides evenly, so the broken and correct paths agree to
-the penny. `scripts/bench-verify-fixture.mjs` now proves each defect is
-individually catchable before any result is trusted.
+The 27B is unaffected by the same drop: 5 turns and a pass on b4 at 16,384,
+against 4 turns at 65,536. So a smaller window costs a capable model very little
+and costs a small one everything.
 
 ### A model can make the tests pass by editing the tests
 
