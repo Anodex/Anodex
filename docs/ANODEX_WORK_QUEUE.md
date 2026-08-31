@@ -56,6 +56,16 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
 
 ## Answered, keep for the reasoning
 
+- **Did the fabrication stop trigger reduce gemma's wasted turns?** Not as
+  predicted, and the prediction was on the wrong metric. Empty-turn _ratio_ rose
+  34% → 42%, while absolute empty turns fell 15 → 11 and total turns fell 44 → 26. Runs got 41% shorter, so the ratio rose as the denominator shrank. Work
+  improved on the hardest benchmark — bench-4 now passes with the defect fixed
+  and the test file intact, where it failed before — and regressed on bench-3 to
+  a plan failure. Five runs either side: variance explains either movement, so
+  this is recorded rather than claimed. **If it is measured again, count
+  absolute wasted turns, not a ratio whose denominator the fix is meant to
+  change.**
+
 - **Does anything tell a user their window is too small to work in?** It did
   not. `ctxSizeWarning` only fires when a context is too _large_ for the
   hardware. A context size is not working room — at 8,192 the reserves take most
