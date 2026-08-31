@@ -4,8 +4,7 @@
  * provider and budgets the exact same way.
  */
 import type { AgentRun, AgentRunStatus } from '@shared/agentRun.types'
-import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
-import { OPENAI_MODELS } from '@shared/openaiModels'
+import { agentRunModelLabel, agentRunProviderVendor } from '@shared/agentRunProviders'
 import type { IconName } from '../../components/Icon'
 
 /** A run that has stopped moving on its own — done, stopped, or errored. */
@@ -13,18 +12,22 @@ export function isTerminalStatus(status: AgentRunStatus): boolean {
   return status === 'done' || status === 'stopped' || status === 'error'
 }
 
-/** Short "backend used" label for a run, e.g. "Local", "Claude · Claude Sonnet 5". */
+/**
+ * Short "backend used" label for a run, e.g. "Local", "Claude · Claude Sonnet 5".
+ *
+ * Reads the vendor and model name from the shared provider registry rather than
+ * branching per provider. The branching version tested for local, then
+ * Anthropic, and fell through to OpenAI — so once agent runs accepted all
+ * twelve providers it rendered a DeepSeek run as "OpenAI · deepseek-v4-flash",
+ * naming the wrong vendor on the one row whose job is to say what did the work.
+ */
 export function providerLabel(run: AgentRun): string {
-  if (run.provider === 'local') return 'Local'
-  if (run.provider === 'anthropic') {
-    const label = ANTHROPIC_MODELS.find((m) => m.id === run.model)?.label ?? run.model
-    return `Claude${label ? ` · ${label}` : ''}`
-  }
-  const label = OPENAI_MODELS.find((m) => m.id === run.model)?.label ?? run.model
-  return `OpenAI${label ? ` · ${label}` : ''}`
+  const vendor = agentRunProviderVendor(run.provider)
+  const model = agentRunModelLabel(run.provider, run.model)
+  return model ? `${vendor} · ${model}` : vendor
 }
 
-/** Local runs use the engine icon; cloud runs (Claude/OpenAI) share a generic cloud-model icon. */
+/** Local runs use the engine icon; every cloud run shares a generic cloud-model icon. */
 export function providerIcon(run: AgentRun): IconName {
   return run.provider === 'local' ? 'cpu' : 'sparkle'
 }
