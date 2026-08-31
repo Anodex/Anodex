@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import * as nlc from 'node-llama-cpp'
-import { resolveToolCallingWrapper } from '../toolCallDialects'
+import { resolveToolCallingWrapper, fabricatedResultStopTriggers } from '../toolCallDialects'
 
 const TEMPLATE = `{% for message in messages %}{{ message['role'] }}: {{ message['content'] }}\n{% endfor %}`
 
@@ -39,5 +39,43 @@ describe('resolveToolCallingWrapper', () => {
   it('resolves nothing without an architecture to key on', () => {
     expect(resolveToolCallingWrapper(nlc, undefined, TEMPLATE)).toBeUndefined()
     expect(resolveToolCallingWrapper(nlc, '', TEMPLATE)).toBeUndefined()
+  })
+})
+
+describe('a model writing Anodex own tool-result marker', () => {
+  /**
+   * `LlamaService` continues a fallback-parsed call by writing
+   * `Tool result for <name>:` into the prompt. That string is Anodex's, not the
+   * model's, so a model producing it has begun inventing results by definition
+   * — the same argument as DeepSeek's `tool_output_begin` token, applied to a
+   * marker the harness emits for every model rather than one architecture.
+   *
+   * Measured: gemma-3-27b wrote it on 6 of 44 turns, inventing file contents
+   * that did not match the workspace — a `unittest` import and a `Product`
+   * class in a fixture that has neither. Across 571 turns of five other models
+   * it never appeared once, so stopping on it costs nothing anywhere else.
+   */
+  it('is a stop trigger whatever the architecture', () => {
+    for (const architecture of ['gemma', 'qwen2', 'llama', 'mistral', 'phi3']) {
+      expect(fabricatedResultStopTriggers(architecture)).toContain('Tool result for ')
+    }
+  })
+
+  it('keeps the architecture-specific markers alongside it', () => {
+    const deepseek = fabricatedResultStopTriggers('deepseek2')
+
+    expect(deepseek).toContain('Tool result for ')
+    expect(deepseek.length).toBeGreaterThan(1)
+  })
+
+  // An unknown architecture still gets the harness marker: it is Anodex's
+  // string, so it does not depend on knowing the model.
+  it('applies even when the architecture is unknown', () => {
+    expect(fabricatedResultStopTriggers('something-unheard-of')).toContain('Tool result for ')
+  })
+
+  it('says nothing when there is no architecture at all', () => {
+    expect(fabricatedResultStopTriggers(undefined)).toEqual([])
+    expect(fabricatedResultStopTriggers('')).toEqual([])
   })
 })
