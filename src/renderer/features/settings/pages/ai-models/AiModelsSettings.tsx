@@ -5,6 +5,7 @@ import type { HardwareInfo } from '@shared/system.types'
 import type { ModelSettings } from '@shared/settings.types'
 import { recommendModel } from '@shared/modelRecommendation'
 import { CONTEXT_SIZE_LADDER, formatContextSizeLabel } from '@shared/contextSizes'
+import { describeWorkingRoom } from '@shared/workingRoom'
 import { useModelStore } from '../../../../stores/modelStore'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { useUiStore } from '../../../../stores/uiStore'
@@ -327,6 +328,11 @@ export function AiModelsSettings(): JSX.Element {
     !!engine.contextSize &&
     engine.contextSize < settings.model.contextSize
   const contextMemoryWarning = !!hardware && ctxSizeWarning(hardware, settings.model.contextSize)
+  // A context size is not working room: the reply reserve, project context and
+  // tool schemas come off the top first. At 8,192 that leaves about 4,750
+  // tokens, which decided whether a small model could work at all - see
+  // `describeWorkingRoom`. Shown, never enforced.
+  const workingRoom = describeWorkingRoom(settings.model.contextSize)
   const gpuMode =
     settings.model.gpuLayers === 'auto' ? 'auto' : settings.model.gpuLayers === 0 ? 'cpu' : 'custom'
   const gpuLayersMax = engine.gpuLayersTotal ?? FALLBACK_MAX_GPU_LAYERS
@@ -503,6 +509,7 @@ export function AiModelsSettings(): JSX.Element {
                   />
                 }
               />
+              <div className={styles.engineInfo}>{workingRoom.text}</div>
               {contextWasDownsized && (
                 <div className={styles.engineInfo}>
                   Running at {engine.contextSize?.toLocaleString()} tokens — smaller than the
