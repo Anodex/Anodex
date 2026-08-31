@@ -343,12 +343,13 @@ Not bugs — fixes that landed without a live run proving them.
 - **One-shot provider retry.** Lets a run survive a single `provider-error`
   instead of ending on it. Landed after the only run that would have exercised
   it.
-- **The multi-language fixes** (`TEXT_EXT`, `SKIP_DIRS`, `code_outline`, the
-  toolchain line in the orientation summary). No live run has exercised them:
-  two Rust runs used `read_file` directly, because a one-file crate never needs
-  to search. They are covered instead by `multiLanguageSearch.test.ts`, which
-  drives the real search and listing tools over a real Rust layout — the level
-  the bug lived at. Treat that as the evidence, not a live run.
+- ~~**The multi-language fixes.**~~ **Validated in production 2026-08-31.** The
+  `bench-5` Rust runs produced seven `search_files` / `code_outline` /
+  `find_files` calls against `.rs` sources, and `code_outline` answered with the
+  new message verbatim: _"No JavaScript or TypeScript files here, and
+  code_outline maps only those…"_ Before the fix that same call said "No source
+  files found" — telling a model with a Rust file in front of it that the
+  project had no code.
 - **Context-scaled turn budgets.** `maxTurnsCeilingFor` is unit-tested at seven
   window sizes, and one live run started with 72 turns where it would have had 30. Whether the extra turns are _used well_ is a separate question that needs
   more than one run.
