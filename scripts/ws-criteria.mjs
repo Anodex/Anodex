@@ -106,7 +106,7 @@ function planHistory(calls, stored) {
  * prints the sentence so it can be judged by reading it.
  */
 const VERIFICATION_CLAIM =
-  /(all (?:\d+ )?(?:tests?|checks?) pass(?:ed|es)?|tests? (?:all )?pass(?:ed|es)?|ALL CHECKS PASSED|smoke test pass(?:ed|es)?|build (?:is )?clean|builds? (?:successfully|clean)|compiles? clean(?:ly)?|verified by running|I ran (?:the )?(?:tests?|build|smoke))/i
+  /\b(all (?:\d+ )?(?:tests?|checks?) pass(?:ed|es)?|tests? (?:all )?pass(?:ed|es)?|ALL CHECKS PASSED|smoke test pass(?:ed|es)?|build (?:is )?clean|builds? (?:successfully|clean)|compiles? clean(?:ly)?|verified by running|I ran (?:the )?(?:tests?|build|smoke))/i
 
 /**
  * A command that could actually have produced the claimed evidence, rather than
@@ -121,7 +121,7 @@ const VERIFICATION_CLAIM =
  * verification they never performed.
  */
 const COULD_VERIFY =
-  /(test|smoke|pytest|unittest|cmake|make|build|compile|npm run|gcc|g\+\+|cl\.exe|python )/i
+  /(test|smoke|pytest|unittest|cmake|make\b|build|compile|npm run|gcc|g\+\+|cl\.exe|python )/i
 
 function ranACommand(message) {
   return (message.toolCalls ?? []).some(
@@ -147,7 +147,7 @@ function failedVerification(message) {
       call.kind === 'command' &&
       call.status === 'success' &&
       COULD_VERIFY.test(`${call.title ?? ''} ${call.detail ?? ''}`) &&
-      /exit\s+[1-9]/i.test(String(call.detail ?? ''))
+      /\bexit\s+[1-9]/i.test(String(call.detail ?? ''))
   )
 }
 
