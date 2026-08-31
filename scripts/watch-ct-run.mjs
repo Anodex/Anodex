@@ -39,8 +39,11 @@ for (;;) {
     console.log('selectedStage:', d.selectedStage, '| strategy:', d.strategy)
     console.log('steps:', run.steps.map((s) => s.status).join(', '))
     for (const a of d.attempts ?? []) {
-      console.log(`  ${a.stage}: chars=${a.contentChars} valid=${a.valid} issues=${(a.issues ?? []).length}`)
-      for (const issue of (a.issues ?? []).slice(0, 14)) console.log(`      - ${issue.slice(0, 120)}`)
+      console.log(
+        `  ${a.stage}: chars=${a.contentChars} valid=${a.valid} issues=${(a.issues ?? []).length}`
+      )
+      for (const issue of (a.issues ?? []).slice(0, 14))
+        console.log(`      - ${issue.slice(0, 120)}`)
     }
     break
   }

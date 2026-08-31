@@ -19,5 +19,10 @@ for (const step of run.steps ?? []) {
   }
 }
 console.log('status:', run.status)
-console.log('steps completed:', (run.steps ?? []).filter((s) => s.status === 'completed').length, 'of', (run.steps ?? []).length)
+console.log(
+  'steps completed:',
+  (run.steps ?? []).filter((s) => s.status === 'completed').length,
+  'of',
+  (run.steps ?? []).length
+)
 console.log('assessed rounds:', rounds, '| verdicts:', JSON.stringify(tally))
