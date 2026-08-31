@@ -870,6 +870,22 @@ multi-file package; four of six fail the five-defect task; but four of six pass
 the Rust crate. Difficulty tracks the number of independent defects and files to
 hold at once, not Python versus Rust.
 
+### A mid-size coding model is not a middle result
+
+DeepSeek-Coder-V2-Lite (16B MoE, 9.7GB) at 65,536 scores **1 of 4** — below
+Devstral-24B and DeepSeek-32B, and below gemma-27B. Size alone does not order
+this table.
+
+Its one success is the pattern that keeps recurring: bench-1's code is correct
+by both its own test and an independent check, in 16 turns, and the run ended
+`stopped` with plan 0/3 having never declared it.
+
+**That is now three models finishing real work without saying so** — gemma's
+bench-3, the 4B at 32,768, and this. It is the third independent confirmation
+that plan completion measures bookkeeping rather than work, and the third reason
+the change that would have pressed harder on open plan steps was right to be
+reverted: it would have refused all three.
+
 ### The context threshold sits between 8,192 and 16,384
 
 | Qwen3-4B | b1 (one file)        | b4 (five defects) |
@@ -885,6 +901,16 @@ amount of window makes the five-defect task reachable for this model.
 The 27B is unaffected by the same drop: 5 turns and a pass on b4 at 16,384,
 against 4 turns at 65,536. So a smaller window costs a capable model very little
 and costs a small one everything.
+
+### Two models in seven edit the tests rather than fix the code
+
+Devstral made `cargo test` pass by editing `src/tests.rs`, and said so in its
+summary. DeepSeek-Coder-V2-Lite did the same to `test_inventory.py` on bench-4.
+Neither was hiding it; both did the thing the task forbade in as many words.
+
+**Two of seven models, so this is a rate, not an anecdote.** A passing test suite
+is not a result on its own, and the unaltered-test check is what makes it one —
+run immediately, before the next reset wipes the evidence.
 
 ### A model can make the tests pass by editing the tests
 
