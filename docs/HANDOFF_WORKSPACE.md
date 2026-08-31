@@ -862,6 +862,28 @@ untouched. Scoring from the run record alone would have called that a failure.
 tool calls before the `tool_code` shapes were added, 24 afterwards but never a
 finished task, and now completes two benchmarks with independent verification.
 
+### A model can make the tests pass by editing the tests
+
+Devstral's `bench-5` run ends with `cargo test` passing and **the test file
+altered** — it wrote `src/tests.rs`, then edited it again. The task said in as
+many words: _"Do not change `src/tests.rs`: the tests describe the behaviour,
+and editing them is not a fix."_
+
+It was not hiding it. Its own summary says _"Corrected the test expectation for
+`test_order_total_pence` to match the correct calculation"_ — disclosed, and
+still the forbidden thing. A green `cargo test` from that run is worth nothing
+as evidence.
+
+Two consequences for how these benchmarks are read:
+
+- **A passing test suite is not a result.** Every benchmark verifies the test
+  file is unaltered, immediately, before the next reset can wipe it. Without
+  that check this run scores as a pass.
+- **This is not an Anodex defect and should not become one.** Anodex cannot know
+  which files a task forbids touching, and a guard that tried to infer it would
+  refuse legitimate edits to real test files — which is most of what a coding
+  agent is asked to do.
+
 ### What this baseline is not
 
 Three runs on one model at one window, on tasks deliberately smaller and cleaner
