@@ -28,9 +28,16 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
 - [ ] **A model that writes no tool calls at all.** gemma fabricated results
       instead; DeepSeek once emitted six identical replies. Both are handled by
       stops now, but neither is _helped_.
-- [ ] **The GUI surface.** `settings` has 36 components and 5 test files;
-      `workspace-dock` 15 and 1; `file-viewer` 5 and none. The one bug found
-      there — a silent Start — was found by reading, not testing.
+- [x] **The GUI surface — done, and the metric was wrong.** Component-to-test
+      ratio does not measure coverage. `workspace-dock` looked alarming at 15
+      components and 1 test, and has **5 derivations across 11 panels**: those
+      components are display, pulling from stores, and the one file with real
+      logic is already tested. Testing them would test React, not behaviour.
+      What _was_ worth doing is done: the context-size save rule is extracted
+      from a 656-line component into `contextSizeUpdate` and tested, including
+      the per-model entry whose absence once let a size follow the next model
+      into the engine. `file-viewer` is left alone deliberately — read-only
+      display, where a bug is visible immediately rather than silent.
 - [ ] **Cloud providers.** Skipped: not connected on this machine. Every
       attributed run is local, so the Anthropic and OpenAI agent paths have no
       evidence behind them at all.

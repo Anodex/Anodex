@@ -6,6 +6,7 @@ import type { ModelSettings } from '@shared/settings.types'
 import { recommendModel } from '@shared/modelRecommendation'
 import { CONTEXT_SIZE_LADDER, formatContextSizeLabel } from '@shared/contextSizes'
 import { describeWorkingRoom } from '@shared/workingRoom'
+import { contextSizeUpdate } from './contextSizeUpdate'
 import { useModelStore } from '../../../../stores/modelStore'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { useUiStore } from '../../../../stores/uiStore'
@@ -235,10 +236,7 @@ export function AiModelsSettings(): JSX.Element {
    */
   const saveContextSize = (patch: Partial<ModelSettings> & { contextSize: number }): void => {
     const activePath = engine.model?.source === 'local' ? engine.model.path : null
-    void update({
-      model: patch,
-      ...(activePath ? { modelContextSizes: { [activePath]: patch.contextSize } } : {})
-    }).then(reloadActiveModelIfSafe)
+    void update(contextSizeUpdate(patch, activePath)).then(reloadActiveModelIfSafe)
   }
 
   const applyRecommendation = (): void => {
