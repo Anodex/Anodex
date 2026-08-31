@@ -37,6 +37,19 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
 
 ## Answered, keep for the reasoning
 
+- **Does anything tell a user their window is too small to work in?** It did
+  not. `ctxSizeWarning` only fires when a context is too _large_ for the
+  hardware. A context size is not working room — at 8,192 the reserves take most
+  of it and about 4,750 tokens remain — and that number decided whether a 4B
+  could do single-file work at all. The settings page now states the working
+  room under the picker, and says plainly when it is tight. Reported, never
+  enforced: someone with 4GB of VRAM may have no better option.
+
+- **Is GPU offload handled sensibly?** Yes. `auto` by default, VRAM probed and
+  fed into the context recommendation, layers reported as "X of Y to the GPU".
+  One gap left: `gpuLayersUsed` is undefined on the llama-server path, so that
+  line is simply absent for vision models rather than wrong.
+
 - **Does Anodex recommend too small a context?** No. `pickRecommendedContextSize`
   takes the largest window that fits, capped by the model's trained context. The
   8,192 that made a 4B look incapable was a manual test setting, not a default.
