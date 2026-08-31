@@ -7,6 +7,7 @@
 // an earlier session had already done the work.
 //
 // Usage: node scripts/bench-reset.mjs <bench-name>
+import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { writeInventoryFixture, writeRustFixture } from './bench-fixtures.mjs'
@@ -34,7 +35,33 @@ if (path.basename(ROOT) !== 'Bench') {
 // underneath it. The model noticed and said so, which is the only reason it was
 // caught. `--force` exists for a wedged run whose record never settled.
 const RUNS = path.join(process.env.APPDATA ?? '', 'anodex', 'agent-runs', 'runs.json')
-if (!process.argv.includes('--force') && fs.existsSync(RUNS)) {
+
+/**
+ * Whether Anodex is actually running, rather than merely recorded as running.
+ *
+ * A run record says `running` until the app writes a terminal status, so a
+ * force-quit leaves one that never settles. Anodex reconciles those itself on
+ * its next start — `reconcileInterruptedRuns` marks them `stopped` with
+ * "Interrupted" — but until it restarts, the file still claims a live run.
+ *
+ * This guard exists to protect a real run's workspace, and a record with no
+ * process behind it is not one. Same reasoning Anodex applies, applied earlier.
+ */
+function anodexIsRunning() {
+  try {
+    const out = execSync('tasklist /FI "IMAGENAME eq electron.exe" /NH', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+    return /electron\.exe/i.test(out)
+  } catch {
+    // No tasklist, or it failed: fall back to trusting the record, because
+    // wrongly deleting a live workspace is far worse than a needless refusal.
+    return true
+  }
+}
+
+if (!process.argv.includes('--force') && fs.existsSync(RUNS) && anodexIsRunning()) {
   try {
     const active = JSON.parse(fs.readFileSync(RUNS, 'utf8')).filter(
       (run) => run.status === 'running'
