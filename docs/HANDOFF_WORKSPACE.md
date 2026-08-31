@@ -791,10 +791,27 @@ context window; `scripts/ws-stats.mjs` segments by it and keeps older runs under
 ### Running it
 
 ```
+# one model through any set of benchmarks, verified against disk after each
+bash scripts/bench-verify/run-suite.sh Qwen3.8-27B bench-1-single-file bench-4-large-multi-file
+
+# or by hand
 node scripts/bench-reset.mjs <bench-name>     # restore the known start state
 ANODEX_AGENT_AUTORUN=scripts/<bench-name>.json npm run dev
 node scripts/ws-stats.mjs                     # segmented results
+
+# before trusting a fixture, prove each seeded defect is individually catchable
+node scripts/bench-verify-fixture.mjs
 ```
+
+The five benchmarks: `bench-1-single-file`, `bench-2-multi-file`,
+`bench-3-fix-existing`, `bench-4-large-multi-file` (five defects across four
+files, sized to exhaust a small window) and `bench-5-rust`. A `-small` suffix
+selects the same task with a turn budget for a small context window.
+
+**Verify after each benchmark, never at the end.** The next reset deletes the
+output, so a result checked later cannot be checked at all — the runner does
+this automatically, and it is how two models were caught editing the test file
+to make it pass.
 
 The reset matters more than it looks. The Universe Sandbox workload accumulates,
 so a task re-run finds the feature already built - one "regression test" finished
