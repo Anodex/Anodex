@@ -21,6 +21,36 @@ if (path.basename(ROOT) !== 'Bench') {
   process.exit(1)
 }
 
+// Refuse while a run is using it. There is one benchmark folder, so resetting
+// it mid-run deletes the files the model is working on and voids the
+// measurement without anything saying so.
+//
+// This happened: a fixture was verified here while a run was live, and the run
+// carried on against a workspace that had turned into a different project
+// underneath it. The model noticed and said so, which is the only reason it was
+// caught. `--force` exists for a wedged run whose record never settled.
+const RUNS = path.join(process.env.APPDATA ?? '', 'anodex', 'agent-runs', 'runs.json')
+if (!process.argv.includes('--force') && fs.existsSync(RUNS)) {
+  try {
+    const active = JSON.parse(fs.readFileSync(RUNS, 'utf8')).filter(
+      (run) => run.status === 'running'
+    )
+    if (active.length > 0) {
+      console.error(
+        `Refusing to reset: ${active.length} agent run(s) still running (${active
+          .map((run) => run.id)
+          .join(', ')}).\n` +
+          'Resetting now would delete the workspace out from under them. Wait for the run to\n' +
+          'finish, or pass --force if you know its record is stale.'
+      )
+      process.exit(1)
+    }
+  } catch {
+    // An unreadable or half-written store is not a reason to refuse a reset —
+    // it only means this particular safeguard cannot answer.
+  }
+}
+
 fs.mkdirSync(ROOT, { recursive: true })
 for (const entry of fs.readdirSync(ROOT)) {
   // `.anodex` holds the project's own bookkeeping, not the run's work.
