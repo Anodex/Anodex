@@ -456,8 +456,13 @@ function extractFunctionTagCandidates(text: string): Candidate[] {
 
 function extractTrailingJsonObject(text: string): Candidate | null {
   for (let index = 0; index < text.length; index++) {
-    if (text[index] !== '{') continue
-    const end = balancedJsonObjectEnd(text, index)
+    // An array is a call too. Mistral and Command-R wrap even a single call in
+    // one, and scanning only for `{` meant the whole call was invisible - which
+    // for a model without native function calling is the difference between
+    // working and not.
+    const char = text[index]
+    if (char !== '{' && char !== '[') continue
+    const end = balancedJsonEnd(text, index)
     if (end === -1 || text.slice(end).trim()) continue
     const matchedText = text.slice(index, end)
     return { matchedText, jsonText: matchedText }
@@ -465,7 +470,9 @@ function extractTrailingJsonObject(text: string): Candidate | null {
   return null
 }
 
-function balancedJsonObjectEnd(text: string, start: number): number {
+function balancedJsonEnd(text: string, start: number): number {
+  const open = text[start]
+  const close = open === '[' ? ']' : '}'
   let depth = 0
   let inString = false
   let escaped = false
@@ -485,9 +492,9 @@ function balancedJsonObjectEnd(text: string, start: number): number {
 
     if (char === '"') {
       inString = true
-    } else if (char === '{') {
+    } else if (char === open) {
       depth += 1
-    } else if (char === '}') {
+    } else if (char === close) {
       depth -= 1
       if (depth === 0) return index + 1
     }
@@ -500,14 +507,42 @@ function balancedJsonObjectEnd(text: string, start: number): number {
 function tryParseToolCallJson(
   text: string
 ): { name: string; arguments: Record<string, unknown> } | null {
-  const value = parseJsonLoosely(text.trim())
+  const value = parseJsonLoosely(stripCallPrefix(text.trim()))
   if (value === null || typeof value !== 'object') return null
 
-  const record = value as Record<string, unknown>
-  if (typeof record.name !== 'string') return null
-  if (record.arguments !== undefined && typeof record.arguments !== 'object') return null
+  // A batch, not a single call. Mistral, Nemo and Command-R all emit an array
+  // even for one call, and a model of any family may batch several. The first
+  // is taken because the runner settles one call per cycle and the rest arrive
+  // on the next turn - dropping the batch entirely, which is what happened
+  // before, loses the whole turn.
+  const record = (Array.isArray(value) ? value[0] : value) as Record<string, unknown> | undefined
+  if (!record || typeof record !== 'object') return null
 
-  return { name: record.name, arguments: (record.arguments as Record<string, unknown>) ?? {} }
+  // `name` is the common spelling; Command-R and some fine-tunes say
+  // `tool_name`. Same field, and refusing one of them refuses the model.
+  const name = typeof record.name === 'string' ? record.name : record.tool_name
+  if (typeof name !== 'string') return null
+
+  // `arguments` is the common spelling; `parameters` is Llama 3's and
+  // Command-R's. Already accepted below, kept here for the array case too.
+  const args = record.arguments ?? record.parameters
+  if (args !== undefined && typeof args !== 'object') return null
+
+  return { name, arguments: (args as Record<string, unknown>) ?? {} }
+}
+
+/**
+ * Strip a family's call marker so the JSON behind it can be read.
+ *
+ * `[TOOL_CALLS]` is Mistral's, and `Action:` is Command-R's. Neither is JSON,
+ * so the parser stopped at them and the whole call was lost - which for a model
+ * without native function calling means it cannot drive Anodex at all.
+ *
+ * Deliberately only a prefix strip. Anything else these families put around a
+ * call is already handled by the fence and tag readers above.
+ */
+function stripCallPrefix(text: string): string {
+  return text.replace(/^\s*(?:\[TOOL_CALLS\]|Action:)\s*/i, '')
 }
 
 /**

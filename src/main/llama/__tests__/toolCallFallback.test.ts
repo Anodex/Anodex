@@ -404,3 +404,66 @@ describe('tool_code: object literal carrying triple-quoted code', () => {
     expect(detectFallbackToolCall(text, T)?.arguments.oldText).toBe('print("hi") { x: 1 }')
   })
 })
+
+describe('dialects that wrap the call in an array or rename its keys', () => {
+  const tools = new Set(['read_file', 'write_file'])
+
+  /**
+   * Probed against the shapes real model families emit. Three failed, and each
+   * belongs to a family someone will actually run: without native function
+   * calling those models could not drive Anodex at all.
+   */
+  it('reads Mistral / Nemo / Mixtral `[TOOL_CALLS]`', () => {
+    const call = detectFallbackToolCall(
+      '[TOOL_CALLS] [{"name": "read_file", "arguments": {"path": "a.py"}}]',
+      tools
+    )
+
+    expect(call?.name).toBe('read_file')
+    expect(call?.arguments).toEqual({ path: 'a.py' })
+  })
+
+  it('reads a Command-R action block, which names the key tool_name', () => {
+    const call = detectFallbackToolCall(
+      'Action: ```json\n[{"tool_name": "read_file", "parameters": {"path": "a.py"}}]\n```',
+      tools
+    )
+
+    expect(call?.name).toBe('read_file')
+    expect(call?.arguments).toEqual({ path: 'a.py' })
+  })
+
+  it('reads tool_name on its own, without an array', () => {
+    const call = detectFallbackToolCall('{"tool_name": "read_file", "arguments": {}}', tools)
+
+    expect(call?.name).toBe('read_file')
+  })
+
+  it('takes the first call when a model batches several', () => {
+    const call = detectFallbackToolCall(
+      '[{"name": "read_file", "arguments": {"path": "first.py"}}, ' +
+        '{"name": "read_file", "arguments": {"path": "second.py"}}]',
+      tools
+    )
+
+    expect(call?.arguments).toEqual({ path: 'first.py' })
+  })
+
+  // The existing shapes must keep working: an array is an addition, not a
+  // replacement, and a bare object is still the commonest case by far.
+  it('still reads a bare object', () => {
+    expect(detectFallbackToolCall('{"name": "read_file", "arguments": {}}', tools)?.name).toBe(
+      'read_file'
+    )
+  })
+
+  it('still refuses a tool that was not offered', () => {
+    expect(
+      detectFallbackToolCall('[TOOL_CALLS] [{"name": "rm_rf", "arguments": {}}]', tools)
+    ).toBeNull()
+  })
+
+  it('refuses an empty array rather than inventing a call', () => {
+    expect(detectFallbackToolCall('[TOOL_CALLS] []', tools)).toBeNull()
+  })
+})
