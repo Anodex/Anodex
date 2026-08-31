@@ -342,6 +342,204 @@ export function writeInventoryFixture(root) {
   ])
 }
 
+/**
+ * A defective Rust crate, for the one non-Python language testable here.
+ *
+ * Every benchmark before this is Python, so the multi-language work —
+ * `TEXT_EXT` learning twenty languages, `SKIP_DIRS` learning `target/`,
+ * `code_outline` no longer claiming a Rust project has no code, the toolchain
+ * line in the orientation summary — is covered by unit tests and has never been
+ * exercised by a real run. Two earlier Rust runs did not touch it either: a
+ * one-file crate never needs to search.
+ *
+ * This one does. Three modules plus a test module, with `target/` present after
+ * the first build, so a model has to orient in a real Cargo layout.
+ *
+ * Three defects, each idiomatic to get wrong in Rust specifically:
+ *   1. `parse.rs` — `trim()` is applied before splitting rather than to each
+ *      field, so values keep their surrounding spaces.
+ *   2. `total.rs` — integer division truncates before the multiply, losing
+ *      pennies, where the multiply must come first.
+ *   3. `rank.rs`  — `sort_by` compares the wrong way round, so "highest first"
+ *      is lowest first.
+ */
+export function writeRustFixture(root) {
+  const src = path.join(root, 'src')
+  fs.mkdirSync(src, { recursive: true })
+
+  write(path.join(root, 'Cargo.toml'), [
+    '[package]',
+    'name = "orders"',
+    'version = "0.1.0"',
+    'edition = "2021"',
+    '',
+    '[dependencies]'
+  ])
+
+  write(path.join(root, '.gitignore'), ['/target'])
+
+  write(path.join(src, 'lib.rs'), [
+    '//! A tiny order-processing crate: parse lines, total them, rank them.',
+    '',
+    'pub mod parse;',
+    'pub mod rank;',
+    'pub mod total;',
+    '',
+    'pub use parse::{parse_line, Order};',
+    'pub use rank::rank_by_total;',
+    'pub use total::line_total_pence;'
+  ])
+
+  write(path.join(src, 'parse.rs'), [
+    '//! Reading order lines of the form "sku, quantity, unit_pence".',
+    '',
+    '/// One parsed order line. Prices are whole pence, never floats.',
+    '#[derive(Debug, Clone, PartialEq, Eq)]',
+    'pub struct Order {',
+    '    pub sku: String,',
+    '    pub quantity: u32,',
+    '    pub unit_pence: u32,',
+    '}',
+    '',
+    '/// Parse one line, rejecting anything malformed with a clear message.',
+    'pub fn parse_line(line: &str) -> Result<Order, String> {',
+    "    let fields: Vec<&str> = line.trim().split(',').collect();",
+    '    if fields.len() != 3 {',
+    '        return Err(format!("expected 3 fields, found {}", fields.len()));',
+    '    }',
+    '    let sku = fields[0].to_string();',
+    '    if sku.is_empty() {',
+    '        return Err("sku must not be empty".to_string());',
+    '    }',
+    '    let quantity: u32 = fields[1]',
+    '        .parse()',
+    '        .map_err(|_| format!("quantity is not a number: {:?}", fields[1]))?;',
+    '    let unit_pence: u32 = fields[2]',
+    '        .parse()',
+    '        .map_err(|_| format!("unit_pence is not a number: {:?}", fields[2]))?;',
+    '    Ok(Order {',
+    '        sku,',
+    '        quantity,',
+    '        unit_pence,',
+    '    })',
+    '}'
+  ])
+
+  write(path.join(src, 'total.rs'), [
+    '//! Money. Everything is whole pence and integer arithmetic only.',
+    '',
+    'use crate::parse::Order;',
+    '',
+    '/// Percent discount earned by a quantity, as whole percent.',
+    'pub fn discount_percent(quantity: u32) -> u32 {',
+    '    if quantity >= 100 {',
+    '        10',
+    '    } else if quantity >= 25 {',
+    '        5',
+    '    } else {',
+    '        0',
+    '    }',
+    '}',
+    '',
+    '/// Total pence for one order line, after any discount.',
+    'pub fn line_total_pence(order: &Order) -> u32 {',
+    '    let gross = order.unit_pence * order.quantity;',
+    '    let percent = discount_percent(order.quantity);',
+    '    if percent == 0 {',
+    '        return gross;',
+    '    }',
+    '    gross - (gross / 100) * percent',
+    '}'
+  ])
+
+  write(path.join(src, 'rank.rs'), [
+    '//! Ordering views over parsed orders. Nothing here mutates its input.',
+    '',
+    'use crate::parse::Order;',
+    'use crate::total::line_total_pence;',
+    '',
+    '/// SKUs ranked by line total, highest first.',
+    'pub fn rank_by_total(orders: &[Order]) -> Vec<String> {',
+    '    let mut ranked: Vec<&Order> = orders.iter().collect();',
+    '    ranked.sort_by(|a, b| line_total_pence(a).cmp(&line_total_pence(b)));',
+    '    ranked.into_iter().map(|o| o.sku.clone()).collect()',
+    '}'
+  ])
+
+  write(path.join(src, 'tests.rs'), [
+    '//! Checks describing the behaviour wanted. Do not change this file.',
+    '',
+    '#[cfg(test)]',
+    'mod tests {',
+    '    use crate::*;',
+    '',
+    '    #[test]',
+    '    fn fields_are_trimmed_individually() {',
+    '        let order = parse_line(" A-1 , 10 , 250 ").expect("should parse");',
+    '        assert_eq!(order.sku, "A-1", "sku keeps surrounding spaces");',
+    '        assert_eq!(order.quantity, 10);',
+    '        assert_eq!(order.unit_pence, 250);',
+    '    }',
+    '',
+    '    #[test]',
+    '    fn malformed_lines_are_rejected() {',
+    '        assert!(parse_line("A-1, 10").is_err());',
+    '        assert!(parse_line("A-1, x, 250").is_err());',
+    '        assert!(parse_line(", 10, 250").is_err());',
+    '    }',
+    '',
+    '    #[test]',
+    '    fn discount_multiplies_before_dividing() {',
+    '        // 333p x 101 = 33_633 gross. Multiplying first gives a 3_363',
+    '        // discount and a 30_270 total; dividing first truncates 336.33 to',
+    '        // 336 and lands three pence out. A gross divisible by 100 would',
+    '        // hide the defect entirely, which is why this one is not.',
+    '        let order = Order {',
+    '            sku: "A-1".to_string(),',
+    '            quantity: 101,',
+    '            unit_pence: 333,',
+    '        };',
+    '        assert_eq!(line_total_pence(&order), 30_270);',
+    '    }',
+    '',
+    '    #[test]',
+    '    fn undiscounted_lines_are_exact() {',
+    '        let order = Order {',
+    '            sku: "B-2".to_string(),',
+    '            quantity: 3,',
+    '            unit_pence: 1000,',
+    '        };',
+    '        assert_eq!(line_total_pence(&order), 3_000);',
+    '    }',
+    '',
+    '    #[test]',
+    '    fn ranking_puts_the_largest_first() {',
+    '        let orders = vec![',
+    '            Order { sku: "small".to_string(), quantity: 1, unit_pence: 100 },',
+    '            Order { sku: "large".to_string(), quantity: 10, unit_pence: 1000 },',
+    '            Order { sku: "middle".to_string(), quantity: 5, unit_pence: 100 },',
+    '        ];',
+    '        assert_eq!(rank_by_total(&orders), vec!["large", "middle", "small"]);',
+    '    }',
+    '}'
+  ])
+
+  // `lib.rs` has to declare the test module or it never runs.
+  write(path.join(src, 'lib.rs'), [
+    '//! A tiny order-processing crate: parse lines, total them, rank them.',
+    '',
+    'pub mod parse;',
+    'pub mod rank;',
+    'pub mod total;',
+    '',
+    'mod tests;',
+    '',
+    'pub use parse::{parse_line, Order};',
+    'pub use rank::rank_by_total;',
+    'pub use total::{discount_percent, line_total_pence};'
+  ])
+}
+
 function write(file, rows) {
   fs.writeFileSync(file, rows.join('\n') + '\n', 'utf-8')
 }

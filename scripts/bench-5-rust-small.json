@@ -1,0 +1,9 @@
+{
+  "goal": "The `orders` crate in this project has three defects. `cargo test` fails.\n\nRead the code, work out what is wrong, and fix the crate so every test passes.\n\nThe defects are spread across `src/parse.rs`, `src/total.rs` and `src/rank.rs` \u2014 each file has exactly one. Each failing test names the behaviour that is wanted.\n\nDo not change `src/tests.rs`: the tests describe the behaviour, and editing them is not a fix. Do not rewrite the modules wholesale, and do not add dependencies \u2014 repair what is broken and keep the existing style, including that money stays integer pence.\n\nVerify by running: cargo test. Report the exit code you actually saw and how many tests ran.",
+  "project": "Bench",
+  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\Bench",
+  "maxTurns": 300,
+  "maxTokens": 400000,
+  "maxDurationMinutes": 120,
+  "requirePlan": true
+}
