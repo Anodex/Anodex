@@ -15,7 +15,7 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
-### 1. A small window makes re-reading necessary, and the loop guard makes it impossible
+### FIXED and verified: a small window made re-reading necessary, and the loop guard made it impossible
 
 **Verified, not inferred.** The refused calls in the 4B runs carry exactly one
 distinct title each — `Read test_stats.py lines 1-200` refused 181 times, `Read
