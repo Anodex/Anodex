@@ -25,9 +25,17 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
 
 ## Next
 
-- [ ] **A model that writes no tool calls at all.** gemma fabricated results
-      instead; DeepSeek once emitted six identical replies. Both are handled by
-      stops now, but neither is _helped_.
+- [x] **A model that writes no tool calls at all — handled, two ways.**
+      Fabrication _is_ helped, and more than the queue assumed: the stop trigger
+      added this session routes a fabricating model into an existing recovery
+      that keeps what it wrote, then asks plainly for the call it skipped,
+      spending one round from the fallback budget. Prose with no call and no
+      marker is deliberately **not** nudged inside a turn — `LlamaService`
+      records that phrase detectors did exactly that and were removed, because a
+      wording match cannot establish a mutation was skipped, fires differently
+      across languages and styles, and cost a whole generation on a slow local
+      model to say so. The model is still re-prompted next turn by the agent
+      loop, and `idleRunReason` bounds it at three.
 - [x] **The GUI surface — done, and the metric was wrong.** Component-to-test
       ratio does not measure coverage. `workspace-dock` looked alarming at 15
       components and 1 test, and has **5 derivations across 11 panels**: those
