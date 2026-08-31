@@ -806,6 +806,43 @@ own tests:
 - **bench-3** (fix three seeded defects): 3 turns, 5 checks. Three surgical
   fixes, `test_parser.py` untouched, no wholesale rewrite.
 
+### The full matrix, six models, verified against disk
+
+Every model ran the same three benchmarks from an identical reset state, and
+each result was checked on the filesystem **before the next reset wiped it** —
+the run record says what the model claimed, the disk says what it produced, and
+those disagreed repeatedly.
+
+| Model @ window           | Work actually completed | Ticks plan steps          |
+| ------------------------ | ----------------------- | ------------------------- |
+| Qwen3.8-27B @ 65,536     | **3 / 3**               | yes (3/3, 5/5, 7/7)       |
+| DeepSeek-R1-32B @ 65,536 | 2 / 3                   | only on the one it failed |
+| Devstral-24B @ 65,536    | 2 / 3                   | never (0/3, 0/4, 0/5)     |
+| gemma-3-27B @ 65,536     | 2 / 3                   | never                     |
+| Muse-30B @ 65,536        | 1 / 3                   | rarely                    |
+| Qwen3-4B @ 8,192         | 0 / 3                   | never                     |
+
+**Plan completion does not measure completion — settled across six models.**
+DeepSeek's _only_ fully ticked plan (5/5) is its _only_ failing benchmark, while
+Devstral and Gemma completed real, independently verified work at 0/3, 0/4 and
+0/5. Only Qwen3.8-27B ticks reliably. Anything that pressed harder on open plan
+steps would have refused correct runs from three separate models — which is why
+the change built for that was reverted rather than shipped.
+
+**A model's own tests prove nothing on their own.** Devstral's bench-2 test
+passed while its `Money` class had no `add` or `subtract` at all — it had
+implemented `__add__`/`__sub__` and written a test that only called `.format()`.
+A model writing its own tests tests what it wrote, not what was asked. Two of
+six models were caught this way.
+
+**Two runs did the work and never said so.** Gemma's bench-3 is recorded
+`stopped`, and its three seeded defects are genuinely fixed with the test file
+untouched. Scoring from the run record alone would have called that a failure.
+
+**Gemma is the clearest evidence the dialect work landed.** It produced zero
+tool calls before the `tool_code` shapes were added, 24 afterwards but never a
+finished task, and now completes two benchmarks with independent verification.
+
 ### What this baseline is not
 
 Three runs on one model at one window, on tasks deliberately smaller and cleaner
