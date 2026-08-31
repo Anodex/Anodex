@@ -43,12 +43,23 @@ Untested:
   mtime reconciliation path exists and has never been exercised in anger.
 - **Two runs racing.** The mutex is in memory; nothing has tried to break it.
 
-## 3. Long-run paths, which duration alone reaches
+## 3. Long-run paths — still unreached, and `bench-6` will not reach them
 
-`bench-6` exists for this: twelve functions, twenty-two checks, long by
-structure rather than difficulty. It exercises compaction, the context-epoch
-handoff and the loop-guard forgiveness — where this codebase's hardest bugs have
-historically lived, and which a median five-turn run never touches.
+`bench-6` was built for this: twelve functions, twenty-two checks, long by
+structure rather than difficulty, to exercise compaction, the context-epoch
+handoff and the loop-guard forgiveness that a median five-turn run never
+touches.
+
+**It does not work.** DeepSeek V4 Flash scored 22/22 on it in **three turns**.
+The design assumed twelve small requirements could not be collapsed into a few
+edits; a capable model simply batches them. Structure alone does not produce
+duration.
+
+Reaching those paths needs work that _cannot_ be batched — serial dependency,
+where step N's input is step N-1's output, or breadth that exceeds the context
+in one pass so the run is forced through a compaction. Until such a benchmark
+exists, the long-run paths remain untested, and no result should be read as
+evidence about them.
 
 ## 4. Cloud providers — now partly open
 
@@ -62,6 +73,25 @@ the fix was confirmed on disk, not from the run's own claim.
 `OpenAiProvider` (499 lines), `AnthropicProvider` (494) and
 `OpenAiCompatibleProvider` (615) are still the largest untested files after
 `LlamaService`, and one passing run is not coverage.
+
+### First cloud results, verified against disk
+
+DeepSeek V4 Flash: **4/5** on the core benchmarks, plus 22/22 on `bench-6`.
+
+| benchmark                | turns | own test | independent check    |
+| ------------------------ | ----- | -------- | -------------------- |
+| bench-1 single file      | 2     | PASS     | PASS                 |
+| bench-2 multi file       | 4     | PASS     | **FAIL**             |
+| bench-3 fix existing     | 3     | PASS     | test file intact     |
+| bench-4 large multi file | 3     | PASS     | float money removed  |
+| bench-5 rust             | 3     | PASS     | integer defect fixed |
+| bench-6 long             | 3     | PASS     | 22/22 checks         |
+
+bench-2 is the standing result again: **a model's own tests prove nothing.** It
+wrote a suite that passed and work that did not satisfy the independent
+verifier. That had only ever been seen on local models; it reproduces on a
+cloud model, so it is a property of the task and the harness rather than of
+small-model capability.
 
 ### What the first cloud run measured
 
