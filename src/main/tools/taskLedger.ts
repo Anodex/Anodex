@@ -152,6 +152,24 @@ export class TaskLedger {
   }
 
   /**
+   * The model's history was reset, so what it was judged against is gone.
+   *
+   * Only the repeat counters are cleared, and only for what is safe to repeat.
+   * The ledger's contract is that a context epoch resets the model's *view* and
+   * must not reset what the task has established - read coverage, evidence and
+   * the gathering streak all survive, because they describe the task rather
+   * than the model's picture of it.
+   *
+   * What does not survive is the loop guard's memory of identical calls. That
+   * question is about behaviour given a history, and after an epoch the history
+   * is gone: asking again for a file whose contents it can no longer see is not
+   * a loop, it is the only way forward.
+   */
+  noteContextEpoch(): void {
+    forgetRepeatsAcrossEpoch(this.loopGuard, this.lastCallWasRereadable)
+  }
+
+  /**
    * An edit failed because the model's picture of the file was out of date.
    *
    * Measured: a 4B model at an 8,192-token window wrote a file with a syntax
@@ -167,21 +185,6 @@ export class TaskLedger {
    * the model goes back to gathering without changing anything, the guard
    * closes again immediately.
    */
-  noteContextEpoch(): void {
-    // Only the repeat counters, and only for what is safe to repeat. The
-    // ledger's contract is that a context epoch resets the model's history and
-    // must not reset what the task has established - read coverage, evidence
-    // and the gathering streak all survive, because they describe the task
-    // rather than the model's view of it.
-    //
-    // What does not survive is the loop guard's memory of identical calls. That
-    // question is about the model's behaviour given its history, and after an
-    // epoch the history it was judged against is gone: asking again for a file
-    // whose contents it can no longer see is not a loop, it is the only way
-    // forward.
-    forgetRepeatsAcrossEpoch(this.loopGuard, this.lastCallWasRereadable)
-  }
-
   noteStaleView(): void {
     this.readCredit++
   }
@@ -273,8 +276,14 @@ const GATHERING_KINDS = new Set<ToolKind>(['read', 'web', 'plan'])
  */
 const GATHERING_SOFT_LIMIT = 22
 
-/** …and after which further gathering is refused outright rather than served. */
-const GATHERING_HARD_LIMIT = 34
+/**
+ * …and after which further gathering is refused outright rather than served.
+ *
+ * Exported for the same reason `LOOP_GUARD_LIMIT` is: a test that has to reach
+ * this rung should reach the real one, not a copy that stops matching when the
+ * limit moves.
+ */
+export const GATHERING_HARD_LIMIT = 34
 
 /** What {@link TaskLedger.reviewCall} decided, and what to tell the model. */
 export type LedgerVerdict =
