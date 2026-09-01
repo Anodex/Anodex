@@ -24,10 +24,12 @@ export interface HierarchicalOverview {
 export function evaluateHierarchicalSection(
   content: string,
   artifacts: ToolArtifact[],
-  sources: CriticalThinkingSource[]
+  sources: CriticalThinkingSource[],
+  /** The run's question, so a figure it states is not read as fabrication. */
+  question?: string
 ): HierarchicalSectionCandidate {
   const trimmed = normalizeCitationMarkers(content.trim())
-  const validation = validateResearchReport(trimmed, artifacts, sources)
+  const validation = validateResearchReport(trimmed, artifacts, sources, question)
   const citedBlockCount = substantiveBlocks(trimmed).filter((block) =>
     CITATION_PATTERN.test(block)
   ).length
