@@ -389,10 +389,20 @@ Check the provenance before believing any round-depth statistic.
 
 ## Known-unfixed
 
-- **The model invents quotations from memory.** Run 21 shipped with 12
-  untraceable quotations (run 15 had 21). They are neutralised and disclosed, so
-  the reader is told — but the behaviour is unchanged. Worst on humanities
-  subjects, where the material _is_ quoted text.
+- **The model invents quotations from memory** — much reduced, not gone, and no
+  longer the largest gap. Mean unverified quotations per run fell from **3.7
+  across the seven runs before 2026-09-01 to 1.2 across the nineteen after**,
+  with 13 of those 19 at zero, and bronze age — the worst case, at 12 — coming
+  in at 1. Nothing targeted it: better sources and far fewer failed synthesis
+  attempts appear to have done it.
+
+  It still appears (heat pumps 6, one Universe Sandbox run 4), it is still
+  subject-dependent, and the behaviour is unchanged where it does occur. They
+  are neutralised and disclosed, so the reader is told. **More prompt text is
+  not the answer** — the prompt already forbids it in plain terms
+  (`criticalThinkingPrompts.ts`, "Quotation marks are a claim that a source used
+  those words, not emphasis") and the behaviour persisted anyway.
+
 - **Run 23's planning failure is not reproducible.** The same question failed
   twice at 11:44 and produced a clean 6-step plan at 15:02 on the identical
   build. Local-model nondeterminism, not a regression from the budget change.
