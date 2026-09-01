@@ -124,8 +124,27 @@ export interface CriticalThinkingResearchRunnerOptions {
  * and tool-free; network search/fetch work is explicit, cancellable, and
  * concurrent. Every side-effecting phase is checkpointed before moving on.
  */
+/**
+ * Refusals from one host before the run stops spending fetch budget on it.
+ * See `hostIsExhausted` for why this is two rather than one.
+ */
+const HOST_FAILURE_LIMIT = 2
+
 export class CriticalThinkingResearchRunner {
   private readonly stepTimeoutMs: number
+  /**
+   * How many times each host has refused a fetch this run.
+   *
+   * Measured: one minimum-wage run spent 26 of its 52 fetches on failures, and
+   * they clustered by host - ssrn.com refused 8 times, academic.oup.com 5,
+   * direct.mit.edu 4. Every one was a paywall, which is permanent for the run,
+   * and the budget spent rediscovering that starved two later plan steps.
+   *
+   * Keyed by hostname and never cleared: the run is the right lifetime, since a
+   * paywall does not open mid-run and a host that has refused twice is not
+   * worth a third of a scarce budget.
+   */
+  private readonly hostFailures = new Map<string, number>()
 
   constructor(
     private readonly deps: CriticalThinkingResearchRunnerDeps,
@@ -507,6 +526,24 @@ export class CriticalThinkingResearchRunner {
     return null
   }
 
+  /** Record that a host refused a fetch, so the run stops paying for it. */
+  private noteHostFailure(url: string): void {
+    const host = safeHostname(url)
+    this.hostFailures.set(host, (this.hostFailures.get(host) ?? 0) + 1)
+  }
+
+  /**
+   * Whether this host has refused often enough to stop trying.
+   *
+   * Two, not one: a single failure is as likely to be a timeout or a transient
+   * 503 as a paywall, and condemning a good host on one blip would cost more
+   * evidence than it saves. Two consecutive refusals from the same host is a
+   * pattern, and the remaining budget is better spent on a host that answers.
+   */
+  private hostIsExhausted(url: string): boolean {
+    return (this.hostFailures.get(safeHostname(url)) ?? 0) >= HOST_FAILURE_LIMIT
+  }
+
   private async readRound(
     round: CriticalThinkingRoundState,
     signal: AbortSignal,
@@ -530,7 +567,11 @@ export class CriticalThinkingResearchRunner {
       const fetchedInRound = fetchedUrls(artifactsForRound(persistedArtifacts, round.id))
       const unattempted = round.selectedUrls.filter((url) => {
         const canonical = canonicalResearchUrl(url)
-        return !fetchedInRound.has(canonical) && !attemptedHere.has(canonical)
+        if (fetchedInRound.has(canonical) || attemptedHere.has(canonical)) return false
+        // Filtered here rather than after the budget slice: a URL removed later
+        // would never be marked attempted, so it would stay in this list and the
+        // loop would never drain it.
+        return !this.hostIsExhausted(url)
       })
       if (unattempted.length === 0) break
 
@@ -565,6 +606,13 @@ export class CriticalThinkingResearchRunner {
           // See the matching search counter above: only work that started counts
           // against the active attempt's fetch budget.
           attemptedHere.add(canonicalResearchUrl(url))
+          // Checked here, not before the batch: the slice is taken before any
+          // fetch runs, so a host that refuses its first URL would otherwise
+          // still consume the whole batch. Inside the operation, failures from
+          // earlier items are already recorded.
+          //
+          // Costs no fetch budget and records no activity: nothing was tried.
+          if (this.hostIsExhausted(url)) return null
           usage.fetches++
           const activity = this.startActivity('reading', `Read ${safeHostname(url)}`)
           try {
@@ -577,13 +625,19 @@ export class CriticalThinkingResearchRunner {
             this.finishActivity(activity, 'success', `${draft.passages.length} focused passages`)
             return artifact
           } catch (error) {
+            this.noteHostFailure(url)
             this.finishActivity(activity, 'error', errorMessage(error))
             throw error
           }
         },
         signal
       )
-      settled.push(...results)
+      settled.push(
+        ...results.filter(
+          (result): result is PromiseSettledResult<ToolArtifact> =>
+            !(result.status === 'fulfilled' && result.value === null)
+        )
+      )
       await this.deps.checkpoint()
     }
 
