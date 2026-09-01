@@ -2,6 +2,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { buildRunToolNames } from '@shared/tools.types'
 import type { AgentRunProviderId } from '@shared/agentRunProviders'
 import { llamaService } from '../llama/LlamaService'
+import { ensureLocalModelLoaded } from '../llama/ensureLocalModelLoaded'
+import { describeModel } from '../llama/modelScanner'
+import { resolveModelContextSize } from '@shared/modelContextSize'
+import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
 import { agentRunService } from './AgentRunService'
 import { agentRunStore } from './AgentRunStore'
@@ -83,6 +87,25 @@ async function driveRun(specPath: string): Promise<void> {
     // as 'model load or autorun failed' — a message describing a local problem
     // that a cloud run does not have.
     if (provider === 'local') {
+      // Nothing in the main process asks for a model - the renderer restores the
+      // last one after it paints - so waiting for `ready` could wait forever when
+      // that did not happen. Measured: two of four runs in one sweep never
+      // started, their logs showing no model-load line at all. Ask for it here
+      // rather than hoping.
+      const loaded = await ensureLocalModelLoaded({
+        status: llamaService.getState().status,
+        lastModelPath: settingsStore.get().lastModelPath,
+        describeModel,
+        loadModel: (options, info) => llamaService.loadModel(options, info),
+        contextSize: resolveModelContextSize(
+          settingsStore.get(),
+          settingsStore.get().lastModelPath ?? null
+        )
+      })
+      if (loaded === 'no-model-configured' || loaded === 'model-file-missing') {
+        throw new Error(`Cannot start a local run: ${loaded.replace(/-/g, ' ')}.`)
+      }
+      log.info('Local model:', loaded)
       await waitFor(
         () => llamaService.getState().status === 'ready',
         MODEL_READY_TIMEOUT_MS,
