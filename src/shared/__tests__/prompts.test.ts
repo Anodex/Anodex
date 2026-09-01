@@ -376,34 +376,43 @@ describe('core prompt sizing', () => {
 })
 
 /**
- * Models arrive expecting a deferred-tool protocol they have seen elsewhere,
- * where a schema must be fetched before a tool can be called. Anodex has no
- * such thing: every enabled tool is callable immediately.
+ * Turns spent announcing a tool load instead of making a call.
  *
- * Measured at an 8,192-token window, in 2 of 2 runs, after the transcript
- * showing the tool already working had been evicted:
+ * Measured at an 8,192-token window, in 2 of 2 runs:
  *
  *   "first I need the plan-update tool loaded"
  *   "Let me load the multi-file reader ... let me get the schema for
  *    read_multiple_files"
  *
- * Both models had already called the tool in question successfully. Those turns
- * call nothing and change nothing, and in one run three of them in a row ended
- * it on `idleRunReason` with none of the task done.
+ * Three of those in a row ended one run on `idleRunReason` with none of the
+ * task done.
  *
- * A tool named `load_skill` sits in the always-on set and makes the mistaken
- * reading easy. Saying so plainly is cheaper than renaming a tool.
+ * The first version of this guidance said there was nothing to load, which is
+ * false: `maxDirectToolsForContext(8192)` is 10, so at that window most of the
+ * catalog *is* deferred behind the
+ * find_available_tool -> describe_available_tool -> call_available_tool
+ * gateway, and the model was following that protocol correctly. Telling it
+ * otherwise would have talked it out of the only route to those tools.
+ *
+ * The real fault was never the belief — it was narrating the intention instead
+ * of acting on it. So the rule is about what the turn must contain, not about
+ * what does or does not need loading.
  */
-describe('tools need no loading', () => {
-  it('tells the agent every tool is callable immediately', () => {
-    expect(CODING_AGENT_PROMPT.toLowerCase()).toContain('immediately callable')
+describe('a turn ends in a tool call, not an announcement', () => {
+  it('tells the agent a listed tool is callable now', () => {
+    expect(CODING_AGENT_PROMPT.toLowerCase()).toContain('callable right now')
   })
 
-  it('names the mistake rather than only asserting the rule', () => {
-    // The behaviour is a *belief* about the harness, so the prompt has to
-    // contradict the belief, not merely state the correct one.
-    const text = CODING_AGENT_PROMPT.toLowerCase()
-    expect(text).toContain('load')
-    expect(text).toContain('schema')
+  it('names the deferred-tool gateway rather than denying it exists', () => {
+    // At 8,192 only ten tools keep a native schema; the rest are only
+    // reachable this way. A prompt that denies deferral strands them.
+    const text = CODING_AGENT_PROMPT
+    expect(text).toContain('find_available_tool')
+    expect(text).toContain('describe_available_tool')
+    expect(text).toContain('call_available_tool')
+  })
+
+  it('does not claim there is nothing to load', () => {
+    expect(CODING_AGENT_PROMPT.toLowerCase()).not.toContain('nothing to load')
   })
 })
