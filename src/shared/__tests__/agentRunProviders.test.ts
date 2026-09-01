@@ -3,6 +3,7 @@ import type { ProviderSettings } from '../settings.types'
 import {
   AGENT_RUN_PROVIDER_IDS,
   agentRunProviderOptions,
+  agentRunContextSize,
   defaultAgentRunModel,
   seedAgentRunProvider
 } from '../agentRunProviders'
@@ -172,5 +173,47 @@ describe('agent run providers', () => {
       }
     })
     expect(defaultAgentRunModel(azure, 'azure')).toBe('my-deployment')
+  })
+})
+
+/**
+ * The turn budget scales with the window a run actually has: a turn at 8,192
+ * holds a fraction of what one at 65,536 does, so a small window is given more
+ * turns to finish the same work.
+ *
+ * Both the run editor and `AgentRunStore` sized that from
+ * `settings.lastModelPath` — the local `.gguf` — no matter which provider the
+ * run used. `AgentRunStore.runContextSize` even documented the intended
+ * behaviour ("Undefined for a cloud provider") that its body did not implement.
+ *
+ * The consequence is worst where it is least visible: with a small local model
+ * last loaded, a DeepSeek run was offered a ceiling of 543 turns sized for an
+ * 8,192-token window, against a model whose window is 1,048,576 — and every one
+ * of those turns is billed.
+ */
+describe('agent run context size', () => {
+  const local = {
+    model: { contextSize: 8192 },
+    modelContextSizes: {},
+    lastModelPath: 'C:/models/small.gguf'
+  } as Parameters<typeof agentRunContextSize>[0]
+
+  it('uses the loaded local model window for a local run', () => {
+    expect(agentRunContextSize(local, 'local', null)).toBe(8192)
+  })
+
+  it('does not size a cloud run from the local model', () => {
+    expect(agentRunContextSize(local, 'deepseek', 'deepseek-v4-flash')).not.toBe(8192)
+  })
+
+  it('uses the cloud model own window', () => {
+    expect(agentRunContextSize(local, 'deepseek', 'deepseek-v4-flash')).toBe(1_048_576)
+  })
+
+  it('falls back to the conservative cloud default for an unknown model', () => {
+    // A live-fetched id newer than the bundled catalog, or an Azure deployment
+    // the customer named: bounded rather than unbounded.
+    expect(agentRunContextSize(local, 'azure', 'my-deployment')).toBe(128_000)
+    expect(agentRunContextSize(local, 'openai', 'some-unreleased-model')).toBe(128_000)
   })
 })
