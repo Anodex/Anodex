@@ -1,4 +1,5 @@
 import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
+import { describeSearchHttpError } from '../searchHttpError'
 
 const API_URL = 'https://api.tavily.com/search'
 const FETCH_TIMEOUT_MS = 30_000
@@ -49,7 +50,7 @@ export function createTavilyProvider(apiKey: string): SearchProvider {
           })
         })
         if (!response.ok) {
-          throw new Error(`Tavily returned HTTP ${response.status}: ${response.statusText}`)
+          throw new Error(describeSearchHttpError('Tavily', response.status, response.statusText))
         }
 
         const data = (await response.json()) as TavilyResponse
