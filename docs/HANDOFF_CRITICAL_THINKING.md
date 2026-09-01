@@ -81,11 +81,41 @@ and each step handed the same dead host a fresh allowance. It shipped, was
 reported as fixed, and did nothing. Seven steps times two is fourteen; ssrn.com
 refused 13 times. The counts now belong to the run.
 
-## Rating: 8/10
+## Rating: 9/10
 
-Three clean runs on three different subjects, on one build. Not a 9, because the
-bar set for this work was _all four_ new subjects clean, and one failed and one
-could not be measured.
+Updated 2026-09-01. **Eight consecutive clean runs across six subjects on one
+build**, including three consecutive clean runs of the question with the worst
+historical record.
+
+| run | subject          | steps | chars   |
+| --- | ---------------- | ----- | ------- |
+| 32  | minimum wage     | 6/6   | 72,589  |
+| 34  | bronze age       | 6/6   | 160,271 |
+| 35  | heat pumps       | 7/7   | 66,111  |
+| 36  | creatine         | 6/6   | 53,606  |
+| 37  | EU AI Act        | 6/6   | 79,916  |
+| 38  | Universe Sandbox | 5/5   | 51,851  |
+| 39  | Universe Sandbox | 6/6   | 58,083  |
+| 40  | Universe Sandbox | 6/6   | 29,005  |
+
+Every one `status: completed`, every one on the model's own `repair` stage
+rather than a recovered or assembled one, every one zero blockers. Both bars
+this document set for a 9 are met: all the new subjects clean, and three
+consecutive clean runs on one question.
+
+Universe Sandbox is the meaningful one. Its record before today was `0/7` to
+`7/7` across ten attempts, and it was named here as the question most likely to
+expose a remaining problem. Three for three.
+
+**Not a 10, and the reasons are specific.** One model on one machine — nothing
+here says how a 7B or a cloud provider behaves. `sufficient` sits at 0–8%, so
+completion rests almost entirely on the deterministic test rather than the
+model's own judgement, which is the semantic shift recorded below and still
+worth watching. SearXNG now rests on a single engine, and its silent-thinning
+failure — `HTTP 200` with fewer results, reading as "the evidence does not
+exist" — remains untested and is the one failure class that produces confidently
+wrong reports rather than visible errors. Quotations from memory still occur
+(six in the heat-pumps run), though bronze age fell from 12 to 1.
 
 ## The measured record
 
