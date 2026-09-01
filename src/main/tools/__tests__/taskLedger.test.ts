@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createTaskLedger } from '../taskLedger'
+import { createTaskLedger, GATHERING_HARD_LIMIT } from '../taskLedger'
 import { LOOP_GUARD_LIMIT, LOOP_GUARD_ABORT_AFTER } from '../loopGuard'
 import { effectiveToolKind } from '../commandEffect'
 
@@ -482,5 +482,87 @@ describe('re-reading after the window was reset', () => {
     expect(ledger.reviewCall({ name: 'write_file', kind: 'write', key: 'w::a.py' }).action).toBe(
       'abort'
     )
+  })
+})
+
+/**
+ * `noteStaleView` is the one way a refused read can be bought back, and until
+ * now nothing tested it.
+ *
+ * Measured, and the reason it exists: a 4B model at an 8,192-token window wrote
+ * a file with a syntax error and then had 76 reads refused while trying to
+ * repair it. Editing blind, every attempt failed with "the text to replace was
+ * not found" - and a failed edit is a no-op, so it never reset the gathering
+ * streak. The run ended reporting it could not read a file sitting in the
+ * workspace.
+ *
+ * The guard's premise is that the model already has what it is asking for. A
+ * stale-view failure is Anodex's own evidence that it does not.
+ */
+describe('a stale view buys back one read', () => {
+  /** Drive the ledger past the hard rung, where gathering is refused outright. */
+  function blocked(): ReturnType<typeof createTaskLedger> {
+    const ledger = createTaskLedger()
+    for (let i = 0; i < GATHERING_HARD_LIMIT + 1; i++) {
+      ledger.recordOutcome({ kind: 'read', madeProgress: true })
+    }
+    return ledger
+  }
+
+  /** A distinct read every time, so nothing here is the loop guard's doing. */
+  function look(
+    ledger: ReturnType<typeof createTaskLedger>,
+    name: string
+  ): ReturnType<ReturnType<typeof createTaskLedger>['reviewCall']> {
+    return ledger.reviewCall({
+      name: 'read_file_range',
+      kind: 'read',
+      key: `{"path":"${name}"}`,
+      args: { path: name },
+      rereadable: true
+    })
+  }
+
+  it('refuses a read once gathering has gone far enough', () => {
+    expect(look(blocked(), 'repair.js').action).toBe('block')
+  })
+
+  it('lets the repair read through after a stale-view failure', () => {
+    const ledger = blocked()
+    ledger.noteStaleView()
+    expect(look(ledger, 'repair.js').action).toBe('run')
+  })
+
+  it('buys exactly one read, not an amnesty', () => {
+    // The 76-refusal run would have been just as stuck if one failed edit had
+    // opened the guard for the rest of the task.
+    const ledger = blocked()
+    ledger.noteStaleView()
+    look(ledger, 'repair.js')
+    expect(look(ledger, 'again.js').action).toBe('block')
+  })
+
+  it('accumulates one credit per failure', () => {
+    const ledger = blocked()
+    ledger.noteStaleView()
+    ledger.noteStaleView()
+    expect(look(ledger, 'one.js').action).toBe('run')
+    expect(look(ledger, 'two.js').action).toBe('run')
+    expect(look(ledger, 'three.js').action).toBe('block')
+  })
+
+  it('does not spend the credit on a call that was never gathering', () => {
+    // A write is not what the credit is for; spending it there would leave the
+    // repair read still refused.
+    const ledger = blocked()
+    ledger.noteStaleView()
+    ledger.reviewCall({
+      name: 'write_file',
+      kind: 'write',
+      key: '{"path":"x.js"}',
+      args: { path: 'x.js' },
+      rereadable: false
+    })
+    expect(look(ledger, 'repair.js').action).toBe('run')
   })
 })
