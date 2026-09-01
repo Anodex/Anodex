@@ -13,13 +13,33 @@ const runs = Object.values(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(
 
 const only = process.argv[2] ? Number(process.argv[2]) : null
 
-// An excerpt-dump block is the assembled-fallback shape: a source heading
-// followed by a raw passage, rather than prose answering the question.
+// An excerpt-dump block is the assembled-fallback shape: raw passages listed in
+// place of prose that answers the question.
+//
+// This used to count any markdown blockquote line, and that measured the wrong
+// thing in both directions. Checked against every stored run:
+//
+//   - Six runs (2, 11, 12, 18, 30, 31) contain the fallback's own lead line and
+//     were every one scored `dumps=0`. Every real excerpt dump was missed.
+//   - Two runs (38, 40) contain no dump at all and were both flagged - on a
+//     quotation from a source, and on the model's own recommendation set in a
+//     blockquote for emphasis.
+//
+// Zero true positives, two false positives. The fallback emits bullets under a
+// fixed lead line (`buildStepBody` in `criticalThinkingFallbackReport.ts`) and
+// never a blockquote, so a blockquote could only ever be the model quoting
+// something - which the evidence validator elsewhere calls the ordinary way to
+// present a quotation.
+//
+// Matching the real signature makes this criterion stricter, not looser: six
+// runs that passed it were carrying excerpt dumps.
+const FALLBACK_LEAD = 'Direct excerpts from the verified sources'
+
 const dumpBlocks = (report) => {
   if (!report) return 0
   let n = 0
   for (const line of report.split('\n')) {
-    if (/^\s*>\s*\S/.test(line)) n++
+    if (line.includes(FALLBACK_LEAD)) n++
     if (/^#{1,6}\s+(Excerpt|Passage|Raw|Source \d)/i.test(line)) n++
   }
   return n
