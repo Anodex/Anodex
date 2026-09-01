@@ -1345,6 +1345,30 @@ describe('figures that come from the question', () => {
     expect(validation.issues.join(' ')).toContain('73 percent is not present')
   })
 
+  it('does not demand a citation for a premise in an uncited paragraph', () => {
+    // The uncited branch reports "has no evidence citation" separately, and the
+    // premise escape has to reach it too: a run whose report merely restates
+    // the council's proposal in an uncited sentence was still flagged, and that
+    // noise is what the repair prompt is built from.
+    const validation = validateResearchReport(
+      'The council proposes a rise of roughly 40 percent above the floor.',
+      artifacts,
+      sources,
+      question
+    )
+    expect(validation.issues.join(' ')).not.toContain('40 percent has no evidence citation')
+  })
+
+  it('still asks for a citation on an uncited figure the question never gave', () => {
+    const validation = validateResearchReport(
+      'Employment fell by 73 percent.',
+      artifacts,
+      sources,
+      question
+    )
+    expect(validation.issues.join(' ')).toContain('73 percent has no evidence citation')
+  })
+
   it('behaves exactly as before when no question is supplied', () => {
     const validation = validateResearchReport(
       'The proposed rise is 40 percent above the floor [[S1:P1]].',
