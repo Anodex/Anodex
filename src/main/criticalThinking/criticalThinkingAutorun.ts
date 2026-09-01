@@ -1,4 +1,5 @@
 import { llamaService } from '../llama/LlamaService'
+import { settingsStore } from '../settings/SettingsStore'
 import { criticalThinkingService } from './CriticalThinkingService'
 import { criticalThinkingStore } from './CriticalThinkingStore'
 import { createLogger } from '../utils/logger'
@@ -39,11 +40,17 @@ const PLAN_TIMEOUT_MS = 20 * 60 * 1000
 
 async function driveRun(question: string): Promise<void> {
   try {
-    await waitFor(
-      () => llamaService.getState().status === 'ready',
-      MODEL_READY_TIMEOUT_MS,
-      'model to become ready'
-    )
+    // Only a local run has a model to wait for. A cloud run has no local part,
+    // so gating it on the engine made it sit here for fifteen minutes and then
+    // fail with a local diagnosis for a problem it could not have. Same defect
+    // the agent autorun had.
+    if (settingsStore.get().provider.active === 'local') {
+      await waitFor(
+        () => llamaService.getState().status === 'ready',
+        MODEL_READY_TIMEOUT_MS,
+        'model to become ready'
+      )
+    }
     const run = criticalThinkingService.start({ question })
     log.info('Autorun started run', run.id)
     await waitFor(
