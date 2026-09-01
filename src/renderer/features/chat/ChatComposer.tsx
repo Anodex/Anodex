@@ -7,6 +7,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { isChatReady } from '../../lib/chatReadiness'
+import { agentRunProviderVendor } from '@shared/agentRunProviders'
 import { COMPOSER_INPUT_ATTR } from '../../hooks/useGlobalKeyboardShortcuts'
 import { Icon } from '../../components/Icon'
 import { MAX_ATTACHMENTS } from '../../lib/attachments'
@@ -293,11 +294,9 @@ export function ChatComposer(): JSX.Element {
                 ? 'Drop to attach…'
                 : ready
                   ? 'Message Anodex…'
-                  : settings?.provider.active === 'anthropic'
-                    ? 'Add a Claude API key in Settings → AI & Models to start chatting'
-                    : settings?.provider.active === 'openai'
-                      ? 'Add an OpenAI API key in Settings → AI & Models to start chatting'
-                      : 'Load a model from the Models tab to start chatting'
+                  : settings && settings.provider.active !== 'local'
+                    ? `Add ${agentRunProviderVendor(settings.provider.active)} credentials in Settings → AI & Models to start chatting`
+                    : 'Load a model from the Models tab to start chatting'
           }
           onChange={(event) => {
             if (event.target.value.length > 0 && activeConversation) {

@@ -39,6 +39,13 @@ export type AgentRunProviderId = ProviderSettings['active']
 interface ModelChoice {
   id: string
   label: string
+  /**
+   * The model's own context window. Optional here because not every catalog
+   * type declares one, which is itself worth being able to check: a missing
+   * window silently becomes `DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS`, and a budget
+   * built on that is a guess wearing a real number's clothes.
+   */
+  contextWindowTokens?: number
 }
 
 interface AgentRunProvider {
@@ -258,4 +265,21 @@ export function agentRunContextSize(
     return resolveModelContextSize(settings, settings?.lastModelPath ?? null)
   }
   return cloudContextWindowTokens(provider, modelId ?? '')
+}
+
+/**
+ * Whether this install can actually authenticate as a provider right now.
+ *
+ * The one place that question is answered. It was previously re-answered by
+ * every caller that needed it, each naming the providers its author had in
+ * mind: the chat composer's readiness gate named Anthropic and OpenAI and fell
+ * through to "is a local model loaded" for the other nine, so a DeepSeek user
+ * with no local model was told to load one before they could send anything.
+ */
+export function isProviderConfigured(
+  settings: ProviderSettings | null | undefined,
+  id: AgentRunProviderId
+): boolean {
+  if (!settings) return false
+  return AGENT_RUN_PROVIDERS[id]?.isConfigured(settings) ?? false
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { agentRunProviderVendor } from '@shared/agentRunProviders'
 import type {
   CriticalThinkingRun,
   CriticalThinkingStatus,
@@ -48,10 +49,16 @@ function clonePlan(plan: Plan): Plan {
   return { ...plan, steps: plan.steps.map((step) => ({ ...step })) }
 }
 
+/**
+ * Names the backend a run used. This tested local, then Anthropic, then fell
+ * through to OpenAI - so a DeepSeek run read as "OpenAI - deepseek-v4-flash",
+ * the wrong vendor stated confidently. Same defect, same fix, as the agent run
+ * list's own `providerLabel`.
+ */
 function providerLabel(run: CriticalThinkingRun): string {
   if (run.provider === 'local') return 'Local model'
-  if (run.provider === 'anthropic') return run.model ? `Claude · ${run.model}` : 'Claude'
-  return run.model ? `OpenAI · ${run.model}` : 'OpenAI'
+  const vendor = agentRunProviderVendor(run.provider)
+  return run.model ? `${vendor} · ${run.model}` : vendor
 }
 
 function StatusBadge({
