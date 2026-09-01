@@ -79,10 +79,41 @@ function launch(question, logFile) {
   )
 }
 
+/**
+ * Whether Anodex is actually running, rather than merely recorded as running.
+ *
+ * A run record says `researching` until the app writes a terminal status, so a
+ * force-quit leaves one that never settles. Anodex reconciles those itself on
+ * its next start (`reconcileInterruptedCriticalThinkingRuns`) - which is
+ * precisely the deadlock: this waited for the record to settle before launching
+ * the app, and only the app can settle it. Measured: a killed sweep left a
+ * `researching` record and the next sweep waited on it indefinitely.
+ *
+ * Same reasoning `scripts/bench-reset.mjs` applies, for the same reason.
+ */
+function anodexIsRunning() {
+  try {
+    return /electron\.exe/i.test(
+      execFileSync('tasklist', ['/FI', 'IMAGENAME eq electron.exe', '/NH'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore']
+      })
+    )
+  } catch {
+    // No tasklist, or it failed: trust the record, because waiting needlessly
+    // is far better than starting a second run over a live one.
+    return true
+  }
+}
+
 async function waitForIdle() {
   for (;;) {
     const run = newestRun()
     if (!run || !RUNNING.has(run.status)) return
+    if (!anodexIsRunning()) {
+      console.log(stamp(), 'ignoring a stale', run.status, 'record - Anodex is not running')
+      return
+    }
     console.log(stamp(), 'waiting for the in-flight run to finish:', run.status)
     await sleep(60_000)
   }
