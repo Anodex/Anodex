@@ -4,7 +4,7 @@ import {
   AGENT_RUN_PROVIDER_IDS,
   agentRunProviderOptions,
   agentRunContextSize,
-  defaultAgentRunModel,
+  configuredProviderModel,
   seedAgentRunProvider
 } from '../agentRunProviders'
 
@@ -143,7 +143,7 @@ describe('agent run providers', () => {
   })
 
   it('defaults a run model from the provider catalog', () => {
-    expect(defaultAgentRunModel(settings(), 'deepseek')).toBe('deepseek-v4-flash')
+    expect(configuredProviderModel(settings(), 'deepseek')).toBe('deepseek-v4-flash')
     // A model the user chose in Settings wins over the catalog default.
     const chosen = settings({
       deepseek: {
@@ -153,12 +153,12 @@ describe('agent run providers', () => {
         maxResponseTokens: null
       }
     })
-    expect(defaultAgentRunModel(chosen, 'deepseek')).toBe('deepseek-v4-pro')
+    expect(configuredProviderModel(chosen, 'deepseek')).toBe('deepseek-v4-pro')
   })
 
   it('has no model id for a local run', () => {
     // Local always uses whatever model is loaded; a model id here would be a lie.
-    expect(defaultAgentRunModel(settings(), 'local')).toBe('')
+    expect(configuredProviderModel(settings(), 'local')).toBe('')
   })
 
   it('uses the deployment name as Azure model id', () => {
@@ -172,7 +172,7 @@ describe('agent run providers', () => {
         maxResponseTokens: null
       }
     })
-    expect(defaultAgentRunModel(azure, 'azure')).toBe('my-deployment')
+    expect(configuredProviderModel(azure, 'azure')).toBe('my-deployment')
   })
 })
 

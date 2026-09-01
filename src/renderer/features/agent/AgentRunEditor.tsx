@@ -18,7 +18,7 @@ import {
   agentRunContextSize,
   agentRunModelCatalog,
   agentRunProviderOptions,
-  defaultAgentRunModel,
+  configuredProviderModel,
   seedAgentRunProvider,
   type AgentRunProviderId
 } from '@shared/agentRunProviders'
@@ -113,7 +113,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     // A retry keeps the model it ran with, but only when it is still the same
     // provider — a seed's model id means nothing to a different one.
     if (seed && seed.provider === initial && seed.model) return seed.model
-    return defaultAgentRunModel(settings.provider, initial)
+    return configuredProviderModel(settings.provider, initial)
   })
   // Sliders can't represent a value below their own step, so a seed from an
   // older run typed into the number inputs (say 500 tokens) is pulled up to
@@ -183,7 +183,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const handleProviderChange = (value: string): void => {
     const next = value as AgentRunProviderId
     setProvider(next)
-    const nextModel = settings ? defaultAgentRunModel(settings.provider, next) : ''
+    const nextModel = settings ? configuredProviderModel(settings.provider, next) : ''
     if (settings) setModel(nextModel)
     // A different provider is a different window, so it is a different turn
     // ceiling. Without this the slider keeps a value past its own new track and

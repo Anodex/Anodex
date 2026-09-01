@@ -173,8 +173,18 @@ export function agentRunModelCatalog(id: AgentRunProviderId): ModelChoice[] | nu
   return AGENT_RUN_PROVIDERS[id].catalog
 }
 
-/** The model id a new run on this provider should carry. */
-export function defaultAgentRunModel(settings: ProviderSettings, id: AgentRunProviderId): string {
+/**
+ * The model id configured for a provider: whatever the user chose in Settings,
+ * else the catalog default; the deployment name for Azure, and empty for local,
+ * which always uses the loaded model and would be misrepresented by any id.
+ *
+ * Used for a new run's model and by the chat context meter, which needs the
+ * same answer to size the window it draws.
+ */
+export function configuredProviderModel(
+  settings: ProviderSettings,
+  id: AgentRunProviderId
+): string {
   return AGENT_RUN_PROVIDERS[id].resolveModel(settings)
 }
 

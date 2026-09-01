@@ -1,9 +1,8 @@
 import { useId, useMemo } from 'react'
-import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
-import { OPENAI_MODELS } from '@shared/openaiModels'
 import { estimateProjectedContextUsage } from '@shared/contextProjection'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
-import { DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
+import { cloudContextWindowTokens, DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
+import { configuredProviderModel } from '@shared/agentRunProviders'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -20,8 +19,6 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const engineContextSize = useModelStore((s) => s.engine.contextSize)
   const providerActive = useSettingsStore((s) => s.settings?.provider.active)
-  const anthropicModel = useSettingsStore((s) => s.settings?.provider.anthropic.model)
-  const openaiModel = useSettingsStore((s) => s.settings?.provider.openai.model)
   const systemPrompt = useSettingsStore((s) => s.settings?.assistantStyle.globalStyle)
   const providers = useSettingsStore((s) => s.settings?.provider)
 
@@ -45,20 +42,22 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   )
 
   // `engine.contextSize` only reflects the local llama engine — cloud
-  // providers never touch it, so switching to Anthropic/OpenAI left the
-  // meter pinned to whatever the local model's window last was (or hidden,
-  // if no local model had ever been loaded this session). Use each
-  // provider's own known context window instead, mirroring what
-  // `contextAssembler.ts`'s `boundHistoryForCloudProvider` actually sends.
+  // providers never touch it, so a cloud chat would otherwise leave the meter
+  // pinned to whatever the local model's window last was (or hidden, if no
+  // local model had ever been loaded this session). Use the provider's own
+  // known window instead, mirroring what `contextAssembler.ts`'s
+  // `boundHistoryForCloudProvider` actually sends.
+  //
+  // This was a branch naming Anthropic and OpenAI, with every other provider
+  // taking the local fall-through — reintroducing the exact bug the branch was
+  // written to fix, for the nine providers it did not name.
   const contextSize = useMemo(() => {
-    if (providerActive === 'anthropic') {
-      return ANTHROPIC_MODELS.find((m) => m.id === anthropicModel)?.contextWindowTokens
-    }
-    if (providerActive === 'openai') {
-      return OPENAI_MODELS.find((m) => m.id === openaiModel)?.contextWindowTokens
-    }
-    return engineContextSize
-  }, [providerActive, anthropicModel, openaiModel, engineContextSize])
+    if (!providers || !providerActive || providerActive === 'local') return engineContextSize
+    return cloudContextWindowTokens(
+      providerActive,
+      configuredProviderModel(providers, providerActive)
+    )
+  }, [providerActive, providers, engineContextSize])
 
   const fixedContext = useMemo(
     () =>
