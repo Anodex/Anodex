@@ -117,6 +117,32 @@ exist" — remains untested and is the one failure class that produces confident
 wrong reports rather than visible errors. Quotations from memory still occur
 (six in the heat-pumps run), though bronze age fell from 12 to 1.
 
+## Five models, one question
+
+`ct-question-creatine` on every local model that fits, after the bold-label fix.
+
+| model                      | ctx | chars  | cited | suff | result |
+| -------------------------- | --- | ------ | ----- | ---- | ------ |
+| Qwen3.8-27B                | 64K | 53,606 | 57    | 0%   | clean  |
+| Qwen3-4B                   | 32K | 18,386 | 10    | 77%  | clean  |
+| gemma-3-27B                | 64K | 9,494  | 8     | 42%  | clean  |
+| Devstral-24B               | 64K | 6,930  | 8     | 25%  | clean  |
+| DeepSeek-Coder-V2-Lite-16B | 64K | 6,103  | 7     | 100% | clean  |
+
+**Five of five complete the workflow.** Before the bold-label fix it was three
+of five: gemma and DeepSeek-Coder were both rejected as `structurally-invalid`
+for writing their sections as `**Label:**` rather than `# Label`.
+
+**The 27B is an outlier, not a baseline.** Every other model lands at 6,000 to
+18,000 characters and 7 to 10 cited blocks, against its 53,606 and 57. Anything
+measured only on the 27B describes that model as much as it describes Anodex —
+including the eight clean runs this document rates a 9 on.
+
+`sufficient` also inverts with capability: the 27B says its evidence is enough
+0% of the time and the 16B says so 100% of the time, on the same question with
+the same evidence available. A weaker model is more easily satisfied, and
+nothing in the four criteria notices.
+
 ## A 4B passes every criterion, and should not
 
 Run on `Qwen3-4B-Instruct` at 32,768 — the smallest model here, given room,
