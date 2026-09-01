@@ -1301,3 +1301,56 @@ describe('criticalThinkingEvidence — a figure cited to the wrong source', () =
     ).toBe(true)
   })
 })
+
+/**
+ * A figure the run was *given* is a premise, not a claim about the world.
+ *
+ * Measured on a live minimum-wage run whose question opens "raising its local
+ * minimum wage to roughly 40 percent above the national floor". Every time the
+ * report restated that proposal it was flagged
+ * "Numeric claim 40 percent is not present in its cited evidence" — a safety
+ * issue, which makes a report unusable. It failed the draft, the repair and
+ * five sections, and each failed section was replaced by a ~1,200-character
+ * fallback stub in place of 8,750-16,435 characters of real prose. That is what
+ * forced the run into hierarchical recovery and left `recovered-stage` as its
+ * only remaining blocker.
+ *
+ * The model cannot cite evidence for the council's own proposal, and should not
+ * have to.
+ */
+describe('figures that come from the question', () => {
+  const question =
+    'A mid-sized city council is considering raising its local minimum wage to roughly ' +
+    '40 percent above the national floor over three years.'
+
+  it('treats a figure restated from the question as a premise, not fabrication', () => {
+    const validation = validateResearchReport(
+      'The proposed rise is 40 percent above the floor [[S1:P1]].',
+      artifacts,
+      sources,
+      question
+    )
+    expect(validation.issues.join(' ')).not.toContain('40 percent is not present')
+  })
+
+  it('still rejects a figure that is in neither the question nor the evidence', () => {
+    // The premise escape must not become a blanket amnesty for numbers.
+    const validation = validateResearchReport(
+      'Employment fell by 73 percent [[S1:P1]].',
+      artifacts,
+      sources,
+      question
+    )
+    expect(validation.valid).toBe(false)
+    expect(validation.issues.join(' ')).toContain('73 percent is not present')
+  })
+
+  it('behaves exactly as before when no question is supplied', () => {
+    const validation = validateResearchReport(
+      'The proposed rise is 40 percent above the floor [[S1:P1]].',
+      artifacts,
+      sources
+    )
+    expect(validation.issues.join(' ')).toContain('40 percent is not present')
+  })
+})

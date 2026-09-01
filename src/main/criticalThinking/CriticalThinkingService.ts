@@ -722,7 +722,8 @@ class CriticalThinkingService {
       draft,
       artifacts,
       run.sources,
-      approvedStepCount
+      approvedStepCount,
+      run.question
     )
     let selectedStage: CriticalThinkingSynthesisStage = 'draft'
     let chartAdded = false
@@ -748,7 +749,8 @@ class CriticalThinkingService {
         neutraliseUnverifiedQuotations(candidate.content, candidate.unverifiedQuotationText),
         artifacts,
         run.sources,
-        approvedStepCount
+        approvedStepCount,
+        run.question
       )
     )
     let repairStopReason: GenerationStopReason | undefined
@@ -802,7 +804,8 @@ class CriticalThinkingService {
           repair.content,
           artifacts,
           run.sources,
-          approvedStepCount
+          approvedStepCount,
+          run.question
         )
         recordDiagnostic(
           reportCandidateDiagnostic(
@@ -917,7 +920,8 @@ class CriticalThinkingService {
         fallbackContent,
         artifacts,
         run.sources,
-        stepsWithEvidence
+        stepsWithEvidence,
+        run.question
       )
       recordDiagnostic(reportCandidateDiagnostic('deterministic-fallback', fallbackCandidate))
       const selected = chooseBetterReportCandidate(candidate, fallbackCandidate)
@@ -1063,7 +1067,8 @@ class CriticalThinkingService {
         }),
         artifacts,
         run.sources,
-        run.steps.length
+        run.steps.length,
+        run.question
       )
     }
     // A section's prompt is small — one step's evidence, capped at 18,000
@@ -1127,7 +1132,8 @@ class CriticalThinkingService {
       let sectionCandidate = evaluateHierarchicalSection(
         sectionResult.content,
         stepArtifacts,
-        run.sources
+        run.sources,
+        run.question
       )
       attempts.push(
         hierarchicalSectionDiagnostic(
@@ -1169,7 +1175,8 @@ class CriticalThinkingService {
         const repairedCandidate = evaluateHierarchicalSection(
           repaired.content,
           stepArtifacts,
-          run.sources
+          run.sources,
+          run.question
         )
         attempts.push(
           hierarchicalSectionDiagnostic(
@@ -1190,7 +1197,8 @@ class CriticalThinkingService {
         const fallbackCandidate = evaluateHierarchicalSection(
           buildDeterministicStepSection(step, stepArtifacts, run.sources),
           stepArtifacts,
-          run.sources
+          run.sources,
+          run.question
         )
         attempts.push(
           hierarchicalSectionDiagnostic('section-fallback', fallbackCandidate, undefined, step.id)
@@ -1244,7 +1252,8 @@ class CriticalThinkingService {
           sections,
           corrections,
           artifacts,
-          run.sources
+          run.sources,
+          run.question
         )
         sections.clear()
         for (const [stepId, section] of applied.sections) sections.set(stepId, section)
@@ -1306,7 +1315,8 @@ class CriticalThinkingService {
       const overviewCandidate = evaluateHierarchicalSection(
         `${overview.executiveSummary}\n\n${overview.conclusion}`,
         artifacts,
-        run.sources
+        run.sources,
+        run.question
       )
       attempts.push(
         hierarchicalSectionDiagnostic(
@@ -1331,7 +1341,13 @@ class CriticalThinkingService {
       overview: null,
       sources: run.sources
     })
-    let candidate = evaluateReportCandidate(baseReport, artifacts, run.sources, run.steps.length)
+    let candidate = evaluateReportCandidate(
+      baseReport,
+      artifacts,
+      run.sources,
+      run.steps.length,
+      run.question
+    )
     if (overview) {
       const reportWithOverview = assembleHierarchicalReport({
         title: run.plan?.title ?? run.question,
@@ -1342,7 +1358,13 @@ class CriticalThinkingService {
       })
       candidate = chooseBetterReportCandidate(
         candidate,
-        evaluateReportCandidate(reportWithOverview, artifacts, run.sources, run.steps.length)
+        evaluateReportCandidate(
+          reportWithOverview,
+          artifacts,
+          run.sources,
+          run.steps.length,
+          run.question
+        )
       )
     }
     attempts.push(reportCandidateDiagnostic('hierarchical-report', candidate))
@@ -1438,7 +1460,8 @@ class CriticalThinkingService {
       appendCriticalThinkingCharts(report.content, chartBlocks),
       artifacts,
       run.sources,
-      run.steps.length
+      run.steps.length,
+      run.question
     )
     return {
       candidate: augmented.safe ? augmented : null,
@@ -1816,7 +1839,8 @@ class CriticalThinkingService {
       fallbackContent,
       artifacts,
       run.sources,
-      stepsWithEvidence
+      stepsWithEvidence,
+      run.question
     )
     // Applied to whichever stage won, not just the draft: a repair produces its
     // own quotations and can outscore a draft that was already neutralised, so

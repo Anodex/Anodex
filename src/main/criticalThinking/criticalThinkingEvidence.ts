@@ -380,7 +380,15 @@ function fitEvidenceLine(line: string, limit: number): string | null {
 export function validateResearchReport(
   report: string,
   artifacts: ToolArtifact[],
-  sources: CriticalThinkingSource[]
+  sources: CriticalThinkingSource[],
+  /**
+   * The run's own question, when the caller has it.
+   *
+   * A figure the run was *given* is a premise, not a claim about the world, and
+   * no evidence can be cited for it. Optional so a caller without a question
+   * behaves exactly as before.
+   */
+  question?: string
 ): ReportValidationResult {
   const collector: IssueCollector = { safety: [], coverage: [] }
   const unverifiedQuotationText: string[] = []
@@ -467,7 +475,7 @@ export function validateResearchReport(
   validateCitationCoverage(proseReport, collector, exempt)
   validateSourceQualityCoverage(proseReport, sourceById, collector)
   validateCharts(report, passagesByUrl, sourceById, collector)
-  validateNumericClaims(proseReport, passagesByUrl, sourceById, collector, exempt)
+  validateNumericClaims(proseReport, passagesByUrl, sourceById, collector, exempt, question)
   if (citationIds.length === 0) {
     collector.coverage.push('The report contains no evidence citation markers.')
   }
@@ -481,7 +489,9 @@ function validateNumericClaims(
   passagesByUrl: Map<string, EvidencePassage[]>,
   sourceById: Map<string, CriticalThinkingSource>,
   collector: IssueCollector,
-  exempt: Set<string>
+  exempt: Set<string>,
+  /** The run's own question; a figure it contains is a premise. */
+  question?: string
 ): void {
   // Every passage the run fetched, joined once. Built lazily because most
   // reports never need it — only a figure that failed both the cited passage
@@ -563,6 +573,19 @@ function validateNumericClaims(
         collector.coverage.push(`Numeric claim ${number} is cited to the wrong source.`)
         continue
       }
+      // A figure that came from the question is the premise the run was handed,
+      // not something it found. Nothing in the evidence can support "raising the
+      // minimum wage to roughly 40 percent above the national floor", because it
+      // is the council's proposal, not a finding.
+      //
+      // Measured on that run: restating it was flagged as fabrication in the
+      // draft, the repair and five sections. A safety issue makes a report
+      // unusable, so each failed section was replaced by a ~1,200-character
+      // fallback stub in place of 8,750-16,435 characters of real prose, and the
+      // run was driven into hierarchical recovery.
+      //
+      // Not a blanket amnesty: the figure has to appear in the question itself.
+      if (question && numberAppears(question, number)) continue
       collector.safety.push(`Numeric claim ${number} is not present in its cited evidence.`)
     }
   }

@@ -156,12 +156,14 @@ export function evaluateReportCandidate(
   content: string,
   artifacts: ToolArtifact[],
   sources: CriticalThinkingSource[],
-  approvedStepCount: number
+  approvedStepCount: number,
+  /** The run's question, so a figure it states is not read as fabrication. */
+  question?: string
 ): ReportCandidate {
   // Normalized before anything reads it, so the validators and the renderer
   // see the same markers the stored report will carry.
   const trimmed = normalizeCitationMarkers(withoutModelPreamble(content).trim())
-  const citation = validateResearchReport(trimmed, artifacts, sources)
+  const citation = validateResearchReport(trimmed, artifacts, sources, question)
   const contract = validateReportContract(trimmed, approvedStepCount)
   const unverifiedQuotations = citation.safetyIssues.filter(isUnverifiedQuotationIssue)
   const unverifiedFigures = citation.safetyIssues.filter(isUnverifiedFigureIssue)

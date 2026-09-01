@@ -64,7 +64,12 @@ export function applyCriticalThinkingConsistencyCorrections(
   sections: Map<string, string>,
   corrections: CriticalThinkingConsistencyCorrection[],
   artifacts: ToolArtifact[],
-  sources: CriticalThinkingSource[]
+  sources: CriticalThinkingSource[],
+  /**
+   * The run's question. Both candidates are judged against it, so a correction
+   * is never rejected merely for restating a figure the question supplied.
+   */
+  question?: string
 ): CriticalThinkingConsistencyApplication {
   const revised = new Map(sections)
   const issues: string[] = []
@@ -75,9 +80,9 @@ export function applyCriticalThinkingConsistencyCorrections(
       issues.push(`Correction target was not an exact retained sentence for ${correction.stepId}.`)
       continue
     }
-    const original = evaluateHierarchicalSection(current, artifacts, sources)
+    const original = evaluateHierarchicalSection(current, artifacts, sources, question)
     const candidateText = current.replace(correction.find, correction.replace)
-    const candidate = evaluateHierarchicalSection(candidateText, artifacts, sources)
+    const candidate = evaluateHierarchicalSection(candidateText, artifacts, sources, question)
     if (
       !candidate.safe ||
       !candidate.usable ||
