@@ -520,6 +520,11 @@ function validateNumericClaims(
       if (exempt.has(paragraph.trim())) continue
       for (const number of numbers) {
         if (number.length === 1 && !number.endsWith('%')) continue
+        // Same premise rule as the cited branch below: a figure the question
+        // supplied cannot be cited to evidence, so asking for a citation here
+        // is noise - and this branch's issues are what the repair prompt is
+        // built from, so the noise is acted on.
+        if (question && numberAppears(question, number)) continue
         collector.coverage.push(`Numeric claim ${number} has no evidence citation.`)
       }
       continue
