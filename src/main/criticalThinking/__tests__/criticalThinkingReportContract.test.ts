@@ -188,3 +188,72 @@ The investigation remains inconclusive overall.
     )
   })
 })
+
+/**
+ * A section written as a bold label is a section.
+ *
+ * Every structural check required a markdown ATX heading. Measured across five
+ * models on one question, two of them - DeepSeek-Coder-V2-Lite-16B and
+ * gemma-3-27B - write their structure as whole-line bold labels instead, and
+ * both were rejected as `structurally-invalid` with all the sections present:
+ *
+ *   **Title:** ... **Executive Summary:** ... **Findings:**
+ *   **Conclusion:** ... **Limits and Open Questions:** ... **Sources:**
+ *
+ * The report named "Limits and Open Questions" was reported as missing a limits
+ * section. Bold labels are ordinary markdown, and the contract was measuring
+ * syntax rather than structure.
+ *
+ * It also made the repair loop useless: told to add sections it already had,
+ * the model returned byte-identical text, so the run could never recover.
+ */
+describe('report contract: bold labels as sections', () => {
+  const body = 'A substantive paragraph of findings with a citation [[S1:P1]] in it.'
+
+  it('accepts a bold label as the limits section', () => {
+    const report = [
+      '**Title:** A report',
+      '',
+      body,
+      '',
+      '**Limits and Open Questions:**',
+      '',
+      'What could not be established.'
+    ].join('\n')
+    const issues = validateReportContract(report, 1).issues.join(' ')
+    expect(issues).not.toContain('limits')
+  })
+
+  it('accepts a bold label carrying content on the same line as a title', () => {
+    // `**Title:** An Assessment of ...` - the label and its text share a line.
+    const report = ['**Title:** An Assessment', '', body, '', '**Conclusion:**', '', 'So.'].join(
+      '\n'
+    )
+    expect(validateReportContract(report, 1).issues.join(' ')).not.toContain('no descriptive title')
+  })
+
+  it('accepts a bold label with no trailing colon', () => {
+    // gemma writes `**Limits and open questions**`, DeepSeek writes it with a
+    // colon inside the bold. Both are the same thing.
+    const report = ['# A report', '', body, '', '**Limits and open questions**', '', 'Gaps.'].join(
+      '\n'
+    )
+    expect(validateReportContract(report, 1).issues.join(' ')).not.toContain('limits')
+  })
+
+  it('still reports a genuinely missing section', () => {
+    // The point is to read structure, not to stop requiring it.
+    const report = ['# A report', '', body, '', '**Conclusion:**', '', 'So.'].join('\n')
+    expect(validateReportContract(report, 1).issues.join(' ')).toContain('limits')
+  })
+
+  it('still reports a report with no structure at all', () => {
+    expect(validateReportContract(body, 1).issues.join(' ')).toContain('no descriptive title')
+  })
+
+  it('does not treat mid-sentence bold emphasis as a heading', () => {
+    // Bold used for emphasis inside a paragraph is not a section label.
+    const report = ['Some prose with **emphasis** inside it and a citation [[S1:P1]].'].join('\n')
+    expect(validateReportContract(report, 1).issues.join(' ')).toContain('no descriptive title')
+  })
+})
