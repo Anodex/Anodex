@@ -36,6 +36,7 @@ import {
 import { reconcileMessageBlocks } from '../features/chat/reconcileMessageBlocks'
 import { quarantineStreamingToolPayload } from '../features/chat/streamingToolPayload'
 import { isChatReady } from '../lib/chatReadiness'
+import { agentRunProviderVendor } from '@shared/agentRunProviders'
 import { buildMessageEditBranch, buildRegenerateTarget } from '../features/chat/messageEdit'
 import { describeGenerationStop } from '../features/chat/generationStopMessages'
 import { withEmailThreadContext } from '../features/chat/emailThreadContext'
@@ -1419,11 +1420,10 @@ function ensureChatReady(): boolean {
   if (isChatReady(settings, engine.status)) return true
 
   const provider = settings?.provider.active
-  if (provider === 'anthropic' || provider === 'openai') {
-    const providerLabel = provider === 'anthropic' ? 'Claude' : 'OpenAI'
+  if (provider && provider !== 'local') {
     notifyError(
       'No API key configured',
-      `Add a ${providerLabel} API key in Settings → AI & Models to start chatting.`
+      `Add ${agentRunProviderVendor(provider)} credentials in Settings → AI & Models to start chatting.`
     )
   } else {
     notifyError('No model loaded', 'Load a model in Settings → AI & Models to start chatting.')

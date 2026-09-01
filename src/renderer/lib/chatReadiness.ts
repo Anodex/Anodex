@@ -1,5 +1,6 @@
 import type { AppSettings } from '@shared/settings.types'
 import type { EngineState } from '@shared/model.types'
+import { isProviderConfigured } from '@shared/agentRunProviders'
 
 /**
  * Whether the active provider can generate a reply right now.
@@ -15,11 +16,11 @@ export function isChatReady(
   settings: AppSettings | null,
   engineStatus: EngineState['status']
 ): boolean {
-  if (settings?.provider.active === 'anthropic') {
-    return Boolean(settings.provider.anthropic.apiKey.trim())
-  }
-  if (settings?.provider.active === 'openai') {
-    return Boolean(settings.provider.openai.apiKey.trim())
-  }
-  return engineStatus === 'ready'
+  if (!settings) return false
+  // Only the local engine needs a loaded model. Every cloud provider needs a
+  // usable credential and nothing else - this named two of them and sent the
+  // other nine down the local path, blocking the composer on a model they do
+  // not use.
+  if (settings.provider.active === 'local') return engineStatus === 'ready'
+  return isProviderConfigured(settings.provider, settings.provider.active)
 }
