@@ -15,6 +15,37 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
+### DEFERRED: a skill can be pinned or deleted, but not kept and hidden
+
+Anodex will ship with demo skills (currently five), and users create their own.
+There is no way to keep a skill and stop it being offered: the options are
+pinned, unpinned-but-still-findable, or deleted.
+
+**Most of this already exists, and the scope is smaller than it looks.** A
+`togglePinned` control is already in Settings -> Tools & Skills and in Projects
+settings, and pinning already gates the expensive path: a skill's instructions
+enter the system prompt _only_ when it is pinned to a project
+(`runGeneration.ts`, `activeProject.pinnedSkillNames.length > 0`), and
+`pinnedSkillNames` starts empty. So shipping five demo skills does **not** put
+five skills in every prompt. It puts none there.
+
+What is missing is one flag — "keep this skill, do not offer it" — respected by
+`find_skill`, with a checkbox beside the existing pin toggle. One field on the
+skill record, one filter in `skillTools.ts`, one control. Not a subsystem.
+**Do not rebuild pinning.**
+
+**Do not gate `find_skill` on something being pinned.** It was considered and it
+does not work in either state: with nothing pinned the tool disappears and no
+skill can ever be discovered, and with something pinned that skill's
+instructions are already in the prompt, so the tool's only remaining value is
+finding the skills that are _not_ pinned — exactly the ones the gate would hide.
+The useful gate is on the store being empty, not on pinning.
+
+**Why it is deferred rather than fixed.** Nothing is broken: the costly path is
+controlled, and pin, unpin and delete all work today. The worst case from a
+demo skill is a model finding and loading one irrelevant skill — a wasted call,
+not a wrong answer.
+
 ### FIXED and verified: a small window made re-reading necessary, and the loop guard made it impossible
 
 **Verified, not inferred.** The refused calls in the 4B runs carry exactly one
