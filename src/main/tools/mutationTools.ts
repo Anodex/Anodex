@@ -498,7 +498,11 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
             effectiveStart,
             clampedEnd
           )
-          if (seamDuplication) throw new Error(seamDuplication)
+          // A stale view, exactly as `relocateToAnchor`'s refusal above is: the
+          // model re-stated a neighbouring line because its picture of the file
+          // is out of date. Thrown as one so the read that would correct that is
+          // not itself refused - see `staleView.ts`.
+          if (seamDuplication) throw new StaleFileViewError(seamDuplication)
           const updated = [
             ...lines.slice(0, effectiveStart - 1),
             ...replacement,

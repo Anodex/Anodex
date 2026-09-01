@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createTaskLedger, GATHERING_HARD_LIMIT } from '../taskLedger'
 import type { ToolCall, ToolConfirmRequest } from '@shared/tools.types'
 import {
   appendFileTool,
@@ -1381,5 +1382,90 @@ describe('replace_lines places an edit its anchor identifies', () => {
 
     expect(result).toContain('Error')
     expect(result).toContain('repeat a line')
+  })
+})
+
+/**
+ * A seam duplication is a stale view, and must earn the read back.
+ *
+ * `replace_lines` has two ways of telling the model its picture of the file is
+ * wrong: a placement that cannot be anchored, and a replacement that would
+ * repeat a neighbouring line. The first throws `StaleFileViewError` and buys a
+ * read; the second threw a plain `Error` and bought nothing, though the seam
+ * guard's own docstring describes exactly a stale view — "a model working from
+ * a slightly stale view re-states the trailing context it thinks it is
+ * preserving".
+ *
+ * That asymmetry matters where it is least affordable. Seen live: gemma-3-27B
+ * at an 8,192-token window broke `triangles.py` with a `replace_lines`, leaving
+ * an orphaned line at the wrong indent, and its repair attempt was refused by
+ * this guard. A model already deep into a gathering streak gets no credit, so
+ * the read that would show it the damage can itself be refused — the 76-refusal
+ * failure `staleView.ts` exists to prevent.
+ */
+describe('a refused seam duplication buys a read back', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-seam-credit-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  const SOURCE = [
+    '    // Create planets',
+    '    const planets = [];',
+    '    const orbits = [];'
+  ].join('\n')
+
+  /** A distinct read, so nothing here is the loop guard's doing. */
+  function look(
+    ctx: ReturnType<typeof createMockContext>,
+    name: string
+  ): ReturnType<ReturnType<typeof createTaskLedger>['reviewCall']> {
+    return ctx.ledger.reviewCall({
+      name: 'read_file_range',
+      kind: 'read',
+      key: `{"path":"${name}"}`,
+      args: { path: name },
+      rereadable: true
+    })
+  }
+
+  it('lets the model look again after the guard refuses its edit', async () => {
+    await writeFile(join(workspace, 'a.js'), SOURCE)
+    const ctx = createMockContext(workspace)
+
+    // Deep into a gathering streak, where reads are refused outright.
+    for (let i = 0; i < GATHERING_HARD_LIMIT + 1; i++) {
+      ctx.ledger.recordOutcome({ kind: 'read', madeProgress: true })
+    }
+    expect(look(ctx, 'blocked.js').action).toBe('block')
+
+    // Typed the way the seam tests above do it: the mock `define` hands back
+    // an untyped handler, so an unannotated call yields `any`.
+    const tool = replaceLinesTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: {
+        path: string
+        startLine: number
+        endLine: number
+        newText: string
+        expectedFirstLine?: string
+      }) => Promise<string>
+    }
+    const result = await tool.handler({
+      path: 'a.js',
+      startLine: 1,
+      endLine: 1,
+      newText: '    // Create planets and orbits\n    const planets = [];',
+      expectedFirstLine: '// Create planets'
+    })
+
+    expect(result).toContain('already exists immediately after')
+    // The refusal is Anodex's own evidence that the model cannot see the file
+    // properly. Refusing the read that would fix that is backwards.
+    expect(look(ctx, 'repair.js').action).toBe('run')
   })
 })
