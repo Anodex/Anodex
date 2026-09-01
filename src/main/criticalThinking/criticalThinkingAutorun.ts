@@ -1,4 +1,7 @@
 import { llamaService } from '../llama/LlamaService'
+import { ensureLocalModelLoaded } from '../llama/ensureLocalModelLoaded'
+import { describeModel } from '../llama/modelScanner'
+import { resolveModelContextSize } from '@shared/modelContextSize'
 import { settingsStore } from '../settings/SettingsStore'
 import { criticalThinkingService } from './CriticalThinkingService'
 import { criticalThinkingStore } from './CriticalThinkingStore'
@@ -45,6 +48,25 @@ async function driveRun(question: string): Promise<void> {
     // fail with a local diagnosis for a problem it could not have. Same defect
     // the agent autorun had.
     if (settingsStore.get().provider.active === 'local') {
+      // Nothing in the main process asks for a model - the renderer restores the
+      // last one after it paints - so waiting for `ready` could wait forever when
+      // that did not happen. Measured: two of four runs in one sweep never
+      // started, their logs showing no model-load line at all. Ask for it here
+      // rather than hoping.
+      const loaded = await ensureLocalModelLoaded({
+        status: llamaService.getState().status,
+        lastModelPath: settingsStore.get().lastModelPath,
+        describeModel,
+        loadModel: (options, info) => llamaService.loadModel(options, info),
+        contextSize: resolveModelContextSize(
+          settingsStore.get(),
+          settingsStore.get().lastModelPath ?? null
+        )
+      })
+      if (loaded === 'no-model-configured' || loaded === 'model-file-missing') {
+        throw new Error(`Cannot start a local run: ${loaded.replace(/-/g, ' ')}.`)
+      }
+      log.info('Local model:', loaded)
       await waitFor(
         () => llamaService.getState().status === 'ready',
         MODEL_READY_TIMEOUT_MS,
