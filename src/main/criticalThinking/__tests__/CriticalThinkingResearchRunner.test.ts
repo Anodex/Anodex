@@ -1450,6 +1450,52 @@ interface HarnessOverrides {
   contextTokens?: number
 }
 
+it('stops spending fetch budget on a host that has already refused it', async () => {
+  // Measured: one minimum-wage run spent 26 of its 52 fetches on failures,
+  // and they clustered by host - ssrn.com refused 8 times, academic.oup.com
+  // 5, direct.mit.edu 4. Each was a paywall, permanent for the run, and the
+  // budget spent rediscovering that starved two later plan steps of evidence.
+  //
+  // A host is not condemned on one failure: a single timeout is transient. Two
+  // is a pattern, and the rest of the run is better spent elsewhere.
+  const paywalled = Array.from({ length: 6 }, (_, i) => `https://paywall.example/paper-${i}`)
+  const open = 'https://open.example/report'
+  const round = makeRound({ status: 'reading', selectedUrls: [...paywalled, open] })
+  const run = makeRun([round])
+  run.researchPolicy = { ...run.researchPolicy, maxPagesPerRound: 10, fetchConcurrency: 1 }
+
+  const fetched: string[] = []
+  const harness = createHarness({
+    run,
+    runModel: () =>
+      Promise.resolve(
+        generation(
+          assessmentJson({
+            finding: 'The readable source answers the step.',
+            verdict: 'sufficient',
+            evidenceBasis: 'multiple-sources',
+            remainingGaps: [],
+            nextQueries: []
+          })
+        )
+      ),
+    fetch: (url) => {
+      fetched.push(url)
+      return url.includes('paywall.example')
+        ? Promise.reject(new Error('HTTP 403'))
+        : Promise.resolve(fetchDraft(url))
+    }
+  })
+
+  await harness.runner.run(new AbortController().signal, emptyUsage())
+
+  const paywallAttempts = fetched.filter((url) => url.includes('paywall.example'))
+  expect(paywallAttempts.length).toBeLessThanOrEqual(2)
+  // The budget freed by giving up on the dead host must go somewhere useful,
+  // not simply go unspent.
+  expect(fetched).toContain(open)
+})
+
 function createHarness(
   overrides: HarnessOverrides = {},
   stepTimeoutMs?: number
