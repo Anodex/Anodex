@@ -1082,3 +1082,30 @@ loading in Anodex — every enabled tool is callable immediately. This is a
 deferred-tool protocol from the model's training being imitated against a
 harness that has none, and it appeared in **2 of 2** runs, costing one of them
 the entire run.
+
+### The tool-loading belief, fixed and verified
+
+The prompt now contradicts the belief directly rather than only stating the
+rule, and names `load_skill` — which loads written instructions, not a tool —
+since its presence in the always-on set makes the mistaken reading easy.
+
+Same benchmark, same 8,192-token window, same model:
+
+|                     | before           | after      |
+| ------------------- | ---------------- | ---------- |
+| runs showing it     | 2 of 2           | **0 of 1** |
+| "load a tool" turns | 4                | **0**      |
+| idle turns          | 3 and 1          | **1**      |
+| turns               | 11 (stopped), 57 | **56**     |
+| tool calls          | —                | **172**    |
+| refusals            | 0                | **0**      |
+| checks              | 11/28, 28/28     | **28/28**  |
+| plan ticked         | 0/5              | **5/5**    |
+
+The plan reaching 5/5 was not the target and is worth noting: the previous
+57-turn run finished all 28 checks with its plan still at 0/5. Those idle turns
+were spent announcing a tool load instead of calling `update_plan_step`.
+
+**172 tool calls with zero refusals at a 4,753-token working set** is the
+strongest evidence yet that the eviction and loop-guard work holds under real
+pressure.
