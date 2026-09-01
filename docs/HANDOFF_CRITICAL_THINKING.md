@@ -22,8 +22,33 @@ Both previously unresolved items now have valid measurements:
   figures, 26 verified sources, the model's own report. This was the question
   with the worst historical record and the one flagged as most likely to expose
   a remaining problem. It did not.
-- **Minimum wage — 7/7 steps, `recovered-stage` only.** `limited-steps` is
-  resolved. Best step completion this question has recorded.
+- **Minimum wage — CLEAN 6/6, zero blockers.** `status: completed`, the model's
+  own repair stage, 38 cited blocks, 72,589 characters. The first `completed`
+  this question has recorded: the 2026-08-28 baseline was `partial` too, so this
+  is better than where it started rather than merely recovered.
+
+### The question's own figures were read as fabrication
+
+The blocker that survived everything else was one false positive. The
+minimum-wage question opens "raising its local minimum wage to roughly 40
+percent above the national floor", and every restatement of that proposal was
+flagged `Numeric claim 40 percent is not present in its cited evidence` — a
+_safety_ issue, which makes a report unusable.
+
+A figure the run was handed is a premise, not a finding, and no evidence can be
+cited for it. It failed the draft, the repair and five sections, and each failed
+section was replaced by a ~1,200-character fallback stub in place of 8,750 to
+16,435 characters of real prose. That cascade _was_ `recovered-stage`.
+
+`validateResearchReport` now takes the question and skips a figure it contains.
+The effect is visible in the attempt list: the run went from roughly twenty
+attempts of sections, repairs and fallbacks to `draft` then `repair`, and
+stopped.
+
+This is the third defect of its family, after "identifiers were checked as
+quantitative claims" and "a topic word vetoed its own step". **The pattern is a
+check that treats the run's own inputs as claims about the world.** Look there
+first.
 
 ### The scholarly search intent, and what it cost
 
@@ -366,9 +391,14 @@ New this session:
 
 ## What to do next, in order
 
-1. **When search returns**, re-run **Universe Sandbox** and **minimum wage** —
-   the two unresolved items. Universe Sandbox is the higher-value test.
-2. **Then three consecutive clean runs on one question** for the 9. Pace them;
-   do not burn a month of search credits in one sitting.
-3. **Then** the quotations-from-memory problem, which is the largest remaining
-   quality gap and is untouched.
+1. **Three consecutive clean runs on one question** for the 9. Universe Sandbox
+   and minimum wage are both clean once each; the bar is repeatability. Pace
+   them — SearXNG rests on a single engine, with no margin.
+2. **The quotations-from-memory problem**, the largest remaining quality gap and
+   still untouched. Detection and disclosure work; the behaviour does not
+   change, and the prompt already forbids it in plain terms, so more prompt text
+   is not the answer.
+3. **Watch the silent-thinning failure.** SearXNG returns `HTTP 200` with fewer
+   results when an engine is throttled, which reads as "the evidence does not
+   exist". Brave, DuckDuckGo, Mojeek, Startpage and Wikipedia are all already
+   suspended; every result comes from Google's scraper alone.
