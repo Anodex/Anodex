@@ -1027,3 +1027,58 @@ refuted and a seventh was built and reverted.
   the hardware - but the one experiment on retaining more history says it does
   not help and may hurt. Contraindicated until something measures large contexts
   directly.
+
+## bench-6 rebuilt, and the long-run paths finally reached
+
+The old fixture was twelve `NotImplementedError` stubs across four files. A
+capable model scored 22/22 in **three turns**, so compaction, the context-epoch
+handoff and loop-guard forgiveness were never touched. Count does not create
+duration: an empty stub can be written blind, so twelve stubs in four files is
+four whole-file writes and nothing has to be read.
+
+It is now sixteen modules of working code, each with one seeded defect of a
+different kind. A defect inside working code has to be located before it can be
+fixed, which means the file has to be read.
+
+`bench-verify-long.mjs` proves the fixture: 11 of 28 checks pass unfixed, 28 of
+28 once the sixteen known repairs are applied.
+
+### Sizing it took a measurement, not an estimate
+
+At 65,536 the rebuilt fixture still finished in **6 turns**. The reason was
+arithmetic: the working set at that window is **43,008 tokens** and the whole
+fixture is **8,070 bytes, about 2,000 tokens**. Nothing could ever be evicted —
+the estimate behind the redesign was twenty times out.
+
+The cheap fix was to shrink the window rather than grow the fixture.
+`bench-6-long-small` runs the same project at 8,192, where the working set is
+about 4,753 tokens and reading a few modules fills it.
+
+|          | old bench-6 | rebuilt @ 64K | rebuilt @ 8K |
+| -------- | ----------- | ------------- | ------------ |
+| turns    | 3           | 6             | **57**       |
+| tokens   | —           | 12,659        | 44,542       |
+| checks   | 22/22       | 28/28         | **28/28**    |
+| refusals | —           | 0             | **0**        |
+
+**Zero refusals at 8K is the result that matters.** The eviction deadlock — a
+model re-reading a file it cannot retain, refused 181 times by the loop guard —
+does not recur under genuine context pressure. That fix had never been tested
+where it applies until now.
+
+### What the runs still show
+
+Two runs at 8K. One solved all 28 checks in 57 turns. The other stopped after 11
+turns having fixed nothing, on `idleRunReason` — three turns in a row with no
+tool call, which is the guard behaving correctly.
+
+Both runs wasted turns the same way, and it is worth naming:
+
+> "first I need the plan-update tool loaded"
+> "Let me load the multi-file reader … let me get the schema for `read_multiple_files`"
+
+The model had already called `update_plan_step` successfully. Nothing needs
+loading in Anodex — every enabled tool is callable immediately. This is a
+deferred-tool protocol from the model's training being imitated against a
+harness that has none, and it appeared in **2 of 2** runs, costing one of them
+the entire run.
