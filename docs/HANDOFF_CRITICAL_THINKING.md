@@ -117,6 +117,44 @@ exist" — remains untested and is the one failure class that produces confident
 wrong reports rather than visible errors. Quotations from memory still occur
 (six in the heat-pumps run), though bronze age fell from 12 to 1.
 
+## A 4B passes every criterion, and should not
+
+Run on `Qwen3-4B-Instruct` at 32,768 — the smallest model here, given room,
+since context size rather than parameter count decided this model's fate on the
+Workspace benchmarks. It scored **CLEAN**: 7/7 steps, `completed`, the model's
+own repair stage, zero dumps, zero blockers.
+
+It did the same research as the 27B on the same question:
+
+|                              | Qwen3.8-27B @ 64K | Qwen3-4B @ 32K |
+| ---------------------------- | ----------------- | -------------- |
+| rounds                       | 12                | 13             |
+| searches                     | 36                | 36             |
+| fetches                      | 44                | 49             |
+| sources                      | 26                | 29             |
+| evidence items               | 70                | 71             |
+| **report characters**        | **53,606**        | **18,386**     |
+| **cited substantive blocks** | **57**            | **10**         |
+| self-rated `sufficient`      | 0%                | **77%**        |
+| minutes                      | 18                | 2              |
+
+**The research was equivalent; the synthesis was not.** The 4B gathered the
+evidence and then hardly used it — a sixth of the citations and a third of the
+prose — and satisfied itself on 77% of rounds against the 27B's 0%.
+
+`completed` is defined here as research that was substantial, well-sourced **and
+cited**, and the four criteria cannot see the last of those. `cited=` is now
+printed by `ct-criteria.mjs` so the difference cannot pass unnoticed.
+
+It is deliberately **not** a fifth criterion. Any threshold would be invented
+from this single comparison, and a bar fitted to one observation is how this
+system was over-fitted before. Two runs are a reason to look, not a reason to
+legislate.
+
+The finding this leaves: **a weaker model is more easily satisfied, and the bar
+does not notice.** That is the semantic shift recorded below, seen from the
+other side.
+
 ## The measured record
 
 A run is clean when all four hold: `selectedStage` is the model's own report
