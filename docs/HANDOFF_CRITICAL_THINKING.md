@@ -3,25 +3,58 @@
 Updated 2026-08-28. Everything below is measured, not assumed. Where a claim is
 unverified it says so.
 
-## Status: PAUSED — blocked on web search quota
+## Status: UNBLOCKED — search restored, both open items measured
 
-Tavily returns `HTTP 432` on every search. **Verified, not inferred**: a probe
-run 3.5 hours after the failures still got 432 on all three of its first
-searches, which rules out a burst rate limit. It is the monthly credit
-allowance, and it resets on the account's own cycle. Check the Tavily dashboard
-for the date.
+Updated 2026-09-01. Tavily is still exhausted (`HTTP 432` on 2026-08-31, three
+days after the first failure and at calendar month-end, so its cycle is the
+account's signup date rather than the 1st). Search now runs on the **local
+SearXNG** at `localhost:8080`, which was installed but not running.
 
-Nothing further can be measured until search works. Options, in order:
+Load-tested at this workload's own rate for the first time: **40 searches in 17
+seconds, zero failures, zero empty, 20 results every time.** The silent-thinning
+risk is real but did not appear. It rests on one engine — Brave, DuckDuckGo,
+Mojeek, Startpage and Wikipedia are all suspended by CAPTCHA or rate limit, and
+every result comes from Google's scraper. There is no margin.
 
-1. **Wait for the Tavily reset** — free, nothing to change. Pace runs afterwards;
-   this session burned a month of credits in ~200 searches across five runs.
-2. **Brave** — `$5` free credits/month at `$5`/1,000 requests, so ~1,000
-   requests ≈ **25 runs/month**. Fails loudly. Needs a key the user pastes into
-   Settings → Tools; an assistant must not enter it.
-3. **SearXNG** — already installed and working (see Operational notes). Free and
-   unlimited by quota, but **degrades silently**: throttled engines return
-   `HTTP 200` with fewer results, which reads exactly like "the evidence does not
-   exist". Load-test it before trusting it.
+Both previously unresolved items now have valid measurements:
+
+- **Universe Sandbox — CLEAN 6/6.** Zero unverified quotations, zero unverified
+  figures, 26 verified sources, the model's own report. This was the question
+  with the worst historical record and the one flagged as most likely to expose
+  a remaining problem. It did not.
+- **Minimum wage — 7/7 steps, `recovered-stage` only.** `limited-steps` is
+  resolved. Best step completion this question has recorded.
+
+### The scholarly search intent, and what it cost
+
+`SearchIntent` lets a caller declare a query as research; SearXNG maps that to
+`categories=general,science`. Critical Thinking declares it, ordinary
+`web_search` does not. Measured: a query returns 20 results under `general` and
+75 under `general,science`, the extra coming from arXiv, Crossref, Semantic
+Scholar, Google Scholar and OpenAIRE. Those engines had **never been queried** —
+they sit in the `science` category and a default search never consults it.
+
+It also had a cost that nearly outweighed it. Academic publishers are largely
+unfetchable, and the fetch failure rate went from 15% to 50%, halving usable
+sources and starving two plan steps. The waste clustered by host: ssrn.com
+refused 8 times in one run, academic.oup.com 5.
+
+A host now gets **two** refusals before the run stops spending fetches on it.
+Two, not one, because a single failure is as likely to be a timeout as a
+paywall.
+
+| build                  | reads | failed | rate    | sources | steps   |
+| ---------------------- | ----- | ------ | ------- | ------- | ------- |
+| baseline, no scholarly | 52    | 8      | 15%     | 44      | 6/6     |
+| scholarly, no breaker  | 52    | 26     | 50%     | 22      | 4/6     |
+| breaker held per-step  | 60    | 32     | 53%     | 22      | 6/7     |
+| breaker held per-run   | 40    | 9      | **23%** | 28      | **7/7** |
+
+**The third row is the lesson.** The breaker was held on the runner, and a
+runner is built once per plan step, so the memory reset at every step boundary
+and each step handed the same dead host a fresh allowance. It shipped, was
+reported as fixed, and did nothing. Seven steps times two is fourteen; ssrn.com
+refused 13 times. The counts now belong to the run.
 
 ## Rating: 8/10
 
