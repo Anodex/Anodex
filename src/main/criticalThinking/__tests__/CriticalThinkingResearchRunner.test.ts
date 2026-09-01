@@ -1443,6 +1443,7 @@ describe('CriticalThinkingResearchRunner', () => {
 })
 
 interface HarnessOverrides {
+  hostFailures?: Map<string, number>
   run?: CriticalThinkingRun
   runModel?: CriticalThinkingResearchRunnerDeps['runModel']
   search?: CriticalThinkingResearchRunnerDeps['search']
@@ -1496,6 +1497,55 @@ it('stops spending fetch budget on a host that has already refused it', async ()
   expect(fetched).toContain(open)
 })
 
+it('remembers a refusing host across the runners of later plan steps', async () => {
+  // The runner is constructed once per plan step, so failure memory held on
+  // the instance resets every step and does nothing. Measured in exactly that
+  // state: a seven-step run let ssrn.com refuse 13 times and
+  // academic.oup.com 11, because each step got a fresh allowance of two.
+  //
+  // The map therefore belongs to the run. This drives two runners over it,
+  // which is what the service does across steps.
+  const hostFailures = new Map<string, number>()
+  const urls = ['https://paywall.example/a', 'https://paywall.example/b']
+  const sufficient = () =>
+    Promise.resolve(
+      generation(
+        assessmentJson({
+          finding: 'Nothing readable was found.',
+          verdict: 'sufficient',
+          evidenceBasis: 'multiple-sources',
+          remainingGaps: [],
+          nextQueries: []
+        })
+      )
+    )
+
+  const attempts: string[] = []
+  const runStep = async (): Promise<void> => {
+    const round = makeRound({ status: 'reading', selectedUrls: [...urls] })
+    const stepRun = makeRun([round])
+    stepRun.researchPolicy = { ...stepRun.researchPolicy, maxPagesPerRound: 10 }
+    const harness = createHarness({
+      run: stepRun,
+      hostFailures,
+      runModel: sufficient,
+      fetch: (url) => {
+        attempts.push(url)
+        return Promise.reject(new Error('HTTP 403'))
+      }
+    })
+    await harness.runner.run(new AbortController().signal, emptyUsage())
+  }
+
+  await runStep()
+  const afterFirstStep = attempts.length
+  await runStep()
+
+  // The second step inherits the first step's knowledge and tries nothing.
+  expect(afterFirstStep).toBeLessThanOrEqual(2)
+  expect(attempts.length).toBe(afterFirstStep)
+})
+
 function createHarness(
   overrides: HarnessOverrides = {},
   stepTimeoutMs?: number
@@ -1509,6 +1559,7 @@ function createHarness(
   const artifacts: ToolArtifact[] = []
   const activities: CriticalThinkingActivity[] = []
   const deps: CriticalThinkingResearchRunnerDeps = {
+    hostFailures: overrides.hostFailures ?? new Map<string, number>(),
     getRun: () => run,
     listArtifacts: () => artifacts,
     runModel:

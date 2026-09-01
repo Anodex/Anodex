@@ -175,6 +175,15 @@ function resolveCriticalThinkingModel(
 class CriticalThinkingService {
   private activeRunId: string | null = null
   private activeController: AbortController | null = null
+  /**
+   * Hosts that have refused a fetch during the active run, shared by every
+   * step's runner. One entry per host, one map per run - only one run is ever
+   * active, so it is cleared with `activeRunId` rather than keyed by id.
+   *
+   * It lives here because a `CriticalThinkingResearchRunner` is built per plan
+   * step. Held on the runner it reset every step and did nothing measurable.
+   */
+  private readonly hostFailures = new Map<string, number>()
   private broadcastTimer: ReturnType<typeof setTimeout> | null = null
 
   start(request: CreateCriticalThinkingRequest): CriticalThinkingRun {
@@ -546,6 +555,7 @@ class CriticalThinkingService {
     if (!searchProvider) throw new Error('A web search provider is required for research.')
 
     const runner = new CriticalThinkingResearchRunner({
+      hostFailures: this.hostFailures,
       getRun: () => this.requireRun(run.id),
       listArtifacts: () => criticalThinkingEvidenceStore.list(run.id),
       runModel: (phase, prompt, maxTokens, phaseSignal) =>
@@ -1962,6 +1972,7 @@ class CriticalThinkingService {
 
   private clearActiveRun(): void {
     this.activeRunId = null
+    this.hostFailures.clear()
     this.activeController = null
   }
 }

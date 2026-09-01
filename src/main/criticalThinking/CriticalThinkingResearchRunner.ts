@@ -98,6 +98,17 @@ export interface CriticalThinkingResearchRunnerDeps {
   addStats: (stats: GenerationStats) => void
   checkpoint: () => Promise<void>
   contextTokens: number
+  /**
+   * How many times each host has refused a fetch, shared across every step of
+   * one run.
+   *
+   * Owned by the caller rather than the runner because a runner is constructed
+   * per plan step. Holding this on the instance looked right and silently did
+   * nothing: the map reset every step, so a seven-step run still spent fourteen
+   * fetches per dead host. Measured — ssrn.com refused 13 times and
+   * academic.oup.com 11 in exactly that state.
+   */
+  hostFailures: Map<string, number>
 }
 
 export interface CriticalThinkingResearchStepResult {
@@ -132,19 +143,6 @@ const HOST_FAILURE_LIMIT = 2
 
 export class CriticalThinkingResearchRunner {
   private readonly stepTimeoutMs: number
-  /**
-   * How many times each host has refused a fetch this run.
-   *
-   * Measured: one minimum-wage run spent 26 of its 52 fetches on failures, and
-   * they clustered by host - ssrn.com refused 8 times, academic.oup.com 5,
-   * direct.mit.edu 4. Every one was a paywall, which is permanent for the run,
-   * and the budget spent rediscovering that starved two later plan steps.
-   *
-   * Keyed by hostname and never cleared: the run is the right lifetime, since a
-   * paywall does not open mid-run and a host that has refused twice is not
-   * worth a third of a scarce budget.
-   */
-  private readonly hostFailures = new Map<string, number>()
 
   constructor(
     private readonly deps: CriticalThinkingResearchRunnerDeps,
@@ -529,7 +527,7 @@ export class CriticalThinkingResearchRunner {
   /** Record that a host refused a fetch, so the run stops paying for it. */
   private noteHostFailure(url: string): void {
     const host = safeHostname(url)
-    this.hostFailures.set(host, (this.hostFailures.get(host) ?? 0) + 1)
+    this.deps.hostFailures.set(host, (this.deps.hostFailures.get(host) ?? 0) + 1)
   }
 
   /**
@@ -541,7 +539,7 @@ export class CriticalThinkingResearchRunner {
    * pattern, and the remaining budget is better spent on a host that answers.
    */
   private hostIsExhausted(url: string): boolean {
-    return (this.hostFailures.get(safeHostname(url)) ?? 0) >= HOST_FAILURE_LIMIT
+    return (this.deps.hostFailures.get(safeHostname(url)) ?? 0) >= HOST_FAILURE_LIMIT
   }
 
   private async readRound(
