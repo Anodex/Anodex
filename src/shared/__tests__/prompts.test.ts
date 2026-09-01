@@ -374,3 +374,36 @@ describe('core prompt sizing', () => {
     expect(composed).not.toContain(CODING_AGENT_PROMPT)
   })
 })
+
+/**
+ * Models arrive expecting a deferred-tool protocol they have seen elsewhere,
+ * where a schema must be fetched before a tool can be called. Anodex has no
+ * such thing: every enabled tool is callable immediately.
+ *
+ * Measured at an 8,192-token window, in 2 of 2 runs, after the transcript
+ * showing the tool already working had been evicted:
+ *
+ *   "first I need the plan-update tool loaded"
+ *   "Let me load the multi-file reader ... let me get the schema for
+ *    read_multiple_files"
+ *
+ * Both models had already called the tool in question successfully. Those turns
+ * call nothing and change nothing, and in one run three of them in a row ended
+ * it on `idleRunReason` with none of the task done.
+ *
+ * A tool named `load_skill` sits in the always-on set and makes the mistaken
+ * reading easy. Saying so plainly is cheaper than renaming a tool.
+ */
+describe('tools need no loading', () => {
+  it('tells the agent every tool is callable immediately', () => {
+    expect(CODING_AGENT_PROMPT.toLowerCase()).toContain('immediately callable')
+  })
+
+  it('names the mistake rather than only asserting the rule', () => {
+    // The behaviour is a *belief* about the harness, so the prompt has to
+    // contradict the belief, not merely state the correct one.
+    const text = CODING_AGENT_PROMPT.toLowerCase()
+    expect(text).toContain('load')
+    expect(text).toContain('schema')
+  })
+})
