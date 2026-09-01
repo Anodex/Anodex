@@ -1,4 +1,5 @@
 import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
+import { describeSearchHttpError } from '../searchHttpError'
 
 const FETCH_TIMEOUT_MS = 30_000
 const MAX_SNIPPET_LENGTH = 500
@@ -42,7 +43,7 @@ export function createSearxngProvider(baseUrl: string): SearchProvider {
           headers: { Accept: 'application/json' }
         })
         if (!response.ok) {
-          throw new Error(`SearXNG returned HTTP ${response.status}: ${response.statusText}`)
+          throw new Error(describeSearchHttpError('SearXNG', response.status, response.statusText))
         }
 
         const data = (await response.json()) as SearxngResponse

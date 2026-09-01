@@ -1,4 +1,5 @@
 import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
+import { describeSearchHttpError } from '../searchHttpError'
 
 const API_URL = 'https://api.search.brave.com/res/v1/web/search'
 const FETCH_TIMEOUT_MS = 30_000
@@ -45,7 +46,7 @@ export function createBraveProvider(apiKey: string): SearchProvider {
           }
         })
         if (!response.ok) {
-          throw new Error(`Brave returned HTTP ${response.status}: ${response.statusText}`)
+          throw new Error(describeSearchHttpError('Brave', response.status, response.statusText))
         }
 
         const data = (await response.json()) as BraveResponse

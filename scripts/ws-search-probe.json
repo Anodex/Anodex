@@ -1,0 +1,9 @@
+{
+  "goal": "Use the web_search tool exactly once to search for: DeepSeek V4 context length. Then report, in one short paragraph, whether the search returned results or an error, and quote the first result title verbatim if there was one. Do not create, edit or run any files.",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "enabledTools": ["web_search"],
+  "maxTurns": 4,
+  "limitsEnabled": true,
+  "requirePlan": false
+}

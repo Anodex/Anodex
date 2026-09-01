@@ -1,4 +1,5 @@
 import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
+import { describeSearchHttpError } from '../searchHttpError'
 
 const API_URL = 'https://www.googleapis.com/customsearch/v1'
 const FETCH_TIMEOUT_MS = 30_000
@@ -41,7 +42,7 @@ export function createGoogleProvider(apiKey: string, searchEngineId: string): Se
           headers: { Accept: 'application/json' }
         })
         if (!response.ok) {
-          throw new Error(`Google returned HTTP ${response.status}: ${response.statusText}`)
+          throw new Error(describeSearchHttpError('Google', response.status, response.statusText))
         }
 
         const data = (await response.json()) as GoogleResponse
