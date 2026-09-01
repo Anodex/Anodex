@@ -123,3 +123,78 @@ describe('the abort signal survives the options move', () => {
     ).rejects.toThrow(/cancelled/i)
   })
 })
+
+/**
+ * A degraded search must not read as an absent literature.
+ *
+ * SearXNG has no index: every query is forwarded to Google, Brave, DuckDuckGo
+ * and the rest from the user's own IP, and a throttled engine is dropped from
+ * the response rather than failing it. The result is `HTTP 200` carrying fewer
+ * results — or none — which downstream reads exactly like "the evidence does
+ * not exist". That is the one failure class that produces a confidently wrong
+ * report instead of a visible error.
+ *
+ * Measured on this machine: five of the eight configured engines are suspended
+ * (Brave "too many requests", DuckDuckGo and Startpage CAPTCHA, Mojeek access
+ * denied, Wikipedia rate limited), and every result now comes from Google
+ * alone. The response says so in `unresponsive_engines`, and Anodex was
+ * throwing that away.
+ */
+describe('SearXNG degraded search', () => {
+  function respondWith(body: unknown): () => void {
+    const original = globalThis.fetch
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      )
+    )
+    return () => (globalThis.fetch = original)
+  }
+
+  it('says the search was degraded when it returns nothing and engines were down', async () => {
+    const restore = respondWith({
+      results: [],
+      unresponsive_engines: [
+        ['brave', 'Suspended: too many requests'],
+        ['duckduckgo', 'CAPTCHA']
+      ]
+    })
+    try {
+      await expect(
+        createSearxngProvider('http://localhost:8080').search('a real topic', 5)
+      ).rejects.toThrow(/brave/i)
+    } finally {
+      restore()
+    }
+  })
+
+  it('reports no results plainly when every engine answered', async () => {
+    // A genuinely empty result set is information, and must not be dressed up
+    // as a failure: the caller distinguishes them.
+    const restore = respondWith({ results: [], unresponsive_engines: [] })
+    try {
+      const results = await createSearxngProvider('http://localhost:8080').search('a real topic', 5)
+      expect(results).toEqual([])
+    } finally {
+      restore()
+    }
+  })
+
+  it('returns results it did get, even with some engines down', async () => {
+    // Partial degradation still yields usable evidence; discarding it would
+    // trade a quiet failure for a loud one and lose the work.
+    const restore = respondWith({
+      results: [{ title: 'A paper', url: 'https://example.com/a', content: 'text' }],
+      unresponsive_engines: [['brave', 'Suspended: too many requests']]
+    })
+    try {
+      const results = await createSearxngProvider('http://localhost:8080').search('a topic', 5)
+      expect(results).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
+})
