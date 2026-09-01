@@ -80,7 +80,20 @@ for (const [i, run] of runs.entries()) {
       `status=${String(run.status).padEnd(9)}${c3 ? '+' : '-'}`,
       `dumps=${dumpBlocks(run.report)}${c4 ? '+' : '-'}`,
       `suff=${suff}%`,
-      `chars=${(run.report ?? '').length}`
+      `chars=${(run.report ?? '').length}`,
+      // Reported, deliberately not scored. "Completed" is defined as research
+      // that was substantial, well-sourced AND CITED, and the four criteria
+      // cannot see the last of those. Measured on one question: a 4B and a 27B
+      // did the same research - 13 rounds against 12, 36 searches each, 49
+      // fetches against 44, 29 sources against 26 - and both scored clean, with
+      // 10 cited blocks against 57 and a third of the prose. The smaller model
+      // gathered the evidence and then hardly used it.
+      //
+      // Not turned into a pass/fail bar: any threshold would be invented from
+      // this single comparison, and thresholds fitted to one observation are
+      // how this system was over-fitted before. Shown so the difference cannot
+      // pass unnoticed.
+      `cited=${d.completion?.citedSubstantiveBlockCount ?? '?'}`
     ].join('  ')
   )
   const blockers = d.completion?.blockers
