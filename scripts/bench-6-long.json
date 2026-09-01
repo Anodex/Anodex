@@ -1,7 +1,7 @@
 {
-  "goal": "The toolkit package in this project has twelve functions that raise NotImplementedError. Implement all of them so test_toolkit.py passes.\n\nThey are spread across toolkit/text.py, toolkit/numbers.py, toolkit/lists.py and toolkit/dates.py, three in each. Every docstring says what its function must do, and each is described more precisely by the checks in the test file.\n\nDo not change test_toolkit.py: the checks describe the behaviour, and editing them is not an implementation. Use only the standard library.\n\nWork module by module and re-run the test as you go, so partial progress is visible.\n\nVerify by running: python test_toolkit.py. Report the exit code you actually saw.",
+  "goal": "The geometry package in this project works, except that each of its sixteen modules contains exactly one defect. Find and fix all sixteen so that test_geometry.py passes all 28 checks.\n\nEvery module is real, working code apart from its one fault, and the faults are all different kinds of wrong - an off-by-one, an inverted comparison, a wrong operator, a swapped pair, an argument that gets mutated. There is no single pattern to search for: each has to be found by reading the module and working out what it is supposed to do. The docstrings say what each function is for, and the checks in the test file say precisely what is expected.\n\nDo not change test_geometry.py. The checks describe the required behaviour, and editing them is not a fix.\n\nThe test reports every failing check rather than stopping at the first, so run it as you go to see what is left. Work module by module.\n\nVerify by running: python test_geometry.py. Report the number of checks passing that you actually saw.",
   "project": "Bench",
-  "projectPath": "C:\\Users\\Owner\\Desktop\\Sandbox\\Bench",
+  "projectPath": "C:/Users/Owner/Desktop/Sandbox/Bench",
   "maxTurns": 80,
   "maxTokens": 500000,
   "maxDurationMinutes": 180,

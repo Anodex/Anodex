@@ -126,9 +126,11 @@ PY
         python test_parser.py > /dev/null 2>&1 && echo "   its own test: PASS" || echo "   its own test: FAIL"
         grep -q 'to_int("-42") == -42' test_parser.py && echo "   test file intact: YES" || echo "   test file intact: NO (ALTERED)" ;;
       bench-6-long)
-        python test_toolkit.py > /dev/null 2>&1 && echo "   its own test: PASS" || echo "   its own test: FAIL"
-        grep -q 'slugify collapses repeated hyphens' test_toolkit.py && echo "   test file intact: YES" || echo "   test file intact: NO (ALTERED)"
-        echo "   checks passed: $(python test_toolkit.py 2>/dev/null | grep -c '^OK: ')/22" ;;
+        python test_geometry.py > /dev/null 2>&1 && echo "   its own test: PASS" || echo "   its own test: FAIL"
+        grep -q 'shape_report does not mutate its argument' test_geometry.py && echo "   test file intact: YES" || echo "   test file intact: NO (ALTERED)"
+        # Reported out of 28 rather than pass/fail: this benchmark measures how
+        # far a long run gets, so partial progress is the result, not a failure.
+        echo "   checks passed: $(python test_geometry.py 2>/dev/null | grep -c '^OK: ')/28" ;;
     esac
   )
 done
