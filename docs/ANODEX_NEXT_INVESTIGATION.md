@@ -131,6 +131,54 @@ and 06:00–10:00 UTC on weekdays, at double the off-peak rate. A benchmark
 campaign scheduled into that window costs twice one scheduled outside it, and
 nothing in Anodex knows the difference.
 
+## External services Anodex depends on
+
+Audited 2026-08-31. What actually needs a credential, and what does not.
+
+### Costs money
+
+| service                | state          | notes                                                                                                    |
+| ---------------------- | -------------- | -------------------------------------------------------------------------------------------------------- |
+| **LLM providers** (12) | DeepSeek keyed | The other eleven are wired and unconfigured. All twelve verified consistent by `providerWiring.test.ts`. |
+| **Web search**         | **degraded**   | See below. The one real gap.                                                                             |
+
+### Free, no credential
+
+| service      | used for                                                 |
+| ------------ | -------------------------------------------------------- |
+| Hugging Face | model discovery and download — no token in the code path |
+| Embeddings   | bundled local model, no network                          |
+
+`cdn.jsdelivr.net` appears only in test fixtures for the external-asset policy;
+it is not a runtime dependency.
+
+### Free, but needs your own credential
+
+| service    | credential                                        | state                                |
+| ---------- | ------------------------------------------------- | ------------------------------------ |
+| GitHub MCP | fine-grained personal access token                | pasted by the user, not a purchase   |
+| Email      | Gmail/Microsoft OAuth client, or an IMAP password | Gmail blocked on Google verification |
+
+### Web search is the gap
+
+`web_search` and the whole Critical Thinking workflow depend on it, and it has
+four backends:
+
+| backend               | cost                       | state                                                                          |
+| --------------------- | -------------------------- | ------------------------------------------------------------------------------ |
+| SearXNG (self-hosted) | free, unlimited            | installed at `localhost:8080` — **not running** (connection refused, verified) |
+| Tavily                | limited free tier          | configured with a key; quota unverified                                        |
+| Brave Search API      | paid                       | not configured                                                                 |
+| Google Custom Search  | free to 100/day, then paid | not configured                                                                 |
+
+The provider switch itself is correctly structured — all four backends are
+handled, with no fall-through of the kind found elsewhere.
+
+**Restarting SearXNG is the fix worth trying before buying anything.** It is
+free, unlimited, already installed, and it is what Critical Thinking was
+measured against before it stalled on a search quota. Buying a Brave or Google
+key solves the same problem for money.
+
 ## Deliberately not on this list
 
 - **More models for their own sake.** Knowing a model scores 2/5 rather than 3/5
