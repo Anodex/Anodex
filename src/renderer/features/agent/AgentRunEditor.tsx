@@ -15,6 +15,7 @@ import {
 } from '@shared/tools.types'
 import { OPENAI_MODELS } from '@shared/openaiModels'
 import {
+  agentRunContextSize,
   agentRunModelCatalog,
   agentRunProviderOptions,
   defaultAgentRunModel,
@@ -24,7 +25,6 @@ import {
 import { useLiveCloudModels } from '../../lib/useLiveCloudModels'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAgentStore } from '../../stores/agentStore'
-import { resolveModelContextSize } from '@shared/modelContextSize'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { anodex } from '../../lib/anodex'
@@ -121,16 +121,13 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   // Scaled to the window this model actually has - a turn at 8,192 holds a
   // ninth of what one at 65,536 does, and 60 used to be the most the editor
   // would accept, so a small window could not be given enough turns to finish.
-  const turnCeiling = maxTurnsCeilingFor(
-    resolveModelContextSize(settings, settings?.lastModelPath ?? null)
-  )
+  // Sized against the window the *selected* provider has, not the local model:
+  // a cloud run's budget has nothing to do with whichever `.gguf` was loaded
+  // last, and the ceiling moves when the provider select changes.
+  const runWindow = agentRunContextSize(settings, provider, model)
+  const turnCeiling = maxTurnsCeilingFor(runWindow)
   const [maxTurns, setMaxTurns] = useState(
-    clamp(
-      seed?.maxTurns ??
-        defaultMaxTurnsFor(resolveModelContextSize(settings, settings?.lastModelPath ?? null)),
-      1,
-      turnCeiling
-    )
+    clamp(seed?.maxTurns ?? defaultMaxTurnsFor(runWindow), 1, turnCeiling)
   )
   const [maxTokens, setMaxTokens] = useState(
     clamp(seed?.maxTokens ?? DEFAULT_MAX_TOKENS, TOKEN_STEP, MAX_MAX_TOKENS)
@@ -186,7 +183,13 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const handleProviderChange = (value: string): void => {
     const next = value as AgentRunProviderId
     setProvider(next)
-    if (settings) setModel(defaultAgentRunModel(settings.provider, next))
+    const nextModel = settings ? defaultAgentRunModel(settings.provider, next) : ''
+    if (settings) setModel(nextModel)
+    // A different provider is a different window, so it is a different turn
+    // ceiling. Without this the slider keeps a value past its own new track and
+    // the store clamps it to a number the user never chose.
+    const nextCeiling = maxTurnsCeilingFor(agentRunContextSize(settings, next, nextModel))
+    setMaxTurns((current) => clamp(current, 1, nextCeiling))
   }
 
   /**

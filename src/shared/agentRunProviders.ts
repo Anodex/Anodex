@@ -18,7 +18,9 @@
  * there is deliberately no per-provider branching anywhere else in the agent
  * layer, which is what let the two unions drift apart in the first place.
  */
-import type { ProviderSettings } from './settings.types'
+import type { AppSettings, ProviderSettings } from './settings.types'
+import { cloudContextWindowTokens } from './contextBudget'
+import { resolveModelContextSize } from './modelContextSize'
 import { ANTHROPIC_MODELS, DEFAULT_ANTHROPIC_MODEL } from './anthropicModels'
 import { OPENAI_MODELS, DEFAULT_OPENAI_MODEL } from './openaiModels'
 import { GOOGLE_MODELS, DEFAULT_GOOGLE_MODEL } from './googleModels'
@@ -213,4 +215,37 @@ export function agentRunProviderVendor(id: AgentRunProviderId): string {
 export function agentRunModelLabel(id: AgentRunProviderId, modelId: string | null): string {
   if (!modelId) return ''
   return AGENT_RUN_PROVIDERS[id]?.catalog?.find((m) => m.id === modelId)?.label ?? modelId
+}
+
+/** What `agentRunContextSize` needs to answer for a local run. */
+type LocalWindowSettings = Pick<AppSettings, 'model' | 'modelContextSizes' | 'lastModelPath'>
+
+/**
+ * The context window a run will actually have, whichever provider it uses.
+ *
+ * The turn budget scales with this — a turn at 8,192 holds a fraction of what
+ * one at 65,536 does, so a smaller window earns more turns to finish the same
+ * work (see `maxTurnsCeilingFor`). Sizing that from the wrong window is
+ * therefore not cosmetic: it decides how long a run is allowed to go on.
+ *
+ * Both callers used to read `settings.lastModelPath` regardless of provider, so
+ * a cloud run inherited the turn budget of whatever `.gguf` happened to be
+ * loaded last. With a small local model that meant a ceiling of 543 turns
+ * handed to a cloud model with a million-token window — and every one of those
+ * turns is billed.
+ *
+ * An unknown cloud model falls through to `DEFAULT_CLOUD_CONTEXT_WINDOW_TOKENS`
+ * rather than to undefined, which keeps a live-fetched id newer than the
+ * bundled catalog, and a user-named Azure deployment, bounded rather than
+ * unbounded.
+ */
+export function agentRunContextSize(
+  settings: LocalWindowSettings | null | undefined,
+  provider: AgentRunProviderId,
+  modelId: string | null | undefined
+): number | undefined {
+  if (provider === 'local') {
+    return resolveModelContextSize(settings, settings?.lastModelPath ?? null)
+  }
+  return cloudContextWindowTokens(provider, modelId ?? '')
 }

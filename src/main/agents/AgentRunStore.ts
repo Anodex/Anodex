@@ -10,7 +10,7 @@ import {
   DEFAULT_MAX_DURATION_MINUTES,
   MAX_MAX_DURATION_MINUTES
 } from '@shared/agentRun.types'
-import { resolveModelContextSize } from '@shared/modelContextSize'
+import { agentRunContextSize } from '@shared/agentRunProviders'
 import { describeRunProvenance } from './runProvenance'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
@@ -18,13 +18,13 @@ import { createLogger } from '../utils/logger'
 /**
  * The context window a new run will actually have.
  *
- * Undefined for a cloud provider, whose window is the model's rather than a
- * local setting; the turn helpers fall back to the fixed constants there, which
- * is the behaviour that already existed.
+ * Takes the run's own provider: a cloud run's window is its model's, not the
+ * local model setting. This used to read `lastModelPath` unconditionally while
+ * documenting that it did otherwise, so a cloud run inherited the turn budget
+ * of whatever `.gguf` was loaded last.
  */
-function runContextSize(): number | undefined {
-  const settings = settingsStore.get()
-  return resolveModelContextSize(settings, settings.lastModelPath ?? null)
+function runContextSize(request: CreateAgentRunRequest): number | undefined {
+  return agentRunContextSize(settingsStore.get(), request.provider, request.model)
 }
 
 const log = createLogger('agent-run-store')
@@ -93,8 +93,8 @@ class AgentRunStore {
       // constants exactly; on a smaller one they are larger, because a turn
       // there holds a fraction of the work.
       maxTurns: Math.min(
-        request.maxTurns ?? defaultMaxTurnsFor(runContextSize()),
-        maxTurnsCeilingFor(runContextSize())
+        request.maxTurns ?? defaultMaxTurnsFor(runContextSize(request)),
+        maxTurnsCeilingFor(runContextSize(request))
       ),
       turnsUsed: 0,
       flaggedTurns: 0,
