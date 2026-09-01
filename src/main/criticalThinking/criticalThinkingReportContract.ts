@@ -30,18 +30,35 @@ export interface ReportContractResult {
  * demanding literal "## Findings"/"## Sources" headings only rejected
  * well-structured reports that organize their evidence differently.
  */
+/**
+ * A section label: a markdown heading, or a line opening with bold.
+ *
+ * Requiring an ATX heading measured syntax rather than structure. Across five
+ * models on one question, two - DeepSeek-Coder-V2-Lite-16B and gemma-3-27B -
+ * write their structure as bold labels, and both were rejected as
+ * `structurally-invalid` with every section present. One report was reported
+ * as missing a limits section while carrying a section named "Limits and Open
+ * Questions".
+ *
+ * It also made the repair loop useless: told to add sections it already had,
+ * the model returned byte-identical text, so those runs could never recover.
+ *
+ * Anchored to the start of a line, so bold used for emphasis inside a
+ * paragraph is still not a heading.
+ */
 const REQUIRED_SECTIONS: Array<{ name: string; pattern: RegExp }> = [
   {
     name: 'a limits, gaps, or open-questions section',
     pattern:
-      /^#{1,6}[^\n]*\b(limits?|limitations?|open questions?|uncertaint\w*|gaps?|caveats?|not investigated|unresolved)\b/im
+      /^(?:#{1,6}|\*\*)[^\n]*\b(limits?|limitations?|open questions?|uncertaint\w*|gaps?|caveats?|not investigated|unresolved)\b/im
   },
   {
     // A closing conclusion/recommendations OR a leading executive summary
     // both satisfy this — a research report summarized up front does not also
     // need a redundant closing section.
     name: 'a summary or conclusion section',
-    pattern: /^#{1,6}[^\n]*\b(summary|conclusion|bottom line|recommendations?|takeaways?)\b/im
+    pattern:
+      /^(?:#{1,6}|\*\*)[^\n]*\b(summary|conclusion|bottom line|recommendations?|takeaways?)\b/im
   }
 ]
 
@@ -68,7 +85,9 @@ export function validateReportContract(
       citedSubstantiveBlockCount: 0
     }
   }
-  if (!/^#{1,6}\s*\S/m.test(trimmed)) {
+  // Same reasoning as `SECTION_LABEL`: a report opening `**Title:** ...` has a
+  // title, and two of five models write it that way.
+  if (!/^(?:#{1,6}\s*\S|\*\*\s*\S)/m.test(trimmed)) {
     issues.push('The report has no descriptive title.')
   }
   for (const section of REQUIRED_SECTIONS) {
