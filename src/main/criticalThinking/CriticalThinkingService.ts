@@ -562,7 +562,12 @@ class CriticalThinkingService {
         ),
       search: async (query, resultCount, searchSignal) => ({
         provider: settings.webSearch.provider,
-        results: await searchProvider.search(query, resultCount, searchSignal)
+        // Critical Thinking is research: it wants the scholarly engines, which
+        // a default search never consults. See `SearchIntent`.
+        results: await searchProvider.search(query, resultCount, {
+          signal: searchSignal,
+          intent: 'scholarly'
+        })
       }),
       fetch: (url, focus, fetchSignal) => fetchUrlEvidence(url, focus, fetchSignal),
       recordArtifact: (artifact, roundId) => this.recordArtifact(run.id, index, roundId, artifact),
