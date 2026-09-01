@@ -110,13 +110,26 @@ because only the node-llama-cpp path keeps a KV cache. Two things follow.
 about $0.03 cached and $0.11 uncached; a five-run suite $0.15 to $0.52; a
 hundred suites $15 to $52.
 
-**A real observability gap.** Anodex records `inputTokens` and `outputTokens`
-and nothing else, so a cache hit and a cache miss are indistinguishable in the
-stats — despite being a **10x** difference in what the user is charged (DeepSeek
-bills cache hits at $0.007/1M against $0.22/1M). Every provider that offers
-prompt caching reports hit counts in its usage response and Anodex discards
-them. Worth recording before any cloud cost budget is built on top of numbers
-that cannot tell the two apart.
+**A real observability gap, now specified.** Anodex records `inputTokens` and
+`outputTokens` and nothing else, so a cache hit and a cache miss are
+indistinguishable in the stats — despite being a **10x** difference in what the
+user is charged (DeepSeek bills cache hits at $0.007/1M against $0.22/1M).
+
+The fields exist and are named. DeepSeek's usage object returns
+`prompt_cache_hit_tokens` and `prompt_cache_miss_tokens` alongside
+`prompt_tokens`; `OpenAiCompatibleProvider` reads the latter and drops the
+other two. Recording them means threading the pair through the provider, the
+token-activity schema and the usage gauge — three layers, so it is a change
+rather than a one-liner.
+
+Worth doing before any cloud cost budget is built on numbers that cannot tell
+the two apart: every estimate in this document has a 3x spread purely because
+the cache rate is unmeasured.
+
+**Peak pricing is a real variable too.** DeepSeek's peak window is 01:00–04:00
+and 06:00–10:00 UTC on weekdays, at double the off-peak rate. A benchmark
+campaign scheduled into that window costs twice one scheduled outside it, and
+nothing in Anodex knows the difference.
 
 ## Deliberately not on this list
 
