@@ -54,7 +54,7 @@ export const webSearchTool: ToolFactory = (define, ctx) =>
               ? Math.max(1, Math.min(Math.floor(args.numResults), 10))
               : ctx.webSearch.resultCount
 
-          const results = await provider.search(args.query, resultCount, ctx.signal)
+          const results = await provider.search(args.query, resultCount, { signal: ctx.signal })
           const artifact = recordToolArtifact(ctx, {
             kind: 'web-search',
             query: args.query,

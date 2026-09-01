@@ -1,4 +1,9 @@
-import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
+import {
+  createSearchAbortScope,
+  type SearchOptions,
+  type SearchProvider,
+  type SearchResult
+} from '../types'
 import { describeSearchHttpError } from '../searchHttpError'
 
 const API_URL = 'https://api.search.brave.com/res/v1/web/search'
@@ -28,8 +33,11 @@ export function createBraveProvider(apiKey: string): SearchProvider {
     async search(
       query: string,
       resultCount: number,
-      signal?: AbortSignal
+      // `intent` is deliberately unread: this backend has no way to express
+      // "scholarly", so it searches exactly as it always did.
+      options?: SearchOptions
     ): Promise<SearchResult[]> {
+      const signal = options?.signal
       const url = new URL(API_URL)
       url.searchParams.set('q', query)
       url.searchParams.set('count', String(resultCount))

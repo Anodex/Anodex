@@ -1,4 +1,9 @@
-import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
+import {
+  createSearchAbortScope,
+  type SearchOptions,
+  type SearchProvider,
+  type SearchResult
+} from '../types'
 import { describeSearchHttpError } from '../searchHttpError'
 
 const API_URL = 'https://api.tavily.com/search'
@@ -27,8 +32,11 @@ export function createTavilyProvider(apiKey: string): SearchProvider {
     async search(
       query: string,
       resultCount: number,
-      signal?: AbortSignal
+      // `intent` is deliberately unread: this backend has no way to express
+      // "scholarly", so it searches exactly as it always did.
+      options?: SearchOptions
     ): Promise<SearchResult[]> {
+      const signal = options?.signal
       const abort = createSearchAbortScope(signal, FETCH_TIMEOUT_MS)
 
       try {

@@ -1,4 +1,9 @@
-import { createSearchAbortScope, type SearchProvider, type SearchResult } from '../types'
+import {
+  createSearchAbortScope,
+  type SearchOptions,
+  type SearchProvider,
+  type SearchResult
+} from '../types'
 import { describeSearchHttpError } from '../searchHttpError'
 
 const FETCH_TIMEOUT_MS = 30_000
@@ -28,12 +33,15 @@ export function createSearxngProvider(baseUrl: string): SearchProvider {
     async search(
       query: string,
       resultCount: number,
-      signal?: AbortSignal
+      options?: SearchOptions
     ): Promise<SearchResult[]> {
       const url = new URL(`${normalized}/search`)
       url.searchParams.set('q', query)
       url.searchParams.set('format', 'json')
       url.searchParams.set('safesearch', '0')
+      url.searchParams.set('categories', categoriesFor(options?.intent))
+
+      const signal = options?.signal
 
       const abort = createSearchAbortScope(signal, FETCH_TIMEOUT_MS)
 
@@ -63,6 +71,20 @@ export function createSearxngProvider(baseUrl: string): SearchProvider {
       }
     }
   }
+}
+
+/**
+ * Which SearXNG categories to search.
+ *
+ * `general` alone is SearXNG's default and what an ordinary lookup wants.
+ * Adding `science` is additive rather than a swap - measured on a local
+ * instance, one query went from 20 results (Google only) to 75, keeping all
+ * twenty and gaining arXiv, Crossref, Semantic Scholar, Google Scholar and
+ * OpenAIRE. Scholarly engines live in `science` and are never consulted by a
+ * default search, which is why they sat idle through every research run.
+ */
+function categoriesFor(intent: SearchOptions['intent']): string {
+  return intent === 'scholarly' ? 'general,science' : 'general'
 }
 
 function parseResult(result: SearxngResult): SearchResult {

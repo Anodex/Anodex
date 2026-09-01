@@ -133,7 +133,7 @@ describe('web search providers', () => {
     })
     const controller = new AbortController()
 
-    const pending = provider!.search('hello', 1, controller.signal)
+    const pending = provider!.search('hello', 1, { signal: controller.signal })
     controller.abort()
 
     await expect(pending).rejects.toThrow('Brave request cancelled.')

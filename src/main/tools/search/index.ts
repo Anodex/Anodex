@@ -1,12 +1,12 @@
 import type { WebSearchSettings } from '@shared/settings.types'
-import type { SearchProvider } from './types'
+import type { SearchOptions, SearchProvider } from './types'
 import { clampResultCount, sanitizeSearchResults } from './types'
 import { createSearxngProvider } from './providers/searxng'
 import { createBraveProvider } from './providers/brave'
 import { createTavilyProvider } from './providers/tavily'
 import { createGoogleProvider } from './providers/google'
 
-export type { SearchProvider, SearchResult } from './types'
+export type { SearchIntent, SearchOptions, SearchProvider, SearchResult } from './types'
 export { clampResultCount }
 
 /**
@@ -55,9 +55,9 @@ export function createSearchProvider(settings: WebSearchSettings): SearchProvide
  */
 function wrapWithCount(provider: SearchProvider, defaultCount: number): SearchProvider {
   return {
-    async search(query: string, resultCount?: number, signal?: AbortSignal) {
+    async search(query: string, resultCount?: number, options?: SearchOptions) {
       const count = clampResultCount(resultCount ?? defaultCount)
-      const results = await provider.search(query, count, signal)
+      const results = await provider.search(query, count, options)
       return sanitizeSearchResults(results, count)
     }
   }

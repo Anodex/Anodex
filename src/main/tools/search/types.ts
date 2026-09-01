@@ -8,10 +8,34 @@ export interface SearchResult {
   snippet: string
 }
 
+/**
+ * What kind of question a search is answering.
+ *
+ * A backend cannot tell a research question from a lookup; the caller can, and
+ * it decides which sources are worth consulting. Measured on a local SearXNG:
+ * one query returns 20 results from Google under the default `general`
+ * category and 75 under `general,science`, the extra 55 coming from arXiv,
+ * Crossref, Semantic Scholar, Google Scholar and OpenAIRE. Critical Thinking
+ * wants those; "why is this TypeScript error happening" does not.
+ *
+ * Only SearXNG can act on this today. A provider that cannot express the
+ * distinction ignores it and searches exactly as before — which is why this is
+ * a hint from the caller rather than a capability a provider must implement.
+ */
+export type SearchIntent = 'general' | 'scholarly'
+
+/** Everything a search call may carry beyond the query and the result count. */
+export interface SearchOptions {
+  /** Caller's Stop signal, combined with the provider's own timeout. */
+  signal?: AbortSignal
+  /** What kind of question this is. Defaults to `general`. */
+  intent?: SearchIntent
+}
+
 /** Abstraction over every web search backend Anodex supports. */
 export interface SearchProvider {
   /** Perform a search and return a bounded list of results. */
-  search(query: string, resultCount: number, signal?: AbortSignal): Promise<SearchResult[]>
+  search(query: string, resultCount: number, options?: SearchOptions): Promise<SearchResult[]>
 }
 
 export interface SearchAbortScope {
