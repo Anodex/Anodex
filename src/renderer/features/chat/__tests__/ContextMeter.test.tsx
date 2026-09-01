@@ -57,7 +57,8 @@ vi.mock('../../../stores/settingsStore', () => ({
         active: mocks.activeProvider,
         local: { maxResponseTokens: mocks.maxResponseTokens },
         anthropic: { model: 'claude-sonnet-5', maxResponseTokens: 1024 },
-        openai: { model: 'gpt-5.1-codex', maxResponseTokens: null }
+        openai: { model: 'gpt-5.1-codex', maxResponseTokens: null },
+        deepseek: { model: 'deepseek-v4-flash', maxResponseTokens: null }
       }
     }
   }))
@@ -147,5 +148,33 @@ describe('ContextMeter reply ceiling', () => {
     mocks.contextSize = undefined
 
     expect(render()).toBe('')
+  })
+})
+
+/**
+ * The meter's window used to be resolved by a two-provider branch - Anthropic,
+ * then OpenAI, then fall through to the local engine's `contextSize`. Every
+ * other cloud provider took that fall-through, so switching chat to DeepSeek
+ * left the meter reporting the local model's window: the exact thing the branch
+ * was written to prevent, for nine of the eleven providers it did not name.
+ */
+describe('ContextMeter window by provider', () => {
+  it('reports the local engine window for a local chat', () => {
+    expect(render()).toContain('32.8k')
+  })
+
+  it('does not report the local window for a cloud provider it has no branch for', () => {
+    mocks.activeProvider = 'deepseek'
+
+    const html = render()
+
+    expect(html).not.toContain('32.8k')
+  })
+
+  it("reports the cloud model's own window", () => {
+    mocks.activeProvider = 'deepseek'
+
+    // DeepSeek V4 Flash is a 1,048,576-token window.
+    expect(render()).toContain('1048.6k')
   })
 })
