@@ -3,6 +3,7 @@ import { join, relative } from 'node:path'
 import { shouldIndexFile, chunkText } from '@shared/codeChunking'
 import { cosineSimilarity } from '@shared/cosineSimilarity'
 import { diffManifest } from '@shared/codeIndexManifest'
+import { indexedManifest } from '@shared/indexedManifest'
 import type {
   CodeIndexEntry,
   CodeIndexManifestEntry,
@@ -106,7 +107,17 @@ class CodeIndexer {
       (entry) => !touched.has(entry.filePath)
     )
 
+    // Which files the saved manifest may claim. Everything carried over above
+    // is still indexed; a file below is added only once it has been processed
+    // in full. The manifest decides whether a file is ever offered again, so
+    // recording one that was skipped makes the omission permanent.
+    const indexed = new Set(entries.map((entry) => entry.filePath))
+
     for (const relativePath of diff.changedOrNew) {
+      // Checked per file rather than per chunk, so a file is either fully
+      // indexed or not indexed at all. Cutting off mid-file used to leave a
+      // partial set of chunks recorded as a complete one.
+      if (entries.length >= MAX_INDEXED_CHUNKS) break
       const file = byPath.get(relativePath)
       if (!file) continue
       let text: string
@@ -116,7 +127,6 @@ class CodeIndexer {
         continue // unreadable/binary despite the extension check — skip, not fatal
       }
       for (const chunk of chunkText(text, relativePath)) {
-        if (entries.length >= MAX_INDEXED_CHUNKS) break
         try {
           const vector = await embeddingService.embed(chunk.text)
           entries.push({ ...chunk, vector })
@@ -124,13 +134,16 @@ class CodeIndexer {
           log.warn('Failed to embed a chunk, skipping:', relativePath, error)
         }
       }
+      // Recorded even when the file produced no chunks: it was read and
+      // considered, so re-reading it every minute would be pure waste.
+      indexed.add(relativePath)
     }
 
     codeIndexStore.save(projectId, {
       version: STORE_VERSION,
       vectorSize: embeddingService.getVectorSize() ?? existing?.vectorSize ?? 0,
       entries,
-      manifest: currentManifest
+      manifest: indexedManifest(currentManifest, indexed)
     })
   }
 
