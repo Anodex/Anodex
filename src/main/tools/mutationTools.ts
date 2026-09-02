@@ -299,7 +299,17 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
             file,
             relativePath
           )
-          const occurrences = original.split(args.oldText).length - 1
+          // A model reasons about text, not bytes, so it sends `\n` even when the
+          // file on disk uses `\r\n`. Matching literally meant `edit_file` could not
+          // touch a CRLF file at all for any oldText spanning more than one line -
+          // most of Windows, and any checkout with `core.autocrlf=true`.
+          //
+          // Retried rather than normalised up front: rewriting the file's endings
+          // would turn a one-line change into a whole-file diff, and a file with
+          // deliberately mixed endings would be silently rewritten. This only
+          // adjusts what is searched for.
+          const { oldText, newText } = matchFileLineEndings(original, args.oldText, args.newText)
+          const occurrences = original.split(oldText).length - 1
           if (occurrences === 0) {
             // Point at the tool that works from what the model still has.
             // `edit_file` needs text copied exactly from a read, and on a small
@@ -322,7 +332,7 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
                 'surrounding lines, or use replace_lines to target one specific line range.'
             )
           }
-          const updated = original.replace(args.oldText, args.newText)
+          const updated = original.replace(oldText, newText)
           return {
             confirmDetail: `In ${args.path}, replace:\n\n${describeOldText(args.oldText)}\n\n-> with:\n\n${preview(args.newText)}`,
             confirmDiff: diffOrUndefined(relativePath, original, updated),
@@ -699,6 +709,39 @@ function describeAnchorMismatch(
  * Nothing is applied on this path — the edit stays refused either way. This
  * only changes how much the model is told about why.
  */
+/**
+ * Line up `oldText`/`newText` with the endings the file actually uses.
+ *
+ * A model reasons about text rather than bytes and sends a bare newline even
+ * when the file on disk uses CRLF, so a literal match found nothing and
+ * `edit_file` could not touch a CRLF file for any `oldText` spanning more than
+ * one line. That is most of Windows, and any checkout with
+ * `core.autocrlf=true` on any platform.
+ *
+ * It hid because `replace_lines` was unaffected: the model is told to fall back
+ * to it and the run continues, a little worse, with nothing reporting a bug.
+ *
+ * Only reached once the literal match has already failed, so a file that
+ * matches as-is is never touched by this. `newText` is converted only
+ * alongside a successful `oldText` conversion, or an edit could introduce
+ * endings the file does not use. The file itself is never renormalised: doing
+ * that would turn a one-line change into a whole-file diff, and would silently
+ * rewrite a file with deliberately mixed endings.
+ */
+function matchFileLineEndings(
+  original: string,
+  oldText: string,
+  newText: string
+): { oldText: string; newText: string } {
+  if (original.includes(oldText)) return { oldText, newText }
+  if (!original.includes('\r\n') || oldText.includes('\r\n')) {
+    return { oldText, newText }
+  }
+  const asCrlf = oldText.replace(/\r?\n/g, '\r\n')
+  if (!original.includes(asCrlf)) return { oldText, newText }
+  return { oldText: asCrlf, newText: newText.replace(/\r?\n/g, '\r\n') }
+}
+
 function whereOldTextNearlyIs(oldText: string, original: string): string | null {
   const wantedLines = oldText.split('\n')
   const anchor = wantedLines.find((line) => line.trim().length > 0)?.trim()
