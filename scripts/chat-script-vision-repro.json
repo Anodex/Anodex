@@ -1,0 +1,6 @@
+{
+  "enabledTools": ["search_email", "read_email", "find_attachments", "view_email_attachment"],
+  "prompts": [
+    "Open the image attached to the email with 'attachment inbound test' in the subject, look at it, and tell me exactly what is in the picture."
+  ]
+}

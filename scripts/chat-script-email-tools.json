@@ -1,0 +1,10 @@
+{
+  "project": "Bench",
+  "prompts": [
+    "Find the email with 'attachment inbound test' in the subject and list what attachments it has, with filenames and types.",
+    "Open the attached image and describe what it actually shows — be specific about what is in the picture.",
+    "Save that attachment into this project as saved-inbound.png and confirm the file size on disk.",
+    "Mark that email as unread.",
+    "What mailboxes or folders does this account have? List them."
+  ]
+}
