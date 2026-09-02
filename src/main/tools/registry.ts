@@ -52,6 +52,7 @@ import {
 import { finishGoalTool } from './agentTools'
 import { buildMcpToolFunction } from './mcpTools'
 import { scheduleTaskTool } from './schedulerTools'
+import { anodexStatusTool } from './anodexStatusTool'
 import {
   batchEmailTool,
   draftEmailTool,
@@ -152,7 +153,8 @@ const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
   update_plan_step: updatePlanStepTool,
   find_skill: findSkillTool,
   load_skill: loadSkillTool,
-  schedule_task: scheduleTaskTool
+  schedule_task: scheduleTaskTool,
+  anodex_status: anodexStatusTool
 }
 
 const EMAIL_FACTORIES: Record<string, ToolFactory> = {

@@ -60,6 +60,7 @@ const READ_ONLY_WORKSPACE_TOOLS = [
 ]
 
 const GLOBAL_OR_CONDITIONAL_TOOLS = [
+  'anodex_status',
   'fetch_url',
   'web_search',
   'generate_image',
