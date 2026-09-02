@@ -1,0 +1,6 @@
+{
+  "enabledTools": ["search_email", "list_threads", "list_email_accounts"],
+  "prompts": [
+    "Search my mail for the subject 'Anodex send test'. Look in Sent as well as the inbox. Tell me exactly how many messages match and when each was sent — count them carefully, the exact number matters."
+  ]
+}
