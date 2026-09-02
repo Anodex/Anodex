@@ -1109,3 +1109,46 @@ were spent announcing a tool load instead of calling `update_plan_step`.
 **172 tool calls with zero refusals at a 4,753-token working set** is the
 strongest evidence yet that the eviction and loop-guard work holds under real
 pressure.
+
+## Failure modes provoked, 2026-09-02
+
+Three of the four listed as never-tested have now been checked. Two were sound;
+one hid a real defect.
+
+### The model runtime dying mid-generation — works
+
+`llama-server` killed while a run was generating. The run ends `error` with the
+message `describeUnexpectedStop` promises: it names the likely cause, says what
+to do about it, and carries the runtime's own stderr tail. No silent success and
+no bare `terminated`.
+
+One cosmetic note, deliberately not changed: a force-kill reports
+`exit 4294967295` (0xFFFFFFFF), which means "terminated" rather than any real
+exit status, and the message still says memory is the likely cause. The wording
+is already hedged ("most often"), an OOM kill does present this way, and the raw
+code is what a bug report needs. Not worth a special case.
+
+### Two agent runs racing the lock — sound
+
+`start()` is not async, and both `runLoop` and `runPlanningPhase` assign
+`runningRunId` as their first statement, before any `await`. An async body runs
+synchronously to its first await, so the lock is taken in the same synchronous
+block as the guard that checks it. Node cannot interleave two `start()` calls
+there. Verified by reading rather than by inventing a race.
+
+### The stale-view path — a real gap, now fixed
+
+`StaleFileViewError` had no tests at all, on the mechanism that exists because a
+4B model had 76 reads refused while trying to repair a file it had broken. Five
+tests now pin it, verified by breaking `noteStaleView` and watching four fail.
+
+That reading found the defect: `replace_lines` throws `StaleFileViewError` when
+a placement cannot be anchored, but threw a plain `Error` when a replacement
+would duplicate a neighbouring line — although the seam guard's own docstring
+describes a stale view. One signal earned the read back and the other did not.
+Seen live the same day: gemma-3-27B broke `triangles.py` at 8,192 tokens and its
+repair was refused by that guard.
+
+**Still untested:** a disk that fills during a store write. A transient `EPERM`
+was observed today and the retry handled it (the run completed clean), which
+covers the transient case but not a sustained one.
