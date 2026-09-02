@@ -219,7 +219,7 @@ describe('assembleModelContext', () => {
 
     expect(assembled.summarized).toBe(true)
     expect(assembled.removedTurns).toBeGreaterThan(0)
-    expect(assembled.systemPrompt).toContain('Summary of earlier conversation')
+    expect(assembled.systemPrompt).toContain('Earlier turns of this conversation')
     expect(assembled.history.at(-1)).toEqual(history.at(-1))
     expect(assembled.report.historyTokens).toBeLessThanOrEqual(assembled.report.historyBudgetTokens)
   })
@@ -338,7 +338,7 @@ describe('seedContextFromSnapshot', () => {
     })
 
     expect(seeded.applied).toBe(true)
-    expect(seeded.systemPrompt).toContain('Summary of earlier conversation')
+    expect(seeded.systemPrompt).toContain('Earlier turns of this conversation')
     expect(seeded.history).toEqual([history[2]])
   })
 
@@ -478,7 +478,7 @@ describe('boundHistoryForStatelessProvider', () => {
       10_000
     )
 
-    expect(bounded.systemPrompt).toContain('Summary of earlier conversation')
+    expect(bounded.systemPrompt).toContain('Earlier turns of this conversation')
     expect(bounded.history).toEqual([history[2]])
     expect(bounded.omittedTurns).toBe(0)
   })
@@ -611,7 +611,7 @@ describe('boundHistoryForStatelessProvider', () => {
 
     expect(bounded.summarized).toBe(true)
     expect(bounded.omittedTurns).toBeGreaterThan(0)
-    expect(bounded.systemPrompt).toContain('Summary of earlier conversation')
+    expect(bounded.systemPrompt).toContain('Earlier turns of this conversation')
     expect(bounded.history.at(-1)).toEqual(history.at(-1))
     expect(bounded.compactedThroughMessageId).toBeTruthy()
   })

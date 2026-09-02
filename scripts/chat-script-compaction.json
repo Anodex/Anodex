@@ -1,7 +1,7 @@
 {
   "enabledTools": [],
   "prompts": [
-    "Remember this codeword for later: TANGERINE-47. Just acknowledge it briefly, don't explain anything.",
+    "Remember this codeword for later: HALYARD-31. Just acknowledge it briefly, don't explain anything.",
     "Explain how Python's asyncio event loop works, in a few paragraphs.",
     "Now explain the difference between processes and threads, in similar depth.",
     "Walk me through how HTTPS establishes a secure connection, in detail.",

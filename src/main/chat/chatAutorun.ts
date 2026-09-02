@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import type { ChatHistoryTurn, ChatRequest } from '@shared/chat.types'
 import { llamaService } from '../llama/LlamaService'
 import { ensureLocalModelLoaded } from '../llama/ensureLocalModelLoaded'
@@ -10,6 +11,8 @@ import { projectStore } from '../projects/ProjectStore'
 import { headlessConfirm } from '../tools/headlessConfirm'
 import { runBoundedChatGeneration } from './boundedChatRunner'
 import { createLogger } from '../utils/logger'
+import type { Conversation } from '@shared/conversation.types'
+import { conversationStore } from '../conversations/ConversationStore'
 
 const log = createLogger('chat:autorun')
 
@@ -97,6 +100,22 @@ async function driveChat(scriptPath: string): Promise<void> {
     const projectId = resolveProjectId(script.project)
     const history: ChatHistoryTurn[] = []
 
+    // Persisted so the run is readable in Anodex itself, not only in a dev log.
+    // Every scripted conversation used to exist purely as log lines: the work
+    // being measured was invisible in the app it was measuring, so there was no
+    // way to open a run and see how it actually read. `origin: 'autorun'` marks
+    // it as machine-driven, the same way scheduled and agent chats are marked.
+    const conversation: Conversation = {
+      id: conversationId,
+      projectId,
+      title: `Autorun · ${basename(scriptPath)}`,
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      origin: 'autorun'
+    }
+    conversationStore.save(conversation)
+
     for (const [index, prompt] of script.prompts.entries()) {
       const request: ChatRequest = {
         conversationId,
@@ -155,6 +174,16 @@ async function driveChat(scriptPath: string): Promise<void> {
       // point of scripting more than one.
       history.push({ role: 'user', content: prompt })
       history.push({ role: 'assistant', content: result.content ?? '' })
+
+      // Saved after every turn rather than once at the end, so a run that is
+      // still going — or one that dies halfway — can still be opened and read.
+      const now = Date.now()
+      conversation.messages.push(
+        { id: randomUUID(), role: 'user', content: prompt, createdAt: now },
+        { id: randomUUID(), role: 'assistant', content: result.content ?? '', createdAt: now }
+      )
+      conversation.updatedAt = now
+      conversationStore.save(conversation)
     }
 
     log.info('CHAT AUTORUN COMPLETE')

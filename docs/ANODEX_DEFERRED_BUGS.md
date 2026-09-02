@@ -15,6 +15,78 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
+### OPEN: chat claims it runs locally even when a cloud provider is answering
+
+**Seen:** a chat on DeepSeek, asked to confirm the connection, replied "This is
+the Anodex assistant running locally on your machine, and the DeepSeek
+connection is working fine." The first clause is false -- nothing was running
+locally; DeepSeek answered over the network.
+
+**Evidence:** `prompts.ts` opens all four prompts with the claim as a constant --
+`CHAT_PROMPT`: "You are Anodex, a local AI assistant running on the user's own
+machine", and the same in `COMPACT_CHAT_PROMPT`, `CODING_AGENT_PROMPT` and
+`COMPACT_CODING_AGENT_PROMPT`. Prompt choice keys off context size and
+compactness, never off `provider.active`, so a cloud run is handed a system
+prompt asserting it is local and repeats it on request.
+
+**Why it matters beyond the wording:** "runs locally on your machine" is the
+privacy claim the whole app is sold on. Stated by a model whose tokens are
+leaving the machine, it is the one kind of wrong answer a local-first tool
+cannot afford -- a user who believes it will paste something into a cloud chat
+they would not have.
+
+**Where to start:** the identity line has to be assembled, not a constant. The
+prompt builder already takes settings; branch the opening sentence on
+`provider.active === 'local'` and say plainly which provider is answering when
+it is not. The "What Anodex is" section below it stays true either way. Cheap
+fix, and it is a prerequisite for named personalities changing the assistant's
+displayed name (see the work queue) -- both need one place that assembles who
+the assistant is.
+
+### OPEN: the sidebar model selector hides nine of the eleven cloud providers
+
+**Seen:** with a cloud provider linked in Settings -> AI & Models -> Providers,
+the model status menu above the user info in the sidebar does not offer it. Only
+local models, Claude and OpenAI appear.
+
+**Evidence:** `ModelStatusMenu.tsx` types its quick-switch as
+`type CloudProvider = 'anthropic' | 'openai'`, and the dropdown body renders
+exactly two provider sections, gated on `anthropicKeySet` and `openaiKeySet`.
+The nine others -- google, xai, deepseek, mistral, groq, openrouter, azure,
+kimi, qwen -- have no section at all. The file's own header comment admits this
+and calls the extension "a reasonable follow-up, not done here".
+
+**Not a labelling bug.** The _footer_ is already correct for all eleven:
+`AnyCloudProvider`, `CLOUD_PROVIDER_LABELS` and `anyCloudProviderState` cover
+every provider including Azure's `{resourceName, deploymentName}` shape, so an
+active DeepSeek shows as "DeepSeek -- <model>". What is missing is the ability
+to _pick_ one without going into Settings.
+
+**Where to start:** everything needed already exists.
+`ProviderConnectionsPanel.tsx` already enumerates all eleven with a
+`SIMPLE_PROVIDER_MODELS` record mapping each id to its curated catalogue
+(`GOOGLE_MODELS`, `XAI_MODELS`, `DEEPSEEK_MODELS`, `MISTRAL_MODELS`,
+`GROQ_MODELS`, `OPENROUTER_MODELS`, `KIMI_MODELS`, `QWEN_MODELS`). Lift that
+record into shared and drive the dropdown from it:
+
+1. Widen `CloudProvider` to `AnyCloudProvider` and `selectCloudModel` to write
+   `{ provider: { active: id, [id]: { model } } }` generically.
+2. Render one section per provider whose `anyCloudProviderState(...).apiKeySet`
+   is true, iterating the shared catalogue record -- no per-provider JSX.
+3. Azure is the exception on purpose: its model _is_ the deployment name, so it
+   has no list to switch between. Show it as a single selectable row, not a
+   catalogue.
+4. `useLiveCloudModels` early-returns the catalogue for anything but `openai`,
+   so it can be called uniformly; live discovery for other providers is a
+   separate question, not part of this fix.
+5. `ProviderUsageGauges` is only wired for anthropic/openai
+   (`useProviderUsageStore` snapshots). Render gauges where a snapshot exists
+   and omit them elsewhere rather than blocking the section on usage data.
+
+**Watch for:** the ordering. With several providers linked the dropdown becomes
+long; `sortActiveFirst` orders within a section, but the active provider's
+section should also come first.
+
 ### DEFERRED: a skill can be pinned or deleted, but not kept and hidden
 
 Anodex will ship with demo skills (currently five), and users create their own.

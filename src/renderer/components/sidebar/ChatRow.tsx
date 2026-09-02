@@ -127,6 +127,17 @@ export function ChatRow({
         {conversation.origin === 'agent' && (
           <Icon name="bot" size={12} className={styles.scheduledIcon} />
         )}
+        {/*
+          Autorun chats stay in the list rather than being filtered out like
+          scheduled and agent runs: a harness conversation only has value if
+          someone can open it and read how the assistant actually behaved, and
+          until now those runs existed solely as lines in a dev log. The icon
+          says at a glance that a chat was machine-driven, so a test run is not
+          mistaken for the user's own.
+        */}
+        {conversation.origin === 'autorun' && (
+          <Icon name="terminal" size={12} className={styles.scheduledIcon} />
+        )}
         <span className={styles.titleWrap}>
           <span className={styles.title}>{conversation.title}</span>
           {excerpt && <span className={styles.excerpt}>{excerpt}</span>}
