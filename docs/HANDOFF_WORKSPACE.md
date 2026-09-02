@@ -1185,3 +1185,31 @@ ways, and Anodex ends each of them quickly and says which:
 
 None of the three failures is Anodex getting it wrong. Two are the guards
 working, and the third found a real bug in one of them.
+
+## The two surfaces that reach outside Anodex
+
+Audited because a defect in either escapes the app, rather than because
+anything had failed.
+
+**`htmlPreviewWindow.ts` — one real gap, now closed.** Careful about what a
+page can read (sandbox, no preload, no node integration, `data:` URL for an
+opaque origin) and silent about what it can send. See `4a20b38`: there was no
+content security policy anywhere in the codebase, and the session-level network
+blocker is armed only during an AI-control session.
+
+**`computerControlTool.ts` and the desktop backend — sound.** Enforcement is not
+in the tool schema, where the "never use this for..." wording is only a prompt,
+but in `computerControl.handlers.ts`, and the ordering is right:
+
+1. a vision-capable model is required;
+2. `desktopControlEligibility` must pass — the setting is on, the platform is
+   Windows, the backend exists — and it defaults to `desktopControlEnabled:
+false`;
+3. an explicit window handle is required, with no implicit or default target;
+4. **the handle is re-verified against a fresh window enumeration** rather than
+   trusted from the request, so a stale or protected window cannot be driven;
+5. only then is `WindowsDesktopControlTarget` constructed, and a visible overlay
+   is synced so the user can see control is live.
+
+There is exactly one construction site for the desktop target and it sits behind
+that gate. No bypass, and no defect found.
