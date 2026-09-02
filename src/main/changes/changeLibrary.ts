@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, appendFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, appendFileSync } from 'node:fs'
 import { writeTextFileAtomic } from '../utils/atomicJsonFile'
 import { join } from 'node:path'
 import type { Change, ChangeTask } from '@shared/change.types'
@@ -150,7 +150,9 @@ export function archiveChangeMarkdown(workspaceRoot: string, slug: string): Chan
     updatedAt: new Date().toISOString()
   }
   const archivedFilePath = join(archiveDir, 'proposal.md')
-  writeFileSync(archivedFilePath, serializeChangeFile(archived), 'utf-8')
+  // Atomic because the original is removed immediately below: a truncated
+  // archive plus a deleted source loses the proposal outright.
+  writeTextFileAtomic(archivedFilePath, serializeChangeFile(archived))
 
   appendToSpec(workspaceRoot, { title: parsed.title, why: parsed.why, tasks: parsed.tasks })
   rmSync(join(projectChangesDir(workspaceRoot), slug), { recursive: true, force: true })
@@ -174,10 +176,9 @@ function appendToSpec(
   const section = `\n## ${change.title}\n\n${change.why}\n\n${taskLines}\n`
 
   if (!existsSync(specPath)) {
-    writeFileSync(
+    writeTextFileAtomic(
       specPath,
-      `# Project spec\n\nA living record of changes made to this project, maintained by Anodex as changes are archived.\n${section}`,
-      'utf-8'
+      `# Project spec\n\nA living record of changes made to this project, maintained by Anodex as changes are archived.\n${section}`
     )
   } else {
     appendFileSync(specPath, section, 'utf-8')
