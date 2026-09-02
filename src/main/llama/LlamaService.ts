@@ -42,7 +42,7 @@ import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
-import { reservedNonHistoryTokens } from '@shared/contextBudget'
+import { toolSurfaceBudgetTokens } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import { environmentDateFromPrompt } from '@shared/prompts'
@@ -2167,15 +2167,13 @@ class LlamaService extends EventEmitter {
     }
 
     const nlc = await this.getModule()
-    const shiftReserve = defaultContextShiftReserve(this.contextSize)
-    const toolResultHeadroom = Math.max(512, Math.min(3_000, Math.floor(this.contextSize * 0.15)))
-    const targetFixedTokens = Math.max(
-      0,
-      this.contextSize -
-        shiftReserve -
-        reservedNonHistoryTokens(this.contextSize) -
-        toolResultHeadroom
-    )
+    // Read from the shared allocation rather than computed here. The old rule
+    // was "the window minus a shift reserve, the output reserve and a
+    // tool-result headroom" — three subtractions, none of them for the
+    // conversation, so the tool surface was free to grow into the room history
+    // needed. See `toolSurfaceBudgetTokens` for the email conversation that
+    // died at 8K because of it.
+    const targetFixedTokens = toolSurfaceBudgetTokens(this.contextSize)
     return boundToolSurface({
       allFunctions: functions,
       // Guarded: the gateway tools validate what the model passes and raise a
