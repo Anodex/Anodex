@@ -159,6 +159,16 @@ describe('prompt surface selection', () => {
       }
     })
 
+    it('points at the tool that reads live Anodex state', () => {
+      // Without this the model describes the Scheduler as a feature and never
+      // looks at what is in it — the exact gap anodex_status was built to close.
+      for (const prompt of [CHAT_PROMPT, COMPACT_CHAT_PROMPT]) {
+        expect(prompt).toContain('anodex_status')
+        // And must not undercut it by claiming chat cannot see live state.
+        expect(prompt).not.toContain('cannot see their live state')
+      }
+    })
+
     it('names the surfaces a user might ask about', () => {
       for (const name of ['Agent', 'Critical Thinking', 'Email', 'Scheduler', 'Settings']) {
         expect(CHAT_PROMPT).toContain(name)

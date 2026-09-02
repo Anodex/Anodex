@@ -418,6 +418,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Load a skill's full instructions by name."
   },
   {
+    name: 'anodex_status',
+    kind: 'read',
+    description:
+      "Report Anodex's own state: scheduled tasks, agent runs, Critical Thinking runs, projects, linked email accounts. Read-only."
+  },
+  {
     name: 'schedule_task',
     kind: 'write',
     description:
@@ -580,6 +586,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
  * what a run starts with. See `buildRunToolNames`.
  */
 const NOT_IN_A_BUILD_RUN: ReadonlySet<string> = new Set([
+  'anodex_status',
   'delete_file',
   'delete_directory',
   'move_file',

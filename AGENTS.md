@@ -281,3 +281,12 @@ same. When you cannot test them, say so.
 - Husky hooks require the directory to be a git repo (`git init`).
 - If ESLint reports a file is not in any tsconfig, add the file to
   `tsconfig.node.json` or disable type-checked rules for that pattern.
+- Anodex holds an Electron single-instance lock, and the autorun harnesses
+  (`ANODEX_CHAT_AUTORUN`, `ANODEX_AGENT_AUTORUN`, `ANODEX_CT_AUTORUN`) leave the
+  app running when their script finishes. Start a second `npm run dev` while one
+  is alive and it builds, launches Electron, and that Electron immediately quits
+  — `npm` exits 0, nothing warns you, and the log simply stops after
+  "starting electron app...". The harness never arms, so a watcher waiting for
+  the completion line waits forever on a run that never began. Kill the previous
+  instance first and confirm it is gone before launching; "port 5173 is in use"
+  in the log is the tell that you did not.
