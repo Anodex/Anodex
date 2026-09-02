@@ -83,7 +83,12 @@ import {
   GenerationDiagnosticsTracker,
   type LocalGenerationDiagnostics
 } from './generationDiagnostics'
-import { boundToolSurface, maxDirectToolsForContext, type BoundedToolSurface } from './toolSurface'
+import {
+  boundToolSurface,
+  COMPLETE_BUILDER_LOOP,
+  maxDirectToolsForContext,
+  type BoundedToolSurface
+} from './toolSurface'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import type { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
@@ -2224,6 +2229,7 @@ class LlamaService extends EventEmitter {
       define: guardToolHandlers(nlc.defineChatSessionFunction),
       targetFixedTokens,
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
+      minDirectTools: COMPLETE_BUILDER_LOOP,
       measureFixedTokens
     })
   }

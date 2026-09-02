@@ -40,6 +40,7 @@ import {
 } from './truncatedToolCallError'
 import {
   boundToolSurface,
+  COMPLETE_BUILDER_LOOP,
   GATEWAY_TOOL_COUNT,
   maxDirectToolsForContext,
   type BoundedToolSurface
@@ -1222,6 +1223,7 @@ export class LlamaVisionService {
       define: defineToolFunction,
       targetFixedTokens: toolSurfaceTargetTokens(this.contextSize),
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
+      minDirectTools: COMPLETE_BUILDER_LOOP,
       measureFixedTokens: (functions) =>
         functions ? Math.ceil(JSON.stringify(toOpenAiTools(functions)).length / 4) : 0
     })
