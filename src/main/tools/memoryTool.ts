@@ -44,15 +44,26 @@ export function resolveMemoryScope(
  */
 export const rememberFactTool: ToolFactory = (define, ctx) =>
   define({
+    // Led by the trigger rather than the capability, deliberately. The original
+    // opened "Record one short, durable fact worth recalling later", which
+    // describes what the tool *is*; measured across an eight-model chat matrix,
+    // six models then acknowledged "my name is Merlin" in prose and never
+    // called it — while calling anodex_status freely in the same conversation.
+    // The difference is that a status question cannot be answered without the
+    // tool, whereas saving a fact is an unprompted side-action a model will
+    // skip unless the description tells it when to act.
     description:
-      "Record one short, durable fact worth recalling later — the user's name, a preference, how " +
-      'they like things done, a project convention or gotcha, or an open task — into structured ' +
-      `memory (max ${MAX_MEMORY_TEXT_CHARS} characters). Use scope 'global' for anything about the user ` +
-      "personally (recalled in every chat); use 'project' for something specific to this codebase " +
-      '(recalled across chats in this project only, requires a project to be open). State identity ' +
-      'facts (kind identity) literally and directly, e.g. "The user\'s name is X.", so a later direct ' +
-      'question about it matches. Use sparingly, only for things worth persisting, not routine ' +
-      'narration of what you just did.',
+      'CALL THIS whenever the user states something about themselves that should outlive this ' +
+      "conversation — their name, a preference, how they like things done, what they're working " +
+      'on, a project convention or gotcha, an open task. Replying "got it" does not save anything; ' +
+      'only this call does, and without it the next conversation starts with no memory of them. ' +
+      `Records one short fact (max ${MAX_MEMORY_TEXT_CHARS} characters) into structured memory. ` +
+      "Use scope 'global' for anything about the user personally (recalled in every chat); use " +
+      "'project' for something specific to this codebase (recalled across chats in this project " +
+      'only, requires a project to be open). State identity facts (kind identity) literally and ' +
+      'directly, e.g. "The user\'s name is X.", so a later direct question about it matches. One ' +
+      'call per fact — do not fold two facts into one entry — and not for routine narration of ' +
+      'what you just did.',
     params: {
       type: 'object',
       properties: {

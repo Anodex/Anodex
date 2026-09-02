@@ -1,0 +1,18 @@
+{
+  "enabledTools": [],
+  "prompts": [
+    "Remember this codeword for later: TANGERINE-47. Just acknowledge it briefly, don't explain anything.",
+    "Explain how Python's asyncio event loop works, in a few paragraphs.",
+    "Now explain the difference between processes and threads, in similar depth.",
+    "Walk me through how HTTPS establishes a secure connection, in detail.",
+    "Explain database indexing: B-trees, when indexes help, and when they hurt.",
+    "Describe how garbage collection works in a modern runtime, at length.",
+    "Explain the CAP theorem and what it actually means in practice.",
+    "Walk me through how a modern CPU pipeline works, including branch prediction.",
+    "Explain the difference between TCP and UDP and when you'd pick each.",
+    "Describe how DNS resolution works from typing a URL to getting an IP.",
+    "Explain what a race condition is and the common ways to prevent one.",
+    "Describe how public-key cryptography works, in a few solid paragraphs.",
+    "What was the codeword I gave you at the start of this conversation?"
+  ]
+}
