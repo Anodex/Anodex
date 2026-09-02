@@ -1469,3 +1469,99 @@ describe('a refused seam duplication buys a read back', () => {
     expect(look(ctx, 'repair.js').action).toBe('run')
   })
 })
+
+/**
+ * `edit_file` could not edit a CRLF file at all.
+ *
+ * The model reads a file, copies text out of it, and sends it back as
+ * `oldText`. Line endings survive that trip inconsistently — a model that
+ * reasons about the text rather than the bytes emits `\n` — so on a CRLF file
+ * `original.split(oldText)` found nothing and the edit was refused with "the
+ * text to replace was not found", every time, for any `oldText` spanning more
+ * than one line.
+ *
+ * That is most of Windows, and any checkout with `core.autocrlf=true` on any
+ * platform. `replace_lines` was unaffected, which is why this hid: the model
+ * gets told to fall back to it and the run continues, a little worse, with
+ * nothing reporting a bug.
+ *
+ * The file's own endings must survive the edit. Rewriting a CRLF file as LF
+ * would turn a one-line change into a whole-file diff.
+ */
+describe('edit_file on a file with CRLF line endings', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-crlf-'))
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  const CRLF = ['function a() {', '  return 1', '}'].join('\r\n')
+
+  function tool(ctx: ReturnType<typeof createMockContext>): {
+    handler: (a: { path: string; oldText: string; newText: string }) => Promise<string>
+  } {
+    return editFileTool(createMockDefine(), ctx)
+  }
+
+  it('matches multi-line oldText written with plain newlines', async () => {
+    await writeFile(join(workspace, 'a.ts'), CRLF, 'utf-8')
+    const result = await tool(createMockContext(workspace)).handler({
+      path: 'a.ts',
+      oldText: 'function a() {\n  return 1\n}',
+      newText: 'function a() {\n  return 42\n}'
+    })
+    expect(result).not.toContain('not found')
+    expect(await readFile(join(workspace, 'a.ts'), 'utf-8')).toContain('return 42')
+  })
+
+  it('leaves the file still CRLF', async () => {
+    // A one-line change that rewrites every ending is a whole-file diff, and
+    // the user would see it as one.
+    await writeFile(join(workspace, 'a.ts'), CRLF, 'utf-8')
+    await tool(createMockContext(workspace)).handler({
+      path: 'a.ts',
+      oldText: 'function a() {\n  return 1\n}',
+      newText: 'function a() {\n  return 42\n}'
+    })
+    const after = await readFile(join(workspace, 'a.ts'), 'utf-8')
+    expect((after.match(/\r\n/g) ?? []).length).toBe(2)
+    expect((after.match(/(?<!\r)\n/g) ?? []).length).toBe(0)
+  })
+
+  it('still matches oldText that already carries CRLF', async () => {
+    await writeFile(join(workspace, 'a.ts'), CRLF, 'utf-8')
+    const result = await tool(createMockContext(workspace)).handler({
+      path: 'a.ts',
+      oldText: 'function a() {\r\n  return 1\r\n}',
+      newText: 'function a() {\r\n  return 7\r\n}'
+    })
+    expect(result).not.toContain('not found')
+  })
+
+  it('leaves an LF file exactly as it was', async () => {
+    // The fix must not reach files that were never CRLF.
+    const lf = ['function a() {', '  return 1', '}'].join('\n')
+    await writeFile(join(workspace, 'a.ts'), lf, 'utf-8')
+    await tool(createMockContext(workspace)).handler({
+      path: 'a.ts',
+      oldText: 'function a() {\n  return 1\n}',
+      newText: 'function a() {\n  return 42\n}'
+    })
+    const after = await readFile(join(workspace, 'a.ts'), 'utf-8')
+    expect(after).not.toContain('\r')
+  })
+
+  it('still refuses text that genuinely is not there', async () => {
+    await writeFile(join(workspace, 'a.ts'), CRLF, 'utf-8')
+    const result = await tool(createMockContext(workspace)).handler({
+      path: 'a.ts',
+      oldText: 'function zzz() {\n  return 0\n}',
+      newText: 'x'
+    })
+    expect(result).toContain('not found')
+  })
+})
