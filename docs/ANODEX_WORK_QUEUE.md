@@ -40,21 +40,21 @@ cloud providers"); these two are look and structure.
       Approved 2026-09-02.
 
       In one paragraph: a personality becomes a character, not a block of tone
-                                                                      text. One large contact card shows the picture, name, role line and a live
-                                                                      preview of the chat byline; a custom listbox picks between them so the
-                                                                      screen does not grow with the list. The editor gains a **backstory** field
-                                                                      beside the voice field, rendered as two prompt sections rather than one
-                                                                      blob, with the cost stated in tokens because both ride in the system
-                                                                      prompt every turn. Users upload their own picture, name it on the card,
-                                                                      and saving plays the app's own "first light" once. Built-ins get real
-                                                                      names -- Anodex, Vale, Wren, Cass, Juno, Rook, Pip -- each with a role
-                                                                      line and a backstory.
+                                                                              text. One large contact card shows the picture, name, role line and a live
+                                                                              preview of the chat byline; a custom listbox picks between them so the
+                                                                              screen does not grow with the list. The editor gains a **backstory** field
+                                                                              beside the voice field, rendered as two prompt sections rather than one
+                                                                              blob, with the cost stated in tokens because both ride in the system
+                                                                              prompt every turn. Users upload their own picture, name it on the card,
+                                                                              and saving plays the app's own "first light" once. Built-ins get real
+                                                                              names -- Anodex, Vale, Wren, Cass, Juno, Rook, Pip -- each with a role
+                                                                              line and a backstory.
 
-                                                                      **Not presentation-only** (settings schema, file storage, prompt builder,
-                                                                      chat renderer), and **blocked on** the prompt identity fix in
-                                                                      `ANODEX_DEFERRED_BUGS.md` -- a byline saying `Vale` over a prompt saying
-                                                                      "You are Anodex" makes the model contradict the UI. Both need the same one
-                                                                      place that assembles who the assistant is.
+                                                                              **Not presentation-only** (settings schema, file storage, prompt builder,
+                                                                              chat renderer), and **blocked on** the prompt identity fix in
+                                                                              `ANODEX_DEFERRED_BUGS.md` -- a byline saying `Vale` over a prompt saying
+                                                                              "You are Anodex" makes the model contradict the UI. Both need the same one
+                                                                              place that assembles who the assistant is.
 
 - [ ] **Attached images should be the image, not a card inside a bubble.**
       `MessageBubble.tsx` + `MessageAttachments.tsx` and its CSS module.
@@ -65,53 +65,53 @@ cloud providers"); these two are look and structure.
       image someone shared.
 
       What is actually stacked up, in order:
-                                                                                              - `MessageBubble.tsx:223` renders `<MessageAttachments>` **inside**
-                                                                                                `styles.bubble`, and `.user .bubble` carries the surface fill, border
-                                                                                                and 72% max-width. So the image inherits the bubble's box.
-                                                                                              - `MessageAttachments` wraps each image in `figure.imageCard` with its
-                                                                                                own border, then `.imageFrame` with a checkerboard canvas and
-                                                                                                `min-height: 150px`, then a `figcaption` bar holding the file name,
-                                                                                                the byte size and the Keep for follow-ups button.
-                                                                                              - `.images` is `width: min(560px, 100%)` inside a bubble already capped
-                                                                                                at 72%, so the picture is sized by two competing constraints and the
-                                                                                                frame letterboxes whatever is left.
+                                                                                                      - `MessageBubble.tsx:223` renders `<MessageAttachments>` **inside**
+                                                                                                        `styles.bubble`, and `.user .bubble` carries the surface fill, border
+                                                                                                        and 72% max-width. So the image inherits the bubble's box.
+                                                                                                      - `MessageAttachments` wraps each image in `figure.imageCard` with its
+                                                                                                        own border, then `.imageFrame` with a checkerboard canvas and
+                                                                                                        `min-height: 150px`, then a `figcaption` bar holding the file name,
+                                                                                                        the byte size and the Keep for follow-ups button.
+                                                                                                      - `.images` is `width: min(560px, 100%)` inside a bubble already capped
+                                                                                                        at 72%, so the picture is sized by two competing constraints and the
+                                                                                                        frame letterboxes whatever is left.
 
-                                                                                              The change:
-                                                                                              - **Lift attachments out of the bubble** — render them as a sibling
-                                                                                                above it inside `.row`. `.user` is already `align-items: flex-end`, so
-                                                                                                they right-align without new layout.
-                                                                                              - **Drop the card border and the caption bar** in the normal case. The
-                                                                                                picture gets rounded corners and nothing else.
-                                                                                              - **Size to the image, not to a frame.** Remove `min-height`, keep a
-                                                                                                `max-height`, let width follow the aspect ratio. The letterboxing is
-                                                                                                what makes a tall image look padded into a slot.
-                                                                                              - **When the message has no text, render no bubble** — an image with a
-                                                                                                caption-less empty box under it is the other half of the same problem.
+                                                                                                      The change:
+                                                                                                      - **Lift attachments out of the bubble** — render them as a sibling
+                                                                                                        above it inside `.row`. `.user` is already `align-items: flex-end`, so
+                                                                                                        they right-align without new layout.
+                                                                                                      - **Drop the card border and the caption bar** in the normal case. The
+                                                                                                        picture gets rounded corners and nothing else.
+                                                                                                      - **Size to the image, not to a frame.** Remove `min-height`, keep a
+                                                                                                        `max-height`, let width follow the aspect ratio. The letterboxing is
+                                                                                                        what makes a tall image look padded into a slot.
+                                                                                                      - **When the message has no text, render no bubble** — an image with a
+                                                                                                        caption-less empty box under it is the other half of the same problem.
 
-                                                                                              **Do not lose what the chrome was carrying.** Three things live in that
-                                                                                              caption bar and each needs a home:
-                                                                                              - *Keep for follow-ups* is a real feature (vision-context pinning, see
-                                                                                                `SELECTIVE_VISION_CONTEXT.md`), not a label. Hover-reveal is fine for
-                                                                                                the *action* on desktop, but the pinned **state** must stay visible
-                                                                                                unprompted — a small corner marker on the image.
-                                                                                              - The unavailable / Retry / Locate file recovery path needs the frame it
-                                                                                                currently draws into. Keep the framed box for that state only.
-                                                                                              - File name and size are worth keeping on hover or in a title, not as a
-                                                                                                permanent bar competing with the picture.
+                                                                                                      **Do not lose what the chrome was carrying.** Three things live in that
+                                                                                                      caption bar and each needs a home:
+                                                                                                      - *Keep for follow-ups* is a real feature (vision-context pinning, see
+                                                                                                        `SELECTIVE_VISION_CONTEXT.md`), not a label. Hover-reveal is fine for
+                                                                                                        the *action* on desktop, but the pinned **state** must stay visible
+                                                                                                        unprompted — a small corner marker on the image.
+                                                                                                      - The unavailable / Retry / Locate file recovery path needs the frame it
+                                                                                                        currently draws into. Keep the framed box for that state only.
+                                                                                                      - File name and size are worth keeping on hover or in a title, not as a
+                                                                                                        permanent bar competing with the picture.
 
-                                                                                              **The checkerboard goes — decided, not assumed.** It exists so a
-                                                                                              transparent PNG reads as transparent, so it was worth checking against
-                                                                                              a real case before removing. The attachment that prompted this is PNG
-                                                                                              `colortype 2`: truecolour RGB, no alpha channel, no `tRNS` chunk,
-                                                                                              1254×1254. It has no transparency at all, and every checkerboard pixel
-                                                                                              around it was letterbox filler — a 408px frame against a 360px-capped
-                                                                                              square image — advertising transparency the file did not have. Alpha
-                                                                                              images will composite onto the chat background instead. Recorded here
-                                                                                              so it is not rediscovered later as a regression.
+                                                                                                      **The checkerboard goes — decided, not assumed.** It exists so a
+                                                                                                      transparent PNG reads as transparent, so it was worth checking against
+                                                                                                      a real case before removing. The attachment that prompted this is PNG
+                                                                                                      `colortype 2`: truecolour RGB, no alpha channel, no `tRNS` chunk,
+                                                                                                      1254×1254. It has no transparency at all, and every checkerboard pixel
+                                                                                                      around it was letterbox filler — a 408px frame against a 360px-capped
+                                                                                                      square image — advertising transparency the file did not have. Alpha
+                                                                                                      images will composite onto the chat background instead. Recorded here
+                                                                                                      so it is not rediscovered later as a regression.
 
-                                                                                              **Reviewed and approved 2026-09-02** against a side-by-side of the real
-                                                                                              attachment, both treatments built from the shipping CSS values:
-                                                                                              `docs/ui-samples/chat-images.html`. Build to that sample.
+                                                                                                      **Reviewed and approved 2026-09-02** against a side-by-side of the real
+                                                                                                      attachment, both treatments built from the shipping CSS values:
+                                                                                                      `docs/ui-samples/chat-images.html`. Build to that sample.
 
 - [ ] **AI & Models: the sub-tabs use developer words and one tab is redundant.**
       `pages/ai-models/AiModelsSettings.tsx`, `AI_MODEL_TABS` and the
