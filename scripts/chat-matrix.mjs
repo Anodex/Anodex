@@ -28,7 +28,21 @@ const SETTINGS = join(
   process.env.APPDATA ?? join(homedir(), 'AppData/Roaming'),
   'anodex/settings.json'
 )
-const SCRIPT = join(process.cwd(), 'scripts/chat-script-matrix.json')
+/**
+ * The conversation to run, and the grader to score it with.
+ *
+ * Overridable with --script and --criteria so this runner can measure a
+ * different surface. Email needs its own script and its own criteria, and
+ * copying this file to change two constants is how two runners start drifting
+ * apart on everything else — the process handling, the settings write, the
+ * kill-before-launch discipline.
+ */
+const flagValue = (name, fallback) => {
+  const index = process.argv.indexOf(name)
+  return index !== -1 && process.argv[index + 1] ? process.argv[index + 1] : fallback
+}
+const SCRIPT = join(process.cwd(), flagValue('--script', 'scripts/chat-script-matrix.json'))
+const CRITERIA = flagValue('--criteria', 'scripts/chat-criteria.mjs')
 
 /**
  * The matrix. Spread over size and family, not just size: the agent matrix's
@@ -50,7 +64,14 @@ const MATRIX = [
   { key: 'qwen27b-full', file: 'Qwen3.8-27B-UD-Q4_K_M.gguf', ctx: 65536 }
 ]
 
-const [outDir, ...only] = process.argv.slice(2)
+// Flags and their values are stripped, so what remains is the out directory
+// followed by optional model keys.
+const positional = process.argv.slice(2).filter((arg, index, all) => {
+  if (arg.startsWith('--')) return false
+  const previous = all[index - 1]
+  return previous !== '--script' && previous !== '--criteria'
+})
+const [outDir, ...only] = positional
 if (!outDir) {
   console.error('Usage: node scripts/chat-matrix.mjs <outDir> [modelKey ...]')
   process.exit(2)
@@ -165,7 +186,7 @@ function killTree(pid) {
 }
 
 function grade(logPath) {
-  const result = spawnSync(process.execPath, ['scripts/chat-criteria.mjs', logPath, '--json'], {
+  const result = spawnSync(process.execPath, [CRITERIA, logPath, '--json'], {
     encoding: 'utf-8'
   })
   try {
