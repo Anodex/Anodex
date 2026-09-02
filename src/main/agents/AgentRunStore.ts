@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
 import {
   defaultMaxTurnsFor,
@@ -14,6 +14,7 @@ import { agentRunContextSize } from '@shared/agentRunProviders'
 import { describeRunProvenance } from './runProvenance'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
+import { writeJsonFileAtomic } from '../utils/atomicJsonFile'
 
 /**
  * The context window a new run will actually have.
@@ -165,7 +166,11 @@ class AgentRunStore {
 
   private persist(runs: AgentRun[]): void {
     try {
-      writeFileSync(this.filePath, JSON.stringify(runs, null, 2), 'utf-8')
+      // Temp file plus rename, not a write onto the live file. A truncated
+      // `runs.json` is not a damaged record but an empty one: `loadRuns` treats
+      // a parse failure as "starting fresh" and returns nothing, so a write
+      // interrupted by a crash or a full disk would lose every run on record.
+      writeJsonFileAtomic(this.filePath, runs)
       this.cache = runs
     } catch (error) {
       log.error('Failed to persist agent runs:', error)
