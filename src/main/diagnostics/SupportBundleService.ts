@@ -41,11 +41,22 @@ export function redactSupportText(value: string): RedactedText {
   }
 
   replace(/\b(?:Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, 'Bearer <redacted>')
+  // The optional quote after the name matters: settings and most logged
+  // payloads are JSON, where a quote sits between the key and its colon. This
+  // matched `apiKey=secret` and missed `"apiKey": "secret"` - the form that
+  // actually occurs.
   replace(
-    /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)\b\s*([:=])\s*["']?[^\s"',}]+/gi,
+    /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)\b["']?\s*([:=])\s*["']?[^\s"',}]+/gi,
     '<credential>=<redacted>'
   )
-  replace(/\b(?:sk|hf|ghp|github_pat|xox[baprs]|AIza)[A-Za-z0-9_-]{10,}\b/g, '<redacted>')
+  // Every provider Anodex can be configured with, not only those starting
+  // `sk`. `gsk` is listed separately because a word boundary cannot match
+  // inside `gsk_`, so Groq keys passed through untouched. Mistral has no
+  // distinctive prefix and relies on the rule above.
+  replace(
+    /\b(?:sk|gsk|hf|ghp|github_pat|xox[baprs]|AIza|tvly|xai|BSA)[A-Za-z0-9_-]{10,}\b/g,
+    '<redacted>'
+  )
   replace(/https?:\/\/[^\s"'<>]+/gi, '<url>')
   replace(/\b[A-Za-z]:\\[^\s"'`]+/g, '<path>')
   replace(/(?:file:\/\/)?\/(?:Users|home|var\/folders|tmp)\/[^\s"'`]+/g, '<path>')

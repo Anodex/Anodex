@@ -100,3 +100,59 @@ describe('buildSupportBundle', () => {
     expect(bundle.redactionCount).toBeGreaterThan(0)
   })
 })
+
+/**
+ * A support bundle is built to be sent to someone, so anything it fails to
+ * redact is disclosed on purpose by a user who believed it was safe.
+ *
+ * Demonstrated against the real patterns, not assumed. Four leaks:
+ *
+ *   "apiKey": "tvly-..."   the key/value rule requires the separator to follow
+ *                          the word, and JSON puts a quote in between
+ *   gsk_...   (Groq)       `\b(?:sk` cannot match inside `gsk`
+ *   xai-...   (xAI)        no prefix rule at all
+ *   tvly-...  (Tavily)     no prefix rule at all
+ *
+ * DeepSeek, OpenAI, Anthropic, OpenRouter, Kimi and Qwen keys survived only
+ * because they all begin `sk`, which the prefix rule does cover — the
+ * key/value rule was not protecting any of them in JSON.
+ */
+describe('redactSupportText covers every provider Anodex supports', () => {
+  const leaks = (text: string): boolean => redactSupportText(text).text.includes(text.slice(-12))
+
+  it('redacts a JSON-quoted credential', () => {
+    // Settings and many logged payloads are JSON; a quote sits between the key
+    // and its colon.
+    expect(leaks('  "apiKey": "tvly-abc123def456ghi789",')).toBe(false)
+  })
+
+  it('redacts a Groq key', () => {
+    expect(leaks('gsk_abcdef1234567890abcdef')).toBe(false)
+  })
+
+  it('redacts an xAI key', () => {
+    expect(leaks('xai-abcdef1234567890abcdef')).toBe(false)
+  })
+
+  it('redacts a Tavily key', () => {
+    expect(leaks('tvly-abcdef1234567890abcd')).toBe(false)
+  })
+
+  it('still redacts the formats it already handled', () => {
+    for (const key of [
+      'sk-abcdef1234567890abcdef',
+      'sk-ant-abcdef1234567890abc',
+      'AIzaAbCdEf1234567890abcdef',
+      'hf_abcdef1234567890abcdef',
+      'ghp_abcdef1234567890abcdef'
+    ]) {
+      expect(leaks(key), key).toBe(false)
+    }
+  })
+
+  it('leaves ordinary prose alone', () => {
+    // Over-redacting a bundle makes it useless for the diagnosis it exists for.
+    const prose = 'The model stopped after 6 turns without calling a tool.'
+    expect(redactSupportText(prose).text).toBe(prose)
+  })
+})
