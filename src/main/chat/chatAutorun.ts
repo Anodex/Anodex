@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import type { ChatHistoryTurn, ChatRequest } from '@shared/chat.types'
+import type { ToolCall } from '@shared/tools.types'
 import { llamaService } from '../llama/LlamaService'
 import { ensureLocalModelLoaded } from '../llama/ensureLocalModelLoaded'
 import { describeModel } from '../llama/modelScanner'
@@ -58,6 +59,27 @@ interface ChatAutorunScript {
   project?: string
   /** Tool names this conversation may use. Omit for the standard set. */
   enabledTools?: string[]
+  /**
+   * Tool names this run may answer the human-approval prompt for. Omit — and
+   * you almost always should — to keep `headlessConfirm`'s refusal.
+   *
+   * This is a stand-in for a person clicking Approve, and it exists because
+   * there is no other way to exercise a human-gated path automatically: the
+   * approval is a callback the renderer answers, so `send_email` can only ever
+   * be reached from a UI or from something pretending to be one. Without it,
+   * the outward-facing half of email is the one part of Anodex that can never
+   * be regression-tested, which is a poor place to have a blind spot.
+   *
+   * Three things keep it honest. It is an allowlist of specific tool names, so
+   * a script that wants to test sending does not also gain permission to run a
+   * destructive command. It lives only in the autorun harness, which refuses to
+   * arm in a packaged build. And arming it logs a warning naming every tool it
+   * covers, so a run that could send mail says so in its own log.
+   *
+   * Never add this to a script that mails anyone but a test address the user
+   * has explicitly nominated.
+   */
+  approveHumanGatedCalls?: string[]
 }
 
 const POLL_MS = 2000
@@ -68,6 +90,19 @@ async function driveChat(scriptPath: string): Promise<void> {
     const script = JSON.parse(readFileSync(scriptPath, 'utf-8')) as ChatAutorunScript
     if (!script.prompts?.length) throw new Error(`${scriptPath} lists no prompts.`)
     log.info('Autorun armed:', script.prompts.length, 'prompt(s)')
+
+    // A run that can answer a human-approval prompt says so, loudly, in its own
+    // log. If a test ever mails someone unexpectedly, this line is what shows
+    // whether the run was ever permitted to — and its absence is what shows a
+    // run was not. See `ChatAutorunScript.approveHumanGatedCalls`.
+    const approvable = new Set(script.approveHumanGatedCalls ?? [])
+    if (approvable.size > 0) {
+      log.warn('Human-approval gate stubbed for:', [...approvable].join(', '))
+    }
+    const confirm: typeof headlessConfirm = (request) =>
+      request.requiresHumanApproval && approvable.has(request.toolName)
+        ? Promise.resolve({ approved: true })
+        : headlessConfirm(request)
 
     const settings = settingsStore.get()
     if (settings.provider.active === 'local') {
@@ -127,8 +162,18 @@ async function driveChat(scriptPath: string): Promise<void> {
 
       const started = Date.now()
       // Tool calls arrive through `onActivity` rather than on the result, so
-      // they are counted here the same way the IPC handler forwards them.
+      // they are collected here the same way the IPC handler forwards them.
+      //
+      // The whole call is kept, not just its name, because the next turn needs
+      // it: `messageToHistoryTurn` puts `toolCalls` on every assistant turn the
+      // real chat path replays, and this harness used to push only role and
+      // content. That gap had teeth. A send test told the user "Sent", was
+      // asked "did that actually send?", could not see its own call in the
+      // replayed history, confabulated "I never called the send tool", and sent
+      // the email a second time. Two identical messages arrived. The model was
+      // working from a history that real chat would never have given it.
       const calls: string[] = []
+      const toolCalls: ToolCall[] = []
       let refused = 0
       const result = await runBoundedChatGeneration(request, {
         // Same surface the IPC handler passes, so the harness measures the
@@ -145,9 +190,14 @@ async function driveChat(scriptPath: string): Promise<void> {
         // naming `enabledTools` opts into a narrower set on purpose, which is
         // how the compaction script denies itself memory tools.
         enabledTools: script.enabledTools ? new Set(script.enabledTools) : undefined,
-        confirm: headlessConfirm,
+        confirm,
         onActivity: (call) => {
           calls.push(call.name)
+          // Last write wins per id: a call is reported when it starts and again
+          // when it settles, and the settled one carries the real status.
+          const existing = toolCalls.findIndex((item) => item.id === call.id)
+          if (existing === -1) toolCalls.push(call)
+          else toolCalls[existing] = call
           if (String(call.detail ?? '').startsWith('Blocked:')) refused++
         }
       })
@@ -173,14 +223,27 @@ async function driveChat(scriptPath: string): Promise<void> {
       // Fed back as history so the next turn sees this one, which is the whole
       // point of scripting more than one.
       history.push({ role: 'user', content: prompt })
-      history.push({ role: 'assistant', content: result.content ?? '' })
+      // `toolCalls` carried forward exactly as `messageToHistoryTurn` does for
+      // the real chat path, so the next turn can see what this one actually did
+      // rather than only what it said about it.
+      history.push({
+        role: 'assistant',
+        content: result.content ?? '',
+        toolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined
+      })
 
       // Saved after every turn rather than once at the end, so a run that is
       // still going — or one that dies halfway — can still be opened and read.
       const now = Date.now()
       conversation.messages.push(
         { id: randomUUID(), role: 'user', content: prompt, createdAt: now },
-        { id: randomUUID(), role: 'assistant', content: result.content ?? '', createdAt: now }
+        {
+          id: randomUUID(),
+          role: 'assistant',
+          content: result.content ?? '',
+          createdAt: now,
+          toolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined
+        }
       )
       conversation.updatedAt = now
       conversationStore.save(conversation)

@@ -1,0 +1,7 @@
+{
+  "approveHumanGatedCalls": ["send_email"],
+  "prompts": [
+    "Send a short email to sinistercraftnetwork@gmail.com with the subject 'Anodex send test' and a one-line body saying this is an automated delivery test from Anodex. Send it, don't just draft it.",
+    "Did that actually send? Tell me exactly what happened."
+  ]
+}
