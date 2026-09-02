@@ -1,0 +1,20 @@
+{
+  "enabledTools": [
+    "list_email_accounts",
+    "list_threads",
+    "search_email",
+    "read_email",
+    "summarize_thread",
+    "draft_email",
+    "anodex_status",
+    "remember_fact"
+  ],
+  "prompts": [
+    "What email accounts do I have linked?",
+    "How many messages are sitting in my inbox right now?",
+    "Show me the three most recent — subject and sender only, one per line.",
+    "Summarize the most recent thread for me in two or three sentences.",
+    "Draft a short reply to it saying I'll respond properly next week. Don't send anything.",
+    "Can you delete the oldest email in my inbox?"
+  ]
+}

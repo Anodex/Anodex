@@ -33,37 +33,99 @@ Three things from a settings walkthrough. The third is a defect and lives in
 `ANODEX_DEFERRED_BUGS.md` ("the sidebar model selector hides nine of the eleven
 cloud providers"); these two are look and structure.
 
-- [ ] **Assistant personalities looks like a form, not like Anodex.**
-      `pages/profile/AssistantStyleSection.tsx` + its CSS module. Everything
-      works -- built-ins, duplicate-to-edit, rename, delete, preview, the 6000
-      char counter -- and none of it _reads_. A native `SelectControl` on the
-      right, a bare 10-row textarea, and four ghost buttons in a row: it is the
-      one screen where the user gives the assistant a voice, and it presents
-      like a bug report field.
+- [ ] **Assistant personalities: give the assistant an identity, not a form.**
+      `pages/profile/AssistantStyleSection.tsx`. Sample:
+      `docs/ui-samples/personality-redesign.html`. Revised 2026-09-02 after a
+      first pass that used a card grid -- that was wrong, and the reason is
+      worth keeping: a personality card carrying only name and text excerpt has
+      nothing to be a card _about_, and 6 built-ins + 50 saved is a wall to
+      browse. The direction instead:
 
-      The change is presentation only; do not touch the state model in
-                  `chatPersonality.ts`. Direction:
-                  - Personalities as **selectable cards**, not a dropdown -- a card
-                    shows the name, a one-line excerpt and a "built-in" marker without
-                    opening anything, where the dropdown hides every option until
-                    clicked. **But design for the limit, not the common case:**
-                    `MAX_SAVED_PERSONALITIES` is 50, plus 6 built-ins, so a plain
-                    wrapped grid becomes a wall of 56. Needs a scrolling rail, or cards
-                    for the built-ins with saved ones in a compact list -- decide that
-                    before building.
-                  - The active card should be visibly *selected* -- the accent border and
-                    card treatment already used elsewhere -- so the read-only state of a
-                    built-in is legible before you try to type into it.
-                  - Give the textarea a framed editor feel: label row, character counter
-                    inline, the action buttons grouped as an editor toolbar rather than four
-                    equal ghosts. `Preview`/`Copy` are inspection, `Delete`/`Clear` are
-                    destructive; they should not look identical.
-                  - The name field + `Save as new` is a save affordance stranded at the
-                    bottom. It belongs with the editor, and only needs to appear when there
-                    is something unsaved to name.
-                  - The empty state ("None (free text)") deserves an actual invitation, not
-                    a placeholder sentence in a grey box.
-                  - Theme tokens only, verified in dark **and** light -- standing rule.
+      - **One large contact card** for the selected personality: picture, name,
+            one-line role. Choosing happens in a dropdown beside it, so the screen
+            does not grow as the list does.
+          - **A custom picture per personality**, uploaded by the user, with a
+            tinted monogram as the fallback the built-ins use. Store the file
+            beside `conversation-assets` under `userData` with a path on the
+            record -- **not** base64 in `settings.json`, which is read on every
+            launch. Needs a size/type limit and a broken-image fallback.
+          - **The chat byline follows it.** `MessageBubble.tsx:208` hardcodes
+            `Anodex`; a named personality should show its own name and picture on
+            the message. This is the whole payoff -- today a personality changes
+            the tone with no evidence anywhere that anything happened.
+          - **The picker cannot stay `SelectControl`.** A native `<select>` cannot
+            render an image, so the picture vanishes exactly where you are choosing
+            between faces. It needs a custom listbox (arrow keys, Escape,
+            `aria-selected`), which is real work -- budget for it.
+          - **Name and picture are edited on the card**, in place. That retires the
+            stranded "name this" field and the Rename button: the card is the
+            record.
+          - **Built-ins get real names**, plus an `Anodex` default at the head of
+            the list. Placeholder roster in the sample: Anodex, Vale, Wren, Cass,
+            Juno, Rook, Pip. A name alone loses the "what does it do" signal that
+            `Direct` carried, so each keeps a one-line role beside it.
+          - Theme tokens only, both modes. Identity tints can reuse the chart
+            `--series-*` values rather than inventing hues.
+
+          **This is no longer presentation-only.** It touches the settings schema
+          (a picture path and a role line per personality), file storage, the
+          prompt builder, and the chat renderer. Two consequences to decide before
+          building: whether an `Anodex` built-in *replaces* the null
+          `activePersonalityId` "free text" state, and how a persona-named
+          assistant still reads as Anodex in the UI. **Blocked on** the prompt
+          identity fix in `ANODEX_DEFERRED_BUGS.md` ("chat claims it runs locally")
+          -- a byline saying `Vale` over a system prompt saying "You are Anodex"
+          makes the model contradict the UI, and both need the same one place that
+          assembles who the assistant is.
+
+- [ ] **Attached images should be the image, not a card inside a bubble.**
+      `MessageBubble.tsx` + `MessageAttachments.tsx` and its CSS module.
+      Compared against Claude's chat on the same attachment: there the picture
+      is its own object and the message text sits under it; in Anodex the
+      picture is nested inside the user bubble and wrapped in three layers of
+      chrome, so a 1.5MB illustration reads as a file record rather than as an
+      image someone shared.
+
+      What is actually stacked up, in order:
+          - `MessageBubble.tsx:223` renders `<MessageAttachments>` **inside**
+            `styles.bubble`, and `.user .bubble` carries the surface fill, border
+            and 72% max-width. So the image inherits the bubble's box.
+          - `MessageAttachments` wraps each image in `figure.imageCard` with its
+            own border, then `.imageFrame` with a checkerboard canvas and
+            `min-height: 150px`, then a `figcaption` bar holding the file name,
+            the byte size and the Keep for follow-ups button.
+          - `.images` is `width: min(560px, 100%)` inside a bubble already capped
+            at 72%, so the picture is sized by two competing constraints and the
+            frame letterboxes whatever is left.
+
+          The change:
+          - **Lift attachments out of the bubble** — render them as a sibling
+            above it inside `.row`. `.user` is already `align-items: flex-end`, so
+            they right-align without new layout.
+          - **Drop the card border and the caption bar** in the normal case. The
+            picture gets rounded corners and nothing else.
+          - **Size to the image, not to a frame.** Remove `min-height`, keep a
+            `max-height`, let width follow the aspect ratio. The letterboxing is
+            what makes a tall image look padded into a slot.
+          - **When the message has no text, render no bubble** — an image with a
+            caption-less empty box under it is the other half of the same problem.
+
+          **Do not lose what the chrome was carrying.** Three things live in that
+          caption bar and each needs a home:
+          - *Keep for follow-ups* is a real feature (vision-context pinning, see
+            `SELECTIVE_VISION_CONTEXT.md`), not a label. Hover-reveal is fine for
+            the *action* on desktop, but the pinned **state** must stay visible
+            unprompted — a small corner marker on the image.
+          - The unavailable / Retry / Locate file recovery path needs the frame it
+            currently draws into. Keep the framed box for that state only.
+          - File name and size are worth keeping on hover or in a title, not as a
+            permanent bar competing with the picture.
+
+          **One deliberate call to make:** the checkerboard exists so a
+          transparent PNG reads as transparent. Dropping it means alpha images
+          composite straight onto the chat background — which is what Claude does,
+          and what makes them look like part of the conversation. Recommend
+          dropping it; note it here so it is not rediscovered as a regression.
 
 - [ ] **AI & Models: the sub-tabs use developer words and one tab is redundant.**
       `pages/ai-models/AiModelsSettings.tsx`, `AI_MODEL_TABS` and the
