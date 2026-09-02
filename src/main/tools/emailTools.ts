@@ -21,6 +21,7 @@ import { describeAttachment } from '../email/threadSummary'
 import { extractAttachmentText, MAX_ATTACHMENT_TEXT_CHARS } from '../email/attachmentText'
 import { saveVisualPreviewAsset } from './visualPreviewAssets'
 import { describeDuplicateSend } from '@shared/sendDeduplication'
+import { EMAIL_CONTENT_NOTE } from '@shared/prompts'
 import { findRecentDuplicateSend, recordSentEmail } from './sentEmailLog'
 
 const MAX_BODY_PREVIEW = 700
@@ -173,7 +174,9 @@ export const readEmailTool: ToolFactory = (define, ctx) =>
         args,
         async run() {
           const message = await emailService.readMessage(args.messageId, args.account)
-          return {
+          // The full body: the largest piece of text in Anodex that a stranger
+          // can author, so this is the most important place for the warning.
+          return withEmailContentNote({
             modelResult: [
               `Subject: ${message.subject}`,
               `From: ${message.from}`,
@@ -189,7 +192,7 @@ export const readEmailTool: ToolFactory = (define, ctx) =>
               )
             ].join('\n'),
             detail: message.subject
-          }
+          })
         }
       })
   })
@@ -1296,7 +1299,10 @@ function formatThreads(threads: EmailThreadSummary[]): { modelResult: string; de
     return { modelResult: 'No email threads found.', detail: '0 threads' }
   }
 
-  return {
+  // Snippets are sender-written too, so the listing carries the warning as
+  // well as the full read does. The empty case above skips it: there is no
+  // untrusted text in "no threads found".
+  return withEmailContentNote({
     modelResult: threads
       .map(
         (thread, index) =>
@@ -1310,7 +1316,22 @@ function formatThreads(threads: EmailThreadSummary[]): { modelResult: string; de
       )
       .join('\n\n'),
     detail: `${threads.length} thread${threads.length === 1 ? '' : 's'}`
-  }
+  })
+}
+
+/**
+ * Put the sender-wrote-this warning in front of message text.
+ *
+ * Applied at the point the text enters rather than as a standing prompt rule,
+ * so it costs nothing in the great majority of turns that never touch email,
+ * and so it sits immediately adjacent to the content it is about — which is
+ * where a warning has to be to survive a long context.
+ */
+function withEmailContentNote(result: { modelResult: string; detail: string }): {
+  modelResult: string
+  detail: string
+} {
+  return { ...result, modelResult: `${EMAIL_CONTENT_NOTE}\n\n${result.modelResult}` }
 }
 
 function formatDraft(draft: EmailDraft): { modelResult: string; detail: string } {

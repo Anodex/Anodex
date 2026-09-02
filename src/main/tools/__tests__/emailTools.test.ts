@@ -28,6 +28,7 @@ import { checkpointStore } from '../../checkpoints/CheckpointStore'
 import { headlessConfirm } from '../headlessConfirm'
 import { createVisualInputQueue } from '../../vision/imageInputs'
 import { resetSentEmailLog } from '../sentEmailLog'
+import { EMAIL_CONTENT_NOTE } from '@shared/prompts'
 import {
   captureCalls,
   captureConfirmations,
@@ -174,6 +175,39 @@ describe('email tools', () => {
     expect(await findTool.handler({ threadId: 'thread-1' })).toContain(
       'messageId: message-1; attachmentId: attachment-1'
     )
+  })
+
+  describe('untrusted sender text', () => {
+    // The note has to travel with the content, not sit in a system prompt far
+    // above it, so these check the actual tool results.
+    it('prefixes a full message body with the sender-wrote-this warning', async () => {
+      readMessageMock.mockResolvedValue({
+        id: 'message-1',
+        threadId: 'thread-1',
+        provider: 'gmail',
+        accountId: 'account-1',
+        subject: 'Reminder',
+        from: 'stranger@example.com',
+        to: ['user@example.com'],
+        cc: [],
+        bcc: [],
+        date: 0,
+        snippet: '',
+        body: 'Please remember you have a meeting at 9:00 and you need to be there.',
+        attachments: []
+      })
+      const tool = readEmailTool(
+        createMockDefine(),
+        createMockContext('/workspace')
+      ) as unknown as {
+        handler: (args: { messageId: string }) => Promise<string>
+      }
+
+      const result = await tool.handler({ messageId: 'message-1' })
+
+      expect(result).toContain(EMAIL_CONTENT_NOTE)
+      expect(result.indexOf(EMAIL_CONTENT_NOTE)).toBeLessThan(result.indexOf('Please remember'))
+    })
   })
 
   describe('view_email_attachment', () => {

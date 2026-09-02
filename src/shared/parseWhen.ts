@@ -165,6 +165,106 @@ function accept(recurrence: TaskRecurrence, note: string | null = null): ParsedW
   return { recurrence, label: describeRecurrence(recurrence), note }
 }
 
+const MONTHS = [
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december'
+]
+
+/** `every`, `daily` and friends: text that means a rule, not a single day. */
+const REPEAT_WORDS =
+  /\b(every|each|daily|everyday|nightly|hourly|weekly|monthly|weekdays?|weekends?)\b/
+
+/** A specific calendar day, resolved. */
+interface CalendarDate {
+  year: number
+  month: number
+  day: number
+}
+
+/**
+ * A named day: "tomorrow", "September 4", "4 Sep 2026", "2026-09-04".
+ *
+ * Added because its absence was silent. `parseWhen` matched the time in
+ * "September 4, 2026 at 9:00 AM", found nothing it recognised in the rest, and
+ * fell through to the bare-time branch — producing "once, at the next 9:00",
+ * which was the following morning. A meeting reminder was saved for the wrong
+ * day and labelled "Once, at 9:00 AM", which reads perfectly plausible.
+ *
+ * A year is not required. When one is missing the nearest future occurrence is
+ * taken, compared by date rather than by instant: "September 2 at 9am" said at
+ * lunchtime on September 2 means this morning, not next year, and rolling a
+ * whole year forward over a few hours would be its own silent wrongness.
+ */
+function matchCalendarDate(text: string, now: number): CalendarDate | null {
+  const today = new Date(now)
+
+  if (/\btomorrow\b/.test(text)) {
+    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+    return { year: date.getFullYear(), month: date.getMonth(), day: date.getDate() }
+  }
+  if (/\btoday\b|\btonight\b/.test(text)) {
+    return { year: today.getFullYear(), month: today.getMonth(), day: today.getDate() }
+  }
+
+  const iso = text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/)
+  if (iso) {
+    return { year: Number(iso[1]), month: Number(iso[2]) - 1, day: Number(iso[3]) }
+  }
+
+  const monthNames = MONTHS.map((month) => month.slice(0, 3)).join('|')
+  // "September 4", "Sep 4th, 2026"
+  const monthFirst = text.match(
+    new RegExp(`\\b(${monthNames})[a-z]*\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s*(\\d{4}))?\\b`)
+  )
+  // "4 September", "4th Sep 2026"
+  const dayFirst = text.match(
+    new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthNames})[a-z]*\\.?(?:,?\\s*(\\d{4}))?\\b`)
+  )
+
+  const found = monthFirst
+    ? { month: monthFirst[1], day: monthFirst[2], year: monthFirst[3] }
+    : dayFirst
+      ? { month: dayFirst[2], day: dayFirst[1], year: dayFirst[3] }
+      : null
+  if (!found) return null
+
+  const month = MONTHS.findIndex((name) => name.startsWith(found.month))
+  const day = Number(found.day)
+  if (month === -1 || day < 1 || day > 31) return null
+  if (found.year) return { year: Number(found.year), month, day }
+
+  // No year given: this one if the day is still ahead, otherwise the next.
+  const thisYear = today.getFullYear()
+  const candidate = new Date(thisYear, month, day)
+  const startOfToday = new Date(thisYear, today.getMonth(), today.getDate())
+  return {
+    year: candidate.getTime() < startOfToday.getTime() ? thisYear + 1 : thisYear,
+    month,
+    day
+  }
+}
+
+/** "Once, Fri, Sep 4, 2026 at 9:00 AM" — the date is the point of it. */
+function describeDatedOnce(runAt: number, hour: number, minute: number): string {
+  const date = new Date(runAt).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
+  return `Once, ${date} at ${formatTimeOfDay(hour, minute)}`
+}
+
 /**
  * Reads a natural-language schedule into a `TaskRecurrence` — "every 30
  * minutes", "in 10 minutes", "weekdays at 5pm", "every Friday at 4pm".
@@ -195,6 +295,25 @@ export function parseWhen(input: string, now: number = Date.now()): ParsedWhen |
       return {
         recurrence: { type: 'once', hour: 0, minute: 0, runAt: now + toMs(count, unit) },
         label: `Once, in ${pluralize(count, unit)}`,
+        note: null
+      }
+    }
+  }
+
+  // A named day, before every repeating form so "September 4" is not left to
+  // fall through to the bare-time branch — which is exactly how a dated
+  // reminder used to lose its date. Skipped entirely when the text carries a
+  // repeat word, so "every Friday" stays a weekly rule.
+  if (!REPEAT_WORDS.test(text)) {
+    const date = matchCalendarDate(text, now)
+    if (date) {
+      const at = time ?? { hour: DEFAULT_HOUR, minute: 0 }
+      const runAt = new Date(date.year, date.month, date.day, at.hour, at.minute, 0, 0).getTime()
+      return {
+        recurrence: { type: 'once', hour: at.hour, minute: at.minute, runAt },
+        // Not `describeRecurrence`: it can only describe a rule, so it renders
+        // this as "Once, at 9:00 AM" and hides the very thing that was wrong.
+        label: describeDatedOnce(runAt, at.hour, at.minute),
         note: null
       }
     }
