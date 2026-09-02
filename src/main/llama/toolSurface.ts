@@ -203,6 +203,25 @@ const DIRECT_TOOL_PRIORITY = [
   // fallback, not by what feels most file-shaped.
   'web_search',
   'fetch_url',
+  // Same "rank by what has no fallback" reasoning, applied to the surfaces
+  // this list was written before. It was a build-run ordering: every entry
+  // above is a coding tool, and anything unlisted sorts to infinity, so the
+  // first things evicted when the budget binds were chat's and email's.
+  //
+  // Measured. With a corrected tool-surface budget, a 4B on the chat script
+  // answered "what have I got scheduled?" with "I don't have access to your
+  // schedule or task list right now" — while holding `anodex_status`, which had
+  // just been deferred out from under it. It scored 10/10 on the same script
+  // when the tool was resident.
+  //
+  // Only the primaries are promoted. `anodex_status` is the single way chat can
+  // answer about Anodex itself, and listing, searching and reading are what an
+  // email conversation is made of; the other eleven mailbox tools can wait
+  // behind the gateway, which is what a gateway is for.
+  'anodex_status',
+  'list_threads',
+  'search_email',
+  'read_email',
   'git_diff',
   'git_status',
   'get_file_info',

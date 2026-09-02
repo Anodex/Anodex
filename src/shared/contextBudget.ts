@@ -325,3 +325,40 @@ export function referenceContextShare(contextSize: number): number {
 export function workingSetFraction(allocation: ContextBudgetAllocation): number {
   return allocation.contextSize === 0 ? 0 : allocation.workingSet / allocation.contextSize
 }
+
+/**
+ * How many tokens the resident tool surface and system prompt may occupy.
+ *
+ * This is what `boundToolSurface` measures each candidate tool against: below
+ * it, a tool stays natively described; above it, the rest go behind the
+ * find/describe/call gateway.
+ *
+ * ## Why it reads from the allocation
+ *
+ * `LlamaService` used to compute this itself as "the window, minus a context
+ * shift reserve, minus the output reserve, minus a tool-result headroom". That
+ * subtracts three things and reserves nothing at all for the conversation, so
+ * the tool surface was permitted to grow into the room history needed. On an
+ * 8,192-token window it allowed 4,917 tokens — sixty percent of the context —
+ * for fixed cost alone.
+ *
+ * Measured consequence: an email conversation at 8K, where the mailbox tools
+ * make the surface large, reached `fixedTokens: 4096` and then died. Turn two
+ * took 879 seconds; turn three returned zero characters with
+ * `stop=context-shift-limit`, which is an empty reply in the UI. Every model
+ * tested failed the same way, including the 27B that scores 10/10 on the chat
+ * matrix at the same window — so this was never a weak-model problem.
+ *
+ * The allocation already partitions the window exactly: `outputReserve` for the
+ * reply, `referenceContext` for the system prompt and its sections,
+ * `toolSchemas` for the schemas, and `workingSet` for conversation and tool
+ * results. The first two are precisely the fixed cost, so that is what this
+ * returns — and the working set stops being collateral. The old arithmetic also
+ * double-counted, subtracting a tool-result headroom that `workingSet` already
+ * covers; `reservedNonHistoryTokens` warns about exactly that mistake a few
+ * functions above.
+ */
+export function toolSurfaceBudgetTokens(contextSize: number): number {
+  const allocation = allocateContextBudget(contextSize)
+  return allocation.referenceContext + allocation.toolSchemas
+}
