@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { extractPdfText } from '../pdfText'
 import { tinyPdf } from './tinyPdf'
+import { warmPdfParser } from './test-helpers'
 
 describe('PDF text extraction', () => {
+  // Loading pdf.js inside the first test's own timeout is what failed CI on the
+  // slowest runner. See `warmPdfParser`.
+  beforeAll(warmPdfParser, 60_000)
+
   it('reads the text layer of a PDF', async () => {
     const text = await extractPdfText(new Uint8Array(tinyPdf('Bundled scenarios Solar System')))
     expect(text).toContain('Bundled scenarios Solar System')

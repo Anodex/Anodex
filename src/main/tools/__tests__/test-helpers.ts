@@ -90,3 +90,26 @@ export function splitEvidenceMarker(result: string): [string, string | null] {
     ? [result.slice(0, lastNewline), candidate]
     : [result, null]
 }
+
+/**
+ * Pay pdf.js's import cost before a PDF test is timed.
+ *
+ * `extractPdfText` imports `pdfjs-dist` dynamically, so the first test to read
+ * a PDF loads the whole library inside its own five-second budget. That is
+ * invisible on a fast machine — 77ms locally — and fatal on a slow one.
+ *
+ * Measured: CI run 33437718168 failed only on `windows-latest`, with
+ * `Test timed out in 5000ms` on the first PDF test, while ubuntu and macOS
+ * passed. That run's summary names the cause: `import 56.10s` of a 62s total,
+ * so module loading was the cost, not the test.
+ *
+ * Called from a `beforeAll` in the two files that read PDFs rather than from a
+ * global setup file: warming it everywhere charged all 322 test files for what
+ * two of them need, and measured 72s of added setup across the suite.
+ *
+ * Raising `testTimeout` instead would have hidden the problem rather than moved
+ * it, and cost every other test its ability to fail on a real hang.
+ */
+export async function warmPdfParser(): Promise<void> {
+  await import('pdfjs-dist/legacy/build/pdf.mjs')
+}
