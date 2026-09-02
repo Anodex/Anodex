@@ -235,8 +235,7 @@ locally can still fail there.
 Real defects this has caused, all found after the code looked correct:
 
 - **`edit_file` could not touch a CRLF file at all.** A model sends bare
-  newlines; the file on disk had `
-`; the literal match found nothing and
+  newlines; the file on disk used CRLF; the literal match found nothing and
   every multi-line edit was refused. That is most of Windows, and any checkout
   with `core.autocrlf=true` anywhere. It hid because `replace_lines` still
   worked, so runs continued slightly worse with nothing reporting a bug.
