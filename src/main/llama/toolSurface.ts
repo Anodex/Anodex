@@ -47,7 +47,7 @@ export function maxDirectToolsForContext(contextSize: number): number {
 }
 
 /** The first N of `DIRECT_TOOL_PRIORITY` that form a self-sufficient build loop. */
-const COMPLETE_BUILDER_LOOP = 10
+export const COMPLETE_BUILDER_LOOP = 10
 
 /**
  * A bound on how much of the catalog is worth documenting natively even when
@@ -86,6 +86,14 @@ export function boundToolSurface(options: {
   targetFixedTokens: number
   /** Maximum full native schemas; remaining tools stay available through the gateway. */
   maxDirectTools?: number
+  /**
+   * Ranked tools admitted before the token budget is consulted at all.
+   *
+   * Defaults to none, so a caller measuring exact budget behaviour keeps it.
+   * The transports pass `COMPLETE_BUILDER_LOOP`, because a surface that can
+   * read but neither edit nor run is not a smaller surface, it is a broken one.
+   */
+  minDirectTools?: number
   measureFixedTokens: (functions: Record<string, ToolFunction> | undefined) => number
 }): BoundedToolSurface {
   const {
@@ -93,6 +101,7 @@ export function boundToolSurface(options: {
     define,
     targetFixedTokens,
     maxDirectTools = Number.POSITIVE_INFINITY,
+    minDirectTools = 0,
     measureFixedTokens
   } = options
   if (!allFunctions || Object.keys(allFunctions).length === 0) {
@@ -109,6 +118,7 @@ export function boundToolSurface(options: {
     }
   }
 
+  const floor = Math.min(minDirectTools, maxDirectTools, allNames.length)
   const gateway = createDeferredToolGateway(define, allNames)
   const selected: Record<string, ToolFunction> = { ...gateway.functions }
   const directToolNames: string[] = []
@@ -116,7 +126,22 @@ export function boundToolSurface(options: {
   for (const name of rankToolNames(allFunctions)) {
     if (directToolNames.length >= maxDirectTools) break
     const candidate = { ...selected, [name]: allFunctions[name] }
-    if (measureFixedTokens(candidate) > targetFixedTokens) continue
+    // The budget bounds the tail, never the loop the surface needs to function.
+    //
+    // `maxDirectToolsForContext` holds a floor of ten because a surface without
+    // write_file and run_command cannot build anything, and paying three
+    // gateway round trips per write is the worst thing to ask of the smallest
+    // window. That floor caps the count, and the token check used to override
+    // it: with a tightened budget an 8K workspace run was admitted
+    // `finish_goal`, `list_directory`, `read_file_range` and nothing else —
+    // able to read code and unable to change or test it.
+    //
+    // Ranking is what makes this safe to force. The first entries are the
+    // builder loop for a project run, and the surfaces' own primaries when the
+    // coding tools are not present at all, so honouring the floor admits the
+    // tools that have no substitute rather than an arbitrary ten.
+    const belowFloor = directToolNames.length < floor
+    if (!belowFloor && measureFixedTokens(candidate) > targetFixedTokens) continue
     selected[name] = allFunctions[name]
     directToolNames.push(name)
   }
