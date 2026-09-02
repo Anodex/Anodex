@@ -27,6 +27,7 @@ import type { ToolRuntimeContext } from '../types'
 import { checkpointStore } from '../../checkpoints/CheckpointStore'
 import { headlessConfirm } from '../headlessConfirm'
 import { createVisualInputQueue } from '../../vision/imageInputs'
+import { resetSentEmailLog } from '../sentEmailLog'
 import {
   captureCalls,
   captureConfirmations,
@@ -529,6 +530,51 @@ describe('email tools', () => {
     )
   })
 
+  it('names the recipient and time in the send result, and says not to repeat it', async () => {
+    // A bare "Email sent." is exactly the claim a model later talks itself out
+    // of believing. Measured: asked "did that actually send?", a model answered
+    // "I never called the send tool", then sent a second identical email. The
+    // result now carries the facts that contradict that.
+    const { confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailSendRequest) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      to: ['person@example.com'],
+      subject: 'Hello',
+      body: 'Send body'
+    })
+
+    expect(result).toContain('person@example.com')
+    expect(result).toMatch(/do not send it again/i)
+  })
+
+  it('warns on the approval card when the same email was already sent here', async () => {
+    // The approval card is the only control that can still catch a duplicate,
+    // because a person reads it. It used to say "send this email?" when it
+    // could have said "you already sent this one".
+    // The log is module state that outlives one test, and earlier cases in
+    // this file send the very same message — without this the first assertion
+    // below fails on a duplicate from another test.
+    resetSentEmailLog()
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailSendRequest) => Promise<string>
+    }
+    const message = { to: ['person@example.com'], subject: 'Hello', body: 'Send body' }
+
+    await tool.handler(message)
+    await tool.handler({ ...message, body: '  Send   body  ' })
+
+    expect(requests).toHaveLength(2)
+    expect(String(requests[0].detail ?? '')).not.toContain('ALREADY SENT')
+    // Whitespace differs on the repeat, as it does when a model re-composes.
+    expect(String(requests[1].detail ?? '')).toContain('ALREADY SENT')
+  })
+
   it('always asks before sending, even in untethered mode', async () => {
     const { requests, confirm } = captureConfirmations()
     const ctx = {
@@ -546,7 +592,7 @@ describe('email tools', () => {
       body: 'Send body'
     })
 
-    expect(result).toBe('Email sent.')
+    expect(result).toMatch(/^Email sent to /)
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
       toolName: 'send_email',
@@ -678,7 +724,7 @@ describe('email tools', () => {
       body: 'Placeholder body'
     })
 
-    expect(result).toBe('Email sent.')
+    expect(result).toMatch(/^Email sent to /)
     expect(requests).toHaveLength(1)
     expect(requests[0].detail).toContain('real-recipient@example.com')
     expect(requests[0].detail).toContain('Real subject')
@@ -893,7 +939,7 @@ describe('email tools', () => {
         attachmentPaths: ['notes.txt']
       })
 
-      expect(result).toBe('Email sent.')
+      expect(result).toMatch(/^Email sent to /)
       expect(requests[0].detail).toContain('Attachments: notes.txt')
       expect(sendMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1209,7 +1255,7 @@ describe('email tools', () => {
           attachmentPaths: ['robot.png']
         })
 
-        expect(result).toBe('Email sent.')
+        expect(result).toMatch(/^Email sent to /)
         expect(sendMock.mock.calls[0][0].attachments).toEqual([
           expect.objectContaining({
             filename: 'robot.png',

@@ -1,0 +1,7 @@
+{
+  "project": "Bench",
+  "approveHumanGatedCalls": ["send_email"],
+  "prompts": [
+    "Produce a real raster PNG image in this project called anodex-chart.png — a bar chart with three labelled bars. Any approach you like: Python and Node are both available, and you can run commands. It must be a genuine PNG that a mail client will preview as a picture, not an SVG. Verify it is a valid PNG before you use it. Then email it to sinistercraftnetwork@gmail.com with the subject 'Anodex image test' and a short body saying what it is. Attach the PNG. Send it exactly once."
+  ]
+}

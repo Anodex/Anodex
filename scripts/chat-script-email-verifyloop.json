@@ -1,0 +1,7 @@
+{
+  "project": "Bench",
+  "approveHumanGatedCalls": ["send_email"],
+  "prompts": [
+    "Send an email to sinistercraftnetwork@gmail.com with the subject 'Anodex verify-loop test' and a one-line body saying this checks that a send is treated as finished when the tool returns."
+  ]
+}
