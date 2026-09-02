@@ -7,6 +7,7 @@ import { createLogger } from './utils/logger'
 import type { ComputerControlTarget } from './computerControl/ComputerControlTarget'
 import { resolveProjectPreviewHref } from './computerControl/projectPreviewNavigation'
 import { prepareHtmlPreviewSource } from './tools/previewTools'
+import { withContentSecurityPolicy } from './previewContentSecurityPolicy'
 import { resolveInWorkspace } from './tools/workspace'
 
 const log = createLogger('html-preview-window')
@@ -174,7 +175,13 @@ export function closeHtmlPreviewWindows(): void {
 }
 
 function loadContent(window: BrowserWindow, content: string): Promise<void> {
-  const dataUrl = `data:text/html;charset=utf-8;base64,${Buffer.from(content, 'utf-8').toString('base64')}`
+  // The opaque origin a `data:` URL gives this page stops it reading anything.
+  // It does not stop it *sending*: a `fetch` or an image beacon leaves happily.
+  // The session-level blocker below is armed only during an AI-control
+  // session, so outside one the policy is what closes that. See
+  // `previewContentSecurityPolicy.ts`.
+  const hardened = withContentSecurityPolicy(content)
+  const dataUrl = `data:text/html;charset=utf-8;base64,${Buffer.from(hardened, 'utf-8').toString('base64')}`
   return window.loadURL(dataUrl)
 }
 
