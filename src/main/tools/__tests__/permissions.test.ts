@@ -113,3 +113,61 @@ describe('classifyCommandRisk', () => {
     expect(classifyCommandRisk('rm file-r.txt file-f.txt')).toBe('sensitive')
   })
 })
+
+/**
+ * Three ways to destroy work that the list already covered in another syntax.
+ *
+ * `destructive` is the tier `headlessConfirm` refuses outright, so an
+ * unattended run auto-approves everything below it. `git reset --hard` and
+ * `git clean -f` are both on the list, which settles that "discards
+ * uncommitted work" belongs there — and `git checkout -- .` and `git restore .`
+ * do exactly that and were not. `> /dev/sda` is on the list, which settles that
+ * raw-device writes belong there — and `dd of=/dev/sda` is the same act.
+ *
+ * This completes categories the list already asserts rather than widening the
+ * policy. The distinction that matters is below: switching branches must stay
+ * ordinary, or every normal git workflow starts demanding confirmation.
+ */
+describe('destructive commands the list had missed', () => {
+  it('treats discarding the working tree as destructive', () => {
+    for (const command of [
+      'git checkout -- .',
+      'git checkout .',
+      'git checkout -- src/main.ts',
+      'git restore .',
+      'git restore --worktree src/',
+      'git restore src/main.ts'
+    ]) {
+      expect(classifyCommandRisk(command), command).toBe('destructive')
+    }
+  })
+
+  it('leaves ordinary git navigation alone', () => {
+    // The whole point of scoping this to path arguments: a branch switch
+    // destroys nothing, and classifying it would make every workflow confirm.
+    for (const command of [
+      'git checkout main',
+      'git checkout -b feature/thing',
+      'git checkout --track origin/main',
+      'git restore --staged src/main.ts',
+      'git status',
+      'git diff'
+    ]) {
+      expect(classifyCommandRisk(command), command).toBe('sensitive')
+    }
+  })
+
+  it('treats a raw write to a block device as destructive', () => {
+    for (const command of [
+      'dd if=/dev/zero of=/dev/sda',
+      'dd if=backup.img of=/dev/nvme0n1 bs=4M',
+      'dd if=/dev/zero of=/dev/disk2'
+    ]) {
+      expect(classifyCommandRisk(command), command).toBe('destructive')
+    }
+  })
+
+  it('leaves an ordinary dd to a file alone', () => {
+    expect(classifyCommandRisk('dd if=/dev/zero of=./test.img bs=1M count=10')).toBe('sensitive')
+  })
+})

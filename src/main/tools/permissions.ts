@@ -85,7 +85,18 @@ const DESTRUCTIVE_COMMAND_PATTERNS: RegExp[] = [
   /\bdrop\s+(table|database|schema)\b/i,
   /\bshutdown\b/i,
   /\bmkfs\b/i,
-  /\bchmod\s+-R\s+777\s+\//i
+  /\bchmod\s+-R\s+777\s+\//i,
+  // Discarding the working tree, which `git reset --hard` and `git clean -f`
+  // above already put in this tier. Scoped to a bare `--` or `.` so that
+  // switching branches - `git checkout main`, `git checkout -b x`,
+  // `git checkout --track ...` - stays ordinary and does not start demanding
+  // confirmation on every normal workflow.
+  /\bgit\s+checkout\s+(?:--\s|\.)/i,
+  // `git restore` restores the working tree by default. `--staged` alone only
+  // unstages, which the index and the object store both survive.
+  /\bgit\s+restore\b(?![^\r\n|;&]*--staged\b)/i,
+  // The same act as the `> /dev/sd` redirect above, in dd's own syntax.
+  /\bdd\b[^\r\n|;&]*\sof=\/dev\//i
 ]
 
 /** Classify a shell command's risk for the permission system. */
