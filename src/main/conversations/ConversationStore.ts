@@ -8,7 +8,7 @@ import {
 } from '@shared/chatSanitizer'
 import { abortGeneration } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
-import { writeJsonFileAtomic } from '../utils/atomicJsonFile'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 import { conversationAssetStore } from './ConversationAssetStore'
 
 const log = createLogger('conversations')
@@ -98,7 +98,7 @@ class ConversationStore {
     const existing = this.ensureCache().get(normalized.id)
 
     try {
-      writeJsonFileAtomic(filePath, normalized)
+      writeJsonAtomic(filePath, normalized)
       this.ensureCache().set(normalized.id, { conversation: normalized, filePath })
     } catch (error) {
       log.error('Failed to save conversation:', filePath, error)
@@ -284,7 +284,7 @@ class ConversationStore {
   setState(state: ConversationState): void {
     const filePath = join(this.baseDir, STATE_FILE)
     try {
-      writeJsonFileAtomic(filePath, state)
+      writeJsonAtomic(filePath, state)
     } catch (error) {
       log.error('Failed to save conversation state:', filePath, error)
       throw error
@@ -335,7 +335,7 @@ class ConversationStore {
       const normalized = reconcileInterruptedConversation(sanitized.conversation)
       if (sanitized.changed || normalized.changed) {
         try {
-          writeJsonFileAtomic(filePath, normalized.conversation)
+          writeJsonAtomic(filePath, normalized.conversation)
         } catch (error) {
           log.warn('Failed to rewrite normalized conversation:', filePath, error)
         }

@@ -1,6 +1,7 @@
 import { app } from 'electron'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import type {
   CreateProjectRequest,
   Project,
@@ -229,7 +230,7 @@ class ProjectStore {
     try {
       const dir = app.getPath('userData')
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      writeFileSync(this.filePath, JSON.stringify(state, null, 2), 'utf-8')
+      writeJsonAtomic(this.filePath, state)
       this.cache = state
     } catch (error) {
       log.error('Failed to persist projects:', error)

@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import type { AppSettings, DeepPartial, SettingsPatch } from '@shared/settings.types'
 import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
@@ -159,7 +160,7 @@ class SettingsStore {
 
   private persist(settings: AppSettings): void {
     this.ensureDir(app.getPath('userData'))
-    writeFileSync(this.filePath, JSON.stringify(withEncryptedSecrets(settings), null, 2), 'utf-8')
+    writeJsonAtomic(this.filePath, withEncryptedSecrets(settings))
   }
 
   private ensureDir(dir: string): void {

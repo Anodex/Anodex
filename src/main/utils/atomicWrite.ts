@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { renameSync, writeFileSync } from 'node:fs'
+import { renameSync, rmSync, writeFileSync } from 'node:fs'
 
 /**
  * Write JSON to `filePath` atomically: serialize to a sibling temp file, then
@@ -13,7 +13,27 @@ import { renameSync, writeFileSync } from 'node:fs'
  * already exists.
  */
 export function writeJsonAtomic(filePath: string, data: unknown): void {
+  // Serialised before the temp file exists, so a value that cannot be
+  // stringified fails without ever opening a handle beside the target.
+  writeTextAtomic(filePath, JSON.stringify(data, null, 2))
+}
+
+/**
+ * The same guarantee for a file that is not JSON — see {@link writeJsonAtomic}.
+ *
+ * `changeLibrary` writes proposals in its own markdown-ish format and needs the
+ * atomicity just as much: it writes the archive and then deletes the original,
+ * so a truncated write there loses the proposal rather than damaging a copy.
+ */
+export function writeTextAtomic(filePath: string, contents: string): void {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`
-  writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8')
-  renameSync(tmpPath, filePath)
+  try {
+    writeFileSync(tmpPath, contents, 'utf-8')
+    renameSync(tmpPath, filePath)
+  } catch (error) {
+    // Without this a failed write leaves a temp file next to the real store,
+    // accumulating one per failure and looking like a backup worth restoring.
+    rmSync(tmpPath, { force: true })
+    throw error
+  }
 }

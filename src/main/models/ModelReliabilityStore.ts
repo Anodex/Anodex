@@ -1,6 +1,7 @@
 import { app } from 'electron'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import { createLogger } from '../utils/logger'
 
@@ -105,7 +106,7 @@ class ModelReliabilityStore {
 
   private persist(): void {
     try {
-      writeFileSync(this.filePath, JSON.stringify(this.getAll(), null, 2), 'utf-8')
+      writeJsonAtomic(this.filePath, this.getAll())
     } catch (error) {
       log.error('Failed to persist model reliability data:', error)
     }
