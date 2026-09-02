@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import {
   extractFocusedPassages,
@@ -8,10 +8,14 @@ import {
   setResolveHostForTests
 } from '../webTools'
 import { WebSourceRegistry } from '../WebSourceRegistry'
-import { createMockContext, createMockDefine } from './test-helpers'
+import { createMockContext, createMockDefine, warmPdfParser } from './test-helpers'
 import { tinyPdf } from './tinyPdf'
 
 describe('AI web tools', () => {
+  // Three tests here read a PDF, and loading pdf.js inside the first one's
+  // own timeout is what failed CI on the slowest runner. See `warmPdfParser`.
+  beforeAll(warmPdfParser, 60_000)
+
   beforeEach(() => {
     setResolveHostForTests(() => Promise.resolve(['93.184.216.34']))
   })
