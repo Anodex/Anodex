@@ -41,6 +41,16 @@ import { settingsStore } from '../settings/SettingsStore'
  * Email reports linked accounts and never message content. Whether an account is
  * linked is configuration; what is in it is correspondence, and reading mail has
  * its own separately gated tools.
+ *
+ * ## The one exception, decided rather than inherited
+ *
+ * Chat is read-only toward Anodex everywhere except `schedule_task`, which
+ * creates a Scheduler task and is confirmed by the user before it saves. That
+ * asymmetry is deliberate: "remind me at 5pm" is the most natural thing anyone
+ * asks a chat, and refusing it to keep a rule tidy would remove a feature that
+ * works. Nothing else — cancelling a task, stopping a run, changing a project —
+ * has a tool to reach from here, so the boundary holds by wiring rather than by
+ * the model choosing to respect it.
  */
 export const anodexStatusTool: ToolFactory = (define, ctx) =>
   define({

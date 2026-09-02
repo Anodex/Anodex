@@ -169,6 +169,25 @@ describe('prompt surface selection', () => {
       }
     })
 
+    it('names schedule_task as the one thing chat can actually change', () => {
+      // Chat is read-only toward Anodex with exactly one deliberate exception,
+      // decided rather than inherited: schedule_task creates a Scheduler task
+      // and the user confirms it before it saves. "Remind me at 5pm" is the
+      // most natural thing to ask a chat, and it already worked.
+      //
+      // The prompt must not overstate the read-only rule either. An earlier
+      // draft said "nothing here can" change anything, which this disproves.
+      for (const prompt of [CHAT_PROMPT, COMPACT_CHAT_PROMPT]) {
+        expect(prompt).toContain('schedule_task')
+        expect(prompt).not.toContain('nothing here can')
+        // And says the exception is *create only*. Observed live: told merely
+        // that schedule_task creates a task, the model answered a question
+        // about its own limits with "I can add, modify, or cancel scheduled
+        // tasks" — there is no tool here that edits or cancels one.
+        expect(prompt).toMatch(/cancel/)
+      }
+    })
+
     it('names the surfaces a user might ask about', () => {
       for (const name of ['Agent', 'Critical Thinking', 'Email', 'Scheduler', 'Settings']) {
         expect(CHAT_PROMPT).toContain(name)
