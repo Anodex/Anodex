@@ -37,7 +37,8 @@ import {
   type ContextAssemblyReport,
   type PromptCalibration
 } from '@shared/contextPlanner'
-import { composeSystemPrompt } from '@shared/prompts'
+import { composeSystemPrompt, type PromptSurface } from '@shared/prompts'
+import { resolveActiveStyle } from '@shared/chatPersonality'
 import { buildContextEpochSystemPrompt, capContextEpochHandoff } from '@shared/contextPrompt'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
@@ -112,6 +113,14 @@ export interface RunGenerationIo {
   includeReferenceContext?: boolean
   /** Force a fresh local session for a bounded phase; cloud calls are already isolated. */
   sessionMode?: GenerateParams['sessionMode']
+  /**
+   * Which surface this turn belongs to. `'chat'` selects the conversational
+   * core prompt instead of the coding-agent one — but only when no Project is
+   * open, since a Project is what unlocks the tools the coding prompt talks
+   * about. Omitted everywhere else (agent runs, scheduled tasks, Critical
+   * Thinking), which keeps their prompts byte-identical to before.
+   */
+  surface?: PromptSurface
   /**
    * This turn is a bounded, tool-free writing phase, not an agent turn: use
    * `ISOLATED_WRITING_PROMPT` instead of the coding-agent system prompt. Set by
@@ -602,12 +611,22 @@ export async function runGeneration(
   // budgeting against a fraction of the window instead is what let a 4K model
   // admit 3,918 characters of workspace and recall into a prompt whose fixed
   // cost had already outgrown the window.
+  // One reader for the assistant voice: a selected personality wins over the
+  // free-text field, and a personality deleted while selected falls back to it.
+  // Reading `globalStyle` directly here is what would let the picker and the
+  // prompt disagree about which voice is in force.
+  const activeAssistantStyle = resolveActiveStyle({
+    saved: settings.assistantStyle.personalities,
+    activeId: settings.assistantStyle.activePersonalityId,
+    globalStyle: settings.assistantStyle.globalStyle
+  })
   const composeParts = {
     isolatedWriting: io.isolatedWriting === true,
     hasWorkspaceTools,
     contextWindowTokens,
     hasProject: Boolean(activeProject),
-    assistantStyle: settings.assistantStyle.globalStyle,
+    surface: io.surface,
+    assistantStyle: activeAssistantStyle,
     projectRules,
     activeSkillContext
   }
@@ -692,7 +711,7 @@ export async function runGeneration(
   const contextReconciliation = reconcileContextSignals(
     request.context,
     {
-      'assistant-style': settings.assistantStyle.globalStyle,
+      'assistant-style': activeAssistantStyle,
       'project-rules': projectRules,
       'active-skills': activeSkillContext,
       'workspace-scope': workspaceRoot ? `${workspaceRoot}:${activeProject?.id ?? ''}` : null,

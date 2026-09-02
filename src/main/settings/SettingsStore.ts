@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import type { AppSettings, DeepPartial, SettingsPatch } from '@shared/settings.types'
 import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
+import { MAX_SAVED_PERSONALITIES, normalizePersonalityName } from '@shared/chatPersonality'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import { DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
 import { isContextAssemblyStrategy } from '@shared/contextPlanner'
@@ -901,9 +902,73 @@ export function validatePatch(patch: SettingsPatch): void {
       )
     }
   }
+  if (patch.assistantStyle?.personalities !== undefined) {
+    validateChatPersonalities(patch.assistantStyle.personalities)
+  }
+  if (
+    patch.assistantStyle?.activePersonalityId !== undefined &&
+    patch.assistantStyle.activePersonalityId !== null
+  ) {
+    if (
+      typeof patch.assistantStyle.activePersonalityId !== 'string' ||
+      !patch.assistantStyle.activePersonalityId.trim()
+    ) {
+      throw new Error('assistantStyle.activePersonalityId must be a non-empty string or null')
+    }
+  }
   if (patch.email?.sendRequiresApproval !== undefined) {
     if (patch.email.sendRequiresApproval !== true) {
       throw new Error('email.sendRequiresApproval must be true')
+    }
+  }
+}
+
+/**
+ * Saved personalities arrive as a whole array — `deepMerge` replaces arrays
+ * rather than merging them, which is what makes deleting one possible — so the
+ * entire list is re-checked on every write.
+ *
+ * Bounded on purpose. Settings is one JSON file read on every `get()`, and an
+ * unbounded list behind an IPC-reachable patch is how a single bad renderer
+ * loop turns into an app that will not open.
+ */
+function validateChatPersonalities(value: unknown): void {
+  if (!Array.isArray(value)) {
+    throw new Error('assistantStyle.personalities must be an array')
+  }
+  if (value.length > MAX_SAVED_PERSONALITIES) {
+    throw new Error(
+      `assistantStyle.personalities must hold at most ${MAX_SAVED_PERSONALITIES} entries`
+    )
+  }
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('each personality must be an object')
+    }
+    const { id, name, style } = entry as Record<string, unknown>
+    if (typeof id !== 'string' || !id.trim()) {
+      throw new Error('personality.id must be a non-empty string')
+    }
+    // Ids are what selection, edit and delete all address, so a duplicate makes
+    // every one of those operations ambiguous rather than merely untidy.
+    if (seen.has(id)) throw new Error(`duplicate personality id: ${id}`)
+    seen.add(id)
+    if (typeof name !== 'string' || !normalizePersonalityName(name)) {
+      throw new Error('personality.name must be a non-empty string')
+    }
+    if (typeof style !== 'string') {
+      throw new Error('personality.style must be a string')
+    }
+    // The same cap the free-text field gets: a personality is that field with a
+    // name on it, and a larger one would be a way around the documented limit.
+    if (style.length > MAX_ASSISTANT_STYLE_CHARS) {
+      throw new Error(`personality.style must be at most ${MAX_ASSISTANT_STYLE_CHARS} characters`)
+    }
+    for (const key of Object.keys(entry as Record<string, unknown>)) {
+      if (key !== 'id' && key !== 'name' && key !== 'style') {
+        throw new Error(`unknown personality field: ${key}`)
+      }
     }
   }
 }

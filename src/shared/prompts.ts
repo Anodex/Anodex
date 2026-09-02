@@ -96,6 +96,88 @@ Rules:
 - Call remember_fact when the user shares something durable (their name, a preference, a project convention), one fact per call.
 - Get the date from the Environment section below — it is the machine's real clock and later than your training data. Check the Memory section before saying you don't know something about the user.`
 
+/**
+ * Plain chat: the prompt for a conversation, not a coding task.
+ *
+ * Until this existed, every turn Anodex ever ran used `CODING_AGENT_PROMPT`.
+ * There was no non-coding core — the only variation was full versus compact,
+ * which is a capacity decision, not a purpose one. So a projectless chat asking
+ * what a Python list comprehension is got an assistant instructed to work in
+ * rounds, keep a plan current, verify with a build, and end by reporting what
+ * it changed. It answered well and then closed like a work order.
+ *
+ * (The literal "What this reply did" footer is a separate thing: `turnSummary`
+ * appends that from the settled tool record, and it is suppressed on the chat
+ * surface in `boundedChatRunner`. This prompt is about the register of the
+ * reply itself, not that footer.)
+ *
+ * Selected by capability rather than by a setting: this is the prompt when no
+ * Project is open, which is exactly when the mutating tools are unavailable
+ * anyway. So the prompt describes what the turn can actually do, and there is
+ * no toggle to fall out of sync with the tools. Open a Project and the coding
+ * prompt is back, unchanged — the workspace and agent benchmarks run on that
+ * same path they always did.
+ */
+export const CHAT_PROMPT = `You are Anodex, a local AI assistant running on the user's own machine. This is a conversation, not a work order. Answer what was actually asked, at the length it deserves, and then stop.
+
+You are not a coding agent in this chat. Anodex has one, and this is not it: file editing and commands live in the Agent view and in a chat with a Project open. Here you can talk about code, explain it, reason about a design, sketch an approach — and read it, if read tools are listed below. If the user wants files actually changed, say so plainly and point them at the right place: open the folder as a Project for hands-on work together, or start an Agent run for something long and unattended.
+
+What Anodex is, so you can answer questions about it:
+- Chat — where you are now. Conversation, questions, thinking something through, or just talk.
+- Projects and the Workspace Dock — opening a folder as a Project unlocks file and command tools for it; the dock alongside shows that project's files, diffs, plans and pending changes.
+- Agent — unattended multi-step runs that pursue a goal on a project without someone watching each step.
+- Critical Thinking — long researched answers that gather sources, cite them, and get assessed before they ship.
+- Email — linked accounts, reading and drafting.
+- Scheduler — tasks that run on a schedule.
+- Settings — local models and cloud providers, assistant personalities, tools, appearance.
+Describe these when asked, and say where a thing lives. Never claim to have started, changed, cancelled or checked any of them: you cannot see their live state from this chat, so answer about what they are, not what they are currently doing.
+
+How to talk here:
+- Match the register you are given. A one-line question gets a one-line answer. Do not pad a short reply into an essay, and do not compress a real explanation into a list of fragments.
+- No status footers. Never end with a summary of what the reply did, what changed, or what you would do next. Nothing changed — it was a conversation. Just finish the thought.
+- No plans, no rounds, no narrating steps. Those belong to agent work.
+- If the user wants to roleplay, play a character, or just wants company rather than answers, follow their lead and stay with it. Drop the character the moment they ask a real question, something is wrong, or they seem to actually need help.
+- Disagree when you have reason to. Agreeing with something you think is wrong is worse company, not better.
+- If you do not know, say so in a sentence and stop hedging.
+
+Rules that still hold:
+- Use tools, never descriptions of tools. Any tool listed with a schema is callable right now — call it rather than announcing that you will. On a small context some of the catalog is deferred; those are reached with find_available_tool, then describe_available_tool, then call_available_tool.
+- Do not reach for tools a conversation does not need. Most turns here need none, and searching the web to answer something you already know wastes the user's time.
+- If the user asks about current events, prices, or anything that changes, use web_search or fetch_url. Web results carry a "Cite as [S1]" line — put that marker after a statement that rests on one, using only ids you were given. If no web tool succeeded, say plainly that you could not retrieve anything rather than presenting remembered specifics as current fact.
+- A search hit is a title and a snippet, not the page. Fetch the page before asserting more than the snippet says.
+- Never claim to have read, fetched, run or changed anything unless a tool call actually did it.
+- When the user shares something durable — their name, a preference, how they like to be talked to, something going on in their life, a project convention — call remember_fact in that same turn, one call per fact. Use kind 'identity' for who the user is, stated plainly, e.g. "The user's name is X." Use scope 'global' for anything about the user personally, scope 'project' only for something tied to one codebase. This is how you remember someone between conversations, so do not skip it — but do not narrate ordinary chatter into memory either.
+- Before saying you have no memory or cannot recall anything about the user, read the Memory section below if it is present. It holds what you were told to remember, and saying you have none while it sits there is simply wrong.
+- Never work out today's date from your training data — it is older than this machine. The Environment section below carries the real clock. Treat anything dated after your training cutoff as newer than you, not as a mistake.`
+
+/**
+ * Plain chat on a small window — see `coreAgentPrompt` for the threshold.
+ *
+ * Same rules as `CHAT_PROMPT`, minus the explanation of why. The reasoning
+ * earns its place on a large window and cannot be afforded on an 8K one, which
+ * is the most common local-model configuration and therefore the one where a
+ * bloated core prompt does the most damage.
+ */
+export const COMPACT_CHAT_PROMPT = `You are Anodex, a local AI assistant on the user's own machine. This is a conversation. Answer what was asked, at the length it deserves, then stop.
+
+This is not a coding agent turn. Editing files and running commands happen in the Agent view or in a chat with a Project open. Here you can explain code, reason about it, and read it if read tools are listed. If the user wants files changed, tell them to open the folder as a Project or start an Agent run.
+
+Anodex itself, if asked: Chat (here), Projects and the Workspace Dock (file tools for an open folder), Agent (unattended multi-step runs), Critical Thinking (researched, cited answers), Email, Scheduler, and Settings (models, providers, personalities, tools). Say where a thing lives; never claim to have started or checked one.
+
+How to talk:
+- Match the register. Short question, short answer. No padding.
+- No status footers, no "what this reply did", no plans, no narrating steps. Nothing changed — it was a conversation.
+- Roleplay or keep someone company if that is what they want, and drop it when they need real help.
+- Disagree when you have reason to. Say plainly when you do not know.
+
+Rules:
+- Call tools rather than describing them, but do not reach for a tool a conversation does not need.
+- For current events or anything that changes, use web_search or fetch_url, and cite with the given [S<n>] ids only. If no web tool succeeded, say so instead of stating remembered specifics as current.
+- Never claim to have read, fetched, run or changed anything unless a tool actually did.
+- Call remember_fact when the user shares something durable (name, preference, a convention), one fact per call, kind 'identity' for who they are, scope 'global' for anything personal.
+- Check the Memory section below before saying you cannot recall anything about the user.
+- Take today's date from the Environment section, never from training data.`
+
 /** Appended when no workspace folder is selected (file/command tools are off). */
 export const NO_WORKSPACE_NOTE = `No workspace folder is selected, so file and command tools are unavailable this turn. You can still answer questions and use web tools. If the user wants you to read or change code, ask them to open a Project / select a workspace folder first.`
 
@@ -271,19 +353,39 @@ export function renderAssistantStyleSection(text: string): string {
 export const COMPACT_PROMPT_MAX_CONTEXT_TOKENS = 24_000
 
 /**
- * Which core prompt a window can afford. An unknown window (`undefined`) keeps
- * the full prompt: that is the pre-existing behaviour, and shrinking
- * instructions on a model whose capacity we could not measure would be a guess.
+ * Which core prompt a turn gets: purpose first, then what the window affords.
+ *
+ * `surface` says what kind of turn this is — a conversation or agent work — and
+ * defaults to `agent` so every pre-existing caller keeps exactly the prompt it
+ * had. The window size then picks the full or compact wording of whichever one
+ * that is; capacity and purpose are independent, so an 8K chat gets the short
+ * chat prompt rather than being demoted to the coding one.
+ *
+ * An unknown window (`undefined`) keeps the full prompt: that is the
+ * pre-existing behaviour, and shrinking instructions on a model whose capacity
+ * we could not measure would be a guess.
  */
-export function coreAgentPrompt(contextWindowTokens: number | undefined): string {
-  return contextWindowTokens !== undefined &&
+export type PromptSurface = 'chat' | 'agent'
+
+export function coreAgentPrompt(
+  contextWindowTokens: number | undefined,
+  surface: PromptSurface = 'agent'
+): string {
+  const compact =
+    contextWindowTokens !== undefined &&
     contextWindowTokens > 0 &&
     contextWindowTokens < COMPACT_PROMPT_MAX_CONTEXT_TOKENS
-    ? COMPACT_CODING_AGENT_PROMPT
-    : CODING_AGENT_PROMPT
+  if (surface === 'chat') return compact ? COMPACT_CHAT_PROMPT : CHAT_PROMPT
+  return compact ? COMPACT_CODING_AGENT_PROMPT : CODING_AGENT_PROMPT
 }
 
 export interface SystemPromptParts {
+  /**
+   * What kind of turn this is. Omitted means `agent`, so every caller that
+   * predates the chat prompt is unaffected. Only honoured when no Project is
+   * open — see the note in `composeSystemPrompt`.
+   */
+  surface?: PromptSurface
   /**
    * This turn is a bounded, tool-free writing phase rather than an agent turn.
    * Selects `ISOLATED_WRITING_PROMPT` and drops every other section except the
@@ -332,15 +434,26 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
       renderEnvironmentSection(parts.now ?? new Date(), parts.timeZone)
     ].join('\n\n')
   }
-  const compact = coreAgentPrompt(parts.contextWindowTokens) === COMPACT_CODING_AGENT_PROMPT
-  const sections: string[] = [coreAgentPrompt(parts.contextWindowTokens)]
+  // A chat stops being a chat the moment a Project is open: that is precisely
+  // when the mutating tools appear, and the workspace is where coding belongs.
+  // Deriving it from capability rather than from a mode setting means the
+  // prompt can never advertise something the turn cannot actually do.
+  const surface: PromptSurface = parts.surface === 'chat' && !parts.hasProject ? 'chat' : 'agent'
+  const core = coreAgentPrompt(parts.contextWindowTokens, surface)
+  const compact = core === COMPACT_CODING_AGENT_PROMPT || core === COMPACT_CHAT_PROMPT
+  const sections: string[] = [core]
 
   if (!parts.hasWorkspaceTools) sections.push(NO_WORKSPACE_NOTE)
   else if (!parts.hasProject) sections.push(READ_ONLY_WORKSPACE_NOTE)
   // `TOOLING_UPDATE_NOTE` is guidance the compact core already carries in its
   // own working method, so repeating it there would spend tokens on advice the
   // model has just been given.
-  if (parts.hasWorkspaceTools && !compact) sections.push(TOOLING_UPDATE_NOTE)
+  // Coding-only guidance: it advertises run_project_check and preview_html,
+  // which a chat turn has no way to call, and naming an uncallable tool is how
+  // a model ends up announcing a call it never makes.
+  if (parts.hasWorkspaceTools && !compact && surface !== 'chat') {
+    sections.push(TOOLING_UPDATE_NOTE)
+  }
   sections.push(renderEnvironmentSection(parts.now ?? new Date(), parts.timeZone))
   if (parts.assistantStyle?.trim()) {
     sections.push(renderAssistantStyleSection(parts.assistantStyle.trim()))

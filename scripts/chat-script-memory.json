@@ -1,0 +1,18 @@
+{
+  "prompts": [
+    "Remember this codeword for later: TANGERINE-47. Just acknowledge it in one short sentence.",
+    "Explain in a full paragraph what a Python list comprehension is.",
+    "Explain in a full paragraph what a Python generator is, and how it differs from a list.",
+    "Explain in a full paragraph what a Python decorator is, with an example described in words.",
+    "Explain in a full paragraph what Python's GIL is and why it matters.",
+    "Explain in a full paragraph what a context manager is in Python.",
+    "Explain in a full paragraph how Python handles integer arithmetic differently from C.",
+    "Explain in a full paragraph what duck typing means in Python.",
+    "Explain in a full paragraph what a dataclass is and when to use one.",
+    "Explain in a full paragraph how Python's import system finds a module.",
+    "Explain in a full paragraph what asyncio's event loop does.",
+    "Explain in a full paragraph what the difference is between __str__ and __repr__.",
+    "What was the codeword I gave you at the very start of this conversation?"
+  ],
+  "enabledTools": []
+}

@@ -8,6 +8,7 @@ import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Icon } from '../../components/Icon'
 import styles from './ContextMeter.module.css'
+import { resolveActiveStyle } from '@shared/chatPersonality'
 
 function formatTokenCount(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`
@@ -19,7 +20,17 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const engineContextSize = useModelStore((s) => s.engine.contextSize)
   const providerActive = useSettingsStore((s) => s.settings?.provider.active)
-  const systemPrompt = useSettingsStore((s) => s.settings?.assistantStyle.globalStyle)
+  // The meter has to price the voice the turn will actually carry, which is the
+  // selected personality when there is one — not the free-text field it shadows.
+  const systemPrompt = useSettingsStore((s) =>
+    s.settings
+      ? resolveActiveStyle({
+          saved: s.settings.assistantStyle.personalities,
+          activeId: s.settings.assistantStyle.activePersonalityId,
+          globalStyle: s.settings.assistantStyle.globalStyle
+        })
+      : undefined
+  )
   const providers = useSettingsStore((s) => s.settings?.provider)
 
   const recallWindowFraction = useMemo(

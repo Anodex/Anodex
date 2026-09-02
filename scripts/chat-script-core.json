@@ -1,0 +1,10 @@
+{
+  "prompts": [
+    "In one sentence, what is the capital of France?",
+    "List the files in the current project folder, then say how many there are.",
+    "What was the first question I asked you in this conversation?",
+    "Read the largest file you just listed and tell me in one sentence what it is for.",
+    "Without looking anything up again, what did I ask you to read?"
+  ],
+  "project": "Bench"
+}

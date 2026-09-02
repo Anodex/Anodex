@@ -756,19 +756,29 @@ export async function runBoundedChatGeneration(
   // with no statement of what had actually happened; this states the work
   // first and the caveats after it, and — unlike a model-written summary — it
   // cannot describe something that never occurred. See `describeTurnOutcome`.
-  const outcome = describeTurnOutcome({
-    calls: [...completedToolCalls.values()],
-    plan: currentPlan,
-    blockedGathering: ledger.blockedGathering,
-    unverifiedPaths,
-    // Everything the tools actually returned this turn, so a figure the reply
-    // quotes as measured can be checked against a real source.
-    unverifiedMeasurements: findUnverifiedMeasurements(
-      combinedContent,
-      [...completedToolCalls.values()].map((call) => call.result ?? '').join('\n')
-    ),
-    endedBecause: chatEndReason
-  })
+  // Not on the chat surface. The account below is a record of engineering work
+  // — what changed, what was run against it, what is still unverified — and a
+  // conversation has none of that to report. A live run made the mismatch
+  // plain: the user said their name, the model called remember_fact (a `write`
+  // kind, so a durable change), and a friendly two-line reply ended with
+  // "Changed: Remember fact (2 edits)" and "Not verified — no build, test,
+  // type-check or lint command ran against the change".
+  const outcome =
+    io.surface === 'chat'
+      ? null
+      : describeTurnOutcome({
+          calls: [...completedToolCalls.values()],
+          plan: currentPlan,
+          blockedGathering: ledger.blockedGathering,
+          unverifiedPaths,
+          // Everything the tools actually returned this turn, so a figure the reply
+          // quotes as measured can be checked against a real source.
+          unverifiedMeasurements: findUnverifiedMeasurements(
+            combinedContent,
+            [...completedToolCalls.values()].map((call) => call.result ?? '').join('\n')
+          ),
+          endedBecause: chatEndReason
+        })
   const finalContent = `${combinedContent}${outcome ?? ''}`
 
   return {

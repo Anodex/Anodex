@@ -1,0 +1,12 @@
+{
+  "prompts": [
+    "What's the capital of Australia?",
+    "Explain what a Python list comprehension is.",
+    "What is Anodex and what can I do with it?",
+    "Can you edit main.py and add a logging import for me?",
+    "Let's play a quick scene: you're a lighthouse keeper in 1890 and I've just rowed ashore. Stay in character. I say: 'Evening. Saw your light from the water.'",
+    "Okay, out of character now. My name is Merlin and I prefer short answers.",
+    "I'm feeling pretty burned out on this project lately.",
+    "What's my name?"
+  ]
+}

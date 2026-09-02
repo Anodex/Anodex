@@ -43,6 +43,7 @@ import { withEmailThreadContext } from '../features/chat/emailThreadContext'
 import { conversationUserFiles } from '../features/chat/conversationUserFiles'
 import { suggestionFromPlan } from '../lib/replaySuggestions'
 import type { ChatStreamEvent } from '../features/chat/streamEvents'
+import { resolveActiveStyle } from '@shared/chatPersonality'
 
 export type { Conversation }
 
@@ -757,7 +758,13 @@ export const useChatStore = create<ChatState>()(
         conversationId,
         messageId: assistantId,
         projectId,
-        systemPrompt: settings?.assistantStyle.globalStyle,
+        systemPrompt: settings
+          ? resolveActiveStyle({
+              saved: settings.assistantStyle.personalities,
+              activeId: settings.assistantStyle.activePersonalityId,
+              globalStyle: settings.assistantStyle.globalStyle
+            })
+          : undefined,
         context: existing?.context ?? null,
         history,
         prompt: withEmailThreadContext(
