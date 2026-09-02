@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, appendFileSync } from 'node:fs'
+import { writeTextFileAtomic } from '../utils/atomicJsonFile'
 import { join } from 'node:path'
 import type { Change, ChangeTask } from '@shared/change.types'
 import { parseChangeFile, serializeChangeFile } from './changeFile'
@@ -68,7 +69,7 @@ export function createChangeMarkdown(
   const filePath = changeProposalPath(workspaceRoot, slug)
   mkdirSync(join(projectChangesDir(workspaceRoot), slug), { recursive: true })
   const parsed = { title, status: 'proposed' as const, why, tasks, createdAt: now, updatedAt: now }
-  writeFileSync(filePath, serializeChangeFile(parsed), 'utf-8')
+  writeTextFileAtomic(filePath, serializeChangeFile(parsed))
   return { slug, filePath, ...parsed }
 }
 
@@ -94,7 +95,7 @@ export function updateChangeTaskMarkdown(
   const allDone = parsed.tasks.length > 0 && parsed.tasks.every((t) => t.done)
   const status = allDone ? 'done' : anyDone ? 'in_progress' : 'proposed'
   const updated = { ...parsed, status, updatedAt: new Date().toISOString() } as const
-  writeFileSync(filePath, serializeChangeFile(updated), 'utf-8')
+  writeTextFileAtomic(filePath, serializeChangeFile(updated))
   return { slug, filePath, ...updated }
 }
 
