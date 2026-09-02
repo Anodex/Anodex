@@ -1,3 +1,5 @@
+import type { ChatPersonality } from './chatPersonality'
+
 /** Persisted application settings. */
 
 import type { EmailAccount } from './email.types'
@@ -68,8 +70,25 @@ export interface AssistantStyleSettings {
    * behavior, ahead of project instructions and any retrieved reference
    * data (workspace context, memory, past chats). Capped at
    * `MAX_ASSISTANT_STYLE_CHARS`.
+   *
+   * In force only when no personality is selected — see
+   * `resolveActiveStyle` in `src/shared/chatPersonality.ts`, which is the one
+   * place that decides between this and `activePersonalityId`.
    */
   globalStyle: string
+  /**
+   * The user's own named personalities. Shipped built-ins are deliberately
+   * absent: they live in code and are merged in at read time, so deleting one
+   * is impossible and a reworded release cannot leave a stale copy behind.
+   */
+  personalities: ChatPersonality[]
+  /**
+   * Which personality is in force, or null for the free-text `globalStyle`.
+   *
+   * May name a personality that no longer exists — deleting the one you were
+   * using is ordinary — and `resolveActiveStyle` treats that as "none".
+   */
+  activePersonalityId: string | null
 }
 
 /**

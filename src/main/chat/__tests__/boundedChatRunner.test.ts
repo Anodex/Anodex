@@ -2237,6 +2237,42 @@ describe('a reply that changed nothing says so', () => {
     expect(outcome.content).not.toContain('Ended early')
   })
 
+  it('appends no turn account on the chat surface', async () => {
+    // `describeTurnOutcome` is an account of *work*: what was changed, what was
+    // run against it, what is still unverified. A conversation has no work to
+    // account for, and rendering one anyway produced a real absurdity in a live
+    // run — the user said "my name is Merlin", the model called remember_fact,
+    // and the reply ended "Changed: Remember fact (2 edits) / Not verified — no
+    // build, test, type-check or lint command ran against the change".
+    //
+    // remember_fact is a `write` kind, so it counts as a durable change; the
+    // fix is not to reclassify it (it genuinely writes) but to stop billing a
+    // chat turn as engineering work.
+    replyOnce('Noted — Merlin it is.', [
+      { id: 'c1', name: 'remember_fact', kind: 'write', status: 'success', title: 'Remember fact' }
+    ])
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), {
+      ...baseIo(),
+      surface: 'chat'
+    })
+
+    expect(outcome.content).not.toContain('What this reply did')
+    expect(outcome.content).not.toContain('Not verified')
+  })
+
+  it('still appends the turn account when no surface is given', async () => {
+    // Agent runs, scheduled tasks and workspace chats all omit the surface and
+    // must keep the account they have always had.
+    replyOnce('Done.', [
+      { id: 'c1', name: 'write_file', kind: 'write', status: 'success', title: 'a.js' }
+    ])
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(outcome.content).toContain('What this reply did')
+  })
+
   it('stays quiet for a reply that used no tools at all', async () => {
     replyOnce('Three.js renders to a canvas element.', [])
 

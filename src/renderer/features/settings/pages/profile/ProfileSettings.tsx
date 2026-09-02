@@ -198,8 +198,8 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
       </section>
 
       <AssistantStyleSection
-        value={settings.assistantStyle.globalStyle}
-        update={(value) => void update({ assistantStyle: { globalStyle: value } })}
+        value={settings.assistantStyle}
+        update={(patch) => void update({ assistantStyle: patch })}
       />
     </div>
   )

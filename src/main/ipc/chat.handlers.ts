@@ -40,6 +40,11 @@ export function registerChatHandlers(): void {
 
     try {
       const result = await runBoundedChatGeneration(request, {
+        // This is the chat surface. It selects the conversational core prompt
+        // rather than the coding-agent one — but only while no Project is open,
+        // because opening a Project is what turns this window into the
+        // workspace. See `composeSystemPrompt`.
+        surface: 'chat',
         signal: controller.signal,
         onToken: (token) => {
           if (event.sender.isDestroyed()) return

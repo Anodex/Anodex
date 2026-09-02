@@ -45,7 +45,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     ui: {},
     assistantStyle: {
-      globalStyle: ''
+      globalStyle: '',
+      personalities: [],
+      activePersonalityId: null
     },
     profile: {
       displayName: 'Anodex User',

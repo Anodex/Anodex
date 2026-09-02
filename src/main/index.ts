@@ -29,6 +29,7 @@ import { criticalThinkingService } from './criticalThinking/CriticalThinkingServ
 import { criticalThinkingEvidenceStore } from './criticalThinking/CriticalThinkingEvidenceStore'
 import { initCriticalThinkingAutorun } from './criticalThinking/criticalThinkingAutorun'
 import { initAgentAutorun } from './agents/agentAutorun'
+import { initChatAutorun } from './chat/chatAutorun'
 import { mcpServerStore } from './mcp/McpServerStore'
 import { mcpAuthStore } from './mcp/McpAuthStore'
 import { mcpManager } from './mcp/McpManager'
@@ -139,6 +140,7 @@ if (!app.requestSingleInstanceLock()) {
       // creation: the renderer is what restores the last local model.
       initCriticalThinkingAutorun()
       initAgentAutorun()
+      initChatAutorun()
 
       // macOS: re-create a window when the dock icon is clicked with none open.
       app.on('activate', () => {

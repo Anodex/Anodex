@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppSettings } from '@shared/settings.types'
+import { MAX_SAVED_PERSONALITIES } from '@shared/chatPersonality'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import {
@@ -54,7 +55,10 @@ describe('migrateLegacyAssistantStyle', () => {
   })
 
   it('does not overwrite an already-set assistantStyle.globalStyle', () => {
-    const settings = { ...baseSettings(), assistantStyle: { globalStyle: 'Already set.' } }
+    const settings = {
+      ...baseSettings(),
+      assistantStyle: { globalStyle: 'Already set.', personalities: [], activePersonalityId: null }
+    }
     const migrated = migrateLegacyAssistantStyle(settings, { ui: { systemPrompt: 'Old value.' } })
     expect(migrated.assistantStyle.globalStyle).toBe('Already set.')
   })
@@ -81,7 +85,10 @@ describe('migrateLegacyAssistantStyle', () => {
     // Otherwise a later Reset of assistantStyle.globalStyle (which never
     // touches this stray field) would see it as "still legacy present, new
     // field now empty" on the next load and silently re-migrate the old text.
-    const settings = { ...baseSettings(), assistantStyle: { globalStyle: 'Already set.' } }
+    const settings = {
+      ...baseSettings(),
+      assistantStyle: { globalStyle: 'Already set.', personalities: [], activePersonalityId: null }
+    }
     const migrated = migrateLegacyAssistantStyle(settings, { ui: { systemPrompt: 'Old value.' } })
     expect((migrated.ui as unknown as Record<string, unknown>).systemPrompt).toBeUndefined()
   })
@@ -294,6 +301,83 @@ describe('validatePatch', () => {
   it('rejects an assistantStyle.globalStyle patch over the documented cap', () => {
     const patch = { assistantStyle: { globalStyle: 'x'.repeat(MAX_ASSISTANT_STYLE_CHARS + 1) } }
     expect(() => validatePatch(patch)).toThrow(/assistantStyle.globalStyle/)
+  })
+
+  /**
+   * Personalities arrive as a whole array — `deepMerge` replaces arrays rather
+   * than merging them, which is exactly what makes a delete persist — so every
+   * write re-validates the entire list. `settings:update` is reachable from the
+   * renderer with an arbitrary payload, so none of this shape is trusted.
+   */
+  describe('assistantStyle.personalities', () => {
+    const ok = { id: 'p1', name: 'Ada', style: 'Speak like a patient tutor.' }
+
+    it('accepts a well-formed list', () => {
+      expect(() => validatePatch({ assistantStyle: { personalities: [ok] } })).not.toThrow()
+    })
+
+    it('accepts an empty list, which is how the last one is deleted', () => {
+      expect(() => validatePatch({ assistantStyle: { personalities: [] } })).not.toThrow()
+    })
+
+    it('rejects a non-array', () => {
+      expect(() => validatePatch({ assistantStyle: { personalities: {} } } as never)).toThrow(
+        /must be an array/
+      )
+    })
+
+    it('rejects a list longer than the documented cap', () => {
+      const many = Array.from({ length: MAX_SAVED_PERSONALITIES + 1 }, (_, index) => ({
+        ...ok,
+        id: `p${index}`
+      }))
+      expect(() => validatePatch({ assistantStyle: { personalities: many } })).toThrow(/at most/)
+    })
+
+    it('rejects a duplicate id, which would make edit and delete ambiguous', () => {
+      expect(() =>
+        validatePatch({ assistantStyle: { personalities: [ok, { ...ok, name: 'Other' }] } })
+      ).toThrow(/duplicate personality id/)
+    })
+
+    it('rejects a blank name', () => {
+      expect(() =>
+        validatePatch({ assistantStyle: { personalities: [{ ...ok, name: '   ' }] } })
+      ).toThrow(/personality.name/)
+    })
+
+    it('rejects a style over the same cap the free-text field gets', () => {
+      // A personality is that field with a name on it; a larger one would be a
+      // way around the documented limit.
+      const long = { ...ok, style: 'x'.repeat(MAX_ASSISTANT_STYLE_CHARS + 1) }
+      expect(() => validatePatch({ assistantStyle: { personalities: [long] } })).toThrow(
+        /personality.style/
+      )
+    })
+
+    it('rejects an unknown field rather than persisting it unnoticed', () => {
+      expect(() =>
+        validatePatch({
+          assistantStyle: { personalities: [{ ...ok, apiKey: 'secret' }] }
+        } as never)
+      ).toThrow(/unknown personality field/)
+    })
+
+    it('accepts a null activePersonalityId, which means the free-text style', () => {
+      expect(() => validatePatch({ assistantStyle: { activePersonalityId: null } })).not.toThrow()
+    })
+
+    it('accepts an id that names nothing, since a delete leaves one dangling', () => {
+      // `resolveActiveStyle` degrades a dangling id to the free text; refusing
+      // it here would make deleting the selected personality throw instead.
+      expect(() => validatePatch({ assistantStyle: { activePersonalityId: 'gone' } })).not.toThrow()
+    })
+
+    it('rejects a blank activePersonalityId', () => {
+      expect(() => validatePatch({ assistantStyle: { activePersonalityId: '  ' } })).toThrow(
+        /activePersonalityId/
+      )
+    })
   })
 
   it('accepts dynamic model-to-projector path mappings', () => {

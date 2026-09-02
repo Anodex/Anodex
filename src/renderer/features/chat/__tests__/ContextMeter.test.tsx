@@ -52,7 +52,11 @@ vi.mock('../../../stores/modelStore', () => ({
 vi.mock('../../../stores/settingsStore', () => ({
   useSettingsStore: fakeStore(() => ({
     settings: {
-      assistantStyle: { globalStyle: 'You are Anodex.' },
+      assistantStyle: {
+        globalStyle: 'You are Anodex.',
+        personalities: [],
+        activePersonalityId: null
+      },
       provider: {
         active: mocks.activeProvider,
         local: { maxResponseTokens: mocks.maxResponseTokens },

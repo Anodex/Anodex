@@ -41,7 +41,7 @@ vi.mock('../../settings/SettingsStore', () => ({
       email: {},
       memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: true },
       transcriptRecall: { cloudProviderEnabled: false },
-      assistantStyle: { globalStyle: '' },
+      assistantStyle: { globalStyle: '', personalities: [], activePersonalityId: null },
       provider: {
         active: mocks.providerActive,
         anthropic: { model: 'claude-x' },
