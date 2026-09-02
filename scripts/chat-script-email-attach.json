@@ -1,0 +1,7 @@
+{
+  "project": "Bench",
+  "approveHumanGatedCalls": ["send_email"],
+  "prompts": [
+    "Two steps. First, create a file called anodex-test-chart.svg in this project: a simple, valid SVG bar chart, about 400x260, with three labelled bars (Chat, Agent, Email) of different heights, a title, and readable text. Second, send an email to sinistercraftnetwork@gmail.com with the subject 'Anodex attachment test' and attach that SVG. The body should be properly written, not a stub: a short opening line, two or three paragraphs explaining what Anodex is and what this particular test is checking (file creation, attachment handling, and SMTP delivery), a bulleted list of the surfaces that have been tested so far, and a sign-off. Send it once."
+  ]
+}
