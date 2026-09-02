@@ -42,7 +42,7 @@ import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
-import { toolSurfaceBudgetTokens } from '@shared/contextBudget'
+import { allocateContextBudget } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import { environmentDateFromPrompt } from '@shared/prompts'
@@ -885,6 +885,23 @@ class LlamaService extends EventEmitter {
     // real wrapper + tokenizer, including function documentation, rather than
     // the JSON approximation used before a session exists.
     const surface = await this.boundFunctionsForTurn(session, functions, params)
+    // Which tools the model can actually see this turn, and which it would have
+    // to reach through the gateway.
+    //
+    // This was the one question a transcript could never answer. A 4B replied
+    // "I don't have access to your schedule or task list right now" while
+    // `anodex_status` was in its catalogue, and deciding whether the tool had
+    // been deferred or simply not called meant reasoning about rank arithmetic
+    // instead of reading a line. The direct list is the short one, so it is
+    // logged in full; the deferred side is counted, since its names are
+    // recoverable from the catalogue.
+    if (surface.routed) {
+      log.debug('Tool surface routed', {
+        direct: surface.directToolNames,
+        deferredCount: surface.deferredToolNames.length,
+        contextSize: this.contextSize
+      })
+    }
     functions = Object.keys(surface.functions).length > 0 ? surface.functions : undefined
     const measuredContextBudget = this.measureContextBudget(
       session,
@@ -2167,13 +2184,37 @@ class LlamaService extends EventEmitter {
     }
 
     const nlc = await this.getModule()
-    // Read from the shared allocation rather than computed here. The old rule
-    // was "the window minus a shift reserve, the output reserve and a
-    // tool-result headroom" — three subtractions, none of them for the
-    // conversation, so the tool surface was free to grow into the room history
-    // needed. See `toolSurfaceBudgetTokens` for the email conversation that
-    // died at 8K because of it.
-    const targetFixedTokens = toolSurfaceBudgetTokens(this.contextSize)
+    // The budget the tool surface is measured against.
+    //
+    // The rule here used to be "the window minus a shift reserve, the output
+    // reserve and a tool-result headroom" — three subtractions, none of them
+    // for the conversation, so the surface was free to grow into the room
+    // history needed. At 8K that allowed sixty percent of the window for fixed
+    // cost, and an email conversation reached fixedTokens 4096 and then died:
+    // 879 seconds on one turn, then zero characters with
+    // stop=context-shift-limit, which is an empty reply.
+    const measureFixedTokens = (candidate: Record<string, ToolFunction> | undefined): number =>
+      this.measureContextBudget(session, params.prompt, candidate, {
+        functions: candidate ?? {},
+        directToolNames: Object.keys(candidate ?? {}),
+        deferredToolNames: [],
+        routed: false
+      }).fixedTokens
+
+    // The schema allowance sits on top of what the prompt actually costs,
+    // rather than sharing one combined budget with it.
+    //
+    // Measuring the total against `referenceContext + toolSchemas` assumes the
+    // prompt fits its own share, and it does not: with the sections a real turn
+    // carries, the prompt overran and left the schemas a few hundred tokens.
+    // Logged from a live 8K run, that produced a resident surface of three or
+    // four tools out of twenty-five — and a different three or four on the next
+    // turn, so a tool the model had just used vanished from under it.
+    //
+    // Anchoring on the measured prompt keeps the schemas' share whole whatever
+    // the prompt costs, while still refusing to spend the working set.
+    const promptOnlyTokens = measureFixedTokens(undefined)
+    const targetFixedTokens = promptOnlyTokens + allocateContextBudget(this.contextSize).toolSchemas
     return boundToolSurface({
       allFunctions: functions,
       // Guarded: the gateway tools validate what the model passes and raise a
@@ -2183,13 +2224,7 @@ class LlamaService extends EventEmitter {
       define: guardToolHandlers(nlc.defineChatSessionFunction),
       targetFixedTokens,
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
-      measureFixedTokens: (candidate) =>
-        this.measureContextBudget(session, params.prompt, candidate, {
-          functions: candidate ?? {},
-          directToolNames: Object.keys(candidate ?? {}),
-          deferredToolNames: [],
-          routed: false
-        }).fixedTokens
+      measureFixedTokens
     })
   }
 
