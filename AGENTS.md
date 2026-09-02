@@ -225,6 +225,47 @@ normal tool registry, permissions, and workspace confinement still apply.
 - **E2E:** Playwright. Config in `playwright.config.ts`, tests in `e2e/`.
 - Test helpers for tools are in `src/main/tools/__tests__/test-helpers.ts`.
 
+## Anodex ships on Windows, macOS and Linux
+
+**All three are first-class. A change that only works on the machine you are
+sitting at is not finished.** CI runs unit tests and a build on
+`windows-latest`, `ubuntu-latest` and `macos-latest`, and a change that passes
+locally can still fail there.
+
+Real defects this has caused, all found after the code looked correct:
+
+- **`edit_file` could not touch a CRLF file at all.** A model sends bare
+  newlines; the file on disk had `
+`; the literal match found nothing and
+  every multi-line edit was refused. That is most of Windows, and any checkout
+  with `core.autocrlf=true` anywhere. It hid because `replace_lines` still
+  worked, so runs continued slightly worse with nothing reporting a bug.
+- **A PDF test timed out on `windows-latest` only**, because the runner was slow
+  enough that a dynamic `import()` inside the test exceeded its own five-second
+  budget. Main was red for two days over a test that passes everywhere else.
+
+What that means in practice:
+
+- **Never assume a line ending.** Match what the file already uses and preserve
+  it; renormalising turns a one-line change into a whole-file diff.
+- **Never assume a path separator or case.** Go through `resolveInWorkspace()`
+  and `path.join`; Linux and macOS are case-sensitive and Windows is not.
+- **Never assume speed.** A Windows CI runner can be five times slower than your
+  machine. If a test's own timeout has to cover a heavy import, move the import
+  out of the test rather than raising the timeout.
+- **Platform-specific code must degrade, not break.** Desktop control is
+  Windows-only _by design_ and says so through `desktopControlEligibility()`
+  rather than failing at the call site. Follow that shape.
+- **Check the shell you are assuming.** `run_command` runs under `cmd.exe` on
+  Windows and the user's `$SHELL` elsewhere, so a command written for one may be
+  a syntax error on the other. `DESTRUCTIVE_COMMAND_PATTERNS` in
+  `permissions.ts` covers POSIX, PowerShell and cmd forms of the same act for
+  this reason.
+
+Before finishing a change that touches the filesystem, shell, or timing, ask
+which of the three it was written against and whether the other two behave the
+same. When you cannot test them, say so.
+
 ## Security notes
 
 - Never expose Node/Electron APIs directly to the renderer. Use the typed preload
