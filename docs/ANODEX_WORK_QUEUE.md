@@ -27,6 +27,64 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
       two family prefixes are stripped. Nine of twelve probed shapes parsed
       before; twelve of twelve now.
 
+## UI, noted 2026-09-02
+
+Three things from a settings walkthrough. The third is a defect and lives in
+`ANODEX_DEFERRED_BUGS.md` ("the sidebar model selector hides nine of the eleven
+cloud providers"); these two are look and structure.
+
+- [ ] **Assistant personalities looks like a form, not like Anodex.**
+      `pages/profile/AssistantStyleSection.tsx` + its CSS module. Everything
+      works -- built-ins, duplicate-to-edit, rename, delete, preview, the 6000
+      char counter -- and none of it _reads_. A native `SelectControl` on the
+      right, a bare 10-row textarea, and four ghost buttons in a row: it is the
+      one screen where the user gives the assistant a voice, and it presents
+      like a bug report field.
+
+      The change is presentation only; do not touch the state model in
+                  `chatPersonality.ts`. Direction:
+                  - Personalities as **selectable cards**, not a dropdown -- a card
+                    shows the name, a one-line excerpt and a "built-in" marker without
+                    opening anything, where the dropdown hides every option until
+                    clicked. **But design for the limit, not the common case:**
+                    `MAX_SAVED_PERSONALITIES` is 50, plus 6 built-ins, so a plain
+                    wrapped grid becomes a wall of 56. Needs a scrolling rail, or cards
+                    for the built-ins with saved ones in a compact list -- decide that
+                    before building.
+                  - The active card should be visibly *selected* -- the accent border and
+                    card treatment already used elsewhere -- so the read-only state of a
+                    built-in is legible before you try to type into it.
+                  - Give the textarea a framed editor feel: label row, character counter
+                    inline, the action buttons grouped as an editor toolbar rather than four
+                    equal ghosts. `Preview`/`Copy` are inspection, `Delete`/`Clear` are
+                    destructive; they should not look identical.
+                  - The name field + `Save as new` is a save affordance stranded at the
+                    bottom. It belongs with the editor, and only needs to appear when there
+                    is something unsaved to name.
+                  - The empty state ("None (free text)") deserves an actual invitation, not
+                    a placeholder sentence in a grey box.
+                  - Theme tokens only, verified in dark **and** light -- standing rule.
+
+- [ ] **AI & Models: the sub-tabs use developer words and one tab is redundant.**
+      `pages/ai-models/AiModelsSettings.tsx`, `AI_MODEL_TABS` and the
+      `AiModelsTab` union (`'models' | 'compatibility' | 'providers' |
+'advanced'`). - Rename for what they _are_: **Local | Cloud | Advanced**. "Models" and
+      "Providers" describe the implementation, not the choice; a user picking
+      between a GGUF on disk and an API key is choosing local or cloud. Keep
+      them adjacent and first, in that order, so the pair reads as one switch. - **Remove the Compatibility tab.** It is three panels, two of which are
+      already elsewhere: `InstalledModelsList` is rendered identically on the
+      Models tab, and `CompatibilitySummary` re-scores the _active_ model,
+      which `EnginePanel` and `ReliabilityScore` already speak to. The part
+      worth keeping is `HardwarePanel` -- the "This computer" block, detected
+      RAM/VRAM, the fit label and the Re-detect button. - Rehome `HardwarePanel` rather than deleting it: it is what makes
+      `RecommendedModelStrip` ("Best local models for this computer")
+      legible, so it belongs on **Local**, directly above that strip. Decide
+      whether the fit-score half of `CompatibilitySummary` folds into it or is
+      dropped; do not leave the component orphaned and unrendered. - Check the seams before deleting: `setActiveTab('models')` is called from
+      `ProviderConnectionsPanel` via `onOpenModels`, and the `LoadRefusalCallout`
+      sits above the tabs deliberately because a refusal can come from either
+      Models or Advanced. Both stay true after the rename; the string does not.
+
 ## Next
 
 - [x] **A model that writes no tool calls at all — handled, two ways.**

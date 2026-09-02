@@ -365,18 +365,20 @@ describe('NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT', () => {
 })
 
 describe('buildCompactionSystemPrompt', () => {
+  // Structure only. What the header must *say* — that these turns belong to
+  // this same conversation — is covered in
+  // `src/shared/__tests__/contextPrompt.test.ts`, next to the function itself,
+  // together with the measured failure that wording exists to prevent.
   it('appends the summary block after the existing system prompt', () => {
     const result = buildCompactionSystemPrompt('Be helpful.', 'User asked about X.')
-    expect(result).toBe(
-      'Be helpful.\n\n---\nSummary of earlier conversation (compacted to fit the context window):\nUser asked about X.'
-    )
+    expect(result.startsWith('Be helpful.\n\n---\n')).toBe(true)
+    expect(result).toContain('User asked about X.')
   })
 
   it('produces just the summary block when there is no system prompt', () => {
     const result = buildCompactionSystemPrompt(undefined, 'User asked about X.')
-    expect(result).toBe(
-      'Summary of earlier conversation (compacted to fit the context window):\nUser asked about X.'
-    )
+    expect(result.startsWith('---')).toBe(false)
+    expect(result).toContain('User asked about X.')
   })
 })
 

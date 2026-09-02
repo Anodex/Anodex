@@ -1,12 +1,36 @@
 import type { ContextEpochHandoff } from './chat.types'
 
-/** Build the system-prompt block used to seed a compacted context epoch. */
+/**
+ * Build the system-prompt block used to seed a compacted context epoch.
+ *
+ * The header states, twice and plainly, that this is the same conversation.
+ * It used to read "Summary of earlier conversation", and "earlier
+ * conversation" reads as *a different* conversation — which is exactly how a
+ * model took it. Measured: a thirteen-turn chat at an 8,192-token window
+ * planted a codeword in turn one and buried it under ninety thousand
+ * characters. Compaction carried the codeword through, and at turn thirteen
+ * the model still answered "no codeword was given at the start of *this*
+ * conversation... it comes from a summary of an earlier, separate
+ * conversation."
+ *
+ * So the fact survived and its provenance did not, which is worse than losing
+ * it: the user is told their own earlier message never happened, by a model
+ * that is looking straight at it.
+ */
 export function buildCompactionSystemPrompt(
   systemPrompt: string | undefined,
   summary: string
 ): string {
   const base = systemPrompt ?? ''
-  const block = `Summary of earlier conversation (compacted to fit the context window):\n${summary}`
+  // Kept close to the length of the header it replaces. A first draft spelled
+  // the point out over four lines and a budget test caught it immediately:
+  // this block is charged to every compacted turn, on the windows least able
+  // to afford it. Two mentions of "this conversation" and one "said to you
+  // here" carry the attribution; the rest was for the reader, not the model.
+  const block =
+    'Earlier turns of this conversation, compacted to fit the window. The user said these to ' +
+    'you here — attribute them to this conversation:\n' +
+    summary
   return base ? `${base}\n\n---\n${block}` : block
 }
 

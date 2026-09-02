@@ -30,7 +30,7 @@ export interface Conversation {
    */
   replaySuggestion?: ConversationReplaySuggestion
   /** Set when every turn in this chat came from an automated scheduled task or agent run, not the user. */
-  origin?: 'scheduled' | 'agent'
+  origin?: 'scheduled' | 'agent' | 'autorun'
   /**
    * The email conversation this chat was opened for, when it started from the
    * Email page's Reply or Summarize action.
