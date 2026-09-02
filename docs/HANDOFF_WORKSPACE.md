@@ -1152,3 +1152,36 @@ repair was refused by that guard.
 **Still untested:** a disk that fills during a store write. A transient `EPERM`
 was observed today and the retry handled it (the run completed clean), which
 covers the transient case but not a sustained one.
+
+## Six models through bench-6 at 8,192
+
+The small window is the instrument: it is where eviction, re-reading and the
+loop guard actually engage. Same fixture, same 4,753-token working set.
+
+| model           | turns | checks    | refusals     | how it ended                   |
+| --------------- | ----- | --------- | ------------ | ------------------------------ |
+| Qwen3.8-27B     | 56    | **28/28** | 0 of 172     | finished                       |
+| Devstral-24B    | 42+   | **27/28** | —            | finished                       |
+| Qwen3-4B        | 46    | 14/28     | 6 of 83      | refused-run, honestly          |
+| gemma-3-27B     | 65    | 0/28      | 0 of 131     | broke a file with a bad edit   |
+| Muse-30B        | 20    | 11/28     | **44 of 80** | refused-run, never edited once |
+| DeepSeek-R1-32B | 10    | 11/28     | 0 of 11      | idle-run, never called a tool  |
+
+**Three of six make real progress on a sixteen-defect task at a window that
+holds about three of its modules.** The other three fail in three different
+ways, and Anodex ends each of them quickly and says which:
+
+- **Muse-30B gathered and never edited.** Forty-three reads, twenty directory
+  listings, seven outlines — and no `edit_file`, `replace_lines` or
+  `write_file` in the whole run. The gathering guard refused 55% of its calls
+  and stopped it in twenty turns, which is the guard doing exactly its job.
+- **DeepSeek-R1-32B never called a tool.** Eleven calls in ten turns, then three
+  replies in a row with none. A reasoning model spending its output budget on
+  thought is a known shape here; the idle guard caught it.
+- **gemma-3-27B broke `triangles.py`** with a `replace_lines` that left an
+  orphaned line, taking the suite from 11/28 to 0/28 because one unparseable
+  module fails the import. Its repair was then refused by the seam guard — the
+  defect that produced `f91555c`.
+
+None of the three failures is Anodex getting it wrong. Two are the guards
+working, and the third found a real bug in one of them.
