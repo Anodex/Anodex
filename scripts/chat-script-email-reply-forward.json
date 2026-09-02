@@ -1,0 +1,8 @@
+{
+  "approveHumanGatedCalls": ["reply_email", "forward_email"],
+  "prompts": [
+    "Find the most recent email from James about the verify-loop test and reply in-thread saying: 'Confirmed received — this reply was sent by Anodex to test in-thread replies.' Send it.",
+    "Now forward the 'attachment inbound test' email, with its attachments, to sinistercraftnetwork@gmail.com with a one-line note saying this is a forwarding test.",
+    "Read the email with message id BOGUS-MESSAGE-ID-99999 and tell me what it says."
+  ]
+}

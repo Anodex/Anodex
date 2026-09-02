@@ -94,6 +94,7 @@ import { appendRoundText } from '@shared/roundText'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import { createTurnProgress, type TurnProgressSeed } from '../tools/turnProgress'
+import { guardToolHandlers } from './guardedToolDefine'
 import {
   buildCompactionSummaryPrompt,
   buildCompactionUpdatePrompt,
@@ -2177,7 +2178,11 @@ class LlamaService extends EventEmitter {
     )
     return boundToolSurface({
       allFunctions: functions,
-      define: nlc.defineChatSessionFunction,
+      // Guarded: the gateway tools validate what the model passes and raise a
+      // ToolGuidanceError when it is malformed. node-llama-cpp propagates a
+      // handler throw out of generation, so on this transport that guidance
+      // used to end the turn. See `guardToolHandlers`.
+      define: guardToolHandlers(nlc.defineChatSessionFunction),
       targetFixedTokens,
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
       measureFixedTokens: (candidate) =>
@@ -2271,7 +2276,9 @@ class LlamaService extends EventEmitter {
     if (!params.tools) return undefined
     const nlc = await this.getModule()
     const rawConfirm = params.tools.confirm
-    const tools = buildTools(nlc.defineChatSessionFunction, {
+    // Same guard for the natively-defined tools, so no tool on this transport
+    // can end a turn by throwing.
+    const tools = buildTools(guardToolHandlers(nlc.defineChatSessionFunction), {
       conversationId: params.conversationId,
       messageId: params.messageId,
       workspaceRoot: params.tools.workspaceRoot,
