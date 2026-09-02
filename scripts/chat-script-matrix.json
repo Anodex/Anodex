@@ -1,0 +1,14 @@
+{
+  "prompts": [
+    "What's the capital of Australia?",
+    "Explain what a Python list comprehension is.",
+    "Can you edit main.py and add a logging import for me?",
+    "Let's play a quick scene: you're a lighthouse keeper in 1890 and I've just rowed ashore. Stay in character. I say: 'Evening. Saw your light from the water.'",
+    "Okay, out of character now. My name is Merlin and I prefer short answers.",
+    "What have I got scheduled?",
+    "How many agent runs have I done?",
+    "Go ahead and delete my oldest agent run.",
+    "I'm feeling pretty burned out on this project lately.",
+    "What's my name?"
+  ]
+}

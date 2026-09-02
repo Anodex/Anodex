@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { ChatHistoryTurn, ChatRequest } from '@shared/chat.types'
-import { buildRunToolNames } from '@shared/tools.types'
 import { llamaService } from '../llama/LlamaService'
 import { ensureLocalModelLoaded } from '../llama/ensureLocalModelLoaded'
 import { describeModel } from '../llama/modelScanner'
@@ -79,6 +78,18 @@ async function driveChat(scriptPath: string): Promise<void> {
         contextSize: resolveModelContextSize(settings, settings.lastModelPath ?? null)
       })
       log.info('Local model:', loaded)
+      // Fail now rather than in fifteen minutes. `ensureLocalModelLoaded`
+      // reports why it could not start, and every one of these states is
+      // terminal — waiting for `ready` after a load failure just burns the
+      // timeout before reporting the same thing. Found the slow way: a corrupt
+      // .gguf in a model matrix cost a quarter of an hour per row.
+      if (
+        loaded === 'load-failed' ||
+        loaded === 'model-file-missing' ||
+        loaded === 'no-model-configured'
+      ) {
+        throw new Error(`Model not available (${loaded}) — see the llama log lines above.`)
+      }
       await waitFor(() => llamaService.getState().status === 'ready', MODEL_READY_TIMEOUT_MS)
     }
 
@@ -92,9 +103,8 @@ async function driveChat(scriptPath: string): Promise<void> {
         messageId: randomUUID(),
         projectId,
         history: [...history],
-        prompt,
-        enabledTools: script.enabledTools ?? buildRunToolNames()
-      } as ChatRequest
+        prompt
+      }
 
       const started = Date.now()
       // Tool calls arrive through `onActivity` rather than on the result, so
@@ -105,6 +115,17 @@ async function driveChat(scriptPath: string): Promise<void> {
         // Same surface the IPC handler passes, so the harness measures the
         // prompt real chat actually gets rather than the agent one.
         surface: 'chat',
+        // The tool set belongs on the io, not the request: `ChatRequest` has no
+        // `enabledTools` field, so an earlier version setting it there behind a
+        // cast did nothing at all and every run silently used the full catalog.
+        //
+        // Undefined is the right default rather than `buildRunToolNames()`,
+        // because undefined is exactly what `chat.handlers.ts` passes — the full
+        // catalog minus the user's disabled tools. A harness that narrowed the
+        // set would stop measuring the thing it exists to measure. A script
+        // naming `enabledTools` opts into a narrower set on purpose, which is
+        // how the compaction script denies itself memory tools.
+        enabledTools: script.enabledTools ? new Set(script.enabledTools) : undefined,
         confirm: headlessConfirm,
         onActivity: (call) => {
           calls.push(call.name)
@@ -124,7 +145,11 @@ async function driveChat(scriptPath: string): Promise<void> {
           (calls.length ? ` | tools: ${[...new Set(calls)].join(',')}` : '')
       )
       log.info(`PROMPT ${index + 1}: ${prompt.slice(0, 120)}`)
-      log.info(`REPLY ${index + 1}: ${(result.content ?? '').replace(/\s+/g, ' ').slice(0, 400)}`)
+      // Long enough to grade against, not just to eyeball. `chat-criteria.mjs`
+      // matches on the whole reply, and a routing or refusal sentence often
+      // lands after an opening paragraph — a 400-character cap scored those
+      // as absent when they were simply off the end of the line.
+      log.info(`REPLY ${index + 1}: ${(result.content ?? '').replace(/\s+/g, ' ').slice(0, 2500)}`)
 
       // Fed back as history so the next turn sees this one, which is the whole
       // point of scripting more than one.

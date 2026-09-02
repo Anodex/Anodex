@@ -26,6 +26,8 @@ import { interactiveBudgetForContext } from './GenerationBudget'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { withEpochHandoff } from '@shared/context.types'
 import { createLogger } from '../utils/logger'
+import { identityToCapture } from '@shared/statedIdentity'
+import { memoryStore } from '../memory/MemoryStore'
 
 /**
  * Cycle boundaries were invisible in the log. Only the provider transports
@@ -763,6 +765,19 @@ export async function runBoundedChatGeneration(
   // kind, so a durable change), and a friendly two-line reply ended with
   // "Changed: Remember fact (2 edits)" and "Not verified — no build, test,
   // type-check or lint command ran against the change".
+  // A deterministic backstop for the one fact users most expect to stick.
+  //
+  // Memory is otherwise entirely model-driven, and across three runs of an
+  // eight-model chat matrix only five of twenty-four model-runs called
+  // `remember_fact` after "My name is Merlin and I prefer short answers" — six
+  // replied "Got it, Merlin" and stored nothing. It fails silently, because the
+  // name is still in the conversation and recall works for the rest of the
+  // session; only the next conversation shows nothing was saved. Rewriting the
+  // prompt rule moved no model and rewriting the tool description moved one, so
+  // this stops asking and just does it. See `identityToCapture` for the three
+  // conditions that keep it from firing when it should not.
+  captureStatedIdentity(request, io, [...completedToolCalls.values()])
+
   const outcome =
     io.surface === 'chat'
       ? null
@@ -1231,4 +1246,34 @@ function describeGoalStop(reason: {
   }
   if (reason.stopped) return 'The turn hit a generation limit before the goal was met.'
   return 'Ended without reporting the goal complete.'
+}
+
+/**
+ * Store the user's name when they gave it and the model did not save it.
+ *
+ * Deliberately best-effort: a memory write failing must not fail the reply the
+ * user is waiting for, so this logs and moves on. `memoryStore.create` already
+ * folds a near-identical entry into the existing one, so repeating an
+ * introduction across sessions updates rather than accumulates.
+ */
+function captureStatedIdentity(request: ChatRequest, io: RunGenerationIo, calls: ToolCall[]): void {
+  const name = identityToCapture({
+    surface: io.surface,
+    prompt: request.prompt,
+    calledTools: calls.map((call) => call.name)
+  })
+  if (!name) return
+  try {
+    memoryStore.create({
+      // Phrased exactly as the tool's own guidance asks identity facts to be
+      // phrased, so a later "what's my name?" matches it the same way.
+      text: `The user's name is ${name}.`,
+      kind: 'identity',
+      scope: { type: 'global' },
+      source: { conversationId: request.conversationId }
+    })
+    log.info('Captured stated identity the model did not save:', name)
+  } catch (error) {
+    log.warn('Could not store the stated identity:', error)
+  }
 }
