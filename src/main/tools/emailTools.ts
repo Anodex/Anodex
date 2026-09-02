@@ -20,6 +20,8 @@ import { downscaleForVision } from '../vision/downscaleImage'
 import { describeAttachment } from '../email/threadSummary'
 import { extractAttachmentText, MAX_ATTACHMENT_TEXT_CHARS } from '../email/attachmentText'
 import { saveVisualPreviewAsset } from './visualPreviewAssets'
+import { describeDuplicateSend } from '@shared/sendDeduplication'
+import { findRecentDuplicateSend, recordSentEmail } from './sentEmailLog'
 
 const MAX_BODY_PREVIEW = 700
 
@@ -585,8 +587,17 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
             attachments: [...(message.attachments ?? []), ...attachments],
             accountId
           }
+          // The approval card is the one place a duplicate can still be caught,
+          // because a person is reading it. Measured: a model denied a send it
+          // had made, was believed, and sent a second identical email a minute
+          // later. The card said "send this email?" when it could have said
+          // "you already sent this one". See `sendDeduplication.ts`.
+          const duplicate = findRecentDuplicateSend(ctx.conversationId, outgoing)
+          const detail = describeEmailToSend(outgoing)
           return {
-            confirmDetail: describeEmailToSend(outgoing),
+            confirmDetail: duplicate
+              ? `${describeDuplicateSend(duplicate, Date.now())}\n\n${detail}`
+              : detail,
             confirmEmailDraft: previewEmailToSend(outgoing),
             data: outgoing
           }
@@ -599,7 +610,18 @@ export const sendEmailTool: ToolFactory = (define, ctx) =>
           // resolving it before the prompt. The now-unreferenced draft expires
           // on its own TTL.
           await emailService.send(message)
-          return { modelResult: 'Email sent.', detail: message.subject }
+          recordSentEmail(ctx.conversationId, message)
+          // The result names the recipients and the time. A bare "Email sent."
+          // is exactly the kind of claim a model later talks itself out of
+          // believing, and the transcript then carries nothing to contradict it.
+          const sentAt = new Date().toLocaleTimeString(undefined, {
+            hour: 'numeric',
+            minute: '2-digit'
+          })
+          return {
+            modelResult: `Email sent to ${message.to.join(', ')} at ${sentAt}. This is done — do not send it again unless the user explicitly asks for another copy.`,
+            detail: message.subject
+          }
         }
       )
   })
