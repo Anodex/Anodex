@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import type { McpLocalServerConfig, McpNewServerConfig, McpServerConfig } from '@shared/mcp.types'
 import { createLogger } from '../utils/logger'
-import { writeJsonFileAtomic } from '../utils/atomicJsonFile'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 
 const log = createLogger('mcp:servers')
 
@@ -103,7 +103,7 @@ class McpServerStore {
       const dir = app.getPath('userData')
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       const sanitized = { servers: state.servers.map(sanitizeStoredConfig) }
-      writeJsonFileAtomic(this.filePath, sanitized)
+      writeJsonAtomic(this.filePath, sanitized)
       this.cache = sanitized
     } catch (error) {
       log.error('Failed to persist MCP servers:', error)

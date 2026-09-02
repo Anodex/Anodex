@@ -14,7 +14,7 @@ import { agentRunContextSize } from '@shared/agentRunProviders'
 import { describeRunProvenance } from './runProvenance'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
-import { writeJsonFileAtomic } from '../utils/atomicJsonFile'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 
 /**
  * The context window a new run will actually have.
@@ -170,7 +170,7 @@ class AgentRunStore {
       // `runs.json` is not a damaged record but an empty one: `loadRuns` treats
       // a parse failure as "starting fresh" and returns nothing, so a write
       // interrupted by a crash or a full disk would lose every run on record.
-      writeJsonFileAtomic(this.filePath, runs)
+      writeJsonAtomic(this.filePath, runs)
       this.cache = runs
     } catch (error) {
       log.error('Failed to persist agent runs:', error)

@@ -1,6 +1,7 @@
 import { app } from 'electron'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import type {
   ChartGranularity,
   ChartRange,
@@ -195,7 +196,7 @@ class TokenActivityStore {
 
   private persist(): void {
     try {
-      writeFileSync(this.filePath, JSON.stringify(this.record, null, 2), 'utf-8')
+      writeJsonAtomic(this.filePath, this.record)
     } catch (error) {
       log.error('Failed to persist token activity data:', error)
     }

@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import type {
   CreateScheduledTaskRequest,
   ScheduledTask,
@@ -11,6 +11,7 @@ import type {
 } from '@shared/scheduledTask.types'
 import { computeNextRunAt, slotsBetween } from '@shared/nextRun'
 import { createLogger } from '../utils/logger'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 
 const log = createLogger('scheduler-store')
 
@@ -205,7 +206,11 @@ class SchedulerStore {
 
   private persist(tasks: ScheduledTask[]): void {
     try {
-      writeFileSync(this.filePath, JSON.stringify(tasks, null, 2), 'utf-8')
+      // Atomic: `loadTasks` treats a parse failure as "starting fresh" and
+      // returns nothing, so a truncated write would silently delete every
+      // scheduled task - work the user set up to run unattended, which then
+      // simply never happens and reports nothing.
+      writeJsonAtomic(this.filePath, tasks)
       this.cache = tasks
     } catch (error) {
       log.error('Failed to persist scheduled tasks:', error)

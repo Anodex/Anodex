@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, appendFileSync } from 'node:fs'
-import { writeTextFileAtomic } from '../utils/atomicJsonFile'
+import { writeTextAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
 import type { Change, ChangeTask } from '@shared/change.types'
 import { parseChangeFile, serializeChangeFile } from './changeFile'
@@ -69,7 +69,7 @@ export function createChangeMarkdown(
   const filePath = changeProposalPath(workspaceRoot, slug)
   mkdirSync(join(projectChangesDir(workspaceRoot), slug), { recursive: true })
   const parsed = { title, status: 'proposed' as const, why, tasks, createdAt: now, updatedAt: now }
-  writeTextFileAtomic(filePath, serializeChangeFile(parsed))
+  writeTextAtomic(filePath, serializeChangeFile(parsed))
   return { slug, filePath, ...parsed }
 }
 
@@ -95,7 +95,7 @@ export function updateChangeTaskMarkdown(
   const allDone = parsed.tasks.length > 0 && parsed.tasks.every((t) => t.done)
   const status = allDone ? 'done' : anyDone ? 'in_progress' : 'proposed'
   const updated = { ...parsed, status, updatedAt: new Date().toISOString() } as const
-  writeTextFileAtomic(filePath, serializeChangeFile(updated))
+  writeTextAtomic(filePath, serializeChangeFile(updated))
   return { slug, filePath, ...updated }
 }
 
@@ -152,7 +152,7 @@ export function archiveChangeMarkdown(workspaceRoot: string, slug: string): Chan
   const archivedFilePath = join(archiveDir, 'proposal.md')
   // Atomic because the original is removed immediately below: a truncated
   // archive plus a deleted source loses the proposal outright.
-  writeTextFileAtomic(archivedFilePath, serializeChangeFile(archived))
+  writeTextAtomic(archivedFilePath, serializeChangeFile(archived))
 
   appendToSpec(workspaceRoot, { title: parsed.title, why: parsed.why, tasks: parsed.tasks })
   rmSync(join(projectChangesDir(workspaceRoot), slug), { recursive: true, force: true })
@@ -176,7 +176,7 @@ function appendToSpec(
   const section = `\n## ${change.title}\n\n${change.why}\n\n${taskLines}\n`
 
   if (!existsSync(specPath)) {
-    writeTextFileAtomic(
+    writeTextAtomic(
       specPath,
       `# Project spec\n\nA living record of changes made to this project, maintained by Anodex as changes are archived.\n${section}`
     )
