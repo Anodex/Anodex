@@ -1,0 +1,8 @@
+{
+  "project": "Bench",
+  "approveHumanGatedCalls": ["send_email"],
+  "prompts": [
+    "Create a file in this project called attachment-probe.txt containing exactly these three lines and nothing else:\nANODEX TEXT ATTACHMENT PROBE\nchart-title: Anodex Test Chart\nbars: Chat, Agent, Email\n\nThen email it to sinistercraftnetwork@gmail.com with subject 'Anodex text attachment test' and a one-line body, attaching that file. Send it once.",
+    "Now find that email you just sent, read the attached text file's contents directly with the text reader, and tell me the exact value of the chart-title line."
+  ]
+}

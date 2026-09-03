@@ -1,0 +1,5 @@
+{
+  "prompts": [
+    "Find the email with subject 'Anodex attachment test' — it has an SVG attached. Read that attachment's text content directly (it is a text-based format, not a photo) and tell me the chart title and the three bar labels inside it."
+  ]
+}
