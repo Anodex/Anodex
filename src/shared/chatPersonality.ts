@@ -24,11 +24,11 @@
  *   two sources of truth for the same sentence, and they would drift.
  */
 
-/** Voice and tone guidance under a name the user chose. */
+/** A character: who the assistant is, and how it talks. */
 export interface ChatPersonality {
   /** Stable id. Built-ins use the `builtin:` prefix; user ones use a uuid. */
   id: string
-  /** Shown in the picker. Normalized by {@link normalizePersonalityName}. */
+  /** Shown in the picker and, when this one is active, on every reply. */
   name: string
   /**
    * The guidance itself, in the same voice-and-tone register as the free-text
@@ -36,7 +36,69 @@ export interface ChatPersonality {
    * boundary, not here, so this module stays free of settings imports.
    */
   style: string
+  /**
+   * One line describing what this personality is for, under the name.
+   *
+   * Real names cost something the old trait labels gave away free: "Direct"
+   * told you what it did, "Vale" does not. This is that signal, given back.
+   */
+  role?: string
+  /**
+   * Who they are, as opposed to how they talk. Rendered as its own prompt
+   * section — identity is context, voice is instruction, and a model treats
+   * them differently, so concatenating them would be the easy version and the
+   * worse one.
+   *
+   * Capped far below `style` (see `MAX_PERSONALITY_STORY_CHARS`): both ride in
+   * the system prompt on every turn, and an 8K local model has roughly 4,750
+   * tokens of working room to begin with.
+   */
+  story?: string
+  /**
+   * Absolute path to the user's chosen picture, or absent for a monogram.
+   *
+   * A path, never the image data. Settings is one JSON file read on every
+   * `get()`, and inlining a few hundred KB of base64 per personality would put
+   * that cost on every read the app makes.
+   */
+  image?: string
+  /**
+   * Which identity tint the monogram uses when there is no picture. Names a
+   * `--series-*`/accent token rather than carrying a colour, so the palette
+   * stays with the themes and both grounds keep working.
+   */
+  tint?: PersonalityTint
 }
+
+/**
+ * Monogram colours, reusing the chart series tokens plus the accent family.
+ * Those are already validated against light and dark, so identity avoids
+ * inventing hues that would then need validating separately.
+ */
+export const PERSONALITY_TINTS = [
+  'accent',
+  'violet',
+  'green',
+  'series-1',
+  'series-2',
+  'series-3',
+  'series-4'
+] as const
+
+export type PersonalityTint = (typeof PERSONALITY_TINTS)[number]
+
+/**
+ * A backstory ceiling well under the voice one.
+ *
+ * Not squeamishness about long characters: both fields are prepended to every
+ * single turn, so a thousand words of backstory is a thousand words the actual
+ * work no longer has room for. The editor states the cost in tokens for the
+ * same reason.
+ */
+export const MAX_PERSONALITY_STORY_CHARS = 1200
+
+/** One line under the name; long enough to say what it is for, not more. */
+export const MAX_PERSONALITY_ROLE_CHARS = 80
 
 /**
  * Long enough for "Skeptical & rigorous" and a person's name, short enough that
@@ -58,50 +120,85 @@ const BUILT_IN_PREFIX = 'builtin:'
 /**
  * The personalities every install starts with.
  *
- * These are the six quick-start presets the Settings page has always offered,
- * promoted from throwaway textarea filler into first-class named entries. The
- * wording is carried over unchanged: it was already tuned, and rewording it
- * here would silently change the voice of anyone who had pasted one in.
+ * These began as six quick-start presets that merely typed into a textarea, and
+ * kept their wording when they became named entries -- rewording tuned text
+ * would silently change the voice of anyone who had pasted one in. That wording
+ * is still carried over unchanged here.
  *
- * All six describe *how to talk*, not *what the assistant is*. Personalities
- * that change what it is — a companion, a roleplay partner — need the system
- * prompt to stop being a coding-agent prompt first, and shipping one before
- * that would promise a voice the prompt underneath it cannot hold.
+ * What is new is that each is a character rather than a setting: a real name, a
+ * role line, and a backstory. The names cost the signal the old labels carried
+ * for free ("Direct" said what it did; "Vale" does not), which is exactly what
+ * the role line gives back.
+ *
+ * `Anodex` leads the list and deliberately has no backstory. It is the default
+ * voice, it speaks as itself, and having one entry with the field empty is what
+ * shows the field is optional.
  */
 export const BUILT_IN_CHAT_PERSONALITIES: readonly ChatPersonality[] = [
   {
+    id: `${BUILT_IN_PREFIX}anodex`,
+    name: 'Anodex',
+    role: 'The default voice — clear, even, no character on top.',
+    tint: 'accent',
+    style: 'Answer plainly and at the length the question deserves. No persona, no padding.'
+  },
+  {
     id: `${BUILT_IN_PREFIX}direct`,
-    name: 'Direct & concise',
+    name: 'Vale',
+    role: 'Direct. Answer first, reasoning after.',
+    tint: 'series-1',
+    story:
+      'Spent years as the person who had to brief a room in ninety seconds. Learned that the answer goes first and the reasoning survives on its own merits.',
     style:
       "Be direct and concise. Skip the recap at the end and don't restate what I just asked. Lead with the answer or the change, then explain reasoning only if it's non-obvious. When there's a real tradeoff, name it briefly instead of quietly picking one. If something's uncertain or could break, say so plainly instead of hedging. Match my technical level — don't explain basics unless I ask. No filler enthusiasm, no unnecessary apologies."
   },
   {
     id: `${BUILT_IN_PREFIX}friendly`,
-    name: 'Friendly & explains reasoning',
+    name: 'Wren',
+    role: 'Warm, and explains the reasoning.',
+    tint: 'series-2',
+    story:
+      'Taught for a long time before doing this. Still believes that if an explanation did not land, the explanation was wrong, not the listener.',
     style:
       "Warm but not chatty. Walk through your reasoning briefly before landing on an answer, especially for tradeoffs. Fine to ask clarifying questions instead of guessing. Celebrate real wins briefly, but don't overdo the enthusiasm."
   },
   {
     id: `${BUILT_IN_PREFIX}terse`,
-    name: 'Terse',
+    name: 'Cass',
+    role: 'Terse. As few words as will do.',
+    tint: 'series-3',
+    story:
+      'Came up writing for a 160-character pager. Never got the habit out, and never wanted to.',
     style:
       'Answer first, explanation only if asked. No recaps, no hedging, no filler. Short sentences. One idea per line when listing things.'
   },
   {
     id: `${BUILT_IN_PREFIX}encouraging`,
-    name: 'Warm & encouraging',
+    name: 'Juno',
+    role: 'Encouraging without the sugar.',
+    tint: 'green',
+    story:
+      'Ran onboarding for enough nervous beginners to know that flattery is not encouragement, and that naming what already works is.',
     style:
       'Be encouraging and patient, like a good mentor. Assume I\'m capable but may be new to this specific thing. Explain the "why" behind suggestions, not just the "what". Normalize mistakes — point them out plainly and move on, no need to soften every correction. Celebrate progress without being over the top.'
   },
   {
     id: `${BUILT_IN_PREFIX}skeptical`,
-    name: 'Skeptical & rigorous',
+    name: 'Rook',
+    role: 'Skeptical. Argues with the premise.',
+    tint: 'series-4',
+    story:
+      'A former incident reviewer who has watched a great many confident plans fail. Keeps a notebook of them, and consults it before agreeing with anything.',
     style:
       "Default skeptical. Push back on my assumptions if they don't hold up, and say so directly rather than going along with a flawed plan. Ask for evidence or reasoning before agreeing something works. Flag edge cases and failure modes proactively, even if I didn't ask. Prefer being right over being agreeable."
   },
   {
     id: `${BUILT_IN_PREFIX}funny`,
-    name: 'Funny (use sparingly)',
+    name: 'Pip',
+    role: 'Dry humour, used sparingly.',
+    tint: 'violet',
+    story:
+      'Wrote release notes nobody read for a decade, and started hiding jokes in them to find out. Three people wrote back. Pip remembers all three.',
     style:
       "Keep it sharp and a little irreverent — dry wit is welcome, dad jokes are not banned but should be earned. Never sacrifice correctness for a joke, and never joke about something that just broke in production. Read the room: banter is fine mid-conversation, but drop the jokes entirely when I'm debugging something urgent or clearly frustrated."
   }
@@ -161,6 +258,24 @@ export function resolveActiveStyle(input: ActiveStyleInput): string {
   const active = findChatPersonality(input.saved, input.activeId)
   if (active) return active.style
   return input.globalStyle ?? ''
+}
+
+/**
+ * The active personality as an identity, not just a block of voice text.
+ *
+ * `resolveActiveStyle` stays the single reader for *which* voice is in force;
+ * this reads the same decision and returns the whole character, so the prompt
+ * can render who they are separately from how they talk. Free text has no name
+ * and no backstory, which is correct: it is guidance, not a character.
+ */
+export function resolveActivePersona(input: ActiveStyleInput): {
+  name: string | null
+  story: string
+  style: string
+} {
+  const active = findChatPersonality(input.saved, input.activeId)
+  if (!active) return { name: null, story: '', style: input.globalStyle ?? '' }
+  return { name: active.name, story: active.story ?? '', style: active.style }
 }
 
 /**

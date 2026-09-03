@@ -5,7 +5,14 @@ import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import type { AppSettings, DeepPartial, SettingsPatch } from '@shared/settings.types'
 import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
-import { MAX_SAVED_PERSONALITIES, normalizePersonalityName } from '@shared/chatPersonality'
+import {
+  MAX_PERSONALITY_ROLE_CHARS,
+  MAX_PERSONALITY_STORY_CHARS,
+  MAX_SAVED_PERSONALITIES,
+  PERSONALITY_TINTS,
+  normalizePersonalityName,
+  type PersonalityTint
+} from '@shared/chatPersonality'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import { DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
 import { isContextAssemblyStrategy } from '@shared/contextPlanner'
@@ -932,6 +939,8 @@ export function validatePatch(patch: SettingsPatch): void {
  * unbounded list behind an IPC-reachable patch is how a single bad renderer
  * loop turns into an app that will not open.
  */
+const PERSONALITY_FIELDS = new Set(['id', 'name', 'style', 'role', 'story', 'image', 'tint'])
+
 function validateChatPersonalities(value: unknown): void {
   if (!Array.isArray(value)) {
     throw new Error('assistantStyle.personalities must be an array')
@@ -946,7 +955,7 @@ function validateChatPersonalities(value: unknown): void {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error('each personality must be an object')
     }
-    const { id, name, style } = entry as Record<string, unknown>
+    const { id, name, style, role, story, image, tint } = entry as Record<string, unknown>
     if (typeof id !== 'string' || !id.trim()) {
       throw new Error('personality.id must be a non-empty string')
     }
@@ -965,8 +974,37 @@ function validateChatPersonalities(value: unknown): void {
     if (style.length > MAX_ASSISTANT_STYLE_CHARS) {
       throw new Error(`personality.style must be at most ${MAX_ASSISTANT_STYLE_CHARS} characters`)
     }
+    // Identity fields. All optional: a personality saved before they existed
+    // is still valid, and reads back as a monogram with no backstory.
+    if (role !== undefined) {
+      if (typeof role !== 'string') throw new Error('personality.role must be a string')
+      if (role.length > MAX_PERSONALITY_ROLE_CHARS) {
+        throw new Error(`personality.role must be at most ${MAX_PERSONALITY_ROLE_CHARS} characters`)
+      }
+    }
+    // Capped well under `style` on purpose: both are prepended to every turn,
+    // so a long backstory is paid for out of the window the work needs.
+    if (story !== undefined) {
+      if (typeof story !== 'string') throw new Error('personality.story must be a string')
+      if (story.length > MAX_PERSONALITY_STORY_CHARS) {
+        throw new Error(
+          `personality.story must be at most ${MAX_PERSONALITY_STORY_CHARS} characters`
+        )
+      }
+    }
+    // A path, never image data — see `ChatPersonality.image`. A megabyte of
+    // base64 here would be re-read on every settings get().
+    if (image !== undefined && image !== null) {
+      if (typeof image !== 'string') throw new Error('personality.image must be a string path')
+      if (image.startsWith('data:')) {
+        throw new Error('personality.image must be a file path, not image data')
+      }
+    }
+    if (tint !== undefined && !PERSONALITY_TINTS.includes(tint as PersonalityTint)) {
+      throw new Error('personality.tint must name a known identity tint')
+    }
     for (const key of Object.keys(entry as Record<string, unknown>)) {
-      if (key !== 'id' && key !== 'name' && key !== 'style') {
+      if (!PERSONALITY_FIELDS.has(key)) {
         throw new Error(`unknown personality field: ${key}`)
       }
     }

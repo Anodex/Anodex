@@ -70,7 +70,10 @@ const api: AnodexApi = {
   settings: {
     get: () => ipcRenderer.invoke(IpcChannel.Settings.get),
     update: (patch) => ipcRenderer.invoke(IpcChannel.Settings.update, patch),
-    openModelsDir: () => ipcRenderer.invoke(IpcChannel.Settings.openModelsDir)
+    openModelsDir: () => ipcRenderer.invoke(IpcChannel.Settings.openModelsDir),
+    pickPersonalityImage: () => ipcRenderer.invoke(IpcChannel.Settings.pickPersonalityImage),
+    forgetPersonalityImage: (path) =>
+      ipcRenderer.invoke(IpcChannel.Settings.forgetPersonalityImage, path)
   },
   tools: {
     pickWorkspace: () => ipcRenderer.invoke(IpcChannel.Tools.pickWorkspace),

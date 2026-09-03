@@ -196,7 +196,11 @@ export const IpcChannel = {
   Settings: {
     get: 'settings:get',
     update: 'settings:update',
-    openModelsDir: 'settings:open-models-dir'
+    openModelsDir: 'settings:open-models-dir',
+    /** Pick a picture for an assistant personality and copy it into userData. */
+    pickPersonalityImage: 'settings:pick-personality-image',
+    /** Delete a personality picture this app copied in. */
+    forgetPersonalityImage: 'settings:forget-personality-image'
   },
   Tools: {
     pickWorkspace: 'tools:pick-workspace',
@@ -572,6 +576,9 @@ export interface AnodexApi {
     get(): Promise<AppSettings>
     update(patch: SettingsPatch): Promise<AppSettings>
     openModelsDir(): Promise<void>
+    /** Copies the chosen picture into userData; resolves null if cancelled. */
+    pickPersonalityImage(): Promise<string | null>
+    forgetPersonalityImage(path: string): Promise<void>
   }
   tools: {
     /** Opens a folder picker and makes the chosen path the active workspace root. */

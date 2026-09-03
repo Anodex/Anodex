@@ -39,7 +39,7 @@ import {
 } from '@shared/contextPlanner'
 import { composeSystemPrompt, type PromptSurface } from '@shared/prompts'
 import { CLOUD_PROVIDER_LABELS } from '@shared/providerCatalog'
-import { resolveActiveStyle } from '@shared/chatPersonality'
+import { resolveActivePersona } from '@shared/chatPersonality'
 import { buildContextEpochSystemPrompt, capContextEpochHandoff } from '@shared/contextPrompt'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
 import { getActiveProvider } from '../llm/ProviderRegistry'
@@ -616,11 +616,12 @@ export async function runGeneration(
   // free-text field, and a personality deleted while selected falls back to it.
   // Reading `globalStyle` directly here is what would let the picker and the
   // prompt disagree about which voice is in force.
-  const activeAssistantStyle = resolveActiveStyle({
+  const activePersona = resolveActivePersona({
     saved: settings.assistantStyle.personalities,
     activeId: settings.assistantStyle.activePersonalityId,
     globalStyle: settings.assistantStyle.globalStyle
   })
+  const activeAssistantStyle = activePersona.style
   const composeParts = {
     isolatedWriting: io.isolatedWriting === true,
     hasWorkspaceTools,
@@ -636,6 +637,10 @@ export async function runGeneration(
         ? ({ kind: 'local' } as const)
         : ({ kind: 'cloud', providerLabel: CLOUD_PROVIDER_LABELS[effectiveProviderId] } as const),
     assistantStyle: activeAssistantStyle,
+    // Who they are, separate from how they talk — see `renderPersonaSection`.
+    // The chat byline shows this name, so the model has to know it too, or it
+    // introduces itself as Anodex under a header saying otherwise.
+    assistantPersona: { name: activePersona.name, story: activePersona.story },
     projectRules,
     activeSkillContext
   }
