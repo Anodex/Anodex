@@ -70,7 +70,12 @@ const MATRIX = [
   { key: 'devstral24b', file: 'Devstral-Small-2507-Q4_K_M.gguf', ctx: 8192 },
   { key: 'qwen27b', file: 'Qwen3.8-27B-UD-Q4_K_M.gguf', ctx: 8192 },
   { key: 'gemma27b', file: 'gemma-3-27b-it-Q4_K_M.gguf', ctx: 8192 },
-  { key: 'qwen27b-full', file: 'Qwen3.8-27B-UD-Q4_K_M.gguf', ctx: 65536 }
+  { key: 'qwen27b-full', file: 'Qwen3.8-27B-UD-Q4_K_M.gguf', ctx: 65536 },
+  // The vision transport at the tightest window. Every other row above 4K runs
+  // comfortably, and mythomax13b covers 4K only on the node-llama-cpp path —
+  // this is the same stress on `LlamaVisionService`, which sizes its tool
+  // surface by its own rule and measures schema JSON without the system prompt.
+  { key: 'qwen27b-4k', file: 'Qwen3.8-27B-UD-Q4_K_M.gguf', ctx: 4096 }
 ]
 
 // Flags and their values are stripped, so what remains is the out directory

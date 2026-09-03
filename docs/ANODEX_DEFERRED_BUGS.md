@@ -15,26 +15,46 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
-### 2026-09-03: LlamaVisionService can still starve a very small window
+### 2026-09-03: 4096 is unsupported on the vision transport, and not by a tunable margin
 
-**Seen:** `LlamaService` at 4096 admitted a tool floor that did not fit, and
-every turn of a twelve-turn run returned zero characters. Fixed in `d94abfa`
-with a `hardLimitTokens` ceiling the floor may not cross.
+**Seen:** a 27B at 4096 on `LlamaVisionService` produced nothing on all twelve
+turns of the chat script, every one stopping at `fixed-context-limit`. The same
+window on `LlamaService` was fixed in `d94abfa`; this path was not.
 
-**Evidence:** `LlamaVisionService` sizes its surface by its own rule
-(`toolSurfaceTargetTokens` = `max(900, contextSize * 0.18)`, measuring schema
-JSON only) and never sees that ceiling. Which transport runs is decided by
-whether the model has an mmproj projector, not by the surface or the window.
+**Measured, which is what settles it:**
 
-**Why it was left:** no model on this machine reproduces it — the vision-path
-models here are the 27Bs, which run at 8K and above where the ceiling does not
-bind. Changing a budget rule blind, on a transport with no failing measurement,
-is how the guards that broke things got added in the first place.
+- Input limit at 4096 is 3,584 (`contextSize - RESERVED_TOKENS`).
+- The `minDirectTools` floor of ten tools costs **2,086 schema tokens** in this
+  transport's own units (`JSON.stringify(toOpenAiTools(...)).length / 4`).
+- Prompt and messages measured 1,620-2,000 depending on the turn.
+- 2,086 + ~1,620 = ~3,706, already past 3,584 **before any output reserve at
+  all**. The turn is then refused by a second gate that wants `minimumOutput`
+  (1,280, from `MIN_TOOL_CALL_OUTPUT_TOKENS`) left over.
 
-**Where to start:** `scripts/chat-matrix.mjs` with a small mmproj model at 4096.
-If it reproduces, the fix is the same shape: a ceiling expressed against the
-input limit, not the context size. The two transports' budget rules were already
-logged as worth unifying; this is a second reason.
+**Two fixes were tried, measured, and reverted:**
+
+1. A schema ceiling as a share of the input limit, like the one that fixed
+   `LlamaService`. It cannot work here: not binding at 8K needs a share of at
+   least 2,086/7,680 = **0.272**, and fixing 4K needs at most about
+   900/3,584 = **0.251**. There is no single fraction, because the floor's
+   absolute cost is more than half of 4096's whole input limit.
+2. Capping `minimumViableOutputTokens` so the 1,280 tool-call floor cannot take
+   31% of a small window. It moved the gate (1,280 to 1,024) and 4K still
+   produced nothing on twelve of twelve turns, while weakening an invariant
+   backed by a real failure (a reply ceiling below one JSON call truncates it
+   and llama-server 500s on its own parse).
+
+**Why it was left:** the only fixes that would work are design changes, not
+constants — dropping the tool floor entirely below some window so 4096 runs
+gateway-only, and/or an ultra-compact prompt tier below the current 24K
+threshold, since the compact chat prompt alone is roughly 44% of a 4096 window.
+Either deserves its own measurement rather than being smuggled in behind a
+tuning change.
+
+**Where to start:** `scripts/chat-matrix.mjs` now carries a `qwen27b-4k` row, so
+`node scripts/chat-matrix.mjs <out> qwen27b-4k --script scripts/chat-script-hard.json
+--criteria scripts/chat-hard-criteria.mjs` reproduces it in about two minutes,
+and the grader states plainly when a run produced nothing.
 
 ### 2026-09-03: memory capture cannot be measured against the live store
 
