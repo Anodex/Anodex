@@ -38,6 +38,7 @@ import {
   type PromptCalibration
 } from '@shared/contextPlanner'
 import { composeSystemPrompt, type PromptSurface } from '@shared/prompts'
+import { CLOUD_PROVIDER_LABELS } from '@shared/providerCatalog'
 import { resolveActiveStyle } from '@shared/chatPersonality'
 import { buildContextEpochSystemPrompt, capContextEpochHandoff } from '@shared/contextPrompt'
 import { sanitizeAssistantContent } from '@shared/chatSanitizer'
@@ -626,6 +627,14 @@ export async function runGeneration(
     contextWindowTokens,
     hasProject: Boolean(activeProject),
     surface: io.surface,
+    // Assembled from what is actually answering, never assumed — see
+    // `renderRuntimeSection`. `effectiveProviderId` already accounts for a
+    // per-run provider override, so an agent run pinned to a cloud provider
+    // does not inherit the app's local default here.
+    runtime:
+      effectiveProviderId === 'local'
+        ? ({ kind: 'local' } as const)
+        : ({ kind: 'cloud', providerLabel: CLOUD_PROVIDER_LABELS[effectiveProviderId] } as const),
     assistantStyle: activeAssistantStyle,
     projectRules,
     activeSkillContext
