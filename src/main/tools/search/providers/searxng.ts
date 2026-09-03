@@ -94,6 +94,22 @@ export function createSearxngProvider(baseUrl: string): SearchProvider {
               : 'SearXNG request cancelled.'
           )
         }
+        // A refused connection is the commonest way a self-hosted instance
+        // fails, and it arrived as a bare "fetch failed" — which says nothing
+        // and reads like a bug in Anodex.
+        //
+        // Measured: a Critical Thinking run executed all six steps against a
+        // SearXNG that was not running, finished `partial` with zero sources
+        // and zero evidence, and logged no warning or error at all. The only
+        // clue was the run's own closing line, "Research finished without a
+        // fetched source". A timeout already says "Is the instance running?";
+        // a refusal is the same question with a more certain answer.
+        if (isConnectionRefused(error)) {
+          throw new Error(
+            `SearXNG is not reachable at ${baseUrl}. The instance does not appear to be running — ` +
+              'start it, or choose a different search provider in Settings.'
+          )
+        }
         throw error
       } finally {
         abort.dispose()
@@ -127,4 +143,17 @@ function parseResult(result: SearxngResult): SearchResult {
 function truncate(text: string): string {
   if (text.length <= MAX_SNIPPET_LENGTH) return text
   return `${text.slice(0, MAX_SNIPPET_LENGTH)}…`
+}
+
+/**
+ * Whether a fetch failure was the connection being refused.
+ *
+ * `fetch` reports these as a plain `TypeError: fetch failed` and hides the
+ * reason on `cause`, so the code has to be dug out rather than matched on the
+ * message — which differs between runtimes and locales.
+ */
+function isConnectionRefused(error: unknown): boolean {
+  const cause = (error as { cause?: { code?: string } } | null)?.cause
+  const code = cause?.code
+  return code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'ECONNRESET'
 }
