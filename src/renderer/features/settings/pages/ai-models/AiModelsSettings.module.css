@@ -56,7 +56,11 @@
 
 .modelTabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Derived from however many tabs there are, not a count written here. A
+     hardcoded `repeat(4, ...)` outlived the fourth tab and left Advanced
+     stretched across the space Compatibility used to hold. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   overflow: hidden;
   min-height: 42px;
   background: var(--bg-surface);
@@ -2135,17 +2139,16 @@
     grid-template-columns: 1fr;
   }
 
+  /* Narrow: wrap onto rows instead of squeezing three labels into one line.
+     Row-flow overrides the column-flow default above. */
   .modelTabs {
+    grid-auto-flow: row;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .modelTabs button:nth-child(3) {
+  .modelTabs button:nth-child(n + 3) {
     border-top: 1px solid var(--border);
     border-left: 0;
-  }
-
-  .modelTabs button:nth-child(4) {
-    border-top: 1px solid var(--border);
   }
 
   .activeProviderCard,
