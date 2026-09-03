@@ -169,6 +169,25 @@ const TOOL_SCHEMAS: BudgetRule = { fraction: 0.12, floor: 768, ceiling: 6144 }
 export const MIN_WORKING_SET_FRACTION = 0.35
 
 /**
+ * The most of the input limit that fixed content — system prompt plus tool
+ * schemas — may occupy, leaving the rest for the actual conversation.
+ *
+ * Separate from {@link MIN_WORKING_SET_FRACTION} because it answers a different
+ * question. That one divides the *context* between overhead and working set,
+ * sizing the schema share before anyone knows how large the prompt is. This one
+ * is checked against the *input limit* after both are measured, which is the
+ * number generation actually fails against.
+ *
+ * It exists because that gap is survivable at 8K and fatal at 4K. Measured on a
+ * 13B at 4096: an 1,801-token prompt plus a 2,283-token tool floor gave 4,146
+ * fixed tokens against a 3,687 input limit, and all twelve turns of a run
+ * returned zero characters. At 8K the same floor costs about 4,084 against a
+ * limit of 5,919 here, so this does not bind and nothing about the existing
+ * workspace behaviour changes.
+ */
+export const MAX_FIXED_INPUT_FRACTION = 0.85
+
+/**
  * The fraction of the input limit at which the turn hands off to a fresh
  * context epoch. Context degrades well before the hard limit, so this fires
  * early, and proportionally rather than at a constant.

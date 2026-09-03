@@ -42,7 +42,7 @@ import type { McpToolDescriptor } from '@shared/mcp.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
-import { allocateContextBudget } from '@shared/contextBudget'
+import { allocateContextBudget, MAX_FIXED_INPUT_FRACTION } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import { environmentDateFromPrompt } from '@shared/prompts'
@@ -2219,7 +2219,26 @@ class LlamaService extends EventEmitter {
     // Anchoring on the measured prompt keeps the schemas' share whole whatever
     // the prompt costs, while still refusing to spend the working set.
     const promptOnlyTokens = measureFixedTokens(undefined)
-    const targetFixedTokens = promptOnlyTokens + allocateContextBudget(this.contextSize).toolSchemas
+    const budget = allocateContextBudget(this.contextSize)
+    const targetFixedTokens = promptOnlyTokens + budget.toolSchemas
+    // The fixed input may take most of the input limit, never all of it.
+    //
+    // `allocateContextBudget` sizes the schema share from the context alone; it
+    // cannot know how large the system prompt is, and the prompt is part of the
+    // same fixed input. At 8K that gap is affordable. At 4096 it is not: the
+    // prompt measured 1,801 tokens, the `minDirectTools` floor added 2,283 of
+    // schemas by design without consulting the budget, and the resulting 4,146
+    // fixed exceeded the 3,687 input limit — so every turn of a twelve-turn run
+    // returned zero characters with stopReason `fixed-context-limit`.
+    //
+    // Expressed against the input limit rather than the context size because
+    // that is the number generation actually fails against. At 8K it leaves
+    // 5,919 tokens against a floor that costs about 4,084, so it does not bind
+    // and the workspace behaviour the floor exists for is unchanged; at 4K it
+    // binds and the floor yields, which is the whole point.
+    const hardLimitTokens = Math.floor(
+      (this.contextSize - budget.outputReserve) * MAX_FIXED_INPUT_FRACTION
+    )
     return boundToolSurface({
       allFunctions: functions,
       // Guarded: the gateway tools validate what the model passes and raise a
@@ -2230,6 +2249,7 @@ class LlamaService extends EventEmitter {
       targetFixedTokens,
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
       minDirectTools: COMPLETE_BUILDER_LOOP,
+      hardLimitTokens,
       measureFixedTokens
     })
   }

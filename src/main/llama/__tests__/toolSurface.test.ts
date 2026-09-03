@@ -24,6 +24,68 @@ const fixedCost = (functions: Record<string, ToolFunction> | undefined): number 
   Object.keys(functions ?? {}).length * 100
 
 describe('bounded tool surface', () => {
+  /**
+   * The floor must yield to a context that cannot hold it.
+   *
+   * `minDirectTools` exists so an 8K project run is never admitted
+   * `finish_goal`, `list_directory`, `read_file_range` and nothing else - a
+   * surface that can read but neither edit nor run is broken, not smaller. It
+   * is honoured by skipping the token check while below the floor.
+   *
+   * At a small enough context that skip stops being a rescue and becomes the
+   * failure. Measured on a 13B at 4096: the floor admitted ten schemas costing
+   * 2,283 tokens on top of an 1,801-token system prompt, for 4,146 fixed
+   * against an input limit of 3,687. Generation was impossible, so every one of
+   * twelve turns returned zero characters with stopReason
+   * `fixed-context-limit`. The guard against a crippled surface produced a
+   * completely dead one.
+   *
+   * So the floor stays a preference and `hardLimitTokens` is the line it may
+   * not cross. Admitting fewer tools than the loop needs is bad; admitting a
+   * set that cannot generate at all is worse, and only the second one is
+   * silent.
+   */
+  it('yields the floor rather than exceeding a hard limit', () => {
+    const allFunctions = Object.fromEntries(
+      Array.from({ length: 20 }, (_, index) => [`tool_${index}`, tool(`Tool ${index}.`)])
+    )
+
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      // Deliberately generous, as the real budget was: the target alone does
+      // not stop the floor.
+      targetFixedTokens: 10_000,
+      minDirectTools: 10,
+      // Room for the gateway plus about two more tools at 100 each.
+      hardLimitTokens: 500,
+      measureFixedTokens: fixedCost
+    })
+
+    expect(fixedCost(result.functions)).toBeLessThanOrEqual(500)
+    expect(result.directToolNames.length).toBeLessThan(10)
+    // Still a working surface, not an empty one.
+    expect(result.directToolNames.length).toBeGreaterThan(0)
+  })
+
+  it('still honours the floor when the hard limit allows it', () => {
+    const allFunctions = Object.fromEntries(
+      Array.from({ length: 20 }, (_, index) => [`tool_${index}`, tool(`Tool ${index}.`)])
+    )
+
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      // Tight target, which the floor is meant to override.
+      targetFixedTokens: 300,
+      minDirectTools: 10,
+      hardLimitTokens: 100_000,
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.directToolNames.length).toBe(10)
+  })
+
   it('keeps the full native surface when it fits', () => {
     const allFunctions = {
       read_file: tool('Read a file.'),
