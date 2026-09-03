@@ -1,24 +1,19 @@
 import type { CSSProperties } from 'react'
 import type { HardwareInfo } from '@shared/system.types'
-import type { ModelRecommendation } from '@shared/modelRecommendation'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { Spinner } from '../../../../components/ui/Spinner'
 import { hardwareFitLabel, scoreHardwareProfile } from './scoring'
 import styles from './AiModelsSettings.module.css'
 
-/** Detected hardware specs, a 0-100 fit score, and the hardware-based recommendation callout. */
+/** Detected hardware specs and a 0-100 fit score for this computer. */
 export function HardwarePanel({
   hardware,
   loading,
-  recommendation,
-  onApplyRecommendation,
   onRedetect
 }: {
   hardware: HardwareInfo | null
   loading: boolean
-  recommendation: ModelRecommendation | null
-  onApplyRecommendation: () => void
   onRedetect: () => void
 }): JSX.Element {
   const hardwareScore = hardware ? scoreHardwareProfile(hardware) : null
@@ -79,26 +74,16 @@ export function HardwarePanel({
               </div>
             </div>
 
+            {/* One recommendation, not two. This panel used to carry its own
+                "we suggest X" callout beside the specs, directly above a strip
+                whose whole job is recommending models for this computer -- and
+                the two were scored differently, so they could disagree. */}
             <div className={styles.hardwareReasons}>
               <div className={styles.hintLine}>
                 <span className={styles.hintDot} />
                 Scores are based on RAM, VRAM, quant size, model size, and expected local coding
                 workload.
               </div>
-              {recommendation && (
-                <div className={styles.recommendationCallout}>
-                  <span className={styles.recIcon}>
-                    <Icon name="sparkle" size={16} />
-                  </span>
-                  <div className={styles.recText}>
-                    <strong>{recommendation.modelName}</strong>
-                    <span>{recommendation.rationale}</span>
-                  </div>
-                  <Button variant="secondary" size="sm" onClick={onApplyRecommendation}>
-                    Apply defaults
-                  </Button>
-                </div>
-              )}
             </div>
           </>
         )}

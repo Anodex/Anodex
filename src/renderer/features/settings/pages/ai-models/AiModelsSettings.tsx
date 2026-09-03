@@ -251,15 +251,6 @@ export function AiModelsSettings(): JSX.Element {
     void update(contextSizeUpdate(patch, activePath)).then(reloadActiveModelIfSafe)
   }
 
-  const applyRecommendation = (): void => {
-    if (!recommendation) return
-    saveContextSize({
-      contextSize: recommendation.contextSize,
-      gpuLayers: recommendation.gpuLayers,
-      autoConfigured: true
-    })
-  }
-
   // Reads the *loaded file's own* GGUF metadata rather than assuming a tier —
   // works identically for a catalog download or a model the user added
   // themselves. Only meaningful for local files, so it's gated on that below
@@ -427,8 +418,6 @@ export function AiModelsSettings(): JSX.Element {
           <HardwarePanel
             hardware={hardware}
             loading={loadingHardware}
-            recommendation={recommendation}
-            onApplyRecommendation={applyRecommendation}
             onRedetect={redetectHardware}
           />
 
