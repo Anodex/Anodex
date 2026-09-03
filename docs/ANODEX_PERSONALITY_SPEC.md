@@ -1,6 +1,8 @@
 # Assistant personalities — build spec
 
-Status: **approved 2026-09-02**, not built. Reference implementation:
+Status: **built 2026-09-02** (`2c05677`, `2ab10d5`). Kept as the record of what
+was decided and why; the code is now the source of truth for behaviour.
+Originally approved as the plan below. Reference implementation:
 `docs/ui-samples/personality-redesign.html` (published artifact:
 <https://claude.ai/code/artifact/b5fd0001-4d7b-4e9d-9a1c-70552a2ca2c5>).
 
