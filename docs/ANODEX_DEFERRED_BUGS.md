@@ -541,3 +541,48 @@ Not bugs — fixes that landed without a live run proving them.
   lever requires refusing a re-read, which caused the context livelock recorded
   in the `anodex-context-livelock-fix` memory. Judged model behaviour, not
   Anodex's context handling. Full record in `docs/HANDOFF_WORKSPACE.md`.
+
+## Email, chat and context — 2026-09-02
+
+Measured with `scripts/chat-matrix.mjs` (`--script`/`--criteria` for email) and
+the autorun harnesses. What was fixed is in git; these are the ones left.
+
+- **Two local transports, separate budget rules.** `LlamaService`
+  (node-llama-cpp) and `LlamaVisionService` (llama-server, used by any model
+  with an mmproj — including the 27B). They size the native tool surface with
+  different functions: `toolSurfaceBudgetTokens`-style measurement against the
+  shared allocation on one, `max(900, contextSize * 0.18)` on the other. A
+  result measured on the 27B says nothing about the path `LlamaService`
+  governs, and vice versa. Not unified because the two measure different
+  things — one counts prompt plus schemas through the real tokenizer, the other
+  estimates schema JSON — and reconciling them is a change worth making
+  deliberately with both benchmarks green, not in passing. Check
+  `[llama:vision]` vs `[llama]` in a log before attributing any result.
+
+- **Tool-discovery thrashing on weaker models.** With most of the catalogue
+  deferred at 8K, models that cannot find `find_available_tool` loop on
+  whatever they can see. Measured on devstral-24B running the email script:
+  135 calls in a single turn, and in a later run 24 calls of `find_skill`
+  ending in "I cannot find a skill to search for an email by subject" while
+  `search_email` sat one gateway call away. `find_skill` now says skills are
+  not tools and names `find_available_tool`, but the effect of that redirect is
+  **unmeasured** — the models thrash in both runs and single-run comparison of
+  a high-variance model is noise. Needs repeats before anyone claims it helped.
+  The loop guard does fire, but only after the turn is spent.
+
+- **A 4B stopped calling `anodex_status`.** qwen4b answered "I don't have
+  access to your schedule or task list right now" while the tool was resident —
+  confirmed resident by the new tool-surface log line, so it is behaviour, not
+  availability. Scored 10/10 on the same script in other runs. Left alone: no
+  fix suggests itself that is not a prompt nudge aimed at one model.
+
+- **Email tools never exercised:** `move_email`, `batch_email`,
+  `read_email_attachment`. The first two relocate real mail in bulk and were
+  not run against a live mailbox on judgement; the third simply has not been.
+
+- **Critical Thinking is unverified end to end.** It plans, approves, runs
+  every step, records the run and reports honestly that it finished without a
+  fetchable source — but has never been observed producing a report on this
+  machine, because SearXNG is down and starting it needs a password. Two bugs
+  found while testing it are fixed (`6eaf28a`, `cbd9113`); the surface itself
+  still needs one clean run.
