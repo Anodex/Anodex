@@ -2,7 +2,10 @@
 /**
  * Combine several matrix runs and report which criteria are unstable.
  *
- * Usage: node scripts/chat-flakiness.mjs <summary.json> <summary.json> [...]
+ * Usage: node scripts/chat-flakiness.mjs <run> <run> [...] [--criteria <file>]
+ *
+ * A run is either a matrix `summary.json`, or — with `--criteria` — a directory
+ * of logs to re-grade on the spot.
  *
  * A single matrix run answers "did it pass". Run the same models over the same
  * prompts three times and a different question becomes answerable: "does it
@@ -18,6 +21,22 @@
  * A criterion that is 3/3 or 0/3 is telling you something about the build. A
  * criterion that is 2/3 is telling you about the sampler, and is the only kind
  * of result that a repeat run can find at all.
+ *
+ * **Read a 0/3 with one extra check: did the replies actually differ?** Repeat
+ * runs only measure anything where sampling varies, and it does not vary
+ * uniformly. Hashing qwen4b's twelve replies across three runs of the hard
+ * script gave seven turns that differed every time and four that were
+ * byte-identical — the short, high-confidence ones (a refusal, an arithmetic
+ * answer, an acknowledgement). So a 0/3 on a long discursive turn is three
+ * independent failures, while a 0/3 on a short one may be the same generation
+ * three times.
+ *
+ * That distinction decides what to do about it. A stable attractor will not
+ * shift for a reworded prompt, and trying is how a core prompt accumulates
+ * sentences that cost every model context and fix nothing: adding 39 tokens
+ * against one such failure changed the reply not at all — byte for byte. Diff
+ * the transcripts before concluding a fix is needed, and again before
+ * concluding one worked.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'

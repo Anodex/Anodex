@@ -15,6 +15,54 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
+### 2026-09-03: memory capture cannot be measured against the live store
+
+**Seen:** a hard-rubric criterion asked whether chat called `remember_fact` for
+each of two facts the user states in one sentence ("I'm Merlin, and I strongly
+prefer short answers"). The 27B called nothing and replied "Already on file,
+Merlin -- name and short answers both saved."
+
+**Evidence:** it was right. `%APPDATA%/anodex/memory/global.json` already holds
+both facts from earlier runs, and the Memory section is injected into every
+prompt. From the log, a model correctly declining to re-store what it already
+knows is indistinguishable from one that failed to store anything at all.
+
+**Why rewriting the prompts does not fix it:** whatever new facts the script
+states, the first run stores them and every repeat run is back in the same
+position. The stimulus is spent on first use, so the criterion is valid at most
+once per machine.
+
+**Why it was left:** the fix is a harness that owns its own memory store --
+pointing the app at a scratch `userData` for the run, or clearing and restoring
+the store around it. Clearing the user's real memory to make a test pass is not
+acceptable, and the alternative is a real piece of harness work rather than a
+criterion tweak. The criterion was removed with its reasoning left in place in
+`scripts/chat-hard-criteria.mjs` rather than weakened until it passed.
+
+**Where to start:** `chat-matrix.mjs` already owns each app instance it starts
+and writes settings between runs; a per-run `--user-data-dir` is the natural
+place to extend it. `persists-identity` in `chat-criteria.mjs` still covers the
+outcome, and `applies-preference` covers the behaviour without touching state.
+
+### 2026-09-03: no custom OpenAI-compatible provider, so local servers cannot be used
+
+**Seen:** auditing the twelve shipped providers, there is no entry that takes a
+user-supplied base URL. `cloudProviderConfigs.ts` hardcodes a base URL per
+provider, and Azure's is the only user-supplied one -- and it is Azure-shaped,
+not a generic OpenAI-compatible endpoint.
+
+**Evidence:** LM Studio and Ollama are both installed on this machine and both
+serve an OpenAI-compatible API on localhost. `OpenAiCompatibleProvider.ts`
+already implements everything needed; nothing consumes it with a custom URL.
+
+**Why it was left:** it is a feature, not a defect, and was not asked for. Noted
+because it is close to free -- the provider shape exists, and the endpoint audit
+(`scripts/provider-endpoints.mjs`) shows the shipped list is otherwise complete.
+
+**Where to start:** an `OpenAiCompatibleConfig` whose `baseURL` comes from
+settings, plus the verify path in `provider.handlers.ts`, which already reports
+"model isn't available on this account" usefully via `models.retrieve`.
+
 ### FIXED 2026-09-02: chat claims it runs locally even when a cloud provider is answering
 
 **Fixed in `1af6f74`.** The four core prompts dropped the claim; `composeSystemPrompt`
