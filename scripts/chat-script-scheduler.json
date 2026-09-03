@@ -1,0 +1,8 @@
+{
+  "prompts": [
+    "Schedule a task to run in 2 minutes whose prompt is exactly: Reply with the single word SCHEDULER-FIRED and nothing else. Name it 'Scheduler smoke test'.",
+    "What have I got scheduled now?",
+    "Schedule a second task that runs every 1 minute with the prompt: say OK. Name it 'Interval test'.",
+    "List my scheduled tasks again and tell me the exact schedule of each."
+  ]
+}
