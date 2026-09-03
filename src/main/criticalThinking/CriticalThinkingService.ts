@@ -384,6 +384,19 @@ class CriticalThinkingService {
       // a restart. A flush failure here falls through to the catch below and
       // reports an explicit failure instead of a false needs-review.
       await criticalThinkingStore.flush()
+      // Free the service *before* anyone is told the plan is ready.
+      //
+      // `approve` refuses while any run is active, and planning holds that flag
+      // until the `finally` below. Flipping the status and broadcasting first
+      // opened a window where the UI shows an approvable plan and approving it
+      // fails with "Another Critical Thinking run is already active" — the
+      // run's own planning phase, refusing to let the run continue.
+      //
+      // Hit for real: an autorun polling for `needs-review` saw it, approved
+      // immediately, and threw. A person clicking Approve as soon as the plan
+      // appears races the same window. Clearing here closes it; the `finally`
+      // still runs and is idempotent, so the failure paths are unchanged.
+      this.clearActiveRun()
       this.broadcastRunsChanged()
     } catch (error) {
       log.error('Critical Thinking planning failed:', run.id, error)
