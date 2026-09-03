@@ -25,6 +25,80 @@ const fixedCost = (functions: Record<string, ToolFunction> | undefined): number 
 
 describe('bounded tool surface', () => {
   /**
+   * The floor guarantees the builder loop, so it should not fire where there is
+   * no builder loop to guarantee.
+   *
+   * `minDirectTools` exists because a project run admitted `finish_goal`,
+   * `list_directory`, `read_file_range` and nothing else could read code and
+   * neither change nor test it. Every word of that reasoning is about the ten
+   * coding tools at the head of the priority list.
+   *
+   * A projectless chat has none of them — its surface is web, email, status and
+   * memory — yet it was handed the same floor, which forced ten *arbitrary*
+   * slots in without consulting the budget. Measured on the chat surface that
+   * costs 2,086-2,283 tokens of schemas at every window, and two of the ten
+   * slots went to `write_plan` and `update_plan_step`, which the chat prompt
+   * explicitly forbids using.
+   *
+   * So the floor counts only the builder-loop tools a surface actually has.
+   */
+  it('does not force a floor on a surface with no builder-loop tools', () => {
+    // A chat-shaped surface: nothing from the head of the priority list.
+    const allFunctions = {
+      web_search: tool('Search the web.'),
+      fetch_url: tool('Fetch a page.'),
+      anodex_status: tool('Read Anodex state.'),
+      list_threads: tool('List mail threads.'),
+      search_email: tool('Search mail.'),
+      read_email: tool('Read a message.'),
+      remember_fact: tool('Remember a fact.'),
+      write_plan: tool('Write a plan.')
+    }
+
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      // Room for the gateway plus about two tools at 100 each.
+      targetFixedTokens: 500,
+      minDirectTools: 10,
+      measureFixedTokens: fixedCost
+    })
+
+    // The budget decides, because there is no loop to protect.
+    expect(result.directToolNames.length).toBeLessThan(10)
+    expect(fixedCost(result.functions)).toBeLessThanOrEqual(500)
+  })
+
+  it('still forces the floor for a surface that does have the builder loop', () => {
+    const allFunctions = {
+      finish_goal: tool('Finish.'),
+      list_directory: tool('List.'),
+      read_file_range: tool('Read a range.'),
+      search_files: tool('Search files.'),
+      code_outline: tool('Outline.'),
+      replace_lines: tool('Replace lines.'),
+      edit_file: tool('Edit.'),
+      write_file: tool('Write.'),
+      append_file: tool('Append.'),
+      run_command: tool('Run.'),
+      web_search: tool('Search the web.')
+    }
+
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      // Far too tight, which is exactly what the floor is there to override.
+      targetFixedTokens: 300,
+      minDirectTools: 10,
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.directToolNames).toContain('write_file')
+    expect(result.directToolNames).toContain('run_command')
+    expect(result.directToolNames.length).toBe(10)
+  })
+
+  /**
    * The floor must yield to a context that cannot hold it.
    *
    * `minDirectTools` exists so an 8K project run is never admitted
@@ -46,9 +120,18 @@ describe('bounded tool surface', () => {
    * silent.
    */
   it('yields the floor rather than exceeding a hard limit', () => {
-    const allFunctions = Object.fromEntries(
-      Array.from({ length: 20 }, (_, index) => [`tool_${index}`, tool(`Tool ${index}.`)])
-    )
+    const allFunctions = {
+      finish_goal: tool('Finish.'),
+      list_directory: tool('List.'),
+      read_file_range: tool('Read a range.'),
+      search_files: tool('Search files.'),
+      code_outline: tool('Outline.'),
+      replace_lines: tool('Replace lines.'),
+      edit_file: tool('Edit.'),
+      write_file: tool('Write.'),
+      append_file: tool('Append.'),
+      run_command: tool('Run.')
+    }
 
     const result = boundToolSurface({
       allFunctions,
@@ -69,9 +152,18 @@ describe('bounded tool surface', () => {
   })
 
   it('still honours the floor when the hard limit allows it', () => {
-    const allFunctions = Object.fromEntries(
-      Array.from({ length: 20 }, (_, index) => [`tool_${index}`, tool(`Tool ${index}.`)])
-    )
+    const allFunctions = {
+      finish_goal: tool('Finish.'),
+      list_directory: tool('List.'),
+      read_file_range: tool('Read a range.'),
+      search_files: tool('Search files.'),
+      code_outline: tool('Outline.'),
+      replace_lines: tool('Replace lines.'),
+      edit_file: tool('Edit.'),
+      write_file: tool('Write.'),
+      append_file: tool('Append.'),
+      run_command: tool('Run.')
+    }
 
     const result = boundToolSurface({
       allFunctions,
