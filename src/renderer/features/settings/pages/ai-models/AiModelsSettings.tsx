@@ -22,7 +22,6 @@ import { HardwarePanel } from './HardwarePanel'
 import { RecommendedModelStrip } from './RecommendedModelStrip'
 import { DiscoverModelsPanel } from './DiscoverModelsPanel'
 import { InstalledModelsList } from './InstalledModelsList'
-import { CompatibilitySummary } from './CompatibilitySummary'
 import { ProviderConnectionsPanel } from './ProviderConnectionsPanel'
 import { ctxSizeWarning, scoreInstalledModel } from './scoring'
 import styles from './AiModelsSettings.module.css'
@@ -95,12 +94,25 @@ function TurnTimeLimitSlider({
   )
 }
 
-type AiModelsTab = 'models' | 'compatibility' | 'providers' | 'advanced'
+/**
+ * Local | Cloud | Advanced.
+ *
+ * "Models" and "Providers" named the implementation, not the choice: a user
+ * picking between a GGUF on disk and an API key is choosing local or cloud, and
+ * the two belong side by side because they are one decision.
+ *
+ * The former Compatibility tab is gone. Two of its three panels were already
+ * elsewhere -- `InstalledModelsList` was rendered identically under Models, and
+ * `CompatibilitySummary` re-scored the active model that `EnginePanel` and the
+ * per-row reliability column already speak to. What was worth keeping is
+ * `HardwarePanel`, which has moved to Local directly above the recommendations
+ * it explains.
+ */
+type AiModelsTab = 'local' | 'cloud' | 'advanced'
 
 const AI_MODEL_TABS: Array<{ id: AiModelsTab; label: string }> = [
-  { id: 'models', label: 'Models' },
-  { id: 'compatibility', label: 'Compatibility' },
-  { id: 'providers', label: 'Providers' },
+  { id: 'local', label: 'Local' },
+  { id: 'cloud', label: 'Cloud' },
   { id: 'advanced', label: 'Advanced' }
 ]
 
@@ -130,7 +142,7 @@ export function AiModelsSettings(): JSX.Element {
 
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [loadingHardware, setLoadingHardware] = useState(true)
-  const [activeTab, setActiveTab] = useState<AiModelsTab>('models')
+  const [activeTab, setActiveTab] = useState<AiModelsTab>('local')
   const [search, setSearch] = useState('')
   const [reliability, setReliability] = useState<ModelReliabilityRecord[]>([])
   const [fileRecommendation, setFileRecommendation] = useState<ModelSettingsRecommendation | null>(
@@ -368,8 +380,8 @@ export function AiModelsSettings(): JSX.Element {
         </div>
       </div>
 
-      {/* Above the sub-tabs on purpose: a refusal can be provoked from Models
-          (loading one) or from Advanced (changing the context size, which
+      {/* Above the sub-tabs on purpose: a refusal can be provoked from Local
+          (loading a model) or from Advanced (changing the context size, which
           reloads the active model), so it must not be tied to either. */}
       <LoadRefusalCallout
         engine={engine}
@@ -392,7 +404,7 @@ export function AiModelsSettings(): JSX.Element {
         ))}
       </div>
 
-      {activeTab === 'models' && (
+      {activeTab === 'local' && (
         <div className={styles.tabPanel} role="tabpanel">
           <EnginePanel
             engine={engine}
@@ -407,6 +419,17 @@ export function AiModelsSettings(): JSX.Element {
             onRecommendForModel={recommendForLoadedModel}
             onApplyFileRecommendation={applyFileRecommendation}
             onDismissFileRecommendation={() => setFileRecommendation(null)}
+          />
+
+          {/* Directly above the recommendations, because it is what makes
+              "best models for this computer" mean anything. Moved here from
+              the removed Compatibility tab. */}
+          <HardwarePanel
+            hardware={hardware}
+            loading={loadingHardware}
+            recommendation={recommendation}
+            onApplyRecommendation={applyRecommendation}
+            onRedetect={redetectHardware}
           />
 
           <RecommendedModelStrip
@@ -438,46 +461,13 @@ export function AiModelsSettings(): JSX.Element {
         </div>
       )}
 
-      {activeTab === 'compatibility' && (
-        <div className={styles.tabPanel} role="tabpanel">
-          <HardwarePanel
-            hardware={hardware}
-            loading={loadingHardware}
-            recommendation={recommendation}
-            onApplyRecommendation={applyRecommendation}
-            onRedetect={redetectHardware}
-          />
-          <CompatibilitySummary
-            engine={engine}
-            hardware={hardware}
-            reliability={reliabilityByModelId}
-          />
-          <InstalledModelsList
-            models={filteredModels}
-            totalModels={models.length}
-            hardware={hardware}
-            search={search}
-            lastModelPath={lastModelPath}
-            bestInstalledId={bestInstalled?.model.id ?? null}
-            reliability={reliabilityByModelId}
-            onSearch={setSearch}
-            onRefresh={() => {
-              void refresh()
-              loadReliability()
-            }}
-            onAddModel={() => void addModel()}
-            onOpenModelsFolder={() => void anodex.settings.openModelsDir()}
-          />
-        </div>
-      )}
-
-      {activeTab === 'providers' && (
+      {activeTab === 'cloud' && (
         <div className={styles.tabPanel} role="tabpanel">
           <ProviderConnectionsPanel
             settings={settings}
             activeModelName={engine.model?.name ?? null}
             onUpdate={update}
-            onOpenModels={() => setActiveTab('models')}
+            onOpenModels={() => setActiveTab('local')}
           />
         </div>
       )}
