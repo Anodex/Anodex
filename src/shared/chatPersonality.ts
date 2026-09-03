@@ -118,6 +118,18 @@ export const MAX_SAVED_PERSONALITIES = 50
 const BUILT_IN_PREFIX = 'builtin:'
 
 /**
+ * Anodex itself: the default voice, and the fixed reference point.
+ *
+ * Singled out from the other built-ins because it is the one you can ask a user
+ * to switch to when diagnosing a problem. That is only worth anything if it
+ * means the same thing on their machine as on yours, so it carries the app's
+ * own icon rather than a monogram, and nothing about it can be edited or
+ * overridden — see `validateChatPersonalities`, which refuses a saved entry
+ * claiming this id.
+ */
+export const ANODEX_PERSONALITY_ID = `${BUILT_IN_PREFIX}anodex`
+
+/**
  * The personalities every install starts with.
  *
  * These began as six quick-start presets that merely typed into a textarea, and
@@ -136,7 +148,7 @@ const BUILT_IN_PREFIX = 'builtin:'
  */
 export const BUILT_IN_CHAT_PERSONALITIES: readonly ChatPersonality[] = [
   {
-    id: `${BUILT_IN_PREFIX}anodex`,
+    id: ANODEX_PERSONALITY_ID,
     name: 'Anodex',
     role: 'The default voice — clear, even, no character on top.',
     tint: 'accent',

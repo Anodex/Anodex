@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppSettings } from '@shared/settings.types'
-import { MAX_SAVED_PERSONALITIES } from '@shared/chatPersonality'
+import {
+  ANODEX_PERSONALITY_ID,
+  MAX_PERSONALITY_STORY_CHARS,
+  MAX_SAVED_PERSONALITIES
+} from '@shared/chatPersonality'
 import { MAX_ASSISTANT_STYLE_CHARS } from '@shared/settings.types'
 import { createDefaultSettings } from '@shared/settings.defaults'
 import {
@@ -338,6 +342,54 @@ describe('validatePatch', () => {
       expect(() =>
         validatePatch({ assistantStyle: { personalities: [ok, { ...ok, name: 'Other' }] } })
       ).toThrow(/duplicate personality id/)
+    })
+
+    /**
+     * Anodex is the personality you ask someone to switch to when diagnosing a
+     * problem, which is worth nothing unless it means the same thing on their
+     * machine as on yours. A saved entry sharing a built-in's id shadows it,
+     * so that one id has to be refused outright.
+     */
+    it('refuses a saved entry claiming the Anodex id', () => {
+      expect(() =>
+        validatePatch({
+          assistantStyle: { personalities: [{ ...ok, id: ANODEX_PERSONALITY_ID }] }
+        })
+      ).toThrow(/cannot be overridden/)
+    })
+
+    it('still allows shadowing the other built-ins, which is how a copy survives a retirement', () => {
+      expect(() =>
+        validatePatch({ assistantStyle: { personalities: [{ ...ok, id: 'builtin:skeptical' }] } })
+      ).not.toThrow()
+    })
+
+    it('accepts the identity fields, and caps the backstory well under the voice', () => {
+      expect(() =>
+        validatePatch({
+          assistantStyle: {
+            personalities: [
+              { ...ok, role: 'Reviews code.', story: 'A former reviewer.', tint: 'series-2' }
+            ]
+          }
+        })
+      ).not.toThrow()
+      expect(() =>
+        validatePatch({
+          assistantStyle: {
+            personalities: [{ ...ok, story: 'x'.repeat(MAX_PERSONALITY_STORY_CHARS + 1) }]
+          }
+        })
+      ).toThrow(/personality.story/)
+    })
+
+    /** A path, never image data: settings.json is read on every get(). */
+    it('refuses image data in place of a path', () => {
+      expect(() =>
+        validatePatch({
+          assistantStyle: { personalities: [{ ...ok, image: 'data:image/png;base64,AAAA' }] }
+        })
+      ).toThrow(/file path, not image data/)
     })
 
     it('rejects a blank name', () => {
