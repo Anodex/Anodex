@@ -15,6 +15,27 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
+### 2026-09-03: LlamaVisionService can still starve a very small window
+
+**Seen:** `LlamaService` at 4096 admitted a tool floor that did not fit, and
+every turn of a twelve-turn run returned zero characters. Fixed in `d94abfa`
+with a `hardLimitTokens` ceiling the floor may not cross.
+
+**Evidence:** `LlamaVisionService` sizes its surface by its own rule
+(`toolSurfaceTargetTokens` = `max(900, contextSize * 0.18)`, measuring schema
+JSON only) and never sees that ceiling. Which transport runs is decided by
+whether the model has an mmproj projector, not by the surface or the window.
+
+**Why it was left:** no model on this machine reproduces it — the vision-path
+models here are the 27Bs, which run at 8K and above where the ceiling does not
+bind. Changing a budget rule blind, on a transport with no failing measurement,
+is how the guards that broke things got added in the first place.
+
+**Where to start:** `scripts/chat-matrix.mjs` with a small mmproj model at 4096.
+If it reproduces, the fix is the same shape: a ceiling expressed against the
+input limit, not the context size. The two transports' budget rules were already
+logged as worth unifying; this is a second reason.
+
 ### 2026-09-03: memory capture cannot be measured against the live store
 
 **Seen:** a hard-rubric criterion asked whether chat called `remember_fact` for

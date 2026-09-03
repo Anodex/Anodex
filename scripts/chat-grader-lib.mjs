@@ -61,12 +61,36 @@ export function gradeLog({ logPath, flags = [], expectedTurns, buildCriteria }) 
   const score = results.filter((result) => result.passed).length
   const complete = turns.length >= expectedTurns
 
+  /**
+   * A run where the model never generated is not a low score, it is no data.
+   *
+   * This is not hypothetical. A 13B at 4096 returned zero characters on all
+   * twelve turns (`fixed-context-limit`: the fixed input did not fit before
+   * generation), and the rubric reported 2/12 — because several criteria are
+   * absence checks, and absence is exactly what an empty reply provides. A
+   * score of 2 reads like a bad model. It was a dead surface, and the number
+   * hid that rather than showing it.
+   *
+   * `turns.length` cannot catch this on its own: the harness logged all twelve
+   * turns, so the run looked complete.
+   *
+   * The threshold is "fewer than half the turns produced anything", not "none
+   * did". Written as `=== 0` first, it missed the very run it was written for:
+   * eleven of the twelve turns were empty and the twelfth emitted 54
+   * characters, so an exact-zero test read a dead surface as alive. Whether a
+   * run is worth scoring is a question about most of it, not all of it.
+   */
+  const generated = turns.filter((turn) => (turn?.reply ?? '').trim().length > 0).length
+  const mostlySilent = turns.length > 0 && generated * 2 < turns.length
+
   if (flags.includes('--json')) {
     console.log(
       JSON.stringify({
         log: logPath,
         turns: turns.length,
         complete,
+        generated,
+        mostlySilent,
         score,
         total: criteria.length,
         results
@@ -77,6 +101,15 @@ export function gradeLog({ logPath, flags = [], expectedTurns, buildCriteria }) 
     console.log(
       `turns completed: ${turns.length}/${expectedTurns}${complete ? '' : '  <-- INCOMPLETE RUN'}`
     )
+    if (mostlySilent) {
+      console.log(
+        `  !! THE MODEL PRODUCED NOTHING ON ${turns.length - generated} OF ${turns.length} TURNS - the score below is meaningless.`
+      )
+      console.log(
+        '     Check the log for stopReason (fixed-context-limit means the prompt and tool'
+      )
+      console.log('     schemas did not fit before generation started).')
+    }
     for (const result of results) {
       console.log(
         `  ${result.passed ? 'PASS' : 'FAIL'}  ${result.id}${result.passed ? '' : `  — ${result.why}`}`
@@ -85,7 +118,7 @@ export function gradeLog({ logPath, flags = [], expectedTurns, buildCriteria }) 
     console.log(`score: ${score}/${criteria.length}`)
   }
 
-  process.exit(score === criteria.length ? 0 : 1)
+  process.exit(!mostlySilent && score === criteria.length ? 0 : 1)
 }
 
 /**
