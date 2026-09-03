@@ -6,7 +6,7 @@ import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, TextControl, ToggleControl } from '../../controls'
 import { UsageActivitySection } from './UsageActivitySection'
-import { AssistantStyleSection } from './AssistantStyleSection'
+import { PersonalitySection } from './PersonalitySection'
 import pageStyles from '../../SettingsPage.module.css'
 import { avatarNeedsDownscale, downscaleAvatar } from './avatarImage'
 import styles from './ProfileSettings.module.css'
@@ -197,7 +197,7 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
         />
       </section>
 
-      <AssistantStyleSection
+      <PersonalitySection
         value={settings.assistantStyle}
         update={(patch) => void update({ assistantStyle: patch })}
       />

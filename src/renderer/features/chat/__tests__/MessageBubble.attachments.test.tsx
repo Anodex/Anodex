@@ -31,6 +31,12 @@ vi.mock('../../../lib/anodex', () => ({
   }
 }))
 
+let settings: unknown = { assistantStyle: { personalities: [], activePersonalityId: null } }
+
+vi.mock('../../../stores/settingsStore', () => ({
+  useSettingsStore: (select: (state: unknown) => unknown) => select({ settings })
+}))
+
 vi.mock('../../../stores/chatStore', () => ({
   useChatStore: (select: (state: unknown) => unknown) =>
     select({ editMessage: vi.fn(), regenerate: vi.fn(), messages: [] })
@@ -93,5 +99,37 @@ describe('attachments in a message', () => {
 
     await screen.findByAltText('robot.png')
     expect(container.textContent).toContain('Upload failed')
+  })
+})
+
+/**
+ * The payoff of the personality redesign: a named character answers under its
+ * own name. Until this, a personality changed how the assistant talked with no
+ * evidence anywhere that anything had happened.
+ */
+describe('the assistant byline', () => {
+  function assistantMessage(): ChatMessage {
+    return { id: 'a1', role: 'assistant', content: 'Done.', createdAt: Date.now() }
+  }
+
+  it('says Anodex when no character is selected', () => {
+    settings = { assistantStyle: { personalities: [], activePersonalityId: null } }
+    const container = renderMessage(assistantMessage())
+
+    expect(container.textContent).toContain('Anodex')
+  })
+
+  it('answers under the active personality name', () => {
+    settings = {
+      assistantStyle: {
+        personalities: [{ id: 'own-1', name: 'Rook', style: 'skeptical' }],
+        activePersonalityId: 'own-1'
+      }
+    }
+    const container = renderMessage(assistantMessage())
+
+    expect(container.textContent).toContain('Rook')
+    // Still Anodex underneath: a persona is never mistaken for another product.
+    expect(screen.getByTitle('Rook — Anodex')).toBeTruthy()
   })
 })

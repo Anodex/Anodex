@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ChatPersonality, PersonalityTint } from '@shared/chatPersonality'
 import { loadAttachmentImage } from '../../features/chat/loadAttachmentImage'
+import { personalityDisplayName, personalityInitials } from './personalityIdentity'
 import styles from './PersonalityAvatar.module.css'
 
 /**
@@ -20,19 +21,6 @@ const TINT_VAR: Record<PersonalityTint, string> = {
   'series-2': 'var(--series-2)',
   'series-3': 'var(--series-3)',
   'series-4': 'var(--series-4)'
-}
-
-/** Word characters only: "Rook (mine)" must read RM, not "R(". */
-export function personalityInitials(name: string): string {
-  const parts = (name.trim() || 'Untitled').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[1][0]).toUpperCase()
-}
-
-/** An unnamed personality still has to render somewhere, including in chat. */
-export function personalityDisplayName(personality: Pick<ChatPersonality, 'name'>): string {
-  return personality.name.trim() || 'Untitled'
 }
 
 export function PersonalityAvatar({
