@@ -27,126 +27,52 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
       two family prefixes are stripped. Nine of twelve probed shapes parsed
       before; twelve of twelve now.
 
-## UI, noted 2026-09-02
+## UI, noted and built 2026-09-02
 
-Three things from a settings walkthrough. The third is a defect and lives in
-`ANODEX_DEFERRED_BUGS.md` ("the sidebar model selector hides nine of the eleven
-cloud providers"); these two are look and structure.
+Four things from a settings walkthrough, plus one bug found while building
+them. All shipped the same day; the two defects are written up in
+`ANODEX_DEFERRED_BUGS.md`, and the personality design is kept in full in
+`ANODEX_PERSONALITY_SPEC.md`.
 
-- [x] **Assistant personalities: done, 2026-09-02.** Shipped as `PersonalitySection` +
-      `PersonalityPicker` + `PersonalityAvatar`, with the record, prompt seam,
-      byline and picture storage behind it. 8 UI tests plus the byline pair.
-      Original entry:
+- [x] **Assistant personalities are a character, not a form.** `2c05677`,
+      `2ab10d5`. One contact card for whoever is active -- portrait, name, role
+      line, and a preview of the chat byline -- with a custom listbox to choose
+      between them, so the screen does not grow as the list does. The record
+      gained a role line, a backstory, a picture and a tint; the seven built-ins
+      got real names (Anodex, Vale, Wren, Cass, Juno, Rook, Pip) with their
+      voice text carried over word for word. Backstory renders as its own prompt
+      section, and the editor prices the character in tokens because both fields
+      ride in every turn. Pictures are files under `userData`, never base64 in
+      `settings.json`. Saving plays the app's own first light, once. The chat
+      byline now shows the active name and face. 10 new tests.
 
-- [ ] ~~**give the assistant an identity, not a form.**~~
-      Full build spec: **`docs/ANODEX_PERSONALITY_SPEC.md`**. Reference
-      implementation: `docs/ui-samples/personality-redesign.html` (interactive;
-      the spec says to build to it and defers to it on any disagreement).
-      Approved 2026-09-02.
+      Two things the sample review caught that the first pass had wrong: a card
+              grid does not work (a card carrying only name and excerpt has nothing to
+              be a card about, and 57 of them is a wall), and there was no way to create
+              one from scratch -- duplicating a built-in was the only route in.
 
-      In one paragraph: a personality becomes a character, not a block of tone
-                                                                                                                          text. One large contact card shows the picture, name, role line and a live
-                                                                                                                          preview of the chat byline; a custom listbox picks between them so the
-                                                                                                                          screen does not grow with the list. The editor gains a **backstory** field
-                                                                                                                          beside the voice field, rendered as two prompt sections rather than one
-                                                                                                                          blob, with the cost stated in tokens because both ride in the system
-                                                                                                                          prompt every turn. Users upload their own picture, name it on the card,
-                                                                                                                          and saving plays the app's own "first light" once. Built-ins get real
-                                                                                                                          names -- Anodex, Vale, Wren, Cass, Juno, Rook, Pip -- each with a role
-                                                                                                                          line and a backstory.
+- [x] **Attached images are the picture, not a card in a bubble.** `14ea977`.
+      Attachments render outside the bubble, sized to their own aspect ratio,
+      with name/size/pin on hover and the pinned state always visible. An
+      attachment-only message draws no bubble. The checkerboard is gone: the
+      file that prompted this is truecolour RGB with no alpha, so every
+      checkerboard pixel was letterbox filler advertising transparency it did
+      not have.
 
-                                                                                                                          **Not presentation-only** (settings schema, file storage, prompt builder,
-                                                                                                                          chat renderer), and **blocked on** the prompt identity fix in
-                                                                                                                          `ANODEX_DEFERRED_BUGS.md` -- a byline saying `Vale` over a prompt saying
-                                                                                                                          "You are Anodex" makes the model contradict the UI. Both need the same one
-                                                                                                                          place that assembles who the assistant is.
+- [x] **AI & Models is Local | Cloud | Advanced.** `ffb76a2`. "Models" and
+      "Providers" named the implementation rather than the choice. Compatibility
+      removed as redundant, `HardwarePanel` rehomed to Local above the
+      recommendation strip it explains, `CompatibilitySummary` and its 121 lines
+      of CSS deleted rather than left orphaned.
 
-- [x] **Attached images: done, 2026-09-02.** Attachments render outside the
-      bubble, sized to the image, chrome on hover, no bubble for an
-      attachment-only message, checkerboard gone. Two tests that only ever saw
-      the loading state now assert the loaded one. Original entry:
+- [x] **The sidebar model menu offers every linked provider.** `1b118e3`. Was
+      two of eleven. Now driven off the new `shared/providerCatalog`.
 
-- [ ] ~~**should be the image, not a card inside a bubble.**~~
-      `MessageBubble.tsx` + `MessageAttachments.tsx` and its CSS module.
-      Compared against Claude's chat on the same attachment: there the picture
-      is its own object and the message text sits under it; in Anodex the
-      picture is nested inside the user bubble and wrapped in three layers of
-      chrome, so a 1.5MB illustration reads as a file record rather than as an
-      image someone shared.
-
-      What is actually stacked up, in order:
-                                                                                                                                                  - `MessageBubble.tsx:223` renders `<MessageAttachments>` **inside**
-                                                                                                                                                    `styles.bubble`, and `.user .bubble` carries the surface fill, border
-                                                                                                                                                    and 72% max-width. So the image inherits the bubble's box.
-                                                                                                                                                  - `MessageAttachments` wraps each image in `figure.imageCard` with its
-                                                                                                                                                    own border, then `.imageFrame` with a checkerboard canvas and
-                                                                                                                                                    `min-height: 150px`, then a `figcaption` bar holding the file name,
-                                                                                                                                                    the byte size and the Keep for follow-ups button.
-                                                                                                                                                  - `.images` is `width: min(560px, 100%)` inside a bubble already capped
-                                                                                                                                                    at 72%, so the picture is sized by two competing constraints and the
-                                                                                                                                                    frame letterboxes whatever is left.
-
-                                                                                                                                                  The change:
-                                                                                                                                                  - **Lift attachments out of the bubble** — render them as a sibling
-                                                                                                                                                    above it inside `.row`. `.user` is already `align-items: flex-end`, so
-                                                                                                                                                    they right-align without new layout.
-                                                                                                                                                  - **Drop the card border and the caption bar** in the normal case. The
-                                                                                                                                                    picture gets rounded corners and nothing else.
-                                                                                                                                                  - **Size to the image, not to a frame.** Remove `min-height`, keep a
-                                                                                                                                                    `max-height`, let width follow the aspect ratio. The letterboxing is
-                                                                                                                                                    what makes a tall image look padded into a slot.
-                                                                                                                                                  - **When the message has no text, render no bubble** — an image with a
-                                                                                                                                                    caption-less empty box under it is the other half of the same problem.
-
-                                                                                                                                                  **Do not lose what the chrome was carrying.** Three things live in that
-                                                                                                                                                  caption bar and each needs a home:
-                                                                                                                                                  - *Keep for follow-ups* is a real feature (vision-context pinning, see
-                                                                                                                                                    `SELECTIVE_VISION_CONTEXT.md`), not a label. Hover-reveal is fine for
-                                                                                                                                                    the *action* on desktop, but the pinned **state** must stay visible
-                                                                                                                                                    unprompted — a small corner marker on the image.
-                                                                                                                                                  - The unavailable / Retry / Locate file recovery path needs the frame it
-                                                                                                                                                    currently draws into. Keep the framed box for that state only.
-                                                                                                                                                  - File name and size are worth keeping on hover or in a title, not as a
-                                                                                                                                                    permanent bar competing with the picture.
-
-                                                                                                                                                  **The checkerboard goes — decided, not assumed.** It exists so a
-                                                                                                                                                  transparent PNG reads as transparent, so it was worth checking against
-                                                                                                                                                  a real case before removing. The attachment that prompted this is PNG
-                                                                                                                                                  `colortype 2`: truecolour RGB, no alpha channel, no `tRNS` chunk,
-                                                                                                                                                  1254×1254. It has no transparency at all, and every checkerboard pixel
-                                                                                                                                                  around it was letterbox filler — a 408px frame against a 360px-capped
-                                                                                                                                                  square image — advertising transparency the file did not have. Alpha
-                                                                                                                                                  images will composite onto the chat background instead. Recorded here
-                                                                                                                                                  so it is not rediscovered later as a regression.
-
-                                                                                                                                                  **Reviewed and approved 2026-09-02** against a side-by-side of the real
-                                                                                                                                                  attachment, both treatments built from the shipping CSS values:
-                                                                                                                                                  `docs/ui-samples/chat-images.html`. Build to that sample.
-
-- [x] **AI & Models tabs: done, 2026-09-02.** Local | Cloud | Advanced;
-      Compatibility removed, `HardwarePanel` rehomed above the recommendation
-      strip, `CompatibilitySummary` and its 121 lines of CSS deleted. Original
-      entry:
-
-- [ ] ~~**the sub-tabs use developer words and one tab is redundant.**~~
-      `pages/ai-models/AiModelsSettings.tsx`, `AI_MODEL_TABS` and the
-      `AiModelsTab` union (`'models' | 'compatibility' | 'providers' |
-'advanced'`). - Rename for what they _are_: **Local | Cloud | Advanced**. "Models" and
-      "Providers" describe the implementation, not the choice; a user picking
-      between a GGUF on disk and an API key is choosing local or cloud. Keep
-      them adjacent and first, in that order, so the pair reads as one switch. - **Remove the Compatibility tab.** It is three panels, two of which are
-      already elsewhere: `InstalledModelsList` is rendered identically on the
-      Models tab, and `CompatibilitySummary` re-scores the _active_ model,
-      which `EnginePanel` and `ReliabilityScore` already speak to. The part
-      worth keeping is `HardwarePanel` -- the "This computer" block, detected
-      RAM/VRAM, the fit label and the Re-detect button. - Rehome `HardwarePanel` rather than deleting it: it is what makes
-      `RecommendedModelStrip` ("Best local models for this computer")
-      legible, so it belongs on **Local**, directly above that strip. Decide
-      whether the fit-score half of `CompatibilitySummary` folds into it or is
-      dropped; do not leave the component orphaned and unrendered. - Check the seams before deleting: `setActiveTab('models')` is called from
-      `ProviderConnectionsPanel` via `onOpenModels`, and the `LoadRefusalCallout`
-      sits above the tabs deliberately because a refusal can come from either
-      Models or Advanced. Both stay true after the rename; the string does not.
+- [x] **Chat no longer claims to run locally on a cloud provider.** `1af6f74`.
+      Found from a DeepSeek screenshot; the identity is assembled per turn now.
+      This was the prerequisite for the personality byline -- a byline saying
+      Vale over a prompt saying "You are Anodex" would have had the model
+      contradict the UI.
 
 ## Next
 
