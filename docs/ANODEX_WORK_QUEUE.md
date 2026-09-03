@@ -47,9 +47,14 @@ them. All shipped the same day; the two defects are written up in
       byline now shows the active name and face. 10 new tests.
 
       Two things the sample review caught that the first pass had wrong: a card
-                          grid does not work (a card carrying only name and excerpt has nothing to
-                          be a card about, and 57 of them is a wall), and there was no way to create
-                          one from scratch -- duplicating a built-in was the only route in.
+          grid does not work (a card carrying only name and excerpt has nothing to be
+          a card about, and 57 of them is a wall), and there was no way to create one
+          from scratch -- duplicating a built-in was the only route in.
+
+          Anodex itself is the fixed reference point (`b44dee5`): the app's own icon,
+          nothing about it adjustable, and the settings boundary refuses a saved
+          entry claiming its id, so "switch to Anodex and try again" means the same
+          thing on every machine.
 
 - [x] **Attached images are the picture, not a card in a bubble.** `14ea977`.
       Attachments render outside the bubble, sized to their own aspect ratio,
