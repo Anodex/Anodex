@@ -3,6 +3,7 @@ import type { HardwareInfo } from '@shared/system.types'
 import type { ModelInfo } from '@shared/model.types'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import { contextSizeFor } from '@shared/modelRecommendation'
+import type { RecommendedModel } from '@shared/recommendedModels'
 import { RECOMMENDED_MODELS, recommendedModelFileName } from '@shared/recommendedModels'
 import {
   ctxSizeWarning,
@@ -387,5 +388,93 @@ describe('buildRecommendedSlots — custom catalog (live Hugging Face pool)', ()
     for (const slot of slots) {
       expect(slot.model.source).not.toBe('huggingface')
     }
+  })
+})
+
+/**
+ * Live Hugging Face results are the recommendation; the built-in catalog is the
+ * fallback for when they cannot be fetched.
+ *
+ * They used to compete, and the built-in list won twice over: `bestOverall`
+ * pinned whatever `recommendModel` chose, and that reads the hardcoded catalog
+ * alone. A machine that could comfortably run current models was being told to
+ * download a generation-old one.
+ */
+describe('buildRecommendedSlots - live results outrank the built-in catalog', () => {
+  const big = hardware({ ramBytes: 64 * GB, vramBytes: 24 * GB, gpu: 'Test GPU' })
+
+  function liveModel(overrides: Partial<RecommendedModel> = {}): RecommendedModel {
+    return {
+      id: 'hf:Qwen/Qwen3-32B-GGUF:q4.gguf',
+      name: 'Qwen3 32B',
+      family: 'qwen',
+      tier: '32b',
+      description: 'Community GGUF from Hugging Face.',
+      approxSize: '19.0 GB',
+      minRam: '32 GB',
+      minRamGb: 32,
+      idealRamGb: 48,
+      downloadUrl: 'https://example.invalid/q.gguf',
+      tags: ['coding', 'community'],
+      primaryUse: 'coding',
+      supportsTools: true,
+      source: 'huggingface',
+      ...overrides
+    }
+  }
+
+  it('shows only live models when any of them fit', () => {
+    const slots = buildRecommendedSlots(big, null, undefined, [...RECOMMENDED_MODELS, liveModel()])
+
+    expect(slots.length).toBeGreaterThan(0)
+    for (const slot of slots) {
+      expect(slot.model.source).toBe('huggingface')
+    }
+  })
+
+  /**
+   * The exact reported symptom: a hardware recommendation naming a built-in
+   * model must not pin the top card when current models are available.
+   */
+  it('does not let the hardware recommendation pin a built-in over a live model', () => {
+    const builtIn = RECOMMENDED_MODELS.find((model) => model.minRamGb <= 64)
+    if (!builtIn) throw new Error('expected a built-in model that fits')
+
+    const slots = buildRecommendedSlots(
+      big,
+      {
+        tier: builtIn.tier,
+        modelId: builtIn.id,
+        modelName: builtIn.name,
+        contextSize: 8192,
+        gpuLayers: 'auto',
+        rationale: 'test'
+      },
+      undefined,
+      [...RECOMMENDED_MODELS, liveModel()]
+    )
+
+    const overall = slots.find((slot) => slot.id === 'overall')
+    expect(overall?.model.id).not.toBe(builtIn.id)
+    expect(overall?.model.source).toBe('huggingface')
+  })
+
+  it('falls back to the built-in catalog when nothing live is available', () => {
+    const slots = buildRecommendedSlots(big, null, undefined, RECOMMENDED_MODELS)
+
+    expect(slots.length).toBeGreaterThan(0)
+    expect(slots.every((slot) => slot.model.source !== 'huggingface')).toBe(true)
+  })
+
+  /** A live model too large for the machine must not empty the strip. */
+  it('falls back when live results exist but none fit this computer', () => {
+    const small = hardware({ ramBytes: 8 * GB })
+    const slots = buildRecommendedSlots(small, null, undefined, [
+      ...RECOMMENDED_MODELS,
+      liveModel({ minRamGb: 128, idealRamGb: 128 })
+    ])
+
+    expect(slots.length).toBeGreaterThan(0)
+    expect(slots.every((slot) => slot.model.source !== 'huggingface')).toBe(true)
   })
 })

@@ -225,15 +225,33 @@ export function buildRecommendedSlots(
   // catalog RAM or explicit GPU requirement must never appear as a safe
   // automatic choice; if nothing fits, the strip explains that rather than
   // suggesting an oversized fallback.
-  const candidates = hardware
-    ? allCandidates.filter((model) =>
-        isModelHardwareCompatible(model, {
-          ramBytes: hardware.ramBytes,
-          vramBytes: hardware.vramBytes,
-          unified: hardware.unifiedMemory
-        })
-      )
-    : allCandidates
+  const eligible = (pool: RecommendedModel[]): RecommendedModel[] =>
+    hardware
+      ? pool.filter((model) =>
+          isModelHardwareCompatible(model, {
+            ramBytes: hardware.ramBytes,
+            vramBytes: hardware.vramBytes,
+            unified: hardware.unifiedMemory
+          })
+        )
+      : pool
+
+  /**
+   * Live Hugging Face results are the recommendation; the built-in list is the
+   * fallback for when they cannot be fetched.
+   *
+   * They used to compete, and the built-in list won twice over: `bestOverall`
+   * pinned whatever `recommendModel` chose, and that reads the hardcoded
+   * catalog alone, so a live model could never take the top card. Live entries
+   * also leave `qualityRank`/`speedRank` unset — honest, since nobody has
+   * measured them — which scores as neutral against a hand-ranked entry. The
+   * result was a machine that could comfortably run current models being told
+   * to download a generation-old one.
+   */
+  const live = eligible(allCandidates.filter((model) => model.source === 'huggingface'))
+  const builtIn = eligible(allCandidates.filter((model) => model.source !== 'huggingface'))
+  const usingLive = live.length > 0
+  const candidates = usingLive ? live : builtIn
   if (candidates.length === 0) return []
   const scored = candidates
     .map((model) => ({ model, score: scoreRecommendedModel(model, hardware) }))
@@ -280,9 +298,13 @@ export function buildRecommendedSlots(
     'Best Overall',
     'Best balance of quality, speed, and fit for this computer.',
     () => {
-      const preferred = recommendation
-        ? candidates.find((model) => model.id === recommendation.modelId)
-        : undefined
+      // The hardware recommender only knows the built-in catalog, so its pick
+      // is honoured only when that catalog is what is being shown. Against
+      // live results it would pin a stale model over every current one.
+      const preferred =
+        !usingLive && recommendation
+          ? candidates.find((model) => model.id === recommendation.modelId)
+          : undefined
       return preferred ? [preferred, ...byScore] : byScore
     }
   )
