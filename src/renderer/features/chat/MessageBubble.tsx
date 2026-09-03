@@ -169,6 +169,14 @@ export function MessageBubble({
   // work is the point. See `foldSettledTimeline`.
   const grouped = groupSegmentsForTimeline(segments)
   const timeline = message.streaming ? grouped : foldSettledTimeline(grouped)
+
+  /**
+   * A user message that is nothing but attachments has no bubble to draw.
+   * Sending a picture on its own used to render an empty bordered box beneath
+   * it. Assistant turns always keep theirs -- they carry activity, tool cards
+   * and errors even before any text arrives.
+   */
+  const showBubble = !isUser || message.content.trim().length > 0 || Boolean(message.error)
   const firstWorkBlockIndex = timeline.findIndex((block) => block.type === 'work')
   // The tail of a streaming message always carries an unobtrusive live status.
   // Tool names come from actual activity events; other labels describe only
@@ -210,93 +218,102 @@ export function MessageBubble({
         </div>
       )}
 
-      <div className={styles.bubble}>
-        {lightPhase === 'active' && (
-          <>
-            <span className={styles.firstLightFlare} aria-hidden="true">
-              <Icon name="sparkle" size={15} />
-            </span>
-            <span className={styles.firstLightBand} aria-hidden="true" />
-          </>
-        )}
-        {message.attachments && message.attachments.length > 0 && (
-          <MessageAttachments attachments={message.attachments} messageId={message.id} />
-        )}
-        {!isUser && message.memoryUsed && message.memoryUsed.length > 0 && (
-          <div className={styles.memoryUsed}>
-            <MemoryUsedCard entries={message.memoryUsed} />
-          </div>
-        )}
-        {!isUser && message.transcriptRecallUsed && message.transcriptRecallUsed.length > 0 && (
-          <div className={styles.memoryUsed}>
-            <TranscriptRecallCard results={message.transcriptRecallUsed} />
-          </div>
-        )}
-        {showInitialActivity ? (
-          <LiveActivityIndicator label={liveActivityLabel(message.toolCalls ?? [], false)} />
-        ) : (
-          <div className={styles.segments}>
-            {timeline.map((block, index) => {
-              if (block.type === 'text') {
+      {/* Outside the bubble on purpose. Nested inside it, an attached picture
+          inherited the bubble's fill, border and 72% cap and read as a file
+          record rather than an image someone shared. `.user` is already
+          `align-items: flex-end`, so it right-aligns on its own. */}
+      {message.attachments && message.attachments.length > 0 && (
+        <MessageAttachments attachments={message.attachments} messageId={message.id} />
+      )}
+
+      {/* An attachment sent with no text used to render an empty bordered box
+          under the picture. Nothing to say means no bubble. */}
+      {showBubble && (
+        <div className={styles.bubble}>
+          {lightPhase === 'active' && (
+            <>
+              <span className={styles.firstLightFlare} aria-hidden="true">
+                <Icon name="sparkle" size={15} />
+              </span>
+              <span className={styles.firstLightBand} aria-hidden="true" />
+            </>
+          )}
+          {!isUser && message.memoryUsed && message.memoryUsed.length > 0 && (
+            <div className={styles.memoryUsed}>
+              <MemoryUsedCard entries={message.memoryUsed} />
+            </div>
+          )}
+          {!isUser && message.transcriptRecallUsed && message.transcriptRecallUsed.length > 0 && (
+            <div className={styles.memoryUsed}>
+              <TranscriptRecallCard results={message.transcriptRecallUsed} />
+            </div>
+          )}
+          {showInitialActivity ? (
+            <LiveActivityIndicator label={liveActivityLabel(message.toolCalls ?? [], false)} />
+          ) : (
+            <div className={styles.segments}>
+              {timeline.map((block, index) => {
+                if (block.type === 'text') {
+                  return (
+                    <MessageContent
+                      key={`text-${index}`}
+                      content={block.text}
+                      sources={message.webSources}
+                    />
+                  )
+                }
+                const blockCalls = block.segments.flatMap((segment) =>
+                  segment.type === 'toolGroup' ? segment.calls : []
+                )
+                const blockComparison =
+                  visualComparison === undefined
+                    ? undefined
+                    : visualComparison &&
+                        blockCalls.some((call) => call.id === visualComparison.afterCallId)
+                      ? visualComparison
+                      : null
                 return (
-                  <MessageContent
-                    key={`text-${index}`}
-                    content={block.text}
-                    sources={message.webSources}
+                  <TurnRecap
+                    key={`work-${index}`}
+                    segments={block.segments}
+                    streaming={Boolean(message.streaming) && index === timeline.length - 1}
+                    startedAt={message.createdAt}
+                    finalDurationMs={message.stats?.durationMs}
+                    showTotalDuration={index === firstWorkBlockIndex}
+                    comparison={blockComparison}
                   />
                 )
-              }
-              const blockCalls = block.segments.flatMap((segment) =>
-                segment.type === 'toolGroup' ? segment.calls : []
-              )
-              const blockComparison =
-                visualComparison === undefined
-                  ? undefined
-                  : visualComparison &&
-                      blockCalls.some((call) => call.id === visualComparison.afterCallId)
-                    ? visualComparison
-                    : null
-              return (
-                <TurnRecap
-                  key={`work-${index}`}
-                  segments={block.segments}
-                  streaming={Boolean(message.streaming) && index === timeline.length - 1}
-                  startedAt={message.createdAt}
-                  finalDurationMs={message.stats?.durationMs}
-                  showTotalDuration={index === firstWorkBlockIndex}
-                  comparison={blockComparison}
-                />
-              )
-            })}
-          </div>
-        )}
-        {tailActivityLabel && (
-          <div className={styles.tailActivity}>
-            <LiveActivityIndicator label={tailActivityLabel} />
-          </div>
-        )}
-
-        {!isUser && (
-          <MessageSources
-            sources={message.webSources}
-            attempted={Boolean(message.webSearchAttempted)}
-            streaming={Boolean(message.streaming)}
-          />
-        )}
-
-        {message.error &&
-          (message.errorKind === 'bounded' ? (
-            <div className={styles.notice}>
-              <Icon name="info" size={14} />
-              <span>{message.error}</span>
+              })}
             </div>
-          ) : (
-            <div className={styles.error}>
-              <Icon name="alert" size={14} />
-              <span>{message.error}</span>
+          )}
+          {tailActivityLabel && (
+            <div className={styles.tailActivity}>
+              <LiveActivityIndicator label={tailActivityLabel} />
             </div>
-          ))}
-      </div>
+          )}
+
+          {!isUser && (
+            <MessageSources
+              sources={message.webSources}
+              attempted={Boolean(message.webSearchAttempted)}
+              streaming={Boolean(message.streaming)}
+            />
+          )}
+
+          {message.error &&
+            (message.errorKind === 'bounded' ? (
+              <div className={styles.notice}>
+                <Icon name="info" size={14} />
+                <span>{message.error}</span>
+              </div>
+            ) : (
+              <div className={styles.error}>
+                <Icon name="alert" size={14} />
+                <span>{message.error}</span>
+              </div>
+            ))}
+        </div>
+      )}
 
       {showFooter ? (
         <div className={styles.footer}>
