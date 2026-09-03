@@ -139,7 +139,29 @@ export function boundToolSurface(options: {
     }
   }
 
-  const floor = Math.min(minDirectTools, maxDirectTools, allNames.length)
+  /**
+   * The floor counts only the builder-loop tools this surface actually has.
+   *
+   * `minDirectTools` is a promise about the head of `DIRECT_TOOL_PRIORITY` —
+   * that a project run is never admitted `finish_goal`, `list_directory`,
+   * `read_file_range` and nothing else, able to read code and neither change nor
+   * test it. Every word of that is about the ten coding tools.
+   *
+   * Read as a bare count it fired on surfaces with none of them. A projectless
+   * chat is web, email, status and memory, and it was still handed a floor of
+   * ten, which forced ten arbitrary tools in without consulting the budget:
+   * 2,086-2,283 tokens of schemas at every window, two of the slots going to
+   * `write_plan` and `update_plan_step`, which the chat prompt forbids using.
+   * On a small window that is most of the room the conversation had.
+   *
+   * Counting the loop tools present keeps the guarantee exactly where it was
+   * argued for and lets the budget decide everywhere else.
+   */
+  const loopToolsPresent = allNames.filter((name) => {
+    const rank = DIRECT_TOOL_RANK.get(name)
+    return rank !== undefined && rank < minDirectTools
+  }).length
+  const floor = Math.min(loopToolsPresent, maxDirectTools, allNames.length)
   const gateway = createDeferredToolGateway(define, allNames)
   const selected: Record<string, ToolFunction> = { ...gateway.functions }
   const directToolNames: string[] = []
