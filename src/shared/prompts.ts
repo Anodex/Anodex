@@ -384,6 +384,27 @@ export function renderAssistantStyleSection(text: string): string {
 }
 
 /**
+ * Who the assistant is this turn, as its own section.
+ *
+ * Kept separate from `# Assistant style` on purpose: identity is context and
+ * voice is instruction, and a model treats them differently. Folded into one
+ * block, a backstory reads as more tone guidance and the character stops
+ * holding together.
+ *
+ * The name also has to reach the model, not just the UI. The chat byline shows
+ * the active personality's name, and a model still introducing itself as
+ * Anodex underneath that would contradict the interface the user is looking at.
+ */
+export function renderPersonaSection(name: string | null, story: string): string | null {
+  const trimmedStory = story.trim()
+  if (!name?.trim() && !trimmedStory) return null
+  const lines = ['# Who you are']
+  if (name?.trim()) lines.push(`The user is talking to you as ${name.trim()}. Answer to that name.`)
+  if (trimmedStory) lines.push(trimmedStory)
+  return lines.join('\n')
+}
+
+/**
  * Below this measured window, the compact core replaces the full prose one.
  *
  * A capacity threshold, not a product tier: the question it answers is "can
@@ -457,6 +478,12 @@ export interface SystemPromptParts {
   runtime?: PromptRuntime
   /** Durable voice/tone guidance from Settings → Assistant, if any. */
   assistantStyle?: string | null
+  /**
+   * The active personality's identity — its name, and its backstory if it has
+   * one. Rendered ahead of the style section by `renderPersonaSection`.
+   * Omitted for free-text guidance, which is not a character.
+   */
+  assistantPersona?: { name?: string | null; story?: string | null }
   /** Per-project instructions (Phase 5), if any. */
   projectRules?: string | null
   /** User-pinned skill instructions that should be active for this project. */
@@ -504,6 +531,10 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
   }
   if (parts.runtime) sections.push(renderRuntimeSection(parts.runtime))
   sections.push(renderEnvironmentSection(parts.now ?? new Date(), parts.timeZone))
+  const persona = parts.assistantPersona
+    ? renderPersonaSection(parts.assistantPersona.name ?? null, parts.assistantPersona.story ?? '')
+    : null
+  if (persona) sections.push(persona)
   if (parts.assistantStyle?.trim()) {
     sections.push(renderAssistantStyleSection(parts.assistantStyle.trim()))
   }

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
 import { AnodexLogo } from '../../components/AnodexLogo'
+import { PersonalityAvatar, personalityDisplayName } from '../../components/ui/PersonalityAvatar'
+import { findChatPersonality } from '@shared/chatPersonality'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
 import { savePendingSkillEditorDraft } from '../../lib/skillEditorDraftHandoff'
@@ -177,6 +180,14 @@ export function MessageBubble({
    * and errors even before any text arrives.
    */
   const showBubble = !isUser || message.content.trim().length > 0 || Boolean(message.error)
+
+  // The active personality, when one is selected. Free-text guidance is not a
+  // character and keeps the Anodex byline.
+  const persona = useSettingsStore((state) => {
+    const style = state.settings?.assistantStyle
+    return findChatPersonality(style?.personalities, style?.activePersonalityId)
+  })
+  const personaName = persona ? personalityDisplayName(persona) : 'Anodex'
   const firstWorkBlockIndex = timeline.findIndex((block) => block.type === 'work')
   // The tail of a streaming message always carries an unobtrusive live status.
   // Tool names come from actual activity events; other labels describe only
@@ -212,8 +223,20 @@ export function MessageBubble({
     <div className={`${styles.row} ${isUser ? styles.user : styles.assistant}`}>
       {!isUser && (
         <div className={styles.meta}>
-          <AnodexLogo variant="icon" size={16} className={styles.metaLogo} />
-          <span className={styles.author}>Anodex</span>
+          {/* A named personality answers under its own name and face. Until
+              this, a personality changed how the assistant talked with no
+              evidence anywhere that anything had happened. Anodex stays the
+              byline whenever no character is selected, and the tooltip keeps
+              saying Anodex either way so a persona is never mistaken for a
+              different product. */}
+          {persona ? (
+            <PersonalityAvatar personality={persona} size={16} className={styles.metaLogo} />
+          ) : (
+            <AnodexLogo variant="icon" size={16} className={styles.metaLogo} />
+          )}
+          <span className={styles.author} title={persona ? `${personaName} — Anodex` : 'Anodex'}>
+            {persona ? personaName : 'Anodex'}
+          </span>
           <span className={styles.time}>{formatClock(message.createdAt)}</span>
         </div>
       )}
