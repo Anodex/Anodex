@@ -1,15 +1,14 @@
-export type CloudProviderId =
-  | 'anthropic'
-  | 'openai'
-  | 'google'
-  | 'xai'
-  | 'deepseek'
-  | 'mistral'
-  | 'groq'
-  | 'openrouter'
-  | 'azure'
-  | 'kimi'
-  | 'qwen'
+/**
+ * Re-exported, not redeclared: this union used to be spelled out here as well
+ * as in the UI, and a hand-maintained second copy of "which providers exist"
+ * is how features end up knowing about fewer of them than are configurable.
+ * The canonical one is derived from `ProviderSettings` itself.
+ *
+ * Type-only, so nothing in the catalog's runtime data reaches preload.
+ */
+import type { CloudProviderId } from './providerCatalog'
+
+export type { CloudProviderId }
 
 /**
  * A cloud provider's live rate-limit window, read from the provider's own
