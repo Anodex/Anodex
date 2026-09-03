@@ -28,7 +28,11 @@ import { createLogger } from '../utils/logger'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
-import { minimumViableOutputTokens, resolveLocalOutputBudget } from './localOutputBudget'
+import {
+  minimumViableOutputTokens,
+  needsBoundedWriteHeadroom,
+  resolveLocalOutputBudget
+} from './localOutputBudget'
 import { FILE_WRITE_CHUNK_TARGET_CHARS } from '../tools/mutationTools'
 import { MAX_REASONING_OVERRUNS, reasoningOverrunGuidance } from './reasoningOverrun'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
@@ -454,7 +458,15 @@ export class LlamaVisionService {
       // clamping against a guess truncates replies for no benefit.
       measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
       const inputLimitTokens = Math.max(0, this.contextSize - RESERVED_TOKENS)
-      const minimumOutput = minimumViableOutputTokens(this.contextSize, toolFunctions != null)
+      // Scoped to whether this surface can actually make a bounded write, not
+      // to whether it has tools at all. The 1,280-token floor exists to finish
+      // one large write_file call; a chat surface holding web_search, fetch_url
+      // and anodex_status was still charged it, and at 4096 that 23-token
+      // overshoot cost it every reply. See needsBoundedWriteHeadroom.
+      const minimumOutput = minimumViableOutputTokens(
+        this.contextSize,
+        needsBoundedWriteHeadroom(Object.keys(toolFunctions ?? {}))
+      )
       const headroom = epochHeadroomTokens(this.contextSize, toolFunctions != null)
       // Nothing else bounds growth *within* a turn. History is compacted once,
       // upstream, before the first round; from there every call and every

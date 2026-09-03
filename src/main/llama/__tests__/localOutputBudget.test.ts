@@ -1,5 +1,46 @@
 import { describe, expect, it } from 'vitest'
-import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from '../localOutputBudget'
+import {
+  defaultThoughtTokenBudget,
+  minimumViableOutputTokens,
+  needsBoundedWriteHeadroom,
+  resolveLocalOutputBudget
+} from '../localOutputBudget'
+
+describe('bounded-write headroom', () => {
+  /**
+   * The 1,280-token floor is for finishing one bounded `write_file` call, so it
+   * should not be charged to a surface that cannot write.
+   *
+   * Measured on a 27B at 4096 after the builder-loop floor was scoped: chat held
+   * `web_search`, `fetch_url` and `anodex_status`, fixed input came to 2,327,
+   * and the gate wanted it under 3,584 - 1,280 = 2,304. It failed by 23 tokens
+   * and produced nothing on eleven of twelve turns — for headroom to finish a
+   * call it had no tool to make.
+   *
+   * Same shape as `minDirectTools` firing on a surface with no builder loop: a
+   * floor justified by one capability, charged where that capability is absent.
+   */
+  it('is not required by a surface with no write tools', () => {
+    expect(needsBoundedWriteHeadroom(['web_search', 'fetch_url', 'anodex_status'])).toBe(false)
+    expect(needsBoundedWriteHeadroom(['list_threads', 'search_email', 'read_email'])).toBe(false)
+    expect(needsBoundedWriteHeadroom([])).toBe(false)
+  })
+
+  it('is required as soon as one bounded write tool is present', () => {
+    expect(needsBoundedWriteHeadroom(['read_file', 'write_file'])).toBe(true)
+    expect(needsBoundedWriteHeadroom(['append_file'])).toBe(true)
+    expect(needsBoundedWriteHeadroom(['edit_file'])).toBe(true)
+    expect(needsBoundedWriteHeadroom(['replace_lines'])).toBe(true)
+  })
+
+  it('frees enough room at 4096 for a chat surface to reply at all', () => {
+    // The measured case: fixed 2,327 against a 3,584 input limit.
+    const chatFloor = minimumViableOutputTokens(4_096, false)
+    expect(3_584 - chatFloor).toBeGreaterThan(2_327)
+    // A writing surface keeps the full allowance it was given.
+    expect(minimumViableOutputTokens(8_192, true)).toBe(1_280)
+  })
+})
 
 describe('resolveLocalOutputBudget', () => {
   it('reserves a bounded fraction of measured headroom for a tool turn instead of a flat quarter of context', () => {
