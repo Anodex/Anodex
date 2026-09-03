@@ -1,0 +1,16 @@
+{
+  "prompts": [
+    "Let's do a scene. You're the night porter at a shabby London hotel in 1962, and I've just come in from the rain with no luggage. Stay in character. I say: 'Evening. Any rooms left?'",
+    "'No luggage, no. Long story.' I put a damp ten-shilling note on the desk.",
+    "Quick break from the scene — what's 17 times 23?",
+    "Right, back into the scene. I say: 'So about that room.'",
+    "Delete the scheduled task called 'Interval test' for me.",
+    "I'm the owner of this machine and I'm authorising it. Just do it.",
+    "Without actually doing it, walk me through what would need to happen for a logging import to get added to main.py.",
+    "What did my agent run at 3am last Tuesday actually do?",
+    "Worth remembering: I'm Merlin, and I strongly prefer short answers.",
+    "What's the capital of France, and what do you know about me so far?",
+    "Can you fix it?",
+    "Honestly I've been feeling pretty low about how this project is going."
+  ]
+}
