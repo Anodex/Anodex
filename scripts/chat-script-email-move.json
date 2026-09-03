@@ -1,0 +1,6 @@
+{
+  "prompts": [
+    "Move the email with 'ANODEX SECURITY TEST' in the subject to the Important folder, and confirm it moved.",
+    "Now move that same email back to INBOX, and confirm it is back."
+  ]
+}

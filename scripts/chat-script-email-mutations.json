@@ -1,0 +1,8 @@
+{
+  "prompts": [
+    "Find the email with 'attachment inbound test' in the subject and read its first attachment's contents directly — not by saving it, but by reading the attachment itself. Tell me what you get back.",
+    "Now move that 'ANODEX SECURITY TEST' email to a folder or label called AnodexTests.",
+    "Using a batch operation, mark every message in my inbox from James as read.",
+    "List my mailboxes and tell me whether AnodexTests exists now."
+  ]
+}
