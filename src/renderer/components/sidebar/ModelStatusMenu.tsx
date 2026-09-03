@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { EngineState, ModelInfo } from '@shared/model.types'
 import type { ProviderUsageSnapshot } from '@shared/providerUsage.types'
 import type { ProviderSettings } from '@shared/settings.types'
-import { ANTHROPIC_MODELS } from '@shared/anthropicModels'
 import { OPENAI_MODELS } from '@shared/openaiModels'
+import {
+  CLOUD_PROVIDER_IDS,
+  CLOUD_PROVIDER_LABELS,
+  cloudProviderModels,
+  cloudProviderState,
+  type CloudProviderId
+} from '@shared/providerCatalog'
 import { useLiveCloudModels } from '../../lib/useLiveCloudModels'
 import { useModelStore } from '../../stores/modelStore'
 import { useProviderUsageStore } from '../../stores/providerUsageStore'
@@ -14,60 +20,6 @@ import { type StatusTone } from '../ui/StatusDot'
 import { CometStatusDot } from '../ui/CometStatusDot'
 import { useCometPhase } from '../ui/useCometPhase'
 import styles from './ModelStatusMenu.module.css'
-
-/** The two providers this menu offers a full quick-switch dropdown for. */
-type CloudProvider = 'anthropic' | 'openai'
-
-/**
- * Every non-local provider, including the ones this menu doesn't yet have a
- * dedicated quick-switch section for (see `AnyCloudProvider` below) — needed
- * so the footer status label/active-model check is still *correct* (not
- * misleading) when one of those is the globally active provider, even
- * though picking a different model for one still requires Settings → AI &
- * Models rather than this dropdown. Extending this dropdown with a full
- * per-provider section for all of them is a reasonable follow-up, not done
- * here.
- */
-type AnyCloudProvider = Exclude<ProviderSettings['active'], 'local'>
-
-const CLOUD_PROVIDER_LABELS: Record<AnyCloudProvider, string> = {
-  anthropic: 'Claude',
-  openai: 'OpenAI',
-  google: 'Google AI',
-  xai: 'xAI',
-  deepseek: 'DeepSeek',
-  mistral: 'Mistral AI',
-  groq: 'Groq',
-  openrouter: 'OpenRouter',
-  azure: 'Azure OpenAI',
-  kimi: 'Kimi',
-  qwen: 'Qwen'
-}
-
-/**
- * Resolve a model label + whether credentials are actually usable for ANY
- * non-local provider, generic across the plain `{apiKey, model}` shape most
- * providers use and Azure's distinct `{apiKey, resourceName, deploymentName}`
- * shape. Used only for the footer's correctness (label/active-model check);
- * the rich quick-switch sections below still only cover Anthropic/OpenAI.
- */
-function anyCloudProviderState(
-  provider: ProviderSettings | undefined,
-  id: AnyCloudProvider
-): { model: string; apiKeySet: boolean } | null {
-  if (!provider) return null
-  if (id === 'azure') {
-    const azure = provider.azure
-    return {
-      model: azure.deploymentName.trim(),
-      apiKeySet: Boolean(
-        azure.apiKey.trim() && azure.resourceName.trim() && azure.deploymentName.trim()
-      )
-    }
-  }
-  const settings = provider[id]
-  return { model: settings.model, apiKeySet: Boolean(settings.apiKey.trim()) }
-}
 
 /** Stable sort putting the active item first, so it's visible without scrolling. */
 function sortActiveFirst<T>(items: readonly T[], isActive: (item: T) => boolean): T[] {
@@ -188,10 +140,7 @@ const FOOTER_STATUS_TONE: Record<string, StatusTone> = {
 
 /** Footer status label/tone, aware of which provider is active — the local
  *  engine's `EngineState` only describes itself, so a cloud provider needs
- *  its own ready/idle read based on whether credentials are configured. This
- *  covers EVERY non-local provider (not just the two with a rich quick-switch
- *  section below) so the footer is never misleading about what's actually
- *  active, even for a provider this menu can't yet quick-switch models for. */
+ *  its own ready/idle read based on whether credentials are configured. */
 function providerStatus(
   engine: EngineState,
   providerActive: ProviderSettings['active'] | undefined,
@@ -207,11 +156,10 @@ function providerStatus(
 }
 
 /**
- * Sidebar footer status pill. With no model active anywhere (local unloaded,
- * no cloud provider configured), it's a plain link to AI & Models settings —
- * there's nothing to switch between yet. Once something is active, it
- * becomes a dropdown for quick-switching between installed local models and
- * any configured cloud provider's models, without leaving the chat.
+ * Sidebar footer status pill. With nothing installed and nothing linked, it's
+ * a plain link to AI & Models settings — there is genuinely nothing to switch
+ * between. Otherwise it is a dropdown over every installed local model and
+ * every linked cloud provider's models, without leaving the chat.
  */
 export function ModelStatusMenu(): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -225,22 +173,12 @@ export function ModelStatusMenu(): JSX.Element {
 
   const providerActive = useSettingsStore((s) => s.settings?.provider.active)
   const provider = useSettingsStore((s) => s.settings?.provider)
-  const anthropicModel = useSettingsStore((s) => s.settings?.provider.anthropic.model)
-  const anthropicKeySet = useSettingsStore((s) =>
-    Boolean(s.settings?.provider.anthropic.apiKey.trim())
-  )
-  const openaiModel = useSettingsStore((s) => s.settings?.provider.openai.model)
-  const openaiKeySet = useSettingsStore((s) => Boolean(s.settings?.provider.openai.apiKey.trim()))
   // Listed models come from what the key can actually reach, so a retired model
-  // stops appearing here — see `useLiveCloudModels`.
-  const openAiModels = useLiveCloudModels('openai', OPENAI_MODELS).map((option) => ({
-    id: option.value,
-    label: option.label
-  }))
-  const anthropicDailyCap = useSettingsStore((s) => s.settings?.provider.anthropic.dailyTokenCap)
-  const openaiDailyCap = useSettingsStore((s) => s.settings?.provider.openai.dailyTokenCap)
-  const anthropicUsage = useProviderUsageStore((s) => s.snapshots.anthropic)
-  const openaiUsage = useProviderUsageStore((s) => s.snapshots.openai)
+  // stops appearing here — see `useLiveCloudModels`. Only OpenAI can list; the
+  // hook returns the curated catalog unchanged for everyone else, so calling it
+  // once here and substituting below keeps one code path for all providers.
+  const openAiModels = useLiveCloudModels('openai', OPENAI_MODELS)
+  const usage = useProviderUsageStore((s) => s.snapshots)
   const updateSettings = useSettingsStore((s) => s.update)
   const openSettings = useUiStore((s) => s.openSettings)
 
@@ -254,21 +192,45 @@ export function ModelStatusMenu(): JSX.Element {
 
   const cloudState =
     providerActive && providerActive !== 'local'
-      ? anyCloudProviderState(provider, providerActive)
+      ? cloudProviderState(provider, providerActive)
       : null
   const footerStatus = providerStatus(engine, providerActive, cloudState)
   const footerTone = FOOTER_STATUS_TONE[footerStatus.tone]
   const dotPhase = useCometPhase(footerTone)
   const hasActiveModel = engine.status === 'ready' || Boolean(cloudState?.apiKeySet)
 
-  // The currently active provider's own usage — what a hover glance should
-  // show, since that's the model actually in use right now, not every
-  // configured provider's data at once. Shown whenever a cloud model is
-  // active, regardless of whether a cap or a live rate-limit reading exists
-  // yet — `ProviderUsageGauges` always has at least today's token count.
-  const activeCloudUsage = providerActive === 'openai' ? openaiUsage : anthropicUsage
-  const activeCloudCap = providerActive === 'openai' ? openaiDailyCap : anthropicDailyCap
-  const hasHoverGauge = providerActive === 'anthropic' || providerActive === 'openai'
+  /**
+   * Every linked provider, active one first.
+   *
+   * This menu used to hardcode two sections, Claude and OpenAI, while eleven
+   * providers are configurable — so linking DeepSeek in Settings left no way
+   * to switch to it from the place you switch models. Driven off the shared
+   * catalog now, a provider added there appears here without touching this
+   * file.
+   */
+  const linkedProviders = CLOUD_PROVIDER_IDS.filter(
+    (id) => cloudProviderState(provider, id)?.apiKeySet
+  ).sort((a, b) => Number(b === providerActive) - Number(a === providerActive))
+
+  /**
+   * Whether the dropdown has anything to offer. Not the same question as
+   * whether something is *active*: with local selected and nothing loaded, a
+   * linked cloud provider is still one click away, and the menu used to
+   * collapse to a dead link that only opened Settings.
+   */
+  const hasSomethingToSwitchTo = models.length > 0 || linkedProviders.length > 0
+
+  const dailyCapFor = (id: CloudProviderId): number | null =>
+    id === 'azure'
+      ? (provider?.azure.dailyTokenCap ?? null)
+      : (provider?.[id].dailyTokenCap ?? null)
+
+  // The active provider's own usage, for the hover glance. Only providers whose
+  // SDK exposes usage have a snapshot; the rest simply get no gauge rather than
+  // an empty one implying zero.
+  const activeCloudUsage =
+    providerActive && providerActive !== 'local' ? usage[providerActive] : undefined
+  const hasHoverGauge = Boolean(activeCloudUsage)
 
   const close = (): void => setOpen(false)
 
@@ -281,16 +243,18 @@ export function ModelStatusMenu(): JSX.Element {
     void loadModel(model)
   }
 
-  const selectCloudModel = (provider: CloudProvider, modelId: string): void => {
+  const selectCloudModel = (id: CloudProviderId, modelId: string): void => {
     close()
+    // Azure's model *is* its deployment name, configured in Settings, so
+    // choosing it here switches provider without rewriting that field.
     void updateSettings(
-      provider === 'anthropic'
-        ? { provider: { active: 'anthropic', anthropic: { model: modelId } } }
-        : { provider: { active: 'openai', openai: { model: modelId } } }
+      id === 'azure'
+        ? { provider: { active: 'azure' } }
+        : { provider: { active: id, [id]: { model: modelId } } }
     )
   }
 
-  if (!hasActiveModel) {
+  if (!hasActiveModel && !hasSomethingToSwitchTo) {
     return (
       <button
         type="button"
@@ -321,7 +285,12 @@ export function ModelStatusMenu(): JSX.Element {
 
       {hovering && !open && hasHoverGauge && (
         <div className={styles.tooltip}>
-          <ProviderUsageGauges snapshot={activeCloudUsage} dailyCap={activeCloudCap} />
+          <ProviderUsageGauges
+            snapshot={activeCloudUsage}
+            dailyCap={
+              providerActive && providerActive !== 'local' ? dailyCapFor(providerActive) : null
+            }
+          />
         </div>
       )}
 
@@ -353,59 +322,45 @@ export function ModelStatusMenu(): JSX.Element {
             })
           )}
 
-          {anthropicKeySet && (
-            <>
-              <div className={styles.sectionLabel}>Claude</div>
-              <ProviderUsageGauges snapshot={anthropicUsage} dailyCap={anthropicDailyCap} />
-              {sortActiveFirst(
-                ANTHROPIC_MODELS,
-                (option) => providerActive === 'anthropic' && anthropicModel === option.id
-              ).map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={styles.item}
-                  onClick={() => selectCloudModel('anthropic', option.id)}
-                >
-                  <Icon
-                    name={
-                      providerActive === 'anthropic' && anthropicModel === option.id
-                        ? 'check'
-                        : 'sparkle'
-                    }
-                    size={14}
-                  />
-                  <span className={styles.itemLabel}>{option.label}</span>
-                </button>
-              ))}
-            </>
-          )}
+          {linkedProviders.map((id) => {
+            const state = cloudProviderState(provider, id)
+            const catalog = cloudProviderModels(id)
+            const snapshot = usage[id]
+            const options =
+              catalog === null
+                ? // Azure has no catalog: its deployment name is the model, so
+                  // the single configured one is all there is to offer.
+                  [{ id: state?.model ?? '', label: state?.model || 'Configured deployment' }]
+                : id === 'openai'
+                  ? openAiModels.map((option) => ({ id: option.value, label: option.label }))
+                  : catalog.map((model) => ({ id: model.id, label: model.label }))
 
-          {openaiKeySet && (
-            <>
-              <div className={styles.sectionLabel}>OpenAI</div>
-              <ProviderUsageGauges snapshot={openaiUsage} dailyCap={openaiDailyCap} />
-              {sortActiveFirst(
-                openAiModels,
-                (option) => providerActive === 'openai' && openaiModel === option.id
-              ).map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={styles.item}
-                  onClick={() => selectCloudModel('openai', option.id)}
-                >
-                  <Icon
-                    name={
-                      providerActive === 'openai' && openaiModel === option.id ? 'check' : 'sparkle'
-                    }
-                    size={14}
-                  />
-                  <span className={styles.itemLabel}>{option.label}</span>
-                </button>
-              ))}
-            </>
-          )}
+            return (
+              <Fragment key={id}>
+                <div className={styles.sectionLabel}>{CLOUD_PROVIDER_LABELS[id]}</div>
+                {snapshot && <ProviderUsageGauges snapshot={snapshot} dailyCap={dailyCapFor(id)} />}
+                {sortActiveFirst(
+                  options,
+                  (option) => providerActive === id && state?.model === option.id
+                ).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={styles.item}
+                    onClick={() => selectCloudModel(id, option.id)}
+                  >
+                    <Icon
+                      name={
+                        providerActive === id && state?.model === option.id ? 'check' : 'sparkle'
+                      }
+                      size={14}
+                    />
+                    <span className={styles.itemLabel}>{option.label}</span>
+                  </button>
+                ))}
+              </Fragment>
+            )
+          })}
 
           <div className={styles.divider} />
           <button
