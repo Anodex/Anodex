@@ -17,6 +17,7 @@ import { useCriticalThinkingStore } from '../../stores/criticalThinkingStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore } from '../../stores/uiStore'
+import { criticalThinkingAttention } from '../../lib/navigationBadges'
 import { CriticalThinkingReport } from './CriticalThinkingReport'
 import { CriticalThinkingProgress } from './CriticalThinkingProgress'
 import styles from './CriticalThinkingView.module.css'
@@ -199,6 +200,16 @@ export function CriticalThinkingView(): JSX.Element {
   const select = useCriticalThinkingStore((state) => state.select)
   const settings = useSettingsStore((state) => state.settings)
   const engine = useModelStore((state) => state.engine)
+  /**
+   * The seen marker as it was when this view opened.
+   *
+   * Opening Critical Thinking advances that marker straight away (it is what
+   * clears the sidebar badge), so reading it live would dim every finished run
+   * the instant you looked at the page — including the one you came here to
+   * read. Frozen on mount, the list shows what was new when you arrived.
+   */
+  const seenAtNow = useUiStore((state) => state.navigationSeenAt?.['critical-thinking'] ?? 0)
+  const seenAtOnOpen = useRef(seenAtNow).current
   const openSettings = useUiStore((state) => state.openSettings)
   const notify = useUiStore((state) => state.notify)
   const selected = useMemo(
@@ -369,20 +380,40 @@ export function CriticalThinkingView(): JSX.Element {
           <aside className={styles.history} aria-label="Research history">
             <p className={styles.historyTitle}>Recent research</p>
             <div className={styles.historyList}>
-              {runs.map((run) => (
-                <button
-                  key={run.id}
-                  type="button"
-                  className={`${styles.historyItem} ${selectedId === run.id ? styles.historyItemActive : ''}`}
-                  onClick={() => select(run.id)}
-                >
-                  <span className={styles.historyQuestion}>{run.question}</span>
-                  <span className={styles.historyMeta}>
-                    <StatusBadge status={run.status} hasReport={Boolean(run.report)} />
-                    <span>{formatRelativeTime(run.updatedAt)}</span>
-                  </span>
-                </button>
-              ))}
+              {runs.map((run) => {
+                const attention = criticalThinkingAttention(run, seenAtOnOpen)
+                return (
+                  <button
+                    key={run.id}
+                    type="button"
+                    className={[
+                      styles.historyItem,
+                      selectedId === run.id ? styles.historyItemActive : '',
+                      attention ? styles.historyItemAttention : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => select(run.id)}
+                  >
+                    <span className={styles.historyQuestion}>
+                      {attention && (
+                        <span
+                          className={`${styles.historyDot} ${attention === 'review' ? styles.historyDotReview : ''}`}
+                          aria-hidden="true"
+                        />
+                      )}
+                      {run.question}
+                    </span>
+                    <span className={styles.historyMeta}>
+                      <StatusBadge status={run.status} hasReport={Boolean(run.report)} />
+                      <span>{formatRelativeTime(run.updatedAt)}</span>
+                    </span>
+                    {attention === 'review' && (
+                      <span className={styles.srOnly}>Waiting for your review</span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </aside>
         )}

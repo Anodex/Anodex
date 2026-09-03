@@ -85,7 +85,10 @@
   gap: var(--space-2);
   width: 100%;
   padding: var(--space-3);
-  color: var(--text);
+  /* Dealt with by default. A run you have read, and that is not waiting on a
+     decision, recedes -- so what is still asking for you is what stands out,
+     rather than every row shouting equally. */
+  color: var(--text-muted);
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
@@ -100,6 +103,41 @@
 .historyItemActive {
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Still wants you: a finished run you have not seen yet, or a plan waiting for
+   approval. Same rule the sidebar badge counts, so the number and the bright
+   rows always refer to the same runs. */
+.historyItemAttention {
+  color: var(--text);
+}
+
+.historyItemAttention .historyQuestion {
+  font-weight: 600;
+}
+
+.historyDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+}
+
+/* A decision outranks unread, and reads as one: amber, not the "new" accent. */
+.historyDotReview {
+  background: var(--warn);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .historyQuestion {

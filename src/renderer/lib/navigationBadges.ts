@@ -25,7 +25,7 @@ interface AgentNotification {
   updatedAt: number
 }
 
-interface CriticalThinkingNotification {
+export interface CriticalThinkingNotification {
   status: CriticalThinkingStatus
   updatedAt: number
 }
@@ -47,6 +47,23 @@ const CRITICAL_THINKING_TERMINAL_STATUSES = new Set<CriticalThinkingStatus>([
 ])
 
 /**
+ * Why a Critical Thinking run is still asking for the user, or `null` if it is
+ * not. One definition, shared by the sidebar badge and the run list, so the
+ * number and the highlighting can never disagree about what it refers to.
+ *
+ * `review` outranks `new`: a plan waiting for approval is a decision, and it
+ * stays until the decision is made rather than until it has been looked at.
+ */
+export function criticalThinkingAttention(
+  run: CriticalThinkingNotification,
+  seenAt: number
+): 'review' | 'new' | null {
+  if (run.status === 'needs-review') return 'review'
+  if (CRITICAL_THINKING_TERMINAL_STATUSES.has(run.status) && run.updatedAt > seenAt) return 'new'
+  return null
+}
+
+/**
  * Count only unseen terminal results plus work that still requires a decision.
  * Needs-review items remain visible after opening their view because looking at
  * an approval request is not the same thing as resolving it.
@@ -66,10 +83,7 @@ export function navigationBadgeCounts(input: NavigationBadgeInput): NavigationBa
         (AGENT_TERMINAL_STATUSES.has(run.status) && run.updatedAt > input.seenAt.agent)
     ).length,
     criticalThinking: input.criticalThinkingRuns.filter(
-      (run) =>
-        run.status === 'needs-review' ||
-        (CRITICAL_THINKING_TERMINAL_STATUSES.has(run.status) &&
-          run.updatedAt > input.seenAt['critical-thinking'])
+      (run) => criticalThinkingAttention(run, input.seenAt['critical-thinking']) !== null
     ).length,
     email: emailUnreadCount
   }
