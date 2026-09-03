@@ -26,6 +26,37 @@ export function minimumViableOutputTokens(contextSize: number, hasTools: boolean
  */
 const MIN_TOOL_CALL_OUTPUT_TOKENS = 1_280
 
+/**
+ * The tools that can emit a payload large enough to need that floor.
+ *
+ * `MIN_TOOL_CALL_OUTPUT_TOKENS` is justified entirely by finishing one bounded
+ * write: a round issued with less cannot complete a large `write_file`, and a
+ * cut-off call is replayed as the same malformed request. None of that applies
+ * to a surface that cannot write.
+ */
+const BOUNDED_WRITE_TOOLS = new Set([
+  'write_file',
+  'append_file',
+  'edit_file',
+  'replace_lines',
+  'patch_file'
+])
+
+/**
+ * Whether a surface holds any tool that could need the bounded-write floor.
+ *
+ * Charging that floor to a surface without one is the same defect as forcing a
+ * builder-loop floor on a surface with no builder loop, and it was measured:
+ * a 27B at 4096 whose chat surface held `web_search`, `fetch_url` and
+ * `anodex_status` reached fixed input of 2,327 against a gate of
+ * 3,584 - 1,280 = 2,304. It missed by 23 tokens and produced nothing on eleven
+ * of twelve turns, reserving room to finish a call it had no tool to make.
+ */
+export function needsBoundedWriteHeadroom(toolNames: Iterable<string>): boolean {
+  for (const name of toolNames) if (BOUNDED_WRITE_TOOLS.has(name)) return true
+  return false
+}
+
 export interface LocalOutputBudgetInput {
   contextSize: number
   inputLimitTokens: number
