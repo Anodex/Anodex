@@ -43,10 +43,17 @@ export function RecommendedModelStrip({
   // leaves the static catalog as the only source, so this never blocks or
   // breaks the recommendation strip.
   const [liveModels, setLiveModels] = useState<RecommendedModel[]>([])
+  const [liveState, setLiveState] = useState<'loading' | 'live' | 'offline'>('loading')
   useEffect(() => {
     let cancelled = false
     void anodex.models.fetchTopModels().then((result) => {
-      if (!cancelled && result.ok) setLiveModels(result.value)
+      if (cancelled) return
+      if (result.ok && result.value.length > 0) {
+        setLiveModels(result.value)
+        setLiveState('live')
+      } else {
+        setLiveState('offline')
+      }
     })
     return () => {
       cancelled = true
@@ -71,8 +78,9 @@ export function RecommendedModelStrip({
           <p className={styles.sectionKicker}>Recommended</p>
           <h2 className={styles.sectionTitle}>Best local models for this computer</h2>
           <p className={styles.sectionDesc}>
-            Multiple choices stay visible so Anodex never looks locked to one model family. Kept
-            current automatically from Hugging Face alongside Anodex&apos;s own hand-tested picks.
+            {liveState === 'offline'
+              ? 'Could not reach Hugging Face, so these are Anodex’s built-in suggestions. They may be a generation behind — reopen this page once you are online for current picks.'
+              : 'Picked from what is currently popular on Hugging Face and fits this computer, so a new model generation shows up here without waiting for an Anodex update.'}
           </p>
         </div>
       </div>
