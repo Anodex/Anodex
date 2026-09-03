@@ -42,6 +42,15 @@ function renderSection(value: Partial<AssistantStyleSettings> = {}): {
   return { update }
 }
 
+function renderSectionWithContainer(): { container: HTMLElement } {
+  const settings: AssistantStyleSettings = {
+    globalStyle: '',
+    personalities: [],
+    activePersonalityId: ANODEX.id
+  }
+  return render(<PersonalitySection value={settings} update={vi.fn()} />)
+}
+
 function nameField(): HTMLInputElement {
   return screen.getByLabelText('Personality name')
 }
@@ -71,6 +80,46 @@ describe('the personality card', () => {
     renderSection({ activePersonalityId: ROOK.id })
 
     expect(screen.getByText(/tokens in every conversation/)).toBeTruthy()
+  })
+})
+
+/**
+ * Anodex is the fixed reference point: the personality you ask someone to
+ * switch to when diagnosing a problem. It only means something if it is the
+ * same on their machine as on yours, so nothing about it is adjustable and it
+ * wears the app's own mark rather than a monogram anyone could mistake for a
+ * user's picture.
+ */
+describe('the Anodex personality', () => {
+  it('wears the app icon rather than a monogram', () => {
+    const { container } = renderSectionWithContainer()
+
+    const icon = container.querySelector('img')
+    expect(icon).toBeTruthy()
+    expect(icon?.getAttribute('src')).toContain('app-icon')
+    expect(container.textContent).not.toContain('AN')
+  })
+
+  it('cannot have its picture, voice or backstory changed', () => {
+    renderSection()
+
+    expect(screen.getByText('Read only')).toBeTruthy()
+    expect(nameField().readOnly).toBe(true)
+    expect(screen.getByLabelText('Role')).toHaveProperty('readOnly', true)
+    expect(screen.getByRole('button', { name: 'Built in' })).toHaveProperty('disabled', true)
+    for (const box of screen.getAllByRole('textbox')) {
+      expect(box).toHaveProperty('readOnly', true)
+    }
+  })
+
+  /** A copy is a user personality, so it must not inherit the app's mark. */
+  it('does not pass its icon on to a copy', () => {
+    const { update } = renderSection()
+    fireEvent.click(screen.getByText('Duplicate to edit'))
+
+    const patch = update.mock.calls[0]?.[0] as AssistantStyleSettings
+    expect(patch.personalities[0].id).not.toBe(ANODEX.id)
+    expect(patch.personalities[0].image).toBeUndefined()
   })
 })
 

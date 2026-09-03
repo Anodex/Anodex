@@ -91,6 +91,23 @@ Voice strings carry over from today's built-ins unchanged. `Anodex` having no
 backstory is deliberate — it demonstrates the field is optional and gives the
 default an honest identity rather than a fictional one.
 
+**Anodex is the fixed reference point.** It wears the app's own icon rather
+than a monogram, and nothing about it is adjustable — not the picture, not the
+role line, not the voice, not the backstory. That is what makes "switch to
+Anodex and try again" worth saying when asking someone for diagnostics: it has
+to mean the same thing on their machine as on yours.
+
+Two things follow that are not obvious:
+
+- A saved entry sharing a built-in's id _shadows_ it (see
+  `allChatPersonalities`), which is how a user copy survives a built-in being
+  retired. The Anodex id is refused outright at the settings boundary — nothing
+  in the app writes it, but `settings:update` is reachable from the renderer
+  with an arbitrary payload.
+- The icon is keyed off the identity, not a stored path, so it cannot be
+  replaced and **a duplicate of Anodex does not inherit it**. A copy is a user
+  personality and gets a monogram like any other.
+
 Built-ins stay read-only. The card shows a violet **Read only** pill, the
 portrait is not clickable ("Built in" replaces "Click to change"), both
 textareas are `readonly`, and **Duplicate to edit** appears in the editor head.

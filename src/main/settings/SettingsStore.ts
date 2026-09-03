@@ -6,6 +6,7 @@ import type { AppSettings, DeepPartial, SettingsPatch } from '@shared/settings.t
 import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
 import {
+  ANODEX_PERSONALITY_ID,
   MAX_PERSONALITY_ROLE_CHARS,
   MAX_PERSONALITY_STORY_CHARS,
   MAX_SAVED_PERSONALITIES,
@@ -962,6 +963,16 @@ function validateChatPersonalities(value: unknown): void {
     // Ids are what selection, edit and delete all address, so a duplicate makes
     // every one of those operations ambiguous rather than merely untidy.
     if (seen.has(id)) throw new Error(`duplicate personality id: ${id}`)
+    // A saved entry sharing a built-in's id *shadows* it (see
+    // `allChatPersonalities`), which is how a user copy survives a built-in
+    // being retired. Anodex is the exception: it is the personality you ask
+    // someone to switch to when diagnosing a problem, and that is worth
+    // nothing unless it means the same thing on their machine as on yours.
+    // Nothing in the app writes this id, but `settings:update` is reachable
+    // from the renderer with an arbitrary payload.
+    if (id === ANODEX_PERSONALITY_ID) {
+      throw new Error('the Anodex personality cannot be overridden')
+    }
     seen.add(id)
     if (typeof name !== 'string' || !normalizePersonalityName(name)) {
       throw new Error('personality.name must be a non-empty string')

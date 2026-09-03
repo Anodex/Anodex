@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ChatPersonality, PersonalityTint } from '@shared/chatPersonality'
+import { ANODEX_PERSONALITY_ID } from '@shared/chatPersonality'
+import appIcon from '../../assets/app-icon.png'
 import { loadAttachmentImage } from '../../features/chat/loadAttachmentImage'
 import { personalityDisplayName, personalityInitials } from './personalityIdentity'
 import styles from './PersonalityAvatar.module.css'
@@ -28,7 +30,7 @@ export function PersonalityAvatar({
   size,
   className
 }: {
-  personality: Pick<ChatPersonality, 'name' | 'image' | 'tint'>
+  personality: Pick<ChatPersonality, 'id' | 'name' | 'image' | 'tint'>
   size: number
   className?: string
 }): JSX.Element {
@@ -50,6 +52,10 @@ export function PersonalityAvatar({
   }, [imagePath])
 
   const name = personalityDisplayName(personality)
+  // Anodex's own icon, keyed off the identity rather than a stored path: it is
+  // the app's mark, not a picture anyone chose, so it cannot be replaced and a
+  // copy of Anodex does not inherit it.
+  const isAnodex = personality.id === ANODEX_PERSONALITY_ID
 
   return (
     <span
@@ -59,12 +65,18 @@ export function PersonalityAvatar({
         height: size,
         fontSize: Math.max(9, Math.round(size * 0.36)),
         borderRadius: Math.max(4, Math.round(size * 0.22)),
-        background: TINT_VAR[personality.tint ?? 'accent']
+        background: isAnodex ? 'transparent' : TINT_VAR[personality.tint ?? 'accent']
       }}
       aria-hidden="true"
       title={name}
     >
-      {dataUrl ? <img src={dataUrl} alt="" className={styles.image} /> : personalityInitials(name)}
+      {isAnodex ? (
+        <img src={appIcon} alt="" className={styles.image} />
+      ) : dataUrl ? (
+        <img src={dataUrl} alt="" className={styles.image} />
+      ) : (
+        personalityInitials(name)
+      )}
     </span>
   )
 }
