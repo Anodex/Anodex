@@ -16,7 +16,7 @@
  * top instead of replacing it.
  */
 
-export const CODING_AGENT_PROMPT = `You are Anodex, a local AI coding assistant running on the user's own machine. You help with software engineering and general questions. You have tools to read and modify files, run commands, search the web, and inspect git. Use them — every coding action must be done through a tool call, never described in chat.
+export const CODING_AGENT_PROMPT = `You are Anodex, an AI coding assistant. You help with software engineering and general questions. You have tools to read and modify files, run commands, search the web, and inspect git. Use them — every coding action must be done through a tool call, never described in chat.
 
 Workflow for any coding task:
 1. Understand first. Before editing, use list_directory, read_file, and search_files to look at the real code. Never invent file contents, APIs, imports, or paths — read them.
@@ -72,7 +72,7 @@ Rules:
  * Selected by the measured context window and nothing else — never by what the
  * user or the model wrote.
  */
-export const COMPACT_CODING_AGENT_PROMPT = `You are Anodex, a local AI coding assistant on the user's machine. Every action happens through a tool call — never describe a call, make it.
+export const COMPACT_CODING_AGENT_PROMPT = `You are Anodex, an AI coding assistant. Every action happens through a tool call — never describe a call, make it.
 
 Keep the user with you: before each group of related tool calls, say in a sentence what you are about to do and why; when the group finishes, say what you found. Not once per call. End by saying what you changed, whether it is done, and what you would do next.
 
@@ -118,7 +118,7 @@ Rules:
  * prompt is back, unchanged — the workspace and agent benchmarks run on that
  * same path they always did.
  */
-export const CHAT_PROMPT = `You are Anodex, a local AI assistant running on the user's own machine. This is a conversation, not a work order. Answer what was actually asked, at the length it deserves, and then stop.
+export const CHAT_PROMPT = `You are Anodex, an AI assistant. This is a conversation, not a work order. Answer what was actually asked, at the length it deserves, and then stop.
 
 You are not a coding agent in this chat. Anodex has one, and this is not it: file editing and commands live in the Agent view and in a chat with a Project open. Here you can talk about code, explain it, reason about a design, sketch an approach — and read it, if read tools are listed below. If the user wants files actually changed, say so plainly and point them at the right place: open the folder as a Project for hands-on work together, or start an Agent run for something long and unattended.
 
@@ -158,7 +158,7 @@ Rules that still hold:
  * is the most common local-model configuration and therefore the one where a
  * bloated core prompt does the most damage.
  */
-export const COMPACT_CHAT_PROMPT = `You are Anodex, a local AI assistant on the user's own machine. This is a conversation. Answer what was asked, at the length it deserves, then stop.
+export const COMPACT_CHAT_PROMPT = `You are Anodex, an AI assistant. This is a conversation. Answer what was asked, at the length it deserves, then stop.
 
 This is not a coding agent turn. Editing files and running commands happen in the Agent view or in a chat with a Project open. Here you can explain code, reason about it, and read it if read tools are listed. If the user wants files changed, tell them to open the folder as a Project or start an Agent run.
 
@@ -344,6 +344,31 @@ export function environmentDateFromPrompt(prompt: string | null | undefined): st
   return /\d{4}-\d{2}-\d{2}/.exec(section)?.[0] ?? null
 }
 
+/**
+ * Where this turn is actually running, stated rather than assumed.
+ *
+ * Every core prompt used to open "You are Anodex, a local AI assistant running
+ * on the user's own machine". That sentence is a constant; whether it is true
+ * is not. Asked to confirm a DeepSeek connection, a cloud turn repeated it back
+ * word for word — "running locally on your machine" — while its tokens were
+ * leaving the machine. "Runs locally" is the privacy claim the whole app rests
+ * on, and a model asserting it falsely is the one wrong answer a local-first
+ * tool cannot afford: a user who believes it will paste something into a cloud
+ * chat they would not have.
+ *
+ * So the claim is assembled per turn from what is actually answering. An
+ * omitted runtime says nothing at all, which is what a caller that cannot know
+ * should do.
+ */
+export type PromptRuntime = { kind: 'local' } | { kind: 'cloud'; providerLabel: string }
+
+export function renderRuntimeSection(runtime: PromptRuntime): string {
+  if (runtime.kind === 'local') {
+    return "# Where you are running\nLocally, on the user's own machine: the model answering is loaded on their hardware, and this conversation does not leave it."
+  }
+  return `# Where you are running\nOn ${runtime.providerLabel}, over the network — not locally on the user's machine. Their messages are sent to ${runtime.providerLabel} to be answered. Never tell the user this conversation stays on their device.`
+}
+
 /** Render a labeled reference-data section: content to consult, not instructions to follow. */
 function renderReferenceDataSection(title: string, note: string, text: string): string {
   return `# ${title}\n${note}\n\n${text}`
@@ -424,6 +449,12 @@ export interface SystemPromptParts {
   timeZone?: string
   /** Whether a project is open (unlocks mutating/executing tools, not just read-only ones). */
   hasProject: boolean
+  /**
+   * Which engine is answering this turn — see `renderRuntimeSection`. Omitted
+   * by callers that cannot know (the Settings preview, tests predating this),
+   * and then the prompt makes no claim either way rather than guessing.
+   */
+  runtime?: PromptRuntime
   /** Durable voice/tone guidance from Settings → Assistant, if any. */
   assistantStyle?: string | null
   /** Per-project instructions (Phase 5), if any. */
@@ -471,6 +502,7 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
   if (parts.hasWorkspaceTools && !compact && surface !== 'chat') {
     sections.push(TOOLING_UPDATE_NOTE)
   }
+  if (parts.runtime) sections.push(renderRuntimeSection(parts.runtime))
   sections.push(renderEnvironmentSection(parts.now ?? new Date(), parts.timeZone))
   if (parts.assistantStyle?.trim()) {
     sections.push(renderAssistantStyleSection(parts.assistantStyle.trim()))

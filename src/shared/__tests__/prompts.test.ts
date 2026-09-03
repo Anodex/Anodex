@@ -416,3 +416,51 @@ describe('a turn ends in a tool call, not an announcement', () => {
     expect(CODING_AGENT_PROMPT.toLowerCase()).not.toContain('nothing to load')
   })
 })
+
+describe('composeSystemPrompt: where the turn is running', () => {
+  const base = { hasWorkspaceTools: false, hasProject: false } as const
+
+  // Regression for the reported failure: asked to confirm a DeepSeek
+  // connection, a cloud turn replied "This is the Anodex assistant running
+  // locally on your machine". It was quoting its own system prompt, which
+  // opened with that sentence as a constant regardless of who was answering.
+  it('never claims to be local when a cloud provider is answering', () => {
+    const prompt = composeSystemPrompt({
+      ...base,
+      surface: 'chat',
+      runtime: { kind: 'cloud', providerLabel: 'DeepSeek' }
+    })
+
+    expect(prompt).toContain('On DeepSeek, over the network')
+    expect(prompt).not.toMatch(/running (locally|on the user's own machine)/i)
+    expect(prompt).not.toMatch(/local AI (coding )?assistant/i)
+  })
+
+  it('states the local case plainly when the built-in engine is answering', () => {
+    const prompt = composeSystemPrompt({ ...base, surface: 'chat', runtime: { kind: 'local' } })
+
+    expect(prompt).toContain("Locally, on the user's own machine")
+  })
+
+  // A caller that cannot know which engine will answer -- the Settings preview
+  // -- must produce a prompt that makes no claim, rather than defaulting to
+  // the one that was wrong before.
+  it('makes no claim either way when the runtime is unknown', () => {
+    const prompt = composeSystemPrompt({ ...base, surface: 'chat' })
+
+    expect(prompt).not.toContain('# Where you are running')
+    expect(prompt).not.toMatch(/locally/i)
+  })
+
+  it('carries the runtime into agent turns and small-window prompts too', () => {
+    const prompt = composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      contextWindowTokens: 8_192,
+      runtime: { kind: 'cloud', providerLabel: 'Claude' }
+    })
+
+    expect(prompt).toContain(COMPACT_CODING_AGENT_PROMPT)
+    expect(prompt).toContain('On Claude, over the network')
+  })
+})
