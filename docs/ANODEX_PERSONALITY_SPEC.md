@@ -193,6 +193,28 @@ rather than greying out silently. Once named: `Unsaved changes to <name>`.
 
 ---
 
+## 4.4 Nothing is stored until Save
+
+The editor holds the personality being edited in local state and writes to
+settings **only** when Save is pressed. The first build did not: every keystroke
+persisted, so a half-finished personality was already saved, already selected,
+and already changing how the assistant talked. Naming one and closing Settings
+left it behind, live.
+
+- A new personality exists only as a draft. It does not appear in the picker, it
+  is not stored, and **it does not become the active personality until Save** --
+  which is the whole point of having a Save button.
+- Editing an existing one is the same: changes are held until Save, and Discard
+  reverts to what is stored.
+- Saving an edit must not restate `activePersonalityId`; only creating one sets
+  it.
+- Selecting a different personality from the picker is a _selection_, not an
+  edit, so it still commits immediately and drops any open draft.
+- A picture imported into a draft that is then discarded is deleted from the
+  store, so cancelling leaves no orphan file.
+- While a draft is open the in-chat strip says "in chat, once saved" -- it must
+  not imply a draft is already answering.
+
 ## 5. Behaviours and guards
 
 Each of these exists because the sample review found it missing or broken:

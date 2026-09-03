@@ -66,7 +66,16 @@ export function PersonalitySection({
 }): JSX.Element {
   const [showPreview, setShowPreview] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [dirty, setDirty] = useState(false)
+  /**
+   * The personality being edited, held here and nowhere else until Save.
+   *
+   * Edits used to write straight to settings on every keystroke, which made
+   * "Unsaved" a lie: a half-finished personality was already stored, already
+   * selected, and already changing how the assistant talked. Save is now the
+   * only thing that commits, and `isNew` says whether committing means
+   * appending or replacing.
+   */
+  const [draft, setDraft] = useState<{ personality: ChatPersonality; isNew: boolean } | null>(null)
   const [justSaved, setJustSaved] = useState(false)
   const [celebrating, setCelebrating] = useState(false)
   const [imageError, setImageError] = useState('')
@@ -75,8 +84,13 @@ export function PersonalitySection({
 
   const saved = value.personalities ?? []
   const activeId = value.activePersonalityId ?? BUILT_IN_CHAT_PERSONALITIES[0].id
-  const active = findChatPersonality(saved, activeId) ?? BUILT_IN_CHAT_PERSONALITIES[0]
-  const readOnly = isBuiltInPersonalityId(active.id)
+  const stored = findChatPersonality(saved, activeId) ?? BUILT_IN_CHAT_PERSONALITIES[0]
+  // The card shows the draft while one is open, so typing is visible without
+  // any of it being live yet.
+  const active = draft?.personality ?? stored
+  const dirty = draft !== null
+  // A draft is always the user's own, whatever it was copied from.
+  const readOnly = !draft && isBuiltInPersonalityId(active.id)
   const atLimit = saved.length >= MAX_SAVED_PERSONALITIES
   const named = Boolean(active.name.trim())
 
@@ -90,79 +104,89 @@ export function PersonalitySection({
     return () => clearTimeout(timer)
   }, [justSaved])
 
-  /** Write a field on the active personality. Built-ins have nowhere to write to. */
+  /** Edit the open draft, opening one from the stored personality if needed. */
   function patchActive(patch: Partial<ChatPersonality>): void {
     if (readOnly) return
-    update({
-      personalities: saved.map((item) => (item.id === active.id ? { ...item, ...patch } : item))
-    })
-    setDirty(true)
+    setDraft((current) =>
+      current
+        ? { ...current, personality: { ...current.personality, ...patch } }
+        : { personality: { ...stored, ...patch }, isNew: false }
+    )
   }
 
+  /**
+   * Switching which personality is active is a selection, not an edit, so it
+   * commits immediately. Any open draft is dropped — nothing was promised.
+   */
   function select(id: string): void {
-    setDirty(false)
+    dropDraft()
     setShowPreview(false)
     setImageError('')
     update({ activePersonalityId: id })
   }
 
+  /** Forget the draft, cleaning up a picture it imported but never saved. */
+  function dropDraft(): void {
+    const image = draft?.personality.image
+    if (image && image !== stored.image) void anodex.settings.forgetPersonalityImage(image)
+    setDraft(null)
+  }
+
   /**
-   * Start one from nothing. It lands unnamed and dirty with the cursor in the
-   * name field, rather than demanding a name up front for something not
-   * written yet — naming happens on the card like every other edit.
+   * Start one from nothing. It exists only as a draft: nothing is stored and
+   * nothing is selected until Save, so closing Settings mid-edit leaves no
+   * half-made personality behind and does not change how the assistant talks.
    */
   function create(): void {
     if (atLimit) return
-    const made: ChatPersonality = {
-      id: crypto.randomUUID(),
-      name: '',
-      role: '',
-      story: '',
-      style: '',
-      tint: PERSONALITY_TINTS[saved.length % PERSONALITY_TINTS.length]
-    }
-    update({ personalities: [...saved, made], activePersonalityId: made.id })
-    setDirty(true)
+    setDraft({
+      personality: {
+        id: crypto.randomUUID(),
+        name: '',
+        role: '',
+        story: '',
+        style: '',
+        tint: PERSONALITY_TINTS[saved.length % PERSONALITY_TINTS.length]
+      },
+      isNew: true
+    })
     setImageError('')
     requestAnimationFrame(() => nameRef.current?.focus())
   }
 
   function duplicate(): void {
     if (atLimit) return
-    const copy: ChatPersonality = {
-      ...active,
-      id: crypto.randomUUID(),
-      name: `${active.name} (mine)`
-    }
-    update({ personalities: [...saved, copy], activePersonalityId: copy.id })
-    setDirty(true)
+    setDraft({
+      personality: { ...active, id: crypto.randomUUID(), name: `${active.name} (mine)` },
+      isNew: true
+    })
     requestAnimationFrame(() => {
       nameRef.current?.focus()
       nameRef.current?.select()
     })
   }
 
+  /**
+   * Delete removes a stored personality. On an unsaved draft there is nothing
+   * to delete, so it simply throws the draft away.
+   */
   function remove(): void {
     if (readOnly) return
-    if (active.image) void anodex.settings.forgetPersonalityImage(active.image)
-    update({
-      personalities: saved.filter((item) => item.id !== active.id),
-      activePersonalityId: BUILT_IN_CHAT_PERSONALITIES[0].id
-    })
-    setDirty(false)
-  }
-
-  /**
-   * Discarding something that was never named discards the whole personality.
-   * Otherwise an unnamed orphan is left in the list with no way to tell what
-   * it was for.
-   */
-  function discard(): void {
-    if (!readOnly && !named) {
-      remove()
+    if (draft?.isNew) {
+      dropDraft()
       return
     }
-    setDirty(false)
+    if (stored.image) void anodex.settings.forgetPersonalityImage(stored.image)
+    setDraft(null)
+    update({
+      personalities: saved.filter((item) => item.id !== stored.id),
+      activePersonalityId: BUILT_IN_CHAT_PERSONALITIES[0].id
+    })
+  }
+
+  function discard(): void {
+    dropDraft()
+    setImageError('')
   }
 
   async function pickImage(): Promise<void> {
@@ -177,16 +201,26 @@ export function PersonalitySection({
   }
 
   /**
+   * Commit the draft. A new personality is appended and becomes the active one
+   * here and only here — that is what "not selected until saved" means.
+   *
    * The save moment: one shot, ~820ms, borrowed from the app's own first light
    * rather than inventing a second motion vocabulary. It fires only here —
    * bringing a character to life is a rare, deliberate act — and never loops.
-   *
-   * The confirmation does not live in the motion. The Saved badge carries it,
+   * The confirmation does not live in the motion; the Saved badge carries it,
    * so reduced motion loses nothing.
    */
   function save(): void {
-    if (!named) return
-    setDirty(false)
+    if (!draft || !named) return
+    const { personality, isNew } = draft
+    update(
+      isNew
+        ? { personalities: [...saved, personality], activePersonalityId: personality.id }
+        : {
+            personalities: saved.map((item) => (item.id === personality.id ? personality : item))
+          }
+    )
+    setDraft(null)
     setJustSaved(true)
     setCelebrating(true)
     setTimeout(() => setCelebrating(false), 900)
@@ -280,9 +314,13 @@ export function PersonalitySection({
             <div className={styles.proofBody}>
               <div className={styles.proofHead}>
                 <span className={styles.proofName}>{personalityDisplayName(active)}</span>
-                <span className={styles.proofSub}>in chat</span>
+                <span className={styles.proofSub}>{dirty ? 'in chat, once saved' : 'in chat'}</span>
               </div>
-              <p className={styles.proofLine}>Replies now arrive under this name and face.</p>
+              <p className={styles.proofLine}>
+                {dirty
+                  ? 'Replies will arrive under this name and face after you save.'
+                  : 'Replies now arrive under this name and face.'}
+              </p>
             </div>
           </div>
         </div>
@@ -401,7 +439,12 @@ export function PersonalitySection({
               {copied ? 'Copied' : 'Copy'}
             </Button>
             <span className={styles.toolSep} />
-            <Button variant="ghost" size="sm" disabled={readOnly} onClick={remove}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={readOnly || draft?.isNew === true}
+              onClick={remove}
+            >
               Delete
             </Button>
           </div>
@@ -410,9 +453,11 @@ export function PersonalitySection({
         {dirty && !readOnly && (
           <div className={styles.saveBar}>
             <span className={styles.saveNote}>
-              {named
-                ? `Unsaved changes to ${active.name.trim()}`
-                : 'Give it a name on the card to save it'}
+              {!named
+                ? 'Give it a name on the card to save it'
+                : draft?.isNew
+                  ? `${active.name.trim()} is not saved yet`
+                  : `Unsaved changes to ${active.name.trim()}`}
             </span>
             <Button variant="primary" size="sm" disabled={!named} onClick={save}>
               Save

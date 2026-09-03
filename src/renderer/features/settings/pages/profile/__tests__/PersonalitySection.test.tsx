@@ -123,6 +123,7 @@ describe('the Anodex personality', () => {
   it('does not pass its icon on to a copy', () => {
     const { update } = renderSection()
     fireEvent.click(screen.getByText('Duplicate to edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     const patch = update.mock.calls[0]?.[0] as AssistantStyleSettings
     expect(patch.personalities[0].id).not.toBe(ANODEX.id)
@@ -135,14 +136,16 @@ describe('the Anodex personality', () => {
    * clicking New personality silently rolled back and nothing appeared.
    * `SettingsStore.test.ts` pins the store side; this pins what is written.
    */
-  it('creates a draft the settings validator will accept', () => {
+  it('writes a personality the settings validator will accept', () => {
     const { update } = renderSection()
     fireEvent.click(screen.getByRole('button', { name: /Anodex/ }))
     fireEvent.click(screen.getByText('New personality'))
+    fireEvent.change(nameField(), { target: { value: 'Halyard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     const patch = update.mock.calls[0]?.[0] as AssistantStyleSettings
     const made = patch.personalities[0]
-    expect(typeof made.name).toBe('string')
+    expect(made.name).toBe('Halyard')
     expect(made.name.length).toBeLessThanOrEqual(40)
     expect(made.image).toBeUndefined()
   })
@@ -153,16 +156,51 @@ describe('making one of your own', () => {
     fireEvent.click(screen.getByRole('button', { name: /Anodex/ }))
   }
 
-  it('offers New personality, and creates it unnamed and ready to name', () => {
+  /**
+   * Nothing is stored and nothing is selected until Save. Editing used to write
+   * on every keystroke, so a half-finished personality was already saved,
+   * already active, and already changing how the assistant talked -- closing
+   * Settings mid-edit left it behind.
+   */
+  it('stores nothing until Save is pressed', () => {
     const { update } = renderSection()
     openPicker()
     fireEvent.click(screen.getByText('New personality'))
+    fireEvent.change(nameField(), { target: { value: 'Halyard' } })
+
+    expect(update).not.toHaveBeenCalled()
+    expect(screen.getByText('Halyard is not saved yet')).toBeTruthy()
+  })
+
+  it('appends and selects it only on Save', () => {
+    const { update } = renderSection()
+    openPicker()
+    fireEvent.click(screen.getByText('New personality'))
+    fireEvent.change(nameField(), { target: { value: 'Halyard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     const patch = update.mock.calls[0]?.[0] as AssistantStyleSettings
     expect(patch.personalities).toHaveLength(1)
-    expect(patch.personalities[0].name).toBe('')
-    // Selected immediately: you are editing the thing you just made.
+    expect(patch.personalities[0].name).toBe('Halyard')
     expect(patch.activePersonalityId).toBe(patch.personalities[0].id)
+  })
+
+  it('leaves an existing personality alone until its edits are saved', () => {
+    const { update } = renderSection({
+      personalities: [{ id: 'own-1', name: 'Ada', style: 'terse', story: '' }],
+      activePersonalityId: 'own-1'
+    })
+
+    fireEvent.change(screen.getByPlaceholderText(/former incident reviewer/), {
+      target: { value: 'A backstory.' }
+    })
+    expect(update).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    const patch = update.mock.calls[0]?.[0] as AssistantStyleSettings
+    expect(patch.personalities[0].story).toBe('A backstory.')
+    // Already active, so saving an edit must not restate the selection.
+    expect(patch.activePersonalityId).toBeUndefined()
   })
 
   it('will not save something unnamed, and says why', () => {
@@ -183,6 +221,7 @@ describe('making one of your own', () => {
   it('duplicating a built-in carries its backstory across', () => {
     const { update } = renderSection({ activePersonalityId: ROOK.id })
     fireEvent.click(screen.getByText('Duplicate to edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     const patch = update.mock.calls[0]?.[0] as AssistantStyleSettings
     expect(patch.personalities[0].name).toBe('Rook (mine)')
@@ -190,24 +229,28 @@ describe('making one of your own', () => {
     expect(patch.personalities[0].id).not.toBe(ROOK.id)
   })
 
-  /**
-   * Discarding something never named discards the whole personality: leaving
-   * an unnamed orphan in the list gives no way to tell what it was for.
-   */
-  it('discards an unnamed personality entirely', () => {
-    const { update } = renderSection({
-      personalities: [{ id: 'own-1', name: '', style: '', story: '' }],
+  it('discards a draft without storing anything', () => {
+    const { update } = renderSection()
+    openPicker()
+    fireEvent.click(screen.getByText('New personality'))
+    fireEvent.change(nameField(), { target: { value: 'Halyard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+
+    expect(update).not.toHaveBeenCalled()
+    // Back to whatever was active before the draft was opened.
+    expect(nameField().value).toBe('Anodex')
+  })
+
+  it('reverts an edit to an existing personality on Discard', () => {
+    renderSection({
+      personalities: [{ id: 'own-1', name: 'Ada', style: 'terse', story: '' }],
       activePersonalityId: 'own-1'
     })
 
-    fireEvent.change(screen.getByPlaceholderText(/former incident reviewer/), {
-      target: { value: 'x' }
-    })
+    fireEvent.change(nameField(), { target: { value: 'Adaline' } })
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
 
-    const patch = update.mock.calls.at(-1)?.[0] as AssistantStyleSettings
-    expect(patch.personalities).toHaveLength(0)
-    expect(patch.activePersonalityId).toBe(ANODEX.id)
+    expect(nameField().value).toBe('Ada')
   })
 })
 
