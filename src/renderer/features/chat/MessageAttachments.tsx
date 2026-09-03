@@ -98,18 +98,59 @@ function InlineImageAttachment({
     setVisionContextUpdating(false)
   }
 
+  // The picture, when there is one, stands on its own: no card border, no
+  // caption bar, sized by its own aspect ratio. Name, size and the pin control
+  // return on hover; the *pinned* state stays visible without hovering, since
+  // an image silently entering later prompts is exactly what a user needs to
+  // see. The framed box is kept only for the recovery path below, where there
+  // is no picture for Retry and Locate file to sit on.
+  if (dataUrl) {
+    return (
+      <figure className={styles.imageFigure} title={attachment.path}>
+        <ExpandableImage
+          src={dataUrl}
+          alt={attachment.name}
+          title={attachment.name}
+          imageClassName={styles.image}
+          triggerClassName={styles.imageButton}
+        />
+        {attachment.visionContextPinned && (
+          <span className={styles.pinnedMark} aria-hidden="true">
+            Kept
+          </span>
+        )}
+        <figcaption className={styles.overlay}>
+          <span className={styles.overlayName}>{attachment.name}</span>
+          <span className={styles.overlaySize}>{formatBytes(attachment.sizeBytes)}</span>
+          <button
+            type="button"
+            className={styles.overlayButton}
+            onClick={() => void toggleVisionContext()}
+            disabled={visionContextUpdating}
+            title={
+              attachment.visionContextPinned
+                ? 'Stop including this image in later visual follow-ups'
+                : 'Keep this image available for later visual follow-ups'
+            }
+          >
+            {visionContextUpdating
+              ? 'Saving…'
+              : attachment.visionContextPinned
+                ? 'Kept for follow-ups'
+                : 'Keep for follow-ups'}
+          </button>
+        </figcaption>
+        {visionContextError && (
+          <span className={styles.visionContextError}>{visionContextError}</span>
+        )}
+      </figure>
+    )
+  }
+
   return (
     <figure className={styles.imageCard} title={attachment.path}>
       <div className={styles.imageFrame}>
-        {dataUrl ? (
-          <ExpandableImage
-            src={dataUrl}
-            alt={attachment.name}
-            title={attachment.name}
-            imageClassName={styles.image}
-            triggerClassName={styles.imageButton}
-          />
-        ) : (
+        {
           <div className={styles.imageStatus}>
             <span>{unavailable ? 'Image unavailable' : 'Loading image…'}</span>
             {unavailable && (
@@ -135,34 +176,12 @@ function InlineImageAttachment({
             )}
             {locateError && <span className={styles.recoveryError}>{locateError}</span>}
           </div>
-        )}
+        }
       </div>
       <figcaption className={styles.caption}>
         <span className={styles.captionName}>{attachment.name}</span>
         <span className={styles.fileSize}>{formatBytes(attachment.sizeBytes)}</span>
-        <button
-          type="button"
-          className={`${styles.visionContextButton} ${
-            attachment.visionContextPinned ? styles.visionContextButtonActive : ''
-          }`}
-          onClick={() => void toggleVisionContext()}
-          disabled={visionContextUpdating}
-          title={
-            attachment.visionContextPinned
-              ? 'Stop including this image in later visual follow-ups'
-              : 'Keep this image available for later visual follow-ups'
-          }
-        >
-          {visionContextUpdating
-            ? 'Saving…'
-            : attachment.visionContextPinned
-              ? 'Kept for follow-ups'
-              : 'Keep for follow-ups'}
-        </button>
       </figcaption>
-      {visionContextError && (
-        <span className={styles.visionContextError}>{visionContextError}</span>
-      )}
     </figure>
   )
 }

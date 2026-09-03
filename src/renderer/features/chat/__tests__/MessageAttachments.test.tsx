@@ -1,6 +1,8 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatAttachment } from '@shared/chat.types'
+import { render, screen } from '../../../test-utils/dom'
 import { loadAttachmentImage } from '../loadAttachmentImage'
 import { MessageAttachments } from '../MessageAttachments'
 
@@ -34,7 +36,21 @@ describe('MessageAttachments', () => {
     anodexMocks.readFile.mockReset()
   })
 
-  it('renders image loading cards and keeps ordinary files as compact chips', () => {
+  /** A resolved image, so tests can assert on what a user actually sees. */
+  function mockLoadedImage(): void {
+    anodexMocks.readFile.mockResolvedValue({
+      ok: true,
+      value: {
+        kind: 'image',
+        dataUrl: 'data:image/png;base64,cGl4ZWxz',
+        mimeType: 'image/png',
+        sizeBytes: 6,
+        truncated: false
+      }
+    })
+  }
+
+  it('shows a loading state first, and keeps ordinary files as compact chips', () => {
     const html = renderToStaticMarkup(
       <MessageAttachments
         messageId="message-1"
@@ -52,19 +68,41 @@ describe('MessageAttachments', () => {
 
     expect(html).toContain('Loading image')
     expect(html).toContain('robot.png')
-    expect(html).toContain('Keep for follow-ups')
     expect(html).toContain('notes.txt')
   })
 
-  it('marks an opted-in image as kept for visual follow-ups', () => {
-    const html = renderToStaticMarkup(
+  /**
+   * Once loaded, the picture is the whole element -- no card border and no
+   * caption bar. The name, the size and the pin control moved onto a hover
+   * overlay, so they are still rendered, just not as permanent chrome.
+   */
+  it('renders a loaded image as the picture itself, with its details on the overlay', async () => {
+    mockLoadedImage()
+    render(<MessageAttachments messageId="message-1" attachments={[IMAGE_ATTACHMENT]} />)
+
+    const image = await screen.findByAltText('robot.png')
+    expect(image.getAttribute('src')).toBe('data:image/png;base64,cGl4ZWxz')
+    expect(screen.getByText('Keep for follow-ups')).toBeTruthy()
+    expect(screen.getByText('1.2 KB')).toBeTruthy()
+  })
+
+  /**
+   * The pinned *state* must not hide behind hover: an image silently entering
+   * later prompts is exactly what a user needs to see unprompted.
+   */
+  it('marks an opted-in image as kept, outside the hover overlay', async () => {
+    mockLoadedImage()
+    render(
       <MessageAttachments
         messageId="message-1"
         attachments={[{ ...IMAGE_ATTACHMENT, visionContextPinned: true }]}
       />
     )
 
-    expect(html).toContain('Kept for follow-ups')
+    await screen.findByAltText('robot.png')
+    const mark = screen.getByText('Kept')
+    expect(mark.closest('figcaption')).toBeNull()
+    expect(screen.getByText('Kept for follow-ups')).toBeTruthy()
   })
 
   it('reopens an absolute image attachment directly', async () => {
