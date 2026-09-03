@@ -7,11 +7,11 @@ import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
 import {
   ANODEX_PERSONALITY_ID,
+  MAX_PERSONALITY_NAME_CHARS,
   MAX_PERSONALITY_ROLE_CHARS,
   MAX_PERSONALITY_STORY_CHARS,
   MAX_SAVED_PERSONALITIES,
   PERSONALITY_TINTS,
-  normalizePersonalityName,
   type PersonalityTint
 } from '@shared/chatPersonality'
 import { createDefaultSettings } from '@shared/settings.defaults'
@@ -974,8 +974,16 @@ function validateChatPersonalities(value: unknown): void {
       throw new Error('the Anodex personality cannot be overridden')
     }
     seen.add(id)
-    if (typeof name !== 'string' || !normalizePersonalityName(name)) {
-      throw new Error('personality.name must be a non-empty string')
+    // A blank name is a draft, not a defect. A new personality is created
+    // unnamed with the cursor in the name field, and every keystroke in the
+    // editor persists, so requiring a name here made it impossible to create
+    // one at all. Saving is what requires a name, and the UI blocks that;
+    // anything still blank renders as "Untitled".
+    if (typeof name !== 'string') {
+      throw new Error('personality.name must be a string')
+    }
+    if (name.length > MAX_PERSONALITY_NAME_CHARS) {
+      throw new Error(`personality.name must be at most ${MAX_PERSONALITY_NAME_CHARS} characters`)
     }
     if (typeof style !== 'string') {
       throw new Error('personality.style must be a string')

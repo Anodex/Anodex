@@ -392,9 +392,30 @@ describe('validatePatch', () => {
       ).toThrow(/file path, not image data/)
     })
 
-    it('rejects a blank name', () => {
+    /**
+     * A blank name is a draft. This used to be rejected, which made it
+     * impossible to create a personality at all: the editor creates one
+     * unnamed with the cursor in the name field, and every keystroke persists.
+     * Saving is what requires a name, and the UI blocks that instead.
+     *
+     * This is the seam the UI tests could not see -- they mock `update`, so
+     * nothing exercised the validator with what the editor actually writes.
+     */
+    it('accepts the unnamed draft the editor creates', () => {
       expect(() =>
-        validatePatch({ assistantStyle: { personalities: [{ ...ok, name: '   ' }] } })
+        validatePatch({
+          assistantStyle: {
+            personalities: [{ id: 'n1', name: '', role: '', story: '', style: '', tint: 'accent' }]
+          }
+        })
+      ).not.toThrow()
+    })
+
+    it('rejects a name past the picker-row cap', () => {
+      expect(() =>
+        validatePatch({
+          assistantStyle: { personalities: [{ ...ok, name: 'x'.repeat(41) }] }
+        })
       ).toThrow(/personality.name/)
     })
 
