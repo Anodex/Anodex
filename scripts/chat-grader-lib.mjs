@@ -164,11 +164,36 @@ export function parseTurns(text) {
         callCount: 0,
         tools: [],
         ...(turns[index] ?? {}),
-        reply: replyLine[2]
+        reply: normalizeTypography(replyLine[2])
       }
     }
   }
   return turns
+}
+
+/**
+ * Fold typographic punctuation to ASCII before any criterion sees the text.
+ *
+ * Every rubric here is regex over prose, and the patterns are written the way
+ * people type: `can'?t`, `don'?t`. Models do not type — they emit U+2019, so
+ * "I can’t fix anything without access to files or a project" matched
+ * nothing and was scored as inventing a referent, and "I don’t have access
+ * to logs or execution history for agent runs" was scored as fabricating one.
+ * Both were among the best answers in the run.
+ *
+ * Worse than being wrong, it was wrong *intermittently*: whether a criterion
+ * passed depended on which apostrophe a model happened to emit that turn, which
+ * shows up in the flakiness report as sampler noise and is nothing of the kind.
+ *
+ * Normalising here rather than in each pattern keeps it impossible to forget in
+ * the next criterion someone writes.
+ */
+function normalizeTypography(text) {
+  return text
+    .replace(/[‘’‛ʼ]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/…/g, '...')
 }
 
 /** Read the log path and flags a grader was invoked with. */
