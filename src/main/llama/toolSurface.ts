@@ -94,6 +94,21 @@ export function boundToolSurface(options: {
    * read but neither edit nor run is not a smaller surface, it is a broken one.
    */
   minDirectTools?: number
+  /**
+   * A ceiling the floor may not cross, in fixed tokens.
+   *
+   * `minDirectTools` is honoured by skipping the token check, which is right
+   * when the budget is merely tight and wrong when the context genuinely cannot
+   * hold the loop. Measured on a 13B at 4096: the floor admitted ten schemas
+   * costing 2,283 tokens on top of an 1,801-token system prompt, for 4,146
+   * fixed against a 3,687 input limit — so generation was impossible and all
+   * twelve turns of a run returned zero characters. The guard against a
+   * crippled surface had produced a dead one.
+   *
+   * Defaults to no ceiling, so callers that do not set it keep today's
+   * behaviour exactly.
+   */
+  hardLimitTokens?: number
   measureFixedTokens: (functions: Record<string, ToolFunction> | undefined) => number
 }): BoundedToolSurface {
   const {
@@ -102,6 +117,7 @@ export function boundToolSurface(options: {
     targetFixedTokens,
     maxDirectTools = Number.POSITIVE_INFINITY,
     minDirectTools = 0,
+    hardLimitTokens = Number.POSITIVE_INFINITY,
     measureFixedTokens
   } = options
   if (!allFunctions || Object.keys(allFunctions).length === 0) {
@@ -109,7 +125,12 @@ export function boundToolSurface(options: {
   }
 
   const allNames = Object.keys(allFunctions)
-  if (allNames.length <= maxDirectTools && measureFixedTokens(allFunctions) <= targetFixedTokens) {
+  const wholeSurfaceCost = measureFixedTokens(allFunctions)
+  if (
+    allNames.length <= maxDirectTools &&
+    wholeSurfaceCost <= targetFixedTokens &&
+    wholeSurfaceCost <= hardLimitTokens
+  ) {
     return {
       functions: allFunctions,
       directToolNames: allNames,
@@ -140,8 +161,12 @@ export function boundToolSurface(options: {
     // builder loop for a project run, and the surfaces' own primaries when the
     // coding tools are not present at all, so honouring the floor admits the
     // tools that have no substitute rather than an arbitrary ten.
+    const candidateCost = measureFixedTokens(candidate)
+    // The ceiling binds whether or not the floor is still being honoured: a
+    // surface that cannot generate is not a smaller surface either.
+    if (candidateCost > hardLimitTokens) continue
     const belowFloor = directToolNames.length < floor
-    if (!belowFloor && measureFixedTokens(candidate) > targetFixedTokens) continue
+    if (!belowFloor && candidateCost > targetFixedTokens) continue
     selected[name] = allFunctions[name]
     directToolNames.push(name)
   }
