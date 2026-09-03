@@ -15,7 +15,12 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
-### OPEN: chat claims it runs locally even when a cloud provider is answering
+### FIXED 2026-09-02: chat claims it runs locally even when a cloud provider is answering
+
+**Fixed in `1af6f74`.** The four core prompts dropped the claim; `composeSystemPrompt`
+now renders a "Where you are running" section assembled from the provider
+actually answering (including a per-run override), and a caller that cannot know
+omits it so the prompt makes no claim at all. Four regression tests.
 
 **Seen:** a chat on DeepSeek, asked to confirm the connection, replied "This is
 the Anodex assistant running locally on your machine, and the DeepSeek
@@ -43,7 +48,12 @@ fix, and it is a prerequisite for named personalities changing the assistant's
 displayed name (see the work queue) -- both need one place that assembles who
 the assistant is.
 
-### OPEN: the sidebar model selector hides nine of the eleven cloud providers
+### FIXED 2026-09-02: the sidebar model selector hides nine of the eleven cloud providers
+
+**Fixed in `1b118e3`.** Driven off the new `shared/providerCatalog`, so a provider
+added there appears without touching the menu. Azure handled as its own case.
+Also fixed on the way: with local selected and nothing loaded the menu collapsed
+to a dead link even with a provider linked. Five tests.
 
 **Seen:** with a cloud provider linked in Settings -> AI & Models -> Providers,
 the model status menu above the user info in the sidebar does not offer it. Only
