@@ -42,6 +42,15 @@ const flagValue = (name, fallback) => {
   return index !== -1 && process.argv[index + 1] ? process.argv[index + 1] : fallback
 }
 const SCRIPT = join(process.cwd(), flagValue('--script', 'scripts/chat-script-matrix.json'))
+/**
+ * How many prompts this run should get through, read from the script itself.
+ *
+ * The totals in the report used to be the literal 10 of the original script,
+ * which was invisible while there was one script and became wrong the moment
+ * there were two: a twelve-prompt run reported "turns 12/10, score 11/10".
+ * Scores come from the grader's own `total` for the same reason.
+ */
+const promptCount = JSON.parse(readFileSync(SCRIPT, 'utf-8')).prompts.length
 const CRITERIA = flagValue('--criteria', 'scripts/chat-criteria.mjs')
 
 /**
@@ -104,7 +113,7 @@ for (const entry of selected) {
   const graded = grade(logPath)
   rows.push({ ...entry, seconds, finished, ...graded })
   console.log(
-    `${entry.key}: ${graded.score}/${graded.total}  turns ${graded.turns}/10  ${seconds}s${finished ? '' : '  (TIMED OUT)'}`
+    `${entry.key}: ${graded.score}/${graded.total}  turns ${graded.turns}/${promptCount}  ${seconds}s${finished ? '' : '  (TIMED OUT)'}`
   )
   for (const result of graded.results.filter((item) => !item.passed)) {
     console.log(`    FAIL ${result.id}`)
@@ -202,7 +211,7 @@ function renderTable(rows) {
     if (row.skipped) return `${row.key.padEnd(16)} ${String(row.ctx).padEnd(7)} ${row.skipped}`
     return (
       `${row.key.padEnd(16)} ${String(row.ctx).padEnd(7)} ` +
-      `${String(row.turns ?? 0).padStart(2)}/10  ${String(row.score ?? 0).padStart(2)}/10  ${row.seconds}s` +
+      `${String(row.turns ?? 0).padStart(2)}/${promptCount}  ${String(row.score ?? 0).padStart(2)}/${String(row.total ?? promptCount)}  ${row.seconds}s` +
       `${row.finished ? '' : '  TIMEOUT'}`
     )
   })
