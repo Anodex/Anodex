@@ -26,6 +26,7 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
   const { profile } = settings
   const fileInputRef = useRef<HTMLInputElement>(null)
   const openSettings = useUiStore((state) => state.openSettings)
+  const notify = useUiStore((state) => state.notify)
   // Email is not a profile field — it is whichever account is currently the
   // default, so this page reads it and sends edits to where it actually lives.
   const address = useEmailStore((state) => state.status?.address ?? '')
@@ -197,9 +198,20 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
         />
       </section>
 
+      {/* A rejected settings write rolls the optimistic update back, so a
+          refused personality simply vanished with nothing said. That is how a
+          validator rule that made creating one impossible went unnoticed. */}
       <PersonalitySection
         value={settings.assistantStyle}
-        update={(patch) => void update({ assistantStyle: patch })}
+        update={(patch) => {
+          update({ assistantStyle: patch }).catch((error: unknown) => {
+            notify({
+              kind: 'error',
+              title: 'Could not save that change',
+              message: error instanceof Error ? error.message : undefined
+            })
+          })
+        }}
       />
     </div>
   )

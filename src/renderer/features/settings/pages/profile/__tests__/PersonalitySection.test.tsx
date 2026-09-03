@@ -42,11 +42,11 @@ function renderSection(value: Partial<AssistantStyleSettings> = {}): {
   return { update }
 }
 
-function renderSectionWithContainer(): { container: HTMLElement } {
+function renderSectionWithContainer(activeId: string = ANODEX.id): { container: HTMLElement } {
   const settings: AssistantStyleSettings = {
     globalStyle: '',
     personalities: [],
-    activePersonalityId: ANODEX.id
+    activePersonalityId: activeId
   }
   return render(<PersonalitySection value={settings} update={vi.fn()} />)
 }
@@ -100,6 +100,13 @@ describe('the Anodex personality', () => {
     expect(container.textContent).not.toContain('AN')
   })
 
+  /** The other built-ins ship their own art; only Pip is still a monogram. */
+  it('gives the named built-ins their own faces', () => {
+    const { container } = renderSectionWithContainer(ROOK.id)
+
+    expect(container.querySelector('img')?.getAttribute('src')).toContain('rook')
+  })
+
   it('cannot have its picture, voice or backstory changed', () => {
     renderSection()
 
@@ -120,6 +127,24 @@ describe('the Anodex personality', () => {
     const patch = update.mock.calls[0]?.[0] as AssistantStyleSettings
     expect(patch.personalities[0].id).not.toBe(ANODEX.id)
     expect(patch.personalities[0].image).toBeUndefined()
+  })
+
+  /**
+   * The bug this section exists to prevent a repeat of: the editor creates a
+   * personality unnamed, and the settings validator rejected a blank name, so
+   * clicking New personality silently rolled back and nothing appeared.
+   * `SettingsStore.test.ts` pins the store side; this pins what is written.
+   */
+  it('creates a draft the settings validator will accept', () => {
+    const { update } = renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /Anodex/ }))
+    fireEvent.click(screen.getByText('New personality'))
+
+    const patch = update.mock.calls[0]?.[0] as AssistantStyleSettings
+    const made = patch.personalities[0]
+    expect(typeof made.name).toBe('string')
+    expect(made.name.length).toBeLessThanOrEqual(40)
+    expect(made.image).toBeUndefined()
   })
 })
 

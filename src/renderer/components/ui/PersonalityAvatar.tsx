@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react'
 import type { ChatPersonality, PersonalityTint } from '@shared/chatPersonality'
 import { ANODEX_PERSONALITY_ID } from '@shared/chatPersonality'
 import appIcon from '../../assets/app-icon.png'
+import valeIcon from '../../assets/personalities/vale.png'
+import wrenIcon from '../../assets/personalities/wren.png'
+import cassIcon from '../../assets/personalities/cass.png'
+import junoIcon from '../../assets/personalities/juno.png'
+import rookIcon from '../../assets/personalities/rook.png'
 import { loadAttachmentImage } from '../../features/chat/loadAttachmentImage'
 import { personalityDisplayName, personalityInitials } from './personalityIdentity'
 import styles from './PersonalityAvatar.module.css'
@@ -14,6 +19,26 @@ import styles from './PersonalityAvatar.module.css'
  * fails falls back to the monogram rather than leaving a blank tile — a moved
  * or deleted file should cost the picture, not the identity.
  */
+
+/**
+ * The shipped face for each built-in.
+ *
+ * Keyed off the identity rather than a stored path, so these cannot be
+ * replaced, and a *copy* of a built-in does not inherit one — a copy is a user
+ * personality and falls back to a tinted monogram like any other. Anodex wears
+ * the app's own icon for the same reason its fields are locked: it is the
+ * baseline you ask someone to switch to when diagnosing a problem.
+ *
+ * Pip has no art yet and renders as a monogram until it does.
+ */
+const BUILT_IN_ICONS: Record<string, string> = {
+  [ANODEX_PERSONALITY_ID]: appIcon,
+  'builtin:direct': valeIcon,
+  'builtin:friendly': wrenIcon,
+  'builtin:terse': cassIcon,
+  'builtin:encouraging': junoIcon,
+  'builtin:skeptical': rookIcon
+}
 
 const TINT_VAR: Record<PersonalityTint, string> = {
   accent: 'var(--accent)',
@@ -52,10 +77,7 @@ export function PersonalityAvatar({
   }, [imagePath])
 
   const name = personalityDisplayName(personality)
-  // Anodex's own icon, keyed off the identity rather than a stored path: it is
-  // the app's mark, not a picture anyone chose, so it cannot be replaced and a
-  // copy of Anodex does not inherit it.
-  const isAnodex = personality.id === ANODEX_PERSONALITY_ID
+  const builtInIcon = BUILT_IN_ICONS[personality.id]
 
   return (
     <span
@@ -65,13 +87,15 @@ export function PersonalityAvatar({
         height: size,
         fontSize: Math.max(9, Math.round(size * 0.36)),
         borderRadius: Math.max(4, Math.round(size * 0.22)),
-        background: isAnodex ? 'transparent' : TINT_VAR[personality.tint ?? 'accent']
+        // The shipped art carries its own ground; a tint behind it would only
+        // show at the corners, where the two roundings disagree.
+        background: builtInIcon ? 'transparent' : TINT_VAR[personality.tint ?? 'accent']
       }}
       aria-hidden="true"
       title={name}
     >
-      {isAnodex ? (
-        <img src={appIcon} alt="" className={styles.image} />
+      {builtInIcon ? (
+        <img src={builtInIcon} alt="" className={styles.image} />
       ) : dataUrl ? (
         <img src={dataUrl} alt="" className={styles.image} />
       ) : (
