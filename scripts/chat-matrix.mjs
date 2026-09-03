@@ -117,9 +117,15 @@ for (const entry of selected) {
 
   const graded = grade(logPath)
   rows.push({ ...entry, seconds, finished, ...graded })
-  console.log(
-    `${entry.key}: ${graded.score}/${graded.total}  turns ${graded.turns}/${promptCount}  ${seconds}s${finished ? '' : '  (TIMED OUT)'}`
-  )
+  if (graded.launchFailure) {
+    // Not a score. Printing one here is how a dead harness gets mistaken for a
+    // regression.
+    console.log(`${entry.key}: HARNESS FAILURE - ${graded.launchFailure}  (${seconds}s)`)
+  } else {
+    console.log(
+      `${entry.key}: ${graded.score}/${graded.total}  turns ${graded.turns}/${promptCount}  ${seconds}s${finished ? '' : '  (TIMED OUT)'}`
+    )
+  }
   for (const result of graded.results.filter((item) => !item.passed)) {
     console.log(`    FAIL ${result.id}`)
   }
@@ -157,6 +163,16 @@ function runOnce(logPath) {
     child.stderr.pipe(log)
 
     const deadline = Date.now() + RUN_TIMEOUT_MS
+    /**
+     * A launch that never produces a turn is dead long before the timeout.
+     *
+     * Loading a 27B at 65K can take minutes, so this is generous — but a run
+     * that has written nothing after eight has not started, and waiting the
+     * remaining twenty-two proves nothing. That happened tonight: a leftover
+     * dev server held the port, Electron quit on the single-instance lock, and
+     * the run sat silent while a real measurement waited behind it.
+     */
+    const firstTurnDeadline = Date.now() + 8 * 60 * 1000
     const timer = setInterval(() => {
       let text = ''
       try {
@@ -165,6 +181,13 @@ function runOnce(logPath) {
         text = ''
       }
       const done = /CHAT AUTORUN COMPLETE|Autorun failed/.test(text)
+      const neverStarted = Date.now() > firstTurnDeadline && !/TURN \d+\/\d+/.test(text)
+      if (neverStarted) {
+        clearInterval(timer)
+        killTree(child.pid)
+        setTimeout(() => resolve(false), 2000)
+        return
+      }
       if (done || Date.now() > deadline) {
         clearInterval(timer)
         killTree(child.pid)
@@ -200,20 +223,54 @@ function killTree(pid) {
 }
 
 function grade(logPath) {
+  const launchFailure = detectLaunchFailure(logPath)
+  if (launchFailure) {
+    return { turns: 0, complete: false, score: 0, total: promptCount, results: [], launchFailure }
+  }
   const result = spawnSync(process.execPath, [CRITERIA, logPath, '--json'], {
     encoding: 'utf-8'
   })
   try {
     return JSON.parse(result.stdout)
   } catch {
-    return { turns: 0, complete: false, score: 0, total: 10, results: [] }
+    return { turns: 0, complete: false, score: 0, total: promptCount, results: [] }
   }
+}
+
+/**
+ * Say when the app never started, instead of scoring the silence.
+ *
+ * A run that never launched produces a log with no turns in it, which grades as
+ * zero — indistinguishable in the table from a model that answered every prompt
+ * badly. That is the most expensive kind of wrong result here, because the
+ * obvious reading is "the change I just made broke this".
+ *
+ * It happens for one known reason: a previous run's `electron-vite dev` server
+ * survived `killTree`, still holding port 5173, so Electron starts and quits
+ * against the single-instance lock without writing anything (see AGENTS.md).
+ * The port message is the tell, and it is in the log every time.
+ */
+function detectLaunchFailure(logPath) {
+  let text = ''
+  try {
+    text = readFileSync(logPath, 'utf-8')
+  } catch {
+    return 'no log was written at all'
+  }
+  const startedTurns = /TURN \d+\/\d+/.test(text)
+  if (startedTurns) return null
+  if (/Port \d+ is in use/.test(text)) {
+    return 'a leftover dev server held the port; the app quit on the single-instance lock'
+  }
+  return 'the app produced no turns at all'
 }
 
 function renderTable(rows) {
   const header = 'model            ctx     turns  score  time'
   const lines = rows.map((row) => {
     if (row.skipped) return `${row.key.padEnd(16)} ${String(row.ctx).padEnd(7)} ${row.skipped}`
+    if (row.launchFailure)
+      return `${row.key.padEnd(16)} ${String(row.ctx).padEnd(7)} HARNESS FAILURE - ${row.launchFailure}`
     return (
       `${row.key.padEnd(16)} ${String(row.ctx).padEnd(7)} ` +
       `${String(row.turns ?? 0).padStart(2)}/${promptCount}  ${String(row.score ?? 0).padStart(2)}/${String(row.total ?? promptCount)}  ${row.seconds}s` +
