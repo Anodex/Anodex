@@ -1,0 +1,710 @@
+/* ---------- the contact card ---------- */
+
+.contact {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+}
+
+.portrait {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.portraitButton {
+  display: block;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 22px;
+}
+
+.portraitButton:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.portraitButton:disabled {
+  cursor: default;
+}
+
+.portraitButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.portraitHint {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.identity {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.identityTop {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.identityNames {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* An input styled as a heading: the card is the record, so the name is edited
+   where it is displayed rather than in a field parked at the bottom. */
+.identityName {
+  display: block;
+  width: 100%;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+}
+
+.identityName:not([readonly]):hover {
+  border-bottom-color: var(--border-strong);
+}
+
+.identityName:focus {
+  border-bottom-color: var(--accent);
+}
+
+.identityRole {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--text-base);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+}
+
+.identityRole:not([readonly]):hover {
+  border-bottom-color: var(--border);
+}
+
+.identityRole:focus {
+  border-bottom-color: var(--accent);
+}
+
+.identityName::placeholder,
+.identityRole::placeholder {
+  color: var(--text-faint);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pill {
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-pill);
+}
+
+.pillReadOnly {
+  color: var(--accent-violet);
+  background: var(--accent-violet-soft);
+}
+
+.pillUnsaved {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pillSaved {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.imageError {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--danger);
+}
+
+/* What the choice buys, shown where the choice is made. */
+.proof {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+  padding: var(--space-3);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.proofBody {
+  min-width: 0;
+}
+
+.proofHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.proofName {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.proofSub {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.proofLine {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: var(--text-base);
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------
+   Saving a character: a one-shot echo of the app's own "first light"
+   (MessageBubble.module.css) — a sparkle that flares and dissolves while a
+   band of accent light crosses the card. Borrowed rather than invented so the
+   app keeps one motion vocabulary, and tied to a rare, deliberate event: you
+   are bringing a character to life, not saving a form. It never loops.
+   ---------------------------------------------------------------- */
+
+.wake {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: var(--radius-xl);
+}
+
+.wake::after {
+  position: absolute;
+  inset: -20% -60%;
+  content: '';
+  background: linear-gradient(
+    100deg,
+    transparent 34%,
+    rgb(79 140 255 / 11%) 46%,
+    rgb(178 200 255 / 16%) 50%,
+    rgb(79 140 255 / 11%) 54%,
+    transparent 66%
+  );
+  animation: wake-sweep 820ms var(--ease-out, ease-out) 120ms both;
+}
+
+@keyframes wake-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-55%);
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(55%);
+  }
+}
+
+.flare {
+  position: absolute;
+  top: 26px;
+  left: 74px;
+  z-index: 2;
+  font-size: var(--text-lg);
+  color: var(--accent);
+  pointer-events: none;
+  animation: flare-out 420ms var(--ease-out, ease-out) forwards;
+}
+
+@keyframes flare-out {
+  0% {
+    opacity: 1;
+    transform: scale(1) rotate(12deg);
+  }
+
+  45% {
+    opacity: 0.9;
+    transform: scale(1.7) rotate(40deg);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(0.4) rotate(70deg);
+  }
+}
+
+.celebrate .portraitButton {
+  animation: portrait-wake 820ms var(--ease-out, ease-out) both;
+}
+
+@keyframes portrait-wake {
+  0% {
+    transform: scale(1);
+  }
+
+  30% {
+    transform: scale(1.055);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ---------- the picker ---------- */
+
+.picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.pickerTrigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 190px;
+  padding: var(--space-2) var(--space-3);
+  font-family: inherit;
+  font-size: var(--text-base);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.pickerTrigger:hover {
+  border-color: var(--accent);
+}
+
+.pickerName {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickerChevron {
+  color: var(--text-faint);
+}
+
+/* The popover holds the scrolling list AND the create action. "New" is a
+   command, not one of the things being chosen, so it sits outside the listbox
+   rather than pretending to be an option in it. */
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-popover, 1000);
+  width: 300px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.listbox {
+  max-height: 280px;
+  padding: var(--space-1);
+  overflow-y: auto;
+}
+
+.listGroup {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2);
+  font-family: inherit;
+  font-size: var(--text-base);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+}
+
+.option:hover,
+.option:focus-visible {
+  background: var(--bg-surface-2);
+}
+
+.option[aria-selected='true'] {
+  background: var(--accent-soft);
+}
+
+.optionName {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionRole {
+  max-width: 40%;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionTick {
+  color: var(--accent);
+}
+
+.popoverFoot {
+  padding: var(--space-1);
+  border-top: 1px solid var(--border);
+}
+
+.newButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2);
+  font-family: inherit;
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+}
+
+.newButton:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.newButton:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.newPlus {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  font-size: var(--text-md);
+  border: 1px dashed currentcolor;
+  border-radius: var(--radius-md);
+}
+
+/* ---------- the editor ---------- */
+
+.editor {
+  margin-top: var(--space-5);
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.editorHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.editorLabel {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.editorHint {
+  flex: 1 1 auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Two fields, because they do different jobs in the prompt: the backstory says
+   who they are, the voice says how they talk. Shown together rather than behind
+   tabs — a character you cannot read in one glance is one you will not keep
+   consistent. */
+.panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pane + .pane {
+  border-left: 1px solid var(--border);
+}
+
+.paneHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.paneTitle {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.paneSub {
+  flex: 1 1 auto;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.paneCount {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.textarea {
+  display: block;
+  width: 100%;
+  min-height: 168px;
+  padding: var(--space-4);
+  font-family: inherit;
+  font-size: var(--text-base);
+  line-height: 1.65;
+  color: var(--text);
+  resize: vertical;
+  background: var(--bg-input);
+  border: none;
+  outline: none;
+}
+
+.textarea[readonly] {
+  color: var(--text-muted);
+  cursor: default;
+  background: var(--bg-surface-2);
+}
+
+.textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.empty {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  background: var(--bg-input);
+}
+
+.emptyTitle {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.emptySub {
+  max-width: 60ch;
+  font-size: var(--text-base);
+  color: var(--text-muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  padding: 5px var(--space-3);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+
+.chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  border-style: solid;
+}
+
+.editorFoot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.cost {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.costHigh {
+  color: var(--accent);
+}
+
+/* Inspecting and destroying must not look alike. */
+.tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.toolSep {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--space-2);
+  background: var(--border-strong);
+}
+
+.saveBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-surface-2);
+  border-top: 1px solid var(--accent);
+  animation: save-bar-in 220ms var(--ease-out, ease-out) both;
+}
+
+@keyframes save-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.saveNote {
+  flex: 1 1 auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.preview {
+  max-height: 220px;
+  margin: 0;
+  padding: var(--space-4);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-base);
+  border-top: 1px solid var(--border);
+}
+
+.limitNote {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+@media (max-width: 780px) {
+  .contact {
+    flex-direction: column;
+  }
+
+  .identityTop {
+    flex-direction: column;
+  }
+
+  .pickerTrigger {
+    width: 100%;
+  }
+
+  .popover {
+    right: auto;
+    left: 0;
+    width: 100%;
+  }
+
+  .panes {
+    grid-template-columns: 1fr;
+  }
+
+  .pane + .pane {
+    border-top: 1px solid var(--border);
+    border-left: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wake::after,
+  .flare,
+  .celebrate .portraitButton,
+  .saveBar {
+    animation: none;
+  }
+}
