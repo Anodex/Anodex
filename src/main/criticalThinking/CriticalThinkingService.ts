@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { researchFailureReason } from './researchFailureReason'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { IpcChannel } from '@shared/ipc'
 import { broadcastToWindows } from '../broadcast'
@@ -624,11 +625,24 @@ class CriticalThinkingService {
   private async runSynthesis(run: CriticalThinkingRun, signal: AbortSignal): Promise<void> {
     const artifacts = criticalThinkingEvidenceStore.list(run.id)
     const verifiedSources = run.sources.filter((source) => source.verified)
+    // The prompt's fixed instruction block is not free, and it is not an input:
+    // sizing the shares without it charges its whole cost to the evidence,
+    // which is the one part of the prompt nothing else can stand in for. On a
+    // 4K context that took the packet from a 2,583-character share down to 271
+    // characters actually delivered. Measure the scaffold with every input
+    // emptied, then let the budget allocate what genuinely remains.
+    const scaffoldChars = buildCriticalThinkingSynthesisPrompt(
+      '',
+      { ...run.plan!, steps: [] },
+      [],
+      ''
+    ).length
     const limits = criticalThinkingSynthesisLimits(
       criticalThinkingContextTokens(run.provider, run.model, llamaService.getState().contextSize),
       run.provider === 'local'
         ? providerMaxResponseTokens(settingsStore.get().provider, 'local')
-        : undefined
+        : undefined,
+      scaffoldChars
     )
     const question = truncatePromptText(run.question, limits.maxQuestionChars)
     const plan = boundPlanForPrompt(run.plan!, limits.maxPlanChars)
@@ -646,9 +660,11 @@ class CriticalThinkingService {
       )
     )
     if (!evidencePacket || verifiedSources.length === 0) {
+      // Say why, when the activities already know. A search backend that is
+      // switched off and a question research could not answer produce the same
+      // empty result, and only one of them is worth acting on.
       this.finish(run.id, 'partial', {
-        lastError:
-          'Research finished without a fetched source that could support a validated report.'
+        lastError: researchFailureReason(run.activities)
       })
       return
     }
