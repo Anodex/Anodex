@@ -22,6 +22,8 @@ exports[`tool surface isolation > pins the ranked order a project run gets 1`] =
   "web_search",
   "fetch_url",
   "anodex_status",
+  "schedule_task",
+  "delete_scheduled_task",
   "git_diff",
   "git_status",
   "get_file_info",
@@ -39,7 +41,6 @@ exports[`tool surface isolation > pins the ranked order a project run gets 1`] =
   "load_skill",
   "move_file",
   "propose_change",
-  "schedule_task",
   "update_change_task",
 ]
 `;
@@ -58,6 +59,8 @@ exports[`tool surface isolation > pins the ranked order a read-only workspace ch
   "web_search",
   "fetch_url",
   "anodex_status",
+  "schedule_task",
+  "delete_scheduled_task",
   "git_diff",
   "git_status",
   "get_file_info",
@@ -67,7 +70,6 @@ exports[`tool surface isolation > pins the ranked order a read-only workspace ch
   "git_commit_summary",
   "find_skill",
   "load_skill",
-  "schedule_task",
 ]
 `;
 
@@ -76,6 +78,8 @@ exports[`tool surface isolation > pins the ranked order chat gets 1`] = `
   "web_search",
   "fetch_url",
   "anodex_status",
+  "schedule_task",
+  "delete_scheduled_task",
   "list_threads",
   "search_email",
   "read_email",
@@ -95,7 +99,6 @@ exports[`tool surface isolation > pins the ranked order chat gets 1`] = `
   "read_email_attachment",
   "reply_email",
   "save_email_draft",
-  "schedule_task",
   "send_email",
   "summarize_thread",
 ]

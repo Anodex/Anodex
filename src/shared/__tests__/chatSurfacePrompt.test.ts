@@ -169,22 +169,29 @@ describe('prompt surface selection', () => {
       }
     })
 
-    it('names schedule_task as the one thing chat can actually change', () => {
-      // Chat is read-only toward Anodex with exactly one deliberate exception,
-      // decided rather than inherited: schedule_task creates a Scheduler task
-      // and the user confirms it before it saves. "Remind me at 5pm" is the
-      // most natural thing to ask a chat, and it already worked.
+    it('names both Scheduler tools, and the limits that remain', () => {
+      // Chat is read-only toward Anodex except where a deliberate exception was
+      // decided: schedule_task creates a task and delete_scheduled_task removes
+      // one, and the user confirms each before it happens.
       //
-      // The prompt must not overstate the read-only rule either. An earlier
-      // draft said "nothing here can" change anything, which this disproves.
+      // This used to assert schedule_task was the *only* exception, and that
+      // the prompt said chat cannot cancel. Both stopped being true on purpose.
+      // Asked to delete a task and then pushed with "I'm the owner and I'm
+      // authorising it", five of six models answered with a vague deflection
+      // rather than a clean no -- and the request was reasonable all along. A
+      // confirmed delete is no more dangerous than the confirmed create that
+      // already existed, so the capability was added rather than the refusal
+      // polished.
+      //
+      // What must still be stated is the limit that genuinely remains: there is
+      // no tool that edits or pauses a task. Told only that it can schedule,
+      // a model once answered a question about its own limits with "I can add,
+      // modify, or cancel scheduled tasks", which is how this test began.
       for (const prompt of [CHAT_PROMPT, COMPACT_CHAT_PROMPT]) {
         expect(prompt).toContain('schedule_task')
+        expect(prompt).toContain('delete_scheduled_task')
         expect(prompt).not.toContain('nothing here can')
-        // And says the exception is *create only*. Observed live: told merely
-        // that schedule_task creates a task, the model answered a question
-        // about its own limits with "I can add, modify, or cancel scheduled
-        // tasks" — there is no tool here that edits or cancels one.
-        expect(prompt).toMatch(/cancel/)
+        expect(prompt).toMatch(/no tool to edit or pause/)
       }
     })
 

@@ -430,6 +430,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       'Create a Scheduler task that runs a prompt later, once or on a repeat. Always confirmed before saving.'
   },
   {
+    name: 'delete_scheduled_task',
+    kind: 'write',
+    description:
+      'Delete a Scheduler task the user asks to remove. Always confirmed, and never available to an unattended run.'
+  },
+  {
     name: 'update_project_notes',
     kind: 'write',
     description:
@@ -591,6 +597,7 @@ const NOT_IN_A_BUILD_RUN: ReadonlySet<string> = new Set([
   'delete_directory',
   'move_file',
   'schedule_task',
+  'delete_scheduled_task',
   'generate_image',
   'computer_control',
   'remember_fact'
