@@ -1671,7 +1671,14 @@ describe('CriticalThinkingService research: failure salvage', () => {
     const persisted = mocks.runs.get(run.id)
     expect(persisted?.status).toBe('failed')
     expect(persisted?.report ?? '').toBe('')
-    expect(persisted?.lastError).toContain('could not gather any usable web sources')
     expect(persisted?.lastError).toContain('model crashed')
+    // The model threw before a single search was issued, so searching is not
+    // what failed. This used to close with "Check your web search provider and
+    // internet connection" regardless of the cause — advice that is confident,
+    // specific, and points at a subsystem the run never reached. A real run on
+    // 2026-09-04 failed the same way on a local file lock (`EPERM ... rename
+    // runs.json.tmp`) and told the user to go and debug their network.
+    expect(persisted?.lastError).not.toContain('internet connection')
+    expect(persisted?.lastError).not.toContain('web search provider')
   })
 })
