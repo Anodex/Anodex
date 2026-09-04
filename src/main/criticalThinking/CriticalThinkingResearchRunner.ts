@@ -25,6 +25,7 @@ import { buildEvidencePacket } from './criticalThinkingEvidence'
 import {
   boundPromptItems,
   criticalThinkingSynthesisLimits,
+  evidencePacketChars,
   truncatePromptText
 } from './criticalThinkingSynthesisBudget'
 import {
@@ -719,7 +720,7 @@ export class CriticalThinkingResearchRunner {
     const evidencePacket = buildEvidencePacket(
       stepArtifacts,
       run.sources,
-      Math.max(0, Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptBase.length))
+      evidencePacketChars(limits, promptBase.length)
     )
     const activity = this.startActivity('analysis', 'Check evidence coverage')
     try {

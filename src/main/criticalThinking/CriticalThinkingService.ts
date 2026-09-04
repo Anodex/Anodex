@@ -85,6 +85,7 @@ import {
   boundPromptItems,
   criticalThinkingContextTokens,
   criticalThinkingSynthesisLimits,
+  evidencePacketChars,
   truncatePromptText,
   type CriticalThinkingSynthesisLimits
 } from './criticalThinkingSynthesisBudget'
@@ -654,10 +655,7 @@ class CriticalThinkingService {
     const evidencePacket = buildEvidencePacket(
       artifacts,
       run.sources,
-      Math.max(
-        0,
-        Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptWithoutEvidence.length)
-      )
+      evidencePacketChars(limits, promptWithoutEvidence.length)
     )
     if (!evidencePacket || verifiedSources.length === 0) {
       // Say why, when the activities already know. A search backend that is
@@ -1126,19 +1124,13 @@ class CriticalThinkingService {
         step.uncertainties,
         ''
       )
+      // A section reasons about one step, so it needs less evidence than the
+      // whole report -- a share of the run's budget rather than a flat ceiling,
+      // which stopped a larger context buying a fuller section.
       const evidencePacket = buildEvidencePacket(
         stepArtifacts,
         run.sources,
-        Math.max(
-          0,
-          Math.min(
-            // A section reasons about one step, so it needs less evidence than
-            // the whole report -- a share of the run's budget rather than a flat
-            // ceiling, which stopped a larger context buying a fuller section.
-            Math.floor(limits.maxEvidenceChars * SECTION_EVIDENCE_SHARE),
-            limits.maxPromptChars - basePrompt.length
-          )
-        )
+        evidencePacketChars(limits, basePrompt.length, SECTION_EVIDENCE_SHARE)
       )
       if (!evidencePacket) continue
 

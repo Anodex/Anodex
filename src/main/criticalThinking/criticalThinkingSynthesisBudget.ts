@@ -168,6 +168,39 @@ export function criticalThinkingSynthesisLimits(
   }
 }
 
+/**
+ * How many characters of evidence a prompt can actually carry.
+ *
+ * Every caller was computing this inline, and each one got the same thing
+ * subtly wrong in the same way, so the rule lives here once.
+ *
+ * Two facts decide it. The first is physical: whatever the rest of the prompt
+ * did not use is room the evidence can have. The second is that the other
+ * inputs are *capped*, not fixed -- a short question or a thin set of findings
+ * leaves room behind, and handing that room to the evidence is right, because
+ * the evidence is the one input nothing else in the prompt can stand in for.
+ * `maxEvidenceChars` is therefore a floor the budget guarantees, not a ceiling
+ * to stop at; the scaffold accounting in `criticalThinkingSynthesisLimits` is
+ * what makes the room reliably exist.
+ *
+ * `maxShare` is for a prompt that deliberately wants less than the whole
+ * report's packet -- a per-step section reasons about one step, so it caps its
+ * growth at a share of the run's budget rather than taking the room. Omit it
+ * to take the room.
+ */
+export function evidencePacketChars(
+  limits: CriticalThinkingSynthesisLimits,
+  promptWithoutEvidenceChars: number,
+  maxShare?: number
+): number {
+  const room = Math.max(0, limits.maxPromptChars - Math.max(0, promptWithoutEvidenceChars))
+  const ceiling =
+    maxShare === undefined
+      ? MAX_EVIDENCE_CHARS
+      : Math.min(MAX_EVIDENCE_CHARS, Math.floor(limits.maxEvidenceChars * maxShare))
+  return Math.min(ceiling, room)
+}
+
 export function criticalThinkingContextTokens(
   provider: CriticalThinkingProvider,
   model: string | null,
