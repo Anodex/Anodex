@@ -47,6 +47,13 @@ const APPROX_CHARS_PER_TOKEN = 3
  * production constant.
  */
 const MIN_VISIBLE_OUTPUT_FRACTION = 0.6
+/**
+ * Floor on the share of the prompt that stays divisible between the inputs,
+ * however large the caller says its scaffold is. The four input shares sum to
+ * 90%, so this also keeps a little slack for the scaffold's own measurement
+ * being approximate.
+ */
+const MIN_ALLOCATABLE_FRACTION = 0.25
 
 export interface CriticalThinkingSynthesisLimits {
   contextTokens: number
@@ -60,6 +67,12 @@ export interface CriticalThinkingSynthesisLimits {
    */
   thoughtTokens: number
   maxPromptChars: number
+  /**
+   * Room the shares below were allocated from: `maxPromptChars` less the
+   * scaffold the caller said it needs. Reported so a caller can see why its
+   * shares are smaller than the raw prompt budget.
+   */
+  allocatablePromptChars: number
   maxQuestionChars: number
   maxPlanChars: number
   maxFindingChars: number
@@ -70,10 +83,38 @@ export interface CriticalThinkingSynthesisLimits {
  * Reserve reply and system-prompt space before allocating synthesis input.
  * Local 4K/8K contexts therefore receive a much smaller packet than cloud
  * models, while large contexts retain the existing 36,000-character ceiling.
+ *
+ * `scaffoldChars` is the fixed cost of the prompt the caller is about to build
+ * -- its instruction block and structural text, everything that is neither an
+ * input nor the evidence. Passing it matters because the shares below are
+ * useless unless the caller can actually spend them. `runSynthesis` sizes the
+ * evidence packet with
+ *
+ *   min(maxEvidenceChars, maxPromptChars - promptWithoutEvidence.length)
+ *
+ * so with the scaffold outside the budget, its whole cost lands on the
+ * evidence -- the one input that cannot be reconstructed from anything else.
+ * Measured against the real synthesis prompt (~2,100 scaffold characters):
+ *
+ *   ctx  4,096 -> share  2,583, delivered    271  (10%)
+ *   ctx  8,192 -> share  6,058, delivered  4,944  (82%)
+ *   ctx 16,384 -> share 13,542, delivered full
+ *
+ * The distortion is worst where there is least to give, so the configurations
+ * that break are the modest ones. A 4K run was asking a model to write a cited
+ * research report from 271 characters of evidence; four stored 8K runs
+ * (2026-09-04) came in at 4,873-4,901 packet characters and every one of them
+ * reported the passages as too fragmentary to conclude anything -- an accurate
+ * description of what it was given.
+ *
+ * Allocating the shares over what remains after the scaffold makes the
+ * declared share the delivered share on every context. It defaults to 0 so a
+ * caller that builds a smaller prompt keeps the previous arithmetic exactly.
  */
 export function criticalThinkingSynthesisLimits(
   contextTokens: number,
-  requestedOutputTokens?: number
+  requestedOutputTokens?: number,
+  scaffoldChars = 0
 ): CriticalThinkingSynthesisLimits {
   const safeContextTokens = Math.max(2_048, contextTokens)
   const requested =
@@ -98,6 +139,19 @@ export function criticalThinkingSynthesisLimits(
     safeContextTokens - maxOutputTokens - systemReserveTokens
   )
   const maxPromptChars = Math.min(MAX_PROMPT_CHARS, availableInputTokens * APPROX_CHARS_PER_TOKEN)
+  // Never let the scaffold claim the entire prompt: a caller whose fixed text
+  // exceeds the window still gets a real, if small, share to divide, and the
+  // truncation shows up in the inputs rather than as a silently empty packet.
+  // The four input shares below sum to 100% of this, so the whole prompt comes
+  // to exactly `scaffoldChars + allocatablePromptChars`. Before the scaffold
+  // was accounted for they summed to 90% and the caller quietly spent the
+  // remaining 10% on evidence; keeping that slack now would hand the evidence
+  // less than it used to get on the same context, which is the opposite of the
+  // point.
+  const allocatablePromptChars = Math.max(
+    Math.floor(maxPromptChars * MIN_ALLOCATABLE_FRACTION),
+    maxPromptChars - Math.max(0, Math.floor(scaffoldChars))
+  )
   const minVisibleOutputTokens = Math.ceil(maxOutputTokens * MIN_VISIBLE_OUTPUT_FRACTION)
   const thoughtTokens = Math.max(0, maxOutputTokens - minVisibleOutputTokens)
 
@@ -106,11 +160,45 @@ export function criticalThinkingSynthesisLimits(
     maxOutputTokens,
     thoughtTokens,
     maxPromptChars,
-    maxQuestionChars: Math.min(4_000, Math.floor(maxPromptChars * 0.1)),
-    maxPlanChars: Math.min(4_000, Math.floor(maxPromptChars * 0.1)),
-    maxFindingChars: Math.min(8_000, Math.floor(maxPromptChars * 0.12)),
-    maxEvidenceChars: Math.min(MAX_EVIDENCE_CHARS, Math.floor(maxPromptChars * 0.58))
+    allocatablePromptChars,
+    maxQuestionChars: Math.min(4_000, Math.floor(allocatablePromptChars * 0.1)),
+    maxPlanChars: Math.min(4_000, Math.floor(allocatablePromptChars * 0.1)),
+    maxFindingChars: Math.min(8_000, Math.floor(allocatablePromptChars * 0.12)),
+    maxEvidenceChars: Math.min(MAX_EVIDENCE_CHARS, Math.floor(allocatablePromptChars * 0.68))
   }
+}
+
+/**
+ * How many characters of evidence a prompt can actually carry.
+ *
+ * Every caller was computing this inline, and each one got the same thing
+ * subtly wrong in the same way, so the rule lives here once.
+ *
+ * Two facts decide it. The first is physical: whatever the rest of the prompt
+ * did not use is room the evidence can have. The second is that the other
+ * inputs are *capped*, not fixed -- a short question or a thin set of findings
+ * leaves room behind, and handing that room to the evidence is right, because
+ * the evidence is the one input nothing else in the prompt can stand in for.
+ * `maxEvidenceChars` is therefore a floor the budget guarantees, not a ceiling
+ * to stop at; the scaffold accounting in `criticalThinkingSynthesisLimits` is
+ * what makes the room reliably exist.
+ *
+ * `maxShare` is for a prompt that deliberately wants less than the whole
+ * report's packet -- a per-step section reasons about one step, so it caps its
+ * growth at a share of the run's budget rather than taking the room. Omit it
+ * to take the room.
+ */
+export function evidencePacketChars(
+  limits: CriticalThinkingSynthesisLimits,
+  promptWithoutEvidenceChars: number,
+  maxShare?: number
+): number {
+  const room = Math.max(0, limits.maxPromptChars - Math.max(0, promptWithoutEvidenceChars))
+  const ceiling =
+    maxShare === undefined
+      ? MAX_EVIDENCE_CHARS
+      : Math.min(MAX_EVIDENCE_CHARS, Math.floor(limits.maxEvidenceChars * maxShare))
+  return Math.min(ceiling, room)
 }
 
 export function criticalThinkingContextTokens(

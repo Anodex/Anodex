@@ -112,15 +112,20 @@ describe('CriticalThinkingEvidenceStore', () => {
       provider: 'test',
       results: []
     })
-    const blockedTemporaryPath = join(directory, `critical_second.json.${process.pid}.tmp`)
-    await mkdir(blockedTemporaryPath)
+    // Block the write by making the *destination* unusable, rather than by
+    // pre-creating the temp file at a guessed name. The temp name is a random
+    // UUID -- deliberately, so two app instances cannot collide on one path --
+    // so a test that guesses it is testing the naming scheme, not the retry
+    // behaviour it means to.
+    const blockedDestination = join(directory, 'critical_second.json')
+    await mkdir(blockedDestination)
 
     store.record('critical_first', artifact('first', 'critical_first'))
     store.record('critical_second', artifact('second', 'critical_second'))
     store.record('critical_third', artifact('third', 'critical_third'))
     await expect(store.flush()).rejects.toBeInstanceOf(Error)
 
-    await rm(blockedTemporaryPath, { recursive: true, force: true })
+    await rm(blockedDestination, { recursive: true, force: true })
     await store.flush()
     await expect(readFile(join(directory, 'critical_second.json'), 'utf8')).resolves.toContain(
       'second'
