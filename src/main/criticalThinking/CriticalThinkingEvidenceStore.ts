@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { rename, rm, writeFile } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
+import { writeJsonAtomicAsync } from '../utils/atomicWrite'
 import { join } from 'node:path'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
 import { createLogger } from '../utils/logger'
@@ -103,10 +104,7 @@ export class CriticalThinkingEvidenceStore {
             if (artifacts === null) {
               await rm(path, { force: true })
             } else {
-              const snapshot = JSON.stringify(artifacts, null, 2)
-              const temporaryPath = `${path}.${process.pid}.tmp`
-              await writeFile(temporaryPath, snapshot, 'utf8')
-              await rename(temporaryPath, path)
+              await writeJsonAtomicAsync(path, artifacts)
             }
             this.lastWriteError = null
           } catch (error) {

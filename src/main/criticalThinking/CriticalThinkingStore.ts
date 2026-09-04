@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
-import { rename, writeFile } from 'node:fs/promises'
+import { writeJsonAtomicAsync } from '../utils/atomicWrite'
 import { join } from 'node:path'
 import type {
   CriticalThinkingCompletionDiagnostic,
@@ -201,10 +201,7 @@ export class CriticalThinkingStore {
         const runs = this.pendingRuns
         this.pendingRuns = null
         try {
-          const snapshot = JSON.stringify(runs, null, 2)
-          const temporaryPath = `${this.filePath}.${process.pid}.tmp`
-          await writeFile(temporaryPath, snapshot, 'utf8')
-          await rename(temporaryPath, this.filePath)
+          await writeJsonAtomicAsync(this.filePath, runs)
           this.lastWriteError = null
         } catch (error) {
           this.lastWriteError = error
