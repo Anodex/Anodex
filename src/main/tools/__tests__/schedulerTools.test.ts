@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ScheduledTask, CreateScheduledTaskRequest } from '@shared/scheduledTask.types'
-import { scheduleTaskTool } from '../schedulerTools'
+import { deleteScheduledTaskTool, scheduleTaskTool } from '../schedulerTools'
 import { headlessConfirm } from '../headlessConfirm'
 import { captureConfirmations, createMockContext, createMockDefine } from './test-helpers'
 
 const createMock = vi.fn<(request: CreateScheduledTaskRequest) => ScheduledTask>()
 const notifyMock = vi.fn<() => void>()
+const listMock = vi.fn<() => ScheduledTask[]>()
+const deleteMock = vi.fn<(id: string) => void>()
 
 vi.mock('../../scheduler/SchedulerStore', () => ({
-  schedulerStore: { create: (request: CreateScheduledTaskRequest) => createMock(request) }
+  schedulerStore: {
+    create: (request: CreateScheduledTaskRequest) => createMock(request),
+    list: () => listMock(),
+    delete: (id: string) => deleteMock(id)
+  }
 }))
 
 vi.mock('../../scheduler/SchedulerService', () => ({
@@ -167,5 +173,110 @@ describe('schedule_task', () => {
     const result = await tool.handler({ when: 'in 45 minutes', prompt: 'Retry the failed step.' })
 
     expect(result).toContain('Scheduled')
+  })
+})
+
+type DeleteTool = { handler: (args: { name: string }) => Promise<string> }
+
+/** A stored task with just the fields the delete path reads. */
+function taskNamed(id: string, name: string): ScheduledTask {
+  return {
+    ...taskFrom({
+      prompt: 'p',
+      projectId: null,
+      recurrence: { type: 'once', runAt: 0 }
+    } as CreateScheduledTaskRequest),
+    id,
+    name
+  }
+}
+
+describe('delete_scheduled_task', () => {
+  beforeEach(() => {
+    listMock.mockReset()
+    deleteMock.mockReset()
+    notifyMock.mockReset()
+    listMock.mockReturnValue([
+      taskNamed('task-1', 'Interval test'),
+      taskNamed('task-2', 'Reminder: meeting with James')
+    ])
+  })
+
+  it('confirms the task it resolved, not the name the model typed', async () => {
+    // The user is approving the removal of standing work. A card that only
+    // echoed their words back would confirm nothing about which task goes.
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = deleteScheduledTaskTool(createMockDefine(), ctx) as unknown as DeleteTool
+
+    const result = await tool.handler({ name: 'interval' })
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0].detail).toContain('Interval test')
+    expect(deleteMock).toHaveBeenCalledWith('task-1')
+    expect(notifyMock).toHaveBeenCalled()
+    expect(result).toContain('Deleted "Interval test"')
+  })
+
+  it('refuses an ambiguous name instead of picking one', async () => {
+    // Deleting the wrong standing task is silent: nothing errors, and the user
+    // finds out when the thing it did stops happening.
+    listMock.mockReturnValue([taskNamed('a', 'Daily digest'), taskNamed('b', 'Daily standup')])
+    const { confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = deleteScheduledTaskTool(createMockDefine(), ctx) as unknown as DeleteTool
+
+    const result = await tool.handler({ name: 'daily' })
+
+    expect(deleteMock).not.toHaveBeenCalled()
+    expect(result).toContain('matches 2 tasks')
+    expect(result).toContain('Daily digest')
+    expect(result).toContain('Daily standup')
+  })
+
+  it('prefers an exact name over a longer one containing it', async () => {
+    listMock.mockReturnValue([taskNamed('a', 'Test'), taskNamed('b', 'Test run')])
+    const { confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = deleteScheduledTaskTool(createMockDefine(), ctx) as unknown as DeleteTool
+
+    await tool.handler({ name: 'Test' })
+
+    expect(deleteMock).toHaveBeenCalledWith('a')
+  })
+
+  it('names the existing tasks when nothing matches', async () => {
+    const { confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = deleteScheduledTaskTool(createMockDefine(), ctx) as unknown as DeleteTool
+
+    const result = await tool.handler({ name: 'nonexistent' })
+
+    expect(deleteMock).not.toHaveBeenCalled()
+    expect(result).toContain('Interval test')
+  })
+
+  it('deletes nothing when the user declines', async () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      confirm: () => Promise.resolve({ approved: false })
+    }
+    const tool = deleteScheduledTaskTool(createMockDefine(), ctx) as unknown as DeleteTool
+
+    await tool.handler({ name: 'Interval test' })
+
+    expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  it('cannot delete a task in an unattended run', async () => {
+    // The case this exists for is a scheduled task deleting scheduled tasks.
+    // `headlessConfirm` refuses destructive work, so an unattended run cannot
+    // reach the store however it is prompted.
+    const ctx = { ...createMockContext('/workspace'), confirm: headlessConfirm }
+    const tool = deleteScheduledTaskTool(createMockDefine(), ctx) as unknown as DeleteTool
+
+    await tool.handler({ name: 'Interval test' })
+
+    expect(deleteMock).not.toHaveBeenCalled()
   })
 })

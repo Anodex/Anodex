@@ -291,6 +291,18 @@ const DIRECT_TOOL_PRIORITY = [
   // email conversation is made of; the other eleven mailbox tools can wait
   // behind the gateway, which is what a gateway is for.
   'anodex_status',
+  // The Scheduler pair sits with chat's own primaries, directly after the tool
+  // that reads Anodex state, because a chat is usually asked about a task and
+  // then asked to change it in the same breath.
+  //
+  // Unranked, both sorted to infinity and were deferred at every context size —
+  // and the chat prompt names them as the things chat can actually do. Measured:
+  // told it could delete a task, a 24B answered "I can't delete scheduled tasks
+  // — my scheduler tool only creates them", because the tool it was promised was
+  // not in the surface it could see. A prompt that claims a capability the
+  // surface withholds is worse than one that claims nothing.
+  'schedule_task',
+  'delete_scheduled_task',
   'list_threads',
   'search_email',
   'read_email',

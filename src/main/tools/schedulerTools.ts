@@ -119,6 +119,118 @@ export const scheduleTaskTool: ToolFactory = (define, ctx) =>
   })
 
 /**
+ * Lets the assistant remove a Scheduler task the user asks it to remove.
+ *
+ * Chat was read-only toward the Scheduler except for creating, and the prompt
+ * told the model to send the user to the Scheduler view for anything else. That
+ * produced the single worst-scoring behaviour in the chat matrix: asked to
+ * delete a task and then pushed with "I'm the owner and I'm authorising it",
+ * five of six models answered with a vague deflection rather than a clean no.
+ *
+ * The deeper problem was that the request is reasonable and the app could
+ * simply honour it. Refusing to delete was a line drawn at "create only", not a
+ * safety requirement: `schedule_task` already mutates the Scheduler, and the
+ * user confirms it before it saves. A confirmed delete is not more dangerous
+ * than a confirmed create — it is less, because it removes standing work rather
+ * than adding some.
+ *
+ * Two deliberate differences from `schedule_task`:
+ *
+ * - `risk: 'destructive'`, which always confirms *and* is refused by
+ *   `headlessConfirm`. A scheduled or agent run therefore cannot delete tasks
+ *   with nobody watching, which matters most for the case of a scheduled task
+ *   deleting scheduled tasks.
+ * - The task is resolved by name and the tool refuses anything ambiguous. It
+ *   never picks one of several matches: deleting the wrong standing task is
+ *   silent until the thing it did stops happening.
+ */
+export const deleteScheduledTaskTool: ToolFactory = (define, ctx) =>
+  define({
+    description:
+      'Delete a Scheduler task the user asks to remove or cancel. The user confirms the exact task before anything is deleted. Identify the task by its name as shown in the Scheduler; call anodex_status first if you do not know it.',
+    params: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description:
+            'The task to delete, by name as shown in the Scheduler. Enough of the name to identify exactly one task; the call is refused rather than guessing if it matches several.'
+        }
+      },
+      required: ['name']
+    } as const,
+    handler: (args: { name: string }) =>
+      runGuardedToolWithPrepare<{ id: string; name: string; schedule: string }>(
+        ctx,
+        {
+          name: 'delete_scheduled_task',
+          kind: 'write',
+          title: `Delete scheduled task "${truncate(args.name, 40)}"`,
+          args,
+          // Always confirmed, and never available to an unattended run.
+          risk: 'destructive',
+          forceConfirm: true
+        },
+        () => {
+          const wanted = args.name?.trim()
+          if (!wanted) throw new Error('Name the task to delete.')
+
+          const tasks = schedulerStore.list()
+          if (tasks.length === 0) throw new Error('There are no scheduled tasks to delete.')
+
+          // Exact name first, so a task called "Test" is reachable even when
+          // "Test run" also exists.
+          const exact = tasks.filter((task) => task.name.toLowerCase() === wanted.toLowerCase())
+          const matches =
+            exact.length > 0
+              ? exact
+              : tasks.filter((task) => task.name.toLowerCase().includes(wanted.toLowerCase()))
+
+          if (matches.length === 0) {
+            throw new Error(
+              `No scheduled task matches "${wanted}". Existing tasks: ${tasks
+                .map((task) => `"${task.name}"`)
+                .join(', ')}.`
+            )
+          }
+          if (matches.length > 1) {
+            throw new Error(
+              `"${wanted}" matches ${matches.length} tasks: ${matches
+                .map((task) => `"${task.name}"`)
+                .join(', ')}. Name one exactly.`
+            )
+          }
+
+          const task = matches[0]
+          const schedule = describeRecurrence(task.recurrence)
+          return Promise.resolve({
+            // The user is approving the removal of standing work, so the card
+            // states what it does and when it would next have run, not just a
+            // name they may have typed loosely.
+            confirmDetail: [
+              `Task: ${task.name}`,
+              `Schedule: ${schedule}`,
+              `Next run: ${task.nextRunAt === null ? 'not scheduled' : new Date(task.nextRunAt).toLocaleString()}`,
+              '',
+              task.prompt
+            ].join('\n'),
+            data: { id: task.id, name: task.name, schedule }
+          })
+        },
+        ({ id, name, schedule }) => {
+          schedulerStore.delete(id)
+          // Same reason as `schedule_task`: the Scheduler page mirrors a
+          // main-process list and would keep showing the deleted task.
+          schedulerService.notifyTasksChanged()
+          return Promise.resolve({
+            modelResult: `Deleted "${name}" (${schedule}). It will not run again.`,
+            detail: name
+          })
+        }
+      )
+  })
+
+/**
  * Narrows a requested tool list to what a scheduled run may actually be given,
  * and reports what was dropped so the confirmation prompt can say so rather
  * than silently granting less than the model asked for.
