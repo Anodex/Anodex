@@ -11,6 +11,7 @@ import { confirmationsForConversation } from '../../stores/pendingConfirmations'
 import { Icon } from '../../components/Icon'
 import { DiffView } from './DiffView'
 import { DiffStat } from './ToolCallCard'
+import { confirmCardPresentation } from './confirmCardPresentation'
 import styles from './ToolConfirmCard.module.css'
 
 /**
@@ -109,14 +110,7 @@ function ConfirmItem({
   }, [listenForEscape, denying, onResolve])
 
   const draft = request.emailDraft
-  const config = draft
-    ? {
-        ...DRAFT_CONFIG,
-        title: draft.inReplyToSubject
-          ? `Send this reply to "${draft.inReplyToSubject}"?`
-          : 'Send this email?'
-      }
-    : KIND_CONFIG[request.kind]
+  const config = confirmCardPresentation(request)
 
   return (
     <div
@@ -241,45 +235,4 @@ function EmailDraftBody({ draft }: { draft: EmailDraftPreview }): JSX.Element {
       <div className={styles.draftText}>{draft.body}</div>
     </div>
   )
-}
-
-const DRAFT_CONFIG = {
-  icon: 'send',
-  style: 'draft',
-  approveLabel: 'Send'
-} as const
-
-const KIND_CONFIG: Record<
-  'write' | 'command' | 'web' | 'mcp',
-  {
-    icon: 'copy' | 'terminal' | 'web' | 'plug'
-    style: 'write' | 'command' | 'web' | 'mcp'
-    title: string
-    approveLabel: string
-  }
-> = {
-  write: {
-    icon: 'copy',
-    style: 'write',
-    title: 'Apply file change?',
-    approveLabel: 'Apply'
-  },
-  command: {
-    icon: 'terminal',
-    style: 'command',
-    title: 'Run command?',
-    approveLabel: 'Run'
-  },
-  mcp: {
-    icon: 'plug',
-    style: 'mcp',
-    title: 'Run MCP tool?',
-    approveLabel: 'Run'
-  },
-  web: {
-    icon: 'web',
-    style: 'web',
-    title: 'Search the web?',
-    approveLabel: 'Search'
-  }
 }
