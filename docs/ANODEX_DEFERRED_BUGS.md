@@ -726,3 +726,40 @@ the autorun harnesses. What was fixed is in git; these are the ones left.
   machine, because SearXNG is down and starting it needs a password. Two bugs
   found while testing it are fixed (`6eaf28a`, `cbd9113`); the surface itself
   still needs one clean run.
+
+- **A partially degraded search is invisible, and it sets the Critical Thinking
+  quality ceiling.** `searxng.ts` reports a degraded search only when results
+  are empty _and_ engines are unresponsive. That was a deliberate call — a
+  partial result set is still usable evidence, and discarding it would trade a
+  quiet failure for a loud one — but it has no middle ground between throwing
+  and saying nothing. Measured 2026-09-04 on this machine:
+
+      general intent:   0 results; brave, duckduckgo, google cse, startpage
+                        all blocked (rate limit / CAPTCHA) — throws correctly
+      scholarly intent: 10 results, all 10 from arxiv.org, with six engines
+                        unresponsive including Google Scholar and Semantic
+                        Scholar — returns silently
+
+  Critical Thinking searches with `scholarly` intent, so it always gets
+  results and never sees the warning. Runs 53–61 therefore researched a
+  consumer heat-pump retrofit question — which needs manufacturer datasheets,
+  AHRI listings, utility tariffs and owner complaints — against an
+  arxiv-preprint-only corpus. The coverage assessment reported `insufficient`
+  on 100% of rounds across those runs, and reading the rationales, **it was
+  right every time**: the evidence genuinely did not contain what the plan
+  asked for.
+
+  Not fixed because the obvious fix is fragile. The provider cannot tell a
+  "general" engine from a scholarly one without a hardcoded engine list, which
+  would be instance-specific and would rot. A non-fragile signal does exist —
+  every result arriving from one host while several engines are unresponsive —
+  but `SearchProvider.search` returns `SearchResult[]` with no channel for a
+  warning, so surfacing it means changing the interface every provider and
+  every caller (chat and agent included) shares. That is worth doing
+  deliberately, not in passing.
+
+  **This qualifies every Critical Thinking quality number measured on
+  2026-09-04.** The budget, verdict, chooser and recovery fixes are verified by
+  arithmetic, unit tests and a 48-run replay, and stand on their own. The
+  report _quality_ those runs reached is bounded by an arxiv-only corpus and
+  should be re-measured once the search backend serves the general web again.

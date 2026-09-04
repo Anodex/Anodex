@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { noSourcesFailureMessage, researchFailureReason } from './researchFailureReason'
+import { isRecoveredStage } from './criticalThinkingReportStage'
+import { reportNeedsHierarchicalRecovery } from './criticalThinkingRecoveryDecision'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { IpcChannel } from '@shared/ipc'
 import { broadcastToWindows } from '../broadcast'
@@ -51,6 +54,7 @@ import {
 } from './criticalThinkingPrompts'
 import {
   buildEvidencePacket,
+  verifiedEvidenceChars,
   renderResearchCitations,
   stripUnsupportedChartBlocks,
   validateResearchReport
@@ -84,6 +88,7 @@ import {
   boundPromptItems,
   criticalThinkingContextTokens,
   criticalThinkingSynthesisLimits,
+  evidencePacketChars,
   truncatePromptText,
   type CriticalThinkingSynthesisLimits
 } from './criticalThinkingSynthesisBudget'
@@ -624,11 +629,24 @@ class CriticalThinkingService {
   private async runSynthesis(run: CriticalThinkingRun, signal: AbortSignal): Promise<void> {
     const artifacts = criticalThinkingEvidenceStore.list(run.id)
     const verifiedSources = run.sources.filter((source) => source.verified)
+    // The prompt's fixed instruction block is not free, and it is not an input:
+    // sizing the shares without it charges its whole cost to the evidence,
+    // which is the one part of the prompt nothing else can stand in for. On a
+    // 4K context that took the packet from a 2,583-character share down to 271
+    // characters actually delivered. Measure the scaffold with every input
+    // emptied, then let the budget allocate what genuinely remains.
+    const scaffoldChars = buildCriticalThinkingSynthesisPrompt(
+      '',
+      { ...run.plan!, steps: [] },
+      [],
+      ''
+    ).length
     const limits = criticalThinkingSynthesisLimits(
       criticalThinkingContextTokens(run.provider, run.model, llamaService.getState().contextSize),
       run.provider === 'local'
         ? providerMaxResponseTokens(settingsStore.get().provider, 'local')
-        : undefined
+        : undefined,
+      scaffoldChars
     )
     const question = truncatePromptText(run.question, limits.maxQuestionChars)
     const plan = boundPlanForPrompt(run.plan!, limits.maxPlanChars)
@@ -640,15 +658,22 @@ class CriticalThinkingService {
     const evidencePacket = buildEvidencePacket(
       artifacts,
       run.sources,
-      Math.max(
-        0,
-        Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptWithoutEvidence.length)
-      )
+      evidencePacketChars(limits, promptWithoutEvidence.length)
     )
+    // What the model can see, over what there was to see. A one-shot report
+    // written from a tenth of the research is not a verdict on the research,
+    // and the floors further down cannot tell the difference -- see
+    // `criticalThinkingRecoveryDecision.ts`. 1 when there is no evidence to
+    // miss, so an empty run is never mistaken for a starved one.
+    const evidenceCorpusChars = verifiedEvidenceChars(artifacts, run.sources)
+    const evidenceCoverage =
+      evidenceCorpusChars > 0 ? evidencePacket.length / evidenceCorpusChars : 1
     if (!evidencePacket || verifiedSources.length === 0) {
+      // Say why, when the activities already know. A search backend that is
+      // switched off and a question research could not answer produce the same
+      // empty result, and only one of them is worth acting on.
       this.finish(run.id, 'partial', {
-        lastError:
-          'Research finished without a fetched source that could support a validated report.'
+        lastError: researchFailureReason(run.activities)
       })
       return
     }
@@ -658,6 +683,7 @@ class CriticalThinkingService {
       completedAt: null,
       verifiedSourceCount: verifiedSources.length,
       evidencePacketChars: evidencePacket.length,
+      evidenceCorpusChars,
       strategy: 'single-pass',
       selectedStage: null,
       chartAdded: false,
@@ -739,6 +765,9 @@ class CriticalThinkingService {
       run.question
     )
     let selectedStage: CriticalThinkingSynthesisStage = 'draft'
+    // Set only when hierarchical recovery is the stage that ships, so a
+    // one-shot report is never judged on what the recovery path did.
+    let usedDeterministicSections = false
     let chartAdded = false
     recordDiagnostic(
       reportCandidateDiagnostic('draft', candidate, synthesisStopReason, undefined, thinkingChars)
@@ -774,6 +803,10 @@ class CriticalThinkingService {
       )
       const repairBase = buildCriticalThinkingRepairPrompt('', repairIssues, '')
       const repairRemaining = Math.max(0, limits.maxPromptChars - repairBase.length)
+      // Not `evidencePacketChars`, and not the evidence share by coincidence:
+      // a repair prompt has to carry the draft being repaired as well, so this
+      // splits what is left between the two. Letting the evidence take the
+      // whole remainder here would truncate the draft it is meant to fix.
       const repairEvidence = buildEvidencePacket(
         artifacts,
         run.sources,
@@ -837,7 +870,7 @@ class CriticalThinkingService {
 
     const stepsWithEvidence = run.steps.filter((step) => step.evidenceIds.length > 0).length
     if (
-      reportNeedsHierarchicalRecovery(candidate, stepsWithEvidence) &&
+      reportNeedsHierarchicalRecovery(candidate, stepsWithEvidence, evidenceCoverage) &&
       repairStopReason !== 'user' &&
       run.provider === 'local' &&
       stepsWithEvidence > 1
@@ -858,7 +891,10 @@ class CriticalThinkingService {
       }
       if (hierarchical.candidate) {
         const selected = chooseBetterReportCandidate(candidate, hierarchical.candidate)
-        if (selected === hierarchical.candidate) selectedStage = 'hierarchical-report'
+        if (selected === hierarchical.candidate) {
+          selectedStage = 'hierarchical-report'
+          usedDeterministicSections = hierarchical.usedDeterministicSections
+        }
         candidate = selected
       }
     }
@@ -997,7 +1033,7 @@ class CriticalThinkingService {
             candidate.structurallyValid &&
             !limitedSteps &&
             !repairStopReason &&
-            !isRecoveredStage(selectedStage)
+            !isRecoveredStage(selectedStage, usedDeterministicSections)
           ? 'completed'
           : 'partial'
     synthesisDiagnostics = {
@@ -1009,7 +1045,7 @@ class CriticalThinkingService {
         candidate,
         limitedSteps,
         repairStopReason,
-        isRecoveredStage(selectedStage)
+        isRecoveredStage(selectedStage, usedDeterministicSections)
       )
     }
     this.finish(run.id, status, {
@@ -1022,7 +1058,8 @@ class CriticalThinkingService {
         limitedSteps,
         repairStopReason,
         run.steps,
-        selectedStage
+        selectedStage,
+        usedDeterministicSections
       )
     })
     showToastWindow({
@@ -1048,9 +1085,18 @@ class CriticalThinkingService {
     stats: GenerationStats
     attempts: CriticalThinkingSynthesisAttemptDiagnostic[]
     stopReason?: GenerationStopReason
+    /**
+     * Whether any section that actually shipped came from the deterministic
+     * excerpt builder rather than the model. An assembled report standing on
+     * one of those is resting on raw excerpts, which is the thing the
+     * fallback stages are rejected for; a report whose sections are all the
+     * model's own is the small-context strategy working.
+     */
+    usedDeterministicSections: boolean
   }> {
     const attempts: CriticalThinkingSynthesisAttemptDiagnostic[] = []
     const sections = new Map<string, string>()
+    const deterministicSections = new Set<string>()
     let stats: GenerationStats = { tokens: 0, durationMs: 0, tokensPerSecond: 0 }
     /**
      * The sections finished so far, assembled into a report.
@@ -1068,6 +1114,13 @@ class CriticalThinkingService {
      * draft — so a thin partial simply loses rather than replacing a better
      * report.
      */
+    /**
+     * Whether a deterministic section is in what actually ships. A step whose
+     * fallback lost to the model's own section, or whose section never made it
+     * into `sections` at all, does not count against the report.
+     */
+    const shippedDeterministicSection = (): boolean =>
+      [...deterministicSections].some((stepId) => sections.has(stepId))
     const salvageSections = (): ReportCandidate | null => {
       if (sections.size === 0) return null
       return evaluateReportCandidate(
@@ -1110,19 +1163,13 @@ class CriticalThinkingService {
         step.uncertainties,
         ''
       )
+      // A section reasons about one step, so it needs less evidence than the
+      // whole report -- a share of the run's budget rather than a flat ceiling,
+      // which stopped a larger context buying a fuller section.
       const evidencePacket = buildEvidencePacket(
         stepArtifacts,
         run.sources,
-        Math.max(
-          0,
-          Math.min(
-            // A section reasons about one step, so it needs less evidence than
-            // the whole report -- a share of the run's budget rather than a flat
-            // ceiling, which stopped a larger context buying a fuller section.
-            Math.floor(limits.maxEvidenceChars * SECTION_EVIDENCE_SHARE),
-            limits.maxPromptChars - basePrompt.length
-          )
-        )
+        evidencePacketChars(limits, basePrompt.length, SECTION_EVIDENCE_SHARE)
       )
       if (!evidencePacket) continue
 
@@ -1166,6 +1213,8 @@ class CriticalThinkingService {
         const repairIssues = boundPromptItems(sectionCandidate.issues, 1_500)
         const repairBase = buildCriticalThinkingSectionRepairPrompt('', repairIssues, '')
         const repairRemaining = Math.max(0, limits.maxPromptChars - repairBase.length)
+        // As above: split between the evidence and the section being repaired,
+        // rather than the packet-sizing rule.
         const repairEvidence = buildEvidencePacket(
           stepArtifacts,
           run.sources,
@@ -1202,7 +1251,13 @@ class CriticalThinkingService {
         )
         sectionCandidate = chooseBetterHierarchicalSection(sectionCandidate, repairedCandidate)
         if (repairedStopReason && !isRecoverableContentStopReason(repairedStopReason)) {
-          return { candidate: salvageSections(), stats, attempts, stopReason: repairedStopReason }
+          return {
+            candidate: salvageSections(),
+            stats,
+            attempts,
+            stopReason: repairedStopReason,
+            usedDeterministicSections: shippedDeterministicSection()
+          }
         }
       }
 
@@ -1217,14 +1272,25 @@ class CriticalThinkingService {
           hierarchicalSectionDiagnostic('section-fallback', fallbackCandidate, undefined, step.id)
         )
         sectionCandidate = chooseBetterHierarchicalSection(sectionCandidate, fallbackCandidate)
+        // Identity, not content: `chooseBetterHierarchicalSection` returns one
+        // of the two candidates, so this says which one won rather than
+        // guessing from the text.
+        if (sectionCandidate === fallbackCandidate) deterministicSections.add(step.id)
       }
       if (sectionCandidate.usable) sections.set(step.id, sectionCandidate.content)
       if (sectionStopReason && !isRecoverableContentStopReason(sectionStopReason)) {
-        return { candidate: salvageSections(), stats, attempts, stopReason: sectionStopReason }
+        return {
+          candidate: salvageSections(),
+          stats,
+          attempts,
+          stopReason: sectionStopReason,
+          usedDeterministicSections: shippedDeterministicSection()
+        }
       }
     }
 
-    if (sections.size === 0) return { candidate: null, stats, attempts }
+    if (sections.size === 0)
+      return { candidate: null, stats, attempts, usedDeterministicSections: false }
 
     if (sectionsNeedConsistencyReview(sections)) {
       const consistencyItems = run.steps.flatMap((step) => {
@@ -1290,7 +1356,13 @@ class CriticalThinkingService {
         )
       }
       if (consistencyStopReason && !isRecoverableContentStopReason(consistencyStopReason)) {
-        return { candidate: salvageSections(), stats, attempts, stopReason: consistencyStopReason }
+        return {
+          candidate: salvageSections(),
+          stats,
+          attempts,
+          stopReason: consistencyStopReason,
+          usedDeterministicSections: shippedDeterministicSection()
+        }
       }
     }
 
@@ -1344,7 +1416,13 @@ class CriticalThinkingService {
       attempts.push(rawSynthesisDiagnostic('overview', overviewResult.content, overviewStopReason))
     }
     if (overviewStopReason && !isRecoverableContentStopReason(overviewStopReason)) {
-      return { candidate: salvageSections(), stats, attempts, stopReason: overviewStopReason }
+      return {
+        candidate: salvageSections(),
+        stats,
+        attempts,
+        stopReason: overviewStopReason,
+        usedDeterministicSections: shippedDeterministicSection()
+      }
     }
 
     const baseReport = assembleHierarchicalReport({
@@ -1381,7 +1459,12 @@ class CriticalThinkingService {
       )
     }
     attempts.push(reportCandidateDiagnostic('hierarchical-report', candidate))
-    return { candidate, stats, attempts }
+    return {
+      candidate,
+      stats,
+      attempts,
+      usedDeterministicSections: shippedDeterministicSection()
+    }
   }
 
   private async runChartRecovery(
@@ -1405,7 +1488,7 @@ class CriticalThinkingService {
     const chartEvidence = buildEvidencePacket(
       artifacts,
       run.sources,
-      Math.max(0, Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptBase.length))
+      evidencePacketChars(limits, promptBase.length)
     )
     const outputTokens = Math.max(384, Math.min(1_536, Math.floor(limits.maxOutputTokens * 0.3)))
     const result = await this.runToolFreeTurn(
@@ -1835,7 +1918,7 @@ class CriticalThinkingService {
       this.finish(runId, emptyStatus, {
         lastError:
           emptyStatus === 'failed'
-            ? `Critical Thinking could not gather any usable web sources. ${reason} Check your web search provider and internet connection, then try again.`
+            ? noSourcesFailureMessage(run.activities, reason)
             : `Research ended before any source could be verified. ${reason}`
       })
       return
@@ -2067,14 +2150,6 @@ function normalizePlan(plan: Plan): Plan {
  * same outcome, and saying so is the difference between a run the user can
  * trust and one that overstates itself.
  */
-function isRecoveredStage(stage: CriticalThinkingSynthesisStage): boolean {
-  return (
-    stage === 'hierarchical-report' ||
-    stage === 'deterministic-fallback' ||
-    stage === 'section-fallback'
-  )
-}
-
 /** Sources that were actually fetched, which is what the evidence ceiling counts. */
 function verifiedSourceCount(sources: CriticalThinkingRun['sources']): number {
   return sources.filter((source) => source.verified).length
@@ -2147,19 +2222,6 @@ function reportCandidateDiagnostic(
       ? { contractIssues: candidate.contractIssues.slice(0, 12) }
       : {})
   }
-}
-
-function reportNeedsHierarchicalRecovery(
-  candidate: ReportCandidate,
-  stepsWithEvidence: number
-): boolean {
-  if (!candidate.usable) return true
-  const expectedCitedBlocks = Math.max(1, stepsWithEvidence)
-  const minimumDetailedChars = Math.max(1_200, stepsWithEvidence * 450)
-  return (
-    candidate.citedSubstantiveBlockCount < expectedCitedBlocks ||
-    candidate.length < minimumDetailedChars
-  )
 }
 
 function hierarchicalSectionDiagnostic(
@@ -2313,7 +2375,8 @@ function reportLastError(
   limitedSteps: boolean,
   repairStopReason: GenerationStopReason | undefined,
   steps: CriticalThinkingStepState[],
-  selectedStage: CriticalThinkingSynthesisStage
+  selectedStage: CriticalThinkingSynthesisStage,
+  usedDeterministicSections: boolean
 ): string | null {
   if (repairStopReason) {
     return `Report repair stopped early. ${stoppedReasonMessage(repairStopReason)}`
@@ -2321,9 +2384,18 @@ function reportLastError(
   // A recovered report validates easily because it is assembled from verified
   // excerpts, so without this it could read as an unqualified success while the
   // analysis the question asked for had been discarded.
-  const recovered = isRecoveredStage(selectedStage)
-    ? 'This report was assembled from verified excerpts because the written report did not pass its evidence checks. It is organised by research step rather than around your question.'
-    : null
+  //
+  // That warning is only true when excerpts really did stand in for the
+  // model's prose. A hierarchical report whose sections are all the model's
+  // own writing was told the same thing, which was simply false: nothing had
+  // failed its evidence checks and nothing had been discarded. All that is
+  // worth saying about it is how it is arranged, and even that is not a
+  // caveat so much as a description.
+  const recovered = !isRecoveredStage(selectedStage, usedDeterministicSections)
+    ? selectedStage === 'hierarchical-report'
+      ? 'This report is organised by research step rather than around your question.'
+      : null
+    : 'This report was assembled from verified excerpts because the written report did not pass its evidence checks. It is organised by research step rather than around your question.'
   if (candidate.overallValid) {
     const limits = limitedSteps ? limitedResearchMessage(steps) : null
     return [recovered, limits].filter(Boolean).join(' ') || null

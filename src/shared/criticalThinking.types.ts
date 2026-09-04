@@ -161,6 +161,15 @@ export interface CriticalThinkingSynthesisDiagnostics {
   completedAt: number | null
   verifiedSourceCount: number
   evidencePacketChars: number
+  /**
+   * Verified passage characters the run held, against which
+   * `evidencePacketChars` is the share the model actually saw. Recorded so the
+   * single-pass/hierarchical decision can be checked after the fact rather
+   * than reconstructed from the evidence store -- see
+   * `criticalThinkingRecoveryDecision.ts`. 0 on runs recorded before this
+   * existed.
+   */
+  evidenceCorpusChars: number
   strategy: 'single-pass' | 'hierarchical-recovery' | 'deterministic-fallback'
   /**
    * The stage that produced the prose that shipped. Deliberately not set to

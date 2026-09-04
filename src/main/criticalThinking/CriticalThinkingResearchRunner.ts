@@ -25,6 +25,7 @@ import { buildEvidencePacket } from './criticalThinkingEvidence'
 import {
   boundPromptItems,
   criticalThinkingSynthesisLimits,
+  evidencePacketChars,
   truncatePromptText
 } from './criticalThinkingSynthesisBudget'
 import {
@@ -678,7 +679,25 @@ export class CriticalThinkingResearchRunner {
   }> {
     const run = this.deps.getRun()
     const step = currentStep(run)
-    const limits = criticalThinkingSynthesisLimits(this.deps.contextTokens)
+    // The assessment prompt's fixed text is not an input, and sizing the
+    // shares without it charges its cost to the evidence packet this check
+    // reads. A starved coverage check cannot see that a step is already
+    // answered, so it asks for more searches -- the same run then gathers
+    // more sources and hands each one a thinner slice. Account for the
+    // scaffold so the evidence share is the share actually delivered.
+    const assessmentScaffoldChars = buildCriticalThinkingAssessmentPrompt(
+      '',
+      '',
+      [],
+      '',
+      round.index + 1,
+      run.researchPolicy.maxQueriesPerRound
+    ).length
+    const limits = criticalThinkingSynthesisLimits(
+      this.deps.contextTokens,
+      undefined,
+      assessmentScaffoldChars
+    )
     const artifacts = this.deps.listArtifacts()
     const stepArtifactSet = new Set(step.evidenceIds)
     const stepArtifacts = artifacts.filter((artifact) => stepArtifactSet.has(artifact.id))
@@ -701,7 +720,7 @@ export class CriticalThinkingResearchRunner {
     const evidencePacket = buildEvidencePacket(
       stepArtifacts,
       run.sources,
-      Math.max(0, Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptBase.length))
+      evidencePacketChars(limits, promptBase.length)
     )
     const activity = this.startActivity('analysis', 'Check evidence coverage')
     try {

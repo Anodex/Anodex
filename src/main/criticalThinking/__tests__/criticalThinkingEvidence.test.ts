@@ -90,6 +90,121 @@ describe('Critical Thinking evidence pipeline', () => {
     expect(validation.issues).toContain('Citation S1 has no fetched evidence passages.')
   })
 
+  /**
+   * Two things the coverage check counted as uncited claims when they are not
+   * claims at all.
+   *
+   * From a real run on 2026-09-04 (36 sources, 77 evidence items): synthesis was
+   * rejected 11 times out of 17 attempts and fell back to a mechanical
+   * step-by-step assembly. Among the text it rejected were a markdown table
+   * header and the report saying its own evidence packet lacked the numbers the
+   * question wanted.
+   *
+   * Both are structural, not factual. A table header states nothing about the
+   * world, and a sentence reporting the *absence* of evidence cannot cite
+   * evidence for it — demanding a source there asks for a citation proving a
+   * negative. The effect was that a report which honestly declared its gap was
+   * failed for declaring it, and the user got a worse report as a result.
+   *
+   * This loosens *coverage*, never safety: `validateNumericClaims` still fails a
+   * cited figure that is absent from its passage, wherever it appears.
+   */
+  it('does not treat a markdown table row as an uncited claim', () => {
+    const table = [
+      '| Source | Evidence class | What the passage establishes | What is missing |',
+      '| --- | --- | --- | --- |',
+      '| NREL | field study | seasonal performance in cold climates | per-house load |'
+    ].join(String.fromCharCode(10))
+
+    const validation = validateResearchReport(table, artifacts, sources)
+
+    expect(validation.issues.join(' ')).not.toContain('Material report text has no evidence')
+  })
+
+  it('does not demand a citation for the report reporting its own gap', () => {
+    const gap =
+      'Because the evidence packet lacks the numeric heat-loss inputs, the only defensible ' +
+      'conclusion for this section is a conditional one rather than a quantitative estimate.'
+
+    const validation = validateResearchReport(gap, artifacts, sources)
+
+    expect(validation.issues.join(' ')).not.toContain('Material report text has no evidence')
+  })
+
+  it('sees a table row that markdown left without a trailing pipe', () => {
+    // Real rejected text from run 54. Requiring pipes at both ends missed it.
+    const row = '| ORNL literature and technology review | Official | The document is a review'
+
+    const validation = validateResearchReport(row, artifacts, sources)
+
+    expect(validation.issues.join(' ')).not.toContain('Material report text has no evidence')
+  })
+
+  it('sees an absence claim through markdown emphasis', () => {
+    // Also from run 54: "does **not** contain" defeated a regex expecting
+    // "does not contain", so the exemption never fired on the very sentence it
+    // was written for.
+    const gap =
+      'The verified evidence packet does **not** contain enough usable, measured figures to ' +
+      'support a quantitative answer to this question.'
+
+    const validation = validateResearchReport(gap, artifacts, sources)
+
+    expect(validation.issues.join(' ')).not.toContain('Material report text has no evidence')
+  })
+
+  /**
+   * Quoting a source by its title is a reference, not a quotation of its body.
+   *
+   * Real safety issue raised by run 55: the report wrote the paper's name —
+   * "Field Validation of Air-Source Heat Pumps for Cold Climates" — and the
+   * check reported it as text absent from the fetched passages, because a title
+   * lives in the source record rather than in the page text. Naming a paper is
+   * ordinary practice, and calling it fabrication both punishes correct writing
+   * and buries the real fabrications among false alarms.
+   *
+   * This *adds* a place to verify against rather than removing one: the title
+   * still has to match a cited source. An invented title is still caught.
+   */
+  it('accepts a quotation that is a cited source title', () => {
+    const titled: CriticalThinkingSource[] = [
+      {
+        id: 'S1',
+        title: 'Field Validation of Air-Source Heat Pumps',
+        url: 'https://example.com/study',
+        verified: true
+      }
+    ]
+
+    const validation = validateResearchReport(
+      'The study "Field Validation of Air-Source Heat Pumps" reports seasonal results [[S1:P1]].',
+      artifacts,
+      titled
+    )
+
+    expect(validation.safetyIssues.join(' ')).not.toContain('Quoted text is not present')
+  })
+
+  it('still catches a quotation of a title nobody published', () => {
+    const validation = validateResearchReport(
+      'The study "Field Validation of Imaginary Devices That Do Not Exist" says so [[S1:P1]].',
+      artifacts,
+      sources
+    )
+
+    expect(validation.safetyIssues.join(' ')).toContain('Quoted text is not present')
+  })
+
+  it('still flags an ordinary uncited claim about the world', () => {
+    // The check has to keep working, or loosening it has just disabled it.
+    const claim =
+      'Cold climate heat pumps maintain a coefficient of performance above two at minus fifteen degrees.'
+
+    const validation = validateResearchReport(claim, artifacts, sources)
+
+    expect(validation.issues.join(' ')).toContain('Material report text has no evidence')
+  })
+
   it('classifies fabrication as a safety issue but a coverage gap as not', () => {
     const fabrication = validateResearchReport(
       'The result was 99 percent [[S1:P9]].',

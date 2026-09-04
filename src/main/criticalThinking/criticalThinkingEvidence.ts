@@ -102,6 +102,30 @@ export function normalizeCitationMarkers(report: string): string {
 }
 
 /** Build a bounded, exact evidence packet; only fetched pages can support citations. */
+/**
+ * How much verified passage text the run holds, measured the same way
+ * `buildEvidencePacket` decides what it may draw from.
+ *
+ * The packet is what the model sees; this is what there was to see. The ratio
+ * says whether a one-shot report could have been informed by the research at
+ * all, which is a question about capacity rather than about quality -- see
+ * `criticalThinkingRecoveryDecision.ts`.
+ */
+export function verifiedEvidenceChars(
+  artifacts: ToolArtifact[],
+  sources: CriticalThinkingSource[]
+): number {
+  const sourceByUrl = new Map(
+    trustedVerifiedSources(sources).map((source) => [canonicalResearchUrl(source.url), source])
+  )
+  let total = 0
+  for (const [url, passages] of fetchedPassagesByUrl(artifacts)) {
+    if (!sourceByUrl.get(url)?.verified) continue
+    for (const passage of passages) total += passage.text.length
+  }
+  return total
+}
+
 export function buildEvidencePacket(
   artifacts: ToolArtifact[],
   sources: CriticalThinkingSource[],
@@ -464,6 +488,17 @@ export function validateResearchReport(
         )
         continue
       }
+      // Naming a source by its title is a reference, not a quotation of its
+      // body. A title lives in the source record, never in the fetched page
+      // text, so checking only passages reported "Field Validation of
+      // Air-Source Heat Pumps for Cold Climates" as fabricated — ordinary
+      // practice, flagged as the one thing this module exists to catch, which
+      // buries the real fabrications among false alarms.
+      //
+      // This adds somewhere to verify rather than removing a check: the title
+      // must still match a source that is actually cited. An invented title
+      // matches nothing and is still reported.
+      if (matchesKnownSourceTitle(quote, sourceById)) continue
       unverifiedQuotationText.push(raw)
       collector.safety.push(
         `Quoted text is not present in its cited fetched passages: “${truncateIssue(raw).slice(0, 80)}”`
@@ -766,6 +801,62 @@ function uncitableBlocks(report: string): Set<string> {
   return blocks
 }
 
+/**
+ * Whether a quoted span is just the title of a source the report cites.
+ *
+ * Compared after `normalizeQuote` on both sides, so punctuation and spacing do
+ * not decide it, and matched in either direction: a report may quote a title in
+ * full or trim a trailing subtitle off it. The title still has to belong to a
+ * real source, so an invented one matches nothing.
+ */
+function matchesKnownSourceTitle(
+  quote: string,
+  sourceById: Map<string, CriticalThinkingSource>
+): boolean {
+  for (const source of sourceById.values()) {
+    const title = normalizeQuote(source.title ?? '')
+    if (title.length < MIN_VERIFIABLE_QUOTE_CHARS) continue
+    if (title.includes(quote) || quote.includes(title)) return true
+  }
+  return false
+}
+
+/**
+ * A markdown table row. Structure, never a claim.
+ *
+ * A leading pipe is the whole test. Requiring one at both ends missed a real
+ * rejected row — "| ORNL literature and technology review | Official | The
+ * document is a review" — because the model wrapped the line and the closing
+ * pipe ended up somewhere else.
+ */
+const TABLE_ROW = /^\s*\|/
+
+/** Names the evidence itself, rather than the world the evidence is about. */
+const EVIDENCE_SUBJECT = /\b(evidence|packet|sources?|passages?|retrieved|citation)\b/i
+
+/** Says something is absent from it. */
+const ABSENCE_CLAIM =
+  /\b(lacks?|lacking|cannot support|could not|does not (?:establish|support|contain|cover)|do not (?:establish|support|contain|cover)|no (?:retrieved|fetched|available)|not available|insufficient|missing|absent|silent on|says? nothing)\b/i
+
+/**
+ * Whether a block is the report describing a hole in its own evidence.
+ *
+ * Both halves are required on purpose. "The evidence shows X" still needs a
+ * citation, because it is a claim about the world; "the evidence does not
+ * establish X" cannot have one, because no source proves an absence. Asking for
+ * a citation there is asking the model to prove a negative, and the run that
+ * exposed this answered by deleting its own honest caveat and failing anyway.
+ */
+function describesMissingEvidence(prose: string): boolean {
+  // Emphasis has to come off first. A real run wrote "the verified evidence
+  // packet does **not** contain enough usable, measured figures" and the
+  // exemption missed it, because the asterisks sit between "does" and
+  // "contain" — the sentence this rule exists for, defeated by its own
+  // formatting.
+  const plain = prose.replace(/[*_`~]+/g, '')
+  return EVIDENCE_SUBJECT.test(plain) && ABSENCE_CLAIM.test(plain)
+}
+
 function validateCitationCoverage(
   report: string,
   collector: IssueCollector,
@@ -776,10 +867,26 @@ function validateCitationCoverage(
     if (exempt.has(block.trim())) continue
     const prose = block
       .split('\n')
-      .filter((line) => !/^\s{0,3}#{1,6}\s/.test(line) && !/^\s*[-*_]{3,}\s*$/.test(line))
+      .filter(
+        (line) =>
+          !/^\s{0,3}#{1,6}\s/.test(line) &&
+          !/^\s*[-*_]{3,}\s*$/.test(line) &&
+          // A markdown table row is structure, not a claim about the world. Its
+          // header was reported as uncited material text — "| Source | Evidence
+          // class | What the retrieved passage establishes | …" — which no
+          // citation could ever satisfy.
+          !TABLE_ROW.test(line)
+      )
       .join(' ')
       .trim()
     if (!prose || /\[\[S\d+(?::P\d+)?\]\]/.test(prose)) continue
+    // A sentence reporting that the evidence does *not* cover something cannot
+    // cite evidence for it: the demand is for a source proving a negative. A
+    // real run was rejected eleven times out of seventeen attempts, partly for
+    // saying "the evidence packet lacks the numeric heat-loss inputs" — an
+    // honest declaration of its own gap, failed for making it, which left the
+    // reader with a mechanical fallback report instead.
+    if (describesMissingEvidence(prose)) continue
     const words = prose
       .replace(/<[^>]+>/g, ' ')
       .replace(/[^\p{L}\p{N}'’-]+/gu, ' ')
