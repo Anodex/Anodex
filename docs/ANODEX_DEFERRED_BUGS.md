@@ -85,24 +85,36 @@ and writes settings between runs; a per-run `--user-data-dir` is the natural
 place to extend it. `persists-identity` in `chat-criteria.mjs` still covers the
 outcome, and `applies-preference` covers the behaviour without touching state.
 
-### 2026-09-03: no custom OpenAI-compatible provider, so local servers cannot be used
+### DECIDED, NOT A BUG -- 2026-09-04: pointing Anodex at LM Studio or Ollama is a non-goal
 
-**Seen:** auditing the twelve shipped providers, there is no entry that takes a
-user-supplied base URL. `cloudProviderConfigs.ts` hardcodes a base URL per
-provider, and Azure's is the only user-supplied one -- and it is Azure-shaped,
-not a generic OpenAI-compatible endpoint.
+**Superseding an earlier entry here** that called this a gap "close to free" and
+worth building. It was neither, and the entry was wrong to invite it.
 
-**Evidence:** LM Studio and Ollama are both installed on this machine and both
-serve an OpenAI-compatible API on localhost. `OpenAiCompatibleProvider.ts`
-already implements everything needed; nothing consumes it with a custom URL.
+**The gap is real:** no shipped provider takes a user-supplied base URL, so a
+local OpenAI-compatible server (LM Studio, Ollama -- both installed on this
+machine) cannot be used. `OpenAiCompatibleProvider.ts` already speaks the
+protocol, which is what made it look cheap.
 
-**Why it was left:** it is a feature, not a defect, and was not asked for. Noted
-because it is close to free -- the provider shape exists, and the endpoint audit
-(`scripts/provider-endpoints.mjs`) shows the shipped list is otherwise complete.
+**Why we are not doing it.** Anodex _is_ the llama.cpp integration. Running a
+local model through the OpenAI-compatible path would route it via the **cloud**
+provider, skipping everything the local transports do -- tool-surface
+budgeting, context accounting, the output and tool floors. That would be a
+third way to run a local model with different rules from the two that already
+exist, and the two that already exist diverging is the direct cause of several
+bugs fixed on 2026-09-03 (see [[anodex-two-local-transports]] and the 4096
+entries below). Adding a third makes that worse.
 
-**Where to start:** an `OpenAiCompatibleConfig` whose `baseURL` comes from
-settings, plus the verify path in `provider.handlers.ts`, which already reports
-"model isn't available on this account" usefully via `models.retrieve`.
+There is also a correctness problem: `renderRuntimeSection` would tell the model
+it is running "over the network -- not locally on the user's machine" for
+something on localhost. That section exists to make a privacy claim truthfully.
+
+**What the real case would have been**, for whoever revisits it: reusing models
+already downloaded into Ollama without duplicating them, and letting Ollama
+handle GPU offload. Modest, and it does not outweigh a third budgeting path.
+
+**The lesson worth keeping:** this was proposed because the provider shape
+existed and the apps were installed -- availability, not a measured need. That
+is the same reasoning this file exists to argue against.
 
 ### FIXED 2026-09-02: chat claims it runs locally even when a cloud provider is answering
 
