@@ -53,9 +53,13 @@ export function writeTextAtomic(filePath: string, contents: string): void {
  * codes mean something durable, and a handful of retries costs a few
  * milliseconds before the error surfaces exactly as it does today.
  *
- * Deliberately small. This waits under a fifth of a second in total, so a
- * genuinely locked file still fails quickly and visibly instead of hanging the
- * writer.
+ * Deliberately small, and the synchronous path is why. `writeTextAtomic` backs
+ * conversations, checkpoints, agent runs, the code index and the change
+ * library, and it blocks the Electron main process while it waits -- so the
+ * whole budget is under a fifth of a second. That stall is only ever paid on a
+ * lock that is already failing, and the alternative is losing the write, but it
+ * has to stay small enough that a genuinely locked file fails quickly and
+ * visibly rather than freezing the app.
  */
 const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
 const RENAME_RETRY_DELAYS_MS = [10, 20, 40, 80]

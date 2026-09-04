@@ -1,5 +1,5 @@
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,8 +12,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  */
 const renameControl = vi.hoisted(() => ({
   impl: null as null | ((from: string, to: string) => Promise<void>),
-  calls: 0
+  calls: 0,
+  syncImpl: null as null | ((from: string, to: string) => void),
+  syncCalls: 0
 }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    renameSync: (from: string, to: string) => {
+      renameControl.syncCalls++
+      if (renameControl.syncImpl) return renameControl.syncImpl(from, to)
+      return actual.renameSync(from, to)
+    }
+  }
+})
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
@@ -141,15 +154,53 @@ describe('a transient rename conflict does not lose the write', () => {
     dir = await mkdtemp(join(tmpdir(), 'anodex-atomic-retry-'))
     renameControl.impl = null
     renameControl.calls = 0
+    renameControl.syncImpl = null
+    renameControl.syncCalls = 0
   })
 
   afterEach(async () => {
     renameControl.impl = null
+    renameControl.syncImpl = null
     await rm(dir, { recursive: true, force: true })
   })
 
   const errnoWith = (code: string): NodeJS.ErrnoException =>
     Object.assign(new Error(`${code}: simulated`), { code })
+
+  it('retries the synchronous path too, which every other store uses', async () => {
+    const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs')
+    // `writeTextAtomic`/`writeJsonAtomic` back conversations, checkpoints,
+    // agent runs, the code index and the change library. The async form is
+    // Critical Thinking's alone, so leaving the retry off this path would have
+    // fixed the one store that had already been seen to fail and left every
+    // other store losing writes to the same transient lock.
+    let failures = 2
+    renameControl.syncImpl = (from, to) => {
+      if (failures-- > 0) throw errnoWith('EPERM')
+      // Falling through to the mock would recurse; the second call has to
+      // reach the real implementation.
+      return actualFs.renameSync(from, to)
+    }
+
+    const target = join(dir, 'conversation.json')
+    writeJsonAtomic(target, { turns: 2 })
+
+    expect(renameControl.syncCalls).toBe(3)
+    expect(JSON.parse(readFileSync(target, 'utf-8'))).toEqual({ turns: 2 })
+  })
+
+  it('bounds the synchronous wait, because it blocks the main process', () => {
+    // The retry sleeps with `Atomics.wait`, which stalls the Electron main
+    // thread. That is the cost of not losing the write, and it is only paid on
+    // a lock that is already failing, but it has to stay small.
+    renameControl.syncImpl = () => {
+      throw errnoWith('EBUSY')
+    }
+
+    const started = Date.now()
+    expect(() => writeJsonAtomic(join(dir, 'x.json'), { a: 1 })).toThrow()
+    expect(Date.now() - started).toBeLessThan(500)
+  })
 
   it('classifies the sharing-conflict codes Windows reports, and nothing else', () => {
     for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
