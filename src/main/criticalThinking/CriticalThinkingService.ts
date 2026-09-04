@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { noSourcesFailureMessage, researchFailureReason } from './researchFailureReason'
 import { isRecoveredStage } from './criticalThinkingReportStage'
+import { reportNeedsHierarchicalRecovery } from './criticalThinkingRecoveryDecision'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { IpcChannel } from '@shared/ipc'
 import { broadcastToWindows } from '../broadcast'
@@ -53,6 +54,7 @@ import {
 } from './criticalThinkingPrompts'
 import {
   buildEvidencePacket,
+  verifiedEvidenceChars,
   renderResearchCitations,
   stripUnsupportedChartBlocks,
   validateResearchReport
@@ -658,6 +660,14 @@ class CriticalThinkingService {
       run.sources,
       evidencePacketChars(limits, promptWithoutEvidence.length)
     )
+    // What the model can see, over what there was to see. A one-shot report
+    // written from a tenth of the research is not a verdict on the research,
+    // and the floors further down cannot tell the difference -- see
+    // `criticalThinkingRecoveryDecision.ts`. 1 when there is no evidence to
+    // miss, so an empty run is never mistaken for a starved one.
+    const evidenceCorpusChars = verifiedEvidenceChars(artifacts, run.sources)
+    const evidenceCoverage =
+      evidenceCorpusChars > 0 ? evidencePacket.length / evidenceCorpusChars : 1
     if (!evidencePacket || verifiedSources.length === 0) {
       // Say why, when the activities already know. A search backend that is
       // switched off and a question research could not answer produce the same
@@ -673,6 +683,7 @@ class CriticalThinkingService {
       completedAt: null,
       verifiedSourceCount: verifiedSources.length,
       evidencePacketChars: evidencePacket.length,
+      evidenceCorpusChars,
       strategy: 'single-pass',
       selectedStage: null,
       chartAdded: false,
@@ -855,7 +866,7 @@ class CriticalThinkingService {
 
     const stepsWithEvidence = run.steps.filter((step) => step.evidenceIds.length > 0).length
     if (
-      reportNeedsHierarchicalRecovery(candidate, stepsWithEvidence) &&
+      reportNeedsHierarchicalRecovery(candidate, stepsWithEvidence, evidenceCoverage) &&
       repairStopReason !== 'user' &&
       run.provider === 'local' &&
       stepsWithEvidence > 1
@@ -2205,19 +2216,6 @@ function reportCandidateDiagnostic(
       ? { contractIssues: candidate.contractIssues.slice(0, 12) }
       : {})
   }
-}
-
-function reportNeedsHierarchicalRecovery(
-  candidate: ReportCandidate,
-  stepsWithEvidence: number
-): boolean {
-  if (!candidate.usable) return true
-  const expectedCitedBlocks = Math.max(1, stepsWithEvidence)
-  const minimumDetailedChars = Math.max(1_200, stepsWithEvidence * 450)
-  return (
-    candidate.citedSubstantiveBlockCount < expectedCitedBlocks ||
-    candidate.length < minimumDetailedChars
-  )
 }
 
 function hierarchicalSectionDiagnostic(

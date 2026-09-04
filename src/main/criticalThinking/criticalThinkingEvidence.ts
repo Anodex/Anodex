@@ -102,6 +102,30 @@ export function normalizeCitationMarkers(report: string): string {
 }
 
 /** Build a bounded, exact evidence packet; only fetched pages can support citations. */
+/**
+ * How much verified passage text the run holds, measured the same way
+ * `buildEvidencePacket` decides what it may draw from.
+ *
+ * The packet is what the model sees; this is what there was to see. The ratio
+ * says whether a one-shot report could have been informed by the research at
+ * all, which is a question about capacity rather than about quality -- see
+ * `criticalThinkingRecoveryDecision.ts`.
+ */
+export function verifiedEvidenceChars(
+  artifacts: ToolArtifact[],
+  sources: CriticalThinkingSource[]
+): number {
+  const sourceByUrl = new Map(
+    trustedVerifiedSources(sources).map((source) => [canonicalResearchUrl(source.url), source])
+  )
+  let total = 0
+  for (const [url, passages] of fetchedPassagesByUrl(artifacts)) {
+    if (!sourceByUrl.get(url)?.verified) continue
+    for (const passage of passages) total += passage.text.length
+  }
+  return total
+}
+
 export function buildEvidencePacket(
   artifacts: ToolArtifact[],
   sources: CriticalThinkingSource[],

@@ -327,6 +327,7 @@ function normalizeSynthesisDiagnostics(
     completedAt: typeof value.completedAt === 'number' ? value.completedAt : null,
     verifiedSourceCount: nonNegativeInteger(value.verifiedSourceCount),
     evidencePacketChars: nonNegativeInteger(value.evidencePacketChars),
+    evidenceCorpusChars: nonNegativeInteger(value.evidenceCorpusChars),
     strategy,
     selectedStage,
     chartAdded: value.chartAdded === true,

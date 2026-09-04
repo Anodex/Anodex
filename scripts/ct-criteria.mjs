@@ -161,6 +161,12 @@ for (const [i, run] of runs.entries()) {
       `status=${String(run.status).padEnd(9)}${c3 ? '+' : '-'}`,
       `dumps=${dumpBlocks(run.report)}${c4 ? '+' : '-'}`,
       `shipped-best=${c5 ? 'yes+' : 'no -'}`,
+      // Share of the run's verified evidence the single-pass prompt could
+      // carry. Below ~25% a one-shot report is written from a fraction of the
+      // research, which is why the hierarchical path exists -- see
+      // `criticalThinkingRecoveryDecision.ts`. Blank on runs recorded before
+      // this was stored.
+      `cov=${d.evidenceCorpusChars ? Math.round((d.evidencePacketChars / d.evidenceCorpusChars) * 100) + '%' : '  -'}`,
       `suff=${suff}%`,
       `chars=${(run.report ?? '').length}`,
       // Reported, deliberately not scored. "Completed" is defined as research
