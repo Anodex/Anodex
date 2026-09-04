@@ -803,6 +803,10 @@ class CriticalThinkingService {
       )
       const repairBase = buildCriticalThinkingRepairPrompt('', repairIssues, '')
       const repairRemaining = Math.max(0, limits.maxPromptChars - repairBase.length)
+      // Not `evidencePacketChars`, and not the evidence share by coincidence:
+      // a repair prompt has to carry the draft being repaired as well, so this
+      // splits what is left between the two. Letting the evidence take the
+      // whole remainder here would truncate the draft it is meant to fix.
       const repairEvidence = buildEvidencePacket(
         artifacts,
         run.sources,
@@ -1209,6 +1213,8 @@ class CriticalThinkingService {
         const repairIssues = boundPromptItems(sectionCandidate.issues, 1_500)
         const repairBase = buildCriticalThinkingSectionRepairPrompt('', repairIssues, '')
         const repairRemaining = Math.max(0, limits.maxPromptChars - repairBase.length)
+        // As above: split between the evidence and the section being repaired,
+        // rather than the packet-sizing rule.
         const repairEvidence = buildEvidencePacket(
           stepArtifacts,
           run.sources,
@@ -1482,7 +1488,7 @@ class CriticalThinkingService {
     const chartEvidence = buildEvidencePacket(
       artifacts,
       run.sources,
-      Math.max(0, Math.min(limits.maxEvidenceChars, limits.maxPromptChars - promptBase.length))
+      evidencePacketChars(limits, promptBase.length)
     )
     const outputTokens = Math.max(384, Math.min(1_536, Math.floor(limits.maxOutputTokens * 0.3)))
     const result = await this.runToolFreeTurn(
