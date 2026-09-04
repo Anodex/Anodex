@@ -9,3 +9,12 @@ resources/skills/
 # source. No longer tracked in git either, but they stay on disk and Prettier
 # would otherwise still walk them.
 docs/ui-samples/
+
+# Prettier does not converge on this file. Two continuation paragraphs inside a
+# `- [x]` task-list item are read as an indented code block, and every run adds
+# four more spaces to each of their seven lines -- 28 bytes a pass, growing
+# without limit, so `--write` never satisfies `--check` and CI fails on a file
+# nobody touched. `99169e2` already repaired one runaway by hand; dedenting the
+# block to the list's content indent does not help, because the next run pushes
+# it straight back out.
+docs/ANODEX_WORK_QUEUE.md

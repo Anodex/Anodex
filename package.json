@@ -2,7 +2,7 @@
   "name": "anodex",
   "version": "0.1.0",
   "private": true,
-  "description": "Anodex — a local-first AI assistant for coding help and general chat.",
+  "description": "Anodex \u2014 a local-first AI assistant for coding help and general chat.",
   "author": "Anodex",
   "license": "UNLICENSED",
   "main": "./out/main/index.js",
@@ -29,11 +29,12 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{ts,tsx,mjs,js,json,css,md,yml,yaml}": [
+    "*.{mjs,js,json,css,md,yml,yaml}": [
       "prettier --write"
     ],
     "*.{ts,tsx}": [
-      "eslint --fix"
+      "eslint --fix",
+      "prettier --write"
     ]
   },
   "dependencies": {

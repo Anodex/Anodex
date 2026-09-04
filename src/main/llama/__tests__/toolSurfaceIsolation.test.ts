@@ -96,8 +96,8 @@ describe('tool surface isolation', () => {
     // itself — is a tautology that passes no matter what ranking does. The
     // comparison has to be against an ordering built from a *larger* set.
     const everything: Record<string, ToolFunction> = {
-      ...(buildTools(noopDefine, SURFACES.project)),
-      ...(buildTools(noopDefine, SURFACES.chat))
+      ...buildTools(noopDefine, SURFACES.project),
+      ...buildTools(noopDefine, SURFACES.chat)
     }
     const globalOrder = rankToolNames(everything)
     expect(globalOrder.length).toBeGreaterThan(project.length)
