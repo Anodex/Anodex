@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { CriticalThinkingActivity } from '@shared/criticalThinking.types'
-import { GENERIC_RESEARCH_FAILURE, researchFailureReason } from '../researchFailureReason'
+import {
+  GENERIC_RESEARCH_FAILURE,
+  noSourcesFailureMessage,
+  researchFailureReason
+} from '../researchFailureReason'
 
 /**
  * Why a Critical Thinking run came back with nothing.
@@ -74,5 +78,37 @@ describe('researchFailureReason', () => {
     ])
 
     expect(reason).toContain('SearXNG is not reachable')
+  })
+})
+
+describe('noSourcesFailureMessage', () => {
+  it('points at the search provider only when a search was actually tried', () => {
+    const message = noSourcesFailureMessage(
+      [search('error', 'SearXNG is not reachable.')],
+      'Round 1 failed.'
+    )
+
+    expect(message).toContain('could not gather any usable web sources')
+    expect(message).toContain('Check your web search provider')
+  })
+
+  it('does not blame the network for a failure that happened before any search', () => {
+    // Two real runs: one failed on `EPERM ... rename runs.json.tmp`, a local
+    // file lock, and was told to debug its network; another failed because the
+    // model call threw before a single search was issued, and got the same
+    // advice. Confident advice naming the wrong subsystem is worse than none.
+    const message = noSourcesFailureMessage(
+      [{ id: 'p', kind: 'planning', label: 'Plan', status: 'error', createdAt: 0 }],
+      'EPERM: operation not permitted, rename runs.json.tmp'
+    )
+
+    expect(message).toContain('EPERM')
+    expect(message).not.toContain('internet connection')
+    expect(message).not.toContain('web search provider')
+  })
+
+  it('says something useful when the run recorded nothing at all', () => {
+    expect(noSourcesFailureMessage([], 'model crashed')).toContain('model crashed')
+    expect(noSourcesFailureMessage([], 'model crashed')).not.toContain('internet connection')
   })
 })

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { researchFailureReason } from './researchFailureReason'
+import { noSourcesFailureMessage, researchFailureReason } from './researchFailureReason'
 import { isRecoveredStage } from './criticalThinkingReportStage'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
 import { IpcChannel } from '@shared/ipc'
@@ -1901,7 +1901,7 @@ class CriticalThinkingService {
       this.finish(runId, emptyStatus, {
         lastError:
           emptyStatus === 'failed'
-            ? `Critical Thinking could not gather any usable web sources. ${reason} Check your web search provider and internet connection, then try again.`
+            ? noSourcesFailureMessage(run.activities, reason)
             : `Research ended before any source could be verified. ${reason}`
       })
       return

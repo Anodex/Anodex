@@ -49,3 +49,35 @@ export function researchFailureReason(activities: readonly CriticalThinkingActiv
 function namedReason(detail: string): string {
   return `Every search failed, so no sources could be gathered. ${detail}`
 }
+
+/**
+ * What a run says when it failed having gathered nothing citable.
+ *
+ * The message used to end "Check your web search provider and internet
+ * connection, then try again" whatever had gone wrong, because the branch that
+ * writes it only knows that no source was verified -- not why. Two real runs
+ * show what that costs. One failed on `EPERM ... rename runs.json.tmp`, a
+ * local file-lock problem, and told the user to go and debug their network.
+ * Another failed because the model call threw before a single search was
+ * issued, and said the same thing.
+ *
+ * Advice that names the wrong subsystem is worse than no advice: it is
+ * confident, specific, and sends someone to look in a place where there is
+ * nothing to find.
+ *
+ * The run already knows enough to tell the difference. If it never got as far
+ * as issuing a search, then searching is not what failed, and the reason it
+ * does have is the whole of what can honestly be said. Only a run that
+ * actually tried to search gets told to check the search provider.
+ */
+export function noSourcesFailureMessage(
+  activities: readonly CriticalThinkingActivity[],
+  reason: string
+): string {
+  const detail = reason.trim()
+  const attemptedSearch = activities.some((activity) => activity.kind === 'search')
+  if (!attemptedSearch) {
+    return `Critical Thinking stopped before it could gather any sources. ${detail}`.trim()
+  }
+  return `Critical Thinking could not gather any usable web sources. ${detail} Check your web search provider and internet connection, then try again.`.trim()
+}
