@@ -46,6 +46,56 @@ const dumpBlocks = (report) => {
   return n
 }
 
+/** The attempt that produced the shipped report. */
+const shippedAttempt = (d) => {
+  const stage = d.selectedStage
+  if (!stage) return null
+  const matching = (d.attempts ?? []).filter((a) => a.stage === stage)
+  return matching.length ? matching[matching.length - 1] : null
+}
+
+/** Issues per cited block -- the same rate `chooseBetterReportCandidate` uses. */
+const issueRate = (a) => (a.issues ?? []).length / Math.max(1, a.citedBlockCount ?? 0)
+
+/**
+ * Stages that produce a whole report, and so could actually have shipped.
+ *
+ * The first version of this compared against every attempt and flagged runs 54
+ * and 58 for "discarding" a `section` -- one step's worth of prose, which was
+ * never a competing candidate and is in fact already inside the hierarchical
+ * report. A section scoring better than a whole report says nothing; parts and
+ * wholes are not comparable.
+ */
+const WHOLE_REPORT_STAGES = new Set([
+  'draft',
+  'repair',
+  'hierarchical-report',
+  'chart',
+  'deterministic-fallback'
+])
+
+/**
+ * A candidate this run wrote that the shipped report should have lost to.
+ *
+ * Beaten on both cited coverage and issue rate, so a deliberate trade -- fewer
+ * claims, made more carefully -- is not reported as a mistake. And never
+ * flagged when the shipped report wins an earlier tiebreak in
+ * `chooseBetterReportCandidate`: a valid report beats an invalid one however
+ * well the invalid one is cited, and an unusable candidate is out regardless.
+ * Without that, this called run 44 a mistake for preferring its valid draft.
+ */
+const betterThan = (shipped, attempts) =>
+  attempts.find(
+    (a) =>
+      a !== shipped &&
+      WHOLE_REPORT_STAGES.has(a.stage) &&
+      a.usable === true &&
+      // Losing on validity is a legitimate reason to be passed over.
+      !(shipped.valid === true && a.valid !== true) &&
+      (a.citedBlockCount ?? 0) > (shipped.citedBlockCount ?? 0) &&
+      issueRate(a) < issueRate(shipped)
+  ) ?? null
+
 for (const [i, run] of runs.entries()) {
   if (only !== null && i + 1 !== only) continue
   const d = run.synthesisDiagnostics ?? {}
@@ -84,7 +134,23 @@ for (const [i, run] of runs.entries()) {
   const c2 = steps.length > 0 && done === steps.length
   const c3 = run.status === 'completed'
   const c4 = dumpBlocks(run.report) === 0
-  const clean = c1 && c2 && c3 && c4
+  // Did the run ship the weaker of two reports it wrote?
+  //
+  // The four criteria above all passed for run 58 while it shipped a
+  // 6,603-character report with 4 cited blocks and discarded a 32,912-character
+  // one with 35 that it had already written and validated. `cited` was printed
+  // right there and scored nothing, so the run read CLEAN.
+  //
+  // Unlike a bar on `cited` -- which the note below rightly refuses, because
+  // any absolute threshold would be invented -- this needs no threshold. It is
+  // a comparison inside one run, against candidates the run produced itself: a
+  // usable candidate beaten on *both* cited coverage and issue rate by another
+  // usable candidate should not be the one that shipped. Nothing here says how
+  // much coverage is enough.
+  const shipped = shippedAttempt(d)
+  const outclassed = shipped ? betterThan(shipped, d.attempts ?? []) : null
+  const c5 = !outclassed
+  const clean = c1 && c2 && c3 && c4 && c5
   console.log(
     [
       `run ${String(i + 1).padStart(2)}`,
@@ -94,6 +160,7 @@ for (const [i, run] of runs.entries()) {
       `steps=${done}/${steps.length}${c2 ? '+' : '-'}`,
       `status=${String(run.status).padEnd(9)}${c3 ? '+' : '-'}`,
       `dumps=${dumpBlocks(run.report)}${c4 ? '+' : '-'}`,
+      `shipped-best=${c5 ? 'yes+' : 'no -'}`,
       `suff=${suff}%`,
       `chars=${(run.report ?? '').length}`,
       // Reported, deliberately not scored. "Completed" is defined as research
@@ -111,6 +178,15 @@ for (const [i, run] of runs.entries()) {
       `cited=${d.completion?.citedSubstantiveBlockCount ?? '?'}`
     ].join('  ')
   )
+  if (outclassed) {
+    const rate = (a) => ((a.issues ?? []).length / Math.max(1, a.citedBlockCount ?? 0)).toFixed(2)
+    console.log(
+      `    shipped a weaker report: ${shipped.stage} ${shipped.contentChars}ch ` +
+        `cited=${shipped.citedBlockCount} rate=${rate(shipped)} ` +
+        `| discarded ${outclassed.stage} ${outclassed.contentChars}ch ` +
+        `cited=${outclassed.citedBlockCount} rate=${rate(outclassed)}`
+    )
+  }
   const blockers = d.completion?.blockers
   if (blockers?.length)
     console.log('    blockers:', blockers.join(', '), '|', JSON.stringify(d.completion))

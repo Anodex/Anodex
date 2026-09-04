@@ -221,6 +221,40 @@ export function evaluateReportCandidate(
  * finally a longer draft wins. `original` wins every genuine tie so an empty or
  * no-better repair never displaces it.
  */
+/**
+ * Issues per cited substantive block.
+ *
+ * This tiebreak used to compare `issueCount` outright, which reads a report
+ * that claims little as a report that got little wrong. Two runs shipped a
+ * report five times thinner than one they had already written and validated:
+ *
+ *   run 58  repair  3,244ch,  4 cited, 1 issue   beat  hier 32,912ch, 35 cited, 2 issues
+ *   run 54  repair  2,456ch,  3 cited, 2 issues  beat  hier 34,388ch, 30 cited, 6 issues
+ *
+ * One extra issue outranked thirty-one extra cited blocks. Run 54 shipped a
+ * 2,456-character non-answer, and four of the six issues counted against the
+ * report it beat were "on the cited page but under a different passage
+ * marker" -- citation imprecision, not fabrication. The rule was rewarding the
+ * model for hedging, because hedging is cheap to validate.
+ *
+ * A rate compares like with like: the same number of issues costs more in a
+ * report making fewer claims. Two candidates carrying the same coverage have
+ * the same denominator, so this behaves exactly as the count did -- nothing is
+ * traded away for length.
+ *
+ * It cannot promote an unsafe report. `usable` and `overallValid` are settled
+ * before this runs, so density only ever orders reports that have already
+ * passed safety and had any untraceable quotations disclosed.
+ *
+ * Replayed against all 48 stored runs holding two or more whole-report
+ * candidates, this changes the choice on three: the two above, and run 44,
+ * where a repair carrying two more cited blocks for one more issue had been
+ * passed over. It agrees on the other 45.
+ */
+function issueRate(candidate: ReportCandidate): number {
+  return candidate.issueCount / Math.max(1, candidate.citedSubstantiveBlockCount)
+}
+
 export function chooseBetterReportCandidate(
   original: ReportCandidate,
   repaired: ReportCandidate
@@ -231,8 +265,10 @@ export function chooseBetterReportCandidate(
   if (original.overallValid !== repaired.overallValid) {
     return original.overallValid ? original : repaired
   }
-  if (original.issueCount !== repaired.issueCount) {
-    return original.issueCount < repaired.issueCount ? original : repaired
+  const originalIssueRate = issueRate(original)
+  const repairedIssueRate = issueRate(repaired)
+  if (originalIssueRate !== repairedIssueRate) {
+    return originalIssueRate < repairedIssueRate ? original : repaired
   }
   if (original.citedSubstantiveBlockCount !== repaired.citedSubstantiveBlockCount) {
     return original.citedSubstantiveBlockCount > repaired.citedSubstantiveBlockCount
