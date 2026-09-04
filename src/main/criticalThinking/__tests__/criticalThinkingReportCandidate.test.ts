@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CriticalThinkingSource } from '@shared/criticalThinking.types'
 import type { ToolArtifact } from '@shared/toolArtifacts.types'
+import type { ReportCandidate } from '../criticalThinkingReportCandidate'
 import {
   chooseBetterReportCandidate,
   discloseUnverifiedQuotations,
@@ -98,6 +99,102 @@ describe('evaluateReportCandidate / chooseBetterReportCandidate', () => {
     // Neither validates and both have identical issue/cited-block counts, so
     // the final tie-breaker (length) picks the longer, more substantive draft.
     expect(selected.content).toBe(richer.content)
+  })
+
+  describe('an issue costs more in a report that claims less', () => {
+    /**
+     * Two runs shipped a report five times thinner than one they had already
+     * written and validated, because raw `issueCount` outranked substance.
+     *
+     *   run 58  repair  3,244ch  4 cited  1 issue   beat
+     *           hier   32,912ch 35 cited  2 issues
+     *   run 54  repair  2,456ch  3 cited  2 issues  beat
+     *           hier   34,388ch 30 cited  6 issues
+     *
+     * One extra issue outranked thirty-one extra cited blocks. That rewards
+     * hedging: a report claiming little has few issues precisely because it
+     * claims little. Run 54's shipped report was a 2,456-character
+     * non-answer, and four of the six issues counted against the report it
+     * beat were "on the cited page but under a different passage marker" --
+     * citation imprecision, not fabrication.
+     *
+     * Replayed across all 48 stored runs holding two or more whole-report
+     * candidates, comparing issue *density* rather than raw count changes the
+     * choice on three -- these two, plus run 44, where a repair carrying two
+     * more cited blocks for one more issue had been passed over. It agrees on
+     * the other 45, so this is a narrow correction and not a re-ranking.
+     */
+    const candidate = (over: Partial<ReportCandidate>): ReportCandidate =>
+      ({
+        content: 'x'.repeat(over.length ?? 100),
+        safe: true,
+        usable: true,
+        overallValid: false,
+        structurallyValid: true,
+        unverifiedQuotations: [],
+        unverifiedFigures: [],
+        otherSafetyIssues: [],
+        usableBlockers: [],
+        issues: [],
+        contractIssues: [],
+        issueCount: 0,
+        citedSubstantiveBlockCount: 0,
+        length: 100,
+        ...over
+      }) as ReportCandidate
+
+    it('keeps the substantial report over a thin one with one fewer issue', () => {
+      const thin = candidate({ issueCount: 1, citedSubstantiveBlockCount: 4, length: 3_244 })
+      const rich = candidate({ issueCount: 2, citedSubstantiveBlockCount: 35, length: 32_912 })
+
+      expect(chooseBetterReportCandidate(thin, rich)).toBe(rich)
+      expect(chooseBetterReportCandidate(rich, thin)).toBe(rich)
+    })
+
+    it('still prefers fewer issues when the two carry the same coverage', () => {
+      // Same cited-block count means same denominator, so this behaves exactly
+      // as it always did: correctness wins, and nothing is traded for length.
+      const cleaner = candidate({ issueCount: 1, citedSubstantiveBlockCount: 10, length: 2_000 })
+      const messier = candidate({ issueCount: 4, citedSubstantiveBlockCount: 10, length: 30_000 })
+
+      expect(chooseBetterReportCandidate(cleaner, messier)).toBe(cleaner)
+    })
+
+    it('does not let length alone buy a worse issue rate', () => {
+      // Longer and better-cited, but proportionally messier: 12/20 against
+      // 1/5. Density is the point, not size.
+      const tight = candidate({ issueCount: 1, citedSubstantiveBlockCount: 5, length: 3_000 })
+      const sprawling = candidate({
+        issueCount: 12,
+        citedSubstantiveBlockCount: 20,
+        length: 40_000
+      })
+
+      expect(chooseBetterReportCandidate(tight, sprawling)).toBe(tight)
+    })
+
+    it('never promotes an unsafe or unusable report, whatever its density', () => {
+      // Density ranks only reports that already passed `usable`, which is
+      // settled two tiebreaks earlier. A report carrying undisclosed
+      // fabrication cannot be argued into shipping by having lots of
+      // citations.
+      const unusable = candidate({
+        usable: false,
+        issueCount: 0,
+        citedSubstantiveBlockCount: 99,
+        length: 50_000
+      })
+      const usableThin = candidate({ issueCount: 8, citedSubstantiveBlockCount: 2, length: 900 })
+
+      expect(chooseBetterReportCandidate(unusable, usableThin)).toBe(usableThin)
+    })
+
+    it('prefers a fully valid report over an invalid one with better density', () => {
+      const valid = candidate({ overallValid: true, issueCount: 0, citedSubstantiveBlockCount: 3 })
+      const invalid = candidate({ issueCount: 1, citedSubstantiveBlockCount: 40, length: 40_000 })
+
+      expect(chooseBetterReportCandidate(invalid, valid)).toBe(valid)
+    })
   })
 
   it('never picks a candidate solely because it is newer/nonempty when it is strictly worse', () => {
