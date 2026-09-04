@@ -108,6 +108,7 @@ for (const entry of selected) {
   }
 
   applySettings(modelPath, entry.ctx)
+  seedFixtures()
   const logPath = join(outDir, `${entry.key}.log`)
   console.log(`\n=== ${entry.key} @ ${entry.ctx} ===`)
 
@@ -134,6 +135,63 @@ for (const entry of selected) {
 writeFileSync(join(outDir, 'summary.json'), JSON.stringify(rows, null, 2))
 console.log(`\n${renderTable(rows)}`)
 console.log(`\nwrote ${join(outDir, 'summary.json')}`)
+
+/**
+ * Put the world into the state the script's prompts assume, before each run.
+ *
+ * A script that says "delete the scheduled task called X" is testing nothing
+ * unless X exists. It did not: the task had been cleaned up by an earlier
+ * suite, so every model correctly answered "there is no task called Interval
+ * test — there is nothing to delete", and the criteria passed without a single
+ * model ever calling the tool under test. The rubric reported success it had
+ * not measured, which is worse than reporting a failure.
+ *
+ * Seeded per run rather than once, and replacing any task of the same name, so
+ * a run cannot inherit a task an earlier run deleted — the same staleness in a
+ * slower form.
+ *
+ * Declared in the script beside the prompts that need it, because a
+ * precondition kept anywhere else is a precondition someone forgets.
+ */
+function seedFixtures() {
+  const tasks = JSON.parse(readFileSync(SCRIPT, 'utf-8')).fixtures?.scheduledTasks
+  if (!tasks?.length) return
+
+  const store = join(
+    process.env.APPDATA ?? join(homedir(), 'AppData/Roaming'),
+    'anodex/scheduled-tasks/tasks.json'
+  )
+  let existing = []
+  try {
+    existing = JSON.parse(readFileSync(store, 'utf-8'))
+  } catch {
+    existing = []
+  }
+  if (!Array.isArray(existing)) return
+
+  const wanted = new Set(tasks.map((task) => task.name))
+  const now = Date.now()
+  const kept = existing.filter((task) => !wanted.has(task.name))
+  const seeded = tasks.map((task) => ({
+    id: `fixture-${task.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`,
+    name: task.name,
+    prompt: task.prompt,
+    projectId: null,
+    recurrence: task.recurrence,
+    enabledTools: [],
+    enabled: true,
+    conversationId: null,
+    createdAt: now,
+    updatedAt: now,
+    nextRunAt: now + 30 * 60 * 1000,
+    lastRunAt: null,
+    lastRunStatus: null,
+    lastRunSummary: null,
+    runs: [],
+    runCount: 0
+  }))
+  writeFileSync(store, JSON.stringify([...kept, ...seeded], null, 2))
+}
 
 /**
  * Point settings at one model and window.
