@@ -122,12 +122,107 @@ Always record sources/evidence alongside the score.
 
 **Run 53 is the interesting one and produced a real fix.** Research succeeded
 (36 sources, 77 evidence, 29 cited blocks) and _synthesis_ failed, falling back
-to `hierarchical-report` — a mechanical assembly organised by research step
-rather than an answer to the question. Two of the rejections were not claims at
-all: a markdown table header, and the report stating that its own evidence
-packet lacked the numbers the question needed. The second is the perverse one —
-a citation was demanded for an absence, so an honest caveat was failed for being
+to `hierarchical-report`. Two of the rejections were not claims at all: a
+markdown table header, and the report stating that its own evidence packet
+lacked the numbers the question needed. The second is the perverse one — a
+citation was demanded for an absence, so an honest caveat was failed for being
 made. Fixed in `criticalThinkingEvidence.ts`; see the tests there.
+
+### The evidence packet was sized from leftovers (2026-09-04)
+
+Chasing runs 53–56 through their rejection strings led to the actual defect,
+which was arithmetic rather than judgement.
+
+`criticalThinkingSynthesisLimits` allocates shares of the prompt to the
+question, plan, findings, and evidence. The prompt's own fixed instruction
+block — 3,203 characters for synthesis, 2,577 for the coverage assessment — was
+not in that allocation, and each caller sized its packet from what happened to
+be left:
+
+```
+min(maxEvidenceChars, maxPromptChars - promptWithoutEvidence.length)
+```
+
+so the scaffold's whole cost fell on the evidence, the one input nothing else in
+the prompt can stand in for. **The distortion scales inversely with the
+context**, which is why it broke modest hardware and left large windows looking
+correct.
+
+| context | evidence share | evidence delivered |
+| ------- | -------------- | ------------------ |
+| 4,096   | 2,583          | **271** (10%)      |
+| 8,192   | 6,058          | 4,944 (82%)        |
+| 16,384+ | 13,542+        | full share         |
+
+A 4K run was asking a model to write a cited research report from 271 characters
+of evidence. Four stored 8K runs (53–56) came in at 4,873–4,901 packet
+characters, and every one of them reported the passages as too fragmentary to
+conclude anything — an accurate description of what it had been handed. **The
+model was not failing; it was reporting a starved input honestly.**
+
+Two things were wrong, and both were needed:
+
+1. The scaffold is now declared by the caller and subtracted before the shares
+   are cut, so the declared share is the delivered share.
+2. `maxEvidenceChars` is a floor the budget guarantees, **not a ceiling**. The
+   other inputs are capped, not fixed; whatever they do not spend goes to the
+   evidence. The old inline formula picked that room up by accident, because its
+   shares were cut from a budget that ignored the scaffold and so were usually
+   smaller than what was left — fixing the scaffold alone would have removed the
+   accident along with the bug, and made 8K _worse_.
+
+The rule now lives in `evidencePacketChars` rather than open-coded at three call
+sites, each of which had the same error. Delivered characters, before → after:
+
+| context | synthesis        | coverage assessment |
+| ------- | ---------------- | ------------------- |
+| 4,096   | 0 → **851**      | 1,372 → 1,939       |
+| 8,192   | 3,901 → 4,925    | 6,525 → 7,093       |
+| 16,384  | 12,676 → 13,700  | 15,631 → 16,197     |
+| 32,768  | 35,295 → 35,679  | 35,930 → 40,225     |
+| 65,536  | 96,092 → 122,108 | 96,092 → 126,729    |
+
+Reproduce: the invariants are pinned in
+`__tests__/criticalThinkingSynthesisBudget.test.ts`.
+
+### A hierarchical report was being reported as a failure (2026-09-04)
+
+Run 56 wrote all six sections with the model, repaired every one to valid, and
+assembled a report that came back `valid`, `usable`, `safe`, 31 cited
+substantive blocks, zero issues, zero excerpt dumps — and was reported to the
+user as `partial`. The sole blocker was `recovered-stage`. It also told the
+reader the report "was assembled from verified excerpts because the written
+report did not pass its evidence checks", which was untrue: nothing had failed
+and nothing had been discarded. Runs 53 and 55 were the same.
+
+`isRecoveredStage` named three stages and treated them alike.
+`deterministic-fallback` and `section-fallback` replace the model's prose with
+text Anodex assembles from raw excerpts. `hierarchical-report` is the _designed_
+answer to a context too small for a one-shot report — same citation and
+fabrication checks, one bounded section at a time. Grouping them told a user on
+modest hardware that the feature does not work for them at the moment it had
+just worked.
+
+Narrowed, not dropped: `assembleHierarchicalReport` uses whatever sections it
+has, and a section that failed every attempt is replaced by the same
+deterministic excerpt builder — so the run now tracks whether a deterministic
+section is in what actually **ships**, and only then is the stage a blocker. The
+observed failure that put the check there (a run finishing `completed` while
+shipping twelve blocks of raw excerpts) is pinned by explicit status assertions
+on the existing `section-fallback` test.
+
+`scripts/ct-criteria.mjs` scores the same distinction, so the measured history
+and the product agree on what a clean run is.
+
+### Failure messages named the wrong subsystem (2026-09-04)
+
+A run that gathered nothing citable closed with "Check your web search provider
+and internet connection" whatever had gone wrong. Two real runs: one failed on
+`EPERM ... rename runs.json.<pid>.tmp`, a local file lock, and sent the reader
+to debug their network; one failed because the model threw before a single
+search was issued, and got the same advice — and an existing test asserted that
+wording. A run that never issued a search did not fail at searching, so only a
+run that actually tried to search is now told to check the provider.
 
 **Confidence: measured, but a single question.** All of the above used
 `ct-question-heat-pumps.txt`. Six question files exist and the others have not
