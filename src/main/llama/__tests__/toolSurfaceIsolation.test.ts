@@ -136,24 +136,25 @@ describe('tool surface isolation', () => {
   })
 
   /**
-   * `schedule_task` is unranked, and therefore deferred at every context size.
+   * The Scheduler pair is ranked, so chat can actually reach what it is told it
+   * can do.
    *
-   * Anything absent from `DIRECT_TOOL_PRIORITY` sorts to infinity - the exact
-   * shape of two bugs already fixed in `toolSurface.ts` (`anodex_status`,
-   * `read_multiple_files`), each of which was deferred on every machine until
-   * someone noticed. `schedule_task` is in that position now, while the chat
-   * prompt calls it the one thing chat can actually change.
+   * This test previously *recorded* the opposite: both tools sorted to infinity
+   * and were deferred at every context size, while the chat prompt named them as
+   * the things chat can change. It was left that way deliberately, because the
+   * gateway did work and ranking wanted its own measurement.
    *
-   * This is asserted rather than fixed because the gateway does work: the
-   * Scheduler suite creates and fires tasks with it deferred. Ranking it is a
-   * cost/reliability judgement that wants its own measurement, not a change
-   * smuggled in on the strength of looking wrong. The test exists so that
-   * ranking it later is a deliberate act that updates this expectation, and so
-   * the state is written down instead of rediscovered.
+   * The measurement arrived with `delete_scheduled_task`. Told it could delete a
+   * task, a 24B answered "I can't delete scheduled tasks - my scheduler tool
+   * only creates them": the tool it had been promised was not in the surface it
+   * could see. A prompt claiming a capability the surface withholds is worse
+   * than one claiming nothing, so the pair was ranked with chat's own primaries.
    */
-  it('records that schedule_task is unranked, below every ranked chat tool', () => {
+  it("ranks both Scheduler tools with chat's primaries", () => {
     const chat = rankedFor(SURFACES.chat)
-    // `remember_fact` is the last chat tool carrying an explicit rank.
-    expect(chat.indexOf('schedule_task')).toBeGreaterThan(chat.indexOf('remember_fact'))
+    // Directly after the tool that reads Anodex state, and ahead of the mail
+    // primaries, which is where a chat conversation actually needs them.
+    expect(chat.indexOf('schedule_task')).toBeGreaterThan(chat.indexOf('anodex_status'))
+    expect(chat.indexOf('delete_scheduled_task')).toBeLessThan(chat.indexOf('list_threads'))
   })
 })

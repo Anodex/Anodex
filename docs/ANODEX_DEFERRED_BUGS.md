@@ -15,6 +15,35 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
+### 2026-09-04: the confirmation card says "Apply file change?" for things that are not files
+
+**Seen:** approving a `delete_scheduled_task` call in the GUI. The card is
+correct in every other respect -- it is badged DESTRUCTIVE and shows the task it
+resolved (name, schedule, next run, prompt) -- but its header reads "Apply file
+change?" for the removal of a Scheduler task. Nothing about a file is involved.
+
+**Evidence:** `ToolConfirmCard.tsx` picks the header from `KIND_CONFIG[kind]`,
+and every mutating tool declares `kind: 'write'`, so any non-file write gets the
+file wording. This is not new and not specific to the delete tool: creating a
+reminder with `schedule_task` has always said the same thing.
+
+**Why it matters more than a typo:** it is the wording on a destructive
+confirmation. A user reading "Apply file change?" while deleting standing work
+is being told the wrong thing about what they are approving.
+
+**Why it was left:** `ToolConfirmRequest.title` already carries a specific title
+(here, `Delete scheduled task "Interval test"`), and the email-draft branch in
+the same component already demonstrates overriding the header. So the fix is
+small -- prefer the request's own title when the write is not a file change. But
+that header is shared by file writes, commands, MCP calls and web searches, and
+changing it blind means changing every confirmation card in the app. It wants
+one pass with eyes on each card type, not a one-line change at the end of an
+unrelated piece of work.
+
+**Where to start:** `src/renderer/features/chat/ToolConfirmCard.tsx` around
+`KIND_CONFIG`; `request.diff` is the existing signal that a write really is a
+file change.
+
 ### 2026-09-03: 4096 is unsupported on the vision transport, and not by a tunable margin
 
 **Seen:** a 27B at 4096 on `LlamaVisionService` produced nothing on all twelve
