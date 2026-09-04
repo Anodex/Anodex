@@ -1028,13 +1028,27 @@ A second substantiated point about the underlying pain mechanism follows [[S1:P1
     expect(persisted?.report).not.toContain('Research result:')
     expect(persisted?.synthesisDiagnostics?.strategy).toBe('hierarchical-recovery')
     expect(persisted?.synthesisDiagnostics?.selectedStage).toBe('hierarchical-report')
-    // A recovered report validates easily -- it is assembled from verified
-    // excerpts, so it quotes nothing it cannot prove -- and used to let a run
-    // report `completed` while the analysis the question asked for had been
-    // discarded. Observed live: a run finished `completed` shipping a log
-    // organised by research step with twelve blocks of raw excerpts.
-    expect(persisted?.status).toBe('partial')
-    expect(persisted?.lastError).toContain('assembled from verified excerpts')
+    // A report assembled from verified excerpts validates easily -- it quotes
+    // nothing it cannot prove -- and used to let a run report `completed`
+    // while the analysis the question asked for had been discarded. Observed
+    // live: a run finished `completed` shipping a log organised by research
+    // step with twelve blocks of raw excerpts. The test below, on a run whose
+    // section really did fall back to excerpts, is what pins that protection.
+    //
+    // This run is the opposite case, and it was being told the same thing.
+    // Every section here is the model's own cited prose; the attempt list
+    // above shows two `section` stages and no `section-fallback`. Nothing
+    // failed an evidence check and nothing was discarded, so reporting
+    // `partial` described a success as a failure -- and told a user on a small
+    // context that the feature does not work for them, at the exact moment it
+    // had just worked. Hierarchical recovery is the designed answer to a small
+    // context, not a degradation of the result.
+    expect(persisted?.status).toBe('completed')
+    // The caveat now describes how the report is arranged instead of claiming
+    // excerpts stood in for prose, which for this run was simply untrue.
+    expect(persisted?.lastError).toBe(
+      'This report is organised by research step rather than around your question.'
+    )
     expect(persisted?.synthesisDiagnostics?.attempts.map((attempt) => attempt.stage)).toEqual([
       'draft',
       'repair',
@@ -1160,6 +1174,13 @@ A second substantiated point about the underlying pain mechanism follows [[S1:P1
         (attempt) => attempt.stage === 'section-fallback' && attempt.stepId === 'step-1'
       )
     ).toBe(true)
+    // A section here really did fall back to assembled excerpts, so the
+    // shipped report is standing on raw excerpts in place of the model's
+    // prose. That is the case the `partial` verdict exists for, and it stays
+    // exactly as it was when hierarchical recovery stopped being treated as a
+    // failure in its own right.
+    expect(persisted?.status).toBe('partial')
+    expect(persisted?.lastError).toContain('assembled from verified excerpts')
     expect(mocks.runGeneration).toHaveBeenCalledTimes(6)
   })
 

@@ -1,5 +1,6 @@
 // One-off: report the four clean-run criteria for every stored run.
-//   1. selectedStage is draft or repair (the model's own report)
+//   1. selectedStage is the model's own report -- draft, repair, or a
+//      hierarchical report none of whose sections fell back to excerpts
 //   2. every step completed where evidence exists
 //   3. status completed
 //   4. zero excerpt-dump blocks in the shipped report
@@ -64,8 +65,22 @@ for (const [i, run] of runs.entries()) {
   // chart was appended, which overwrote the stage that wrote the prose. A chart
   // is only ever appended to the winning report, so for those older runs
   // 'chart' still means the model's own report -- it just no longer says which.
+  //
+  // `hierarchical-report` is also the model's own report when none of its
+  // sections fell back: each section is written and validated separately, then
+  // assembled. It is the strategy for a small context, not a degradation, and
+  // scoring it as a failure marked runs 53, 55 and 56 not-clean while they
+  // shipped valid, safe, fully cited reports. A `section-fallback` attempt in
+  // the run means excerpts stood in for at least one section, which is the
+  // case this criterion is actually for.
+  const fellBackToExcerpts = (d.attempts ?? []).some(
+    (attempt) => attempt.stage === 'section-fallback'
+  )
   const c1 =
-    d.selectedStage === 'draft' || d.selectedStage === 'repair' || d.selectedStage === 'chart'
+    d.selectedStage === 'draft' ||
+    d.selectedStage === 'repair' ||
+    d.selectedStage === 'chart' ||
+    (d.selectedStage === 'hierarchical-report' && !fellBackToExcerpts)
   const c2 = steps.length > 0 && done === steps.length
   const c3 = run.status === 'completed'
   const c4 = dumpBlocks(run.report) === 0
