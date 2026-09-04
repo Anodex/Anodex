@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   boundPromptItems,
   criticalThinkingContextTokens,
-  criticalThinkingSynthesisLimits
+  criticalThinkingSynthesisLimits,
+  evidencePacketChars
 } from '../criticalThinkingSynthesisBudget'
 
 describe('Critical Thinking synthesis budgets', () => {
@@ -88,6 +89,38 @@ describe('Critical Thinking synthesis budgets', () => {
     // stop working.
     const tiny = criticalThinkingSynthesisLimits(4_096, 4_096, 3_203)
     expect(tiny.maxEvidenceChars).toBeGreaterThan(700)
+  })
+
+  describe('evidencePacketChars', () => {
+    const limits = criticalThinkingSynthesisLimits(32_768, 4_096, 3_203)
+
+    it('gives the evidence the room the other inputs did not use', () => {
+      // The other inputs are capped, not fixed. A short question or a thin set
+      // of findings leaves room behind, and the evidence is the one input
+      // nothing else in the prompt can stand in for, so it gets that room
+      // rather than leaving it empty. Every call site used to compute this
+      // inline and each one stopped at `maxEvidenceChars` instead.
+      const spent = 8_000
+      expect(evidencePacketChars(limits, spent)).toBe(limits.maxPromptChars - spent)
+      expect(evidencePacketChars(limits, spent)).toBeGreaterThan(limits.maxEvidenceChars)
+    })
+
+    it('never promises more than the prompt physically has left', () => {
+      expect(evidencePacketChars(limits, limits.maxPromptChars + 5_000)).toBe(0)
+      expect(evidencePacketChars(limits, limits.maxPromptChars - 10)).toBe(10)
+    })
+
+    it('caps growth for a prompt that wants less than the whole packet', () => {
+      // A per-step section reasons about one step, so it takes a share of the
+      // run's budget rather than all the room going spare.
+      const section = evidencePacketChars(limits, 8_000, 0.5)
+      expect(section).toBe(Math.floor(limits.maxEvidenceChars * 0.5))
+      expect(section).toBeLessThan(evidencePacketChars(limits, 8_000))
+    })
+
+    it('treats a negative or absurd prompt length as spending nothing', () => {
+      expect(evidencePacketChars(limits, -100)).toBe(evidencePacketChars(limits, 0))
+    })
   })
 
   it('bounds item lists without breaking their outer structure', () => {
