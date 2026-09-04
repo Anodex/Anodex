@@ -214,6 +214,76 @@ on the existing `section-fallback` test.
 `scripts/ct-criteria.mjs` scores the same distinction, so the measured history
 and the product agree on what a clean run is.
 
+### One prompt could not carry the research (2026-09-04)
+
+`reportNeedsHierarchicalRecovery` had two conditions, both floors: cite at least
+once per researched step, and clear a length minimum. They ask whether the model
+engaged with each step at all, and were being read as whether the report was
+finished.
+
+Run 60 cleared both by the narrowest possible margin — six cited blocks against
+six required, 3,768 characters against 2,700 — and shipped 4,423 characters
+citing 6 blocks, from **81 evidence items across 48 sources**. At 8K a single
+prompt carries about 5,700 characters of evidence however much the run gathers,
+so the report was written from a tenth of the research and still looked tidy.
+
+Added a third condition, deliberately not a quality bar: `evidencePacketChars`
+over verified passage characters. Below a quarter, hierarchical recovery gives
+each step its own packet and the same context shows the model several times more
+evidence in total.
+
+| run | coverage | strategy     | cited | chars  |
+| --- | -------- | ------------ | ----- | ------ |
+| 50  | 67.6%    | single-pass  | 24    | 30,143 |
+| 49  | 42.7%    | single-pass  | 25    | 47,549 |
+| 51  | 36.9%    | single-pass  | 28    | 35,161 |
+| 60  | 10.1%    | single-pass  | 6     | 4,423  |
+| 61  | 9.6%     | hierarchical | 28    | 30,549 |
+| 56  | 6.4%     | hierarchical | 31    | 38,093 |
+
+Every run that did well on one pass saw at least 36.9%; the starved one saw
+10.1%. A quarter sits in the middle of that 26-point gap rather than on either
+edge, so it separates the observed cases without being fitted to them.
+
+**Runs 60 and 61 are the controlled comparison** — same question, same 8K
+window, same transport, comparable evidence (48 sources/81 items against
+38/69), differing only in the path taken:
+
+|                    | run 60                  | run 61                     |
+| ------------------ | ----------------------- | -------------------------- |
+| coverage           | 10.1%                   | 9.6%                       |
+| strategy           | single-pass             | hierarchical               |
+| shipped            | 4,423 chars, 6 cited    | **30,549 chars, 28 cited** |
+| candidate validity | `valid=false`, 2 issues | **`valid=true`, 0 issues** |
+| duration           | 617s                    | 783s                       |
+
+Seven times the length and 4.7x the cited coverage, for **27% more runtime** —
+not the ~3x that run 58 (51 sources, 1,886s) suggested. The recovered report was
+also the only _fully valid_ one either run produced, so this is not a
+length-for-correctness trade.
+
+`evidenceCorpusChars` is now stored beside `evidencePacketChars` and shown as
+`cov=` by `ct-criteria.mjs`, so the choice is auditable rather than re-derived
+from the evidence store. It reads `-` on runs recorded before it existed.
+
+### What is confirmed live, and what is not
+
+Runs 60 and 61 confirm, on a real 8K local model: the scaffold-aware packet
+(5,725 characters, against the 4,873–4,901 ceiling of runs 53–56); the stage
+verdict (run 61 is the first hierarchical report allowed to report `completed`);
+the reader-facing caveat now describing the report's arrangement instead of
+claiming excerpts stood in for prose; the store retry (no `EPERM` across two
+runs); and the coverage trigger.
+
+**The issue-density fix is still not exercised live.** In run 61 the
+hierarchical report won at `overallValid`, an earlier tiebreak, so the rate
+comparison never ran. Its evidence remains the replay across all 48 stored runs
+holding two or more whole-report candidates, where it changes three choices and
+agrees on 45.
+
+**`suff=0%` on every recent run.** The coverage assessment has never once
+declared a step sufficient. Nothing above touches it, and it is not understood.
+
 ### Failure messages named the wrong subsystem (2026-09-04)
 
 A run that gathered nothing citable closed with "Check your web search provider
