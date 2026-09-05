@@ -302,6 +302,48 @@ been run since these changes.
 
 ## Workspace and Agent
 
+**Every rating is meaningless without its context size.** The same model, the
+same benchmarks, the same day (2026-09-05), qwen27b:
+
+| benchmark      | @ 8,192                            | @ 65,536                        |
+| -------------- | ---------------------------------- | ------------------------------- |
+| 1 single-file  | done, 14 turns, 3/3                | **done, 3 turns, 3/3**          |
+| 2 multi-file   | running, 131 turns, 3/5, test FAIL | **done, 3 turns, 5/5, PASS**    |
+| 3 fix-existing | stopped, 13 turns, 0/4             | **done, 3 turns, 4/4**          |
+| 4 large-multi  | done, 49 turns, 0/6                | **done, 5 turns, 7/7**          |
+| 5 rust         | stopped, 6 turns, defect present   | **done, 4 turns, defect fixed** |
+| 6 long         | stopped, 118 turns, 14/28 checks   | **done, 6 turns, 28/28**        |
+
+At 65,536 every benchmark completes, every plan step closes, and every
+independent verification passes — better than the 2026-08-31 pass, which had
+bench-3 at 3/3 and bench-4 at 6/6. At 8,192 one of six is clean and runs take
+ten to forty times as many turns.
+
+**How this was nearly misread.** The 27B had been left at 8,192 after
+floor-testing, and a full-suite run there was briefly reported as a regression
+in the agent. It was not: nothing in the context system had changed (no commits
+to `contextBudget.ts`, `toolSurface.ts`, `LlamaService.ts`,
+`LlamaVisionService.ts` or `prompts.ts`), the Critical Thinking budget it was
+suspected of has no non-CT consumers, and the same benchmark at the recorded
+context reproduces the recorded result. The comparison was between the full
+benchmark suite and a `-small` baseline, at an eighth of the validated context.
+
+Two rules follow, and they are the point of this file:
+
+1. **Stamp the context on every number.** "The agent is a 9" and "the agent is
+   a 4" are both true of this model on this day, and neither is useful without
+   `@ 65,536` or `@ 8,192` attached.
+2. **A floor measurement is not a product rating.** 8,192 is worth running —
+   four real bugs found on 2026-09-04/05 only appear under that pressure, and
+   they matter to users on modest hardware — but it describes the floor, not
+   the product.
+
+`contextSizeFor` puts this machine (63 GB RAM, 24 GB VRAM) at 32,768 for a 27B.
+It had been running at a quarter of that, and nothing revisits the
+recommendation once a model is chosen.
+
+### Earlier detail (bench-1 @ 8,192)
+
 Measured 2026-09-04, qwen27b @ 8192, `bench-1-single-file-small` from a reset
 project (`node scripts/bench-reset.mjs bench-1-single-file-small`).
 
