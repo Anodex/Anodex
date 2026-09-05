@@ -823,22 +823,32 @@ the autorun harnesses. What was fixed is in git; these are the ones left.
   What is established: the stop was **proactive**, not a hard limit. Fixed input
   reached 6,388 against `proactiveLimitTokens` 6,370 — over by 18 tokens — so
   Anodex stopped before generating rather than emit a truncated reply. That is
-  deliberate. What is not known is whether a recovery cycle then ran and also
-  came up short, or never ran at all.
+  deliberate.
 
-  **Now fully diagnosed — see `docs/HANDOFF_EMPTY_REPLY_AT_8K.md`.** Recovery
-  did start (`startedContextEpoch: true`, `contextEpoch: 1`) and was then
-  discarded, because `canContinue` requires `madeProgressThisCycle` and the
-  cycle produced no visible content and no novel tool activity — the
-  `read_email` call errored on a bogus id.
+  **Fixed 2026-09-05 — see `docs/HANDOFF_EMPTY_REPLY_AT_8K.md` for the full
+  account.** Recovery did start (the runner's own `startedContextEpoch` and
+  `contextEpoch` both said so) and was then discarded, because `canContinue`
+  requires `madeProgressThisCycle` and the cycle produced no visible content and
+  no novel tool activity — the `read_email` call errored on a bogus id.
 
   That is the guard working as designed: the runner states "error/no-op-only
   loops remain terminal", and two tests in `boundedChatRunner.test.ts` pin it.
   The obvious fix — counting a started epoch as progress — breaks both and was
-  reverted. The open question is whether that rule should hold when the error
-  is incidental and the reply was lost to arithmetic (over the proactive limit
-  by eighteen tokens), which needs something narrower than "an epoch started".
-  Candidates and their trade-offs are in the handoff.
+  reverted. What replaced it is narrower: `RunGenerationResult.contextEpochCause`
+  already distinguishes a `'proactive'` stop, where the transport handed the
+  cycle over itself with the newest tool result complete and room left for a
+  reply, from an `'in-turn'` one, where the model had its rounds and the window
+  filled underneath it. Only the first waives the progress requirement, once per
+  turn. Both guard tests are `'in-turn'` by default and still pass unchanged.
+
+  Confirmed on a live `qwen27b @ 8192` run: the rescue fires on exactly that
+  cycle and turn 7 returns an answer instead of nothing. The run also exposed a
+  **second, pre-existing bug the fix makes reachable** — a cycle resuming after
+  a context epoch resets history to the turns before this reply and never
+  re-adds the current question, so the model answered the _previous_ turn's
+  prompt. Fixed alongside, with `epochContinuePrompt`. See §5b of the handoff:
+  shipping the first fix without the second trades an empty reply for a
+  confident answer to the wrong question.
 
   Worth noting what it cost in measurement terms: `handles-a-bad-id` reported a
   _consistent_ failure across both passes, which reads as "this model reliably
