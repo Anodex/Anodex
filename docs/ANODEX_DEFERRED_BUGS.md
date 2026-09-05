@@ -750,3 +750,29 @@ the autorun harnesses. What was fixed is in git; these are the ones left.
   arithmetic, unit tests and a 48-run replay and stand on their own; the report
   quality those runs reached is bounded by an arxiv-only corpus and should be
   re-measured once the backend serves the general web again.
+
+- **The coverage assessment never returns `sufficient`.** Across the last six
+  Critical Thinking runs: 56 assessments, **0 parse failures, 0 `sufficient`,
+  56 `continue`**. Every step therefore spends its full round budget rather
+  than stopping when it has enough.
+
+  Checked as an Anodex defect first, and it is not one. The parser accepts the
+  token (`validVerdict`), the gate permits it
+  (`verdict === 'sufficient'`, no answer-blocking gaps, two verified sources),
+  and the prompt argues against over-strictness in as many words: "Judge the
+  evidence you have, not the evidence you could imagine. A step is answered
+  when a careful reader would accept the finding, not when nothing further
+  could be learned... optional follow-up literature is not, by itself, a reason
+  to continue." Nothing is being discarded — zero parse failures means the
+  model is genuinely choosing `continue` each time.
+
+  It is also not stuck. With the search backend fixed, `evidenceBasis` moved
+  from 100% `insufficient` on the arxiv-only runs to mostly `multiple-sources`
+  on run 62, so the model is responding to better evidence; it just will not
+  declare a step closed while it can still name something it wants.
+
+  Left alone because the only available fix is a prompt nudge aimed at one
+  model's judgement, and the cost is unproven: run 62 completed all seven steps
+  and produced the best report on record while never returning `sufficient`.
+  Worth revisiting if a run is ever seen exhausting its round budget on a step
+  that was plainly answered.
