@@ -915,6 +915,21 @@ class LlamaService extends EventEmitter {
     if (surface.routed) {
       log.debug('Tool surface routed', {
         direct: surface.directToolNames,
+        // The discovery gateway is handed to the model alongside the direct
+        // tools -- `boundToolSurface` seeds its selection with it -- but it is
+        // not in `directToolNames`, so the line used to read
+        // "direct: [4 tools], deferredCount: 22" and look exactly like a model
+        // stranded with no way to reach the other 22.
+        //
+        // It is not the same diagnosis at all. Measured 2026-09-05, devstral24B
+        // on the email script called `list_email_accounts` six times with
+        // identical arguments until the loop guard stopped it, while
+        // `find_available_tool` sat in the same surface unused. "Could not
+        // discover" is Anodex's bug; "did not try to discover" is the model's,
+        // and the log has to be able to tell them apart.
+        gateway: Object.keys(surface.functions).filter(
+          (name) => !surface.directToolNames.includes(name)
+        ),
         deferredCount: surface.deferredToolNames.length,
         contextSize: this.contextSize
       })

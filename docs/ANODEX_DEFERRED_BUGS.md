@@ -700,15 +700,33 @@ the autorun harnesses. What was fixed is in git; these are the ones left.
   `[llama:vision]` vs `[llama]` in a log before attributing any result.
 
 - **Tool-discovery thrashing on weaker models.** With most of the catalogue
-  deferred at 8K, models that cannot find `find_available_tool` loop on
-  whatever they can see. Measured on devstral-24B running the email script:
-  135 calls in a single turn, and in a later run 24 calls of `find_skill`
-  ending in "I cannot find a skill to search for an email by subject" while
-  `search_email` sat one gateway call away. `find_skill` now says skills are
-  not tools and names `find_available_tool`, but the effect of that redirect is
-  **unmeasured** — the models thrash in both runs and single-run comparison of
-  a high-variance model is noise. Needs repeats before anyone claims it helped.
-  The loop guard does fire, but only after the turn is spent.
+  deferred at 8K, models that cannot find `find_available_tool` loop on whatever
+  they can see. Measured on devstral-24B running the email script: 135 calls in
+  a single turn, and in a later run 24 calls of `find_skill` ending in "I cannot
+  find a skill to search for an email by subject" while `search_email` sat one
+  gateway call away.
+
+  Seen again 2026-09-05, same model and script: six identical
+  `list_email_accounts` calls in one turn until the loop guard stopped it, and
+  the run ended at turn 2 of 7.
+
+  **Checked as an Anodex bug and it is not one.** `boundToolSurface` seeds its
+  selection with the gateway (`selected = { ...gateway.functions }`), so
+  `find_available_tool` was in the surface the whole time and the model never
+  called it. The loop guard did fire, correctly, with a message naming the
+  repetition.
+
+  What _was_ Anodex's was the diagnosis: the `Tool surface routed` log printed
+  only `directToolNames`, so it read "direct: [4 tools], deferredCount: 22" and
+  looked exactly like a model stranded with no way to reach the other 22. Fixed
+  — the line now names the gateway tools separately, because "could not
+  discover" and "did not try to discover" are different faults and only one of
+  them is ours.
+
+  The remaining behaviour is the model's. `find_skill` already says skills are
+  not tools and names `find_available_tool`; the effect of that redirect is
+  still **unmeasured**, and single-run comparison of a high-variance model is
+  noise. Needs repeats before anyone claims it helped.
 
 - **A 4B stopped calling `anodex_status`.** qwen4b answered "I don't have
   access to your schedule or task list right now" while the tool was resident —
