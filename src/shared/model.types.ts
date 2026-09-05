@@ -75,6 +75,16 @@ export interface EngineState {
   refusedLoad?: RefusedModelLoad
   /** Effective context size once the model is ready. */
   contextSize?: number
+  /**
+   * What this machine could run the loaded model at, from `contextSizeFor`.
+   *
+   * Anodex computes this when a model is first recommended and then never
+   * revisits it, so a window set once — or set deliberately for a test — stays
+   * set with nothing saying it is small for the hardware. Carried on the engine
+   * state so the context meter can say so; see `contextHeadroom`. Absent for a
+   * cloud model, whose window is a property of the model rather than a setting.
+   */
+  recommendedContextSize?: number
   /** True when the active local backend accepts image inputs. */
   vision?: boolean
   /**

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { freemem } from 'node:os'
+import { freemem, totalmem } from 'node:os'
 import { basename } from 'node:path'
 import type {
   Llama,
@@ -13,6 +13,9 @@ import type {
   LlamaChatResponseChunk,
   LlamaChatResponseFunctionCallParamsChunk
 } from 'node-llama-cpp'
+import { estimateTier } from '../models/huggingFaceCatalog'
+import { contextSizeFor } from '@shared/modelRecommendation'
+import type { RecommendedModel } from '@shared/recommendedModels'
 import type {
   EngineState,
   ModelInfo,
@@ -400,6 +403,8 @@ class LlamaService extends EventEmitter {
   private activeToolSchemaReserveTokens = 0
 
   private status: EngineState['status'] = 'unloaded'
+  /** What the hardware could support for the loaded model — see `EngineState`. */
+  private recommendedContextSize: number | undefined
   private currentModel?: ModelInfo
   private contextSize?: number
   /** Tail of llama.cpp's own log, read only when a load fails. */
@@ -467,6 +472,7 @@ class LlamaService extends EventEmitter {
       status: this.status,
       model: this.currentModel,
       contextSize: this.contextSize,
+      recommendedContextSize: this.recommendedContextSize,
       gpuLayersUsed: this.gpuLayersUsed,
       gpuLayersTotal: this.gpuLayersTotal,
       error: this.error,
@@ -525,6 +531,12 @@ class LlamaService extends EventEmitter {
     info: ModelInfo
   ): Promise<EngineState> {
     const requestedSize = options.contextSize ?? 16384
+    // What this machine could have run it at. Computed once per load, from the
+    // same function the first-run recommendation uses, so the context meter can
+    // say when a window is small for the hardware rather than leaving "8.2K"
+    // looking like a property of the model. Best-effort: a probe failure leaves
+    // it undefined and nothing is claimed.
+    this.recommendedContextSize = await this.recommendContextSize(info)
     const nlc = await this.getModule()
     const memoryIssue = await describeInsufficientMemory(info, requestedSize, nlc)
     if (memoryIssue) {
@@ -2456,6 +2468,30 @@ class LlamaService extends EventEmitter {
    * Probe the host's GPU/VRAM via the llama backend. Initialises the backend
    * (not a model) on first call. Returns safe fallbacks if detection fails.
    */
+  /**
+   * The context this hardware could give the loaded model.
+   *
+   * Deliberately best-effort. `estimateTier` reads a coarse size class from the
+   * file, and `contextSizeFor` maps that plus memory to a window — the same
+   * pair the model recommendation uses, so the meter cannot disagree with the
+   * advice Settings gives. Any failure returns `undefined`, because a wrong
+   * number here would tell a user to change a working setup.
+   */
+  private async recommendContextSize(info: ModelInfo): Promise<number | undefined> {
+    try {
+      const probe = await this.getHardwareProbe()
+      const ramGb = totalmem() / 1024 ** 3
+      const vramGb = probe.unified ? 0 : (probe.vramBytes ?? 0) / 1024 ** 3
+      return contextSizeFor(
+        { tier: estimateTier(info.sizeBytes) } as RecommendedModel,
+        ramGb,
+        vramGb
+      )
+    } catch {
+      return undefined
+    }
+  }
+
   async getHardwareProbe(): Promise<{
     gpuNames: string[]
     vramBytes: number | null

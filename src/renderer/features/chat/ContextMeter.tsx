@@ -7,6 +7,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Icon } from '../../components/Icon'
+import { contextHeadroom } from '@shared/contextHeadroom'
 import styles from './ContextMeter.module.css'
 import { resolveActiveStyle } from '@shared/chatPersonality'
 
@@ -19,6 +20,7 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const detailsId = useId()
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const engineContextSize = useModelStore((s) => s.engine.contextSize)
+  const recommendedContextSize = useModelStore((s) => s.engine.recommendedContextSize)
   const providerActive = useSettingsStore((s) => s.settings?.provider.active)
   // The meter has to price the voice the turn will actually carry, which is the
   // selected personality when there is one — not the free-text field it shadows.
@@ -79,6 +81,16 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
         : undefined,
     [conversation, providerActive]
   )
+
+  /**
+   * Whether this machine could run the loaded model in a much larger window.
+   *
+   * Shown in the popover rather than the always-visible label: it is true for
+   * as long as the setting stands, so a permanent line beside the token count
+   * would become part of the furniture. See `contextHeadroom` for why the bar
+   * is a doubling.
+   */
+  const headroom = contextHeadroom(engineContextSize, recommendedContextSize)
 
   const info = useMemo(() => {
     if (!contextSize || !conversation || conversation.messages.length === 0) return null
@@ -178,6 +190,12 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
           <strong>{info.pct}% full</strong>
         </div>
 
+        {headroom?.worthMentioning && (
+          <div className={styles.popoverRow}>
+            <span>This machine supports</span>
+            <strong>{formatTokenCount(headroom.recommended)}</strong>
+          </div>
+        )}
         <div className={styles.popoverRow}>
           <span>Used tokens</span>
           <strong>{info.usedTokens.toLocaleString()}</strong>
