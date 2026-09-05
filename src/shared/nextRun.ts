@@ -41,9 +41,24 @@ export function computeNextRunAt(
       : nextSlotOnGrid(recurrence.anchorAt, period, fromMs)
   }
 
-  const weekdays = recurrence.weekdays ?? []
-  if (weekdays.length === 0) return null
-  return nextWeekdayOccurrence(fromMs, recurrence.hour, recurrence.minute, weekdays)
+  if (recurrence.type === 'monthly') {
+    return nextMonthlyOccurrence(fromMs, recurrence)
+  }
+
+  // Weekly, stated rather than left as the fallthrough it used to be. Every
+  // other branch returns, so an unhandled `RecurrenceType` reached this line
+  // and quietly became a weekly rule; a monthly task firing every week is the
+  // kind of wrong that reads perfectly plausible on a task card.
+  if (recurrence.type === 'weekly') {
+    const weekdays = recurrence.weekdays ?? []
+    if (weekdays.length === 0) return null
+    return nextWeekdayOccurrence(fromMs, recurrence.hour, recurrence.minute, weekdays)
+  }
+
+  // `recurrence.type` is exhausted above, so this is only reachable from a
+  // stored task written by a newer build. Never firing is the safe reading of
+  // a rule this build cannot evaluate.
+  return null
 }
 
 /**
@@ -95,6 +110,76 @@ export function slotsBetween(
 function intervalToMs(every: number, unit: IntervalUnit): number {
   const rawMinutes = unit === 'minutes' ? every : unit === 'hours' ? every * 60 : every * 60 * 24
   return Math.max(rawMinutes, MIN_INTERVAL_MINUTES) * 60_000
+}
+
+/** The last day-of-month in the month `year`/`month` (0-11) names. */
+function lastDayOfMonth(year: number, month: number): number {
+  // Day 0 of the following month is the last day of this one, and it handles
+  // leap Februaries without a leap-year rule of its own.
+  return new Date(year, month + 1, 0).getDate()
+}
+
+/**
+ * The next timestamp after `fromMs` matching a `'monthly'` rule, or null if
+ * the rule names nothing that can happen.
+ *
+ * Two shapes, both real things people say:
+ *
+ * - `dayOfMonth` — "the 15th of every month". A month with no such day clamps
+ *   to its last (see `dayOfMonth`'s doc comment).
+ * - `weekOfMonth` + `weekdays[0]` — "the last Friday of the month", where -1
+ *   means last. The fifth of a weekday does not exist in every month, so a
+ *   `weekOfMonth` of 5 skips the months without one instead of clamping; the
+ *   fifth Friday is a specific day, not a loose way of saying the last.
+ *
+ * Scans forward a month at a time rather than adding 30 days, so the rule
+ * cannot drift off its day across February or a 31-day month.
+ */
+function nextMonthlyOccurrence(fromMs: number, recurrence: TaskRecurrence): number | null {
+  const from = new Date(fromMs)
+  const { hour, minute } = recurrence
+
+  // 13 covers "this month's slot has passed" plus a full year of skipped
+  // months, which is more than a `weekOfMonth` of 5 can ever need.
+  for (let ahead = 0; ahead <= 13; ahead++) {
+    const cursor = new Date(from.getFullYear(), from.getMonth() + ahead, 1)
+    const year = cursor.getFullYear()
+    const month = cursor.getMonth()
+
+    let day: number
+    if (recurrence.weekOfMonth !== undefined) {
+      const weekday = recurrence.weekdays?.[0]
+      if (weekday === undefined) return null
+      const resolved = dayOfNthWeekday(year, month, weekday, recurrence.weekOfMonth)
+      if (resolved === null) continue
+      day = resolved
+    } else {
+      const wanted = recurrence.dayOfMonth
+      if (wanted === undefined) return null
+      day = Math.min(wanted, lastDayOfMonth(year, month))
+    }
+
+    const candidate = new Date(year, month, day, hour, minute, 0, 0).getTime()
+    if (candidate > fromMs) return candidate
+  }
+
+  return null
+}
+
+/**
+ * The day-of-month of the `nth` `weekday` in a month, or null when the month
+ * has no such occurrence. `nth` is 1-based, or -1 for the last one.
+ */
+function dayOfNthWeekday(year: number, month: number, weekday: number, nth: number): number | null {
+  if (nth === -1) {
+    const last = lastDayOfMonth(year, month)
+    const lastWeekday = new Date(year, month, last).getDay()
+    return last - ((lastWeekday - weekday + 7) % 7)
+  }
+
+  const firstWeekday = new Date(year, month, 1).getDay()
+  const day = 1 + ((weekday - firstWeekday + 7) % 7) + (nth - 1) * 7
+  return day > lastDayOfMonth(year, month) ? null : day
 }
 
 /** The next timestamp after `fromMs` landing on `hour`:`minute`, today or tomorrow. */

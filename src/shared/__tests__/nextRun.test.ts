@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_INTERVAL_MINUTES } from '../scheduledTask.types'
+import { MIN_INTERVAL_MINUTES, type TaskRecurrence } from '../scheduledTask.types'
 import { computeNextRunAt, slotsBetween } from '../nextRun'
 
 // Wednesday, 2026-07-08 10:00:00 local time.
@@ -234,6 +234,126 @@ describe('computeNextRunAt', () => {
         false
       )
       expect(result).toBe(new Date(2026, 6, 10, 9, 0, 0, 0).getTime()) // Friday
+    })
+  })
+
+  describe('monthly', () => {
+    // Saturday 5 September 2026, 13:00 local.
+    const SEP_5 = new Date(2026, 8, 5, 13, 0, 0, 0).getTime()
+
+    it('fires later the same month when the day is still ahead', () => {
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, dayOfMonth: 15 },
+        SEP_5,
+        false
+      )
+      expect(result).toBe(new Date(2026, 8, 15, 9, 0, 0, 0).getTime())
+    })
+
+    it('rolls into next month once the day for this one has passed', () => {
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, dayOfMonth: 1 },
+        SEP_5,
+        true
+      )
+      expect(result).toBe(new Date(2026, 9, 1, 9, 0, 0, 0).getTime())
+    })
+
+    it('rolls over when today is the day but the time has passed', () => {
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, dayOfMonth: 5 },
+        SEP_5,
+        true
+      )
+      expect(result).toBe(new Date(2026, 9, 5, 9, 0, 0, 0).getTime())
+    })
+
+    it('clamps to the last day of a month too short for it', () => {
+      // "the 31st" in February. Clamping keeps the reminder in every month;
+      // skipping would drop it silently for the shortest ones.
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, dayOfMonth: 31 },
+        new Date(2027, 1, 1, 13, 0, 0, 0).getTime(),
+        true
+      )
+      expect(result).toBe(new Date(2027, 1, 28, 9, 0, 0, 0).getTime())
+    })
+
+    it('clamps to 29 in a leap February', () => {
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, dayOfMonth: 31 },
+        new Date(2028, 1, 1, 13, 0, 0, 0).getTime(),
+        true
+      )
+      expect(result).toBe(new Date(2028, 1, 29, 9, 0, 0, 0).getTime())
+    })
+
+    it('does not drift off its day across a short month', () => {
+      // The reason this walks month by month rather than adding 30 days.
+      const march = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, dayOfMonth: 31 },
+        new Date(2027, 1, 28, 10, 0, 0, 0).getTime(),
+        true
+      )
+      expect(march).toBe(new Date(2027, 2, 31, 9, 0, 0, 0).getTime())
+    })
+
+    it('finds the last Friday of the month', () => {
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, weekOfMonth: -1, weekdays: [5] },
+        SEP_5,
+        false
+      )
+      expect(result).toBe(new Date(2026, 8, 25, 9, 0, 0, 0).getTime())
+    })
+
+    it('moves to the next month once that Friday has gone', () => {
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, weekOfMonth: -1, weekdays: [5] },
+        new Date(2026, 8, 26, 9, 0, 0, 0).getTime(),
+        true
+      )
+      expect(result).toBe(new Date(2026, 9, 30, 9, 0, 0, 0).getTime())
+    })
+
+    it('finds the Nth weekday of the month', () => {
+      // September 2026 opens on a Tuesday, so the 2nd Tuesday is the 8th.
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, weekOfMonth: 2, weekdays: [2] },
+        SEP_5,
+        false
+      )
+      expect(result).toBe(new Date(2026, 8, 8, 9, 0, 0, 0).getTime())
+    })
+
+    it('skips months with no fifth occurrence rather than clamping to the last', () => {
+      // September 2026 has four Fridays; October has five. "The fifth Friday"
+      // is a specific day, not a loose way of saying "the last".
+      const result = computeNextRunAt(
+        { type: 'monthly', hour: 9, minute: 0, weekOfMonth: 5, weekdays: [5] },
+        SEP_5,
+        false
+      )
+      expect(result).toBe(new Date(2026, 9, 30, 9, 0, 0, 0).getTime())
+    })
+
+    it('never fires when the rule names no day at all', () => {
+      const result = computeNextRunAt({ type: 'monthly', hour: 9, minute: 0 }, SEP_5, false)
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('a type this build does not know', () => {
+    it('never fires, rather than inheriting weekly behaviour', () => {
+      // `computeNextRunAt` used to end in a bare weekly fallthrough, so any
+      // recurrence it did not recognise quietly became a weekly rule. A task
+      // stored by a newer build should do nothing instead.
+      const result = computeNextRunAt(
+        { type: 'quarterly', hour: 9, minute: 0, weekdays: [5] } as unknown as TaskRecurrence,
+        WED_10AM,
+        false
+      )
+      expect(result).toBeNull()
     })
   })
 })

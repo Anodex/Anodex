@@ -11,6 +11,20 @@ import styles from './WhenField.module.css'
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 const WEEKDAYS_PRESET = [1, 2, 3, 4, 5]
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/**
+ * The monthly "which day" choices. `day` means a date, the rest are the
+ * `weekOfMonth` values for "the first/second/... Friday", with -1 for last.
+ */
+const MONTH_DAY_MODES = [
+  { label: 'on day', value: 'day' },
+  { label: 'on the first', value: '1' },
+  { label: 'on the second', value: '2' },
+  { label: 'on the third', value: '3' },
+  { label: 'on the fourth', value: '4' },
+  { label: 'on the last', value: '-1' }
+]
 
 /** One-tap starting points, covering the shapes people reach for most. */
 const PRESETS = [
@@ -18,7 +32,8 @@ const PRESETS = [
   'every 30 minutes',
   'hourly',
   'every day at 9am',
-  'weekdays at 5pm'
+  'weekdays at 5pm',
+  'the 1st of every month at 9am'
 ]
 
 interface WhenFieldProps {
@@ -181,13 +196,21 @@ export function WhenField({ value, onChange, text, onTextChange }: WhenFieldProp
                   every: type === 'interval' ? (value.every ?? 30) : value.every,
                   intervalUnit:
                     type === 'interval' ? (value.intervalUnit ?? 'minutes') : value.intervalUnit,
-                  anchorAt: type === 'interval' ? Date.now() : undefined
+                  anchorAt: type === 'interval' ? Date.now() : undefined,
+                  // A monthly rule that names no day can never fire, so it
+                  // opens on today's date rather than on nothing.
+                  dayOfMonth:
+                    type === 'monthly'
+                      ? (value.dayOfMonth ?? new Date().getDate())
+                      : value.dayOfMonth,
+                  weekOfMonth: type === 'monthly' ? value.weekOfMonth : undefined
                 })
               }}
               options={[
                 { label: 'Once', value: 'once' },
                 { label: 'Every day', value: 'daily' },
                 { label: 'Certain days', value: 'weekly' },
+                { label: 'Monthly', value: 'monthly' },
                 { label: 'On a repeat', value: 'interval' }
               ]}
             />
@@ -213,6 +236,52 @@ export function WhenField({ value, onChange, text, onTextChange }: WhenFieldProp
                     { label: 'days', value: 'days' }
                   ]}
                 />
+              </>
+            ) : null}
+
+            {value.type === 'monthly' ? (
+              <>
+                <SelectControl
+                  value={value.weekOfMonth === undefined ? 'day' : String(value.weekOfMonth)}
+                  onChange={(next) =>
+                    next === 'day'
+                      ? patchRecurrence({
+                          weekOfMonth: undefined,
+                          dayOfMonth: value.dayOfMonth ?? new Date().getDate()
+                        })
+                      : patchRecurrence({
+                          weekOfMonth: Number(next),
+                          dayOfMonth: undefined,
+                          // The ordinal form reads `weekdays[0]`, so it needs a
+                          // day even when switching over from a date.
+                          weekdays: [value.weekdays?.[0] ?? 1]
+                        })
+                  }
+                  options={MONTH_DAY_MODES}
+                />
+                {value.weekOfMonth === undefined ? (
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    className={styles.intervalNumber}
+                    value={value.dayOfMonth ?? 1}
+                    onChange={(event) =>
+                      patchRecurrence({
+                        dayOfMonth: Math.min(31, Math.max(1, Number(event.target.value) || 1))
+                      })
+                    }
+                  />
+                ) : (
+                  <SelectControl
+                    value={String(value.weekdays?.[0] ?? 1)}
+                    onChange={(next) => patchRecurrence({ weekdays: [Number(next)] })}
+                    options={WEEKDAY_NAMES.map((label, day) => ({
+                      label,
+                      value: String(day)
+                    }))}
+                  />
+                )}
               </>
             ) : null}
 
