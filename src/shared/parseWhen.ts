@@ -75,7 +75,26 @@ const DAY_WORDS: Record<string, number> = {
   sat: 6
 }
 
+/**
+ * Which occurrence of a weekday within a month "the last Friday" names. `last`
+ * is -1 rather than 5: the last Friday is whichever of the fourth or fifth the
+ * month actually ends on, and collapsing it to a fixed number would silently
+ * skip the months that have only four.
+ */
+const ORDINAL_WORDS: Record<string, number> = {
+  first: 1,
+  '1st': 1,
+  second: 2,
+  '2nd': 2,
+  third: 3,
+  '3rd': 3,
+  fourth: 4,
+  '4th': 4,
+  last: -1
+}
+
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const WEEKDAYS = [1, 2, 3, 4, 5]
 const WEEKEND = [0, 6]
 /** Used whenever a rule needs a time of day but the input didn't give one. */
@@ -138,6 +157,39 @@ function matchWeekday(text: string): number | null {
     if (new RegExp(`\\b${word}\\b`).test(text)) return DAY_WORDS[word]
   }
   return null
+}
+
+/** Text naming a month-long cadence: "monthly", "every month", "of the month". */
+const MONTHLY_WORDS = /\bmonthly\b|\b(?:every|each)\s+month\b|\bof\s+(?:the|every|each)\s+month\b/
+
+/**
+ * "the last Friday", "2nd Tuesday" — an ordinal paired with a weekday, which is
+ * the half of a monthly rule that `weekdays` alone cannot express.
+ *
+ * Matched before the plain day-of-month, because "the 2nd Tuesday of the month"
+ * contains both and only one of them is what was meant.
+ */
+function matchOrdinalWeekday(text: string): { weekOfMonth: number; weekday: number } | null {
+  const ordinals = Object.keys(ORDINAL_WORDS).join('|')
+  const days = Object.keys(DAY_WORDS).join('|')
+  const found = text.match(new RegExp(`\\b(${ordinals})\\s+(${days})\\b`))
+  if (!found) return null
+  return { weekOfMonth: ORDINAL_WORDS[found[1]], weekday: DAY_WORDS[found[2]] }
+}
+
+/** "the 15th", "on the 3rd" — a bare ordinal day number, 1-31. */
+function matchDayOfMonth(text: string): number | null {
+  const found = text.match(/\b(\d{1,2})(?:st|nd|rd|th)\b/)
+  if (!found) return null
+  const day = Number(found[1])
+  return day >= 1 && day <= 31 ? day : null
+}
+
+/** "3rd" from 3 — used by `describeRecurrence`, and re-read by `matchDayOfMonth`. */
+function ordinalSuffix(day: number): string {
+  if (day % 100 >= 11 && day % 100 <= 13) return `${day}th`
+  const suffix = ['th', 'st', 'nd', 'rd'][day % 10] ?? 'th'
+  return `${day}${suffix}`
 }
 
 function toMs(count: number, unit: IntervalUnit | 'weeks'): number {
@@ -335,6 +387,41 @@ export function parseWhen(input: string, now: number = Date.now()): ParsedWhen |
     return accept({ type: 'daily', hour: at.hour, minute: at.minute })
   }
 
+  // A period of several months has nowhere to live: `IntervalUnit` counts
+  // minutes, hours and days, and no run of days is a fixed number of months.
+  // Rejecting says so; rounding it to monthly would fire twice as often as
+  // asked, under a label reading exactly what the user typed.
+  const multiMonth = text.match(/\bevery\s+(other|\d+)\s*months?\b/)
+  if (multiMonth && multiMonth[1] !== '1') return null
+
+  // Monthly forms, ahead of the weekly ones because "the last Friday of the
+  // month" names a weekday and would otherwise be read as *every* Friday —
+  // four to five times more often than asked, and labelled "Every Fri".
+  // A surviving `multiMonth` is "every 1 month", which is just monthly said
+  // the long way round.
+  if (MONTHLY_WORDS.test(text) || multiMonth) {
+    const at = time ?? { hour: DEFAULT_HOUR, minute: 0 }
+    const ordinal = matchOrdinalWeekday(text)
+    if (ordinal) {
+      return accept({
+        type: 'monthly',
+        hour: at.hour,
+        minute: at.minute,
+        weekOfMonth: ordinal.weekOfMonth,
+        weekdays: [ordinal.weekday]
+      })
+    }
+    return accept({
+      type: 'monthly',
+      hour: at.hour,
+      minute: at.minute,
+      // A bare "monthly" names no day, so it means the day it was set on —
+      // the same reading as "monthly from today". Guessing the 1st instead
+      // would move the reminder to a date the user never mentioned.
+      dayOfMonth: matchDayOfMonth(text) ?? new Date(now).getDate()
+    })
+  }
+
   // Weekly forms. Checked before the numeric interval so "every Friday" isn't
   // shadowed, and before "daily" so "weekdays" doesn't read as "every day".
   const weeklyAt = time ?? { hour: DEFAULT_HOUR, minute: 0 }
@@ -361,6 +448,18 @@ export function parseWhen(input: string, now: number = Date.now()): ParsedWhen |
       hour: weeklyAt.hour,
       minute: weeklyAt.minute,
       weekdays: [weekday]
+    })
+  }
+  // "weekly at 9am" with no day named. `weekly` sits in `REPEAT_WORDS` but had
+  // no branch of its own, so it fell all the way through to the bare-time rule
+  // and became a *one-shot* tomorrow morning — the repeat silently dropped,
+  // under the label "Once at 9:00 AM". Same shape as the monthly bug above.
+  if (/\bweekly\b|\b(?:every|each)\s+week\b/.test(text)) {
+    return accept({
+      type: 'weekly',
+      hour: weeklyAt.hour,
+      minute: weeklyAt.minute,
+      weekdays: [new Date(now).getDay()]
     })
   }
 
@@ -426,6 +525,19 @@ export function describeRecurrence(recurrence: TaskRecurrence): string {
     )}`
   }
   if (recurrence.type === 'daily') return `Every day at ${time}`
+
+  if (recurrence.type === 'monthly') {
+    // Every branch below has to read back into the same rule: the editor
+    // rewrites its own text field from this string, so a description
+    // `parseWhen` cannot re-read would make the two halves of `WhenField`
+    // disagree about the schedule on every keystroke.
+    if (recurrence.weekOfMonth !== undefined) {
+      const day = DAY_NAMES[recurrence.weekdays?.[0] ?? 0]
+      const which = recurrence.weekOfMonth === -1 ? 'last' : ordinalSuffix(recurrence.weekOfMonth)
+      return `Monthly on the ${which} ${day} at ${time}`
+    }
+    return `Monthly on the ${ordinalSuffix(recurrence.dayOfMonth ?? 1)} at ${time}`
+  }
 
   const weekdays = [...(recurrence.weekdays ?? [])].sort((a, b) => a - b)
   if (weekdays.length === 0) return `Weekly at ${time} — pick a day`
