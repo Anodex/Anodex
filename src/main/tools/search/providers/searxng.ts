@@ -85,6 +85,18 @@ export function createSearxngProvider(baseUrl: string): SearchProvider {
           )
         }
 
+        // Results arrived, but not from everything that was asked. Reported
+        // rather than thrown: the comment above explains why keeping partial
+        // results is right, and this is the missing half of that decision --
+        // keep them, and say the search was degraded when they came back.
+        if (unresponsive.length > 0) {
+          options?.onDegraded?.(
+            `${unresponsive.length} search engine(s) did not answer (${unresponsive.join(', ')}). ` +
+              `These results are from the engines that did, so whole classes of source may be ` +
+              `missing rather than absent.`
+          )
+        }
+
         return results.slice(0, resultCount).map((item) => parseResult(item))
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {

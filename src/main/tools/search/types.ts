@@ -30,6 +30,29 @@ export interface SearchOptions {
   signal?: AbortSignal
   /** What kind of question this is. Defaults to `general`. */
   intent?: SearchIntent
+  /**
+   * Called when results came back, but from a search that was not working
+   * properly -- some engines answered and others did not.
+   *
+   * A backend with no index of its own forwards every query to Google, Brave,
+   * DuckDuckGo and the rest from the user's IP, and a throttled engine is
+   * dropped from the response rather than failing it. Returning nothing at all
+   * is already reported as an error. The case with no channel was the one in
+   * between: enough engines answer to produce results, so nothing looks wrong,
+   * while whole classes of source have quietly stopped being reachable.
+   *
+   * Measured on one machine, 2026-09-04: a scholarly-intent query returned ten
+   * results, all ten from arxiv.org, with six engines unresponsive including
+   * both scholar engines. Critical Thinking then researched a consumer
+   * heat-pump retrofit question -- needing manufacturer datasheets, tariffs and
+   * owner reports -- against preprints only, and correctly concluded its
+   * evidence was insufficient on every round. Nothing anywhere said why.
+   *
+   * A warning rather than an error on purpose: a partial result set is still
+   * usable evidence, and discarding it would trade a quiet failure for a loud
+   * one. Callers that do not pass this behave exactly as before.
+   */
+  onDegraded?: (warning: string) => void
 }
 
 /** Abstraction over every web search backend Anodex supports. */
