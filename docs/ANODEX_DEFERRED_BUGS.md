@@ -811,20 +811,25 @@ the autorun harnesses. What was fixed is in git; these are the ones left.
   The same shape ended the hard chat rubric's turn 12 in one of three runs, so
   it is not specific to email.
 
-  `boundedChatRunner` has context recovery for exactly this, and it did not
-  fire: `epoch: 0` throughout. The likely cause is `recoveryChurnDetected`,
-  which blocks recovery after consecutive cycles that produced no novel
-  content — correct in itself, since a run that recovers repeatedly without
-  progress should stop, but it means the _first_ such turn gets no compaction
-  either.
+  **The cause is not established, and one plausible-sounding explanation has
+  already been ruled out.** `boundedChatRunner` has context recovery for exactly
+  this. It was first attributed to `recoveryChurnDetected` blocking recovery --
+  wrong: `recoveryOnlyCycle` requires a `contextEpoch` to already exist, so on a
+  first context-limit stop there is nothing to detect churn from and recovery is
+  not blocked. The `epoch: 0` in the log is the vision transport's own round
+  counter, not `boundedChatRunner`'s `contextEpochCount`; reading one as
+  evidence about the other is what produced the wrong answer.
 
-  Not fixed. The agent received the same recovery today and it needed a
-  progress-based bound to stop it grinding (`FRUITLESS_EPOCH_LIMIT`); doing the
-  equivalent surgery on chat's churn detection is a delicate change to the
-  surface with the most traffic, and it deserves its own session with room to
-  measure repeats. **It does not occur at 65,536**, where the fixed input is a
-  fraction of the window — so for anyone running the context their hardware
-  supports, this is invisible.
+  What is established: the stop was **proactive**, not a hard limit. Fixed input
+  reached 6,388 against `proactiveLimitTokens` 6,370 — over by 18 tokens — so
+  Anodex stopped before generating rather than emit a truncated reply. That is
+  deliberate. What is not known is whether a recovery cycle then ran and also
+  came up short, or never ran at all.
+
+  Finding out needs a reproduction with the runner's own epoch count logged
+  next to the transport's, which today's logs do not distinguish. That is the
+  first task for whoever picks this up, before any change: the fix depends
+  entirely on which of those two it is.
 
   Worth noting what it cost in measurement terms: `handles-a-bad-id` reported a
   _consistent_ failure across both passes, which reads as "this model reliably

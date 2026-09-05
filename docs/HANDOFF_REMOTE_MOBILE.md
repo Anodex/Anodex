@@ -552,28 +552,19 @@ shows an update prompt with a download link. Same shape as `src/main/updates/Upd
 pointed the other way.
 
 **`anodex.dev` is a static GitHub Pages site**, with download links pointing at the newest GitHub
-release. That constrains two things:
+release.
 
-**1. The APK must be published somewhere public — and this is already a known blocker here.**
-`Anodex/Anodex` is private, and a private repo's release assets require authentication to download.
-That is exactly why the desktop's own auto-update currently fails closed: embedding a token in a
-distributed binary was rejected, correctly, because a client-side secret is unsealable. The phone
-meets the same wall, and cannot hold a token for the same reason.
+**`Anodex/Anodex` is public** (verified 2026-09-05; `electron-builder.yml` states it and relies on
+it), so release assets are downloadable without any credential and none of the private-repo
+complications apply. **Make `Anodex/anodex-mobile` public too** — it is a client with no secrets in
+it, and a private one would reintroduce the token problem for no benefit. The APK is then just a
+release asset, and `anodex.dev` links to `.../releases/latest`.
 
-**Recommended: a separate public releases repo** (e.g. `Anodex/anodex-releases`). Source stays
-private; a release workflow publishes the desktop installer and the APK there; `anodex.dev` links
-to it. No credential anywhere, the download page works for anyone, and the desktop updater finally
-gets a feed it can read — resolving the long-standing item 8 in [[anodex-backlog]] as a side effect
-rather than as its own project.
-
-Alternatives if a third repo is unwanted: make `anodex-mobile` public (it is a client, and holds no
-secrets), or serve the APK as a file on the Pages site — **confirm the latter before relying on it**,
-as GitHub's Pages behaviour for private source repos depends on the account plan.
-
-**2. The phone must not hardcode a download URL. The desktop sends it.** The desktop already reports
-that the phone is outdated over the handshake (§4); have it include _where to get the new version_
-in the same message. The phone then knows nothing about GitHub, releases, or `anodex.dev`, and
-moving hosting later cannot strand an installed app — a stronger guarantee than any stable URL.
+**One rule for the phone: it must not hardcode a download URL. The desktop sends it.** The desktop
+already reports that the phone is outdated over the handshake (§4); have it include _where to get
+the new version_ in the same message. The phone then knows nothing about GitHub, releases, or
+`anodex.dev`, and moving hosting later cannot strand an installed app — a stronger guarantee than
+any stable URL.
 
 **Back up the APK signing keystore off-machine before the first release.** Android identifies an app
 by its signing key: lose it and existing installs can never be updated — they must be uninstalled and
