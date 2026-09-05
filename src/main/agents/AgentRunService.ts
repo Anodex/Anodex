@@ -1,6 +1,6 @@
 import { IpcChannel } from '@shared/ipc'
 import { broadcastToWindows } from '../broadcast'
-import type { ChatMessage, GenerationStopReason } from '@shared/chat.types'
+import type { ChatMessage, ContextEpochHandoff, GenerationStopReason } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import { activeElapsedMs, type AgentRun, type CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { ToolCall } from '@shared/tools.types'
@@ -24,10 +24,12 @@ import {
   PLAN_RETRY_PROMPT
 } from './agentPrompts'
 import { budgetExceededReason, turnBudgetLeftovers } from './agentBudgets'
+import { buildContextEpochHandoff } from '../chat/contextEpochHandoff'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
 import { assessTurnClaims, stillUnverified } from './agentTurnClaims'
 import {
   finishedWithNothingToShow,
+  contextRecoveryExhaustedReason,
   idleRunReason,
   noPlanReason,
   refusedRunReason
@@ -250,6 +252,28 @@ class AgentRunService {
     /** Calls across the whole run that actually changed the workspace. */
     let durableChangesMade = 0
     /** Consecutive turns that made no tool call at all - see `idleRunReason`. */
+    /**
+     * Context recovery, the agent's equivalent of what `boundedChatRunner`
+     * does for chat.
+     *
+     * A local run that fills its window has its turn ended by the runtime
+     * before the model can act. Nothing here used to reclaim the room, so the
+     * next turn met the same wall, and after three the idle guard ended a run
+     * that was still working. Measured on bench-1 at 8,192 (2026-09-05): seven
+     * turns ended with "no room left for a usable reply", and the suite scored
+     * 1 of 6 there against 6 of 6 at 65,536.
+     *
+     * The handoff states what the dropped turns established -- plan, settled
+     * calls, progress, outstanding verification -- and is rendered into the
+     * protected system segment rather than history, so dropping the history it
+     * replaces is what actually frees room.
+     */
+    let contextEpoch: ContextEpochHandoff | undefined
+    let contextEpochCount = 0
+    /** Where the history sent to the model begins; moves forward on an epoch. */
+    let historyFrom = 0
+    /** Consecutive epochs with no tool call — see `contextRecoveryExhaustedReason`. */
+    let consecutiveEpochs = 0
     let idleTurns = 0
     /**
      * What ended each of those idle turns, so the stop message can name a
@@ -326,7 +350,8 @@ class AgentRunService {
           durableChanges,
           toolCallsMade,
           calls: turnCalls,
-          unverifiedPaths: turnUnverifiedPaths
+          unverifiedPaths: turnUnverifiedPaths,
+          contextEpochCause
         } = await this.runTurn(
           conversation,
           prompt,
@@ -334,13 +359,44 @@ class AgentRunService {
           providerOverride,
           controller.signal,
           plan,
-          ledger
+          ledger,
+          { handoff: contextEpoch, historyFrom }
         )
         tokensUsed += tokens
         if (nextPlan) plan = nextPlan
         durableChangesMade += durableChanges
-        idleTurns = toolCallsMade === 0 ? idleTurns + 1 : 0
-        idleStopReasons = toolCallsMade === 0 ? [...idleStopReasons, stopReason] : []
+        // A turn the runtime ended for lack of room is not the model being
+        // idle -- it never got to act -- and now that an epoch answers it, the
+        // next turn has a real chance. Counting it as idleness ended runs after
+        // three, including one on bench-1 that had already done the work and
+        // whose tests passed. It gets its own counter and its own limit.
+        if (toolCallsMade > 0) {
+          idleTurns = 0
+          idleStopReasons = []
+          consecutiveEpochs = 0
+        } else if (contextEpochCause) {
+          consecutiveEpochs++
+        } else {
+          idleTurns++
+          idleStopReasons = [...idleStopReasons, stopReason]
+        }
+        // The runtime says this turn ran out of room. Start an epoch: the
+        // handoff carries what the history proved, and the history it replaces
+        // stops being sent. Without this the next turn rebuilds the same
+        // oversized prompt and fails identically.
+        if (contextEpochCause) {
+          contextEpochCount++
+          contextEpoch = buildContextEpochHandoff({
+            epoch: contextEpochCount,
+            cause: contextEpochCause,
+            objective: run.goal,
+            plan,
+            calls: turnCalls,
+            priorFixedTokens: undefined
+          })
+          // Everything before this point is now stated by the handoff instead.
+          historyFrom = conversation.messages.length
+        }
         // A turn whose calls were all refused looks active by call count but
         // achieved nothing. `Blocked:` is the detail every guard sets when it
         // turns a call away, so this reads Anodex's own record rather than
@@ -431,7 +487,9 @@ class AgentRunService {
         }
 
         const idleReason =
-          idleRunReason(idleTurns, idleStopReasons) ?? refusedRunReason(refusedTurns)
+          contextRecoveryExhaustedReason(consecutiveEpochs) ??
+          idleRunReason(idleTurns, idleStopReasons) ??
+          refusedRunReason(refusedTurns)
         if (idleReason) {
           this.finish(
             run.id,
@@ -684,7 +742,16 @@ class AgentRunService {
     providerOverride: { provider: AgentRun['provider']; model?: string },
     signal: AbortSignal,
     currentPlan: Plan | null,
-    ledger: TaskLedger
+    ledger: TaskLedger,
+    /**
+     * Recovery state after a turn ran out of context — see the run loop.
+     * `handoff` carries what the dropped history proved; `historyFrom` is where
+     * the history it replaces begins.
+     */
+    recovery: { handoff: ContextEpochHandoff | undefined; historyFrom: number } = {
+      handoff: undefined,
+      historyFrom: 0
+    }
   ): Promise<{
     finished: boolean
     summary: string | null
@@ -704,6 +771,8 @@ class AgentRunService {
     calls: ToolCall[]
     /** Paths this turn's reply named but never touched. */
     unverifiedPaths: PathClaimIssue[]
+    /** Set when the provider ran out of context — the run loop starts an epoch. */
+    contextEpochCause?: 'proactive' | 'in-turn'
   }> {
     const userMessage: ChatMessage = {
       id: generateId('agent_msg'),
@@ -720,9 +789,15 @@ class AgentRunService {
         messageId: assistantMessageId,
         projectId: conversation.projectId,
         context: conversation.context ?? null,
-        history: conversation.messages.map(messageToHistoryTurn),
+        // Everything from the epoch onward. The handoff below states what the
+        // dropped turns established, which is the whole reason it exists --
+        // `contextEpoch` is rendered into the protected system segment rather
+        // than appended to history, so replacing history with it is what
+        // actually frees the room.
+        history: conversation.messages.slice(recovery.historyFrom).map(messageToHistoryTurn),
         prompt,
-        plan: currentPlan
+        plan: currentPlan,
+        contextEpoch: recovery.handoff
       },
       {
         signal,
@@ -831,7 +906,8 @@ class AgentRunService {
       durableChanges: calls.filter(isDurableChange).length,
       toolCallsMade: calls.length,
       calls,
-      unverifiedPaths: claims.unverifiedPaths
+      unverifiedPaths: claims.unverifiedPaths,
+      contextEpochCause: result.contextEpochCause
     }
   }
 

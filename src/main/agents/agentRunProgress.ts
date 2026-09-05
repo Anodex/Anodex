@@ -119,6 +119,39 @@ export function idleRunReason(
 }
 
 /**
+ * Consecutive context epochs a run may start without the model acting.
+ *
+ * Above {@link IDLE_TURN_LIMIT} on purpose. An epoch is not a turn the model
+ * wasted: the runtime ended it before the model could act, and the run answers
+ * by dropping the history the handoff now states. That is a recovery with a
+ * real chance of working, so it gets more rope than a model that has simply
+ * stopped calling tools. Five in a row means the prompt does not fit even
+ * stripped back to a handoff, which no further epoch will change.
+ */
+export const CONTEXT_EPOCH_LIMIT = 5
+
+/**
+ * Why a run is being stopped for running out of context repeatedly, or `null`
+ * to keep going.
+ *
+ * Separate from {@link idleRunReason} because the two describe opposite
+ * situations that used to be counted together: a model that stopped driving
+ * the loop, and a model that was never given the chance to. Counting an
+ * aborted turn as idleness ended runs after three of them — measured on
+ * bench-1 at 8,192 (2026-09-05), a run that had completed real work and whose
+ * tests passed.
+ */
+export function contextRecoveryExhaustedReason(consecutiveEpochs: number): string | null {
+  if (consecutiveEpochs < CONTEXT_EPOCH_LIMIT) return null
+  return (
+    `Stopped after ${consecutiveEpochs} context recoveries in a row that still left no room ` +
+    'to act. Each one dropped the earlier history and kept a summary of it, and the prompt ' +
+    'still did not fit. A larger context window, or fewer tools bound to the turn, is what ' +
+    'this needs.'
+  )
+}
+
+/**
  * Consecutive turns in which every call was refused before a run is stopped.
  *
  * Above two, like {@link IDLE_TURN_LIMIT}: hitting a guard once or twice and
