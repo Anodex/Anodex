@@ -1,3 +1,4 @@
+import type { GenerationStopReason } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
 
 /**
@@ -70,12 +71,45 @@ export const IDLE_TURN_LIMIT = 3
  * and behaves the same in every language.
  *
  * The reason states what was observed and nothing more. Why a model stopped
- * calling tools is not knowable from here - a small context, an unparseable
- * reply and a model that has simply given up all look identical at this level -
- * and a run that guessed at the cause would be guessing in the user's name.
+ * calling tools is usually not knowable from here - an unparseable reply and a
+ * model that has simply given up look identical at this level - and a run that
+ * guessed at the cause would be guessing in the user's name.
+ *
+ * One case is knowable, and was being reported as if it were not. Measured on
+ * bench-1, qwen27b at 8,192 (2026-09-05): seven turns were ended by the runtime
+ * with "no room left for a usable reply" - 6,574 tokens of fixed input against
+ * a 7,680 limit with 1,280 reserved for the reply - and the run reported that
+ * the model "was still replying" and that "nothing here says why it stopped
+ * calling tools". The model was not still replying; its turns were aborted
+ * before it could act, and every one of them carried a stop reason saying so.
+ * Reporting a context limit as a model that gave up sends the reader to change
+ * models when they need a larger window or fewer bound tools.
+ *
+ * So the caller passes what ended each idle turn, and the cause is named only
+ * when every one of them agrees - the same rule `researchFailureReason` uses,
+ * and for the same reason.
  */
-export function idleRunReason(consecutiveIdleTurns: number): string | null {
+export function idleRunReason(
+  consecutiveIdleTurns: number,
+  idleStopReasons: readonly (GenerationStopReason | undefined)[] = []
+): string | null {
   if (consecutiveIdleTurns < IDLE_TURN_LIMIT) return null
+  // The paragraph above holds wherever the record is silent or disagrees with
+  // itself. Where every one of those turns was ended by the runtime for the
+  // same knowable reason, it is not a guess: it is what happened.
+  if (
+    idleStopReasons.length >= consecutiveIdleTurns &&
+    idleStopReasons.every(
+      (reason) => reason === 'context-limit' || reason === 'fixed-context-limit'
+    )
+  ) {
+    return (
+      `Stopped after ${consecutiveIdleTurns} turns in a row that made no tool call, because ` +
+      'each of them ran out of context before it could act. The model was not given the chance ' +
+      'to reply: the prompt left less room than a usable answer needs. A larger context window, ' +
+      'or fewer tools bound to the turn, is what this needs - changing models will not help.'
+    )
+  }
   return (
     `Stopped after ${consecutiveIdleTurns} turns in a row without making a single tool call. ` +
     'The model was still replying, but an agent run can only act - or finish - through a tool, ' +
