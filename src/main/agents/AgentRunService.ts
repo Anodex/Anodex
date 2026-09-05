@@ -251,6 +251,12 @@ class AgentRunService {
     let durableChangesMade = 0
     /** Consecutive turns that made no tool call at all - see `idleRunReason`. */
     let idleTurns = 0
+    /**
+     * What ended each of those idle turns, so the stop message can name a
+     * context limit rather than describing a model that gave up. Cleared with
+     * `idleTurns` - see `idleRunReason`.
+     */
+    let idleStopReasons: (GenerationStopReason | undefined)[] = []
     /** Consecutive turns whose every call was refused - see `refusedRunReason`. */
     let refusedTurns = 0
     // Every settled call the run has made, for the account attached to its
@@ -334,6 +340,7 @@ class AgentRunService {
         if (nextPlan) plan = nextPlan
         durableChangesMade += durableChanges
         idleTurns = toolCallsMade === 0 ? idleTurns + 1 : 0
+        idleStopReasons = toolCallsMade === 0 ? [...idleStopReasons, stopReason] : []
         // A turn whose calls were all refused looks active by call count but
         // achieved nothing. `Blocked:` is the detail every guard sets when it
         // turns a call away, so this reads Anodex's own record rather than
@@ -423,7 +430,8 @@ class AgentRunService {
           return
         }
 
-        const idleReason = idleRunReason(idleTurns) ?? refusedRunReason(refusedTurns)
+        const idleReason =
+          idleRunReason(idleTurns, idleStopReasons) ?? refusedRunReason(refusedTurns)
         if (idleReason) {
           this.finish(
             run.id,

@@ -55,6 +55,51 @@ describe('idleRunReason', () => {
     expect(idleRunReason(IDLE_TURN_LIMIT)).toContain('without making a single tool call')
   })
 
+  it('names a context limit when that is what cut the turns short', () => {
+    // Measured on bench-1, qwen27b at 8,192 (2026-09-05). Seven turns were
+    // ended by the runtime with "no room left for a usable reply" -- fixed
+    // input 6,574 tokens against a 7,680 limit with 1,280 reserved for the
+    // reply. The run then reported that the model "was still replying" and
+    // that "nothing here says why it stopped calling tools".
+    //
+    // Both halves were wrong. The model was not still replying; its turns were
+    // aborted before it could act. And the reason was recorded on every one of
+    // those turns as a stop reason. Reporting a context limit as a model that
+    // gave up sends the reader to change models when they need a larger window
+    // or fewer bound tools.
+    const reason = idleRunReason(IDLE_TURN_LIMIT, [
+      'context-limit',
+      'context-limit',
+      'context-limit'
+    ])
+
+    expect(reason).toMatch(/context/i)
+    expect(reason).not.toContain('still replying')
+    expect(reason).not.toMatch(/nothing here says why/i)
+  })
+
+  it('names it for a fixed-context limit too', () => {
+    const reason = idleRunReason(IDLE_TURN_LIMIT, [
+      'fixed-context-limit',
+      'fixed-context-limit',
+      'fixed-context-limit'
+    ])
+
+    expect(reason).toMatch(/context/i)
+  })
+
+  it('keeps the honest wording when the turns stopped for mixed or unknown reasons', () => {
+    // One context-limited turn among three does not make the run a context
+    // problem, and guessing from the majority would be guessing in the user's
+    // name. The original reasoning stands wherever the record does not agree
+    // with itself.
+    const mixed = idleRunReason(IDLE_TURN_LIMIT, ['context-limit', undefined, 'token-limit']) ?? ''
+
+    expect(mixed).toContain('without making a single tool call')
+    expect(mixed).not.toMatch(/no room/i)
+    expect(idleRunReason(IDLE_TURN_LIMIT, []) ?? '').toContain('without making a single tool call')
+  })
+
   it('says nothing before the limit', () => {
     expect(idleRunReason(IDLE_TURN_LIMIT - 1)).toBeNull()
     expect(idleRunReason(0)).toBeNull()
