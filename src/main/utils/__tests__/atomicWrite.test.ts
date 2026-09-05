@@ -10,6 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * for every test that does not care, and those calls go straight through to the
  * real implementation.
  */
+/**
+ * Attempts a failing rename makes before giving up: the first try plus one per
+ * entry in the module's retry-delay table.
+ */
+const RENAME_ATTEMPTS = 5
 const renameControl = vi.hoisted(() => ({
   impl: null as null | ((from: string, to: string) => Promise<void>),
   calls: 0,
@@ -192,14 +197,21 @@ describe('a transient rename conflict does not lose the write', () => {
   it('bounds the synchronous wait, because it blocks the main process', () => {
     // The retry sleeps with `Atomics.wait`, which stalls the Electron main
     // thread. That is the cost of not losing the write, and it is only paid on
-    // a lock that is already failing, but it has to stay small.
+    // a lock that is already failing, but it has to stay bounded.
+    //
+    // Counted, not timed. This first asserted wall-clock elapsed under 500ms
+    // and failed on macOS CI at 535ms -- the sleeps total 150ms and the rest
+    // was a loaded shared runner doing four writes and four cleanups. That
+    // assertion measured the machine, not the code, and would have gone on
+    // failing at random. The attempt count is the property that actually
+    // bounds the wait, and it is deterministic.
     renameControl.syncImpl = () => {
       throw errnoWith('EBUSY')
     }
 
-    const started = Date.now()
     expect(() => writeJsonAtomic(join(dir, 'x.json'), { a: 1 })).toThrow()
-    expect(Date.now() - started).toBeLessThan(500)
+    // One attempt plus one per retry delay: a fixed, finite number of tries.
+    expect(renameControl.syncCalls).toBe(RENAME_ATTEMPTS)
   })
 
   it('classifies the sharing-conflict codes Windows reports, and nothing else', () => {
@@ -234,11 +246,11 @@ describe('a transient rename conflict does not lose the write', () => {
     renameControl.impl = () => Promise.reject(errnoWith('EPERM'))
 
     const target = join(dir, 'runs.json')
-    const started = Date.now()
     await expect(writeJsonAtomicAsync(target, { runs: 1 })).rejects.toMatchObject({ code: 'EPERM' })
-    // Bounded: a genuinely locked file fails quickly and visibly instead of
-    // stalling every later write behind it.
-    expect(Date.now() - started).toBeLessThan(1_000)
+    // Bounded by a fixed number of attempts, so a genuinely locked file fails
+    // instead of stalling every later write behind it. Counted rather than
+    // timed, for the reason given on the synchronous case below.
+    expect(renameControl.calls).toBe(RENAME_ATTEMPTS)
     // And it leaves no temp file behind to look like a salvageable backup.
     expect(readdirSync(dir)).toEqual([])
   })
