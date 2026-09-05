@@ -42,8 +42,24 @@ export function gradeLog({ logPath, flags = [], expectedTurns, buildCriteria }) 
   const chars = (n) => turns[n - 1]?.chars ?? Number.MAX_SAFE_INTEGER
   /** How many calls the turn made, which is not the length of `calls(n)`. */
   const callCount = (n) => turns[n - 1]?.callCount ?? 0
+  /**
+   * Whether the model actually got to answer this turn.
+   *
+   * A turn the runtime ended on a context limit produces no model text at all.
+   * The user is not left with nothing — the app renders an explanation from the
+   * stop reason — but the log carries only the empty content, so a criterion
+   * scoring the reply's tone or wording was grading an answer that was never
+   * written. Measured 2026-09-05: `reads-the-room` failed one of three
+   * otherwise identical runs for exactly this, and the flakiness report called
+   * it an unstable criterion rather than an unanswered turn.
+   */
+  const answered = (n) => {
+    const turn = turns[n - 1]
+    if (!turn) return false
+    return (turn.reply ?? '').length > 0 || turn.stop === 'none' || turn.stop === undefined
+  }
 
-  const criteria = buildCriteria({ raw, turns, reply, calls, chars, callCount })
+  const criteria = buildCriteria({ raw, turns, reply, calls, chars, callCount, answered })
 
   const results = criteria.map((criterion) => {
     let passed = false
@@ -55,10 +71,21 @@ export function gradeLog({ logPath, flags = [], expectedTurns, buildCriteria }) 
       // reports nothing at all about the nine turns that did happen.
       passed = false
     }
-    return { id: criterion.id, passed, why: criterion.why }
+    // A criterion the run never gave a chance to be judged is reported as
+    // such, not as a failure. Counting it against the score conflates "the
+    // model answered badly" with "the model never answered", and the second is
+    // a fact about the window, not the behaviour under test.
+    const inconclusive = criterion.needsAnswer !== undefined && !answered(criterion.needsAnswer)
+    return {
+      id: criterion.id,
+      passed,
+      why: criterion.why,
+      ...(inconclusive ? { inconclusive } : {})
+    }
   })
 
   const score = results.filter((result) => result.passed).length
+  const inconclusiveCount = results.filter((result) => result.inconclusive).length
   const complete = turns.length >= expectedTurns
 
   /**
@@ -92,6 +119,7 @@ export function gradeLog({ logPath, flags = [], expectedTurns, buildCriteria }) 
         generated,
         mostlySilent,
         score,
+        inconclusive: inconclusiveCount,
         total: criteria.length,
         results
       })
@@ -111,11 +139,18 @@ export function gradeLog({ logPath, flags = [], expectedTurns, buildCriteria }) 
       console.log('     schemas did not fit before generation started).')
     }
     for (const result of results) {
-      console.log(
-        `  ${result.passed ? 'PASS' : 'FAIL'}  ${result.id}${result.passed ? '' : `  — ${result.why}`}`
-      )
+      const label = result.passed ? 'PASS' : result.inconclusive ? 'N/A ' : 'FAIL'
+      const note = result.passed
+        ? ''
+        : result.inconclusive
+          ? '  — the turn was cut short before the model answered; nothing to judge'
+          : `  — ${result.why}`
+      console.log(`  ${label}  ${result.id}${note}`)
     }
-    console.log(`score: ${score}/${criteria.length}`)
+    console.log(
+      `score: ${score}/${criteria.length}` +
+        (inconclusiveCount > 0 ? `  (${inconclusiveCount} not judged — turn never answered)` : '')
+    )
   }
 
   process.exit(!mostlySilent && score === criteria.length ? 0 : 1)
@@ -146,6 +181,12 @@ export function parseTurns(text) {
         // rubric asking "did it call remember_fact twice" has to read the count
         // and cannot get it by measuring the name list.
         callCount: Number(turn[3]),
+        // Why the turn ended, when the line says. A criterion that scores the
+        // *reply* has to tell "answered badly" from "never got to answer": a
+        // turn the runtime ended on `context-limit` produces no model text at
+        // all, and the user sees an explanatory message the log does not carry.
+        // Scoring that as a bad answer measured the harness, not the model.
+        stop: /\| stop=([a-z-]+)/.exec(line)?.[1] ?? 'none',
         tools: (turn[4] ?? '').trim()
           ? turn[4]
               .trim()

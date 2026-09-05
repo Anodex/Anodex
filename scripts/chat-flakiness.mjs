@@ -100,7 +100,19 @@ for (const path of summaries) {
     const perCriterion = tally.get(row.key)
     completeRuns.set(row.key, (completeRuns.get(row.key) ?? 0) + (row.complete ? 1 : 0))
     for (const result of row.results ?? []) {
-      const entry = perCriterion.get(result.id) ?? { passed: 0, total: 0 }
+      // A run that never gave the criterion an answer to judge is not evidence
+      // either way. Counting it as a failure is what made `reads-the-room`
+      // report as FLAKY on 2026-09-05: one of three runs ended that turn on a
+      // context limit with no model text, and "unstable criterion" is a very
+      // different conclusion from "unanswered turn" — the first sends someone
+      // to rewrite a rubric that was working.
+      if (result.inconclusive) {
+        const entry = perCriterion.get(result.id) ?? { passed: 0, total: 0, skipped: 0 }
+        entry.skipped = (entry.skipped ?? 0) + 1
+        perCriterion.set(result.id, entry)
+        continue
+      }
+      const entry = perCriterion.get(result.id) ?? { passed: 0, total: 0, skipped: 0 }
       entry.passed += result.passed ? 1 : 0
       entry.total += 1
       perCriterion.set(result.id, entry)
@@ -113,11 +125,26 @@ let flaky = 0
 let solidFailures = 0
 
 for (const [key, perCriterion] of tally) {
-  const stable = [...perCriterion.values()].filter((e) => e.passed === e.total).length
+  const stable = [...perCriterion.values()].filter(
+    (e) => e.total > 0 && e.passed === e.total
+  ).length
   console.log(`\n${key}  (${completeRuns.get(key) ?? 0}/${runs} runs completed every prompt)`)
   console.log(`  ${stable}/${perCriterion.size} criteria passed on every run`)
   for (const [id, entry] of perCriterion) {
-    if (entry.passed === entry.total) continue
+    if (entry.total > 0 && entry.passed === entry.total) {
+      if (entry.skipped) {
+        console.log(
+          `     ${entry.passed}/${entry.total}  ${id}  — passed every run that reached it (${entry.skipped} not judged)`
+        )
+      }
+      continue
+    }
+    if (entry.total === 0) {
+      console.log(
+        `     0/0  ${id}  — never judged (${entry.skipped ?? 0} runs never answered that turn)`
+      )
+      continue
+    }
     // Only the interesting rows are printed. A list where most lines say "3/3"
     // buries the two lines that do not.
     const verdict = entry.passed === 0 ? 'never passed' : 'FLAKY'
