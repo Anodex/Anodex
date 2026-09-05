@@ -826,10 +826,19 @@ the autorun harnesses. What was fixed is in git; these are the ones left.
   deliberate. What is not known is whether a recovery cycle then ran and also
   came up short, or never ran at all.
 
-  Finding out needs a reproduction with the runner's own epoch count logged
-  next to the transport's, which today's logs do not distinguish. That is the
-  first task for whoever picks this up, before any change: the fix depends
-  entirely on which of those two it is.
+  **Now fully diagnosed — see `docs/HANDOFF_EMPTY_REPLY_AT_8K.md`.** Recovery
+  did start (`startedContextEpoch: true`, `contextEpoch: 1`) and was then
+  discarded, because `canContinue` requires `madeProgressThisCycle` and the
+  cycle produced no visible content and no novel tool activity — the
+  `read_email` call errored on a bogus id.
+
+  That is the guard working as designed: the runner states "error/no-op-only
+  loops remain terminal", and two tests in `boundedChatRunner.test.ts` pin it.
+  The obvious fix — counting a started epoch as progress — breaks both and was
+  reverted. The open question is whether that rule should hold when the error
+  is incidental and the reply was lost to arithmetic (over the proactive limit
+  by eighteen tokens), which needs something narrower than "an epoch started".
+  Candidates and their trade-offs are in the handoff.
 
   Worth noting what it cost in measurement terms: `handles-a-bad-id` reported a
   _consistent_ failure across both passes, which reads as "this model reliably
