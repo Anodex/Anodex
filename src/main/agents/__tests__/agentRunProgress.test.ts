@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CONTEXT_EPOCH_LIMIT,
+  contextRecoveryExhaustedReason,
   finishedWithNothingToShow,
   IDLE_TURN_LIMIT,
   idleRunReason,
@@ -182,5 +184,29 @@ describe('noPlanReason', () => {
   it('reads correctly after a single attempt', () => {
     expect(noPlanReason(1)).toContain('once')
     expect(noPlanReason(1)).not.toContain('twice')
+  })
+})
+
+describe('contextRecoveryExhaustedReason', () => {
+  // An aborted turn is not a wasted one: the runtime ended it before the model
+  // could act, and the run answers by dropping history the handoff now states.
+  // That deserves more attempts than a model that has stopped calling tools,
+  // which is why this limit sits above IDLE_TURN_LIMIT.
+  it('gives recovery more rope than an idle model', () => {
+    expect(CONTEXT_EPOCH_LIMIT).toBeGreaterThan(IDLE_TURN_LIMIT)
+  })
+
+  it('says nothing while recovery still has attempts left', () => {
+    expect(contextRecoveryExhaustedReason(0)).toBeNull()
+    expect(contextRecoveryExhaustedReason(CONTEXT_EPOCH_LIMIT - 1)).toBeNull()
+  })
+
+  it('stops the run when even a stripped-back prompt will not fit', () => {
+    const reason = contextRecoveryExhaustedReason(CONTEXT_EPOCH_LIMIT) ?? ''
+
+    expect(reason).toMatch(/context/i)
+    // Actionable, and honest about what was already tried.
+    expect(reason).toMatch(/dropped the earlier history/i)
+    expect(reason).toMatch(/larger context window|fewer tools/i)
   })
 })
