@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type {
   ChatHistoryTurn,
@@ -16,15 +15,16 @@ import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { findUnverifiedPathClaims } from '../tools/pathClaimVerification'
 import { findUnverifiedMeasurements } from '../tools/measurementClaimVerification'
 import { describeTurnOutcome, isDurableChange } from './turnSummary'
-import { isObservationalRunCommand, observationalCommandIdentity } from '../tools/commandEffect'
-import { isReadLikeCall, progressFromSettledCalls } from '../tools/turnProgress'
-import { buildContinuationBrief, outstandingVerification } from './continuationBrief'
+import { observationalCommandIdentity } from '../tools/commandEffect'
+import { isReadLikeCall } from '../tools/turnProgress'
+import { buildContinuationBrief } from './continuationBrief'
 import { projectStore } from '../projects/ProjectStore'
 import { llamaService } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
 import { interactiveBudgetForContext } from './GenerationBudget'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { withEpochHandoff } from '@shared/context.types'
+import { buildContextEpochHandoff } from './contextEpochHandoff'
 import { createLogger } from '../utils/logger'
 import { identityToCapture } from '@shared/statedIdentity'
 import { memoryStore } from '../memory/MemoryStore'
@@ -900,108 +900,6 @@ function toolActivityFacts(call: ToolCall): Record<string, unknown> {
   }
 }
 
-function buildContextEpochHandoff(input: {
-  epoch: number
-  cause: ContextEpochHandoff['cause']
-  objective: string
-  plan: ChatRequest['plan'] | null | undefined
-  calls: ToolCall[]
-  workingSummary?: string
-  evidenceIndex?: string
-  priorFixedTokens?: number
-}): ContextEpochHandoff {
-  const settledCalls = input.calls.filter(
-    (call): call is ToolCall & { status: 'success' | 'error' | 'denied' } =>
-      call.status === 'success' || call.status === 'error' || call.status === 'denied'
-  )
-  const completedTools = selectContextEpochCalls(settledCalls).map((call) => ({
-    name: call.name,
-    kind: call.kind,
-    status: call.status,
-    ...(call.madeProgress === false ? { madeProgress: false } : {}),
-    touchedPaths: call.touchedPaths?.slice(0, 4),
-    identity: toolCallIdentity(call),
-    outcome: call.detail?.trim() ? call.detail.trim().slice(0, 120) : undefined,
-    contentHash: writtenContentHash(call)
-  }))
-  return {
-    version: 1,
-    id: randomUUID(),
-    createdAt: Date.now(),
-    epoch: input.epoch,
-    cause: input.cause,
-    objective: input.objective,
-    workingSummary: input.workingSummary,
-    evidenceIndex: input.evidenceIndex,
-    plan: input.plan ?? undefined,
-    completedTools,
-    // Derived in `turnProgress.ts` from the same kind sets the live gate uses,
-    // so an epoch can never disagree with `agentTools.ts` about what counts as
-    // work or as a rendering-affecting change.
-    progress: progressFromSettledCalls(input.calls.map(asProgressCall)),
-    priorFixedTokens: input.priorFixedTokens,
-    // Derived from the same settled state the continuation brief uses, rather
-    // than a fixed sentence. The note this replaced — "after a
-    // rendering-affecting change, inspect the result again" — is true on every
-    // turn and so says nothing about this one. It matters most here: once an
-    // epoch starts the brief is suppressed for the rest of the reply, and an 8K
-    // run took twelve epochs, so this note is the only place the outstanding
-    // verification can still reach the model.
-    verificationNote:
-      outstandingVerification(settledCalls) ??
-      'Preserve the existing evidence gate: after a rendering-affecting change, inspect the result again before claiming success.'
-  }
-}
-
-/**
- * Keep the latest settlements while reserving room for recent durable work.
- * Error/no-op churn used to evict every earlier mutation from a 12-call
- * handoff, making the fresh epoch repeat work it had genuinely completed.
- */
-function selectContextEpochCalls<T extends ToolCall>(calls: readonly T[]): T[] {
-  const durableLimit = 6
-  const recentOtherLimit = 2
-  const evidenceLimit = 4
-  const durable = (call: T): boolean =>
-    call.status === 'success' &&
-    call.madeProgress !== false &&
-    !isReadLikeCall(call) &&
-    call.kind !== 'plan'
-  const selected = new Set(calls.filter(durable).slice(-durableLimit))
-  const visual = calls.findLast(
-    (call) => call.name === 'inspect_visual' && call.status === 'success'
-  )
-  if (visual) selected.add(visual)
-
-  const evidenceKeys = new Set<string>()
-  let evidenceCount = visual ? 1 : 0
-  for (const call of calls.toReversed()) {
-    if (evidenceCount >= evidenceLimit) break
-    if (!isReadLikeCall(call) || call.status !== 'success' || call === visual) continue
-    const key = readEvidenceKey(call)
-    if (evidenceKeys.has(key)) continue
-    evidenceKeys.add(key)
-    selected.add(call)
-    evidenceCount++
-  }
-
-  for (const call of calls
-    .filter((call) => !durable(call) && !(isReadLikeCall(call) && call.status === 'success'))
-    .slice(-recentOtherLimit)) {
-    selected.add(call)
-  }
-  return calls.filter((call) => selected.has(call))
-}
-
-function readEvidenceKey(call: ToolCall): string {
-  const path = call.touchedPaths?.[0]?.toLowerCase()
-  if (path) {
-    const category = call.name === 'inspect_visual' ? 'visual' : 'file'
-    return `${category}:${path}`
-  }
-  return `${call.name}:${call.title.toLowerCase().replace(/\d+/g, '#')}`
-}
-
 /**
  * What this bounded reply is trying to achieve, carried across context epochs.
  *
@@ -1052,10 +950,6 @@ function activePlan(
   return plan.steps.some((step) => step.status !== 'completed') ? plan : null
 }
 
-function asProgressCall(call: ToolCall): ToolCall {
-  return isObservationalRunCommand(call) ? { ...call, kind: 'read' } : call
-}
-
 function recoveryReadIdentity(call: ToolCall): string {
   if (call.name === 'run_command' && call.title.startsWith('Run: ')) {
     return `run_command:${observationalCommandIdentity(call.title.slice('Run: '.length))}`
@@ -1081,29 +975,6 @@ function settleInterruptedReadCalls(
     completedToolCalls.set(`${cycle}:${id}`, settled)
     io.onActivity?.(settled)
   }
-}
-
-/**
- * The one-line identity of a settled call.
- *
- * `ToolCall.title` is authoritative — `parseRunCommandVerification` already
- * parses the command back out of it — and it is a settlement-time snapshot, so
- * the in-turn argument reclamation that rewrites the provider message array
- * cannot have truncated it first.
- */
-function toolCallIdentity(call: ToolCall): string | undefined {
-  const title = call.title?.trim()
-  return title ? title.slice(0, 200) : undefined
-}
-
-/**
- * Digest of what a successful write actually left on disk, so a resumed epoch
- * can recognize its own completed work rather than redo it. Deliberately not
- * the content: the handoff carries facts, and the file itself is still there.
- */
-function writtenContentHash(call: ToolCall): string | undefined {
-  if (call.status !== 'success' || !call.diff) return undefined
-  return createHash('sha256').update(call.diff.after).digest('hex').slice(0, 12)
 }
 
 function normalizeCycleContent(content: string): string {
