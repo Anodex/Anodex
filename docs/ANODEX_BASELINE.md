@@ -95,6 +95,41 @@ confirmed on disk.
 
 ## Critical Thinking
 
+**Run 62 (2026-09-05, qwen27b @ 65,536, working search) is the first honest
+measurement of this surface.** Every earlier number was taken with the search
+backend serving arxiv preprints only, a context giving the model a seventh of
+the evidence it could hold, or both.
+
+|                 | run 56 (8K, arxiv-only)  | run 61 (8K, arxiv-only)  | **run 62 (65K, real search)** |
+| --------------- | ------------------------ | ------------------------ | ----------------------------- |
+| steps           | 6/6                      | 5/5                      | **7/7**                       |
+| packet / corpus | 4,901 (7%)               | 5,725 (10%)              | **56,021 (43%)**              |
+| report          | 38,093 chars             | 30,549 chars             | **44,533 chars**              |
+| cited blocks    | 31                       | 28                       | **30**                        |
+| stage           | hierarchical (recovered) | hierarchical (recovered) | **repair — the model's own**  |
+| verdict         | `partial`                | `completed`              | **`completed`, CLEAN**        |
+
+Verified sources are now what the plan asks for: energy.gov (3), ORNL (3),
+EIA (2), NIST, OSTI, heatpumpdata.energy.gov, plus owner discussions on
+reddit — against 10 of 10 from arxiv.org before the engine fix.
+
+**The coverage trigger made the right call unprompted.** At 43% it did not
+force hierarchical recovery, and single-pass produced the best report of any
+run; at 10% on run 61 it did force it, and that run shipped 28 cited blocks
+where the single-pass attempt of run 60 shipped 6.
+
+**`suff=0%` is not the defect it looked like.** The coverage assessment has
+never returned `sufficient` in any run, and on the arxiv-only runs that was
+correct — the evidence genuinely lacked the measured COP data the plan
+required. With real sources it changed as it should: `evidenceBasis` moved
+from 100% `insufficient` to mostly `multiple-sources`, while the verdict stays
+`continue` because the step still wants manufacturer specifications and
+independent test summaries. That is strictness, not blindness, and the run
+finished all seven steps regardless. Left alone pending evidence that it costs
+anything.
+
+### Earlier detail
+
 **Depends on a search backend, and that dominates the result.** Three runs on
 2026-09-03/04 (47, 48, 52) ended `partial` with 0 steps and no report. None was
 a code fault: SearXNG was not serving Anodex at all. It had two independent
