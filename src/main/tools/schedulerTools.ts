@@ -27,7 +27,7 @@ export const scheduleTaskTool: ToolFactory = (define, ctx) =>
         when: {
           type: 'string',
           description:
-            'When to run, in plain language: "in 30 minutes", "tomorrow at noon", "September 4 at 9am", "2026-09-04 at 09:00", "every weekday at 9am", "hourly", "every 2 days at 6pm", "the 1st of every month at 9am", "the last Friday of the month". For a specific day, say the date — a bare time means the next time the clock reads that, which may be tomorrow.'
+            'When to run, in plain language: "in 30 minutes", "tomorrow at noon", "September 4 at 9am", "on the 15th at 9am", "2026-09-04 at 09:00", "every weekday at 9am", "hourly", "every 2 days at 6pm", "the 1st of every month at 9am", "the last Friday of the month". For a specific day, say the date — a bare time means the next time the clock reads that, which may be tomorrow.'
         },
         prompt: {
           type: 'string',
