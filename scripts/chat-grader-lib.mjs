@@ -163,12 +163,61 @@ export function parseTurns(text) {
         chars: 0,
         callCount: 0,
         tools: [],
+        callResults: [],
         ...(turns[index] ?? {}),
         reply: normalizeTypography(replyLine[2])
       }
     }
+    // What each call returned, so a criterion can ask whether the reply came
+    // from the tool rather than from the model. Without this the only way to
+    // test "these subjects are real" was to hardcode subjects that happened to
+    // be in the mailbox the day the rubric was written.
+    const callLine = line.match(/CALL (\d+)\.\d+: (\S+) \[(\w+)\](?: — (.*))?$/)
+    if (callLine) {
+      const index = Number(callLine[1]) - 1
+      const existing = turns[index] ?? { chars: 0, callCount: 0, tools: [], reply: '' }
+      turns[index] = {
+        ...existing,
+        callResults: [
+          ...(existing.callResults ?? []),
+          {
+            name: callLine[2],
+            status: callLine[3],
+            output: normalizeTypography(callLine[4] ?? '')
+          }
+        ]
+      }
+    }
   }
   return turns
+}
+
+/**
+ * Whether a reply repeats something only the tool could have told it.
+ *
+ * Compares distinctive words — long enough not to be grammar, and present in
+ * the tool's output — against the reply. A model that lists real threads
+ * echoes their subjects; a model inventing them shares only common words.
+ */
+export function replyEchoesToolOutput(turn, toolName, minimumMatches = 2) {
+  const outputs = (turn?.callResults ?? [])
+    .filter((call) => !toolName || call.name === toolName)
+    .map((call) => call.output)
+    .join(' ')
+  if (!outputs.trim() || !turn?.reply) return false
+  const distinctive = new Set(
+    outputs
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word.length >= 5)
+  )
+  const reply = turn.reply.toLowerCase()
+  let matches = 0
+  for (const word of distinctive) {
+    if (reply.includes(word)) matches++
+    if (matches >= minimumMatches) return true
+  }
+  return false
 }
 
 /**
