@@ -74,6 +74,13 @@ export interface CriticalThinkingRunUsage {
 export interface ResearchSearchResponse {
   provider: string
   results: SearchResult[]
+  /**
+   * Set when results came back from a search that was not working properly --
+   * see `SearchOptions.onDegraded`. Shown on the round's search activity, so a
+   * run that concludes its evidence was insufficient says whether the evidence
+   * was actually missing or merely unreachable.
+   */
+  degraded?: string
 }
 
 export interface CriticalThinkingResearchRunnerDeps {
@@ -465,7 +472,13 @@ export class CriticalThinkingResearchRunner {
           }
           const artifact = createToolArtifact(artifactIdentity(run.id), draft)
           await this.deps.recordArtifact(artifact, round.id)
-          this.finishActivity(activity, 'success', `${response.results.length} results`)
+          this.finishActivity(
+            activity,
+            'success',
+            response.degraded
+              ? `${response.results.length} results — ${response.degraded}`
+              : `${response.results.length} results`
+          )
           return artifact
         } catch (error) {
           this.finishActivity(activity, 'error', errorMessage(error))

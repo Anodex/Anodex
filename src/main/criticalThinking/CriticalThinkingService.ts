@@ -588,15 +588,19 @@ class CriticalThinkingService {
             ? criticalThinkingQuerySchema(run.researchPolicy.maxQueriesPerRound)
             : criticalThinkingAssessmentSchema(run.researchPolicy.maxQueriesPerRound)
         ),
-      search: async (query, resultCount, searchSignal) => ({
-        provider: settings.webSearch.provider,
+      search: async (query, resultCount, searchSignal) => {
+        let degraded: string | undefined
         // Critical Thinking is research: it wants the scholarly engines, which
         // a default search never consults. See `SearchIntent`.
-        results: await searchProvider.search(query, resultCount, {
+        const results = await searchProvider.search(query, resultCount, {
           signal: searchSignal,
-          intent: 'scholarly'
+          intent: 'scholarly',
+          onDegraded: (warning) => {
+            degraded = warning
+          }
         })
-      }),
+        return { provider: settings.webSearch.provider, results, degraded }
+      },
       fetch: (url, focus, fetchSignal) => fetchUrlEvidence(url, focus, fetchSignal),
       recordArtifact: (artifact, roundId) => this.recordArtifact(run.id, index, roundId, artifact),
       updateStep: (patch) => this.updateStep(run.id, index, patch),

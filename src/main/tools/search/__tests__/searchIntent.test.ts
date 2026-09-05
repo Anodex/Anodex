@@ -197,4 +197,55 @@ describe('SearXNG degraded search', () => {
       restore()
     }
   })
+
+  it('says so when it keeps them, instead of returning them silently', async () => {
+    // Keeping partial results was right; saying nothing about them was the
+    // other half of the decision, and it was missing. Measured on one machine,
+    // 2026-09-04: ten results, all ten from arxiv.org, six engines
+    // unresponsive including both scholar engines. Critical Thinking then
+    // researched a consumer heat-pump question against preprints only and
+    // correctly reported insufficient evidence on every round -- with nothing
+    // anywhere saying the search itself was crippled.
+    const warnings: string[] = []
+    const restore = respondWith({
+      results: [{ title: 'A preprint', url: 'https://arxiv.org/abs/1', content: 'text' }],
+      unresponsive_engines: [
+        ['brave', 'Suspended: too many requests'],
+        ['google scholar', 'CAPTCHA']
+      ]
+    })
+    try {
+      const results = await createSearxngProvider('http://localhost:8080').search('a topic', 5, {
+        onDegraded: (warning) => warnings.push(warning)
+      })
+
+      expect(results).toHaveLength(1)
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain('brave')
+      expect(warnings[0]).toContain('google scholar')
+      // The distinction that matters to whoever reads the run.
+      expect(warnings[0]).toMatch(/missing rather than absent/i)
+    } finally {
+      restore()
+    }
+  })
+
+  it('stays quiet when every engine answered', async () => {
+    // A warning on every search would be noise, and would train the reader to
+    // ignore the one that matters.
+    const warnings: string[] = []
+    const restore = respondWith({
+      results: [{ title: 'A page', url: 'https://example.com/a', content: 'text' }],
+      unresponsive_engines: []
+    })
+    try {
+      await createSearxngProvider('http://localhost:8080').search('a topic', 5, {
+        onDegraded: (warning) => warnings.push(warning)
+      })
+
+      expect(warnings).toEqual([])
+    } finally {
+      restore()
+    }
+  })
 })
