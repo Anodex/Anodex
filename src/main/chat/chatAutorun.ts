@@ -214,6 +214,28 @@ async function driveChat(scriptPath: string): Promise<void> {
           (calls.length ? ` | tools: ${[...new Set(calls)].join(',')}` : '')
       )
       log.info(`PROMPT ${index + 1}: ${prompt.slice(0, 120)}`)
+      // What each call actually returned, not just that it happened.
+      //
+      // The turn line above names the tools, and that was enough to see *that*
+      // a model called `find_attachments` and enough to see what it then said
+      // — but not whether the tool had found anything. A real email run
+      // (2026-09-05) called `search_email` and `find_attachments` and then
+      // answered about the previous turn instead, and the log could not
+      // distinguish a model ignoring good results from a model given none,
+      // because the results were never written down.
+      for (const [position, call] of toolCalls.entries()) {
+        const outcome = (call.result ?? call.detail ?? '').replace(/\s+/g, ' ')
+        log.info(
+          `CALL ${index + 1}.${position + 1}: ${call.name} [${call.status}]` +
+            // Long enough to reach past the preamble. Email tool results open
+            // with a fixed ~450-character untrusted-content warning and then a
+            // base64 thread id, so a 600-character cap recorded the boilerplate
+            // and cut off every actual subject line — which is precisely the
+            // part a rubric needs in order to ask whether a reply came from the
+            // mailbox or from the model.
+            (outcome ? ` — ${outcome.slice(0, 2_500)}` : '')
+        )
+      }
       // Long enough to grade against, not just to eyeball. `chat-criteria.mjs`
       // matches on the whole reply, and a routing or refusal sentence often
       // lands after an opening paragraph — a 400-character cap scored those
