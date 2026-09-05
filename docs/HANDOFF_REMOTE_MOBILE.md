@@ -84,7 +84,9 @@ a disconnected state and does nothing. There is no degraded local mode, no offli
 fallback model. That is the honest cost of the guarantee above, and the UI should say so clearly
 rather than appearing broken.
 
-Local persistence on the phone is deliberately minimal and is an open decision — see §10.5.
+**Local persistence is settled: the phone stores the paired key and UI preferences, nothing else.**
+No conversation cache, no local database. See §10 for the reasoning and its two consequences, and
+§6.1 for the connection lifecycle this forces the app to get right.
 
 ---
 
@@ -253,6 +255,131 @@ Each exists because of a specific failure.
 | **Explicit, named refusal for desktop-only channels**                                             | A remote `attachments:pick-files` would pop a native dialog on the _host_, in front of nobody. Never fail silently.                                                                 |
 | **Protocol version handshake** (§4)                                                               | Two repositories drifting into a runtime mismatch with no diagnosable symptom.                                                                                                      |
 
+### 6.1 Connection lifecycle and the offline state — decided
+
+Because the phone caches nothing (§2, §10.1), the connection state _is_ the app's top-level state.
+Design it first; every screen depends on it.
+
+**Four states, not two:**
+
+| State          | UI                                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `connected`    | Normal app. Connection header shows host, model, context.                                                                      |
+| `reconnecting` | Normal app stays on screen, header shows a reconnecting indicator. **Entered on every drop, held for a grace period (~5–8s).** |
+| `offline`      | Takes over the whole screen (below). Entered only after the grace period expires.                                              |
+| `unpaired`     | Pairing flow (§7.2).                                                                                                           |
+
+**The grace period is not optional.** Without it, a lift doorway or a Wi-Fi handoff makes the app
+slam between a full-screen offline takeover and the normal UI. Flickering between two whole-screen
+states over a two-second blip is worse than either state.
+
+**The offline screen takes over, and is not a dead end.** It states plainly which machine is
+unreachable, when it was last seen, and — the useful part — _why_, when that is knowable:
+
+> **MERLIN-PC is offline.**
+> Last seen 14 minutes ago.
+> You're on **Guest-WiFi**; MERLIN-PC was last reached on **Home-5G**.
+
+The phone knows its own SSID and can remember the network it paired on. "You're on the wrong
+network" is the actual cause most of the time, and turning a generic failure into a specific,
+actionable one costs almost nothing. Keep reachable from this screen: a manual Retry, and access to
+pairing/settings so a user can re-pair without a working connection.
+
+**Reconnection is phone-driven. The desktop cannot ping a phone it has no route to.** A machine that
+is asleep or powered off can send nothing, so "the computer tells the phone it's back" cannot be the
+mechanism. What the desktop _can_ do:
+
+- **Advertise on the LAN via mDNS/DNS-SD the moment the listener starts.** The phone, when open,
+  discovers it near-instantly (Android `NsdManager`) instead of waiting out a retry backoff. This is
+  the "ping" made real — a service announcement the phone is listening for, not a message to a
+  device the desktop cannot address.
+- Meanwhile the phone retries on an exponential backoff, capped (~30s) so a long-asleep desktop is
+  picked up within half a minute even if discovery misses it.
+
+**While the app is backgrounded or closed, nothing reaches the phone.** Android will not hold the
+socket, and the alternatives are all bad: a foreground service means a permanent notification and
+Play Store scrutiny, and FCM would mean either embedding a server credential in the desktop app or
+running the relay §7.1.3 forbids. Accept the limit — the app connects within a second of being
+opened. **This is precisely the gap the Phase 0 notifier (§9) covers**, and the reason to ship it
+even though the app supersedes everything else it does.
+
+**The reconnect is a moment worth designing.** Offline → connected → history populating is a rare,
+event-driven transition, which is exactly the category the house rule reserves bespoke motion for
+(never an ambient loop). See the comet-trail status dot and the startup sequence for prior art.
+Populate the transcript with intent rather than snapping it into place.
+
+### 6.2 Background notifications — decided
+
+The user should learn that a run finished, or that one is blocked, without the app being open. This
+is what makes the phone useful for staying on top of long work rather than only for watching it.
+
+#### The seam already exists
+
+`showToastWindow` has **five call sites in `src/main`**, and they are almost exactly the right
+notification set:
+
+- `src/main/agents/AgentRunService.ts:929` and `:954`
+- `src/main/criticalThinking/CriticalThinkingService.ts:1069`
+- `src/main/scheduler/SchedulerService.ts:285`
+
+`ToastContent` (`src/shared/toast.types.ts`) already carries an optional `conversationId` — "clicking
+the toast opens this conversation." **That field is the deep link.** A phone notification tapped
+should land in the same conversation the desktop toast would have opened.
+
+**The change: `showToastWindow` becomes `notifyUser`,** fanning out to the desktop toast window
+exactly as it does today _plus_ the paired phone. Five call sites, one seam. Renderer-side toast
+calls (settings saved, copy succeeded, and so on) stay desktop-only — they are UI feedback, not
+events worth a phone buzz. Add the confirmation path (§3.5) as the sixth source.
+
+#### Delivery — layered, in this order
+
+Backgrounded is straightforward; **fully closed is the hard case**, since Android will not hold the
+socket (§6.1).
+
+1. **Foreground service — build first.** The app holds the connection behind a persistent
+   "Anodex — connected to MERLIN-PC" notification. No infrastructure, no credentials, notifications
+   fire the instant anything happens, and the persistent entry doubles as the connection indicator —
+   the same affordance a VPN or a music player uses. Expose it as a **"Stay connected"** toggle.
+   Caveats: Play Store requires a justified `foregroundServiceType`, and Android may still kill it
+   under memory pressure.
+2. **The Phase 0 notifier, deep-linked — build alongside.** ntfy or Pushover on the **user's own**
+   account, with a click action pointing at `anodex://conversation/<id>`. Covers app-killed,
+   phone-rebooted, everything layer 1 cannot. No credential ships in the app and no service of ours
+   runs. Cost is one-time setup friction. This is the standing argument for building Phase 0 even
+   though the app supersedes its other uses.
+3. **FCM — documented, not built.** The conventional answer, but the desktop needs a sending
+   credential, and a credential inside a distributed desktop app can be extracted and cannot be
+   rotated without shipping an update to every user. The practical risk is lower than it first looks
+   (an attacker still needs device tokens, which are not public), but it is real. Revisit only if
+   layers 1 and 2 prove too fiddly in practice.
+
+**On relays, precisely.** §7.1.3 forbids a relay because routing user _content_ through our
+infrastructure contradicts the product. A push relay carrying only "host X has news" is a
+materially narrower thing and should not be waved off with the same sentence — but it still means
+running a service that learns when each user's agents finish, and metadata is data. **Still ruled
+out**, now for a stated reason rather than by assumption.
+
+#### What to notify, and what not to
+
+| Notify                                                          | Do not notify                                        |
+| --------------------------------------------------------------- | ---------------------------------------------------- |
+| A run is blocked on approval _(highest value — time-sensitive)_ | Individual tool calls                                |
+| Agent run finished, failed, or exhausted its budget             | Streaming progress or token counts                   |
+| A long chat turn finished                                       | Anything that can fire more than a few times an hour |
+| Scheduled task completed or errored                             | Renderer-side UI feedback (saved, copied, connected) |
+| Critical Thinking run finished                                  |                                                      |
+
+#### Three requirements
+
+- **Separate Android notification channels by urgency.** "Needs approval" is heads-up and loud;
+  "finished" is quiet. One channel for both means the user either silences everything or gets woken
+  by a completion at 2am.
+- **A notification must dismiss itself when answered elsewhere.** Approve on the desktop and the
+  phone's approval notification disappears. `tools:confirm-cancelled` (§3.5) already exists and
+  already fires for this case — it just needs to reach the notification manager too.
+- **Keep notification content thin.** "Backfill sim test coverage finished" is fine; tool output is
+  not. Notifications render on a lock screen, and §2 says the phone does not hold the user's data.
+
 ---
 
 ## 7. Security model — non-negotiables
@@ -330,17 +457,17 @@ only**, which is a permanent decision.
 
 ## 9. Build plan
 
-| Phase | Deliverable                                                                                                                                                                                                                                                  |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **0** | _Optional, an afternoon, ship it anyway._ Outbound push notifier (ntfy/Pushover/Telegram) on run-blocked, run-finished, budget-exhausted. Outbound HTTPS only, no open port. It covers you for the months the app is being built, and it stays useful after. |
-| **1** | Protocol generator + `protocol/anodex-protocol.json` + the CI gate (§4). Do this **first** — everything downstream consumes it.                                                                                                                              |
-| **2** | `ClientChannel` refactor (§5.1–5.3) + `RemoteBridge` with pairing, TLS, single-device registry, Settings → Remote. Desktop side complete and testable from a script before any Kotlin exists.                                                                |
-| **3** | Android app skeleton: pairing/QR flow, connection header, transport layer generated from the protocol artifact, reconnect + resume. No features yet — prove the pipe.                                                                                        |
-| **4** | **Chat** + tool confirmations + the untethered grant flow. First genuinely usable release.                                                                                                                                                                   |
-| **5** | **Agent** + scheduler.                                                                                                                                                                                                                                       |
-| **6** | **Critical Thinking.**                                                                                                                                                                                                                                       |
-| **7** | **Workspace** (read-first).                                                                                                                                                                                                                                  |
-| **8** | **Email.**                                                                                                                                                                                                                                                   |
+| Phase | Deliverable                                                                                                                                                                                                                                                                                         |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0** | _Optional, an afternoon, ship it anyway._ Outbound push notifier (ntfy/Pushover/Telegram) on run-blocked, run-finished, budget-exhausted. Outbound HTTPS only, no open port. It covers you for the months the app is being built, and it stays useful after.                                        |
+| **1** | Protocol generator + `protocol/anodex-protocol.json` + the CI gate (§4). Do this **first** — everything downstream consumes it.                                                                                                                                                                     |
+| **2** | `ClientChannel` refactor (§5.1–5.3) + `RemoteBridge` with pairing, TLS, single-device registry, Settings → Remote. **`showToastWindow` → `notifyUser` fan-out (§6.2), and mDNS advertisement on listener start (§6.1).** Desktop side complete and testable from a script before any Kotlin exists. |
+| **3** | Android app skeleton: pairing/QR flow, connection header, transport layer generated from the protocol artifact, reconnect + resume. **The four connection states, the grace period, and the offline screen (§6.1)** — they gate every later screen. No features yet — prove the pipe.               |
+| **4** | **Chat** + tool confirmations + the untethered grant flow. **Foreground service, notification channels, and confirm-dismissal-on-remote-answer (§6.2).** First genuinely usable release.                                                                                                            |
+| **5** | **Agent** + scheduler.                                                                                                                                                                                                                                                                              |
+| **6** | **Critical Thinking.**                                                                                                                                                                                                                                                                              |
+| **7** | **Workspace** (read-first).                                                                                                                                                                                                                                                                         |
+| **8** | **Email.**                                                                                                                                                                                                                                                                                          |
 
 Phases 1 and 2 are not separable in practice — do not leave an unauthenticated bridge lying around
 between them, even on localhost.
@@ -352,25 +479,78 @@ exists is a bug found with a debugger attached, not on a phone in another room.
 
 ## 10. Open questions
 
-1. **Is Tailscale acceptable as the off-network answer?** If not, the honest position is "LAN only,
-   forever" — the alternative is a relay, and §7.1.3 rules that out.
-2. **Compose UI, or Compose + a WebView for the markdown/diff-heavy views?** Chat message rendering
-   (markdown, syntax highlighting, diffs) is the one place native costs a great deal more than the
-   web equivalent. A hybrid is legitimate — but decide it in Phase 4, with the real content in front
-   of you, not now.
-3. **iOS later?** If it is ever likely, the protocol artifact (§4) should emit a language-neutral
-   schema plus per-language bindings rather than Kotlin classes directly. Cheap to design in now,
-   expensive to retrofit.
-4. **Does the phone get `run_command` output streaming?** It is the loudest tool output and the
-   least useful on a small screen. Suggest: collapsed by default, expandable, tail-only.
-5. **Does the phone cache conversation history locally, or fetch it every time?** Caching buys
-   instant scrollback and transcripts readable while the PC is asleep, but it means conversations
-   now live on the phone too, which softens the §2 guarantee. Not caching keeps that guarantee clean
-   at the cost of a blank app whenever the desktop is unreachable.
-   **Recommendation: cache nothing but the paired key and UI preferences.** A phone that says
-   "MERLIN-PC is asleep" is honest in a way one showing stale transcripts is not. Decide this before
-   Phase 3 — it is expensive to reverse once the app has a local database, and it determines whether
-   the app needs an at-rest encryption story at all.
+1. **Compose UI, or Compose + a WebView for the message body?** Chat messages carry markdown, syntax
+   highlighting and diffs. Rendering those natively means writing a markdown renderer and a
+   highlighter in Kotlin — weeks of work to reach what a browser does for free. The alternative is
+   native everywhere except the message body. **Deliberately deferred to Phase 4**: it is a
+   look-at-it-on-a-real-screen decision, not a paper one.
+2. **How is the app distributed and updated?** See §10.1 for the decision; what remains open is only
+   _when_ a Play Store listing becomes worth the review risk, which is a question about audience,
+   not engineering.
+
+### 10.1 Settled, kept as a record
+
+**Does the phone cache conversation history?** **No. The phone persists the paired key and UI
+preferences, nothing else.** Caching would buy instant scrollback and transcripts readable while the
+PC is asleep, but conversations would then live on the phone too, softening the §2 guarantee. A
+phone that says "MERLIN-PC is asleep" is honest in a way one showing stale transcripts is not.
+
+Two consequences that follow, and must be honoured:
+
+- **The app needs no at-rest encryption story** beyond the keystore-backed paired key. Do not
+  introduce a local database "just for cache" without reopening this decision — it changes the
+  product's privacy posture, not just its performance.
+- **The connection state is therefore the app's top-level state**, which is why §6.1 specifies it in
+  full rather than leaving it to the UI layer.
+
+**How does the phone learn the desktop is back?** Phone-driven, not desktop-pushed — a machine that
+is asleep cannot address a phone. mDNS advertisement plus a capped backoff. See §6.1.
+
+**How do notifications reach a closed app?** Layered: foreground service first, the Phase 0 notifier
+deep-linked beneath it, FCM documented but unbuilt. See §6.2.
+
+**Off-network access:** **Tailscale, supported and documented — nothing built for it.** It makes the
+LAN case true from anywhere, so the app needs no code path of its own. One design consequence:
+**pair to a host identity, not a fixed IP.** The address differs between Wi-Fi and Tailscale, and
+pairing to an address means re-pairing every time the user changes network. Cheap now, annoying to
+retrofit.
+
+**iOS:** planned, but much later. Honour it in §4 by emitting a **language-neutral schema plus
+per-language bindings**, not Kotlin classes directly. Costs almost nothing today.
+
+**`run_command` output on the phone:** **shown, collapsed by default, expandable, tail-only.** It is
+the noisiest tool output on a small screen, but reading why a test failed while away from the desk is
+exactly the job the phone exists for.
+
+**May the phone switch the active project?** **Yes.** Note what that means and design for it rather
+than around it: there is one active project and it is global state —
+`ProjectStore.setActive` (`src/main/projects/ProjectStore.ts:179`) writes `settings.workspace.root`
+and persists it — so a switch from the phone moves the workspace for whoever is at the desk. Two
+requirements follow:
+
+- The desktop must **visibly reflect** a remotely-initiated project switch, never swap silently.
+- Switching is **blocked while a generation is in flight**, from either client. Pulling the workspace
+  out from under a live turn is breakage, not a surprise.
+
+**What happens to an in-flight turn when the phone disconnects?** **The desktop behaves exactly as if
+the user stood up and walked away from the computer.** The run continues and does everything it
+would have done. This is the rule to apply generally, and its strength is that it requires no new
+behaviour — every path already handles "nobody is looking."
+
+One place it needs precision: if the run reaches a permission prompt while the phone is gone, it
+waits, and the confirmation then expires and auto-denies (§6). So "keeps running" means "keeps
+running until it needs a human." That is correct behaviour, recorded here so nobody later mistakes it
+for a bug.
+
+**Distribution and updates:** **sideloaded APK from GitHub releases first, not the Play Store.** Store
+review is a live risk — a reviewer cannot exercise an app that requires a paired desktop running
+software they do not have, and the foreground service (§6.2) needs its own justification. Two grounds
+for rejection, both avoidable.
+
+Update prompting still works, because **the desktop tells the phone it is outdated**: the handshake
+(§4) already carries version information, so the desktop reports a newer app version and the phone
+shows an update prompt with a download link. Same shape as `src/main/updates/UpdateService.ts`,
+pointed the other way. Revisit a Play Store listing only if there is an audience beyond the author.
 
 ---
 
@@ -395,6 +575,12 @@ The chat screen deliberately reuses the real proportions from `MessageBubble.mod
 bubble capped at ~72–78% width, assistant text unbubbled) and the approval card mirrors
 `ToolConfirmCard.module.css` including its 2px pulsing left edge. Port those proportions to Compose
 rather than re-deriving them.
+
+**Not yet drawn, and worth mocking before Phase 3:** the offline takeover screen (§6.1) — including
+the wrong-network message, which is the detail that makes it useful rather than merely honest — and
+the notification designs (§6.2), where the split between a loud approval and a quiet completion is a
+visual decision, not only a channel-priority one. The offline screen especially: because the phone
+caches nothing, it is the screen a user sees most often after the chat itself.
 
 ---
 
