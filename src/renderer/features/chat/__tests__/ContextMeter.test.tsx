@@ -1,3 +1,4 @@
+import { contextHeadroom } from '@shared/contextHeadroom'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -180,5 +181,27 @@ describe('ContextMeter window by provider', () => {
 
     // DeepSeek V4 Flash is a 1,048,576-token window.
     expect(render()).toContain('1048.6k')
+  })
+})
+
+describe('a window smaller than the machine could run', () => {
+  /**
+   * Measured on one machine (2026-09-05): a 27B ran at 8,192 while
+   * `contextSizeFor` put it at 32,768. Nothing said so — the meter read "8.2K",
+   * which looks like a fact about the model rather than a choice about the
+   * machine. A Critical Thinking run there read 5,725 characters of the 56,528
+   * it had gathered; at the larger window the same question read 56,021 of
+   * 130,472 and produced the best report on record.
+   */
+  it('is reported when the machine could more than double it', () => {
+    expect(contextHeadroom(8_192, 32_768)?.worthMentioning).toBe(true)
+  })
+
+  it('is not reported for a difference nobody would act on', () => {
+    expect(contextHeadroom(24_576, 32_768)?.worthMentioning).toBe(false)
+  })
+
+  it('is not reported for a cloud model, which has no local recommendation', () => {
+    expect(contextHeadroom(128_000, undefined)).toBeNull()
   })
 })
