@@ -794,3 +794,39 @@ the autorun harnesses. What was fixed is in git; these are the ones left.
   and produced the best report on record while never returning `sufficient`.
   Worth revisiting if a run is ever seen exhausting its round budget on a step
   that was plainly answered.
+
+- **A tool result can consume the room the reply needed, and recovery does not
+  rescue it.** Measured 2026-09-05 at 8,192 on qwen27b, twice, on the email
+  script's last turn:
+
+      TURN 7/7 | 34s | 0 chars | 2 call(s) | stop=context-limit | tools: read_email
+      fixedTokens 6,015 -> 6,313 -> 6,388   gate 6,697 (7,680 - 983 reserved)
+      epoch: 0
+
+  The turn fit until `read_email` returned; its result took the remaining room
+  and the turn ended before the model wrote anything. The user is not left with
+  silence — `describeGenerationStop` renders "This reply ran out of context
+  space while working" — but they do not get their answer.
+
+  The same shape ended the hard chat rubric's turn 12 in one of three runs, so
+  it is not specific to email.
+
+  `boundedChatRunner` has context recovery for exactly this, and it did not
+  fire: `epoch: 0` throughout. The likely cause is `recoveryChurnDetected`,
+  which blocks recovery after consecutive cycles that produced no novel
+  content — correct in itself, since a run that recovers repeatedly without
+  progress should stop, but it means the _first_ such turn gets no compaction
+  either.
+
+  Not fixed. The agent received the same recovery today and it needed a
+  progress-based bound to stop it grinding (`FRUITLESS_EPOCH_LIMIT`); doing the
+  equivalent surgery on chat's churn detection is a delicate change to the
+  surface with the most traffic, and it deserves its own session with room to
+  measure repeats. **It does not occur at 65,536**, where the fixed input is a
+  fraction of the window — so for anyone running the context their hardware
+  supports, this is invisible.
+
+  Worth noting what it cost in measurement terms: `handles-a-bad-id` reported a
+  _consistent_ failure across both passes, which reads as "this model reliably
+  invents a message for a bad id" when the model never got to speak. The rubric
+  now reports that turn `N/A` rather than `FAIL`.

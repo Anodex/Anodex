@@ -479,14 +479,9 @@ exists is a bug found with a debugger attached, not on a phone in another room.
 
 ## 10. Open questions
 
-1. **Compose UI, or Compose + a WebView for the message body?** Chat messages carry markdown, syntax
-   highlighting and diffs. Rendering those natively means writing a markdown renderer and a
-   highlighter in Kotlin — weeks of work to reach what a browser does for free. The alternative is
-   native everywhere except the message body. **Deliberately deferred to Phase 4**: it is a
-   look-at-it-on-a-real-screen decision, not a paper one.
-2. **How is the app distributed and updated?** See §10.1 for the decision; what remains open is only
-   _when_ a Play Store listing becomes worth the review risk, which is a question about audience,
-   not engineering.
+**None blocking.** Every question raised during design has been answered — see §10.1. The only thing
+left genuinely undecided is _when_ a Play Store listing becomes worth its review risk, which is a
+question about audience rather than engineering, and nothing depends on it.
 
 ### 10.1 Settled, kept as a record
 
@@ -542,15 +537,64 @@ waits, and the confirmation then expires and auto-denies (§6). So "keeps runnin
 running until it needs a human." That is correct behaviour, recorded here so nobody later mistakes it
 for a bug.
 
-**Distribution and updates:** **sideloaded APK from GitHub releases first, not the Play Store.** Store
-review is a live risk — a reviewer cannot exercise an app that requires a paired desktop running
-software they do not have, and the foreground service (§6.2) needs its own justification. Two grounds
-for rejection, both avoidable.
+**Distribution and updates:** **APK first, from GitHub releases, fronted by `anodex.dev`.** The
+Play Store is a possible later addition, not the first target. Store review is a live risk — a
+reviewer cannot exercise an app that requires a paired desktop running software they do not have,
+and the foreground service (§6.2) needs its own justification — and none of that has to be faced to
+get the app onto the author's own phone.
+
+`anodex.dev` is owned and becomes the project's site: download links for the desktop app and the
+APK, pointing at GitHub releases.
 
 Update prompting still works, because **the desktop tells the phone it is outdated**: the handshake
 (§4) already carries version information, so the desktop reports a newer app version and the phone
 shows an update prompt with a download link. Same shape as `src/main/updates/UpdateService.ts`,
-pointed the other way. Revisit a Play Store listing only if there is an audience beyond the author.
+pointed the other way.
+
+**`anodex.dev` is a static GitHub Pages site**, with download links pointing at the newest GitHub
+release. That constrains two things:
+
+**1. The APK must be published somewhere public — and this is already a known blocker here.**
+`Anodex/Anodex` is private, and a private repo's release assets require authentication to download.
+That is exactly why the desktop's own auto-update currently fails closed: embedding a token in a
+distributed binary was rejected, correctly, because a client-side secret is unsealable. The phone
+meets the same wall, and cannot hold a token for the same reason.
+
+**Recommended: a separate public releases repo** (e.g. `Anodex/anodex-releases`). Source stays
+private; a release workflow publishes the desktop installer and the APK there; `anodex.dev` links
+to it. No credential anywhere, the download page works for anyone, and the desktop updater finally
+gets a feed it can read — resolving the long-standing item 8 in [[anodex-backlog]] as a side effect
+rather than as its own project.
+
+Alternatives if a third repo is unwanted: make `anodex-mobile` public (it is a client, and holds no
+secrets), or serve the APK as a file on the Pages site — **confirm the latter before relying on it**,
+as GitHub's Pages behaviour for private source repos depends on the account plan.
+
+**2. The phone must not hardcode a download URL. The desktop sends it.** The desktop already reports
+that the phone is outdated over the handshake (§4); have it include _where to get the new version_
+in the same message. The phone then knows nothing about GitHub, releases, or `anodex.dev`, and
+moving hosting later cannot strand an installed app — a stronger guarantee than any stable URL.
+
+**Back up the APK signing keystore off-machine before the first release.** Android identifies an app
+by its signing key: lose it and existing installs can never be updated — they must be uninstalled and
+replaced, taking their paired keys with them. There is no recovery path and no support channel for
+this. It is the only irreversible mistake available in this project.
+
+**Message body rendering:** **all-native Compose. No web view.** Chosen from the side-by-side sample
+in §11. The deciding argument is that code blocks are collapsed by default (consistent with the
+`run_command` decision above), so the rich-rendering path is behind a tap and is not what the app
+mostly shows — paying a web view's costs to serve the uncommon case is the wrong trade.
+
+Two consequences:
+
+- **Expanding a code block opens a full-screen view**, not an inline scroll box: full width, real
+  horizontal scrolling, a copy button. This also removes the nested-scroll hazard entirely, since
+  nothing scrollable ever sits inside the scrolling message list.
+- **Accept that highlighting will be coarser than the desktop's and will drift from it.** Kotlin
+  highlighters typically resolve keywords, strings and comments but not function names or types.
+  This is a known, accepted cost — not a bug to file later — and new desktop markdown features will
+  need porting to Kotlin by hand. Choose the highlighting library deliberately in Phase 4; quality
+  varies widely.
 
 ---
 
@@ -576,11 +620,18 @@ bubble capped at ~72–78% width, assistant text unbubbled) and the approval car
 `ToolConfirmCard.module.css` including its 2px pulsing left edge. Port those proportions to Compose
 rather than re-deriving them.
 
+**Second sample — `docs/ui-samples/anodex-mobile-rendering.html`**
+(<https://claude.ai/code/artifact/0971bc86-52dc-4a9c-a372-2ba7bcd63f68>): the same assistant reply
+rendered natively versus in an embedded web view, which is what the §10.1 all-native decision was
+made from. Keep it: the left-hand column is the target for the Compose message renderer, including
+the coarser highlighting, which is expected rather than a defect.
+
 **Not yet drawn, and worth mocking before Phase 3:** the offline takeover screen (§6.1) — including
 the wrong-network message, which is the detail that makes it useful rather than merely honest — and
 the notification designs (§6.2), where the split between a loud approval and a quiet completion is a
 visual decision, not only a channel-priority one. The offline screen especially: because the phone
-caches nothing, it is the screen a user sees most often after the chat itself.
+caches nothing, it is the screen a user sees most often after the chat itself. Add the full-screen
+expanded code view (§10.1) to that list.
 
 ---
 
