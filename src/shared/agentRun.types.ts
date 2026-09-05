@@ -142,6 +142,17 @@ export interface AgentRun {
   /** Cumulative token budget across every turn. */
   maxTokens: number
   tokensUsed: number
+  /**
+   * Context epochs this run has started — each one dropped the history it had
+   * accumulated and replaced it with a handoff.
+   *
+   * Recorded because it is the difference between a run that is working and
+   * one that is grinding, and nothing else distinguishes them from outside.
+   * Measured 2026-09-05 on the same model and benchmarks: at 65,536 a run
+   * needs none, while at 8,192 several ran 150+ turns and 115,000 tokens
+   * without closing a plan step.
+   */
+  contextEpochs?: number
   /** Wall-clock budget in minutes, measured against `activeMs` — time spent working. */
   maxDurationMinutes: number
   /**

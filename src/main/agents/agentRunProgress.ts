@@ -131,6 +131,14 @@ export function idleRunReason(
 export const CONTEXT_EPOCH_LIMIT = 5
 
 /**
+ * Recoveries a run may make without closing a single plan step.
+ *
+ * Above the 17 a passing 8,192 run needed, so it cannot end a run that is
+ * working, and far below the 169 a grinding one reached.
+ */
+export const FRUITLESS_EPOCH_LIMIT = 25
+
+/**
  * Why a run is being stopped for running out of context repeatedly, or `null`
  * to keep going.
  *
@@ -141,7 +149,33 @@ export const CONTEXT_EPOCH_LIMIT = 5
  * bench-1 at 8,192 (2026-09-05), a run that had completed real work and whose
  * tests passed.
  */
-export function contextRecoveryExhaustedReason(consecutiveEpochs: number): string | null {
+export function contextRecoveryExhaustedReason(
+  consecutiveEpochs: number,
+  totalEpochs = 0,
+  planStepsCompleted = 0
+): string | null {
+  // A run that has recovered this many times and closed nothing is not
+  // recovering, it is grinding.
+  //
+  // Counting epochs alone cannot tell the two apart. Measured at 8,192 on
+  // 2026-09-05, the context is exhausted on essentially every turn, so epochs
+  // track turns: the run that *passed* used 17 of them across 18 turns and
+  // closed 4 of 4 plan steps, and the run that failed used 169 across 170 and
+  // closed none. Any epoch bound low enough to stop the second ends the first.
+  //
+  // Progress separates them cleanly, because the passing run closes steps
+  // early and the grinding one never closes any. The limit is set well above
+  // what a working run needs before its first step, so it only fires on a run
+  // that has genuinely achieved nothing.
+  if (totalEpochs >= FRUITLESS_EPOCH_LIMIT && planStepsCompleted === 0) {
+    return (
+      `Stopped after ${totalEpochs} context recoveries without completing a single plan step. ` +
+      'Each one dropped the accumulated history and kept a summary of it, and the run still ' +
+      'could not make progress — which means the fixed part of the prompt is what does not ' +
+      'fit, not the conversation. A larger context window, or fewer tools bound to the turn, ' +
+      'is what this needs.'
+    )
+  }
   if (consecutiveEpochs < CONTEXT_EPOCH_LIMIT) return null
   return (
     `Stopped after ${consecutiveEpochs} context recoveries in a row that still left no room ` +
