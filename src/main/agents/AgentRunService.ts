@@ -396,6 +396,7 @@ class AgentRunService {
           })
           // Everything before this point is now stated by the handoff instead.
           historyFrom = conversation.messages.length
+          agentRunStore.update(run.id, { contextEpochs: contextEpochCount })
         }
         // A turn whose calls were all refused looks active by call count but
         // achieved nothing. `Blocked:` is the detail every guard sets when it
@@ -487,7 +488,11 @@ class AgentRunService {
         }
 
         const idleReason =
-          contextRecoveryExhaustedReason(consecutiveEpochs) ??
+          contextRecoveryExhaustedReason(
+            consecutiveEpochs,
+            contextEpochCount,
+            (plan?.steps ?? []).filter((step) => step.status === 'completed').length
+          ) ??
           idleRunReason(idleTurns, idleStopReasons) ??
           refusedRunReason(refusedTurns)
         if (idleReason) {

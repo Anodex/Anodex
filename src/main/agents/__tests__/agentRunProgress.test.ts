@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CONTEXT_EPOCH_LIMIT,
+  FRUITLESS_EPOCH_LIMIT,
   contextRecoveryExhaustedReason,
   finishedWithNothingToShow,
   IDLE_TURN_LIMIT,
@@ -208,5 +209,37 @@ describe('contextRecoveryExhaustedReason', () => {
     // Actionable, and honest about what was already tried.
     expect(reason).toMatch(/dropped the earlier history/i)
     expect(reason).toMatch(/larger context window|fewer tools/i)
+  })
+})
+
+describe('a recovery that never closes anything', () => {
+  // Measured at 8,192 (2026-09-05): the context is exhausted on essentially
+  // every turn, so epochs track turns. The run that passed used 17 epochs over
+  // 18 turns and closed 4 of 4 plan steps; the run that failed used 169 over
+  // 170 and closed none. An epoch bound low enough to stop the second would
+  // end the first, so the bound has to read progress.
+  it('lets a working run recover as often as it needs', () => {
+    // The passing run's own numbers.
+    expect(contextRecoveryExhaustedReason(0, 17, 4)).toBeNull()
+    // And before its first step closes, while it is still under the limit.
+    expect(contextRecoveryExhaustedReason(0, FRUITLESS_EPOCH_LIMIT - 1, 0)).toBeNull()
+  })
+
+  it('stops a run that has recovered many times and closed nothing', () => {
+    const reason = contextRecoveryExhaustedReason(0, FRUITLESS_EPOCH_LIMIT, 0) ?? ''
+
+    expect(reason).toMatch(/without completing a single plan step/i)
+    // Names the real cause: dropping history cannot help when the fixed part
+    // of the prompt is what does not fit.
+    expect(reason).toMatch(/fixed part of the prompt/i)
+  })
+
+  it('never stops a run that is closing steps, however many recoveries it takes', () => {
+    expect(contextRecoveryExhaustedReason(0, 169, 1)).toBeNull()
+  })
+
+  it('sits above what a passing run needed and below what a grinding one reached', () => {
+    expect(FRUITLESS_EPOCH_LIMIT).toBeGreaterThan(17)
+    expect(FRUITLESS_EPOCH_LIMIT).toBeLessThan(169)
   })
 })
