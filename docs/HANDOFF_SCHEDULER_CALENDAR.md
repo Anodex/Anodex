@@ -222,10 +222,26 @@ Fixed on branch `fix/monthly-recurrence` (`286fc0a`), with `dayOfMonth` and
 - "every 2 months" is rejected rather than rounded down. `IntervalUnit` counts
   minutes, hours and days, and no run of days is a fixed number of months.
 
-Not fixed, same family, still open: a bare ordinal with no month word —
-"remind me on the 15th at 9am" — still falls through to the bare-time rule and
-becomes a one-shot today or tomorrow. `matchCalendarDate` only recognises a day
-number when a month name sits next to it.
+Then the last of the family, on the same branch: a bare ordinal with no month
+word. `matchCalendarDate` only recognised a day number beside a month name, so
+"remind me on the 15th at 9am" matched nothing and became a one-shot today or
+tomorrow. It now resolves to the nearest future 15th, rolling by a month rather
+than the year a named month rolls — passing over months too short for the day,
+because "the 31st" is a date the user named rather than a rule that has to land
+somewhere every month.
+
+Widening that turned up one more instance of the same defect shape, this time
+caused by the fix: `REPEAT_WORDS` misses "the 15th **of the month**", which
+carries no `every`, no `each` and no whole-word `monthly`. It read as a single
+day, which was harmless only while a bare day number matched nothing — the
+moment one did, a monthly rule silently became a date. The calendar-date branch
+now consults `MONTHLY_WORDS` as well. Caught by the existing monthly tests, not
+by review.
+
+Still open, and deliberately not guessed at: "the 2nd Tuesday at 9am" with no
+month word still reads as _every_ Tuesday. The monthly reading is likely but
+not certain — "last Friday at 9am" is as easily a past date as a rule — so the
+ordinal-day branch is guarded to leave it alone rather than claim it.
 
 ---
 
