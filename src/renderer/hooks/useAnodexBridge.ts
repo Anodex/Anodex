@@ -159,6 +159,13 @@ export function useAnodexBridge(): void {
       })
     })
 
+    // A phone can now write conversations. Without this a chat started there did
+    // not exist on the desktop until Anodex was restarted, which looks exactly like
+    // it having failed to save.
+    const offConversationChanged = anodex.conversations.onChanged(() => {
+      void useChatStore.getState().load()
+    })
+
     const offEngine = anodex.models.onStateChanged((state) =>
       useModelStore.getState().setEngineState(state)
     )
@@ -273,6 +280,7 @@ export function useAnodexBridge(): void {
       offStream()
       offThinkingStream()
       offProjectChanged()
+      offConversationChanged()
       offEngine()
       offDownloadProgress()
       offToolActivity()

@@ -140,7 +140,8 @@ const api: AnodexApi = {
     readVisualPreview: (conversationId, assetId) =>
       ipcRenderer.invoke(IpcChannel.Conversations.readVisualPreview, conversationId, assetId),
     getVisualPreviewUsage: () => ipcRenderer.invoke(IpcChannel.Conversations.getVisualPreviewUsage),
-    clearVisualPreviews: () => ipcRenderer.invoke(IpcChannel.Conversations.clearVisualPreviews)
+    clearVisualPreviews: () => ipcRenderer.invoke(IpcChannel.Conversations.clearVisualPreviews),
+    onChanged: (listener) => subscribe<string>(IpcChannel.Conversations.changed, listener)
   },
   windowControls: {
     minimize: () => ipcRenderer.invoke(IpcChannel.Window.minimize),
