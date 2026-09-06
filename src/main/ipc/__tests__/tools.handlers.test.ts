@@ -128,6 +128,39 @@ describe('tool approval handling', () => {
     await expect(result).resolves.toEqual({ approved: true })
   })
 
+  it('notifies the phone that something is waiting, and not the desktop', async () => {
+    // The most valuable notification there is: a blocked run is stopped until
+    // somebody answers. The desktop is already showing the card, so a toast about
+    // a card on screen would be noise.
+    const desktop = createSender()
+    const phone = createSender('phone')
+    attachRemoteClient(phone)
+
+    const pending = request('needs-an-answer', 'run_command', 'sensitive')
+    const result = requestToolConfirmation(desktop, pending)
+
+    expect(phone.notifications).toHaveLength(1)
+    expect(phone.notifications[0]).toMatchObject({
+      kind: 'needs-approval',
+      conversationId: 'conversation'
+    })
+    expect(desktop.notifications).toHaveLength(0)
+
+    resolvePendingConfirmationForTests(pending.id, { approved: false })
+    await result
+  })
+
+  it('does not notify when no phone is attached', async () => {
+    const desktop = createSender()
+    const pending = request('desktop-only', 'run_command', 'sensitive')
+    const result = requestToolConfirmation(desktop, pending)
+
+    expect(desktop.notifications).toHaveLength(0)
+
+    resolvePendingConfirmationForTests(pending.id, { approved: false })
+    await result
+  })
+
   it('tells the other screen to drop its card once one of them has answered', async () => {
     // Otherwise the desktop is left showing a live-looking prompt whose buttons silently
     // no-op, because the id is already gone from `pendingConfirmations`.
@@ -226,19 +259,38 @@ describe('tool approval handling', () => {
   })
 })
 
-function createSender(
-  id = 'test-client'
-): ClientChannel & { sent: ToolConfirmRequest[]; cancelled: string[] } {
+/**
+ * A fake client that files messages by channel.
+ *
+ * Explicitly by channel rather than "everything that is not a cancellation":
+ * a client now also receives notifications, and a catch-all bucket counted those
+ * as approval prompts.
+ */
+function createSender(id = 'test-client'): ClientChannel & {
+  sent: ToolConfirmRequest[]
+  cancelled: string[]
+  notifications: unknown[]
+} {
   const sent: ToolConfirmRequest[] = []
   const cancelled: string[] = []
+  const notifications: unknown[] = []
   return {
     id,
     sent,
     cancelled,
+    notifications,
     isAlive: () => true,
     send: (channel: string, payload: unknown) => {
-      if (channel === IpcChannel.Tools.confirmCancelled) cancelled.push(payload as string)
-      else sent.push(payload as ToolConfirmRequest)
+      switch (channel) {
+        case IpcChannel.Tools.confirmRequest:
+          sent.push(payload as ToolConfirmRequest)
+          break
+        case IpcChannel.Tools.confirmCancelled:
+          cancelled.push(payload as string)
+          break
+        default:
+          notifications.push(payload)
+      }
     }
   }
 }

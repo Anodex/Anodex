@@ -11,6 +11,7 @@ import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.type
 import { settingsStore } from '../settings/SettingsStore'
 import type { ClientChannel } from '../clients/ClientChannel'
 import { activeRemoteClients } from '../clients/clientRegistry'
+import { notifyRemoteClients } from '../notify'
 
 /** Approval prompts awaiting a renderer response, keyed by request id. */
 const pendingConfirmations = new Map<string, (response: ToolConfirmResponse) => void>()
@@ -154,6 +155,25 @@ export function requestToolConfirmation(
       { once: true }
     )
     for (const client of audience) client.send(IpcChannel.Tools.confirmRequest, request)
+
+    // The fifth notification source, and the most valuable one (§6.2). Everything
+    // else the phone reports can wait until the user is back at the desk; a run
+    // blocked on approval is stopped until somebody answers, and the whole point
+    // of carrying the phone is to be able to answer.
+    //
+    // Only for remote clients: the desktop is already showing the card itself, and
+    // a toast about a prompt on screen is noise.
+    if (activeRemoteClients().length > 0) {
+      notifyRemoteClients({
+        kind: 'needs-approval',
+        title: 'Anodex needs an answer',
+        // Deliberately thin. This lands on a lock screen, and §2 says the phone
+        // does not hold the user's data — the tool's arguments stay in the app.
+        body: request.title,
+        conversationId: request.conversationId,
+        atEpochMs: Date.now()
+      })
+    }
   })
 }
 
