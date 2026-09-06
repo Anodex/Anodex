@@ -113,6 +113,29 @@ export function RemoteSettings(): JSX.Element {
         }
       />
 
+      {listening && status && status.addresses.length > 0 && (
+        <div className={styles.addresses}>
+          <p className={styles.addressesLabel}>Your phone can reach this computer at:</p>
+          <ul className={styles.addressList}>
+            {status.addresses.map((entry) => (
+              <li key={entry.address}>
+                <code>
+                  {entry.address}:{status.port}
+                </code>
+                <span className={styles.addressKind}>{describeAddress(entry.kind)}</span>
+              </li>
+            ))}
+          </ul>
+          {!status.addresses.some((a) => a.kind === 'mesh') && (
+            <p className={styles.meshHint}>
+              To use Anodex away from home, install Tailscale on this computer and your phone.
+              Anodex will pick up the address automatically — it never routes your work through
+              anyone else&rsquo;s server, so a VPN of your own is the only way off your network.
+            </p>
+          )}
+        </div>
+      )}
+
       <p className={styles.warning}>
         This opens a port on this computer. Anything that connects can do what you can do in Anodex
         — read and write your files, and run commands. Only pair a phone you own, and turn this off
@@ -199,6 +222,17 @@ function groupFingerprint(hex: string): string {
   const first = bytes.slice(0, 5).join(' ')
   const second = bytes.slice(5, 10).join(' ')
   return `${first}  ${second}`
+}
+
+function describeAddress(kind: 'lan' | 'mesh' | 'virtual'): string {
+  switch (kind) {
+    case 'lan':
+      return 'on this network — fastest, works at home'
+    case 'mesh':
+      return 'over your VPN — works anywhere'
+    case 'virtual':
+      return 'virtual adapter — usually not reachable from a phone'
+  }
 }
 
 /** Split into two groups of four: eight unbroken characters is hard to read back. */

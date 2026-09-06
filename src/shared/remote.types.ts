@@ -6,6 +6,13 @@
  * outside this directory would be invisible to it.
  */
 
+export interface RemoteHostAddress {
+  address: string
+  /** 'lan' works at home and is fastest; 'mesh' works anywhere; 'virtual' rarely works. */
+  kind: 'lan' | 'mesh' | 'virtual'
+  label: string
+}
+
 export interface RemotePairedDevice {
   name: string
   pairedAtEpochMs: number
@@ -16,8 +23,15 @@ export interface RemoteStatus {
   /** Whether a listener is currently accepting connections. Off by default. */
   listening: boolean
   port: number | null
-  /** Best-effort LAN address for the QR. The phone pairs to identity, not this. */
+  /** Best address for the QR. The phone pairs to identity, not to this. */
   address: string | null
+  /**
+   * Every address this machine can be reached at, best first.
+   *
+   * Shown in Settings so a user setting up a mesh VPN can see that Anodex has
+   * noticed it, and sent to the phone so it can try each in turn when away.
+   */
+  addresses: RemoteHostAddress[]
   hostName: string
   /** SHA-256 of the certificate the phone pins, lowercase hex. */
   certificateSha256: string
