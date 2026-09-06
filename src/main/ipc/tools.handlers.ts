@@ -16,6 +16,21 @@ import { activeRemoteClients } from '../clients/clientRegistry'
 const pendingConfirmations = new Map<string, (response: ToolConfirmResponse) => void>()
 
 /**
+ * How long an approval prompt waits before denying itself.
+ *
+ * A prompt with no deadline is fine while the only client is a window on the
+ * screen in front of you. It is not fine once a phone can be the one holding it:
+ * a phone that leaves Wi-Fi mid-prompt takes the answer with it, and
+ * `requestToolConfirmation` returns a promise that would otherwise never settle —
+ * wedging that generation for the rest of the session, on a machine the user may
+ * not be near.
+ *
+ * Auto-denying is the safe end of that. A denied tool call is a turn the user can
+ * retry; an approval nobody gave is not something to invent on their behalf.
+ */
+export const CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1000
+
+/**
  * Session-only allowlist for the "Always allow this tool" approval action.
  * Kept in the main process, rather than the renderer, so the same permission
  * policy that decided a prompt was needed also decides whether it can be
@@ -86,6 +101,10 @@ export function requestToolConfirmation(
     const settle = (response: ToolConfirmResponse): boolean => {
       if (!pendingConfirmations.has(request.id)) return false
       pendingConfirmations.delete(request.id)
+      // Declared below and closed over: `settle` is only ever reached asynchronously,
+      // so the timer exists by the time any caller can get here. Clearing it here
+      // means every route out — a click, an abort, the timeout itself — stops it.
+      clearTimeout(expiry)
       if (response.approved && response.remember && request.risk !== 'destructive') {
         rememberedToolApprovals.add(approvalKey(request.toolName, request.conversationId))
       }
@@ -93,6 +112,25 @@ export function requestToolConfirmation(
       return true
     }
     pendingConfirmations.set(request.id, settle)
+
+    const expiry = setTimeout(() => {
+      const settledHere = settle({
+        approved: false,
+        reason: 'Nobody answered this in time, so it was declined.'
+      })
+      // Same reasoning as the abort path below: every client is now showing a card
+      // whose buttons would silently do nothing, because the id has already gone.
+      if (settledHere) {
+        for (const client of audience) {
+          client.send(IpcChannel.Tools.confirmCancelled, request.id)
+        }
+      }
+    }, CONFIRMATION_TIMEOUT_MS)
+
+    // Node holds the process open for a pending timer, so a five-minute one would
+    // keep a quitting app alive for up to five minutes.
+    expiry.unref?.()
+
     signal?.addEventListener(
       'abort',
       () => {
@@ -129,6 +167,11 @@ export function resolvePendingConfirmationForTests(
 export function resetToolApprovalStateForTests(): void {
   pendingConfirmations.clear()
   rememberedToolApprovals.clear()
+}
+
+/** Test seam: how many prompts are still waiting for an answer. */
+export function pendingConfirmationCountForTests(): number {
+  return pendingConfirmations.size
 }
 
 async function pickDirectory(event: IpcMainInvokeEvent): Promise<string | null> {
