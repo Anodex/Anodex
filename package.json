@@ -13,6 +13,8 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "protocol": "node scripts/generate-protocol.mjs",
+    "protocol:check": "node scripts/generate-protocol.mjs --check",
     "dist": "npm run prepare:vision && npm run prepare:desktop-control && electron-vite build && node scripts/package-app.mjs",
     "dist:payload": "electron-builder --win nsis --publish never",
     "prepare:vision": "node scripts/prepare-llama-server.mjs",
