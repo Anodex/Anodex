@@ -35,7 +35,7 @@ import {
   OPEN_AI_COMPATIBLE_CONFIGS
 } from '../llm/cloudProviderConfigs'
 import { settingsStore } from '../settings/SettingsStore'
-import { showToastWindow } from '../toastWindow'
+import { notifyUser } from '../notify'
 import { createSearchProvider } from '../tools/search'
 import { fetchUrlEvidence } from '../tools/webTools'
 import { createLogger } from '../utils/logger'
@@ -1066,7 +1066,7 @@ class CriticalThinkingService {
         usedDeterministicSections
       )
     })
-    showToastWindow({
+    notifyUser({
       title: status === 'completed' ? 'Critical Thinking complete' : 'Partial research ready',
       body: truncate(run.question, 140)
     })
