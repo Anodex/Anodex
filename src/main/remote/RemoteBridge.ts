@@ -8,6 +8,7 @@ import {
   detachAllRemoteClients,
   detachRemoteClient
 } from '../clients/clientRegistry'
+import { collectHostAddresses } from './addresses'
 import { decideRemoteChannel } from './channelPolicy'
 import { handlerFor, type IpcHandler } from './handlerRegistry'
 import type { RemoteCertificate } from './certificate'
@@ -185,7 +186,8 @@ export class RemoteBridge {
           this.send(socket, {
             type: 'welcome',
             deviceId: auth.device.deviceId,
-            protocolVersion: PROTOCOL_VERSION
+            protocolVersion: PROTOCOL_VERSION,
+            addresses: collectHostAddresses().map((entry) => entry.address)
           })
           return
         }
@@ -203,7 +205,10 @@ export class RemoteBridge {
             type: 'paired',
             deviceKey: outcome.deviceKey,
             deviceId: outcome.device.deviceId,
-            protocolVersion: PROTOCOL_VERSION
+            protocolVersion: PROTOCOL_VERSION,
+            // Sent at pairing as well as at every reconnect, so a phone paired on
+            // the LAN already knows the mesh address before it first leaves home.
+            addresses: collectHostAddresses().map((entry) => entry.address)
           })
           return
         }

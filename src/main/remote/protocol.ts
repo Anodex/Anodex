@@ -18,8 +18,20 @@ export type ClientFrame =
 
 /** Everything the desktop may send. */
 export type ServerFrame =
-  | { type: 'welcome'; deviceId: string; protocolVersion: string }
-  | { type: 'paired'; deviceKey: string; deviceId: string; protocolVersion: string }
+  /**
+   * Both handshake replies carry `addresses`: every place this machine can be
+   * reached, best first. The phone stores them and tries each on reconnect, which
+   * is what lets it work away from home — a LAN address at home, a mesh VPN
+   * address anywhere else — without Anodex running a relay (§7.1.3).
+   */
+  | { type: 'welcome'; deviceId: string; protocolVersion: string; addresses: string[] }
+  | {
+      type: 'paired'
+      deviceKey: string
+      deviceId: string
+      protocolVersion: string
+      addresses: string[]
+    }
   | { type: 'result'; id: string; ok: true; result: unknown }
   | { type: 'result'; id: string; ok: false; error: { code: string; message: string } }
   | { type: 'event'; channel: string; payload: unknown; seq: number }
