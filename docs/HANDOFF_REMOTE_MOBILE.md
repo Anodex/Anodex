@@ -3,6 +3,9 @@
 **Status:** design only. No code has been written. Nothing in `src/` has been changed for this.
 **Written:** 2026-09-05. **Revised:** 2026-09-05 — direction changed from a thin remote-control web
 client to a **full native app in its own repository**; see §0 for what changed and why.
+**Reviewed:** 2026-09-05 at `36098ef` — every count in §3 and §12 re-verified and still exact; six
+corrections folded in (§4 gate, §5.6 upload, §6 seq/coalescing, §6.1 SSID permission, §6.2 toast
+sites, §7.3 restart). They are corrected in place, not appended as errata.
 **Design mockup:** [`docs/ui-samples/anodex-mobile.html`](ui-samples/anodex-mobile.html) —
 published at <https://claude.ai/code/artifact/3b6de307-3df6-4cfa-bfef-baab85b7859a>.
 
@@ -174,8 +177,11 @@ Two repositories cannot typecheck each other. This section is the mechanism that
 safety, and it is **not optional**; without it the two sides drift and fail at runtime, on a phone,
 in another room, with no stack trace anyone will see.
 
-**`src/shared/ipc.ts` remains the single source of truth.** A generator in this repo emits, per
-release:
+**The source of truth is the type graph rooted at `src/shared/ipc.ts` — not that file alone.**
+`ipc.ts` names the channels and declares `AnodexApi`, but it imports its argument and result types
+from **31 sibling `*.types.ts` modules** (`chat.types`, `tools.types`, `settings.types`, …). Any
+generator or gate that reads only `ipc.ts` is looking at half the contract. A generator in this repo
+emits, per release:
 
 1. `protocol/anodex-protocol.json` — channel names, argument and result shapes, event payloads,
    and a semver `protocolVersion`.
@@ -193,8 +199,16 @@ versions:
   protocol 2; your phone app speaks 1. Update the app." A named, explained failure — never a silent
   hang or a generic disconnect.
 
-**CI gate in this repo:** fail the build if `src/shared/ipc.ts` changed without a regenerated
-`protocol/anodex-protocol.json`. That is the compile error, rebuilt across the boundary.
+**CI gate in this repo:** regenerate the protocol on every build and **fail if the output differs
+from the committed `protocol/anodex-protocol.json`.** That is the compile error, rebuilt across the
+boundary.
+
+Do _not_ gate on "did `src/shared/ipc.ts` change" — that heuristic misses the likeliest breaking
+change there is. Rename a field in `ChatStreamChunk`, add a required field to `ToolConfirmRequest`,
+and the change lands in `chat.types.ts` or `tools.types.ts` with `ipc.ts` untouched: the gate passes,
+the committed protocol goes stale, and the break surfaces at runtime on a phone in another room with
+no stack trace anyone will see. Diffing the regenerated output covers the whole transitive closure
+for free, and is less code than the heuristic it replaces.
 
 **Versioning rule:** bump the major only for a breaking channel change; add channels within a minor.
 The desktop must keep serving the previous major for at least one release so a phone that has not
@@ -239,6 +253,19 @@ Enable/disable the listener. Show the pairing QR. Show the paired device with a 
 **Revoke** button. Show and grant the untethered session (§7.3). Follow the standing theming rule:
 `theme.css` tokens only, verified in dark _and_ light mode.
 
+### 5.6 Attachment upload — new, and the only place the phone pushes bytes
+
+Every other remote call is a command the bridge re-dispatches to a handler that already exists
+(§3.2). This one is not. §2 says a photo picked on the phone **uploads to the desktop** — and no
+channel does that today: `attachments:pick-*` opens a native dialog on the host and reads the host's
+own disk. Anodex has no inbound payload path at all.
+
+So this is a new endpoint rather than a rebuild of an existing one, and it is the single place in
+the whole design where data flows phone → desktop. Decide these alongside it rather than after: a
+size cap and the behaviour at the cap, single-frame versus chunked transfer, where the bytes land on
+disk and who deletes them, and whether an in-flight upload survives a reconnect. Left undiscovered,
+it surfaces in Phase 4 as "chat is finished, except you cannot send a photo."
+
 ---
 
 ## 6. Protocol and reliability requirements
@@ -254,6 +281,13 @@ Each exists because of a specific failure.
 | **Backpressure on the token stream** — coalesce into ~50ms frames                                 | Local generation outruns a phone on cellular if you send one message per token.                                                                                                     |
 | **Explicit, named refusal for desktop-only channels**                                             | A remote `attachments:pick-files` would pop a native dialog on the _host_, in front of nobody. Never fail silently.                                                                 |
 | **Protocol version handshake** (§4)                                                               | Two repositories drifting into a runtime mismatch with no diagnosable symptom.                                                                                                      |
+
+**Sequence numbers and coalescing are one mechanism, so pin the seam now.** Rows 1 and 5 above
+interact: `seq` belongs to the **frame the server actually emits, after the ~50ms coalescing** — not
+to a token. And `resume(afterSeq)` is served **from the persisted conversation on disk**, which is
+what makes replay possible in the first place (row 1), never from a retained buffer of already-sent
+frames. Stated here so nobody builds a server-side frame ring buffer to answer a question the
+conversation store already answers.
 
 ### 6.1 Connection lifecycle and the offline state — decided
 
@@ -280,10 +314,23 @@ unreachable, when it was last seen, and — the useful part — _why_, when that
 > Last seen 14 minutes ago.
 > You're on **Guest-WiFi**; MERLIN-PC was last reached on **Home-5G**.
 
-The phone knows its own SSID and can remember the network it paired on. "You're on the wrong
-network" is the actual cause most of the time, and turning a generic failure into a specific,
-actionable one costs almost nothing. Keep reachable from this screen: a manual Retry, and access to
-pairing/settings so a user can re-pair without a working connection.
+"You're on the wrong network" is the actual cause most of the time, and turning a generic failure
+into a specific, actionable one is most of this screen's value. Keep reachable from it: a manual
+Retry, and access to pairing/settings so a user can re-pair without a working connection.
+
+**Naming the network is not free, though, so decide which version you are building.** Reading the
+current SSID on modern Android requires location permission — without it `getSSID()` returns
+`<unknown ssid>`. That is a runtime location prompt on an app that otherwise needs none, which users
+find alarming and a store reviewer will ask about. Two honest options:
+
+- **Nameless, no permission — build this one.** "You're on a different network than the one you
+  paired on." Derivable from the active network handle and its link properties: no location, no
+  prompt, and it carries nearly all the diagnostic value, because knowing _that_ the network changed
+  is what sends the user to check their Wi-Fi.
+- **Named, with the prompt.** The message quoted above. If it is ever built, ask at the moment it
+  would help rather than at launch, and say what it is for.
+
+The second is an opt-in nicety, never a launch requirement.
 
 **Reconnection is phone-driven. The desktop cannot ping a phone it has no route to.** A machine that
 is asleep or powered off can send nothing, so "the computer tells the phone it's back" cannot be the
@@ -315,21 +362,31 @@ is what makes the phone useful for staying on top of long work rather than only 
 
 #### The seam already exists
 
-`showToastWindow` has **five call sites in `src/main`**, and they are almost exactly the right
-notification set:
+`showToastWindow` has **five call sites in `src/main`**. **Four are the notification set; the fifth
+must be left where it is.**
+
+Convert these four:
 
 - `src/main/agents/AgentRunService.ts:929` and `:954`
 - `src/main/criticalThinking/CriticalThinkingService.ts:1069`
 - `src/main/scheduler/SchedulerService.ts:285`
+
+Leave this one desktop-only:
+
+- `src/main/ipc/toast.handlers.ts:11` — the renderer-side toast channel. Every toast the UI raises
+  (settings saved, text copied) arrives through here. Converting it as well, on the strength of
+  "five call sites," makes the phone buzz for "Settings saved" — the exact outcome the table below
+  exists to prevent.
 
 `ToastContent` (`src/shared/toast.types.ts`) already carries an optional `conversationId` — "clicking
 the toast opens this conversation." **That field is the deep link.** A phone notification tapped
 should land in the same conversation the desktop toast would have opened.
 
 **The change: `showToastWindow` becomes `notifyUser`,** fanning out to the desktop toast window
-exactly as it does today _plus_ the paired phone. Five call sites, one seam. Renderer-side toast
-calls (settings saved, copy succeeded, and so on) stay desktop-only — they are UI feedback, not
-events worth a phone buzz. Add the confirmation path (§3.5) as the sixth source.
+exactly as it does today _plus_ the paired phone. Four call sites, one seam — `toast.handlers.ts`
+keeps calling `showToastWindow` directly, which is what keeps renderer-side UI feedback off the
+phone by construction rather than by a filter someone has to remember to maintain. Add the
+confirmation path (§3.5) as the fifth source.
 
 #### Delivery — layered, in this order
 
@@ -426,8 +483,13 @@ Requirements:
   consented in March and forgot."
 - The grant is **visible and revocable** from the desktop at any time, and the phone shows a
   persistent indicator while it is active.
-- The grant **does not survive** re-pairing, a protocol-version change, or an app restart on either
-  side.
+- The grant **does not survive** re-pairing, a protocol-version change, or a **user-initiated**
+  restart on either side. **Android killing and restarting the foreground service (§6.2) is not a
+  restart for this purpose** — the socket reconnects into the same session and the grant stands
+  until its expiry. The distinction is not pedantry: the service being reaped under memory pressure
+  is an OS decision the user neither made nor saw, and treating it as revocation would drop an
+  untethered session mid-run for no reason the user could observe or predict. Quitting the app is a
+  different act, and does end it.
 - `needsTurnGate` still applies. Untethered has always meant "don't ask again _within_ a turn," not
   "no checkpoint at all," and that stays true remotely.
 
@@ -628,10 +690,14 @@ expanded code view (§10.1) to that list.
 
 ## 12. Notes for whoever picks this up
 
-- **Re-verify the counts in §3 before relying on them.** Taken at `cf8e62f`. The commands:
+- **Re-verify the counts in §3 before relying on them.** Taken at `cf8e62f`, re-verified unchanged
+  at `36098ef`. The commands:
   `grep -oE "'[a-zA-Z]+:[a-zA-Z-]+'" src/shared/ipc.ts | sort -u | wc -l` (183),
   `grep -rn "ipcMain.handle" src/main/ipc/*.ts | wc -l` (178),
-  `grep -rhoE "\(_?event[,)]" src/main/ipc/*.ts | sort | uniq -c` (118 / 17 / 5).
+  `grep -rhoE "\(_?event[,)]" src/main/ipc/*.ts | sort | uniq -c`
+  (118 `(_event,` / 17 `(event)` / 5 `(event,` — the last two are §3.2's 22, split here and summed
+  there),
+  `grep -rn "event.sender\|fromWebContents" src/main/ipc/*.ts | wc -l` (21).
 - **Do not fork the IPC handlers** (§3.2). If you are writing a second implementation of a handler
   for the remote path, stop and fix the dispatch instead.
 - **Do not hand-write channel definitions in the mobile repo** (§4). If it is not in the generated
