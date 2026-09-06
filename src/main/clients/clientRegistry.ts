@@ -10,6 +10,35 @@ import type { ClientChannel } from './ClientChannel'
  */
 
 /**
+ * Marks an invoke that arrived from the remote bridge rather than a window.
+ *
+ * A symbol so it cannot collide with anything Electron puts on a real event, and
+ * so a handler that does not know about it simply never sees it.
+ */
+export const REMOTE_CLIENT = Symbol('anodex.remoteClient')
+
+/**
+ * The client that made this call, whether it was a window or a paired phone.
+ *
+ * Every handler that streams or pushes anything back must resolve its target this
+ * way rather than reaching into `event.sender`. `event.sender` exists only on a
+ * real Electron event; a remote call has no `WebContents` behind it, and reading
+ * `.sender` off nothing is precisely how the first remote `chat:send` failed —
+ * with a TypeError, after the handshake had already succeeded, so everything
+ * looked connected right up to the moment a message was sent.
+ */
+export function resolveClientChannel(event: unknown): ClientChannel {
+  const remote = (event as Record<symbol, ClientChannel> | null | undefined)?.[REMOTE_CLIENT]
+  if (remote) return remote
+
+  const sender = (event as { sender?: WebContents } | null | undefined)?.sender
+  if (!sender) {
+    throw new Error('This call has no client to reply to.')
+  }
+  return webContentsChannel(sender)
+}
+
+/**
  * Wrap a renderer's `WebContents`.
  *
  * The disposal handling mirrors `sendToWindow`: `isDestroyed()` closes the common
