@@ -1,7 +1,8 @@
-import type { WebContents } from 'electron'
 import { afterEach, describe, expect, it } from 'vitest'
 import { IpcChannel } from '@shared/ipc'
 import type { ToolConfirmRequest } from '@shared/tools.types'
+import type { ClientChannel } from '../../clients/ClientChannel'
+import { attachRemoteClient, detachAllRemoteClients } from '../../clients/clientRegistry'
 import {
   requestToolConfirmation,
   resetToolApprovalStateForTests,
@@ -9,7 +10,10 @@ import {
 } from '../tools.handlers'
 
 describe('tool approval handling', () => {
-  afterEach(() => resetToolApprovalStateForTests())
+  afterEach(() => {
+    resetToolApprovalStateForTests()
+    detachAllRemoteClients()
+  })
 
   it('remembers non-destructive approvals in the main process', async () => {
     const sender = createSender()
@@ -80,12 +84,13 @@ describe('tool approval handling', () => {
 
   it('tells the renderer to drop the card when the generation is aborted mid-prompt', async () => {
     const sent: Array<{ channel: string; payload: unknown }> = []
-    const sender = {
-      isDestroyed: () => false,
-      send: (channel: string, payload: unknown) => {
+    const sender: ClientChannel = {
+      id: 'test-client',
+      isAlive: () => true,
+      send: (channel, payload) => {
         sent.push({ channel, payload })
       }
-    } as unknown as WebContents
+    }
 
     const controller = new AbortController()
     const pending = request('will-be-aborted', 'edit_file', 'sensitive')
@@ -103,14 +108,64 @@ describe('tool approval handling', () => {
     ])
   })
 
+  it('shows an approval prompt on the desktop and on a paired phone at once', async () => {
+    // An approval is a question to the user, not to a window, and the user may be at either
+    // screen. "One paired device" caps phones; it does not make this single-client.
+    const desktop = createSender()
+    const phone = createSender('phone')
+    attachRemoteClient(phone)
+
+    const pending = request('needs-an-answer', 'run_command', 'sensitive')
+    const result = requestToolConfirmation(desktop, pending)
+
+    expect(desktop.sent).toHaveLength(1)
+    expect(phone.sent).toHaveLength(1)
+
+    // Whichever answers first settles it — here, the phone.
+    resolvePendingConfirmationForTests(pending.id, { approved: true })
+    await expect(result).resolves.toEqual({ approved: true })
+  })
+
+  it('tells the other screen to drop its card once one of them has answered', async () => {
+    // Otherwise the desktop is left showing a live-looking prompt whose buttons silently
+    // no-op, because the id is already gone from `pendingConfirmations`.
+    const desktop = createSender()
+    const phone = createSender('phone')
+    attachRemoteClient(phone)
+
+    const controller = new AbortController()
+    const pending = request('aborted-everywhere', 'edit_file', 'sensitive')
+    const result = requestToolConfirmation(desktop, pending, controller.signal)
+
+    controller.abort()
+    await result
+
+    for (const client of [desktop, phone]) {
+      expect(client.cancelled).toEqual(['aborted-everywhere'])
+    }
+  })
+
+  it('denies rather than approves when no client is attached to answer', async () => {
+    // An unanswerable prompt must never become an implicit approval.
+    const gone: ClientChannel & { sent: ToolConfirmRequest[] } = {
+      ...createSender(),
+      isAlive: () => false
+    }
+
+    await expect(
+      requestToolConfirmation(gone, request('nobody-home', 'run_command', 'sensitive'))
+    ).resolves.toEqual({ approved: false })
+  })
+
   it('does not send a cancellation message for a request the user already answered', async () => {
     const sent: Array<{ channel: string; payload: unknown }> = []
-    const sender = {
-      isDestroyed: () => false,
-      send: (channel: string, payload: unknown) => {
+    const sender: ClientChannel = {
+      id: 'test-client',
+      isAlive: () => true,
+      send: (channel, payload) => {
         sent.push({ channel, payload })
       }
-    } as unknown as WebContents
+    }
 
     const controller = new AbortController()
     const pending = request('already-answered', 'edit_file', 'sensitive')
@@ -124,15 +179,21 @@ describe('tool approval handling', () => {
   })
 })
 
-function createSender(): WebContents & { sent: ToolConfirmRequest[] } {
+function createSender(
+  id = 'test-client'
+): ClientChannel & { sent: ToolConfirmRequest[]; cancelled: string[] } {
   const sent: ToolConfirmRequest[] = []
+  const cancelled: string[] = []
   return {
+    id,
     sent,
-    isDestroyed: () => false,
-    send: (_channel: string, payload: ToolConfirmRequest) => {
-      sent.push(payload)
+    cancelled,
+    isAlive: () => true,
+    send: (channel: string, payload: unknown) => {
+      if (channel === IpcChannel.Tools.confirmCancelled) cancelled.push(payload as string)
+      else sent.push(payload as ToolConfirmRequest)
     }
-  } as unknown as WebContents & { sent: ToolConfirmRequest[] }
+  }
 }
 
 function request(
