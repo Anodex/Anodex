@@ -5761,6 +5761,112 @@
       }
     },
     {
+      "channel": "remote:begin-pairing",
+      "kind": "invoke",
+      "api": "remote.beginPairing",
+      "args": [],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "null"
+          },
+          {
+            "$ref": "RemotePairingCode"
+          }
+        ]
+      }
+    },
+    {
+      "channel": "remote:cancel-pairing",
+      "kind": "invoke",
+      "api": "remote.cancelPairing",
+      "args": [],
+      "result": {
+        "kind": "void"
+      }
+    },
+    {
+      "channel": "remote:revoke",
+      "kind": "invoke",
+      "api": "remote.revoke",
+      "args": [],
+      "result": {
+        "$ref": "RemoteStatus"
+      }
+    },
+    {
+      "channel": "remote:set-enabled",
+      "kind": "invoke",
+      "api": "remote.setEnabled",
+      "args": [
+        {
+          "name": "enabled",
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "$ref": "RemoteStatus"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "remote:status",
+      "kind": "invoke",
+      "api": "remote.status",
+      "args": [],
+      "result": {
+        "$ref": "RemoteStatus"
+      }
+    },
+    {
+      "channel": "remote:status-changed",
+      "kind": "event",
+      "api": "remote.onStatusChanged",
+      "args": [],
+      "payload": {
+        "$ref": "RemoteStatus"
+      }
+    },
+    {
       "channel": "scheduler:create",
       "kind": "invoke",
       "api": "scheduler.create",
@@ -19444,6 +19550,129 @@
           "optional": false,
           "type": {
             "kind": "string"
+          }
+        }
+      }
+    },
+    "RemotePairedDevice": {
+      "kind": "object",
+      "properties": {
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "pairedAtEpochMs": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "lastSeenEpochMs": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        }
+      }
+    },
+    "RemotePairingCode": {
+      "kind": "object",
+      "properties": {
+        "uri": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "fingerprint": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "qrDataUrl": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "expiresAtEpochMs": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        }
+      }
+    },
+    "RemoteStatus": {
+      "kind": "object",
+      "properties": {
+        "listening": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "port": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "address": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "hostName": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "certificateSha256": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "protocolVersion": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "pairedDevice": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "$ref": "RemotePairedDevice"
+              }
+            ]
           }
         }
       }
