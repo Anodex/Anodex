@@ -111,8 +111,24 @@ gradeLog({
       id: 'handles-a-bad-id',
       needsAnswer: 7,
       why: 'A wrong id should produce a plain "no such message", not an invented one.',
+      // The phrase list was too narrow to recognise a correct answer. On
+      // 2026-09-05 a model replied "BOGUS-MESSAGE-ID-99999 is not *a* valid
+      // IMAP message id. There is no email with that id, so there's nothing to
+      // read" — exactly what this criterion asks for — and scored FAIL, because
+      // the pattern wanted "not valid" without the article. Same failure shape
+      // as `lists-real-threads` above: a rubric measuring its own phrasing.
+      //
+      // Widened, then checked both ways against two real runs — it now passes
+      // that reply and still fails the run where the model answered the
+      // *previous* turn's question instead.
+      //
+      // Deliberately not paired with a "did it invent a message" negative. The
+      // obvious one (`/(the email|it) (says|reads)/`) matches the correct reply
+      // above, which ends by offering to "tell you what it says" for a real id.
+      // No model has actually fabricated here; a guard no failure demands, that
+      // reintroduces the brittleness being removed, is worse than no guard.
       test: () =>
-        /no such|isn'?t valid|not valid|not found|does not exist|doesn'?t exist|couldn'?t find|could not find/i.test(
+        /no such|isn'?t (?:a )?valid|not (?:a )?valid|invalid|not found|does not exist|doesn'?t exist|couldn'?t find|could not find|no (?:email|message) with|nothing to read/i.test(
           reply(7)
         )
     },
