@@ -3,24 +3,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { networkInterfaces } from 'node:os'
+import type { RemotePairingCode, RemoteStatus } from '@shared/remote.types'
 import { createLogger } from '../utils/logger'
-import { generateRemoteCertificate, type RemoteCertificate } from './certificate'
+import { fingerprintOf, generateRemoteCertificate, type RemoteCertificate } from './certificate'
 import { PairingService, type PairedDevice, type PairedDeviceStore } from './pairing'
 import { PROTOCOL_VERSION, RemoteBridge } from './RemoteBridge'
 
 const log = createLogger('remote')
-
-/** What Settings shows and the QR encodes. */
-export interface RemoteStatus {
-  listening: boolean
-  port: number | null
-  /** LAN address a phone should try first, or null if none could be determined. */
-  address: string | null
-  hostName: string
-  certificateSha256: string
-  protocolVersion: string
-  pairedDevice: { name: string; pairedAtEpochMs: number; lastSeenEpochMs: number } | null
-}
 
 interface PersistedState {
   /** Off by default, and stays off until the user turns it on (§7.1). */
@@ -115,7 +104,7 @@ export class RemoteService {
    * the two sides cannot drift on field names without the phone's strict parser
    * rejecting it loudly.
    */
-  beginPairing(): { uri: string; fingerprint: string; expiresAtEpochMs: number } | null {
+  beginPairing(): RemotePairingCode | null {
     if (!this.bridge?.listening || !this.certificate) return null
 
     const session = this.pairing.beginPairing()
@@ -173,7 +162,7 @@ export class RemoteService {
       this.certificate = {
         certPem: this.state.certPem,
         privateKeyPem: keyPem,
-        sha256: (await import('./certificate')).fingerprintOf(this.state.certPem)
+        sha256: fingerprintOf(this.state.certPem)
       }
       return this.certificate
     }
