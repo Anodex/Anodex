@@ -4,7 +4,11 @@ import { X509Certificate } from 'node:crypto'
 import { generateRemoteCertificate, type RemoteCertificate } from '../certificate'
 import { PairingService, type PairedDevice, type PairedDeviceStore } from '../pairing'
 import { PROTOCOL_VERSION, RemoteBridge } from '../RemoteBridge'
-import { activeRemoteClients, detachAllRemoteClients } from '../../clients/clientRegistry'
+import {
+  activeRemoteClients,
+  detachAllRemoteClients,
+  resolveClientChannel
+} from '../../clients/clientRegistry'
 import type { ServerFrame } from '../protocol'
 
 /**
@@ -21,7 +25,7 @@ describe('RemoteBridge', () => {
   let pairing: PairingService
   let bridge: RemoteBridge
   let port: number
-  let handled: Array<{ channel: string; args: unknown[] }>
+  let handled: Array<{ channel: string; args: unknown[]; event: unknown }>
 
   const store: PairedDeviceStore = {
     read: () => stored,
@@ -42,8 +46,8 @@ describe('RemoteBridge', () => {
     // A stand-in for the ipcMain registry, so a call can be observed arriving.
     bridge = new RemoteBridge(pairing, certificate, (channel) =>
       channel === 'chat:send'
-        ? (_event, ...args) => {
-            handled.push({ channel, args })
+        ? (event, ...args) => {
+            handled.push({ channel, args, event })
             return { ok: true, value: { messageId: 'm1' } }
           }
         : undefined
@@ -203,6 +207,34 @@ describe('RemoteBridge', () => {
     if (frame.type !== 'result' || !frame.ok) throw new Error('expected a successful result')
     expect(frame.id).toBe('call-1')
     expect(frame.result).toEqual({ ok: true, value: { messageId: 'm1' } })
+    socket.close()
+  })
+
+  it('gives the handler a client channel to stream back through', async () => {
+    // The first remote chat:send failed with "Cannot read properties of undefined
+    // (reading 'sender')" — the bridge passed no event, and chat streams through
+    // one. It failed *after* a successful handshake, so everything looked connected
+    // until a message was actually sent.
+    const socket = await connect()
+    await pairPhone(socket)
+
+    socket.send(
+      JSON.stringify({ type: 'invoke', id: 'c', channel: 'chat:send', args: [{ prompt: 'hi' }] })
+    )
+    await nextFrame(socket)
+
+    expect(handled).toHaveLength(1)
+    const client = resolveClientChannel(handled[0].event)
+    expect(client.id).toMatch(/^remote:/)
+    expect(client.isAlive()).toBe(true)
+
+    // And it really reaches the phone, rather than merely existing.
+    client.send('chat:stream', { conversationId: 'c1', messageId: 'm1', token: 'hello' })
+    const streamed = await nextFrame(socket)
+
+    expect(streamed.type).toBe('event')
+    if (streamed.type !== 'event') return
+    expect(streamed.channel).toBe('chat:stream')
     socket.close()
   })
 
