@@ -7754,7 +7754,9 @@
       }
     }
   ],
-  "unmappedChannels": ["remote:notification"],
+  "unmappedChannels": [
+    "remote:notification"
+  ],
   "definitions": {
     "AgentRun": {
       "kind": "object",
