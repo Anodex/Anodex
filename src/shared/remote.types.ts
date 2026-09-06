@@ -6,6 +6,32 @@
  * outside this directory would be invisible to it.
  */
 
+/**
+ * Why the phone is being told something.
+ *
+ * Separate kinds because they deserve separate Android notification channels: a
+ * run blocked on approval is time-sensitive and should be loud, while a run
+ * finishing is not. One channel for both means the user either silences
+ * everything or gets woken by a completion at 2am (§6.2).
+ */
+export type RemoteNotificationKind =
+  /** Something is waiting on a human. The highest-value thing the phone can say. */
+  | 'needs-approval'
+  /** A run, task or reply finished. */
+  | 'finished'
+  /** A run failed or exhausted its budget. */
+  | 'failed'
+
+export interface RemoteNotification {
+  kind: RemoteNotificationKind
+  title: string
+  /** Deliberately thin — this renders on a lock screen. */
+  body: string
+  /** Tapping the notification opens this conversation. */
+  conversationId?: string
+  atEpochMs: number
+}
+
 export interface RemoteHostAddress {
   address: string
   /** 'lan' works at home and is fastest; 'mesh' works anywhere; 'virtual' rarely works. */

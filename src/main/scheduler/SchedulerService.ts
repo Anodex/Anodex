@@ -8,7 +8,7 @@ import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { appendBackgroundTurn } from '../conversations/backgroundTurn'
 import { llamaService } from '../llama/LlamaService'
-import { showToastWindow } from '../toastWindow'
+import { notifyUser } from '../notify'
 import { runBoundedChatGeneration } from '../chat/boundedChatRunner'
 import { SCHEDULED_TASK_BUDGET } from '../chat/GenerationBudget'
 import { headlessConfirm } from '../tools/headlessConfirm'
@@ -282,7 +282,7 @@ class SchedulerService {
       return
     }
     try {
-      showToastWindow({ title: task.name, body, conversationId })
+      notifyUser({ title: task.name, body, conversationId })
     } catch (error) {
       // The run is finished and already recorded by this point. Failing to
       // announce it is not a failure of the run, and must not reach a handler
