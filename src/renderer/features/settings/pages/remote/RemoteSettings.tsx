@@ -157,6 +157,25 @@ export function RemoteSettings(): JSX.Element {
                   If the two do not match, something else answered. Do not continue.
                 </p>
 
+                <details className={styles.manual}>
+                  <summary>Can&rsquo;t scan it?</summary>
+                  <p className={styles.manualHint}>
+                    Enter these on the phone instead. The code is case-insensitive.
+                  </p>
+                  <dl className={styles.manualFields}>
+                    <dt>Address</dt>
+                    <dd>
+                      <code>
+                        {pairing.address}:{pairing.port}
+                      </code>
+                    </dd>
+                    <dt>Code</dt>
+                    <dd>
+                      <code className={styles.shortCode}>{formatShortCode(pairing.shortCode)}</code>
+                    </dd>
+                  </dl>
+                </details>
+
                 <Button variant="ghost" onClick={() => void cancel()}>
                   Cancel
                 </Button>
@@ -180,6 +199,11 @@ function groupFingerprint(hex: string): string {
   const first = bytes.slice(0, 5).join(' ')
   const second = bytes.slice(5, 10).join(' ')
   return `${first}  ${second}`
+}
+
+/** Split into two groups of four: eight unbroken characters is hard to read back. */
+function formatShortCode(code: string): string {
+  return `${code.slice(0, 4)}-${code.slice(4)}`
 }
 
 function formatSeen(epochMs: number): string {

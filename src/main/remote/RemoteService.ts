@@ -133,6 +133,9 @@ export class RemoteService {
         width: 320,
         color: { dark: '#f0f0f0', light: '#111111' }
       }),
+      shortCode: session.shortCode,
+      address: lanAddress() ?? '127.0.0.1',
+      port: this.bridge.port ?? 0,
       expiresAtEpochMs: session.expiresAtEpochMs
     }
   }

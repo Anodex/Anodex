@@ -32,5 +32,15 @@ export interface RemotePairingCode {
   fingerprint: string
   /** The QR as a data: URL, rendered in the main process from `uri` itself. */
   qrDataUrl: string
+  /**
+   * A short code for typing in when the camera cannot be used.
+   *
+   * Low-entropy on purpose and safe because of the two-minute window and the
+   * five-attempt lockout, not because of its length.
+   */
+  shortCode: string
+  /** Where to reach this machine, for the manual path. */
+  address: string
+  port: number
   expiresAtEpochMs: number
 }
