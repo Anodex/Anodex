@@ -183,6 +183,38 @@ function resolveTurnDeadline(io: RunGenerationIo): number | null {
 }
 
 /**
+ * Continuation prompt for a chat cycle resuming after a context epoch.
+ *
+ * An epoch resets `history` to `baseHistory` — the turns that preceded this
+ * reply — which is the whole point: replaying this cycle's tool-heavy
+ * transcript would refill the window the epoch just cleared. But `request.prompt`
+ * is *not* in `baseHistory`; a normal continuation cycle appends it, and the
+ * epoch branch does not. So the last user message the resumed model sees is the
+ * **previous turn's** question, followed by a bare "continue where you left
+ * off".
+ *
+ * The handoff does carry `Objective:` in the system prompt and calls itself
+ * authoritative, which is exactly the trap: a 27B at 8K followed the
+ * conversation's last user turn instead. Asked to read a bogus message id, it
+ * resumed answering the turn before it ("delete the oldest email") and produced
+ * a fluent, confident answer to a question nobody had just asked.
+ *
+ * Restating the question here costs a few tokens and makes the last user
+ * message the real one. Goal runs never had this problem — `goalContinuePrompt`
+ * already names the standing goal.
+ */
+function epochContinuePrompt(originalPrompt: string): string {
+  return (
+    `Continue answering this request: ${originalPrompt.trim()}
+
+` +
+    'The handoff above records what you have already done in this reply. Do not repeat completed ' +
+    'work or completed mutations — take the next concrete action toward the request above. If it ' +
+    'is already fully answered, say so and stop.'
+  )
+}
+
+/**
  * Continuation nudge for a goal run. Unlike `CHAT_CONTINUE_PROMPT`, this turn
  * *does* have a standing goal and a termination tool, so it names both — the
  * same shape as Agent's `CONTINUE_PROMPT` in `agentPrompts.ts`.
@@ -321,6 +353,11 @@ export async function runBoundedChatGeneration(
   let promptCalibration: RunGenerationResult['promptCalibration']
   let recoveryOnlyCycles = 0
   let recoveryChurnDetected = false
+  /**
+   * Whether this turn has already spent its one continuation on a *proactive*
+   * context checkpoint that produced no progress. See `proactiveCheckpointRescue`.
+   */
+  let spentProactiveCheckpointRescue = false
   /** Extra cycles spent resuming a turn that stopped with plan steps still open. */
   let planContinuations = 0
   /**
@@ -548,9 +585,38 @@ export async function runBoundedChatGeneration(
     if (stalledWithOpenPlan) planContinuations++
     const withinGoalDeadline = goalDeadline === null || Date.now() < goalDeadline
     const withinTurnDeadline = turnDeadline === null || Date.now() < turnDeadline
+    /**
+     * The one case where "this cycle made no progress" is not evidence that
+     * continuing is futile.
+     *
+     * A `'proactive'` cause is the vision transport stopping *itself* at a safe
+     * boundary — the newest tool result is complete, there is still room for a
+     * reply, and it hands the cycle over expressly so this runner can compact
+     * and resume (see `proactiveLimitTokens` in `LlamaVisionService`). The model
+     * never got a round in which to act on that result. Asking the cycle to
+     * prove progress therefore asks it to prove something the stop pre-empted:
+     * a turn one tool result away from its answer ends with zero characters,
+     * which is how an email turn was lost by eighteen tokens on an 8K window.
+     *
+     * This is deliberately narrower than "an epoch started", because an epoch
+     * starts for every context stop. An `'in-turn'` cause means the model did
+     * have its rounds and the window filled underneath it — that is where
+     * error/no-op-only loops stay terminal, and they do.
+     *
+     * Bounded three ways, so it cannot become the loop the progress gate exists
+     * to prevent: it is spent once per turn; the next epoch's round-zero
+     * preflight reports `'fixed-context-limit'` (not recoverable) if the rebuild
+     * did not reclaim room; and `recoveryChurnDetected` still ends a turn that
+     * only re-reads after recovering.
+     */
+    const proactiveCheckpointRescue =
+      !madeProgressThisCycle &&
+      startedContextEpoch &&
+      result.contextEpochCause === 'proactive' &&
+      !spentProactiveCheckpointRescue
     const canContinue =
       (recoveredStop || goalStillOpen || stalledWithOpenPlan) &&
-      madeProgressThisCycle &&
+      (madeProgressThisCycle || proactiveCheckpointRescue) &&
       cycle < cycleCeiling - 1 &&
       withinGoalDeadline &&
       withinTurnDeadline &&
@@ -567,17 +633,21 @@ export async function runBoundedChatGeneration(
       madeProgress: madeProgressThisCycle,
       contextEpoch: contextEpochCount,
       startedContextEpoch,
+      proactiveCheckpointRescue,
       continuing: canContinue,
-      // Which of the three continuation paths applies, so a split turn says
-      // whether it resumed because the provider stopped recoverably, because a
-      // goal was still open, or because the visible plan still had rows to do.
+      // Which of the four continuation paths applies, so a split turn says
+      // whether it resumed because the transport handed over at a proactive
+      // checkpoint, because the provider stopped recoverably, because a goal
+      // was still open, or because the visible plan still had rows to do.
       continuationCause: !canContinue
         ? null
-        : recoveredStop
-          ? 'recoverable-stop'
-          : goalStillOpen
-            ? 'goal-open'
-            : 'open-plan'
+        : proactiveCheckpointRescue
+          ? 'proactive-checkpoint'
+          : recoveredStop
+            ? 'recoverable-stop'
+            : goalStillOpen
+              ? 'goal-open'
+              : 'open-plan'
     })
 
     if (!canContinue) {
@@ -611,6 +681,10 @@ export async function runBoundedChatGeneration(
       break
     }
 
+    // Spent only on a cycle that actually continued because of it: a turn that
+    // stopped for some other reason keeps its allowance for a later checkpoint.
+    if (proactiveCheckpointRescue) spentProactiveCheckpointRescue = true
+
     // Without `toolCalls` here, a session rebuild between cycles (proactive
     // or reactive mid-turn compaction, or simply a different conversationId
     // fast path missing) would replay this cycle's assistant turn as bare
@@ -631,7 +705,11 @@ export async function runBoundedChatGeneration(
             toolCalls: cycleToolCalls
           })
         ]
-    prompt = goal ? goalContinuePrompt(goal) : CHAT_CONTINUE_PROMPT
+    prompt = goal
+      ? goalContinuePrompt(goal)
+      : startedContextEpoch
+        ? epochContinuePrompt(request.prompt)
+        : CHAT_CONTINUE_PROMPT
   }
 
   // The loop always runs at least once, so `last` is always assigned —
