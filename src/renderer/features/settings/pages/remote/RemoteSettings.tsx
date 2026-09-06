@@ -126,12 +126,36 @@ export function RemoteSettings(): JSX.Element {
               </li>
             ))}
           </ul>
-          {!status.addresses.some((a) => a.kind === 'mesh') && (
-            <p className={styles.meshHint}>
-              To use Anodex away from home, install Tailscale on this computer and your phone.
-              Anodex will pick up the address automatically — it never routes your work through
-              anyone else&rsquo;s server, so a VPN of your own is the only way off your network.
+          {status.addresses.some((a) => a.kind === 'mesh') ? (
+            <p className={styles.meshReady}>
+              Your phone can reach this computer from anywhere, as long as both are signed in to the
+              same VPN.
             </p>
+          ) : (
+            <details className={styles.meshSetup}>
+              <summary>Using Anodex away from home</summary>
+              <p className={styles.meshHint}>
+                Anodex only listens on your own network, and it never routes your work through
+                anyone else&rsquo;s server — so reaching this computer from mobile data means
+                joining your phone and your computer to a private network of your own. Tailscale is
+                free for personal use and takes about five minutes.
+              </p>
+              <ol className={styles.meshSteps}>
+                <li>
+                  Install Tailscale on this computer from <code>tailscale.com/download</code> and
+                  sign in.
+                </li>
+                <li>Install Tailscale on your phone and sign in with the same account.</li>
+                <li>
+                  Come back here. Anodex finds the new address on its own and sends it to your phone
+                  the next time it connects.
+                </li>
+              </ol>
+              <p className={styles.meshHint}>
+                Pair on your home Wi-Fi first if you can — the phone learns both addresses at once
+                and picks whichever works.
+              </p>
+            </details>
           )}
         </div>
       )}
