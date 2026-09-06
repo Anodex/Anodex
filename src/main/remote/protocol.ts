@@ -24,13 +24,27 @@ export type ServerFrame =
    * is what lets it work away from home — a LAN address at home, a mesh VPN
    * address anywhere else — without Anodex running a relay (§7.1.3).
    */
-  | { type: 'welcome'; deviceId: string; protocolVersion: string; addresses: string[] }
+  | {
+      type: 'welcome'
+      deviceId: string
+      protocolVersion: string
+      addresses: string[]
+      /**
+       * The phone build this desktop shipped alongside.
+       *
+       * Sent because neither end can ask GitHub: the repository is private, and a
+       * credential inside a distributed app is not a secret. The desktop knows what
+       * it was released with, so it says so and the phone compares.
+       */
+      mobileVersion: string
+    }
   | {
       type: 'paired'
       deviceKey: string
       deviceId: string
       protocolVersion: string
       addresses: string[]
+      mobileVersion: string
     }
   | { type: 'result'; id: string; ok: true; result: unknown }
   | { type: 'result'; id: string; ok: false; error: { code: string; message: string } }
