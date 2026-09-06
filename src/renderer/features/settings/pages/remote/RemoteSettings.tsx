@@ -22,6 +22,8 @@ export function RemoteSettings(): JSX.Element {
   const [pairing, setPairing] = useState<RemotePairingCode | null>(null)
   const [busy, setBusy] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(0)
+  const [manualAddress, setManualAddress] = useState('')
+  const [manualPort, setManualPort] = useState('')
 
   const refresh = useCallback(() => {
     void anodex.remote.status().then(setStatus)
@@ -82,6 +84,41 @@ export function RemoteSettings(): JSX.Element {
     setPairing(null)
   }
 
+  const toggleInternet = async (enabled: boolean): Promise<void> => {
+    setBusy(true)
+    const result = await anodex.remote.setInternetAccess(enabled)
+    setBusy(false)
+    if (!result.ok) {
+      notify({
+        kind: 'error',
+        title: 'Could not change internet access',
+        message: result.error.message
+      })
+      return
+    }
+    setStatus(result.value)
+  }
+
+  const saveManualAddress = async (): Promise<void> => {
+    setBusy(true)
+    const port = manualPort.trim() ? Number(manualPort.trim()) : null
+    const result = await anodex.remote.setManualAddress(
+      manualAddress.trim() || null,
+      Number.isFinite(port) ? port : null
+    )
+    setBusy(false)
+    if (!result.ok) {
+      notify({ kind: 'error', title: 'Could not save', message: result.error.message })
+      return
+    }
+    setStatus(result.value)
+    notify({
+      kind: 'success',
+      title: 'Address saved',
+      message: 'Your phone will use it the next time it cannot find you on Wi-Fi.'
+    })
+  }
+
   const revoke = async (): Promise<void> => {
     setStatus(await anodex.remote.revoke())
     notify({
@@ -126,38 +163,114 @@ export function RemoteSettings(): JSX.Element {
               </li>
             ))}
           </ul>
-          {status.addresses.some((a) => a.kind === 'mesh') ? (
+          {status.internet.enabled && status.internet.address && (
             <p className={styles.meshReady}>
-              Your phone can reach this computer from anywhere, as long as both are signed in to the
-              same VPN.
+              Your phone can reach this computer from anywhere, including mobile data.
             </p>
-          ) : (
-            <details className={styles.meshSetup}>
-              <summary>Using Anodex away from home</summary>
-              <p className={styles.meshHint}>
-                Anodex only listens on your own network, and it never routes your work through
-                anyone else&rsquo;s server — so reaching this computer from mobile data means
-                joining your phone and your computer to a private network of your own. Tailscale is
-                free for personal use and takes about five minutes.
-              </p>
-              <ol className={styles.meshSteps}>
-                <li>
-                  Install Tailscale on this computer from <code>tailscale.com/download</code> and
-                  sign in.
-                </li>
-                <li>Install Tailscale on your phone and sign in with the same account.</li>
-                <li>
-                  Come back here. Anodex finds the new address on its own and sends it to your phone
-                  the next time it connects.
-                </li>
-              </ol>
-              <p className={styles.meshHint}>
-                Pair on your home Wi-Fi first if you can — the phone learns both addresses at once
-                and picks whichever works.
-              </p>
-            </details>
           )}
         </div>
+      )}
+
+      {listening && status && (
+        <>
+          <SettingRow
+            label="Reach this computer from anywhere"
+            description={
+              status.internet.address
+                ? `Open at ${status.internet.address}:${status.internet.port}${
+                    status.internet.source === 'manual' ? ' — you set this up yourself.' : '.'
+                  }`
+                : 'Ask your router to let your phone in from outside your home network.'
+            }
+            control={
+              <ToggleControl
+                checked={status.internet.enabled}
+                ariaLabel="Reach this computer from anywhere"
+                onChange={(next) => {
+                  if (!busy) void toggleInternet(next)
+                }}
+              />
+            }
+          />
+
+          {status.internet.enabled && (
+            <div className={styles.internet}>
+              <p className={styles.internetWarning}>
+                This is the big one. Turning it on means anyone on the internet can knock on this
+                port — and they will, within hours, because the whole internet is scanned
+                constantly. They cannot get in: without your phone&rsquo;s key the connection is
+                refused before it can ask for anything. But this is now a door onto the world rather
+                than a door onto your living room, so leave it off unless you actually need it.
+              </p>
+
+              {status.internet.problem && (
+                <p className={styles.internetProblem}>{status.internet.problem}</p>
+              )}
+
+              {status.internet.source !== 'automatic' && (
+                <details className={styles.forwarding} open={!status.internet.address}>
+                  <summary>Set it up by hand</summary>
+                  <p className={styles.forwardingHint}>
+                    Most routers ship with automatic port opening switched off, so this usually has
+                    to be done once, by you, in your router&rsquo;s settings. Nothing else is
+                    involved — no account, no other company&rsquo;s servers, and your work never
+                    leaves your two devices.
+                  </p>
+                  <ol className={styles.meshSteps}>
+                    <li>
+                      Open your router&rsquo;s settings page — usually <code>10.0.0.1</code> or{' '}
+                      <code>192.168.1.1</code> in a browser.
+                    </li>
+                    <li>
+                      Find <em>Port Forwarding</em> (sometimes under Advanced, NAT, or Virtual
+                      Servers).
+                    </li>
+                    <li>
+                      Forward external port <code>{status.port}</code> to{' '}
+                      <code>
+                        {status.addresses.find((a) => a.kind === 'lan')?.address ?? 'this computer'}
+                      </code>{' '}
+                      port <code>{status.port}</code>, protocol TCP.
+                    </li>
+                    <li>
+                      Search the web for &ldquo;what is my IP&rdquo; and type the number it shows
+                      below.
+                    </li>
+                  </ol>
+
+                  <div className={styles.manualEntry}>
+                    <label>
+                      <span>Public address</span>
+                      <input
+                        type="text"
+                        value={manualAddress}
+                        placeholder="203.0.113.7"
+                        onChange={(event) => setManualAddress(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>Port</span>
+                      <input
+                        type="text"
+                        value={manualPort}
+                        placeholder={String(status.port ?? '')}
+                        onChange={(event) => setManualPort(event.target.value)}
+                      />
+                    </label>
+                    <Button onClick={() => void saveManualAddress()} disabled={busy}>
+                      Save
+                    </Button>
+                  </div>
+
+                  <p className={styles.forwardingHint}>
+                    If your provider gives you a new address from time to time, come back and update
+                    it here — or pair again on Wi-Fi, which refreshes it automatically.
+                  </p>
+                </details>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       <p className={styles.warning}>
@@ -248,12 +361,14 @@ function groupFingerprint(hex: string): string {
   return `${first}  ${second}`
 }
 
-function describeAddress(kind: 'lan' | 'mesh' | 'virtual'): string {
+function describeAddress(kind: 'lan' | 'mesh' | 'internet' | 'virtual'): string {
   switch (kind) {
     case 'lan':
       return 'on this network — fastest, works at home'
     case 'mesh':
       return 'over your VPN — works anywhere'
+    case 'internet':
+      return 'from anywhere, including mobile data'
     case 'virtual':
       return 'virtual adapter — usually not reachable from a phone'
   }

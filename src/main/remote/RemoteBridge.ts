@@ -63,7 +63,13 @@ export class RemoteBridge {
      * reaches a handler with the right arguments — the one property that makes
      * this a bridge rather than a socket that accepts JSON.
      */
-    private readonly lookup: (channel: string) => IpcHandler | undefined = handlerFor
+    private readonly lookup: (channel: string) => IpcHandler | undefined = handlerFor,
+    /**
+     * A public address the phone can use from outside the home network, if the
+     * user has asked for one. Resolved per handshake rather than captured, because
+     * a forwarded port can be turned on and off while the listener keeps running.
+     */
+    private readonly externalAddress: () => string | null = () => null
   ) {}
 
   /** Whether the listener is currently accepting connections. */
@@ -187,7 +193,7 @@ export class RemoteBridge {
             type: 'welcome',
             deviceId: auth.device.deviceId,
             protocolVersion: PROTOCOL_VERSION,
-            addresses: collectHostAddresses().map((entry) => entry.address)
+            addresses: this.reachableAddresses()
           })
           return
         }
@@ -207,8 +213,8 @@ export class RemoteBridge {
             deviceId: outcome.device.deviceId,
             protocolVersion: PROTOCOL_VERSION,
             // Sent at pairing as well as at every reconnect, so a phone paired on
-            // the LAN already knows the mesh address before it first leaves home.
-            addresses: collectHostAddresses().map((entry) => entry.address)
+            // the LAN already knows every other route before it first leaves home.
+            addresses: this.reachableAddresses()
           })
           return
         }
@@ -231,6 +237,18 @@ export class RemoteBridge {
     socket.on('error', (error) => {
       log.warn('socket error:', error)
     })
+  }
+
+  /**
+   * Every address this machine can be reached at, best first.
+   *
+   * The public one goes last: it is the slowest route and the only one that leaves
+   * the house, so the phone should exhaust the LAN and any VPN before using it.
+   */
+  private reachableAddresses(): string[] {
+    const local = collectHostAddresses().map((entry) => entry.address)
+    const external = this.externalAddress()
+    return external && !local.includes(external) ? [...local, external] : local
   }
 
   private attach(socket: WebSocket, deviceId: string): ClientChannel {

@@ -38,7 +38,7 @@ describe('pairing then immediately reconnecting', () => {
     stored = null
     detachAllRemoteClients()
     pairing = new PairingService(store)
-    bridge = new RemoteBridge(pairing, certificate, () => undefined)
+    bridge = new RemoteBridge(pairing, certificate)
     port = await bridge.start(0)
   })
 

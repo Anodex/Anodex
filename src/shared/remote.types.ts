@@ -34,9 +34,31 @@ export interface RemoteNotification {
 
 export interface RemoteHostAddress {
   address: string
-  /** 'lan' works at home and is fastest; 'mesh' works anywhere; 'virtual' rarely works. */
-  kind: 'lan' | 'mesh' | 'virtual'
+  /**
+   * 'lan' works at home and is fastest. 'mesh' is a VPN of the user's own.
+   * 'internet' is a forwarded port, reachable from anywhere including mobile data.
+   * 'virtual' rarely works and is offered last.
+   */
+  kind: 'lan' | 'mesh' | 'internet' | 'virtual'
   label: string
+}
+
+/** How the listener is reachable from outside the home network, if at all. */
+export interface RemoteInternetAccess {
+  /** Off by default, and separate from turning the listener on. */
+  enabled: boolean
+  /**
+   * The public address and port to give the phone.
+   *
+   * Set automatically when the router supports NAT-PMP, or typed in by the user
+   * after forwarding the port themselves.
+   */
+  address: string | null
+  port: number | null
+  /** How the address was arrived at, so the UI can say what to do when it breaks. */
+  source: 'automatic' | 'manual' | 'none'
+  /** Why automatic mapping failed, when it did. */
+  problem: string | null
 }
 
 export interface RemotePairedDevice {
@@ -63,6 +85,7 @@ export interface RemoteStatus {
   certificateSha256: string
   protocolVersion: string
   pairedDevice: RemotePairedDevice | null
+  internet: RemoteInternetAccess
 }
 
 export interface RemotePairingCode {

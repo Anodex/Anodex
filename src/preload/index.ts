@@ -318,6 +318,10 @@ const api: AnodexApi = {
     beginPairing: () => ipcRenderer.invoke(IpcChannel.Remote.beginPairing),
     cancelPairing: () => ipcRenderer.invoke(IpcChannel.Remote.cancelPairing),
     revoke: () => ipcRenderer.invoke(IpcChannel.Remote.revoke),
+    setInternetAccess: (enabled) =>
+      ipcRenderer.invoke(IpcChannel.Remote.setInternetAccess, enabled),
+    setManualAddress: (address, port) =>
+      ipcRenderer.invoke(IpcChannel.Remote.setManualAddress, address, port),
     onStatusChanged: (listener) =>
       subscribe<RemoteStatus>(IpcChannel.Remote.statusChanged, listener)
   },
