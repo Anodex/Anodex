@@ -49,7 +49,16 @@ export const DENIED_CHANNEL_PREFIXES = [
   'memory:',
 
   /** Loading a 30B model is done at the machine, deliberately. */
-  'models:'
+  'models:',
+
+  /**
+   * Remote access administers itself only from the machine.
+   *
+   * A phone that could turn the listener off, unpair itself, or mint a fresh
+   * pairing code would be able to rewrite the conditions under which it is
+   * allowed to talk at all — including handing a new device key to whoever asked.
+   */
+  'remote:'
 ] as const
 
 /**

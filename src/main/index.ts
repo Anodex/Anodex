@@ -38,6 +38,7 @@ import { diagnosticsReporter } from './diagnostics/DiagnosticsReporter'
 import { registerCrashHandlers } from './diagnostics/crashHandlers'
 import { finishModelLoad, getLoadRecovery, initLoadSentinel } from './llama/loadSentinel'
 import { computerControlService } from './computerControl/ComputerControlService'
+import { remoteService } from './remote/RemoteService'
 
 const log = createLogger('main')
 
@@ -134,6 +135,10 @@ if (!app.requestSingleInstanceLock()) {
       // a slow or dead MCP server (see McpManager.init's doc comment).
       mcpManager.init()
       registerIpcHandlers()
+      // Off unless the user turned it on, and a failure to restore the listener
+      // (a port already taken, say) must never stop the app from launching —
+      // the user is told through Settings instead.
+      void remoteService.initialize()
       createMainWindow()
       setTimeout(() => void updateService.check(), STARTUP_UPDATE_CHECK_DELAY_MS)
       // Dev-only, and inert without `ANODEX_CT_AUTORUN`. Must follow window
@@ -161,6 +166,7 @@ if (!app.requestSingleInstanceLock()) {
   // exits — otherwise a loaded model, an in-flight download, or a running
   // generation is just killed mid-operation instead of shut down cleanly.
   app.on('will-quit', () => {
+    void remoteService.shutdown()
     computerControlService.stopAll('app-quit')
     abortAllChatGenerations()
     schedulerService.stop()

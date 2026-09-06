@@ -33,6 +33,8 @@ import { registerGithubHandlers } from './github.handlers'
 import { registerGitHandlers } from './git.handlers'
 import { registerContextMenuHandlers } from '../contextMenu'
 import { registerComputerControlHandlers } from './computerControl.handlers'
+import { registerRemoteHandlers } from './remote.handlers'
+import { captureIpcHandlers } from '../remote/handlerRegistry'
 import { mcpManager } from '../mcp/McpManager'
 import { computerControlService } from '../computerControl/ComputerControlService'
 
@@ -41,6 +43,11 @@ import { computerControlService } from '../computerControl/ComputerControlServic
  * Call once, after the app is ready.
  */
 export function registerIpcHandlers(): void {
+  // Must run before any registration: the remote bridge re-dispatches to these
+  // same handler functions, and Electron offers no way to read them back
+  // afterwards. Patching once here cannot be partially applied.
+  captureIpcHandlers()
+
   registerModelHandlers()
   registerChatHandlers()
   registerSettingsHandlers()
@@ -50,6 +57,7 @@ export function registerIpcHandlers(): void {
   registerBackupHandlers()
   registerSystemHandlers()
   registerToolHandlers()
+  registerRemoteHandlers()
   registerWindowHandlers()
   registerWorkspaceHandlers()
   registerToastHandlers()
