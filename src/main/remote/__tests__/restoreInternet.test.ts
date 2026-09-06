@@ -34,8 +34,12 @@ vi.mock('electron', () => ({
 const started = { count: 0, port: 0 }
 const mapped: number[] = []
 
-vi.mock('../natpmp', () => ({
-  MAPPING_LIFETIME_SECONDS: 3600,
+// Only the two functions that talk to a router are replaced. The address
+// arithmetic stays real: mocking `isPrivateAddress` would mean the tests below
+// prove that a stub returns what it was told to, rather than that a phone on the
+// home Wi-Fi is correctly not mistaken for one on the internet.
+vi.mock('../natpmp', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../natpmp')>()),
   requestPortMapping: vi.fn((port: number) => {
     mapped.push(port)
     return Promise.resolve({
@@ -178,5 +182,77 @@ describe('restoring remote access after a restart', () => {
     await service.initialize()
 
     expect(started.port).toBe(47800)
+  })
+
+  /**
+   * Whether the port forwarding actually worked.
+   *
+   * There is no way to answer that from inside the network without asking somebody
+   * else's server to look — which is exactly what this feature exists to avoid. But
+   * the phone is already an outside observer whenever it is on mobile data, so a
+   * connection arriving from a public address *is* the proof, and it costs nothing.
+   *
+   * Getting this wrong in either direction is bad in a specific way: a false yes
+   * tells the user their setup works when it does not, and they will believe it.
+   */
+  describe('confirming a phone got in from outside', () => {
+    it('records a connection that arrived from a public address', async () => {
+      persist({ enabled: true, internetEnabled: true, port: 47800 })
+      const service = await freshService()
+      await service.initialize()
+
+      service.recordPeerAddress('198.51.100.22')
+
+      expect(service.status().internet.lastReachedFromOutsideEpochMs).toBeGreaterThan(0)
+    })
+
+    it('ignores a phone on the same Wi-Fi', async () => {
+      // The common case, and the one that would produce a false yes: the user is
+      // sitting at home when they pair, and nothing about that says the port is open.
+      persist({ enabled: true, internetEnabled: true, port: 47800 })
+      const service = await freshService()
+      await service.initialize()
+
+      for (const address of ['192.168.1.55', '10.0.0.153', '172.20.4.4']) {
+        service.recordPeerAddress(address)
+      }
+
+      expect(service.status().internet.lastReachedFromOutsideEpochMs).toBeUndefined()
+    })
+
+    it('ignores a phone on a mesh VPN, which is not the router doing the work', async () => {
+      // 100.64/10 again. A Tailscale peer proves the VPN works and says nothing
+      // whatsoever about port forwarding.
+      persist({ enabled: true, internetEnabled: true, port: 47800 })
+      const service = await freshService()
+      await service.initialize()
+
+      service.recordPeerAddress('100.101.102.103')
+
+      expect(service.status().internet.lastReachedFromOutsideEpochMs).toBeUndefined()
+    })
+
+    it('understands the IPv4-mapped form Node reports on a dual-stack socket', async () => {
+      // `::ffff:198.51.100.22`. Read literally it parses as nothing, and a public
+      // connection would be silently discarded — the confirmation would simply never
+      // arrive and the user would conclude their forwarding had failed.
+      persist({ enabled: true, internetEnabled: true, port: 47800 })
+      const service = await freshService()
+      await service.initialize()
+
+      service.recordPeerAddress('::ffff:198.51.100.22')
+
+      expect(service.status().internet.lastReachedFromOutsideEpochMs).toBeGreaterThan(0)
+    })
+
+    it('does nothing when the peer address is unknown', async () => {
+      persist({ enabled: true, internetEnabled: true, port: 47800 })
+      const service = await freshService()
+      await service.initialize()
+
+      service.recordPeerAddress(undefined)
+
+      expect(service.status().internet.lastReachedFromOutsideEpochMs).toBeUndefined()
+    })
   })
 })

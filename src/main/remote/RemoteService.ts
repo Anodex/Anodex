@@ -4,7 +4,13 @@ import { hostname } from 'node:os'
 import { collectHostAddresses, primaryHostAddress } from './addresses'
 import { join } from 'node:path'
 import type { RemoteInternetAccess, RemotePairingCode, RemoteStatus } from '@shared/remote.types'
-import { MAPPING_LIFETIME_SECONDS, releasePortMapping, requestPortMapping } from './natpmp'
+import {
+  MAPPING_LIFETIME_SECONDS,
+  explainUnusableExternalAddress,
+  isPrivateAddress,
+  releasePortMapping,
+  requestPortMapping
+} from './natpmp'
 import QRCode from 'qrcode'
 import { createLogger } from '../utils/logger'
 import { fingerprintOf, generateRemoteCertificate, type RemoteCertificate } from './certificate'
@@ -176,12 +182,76 @@ export class RemoteService {
     address: string | null,
     port: number | null
   ): Promise<RemoteStatus> {
-    this.state.manualExternalAddress = address?.trim() || undefined
+    const trimmed = address?.trim() || undefined
+
+    // Refused rather than stored. The port a router forwards is the user's business,
+    // but whether an address is reachable from the internet is arithmetic — and
+    // storing an unusable one buys a phone that dials into nowhere and reports a
+    // timeout, which is the least diagnosable failure this feature has.
+    if (trimmed) {
+      const problem = explainUnusableExternalAddress(trimmed)
+      if (problem) {
+        this.internet = { ...this.internet, problem }
+        return this.status()
+      }
+    }
+
+    this.state.manualExternalAddress = trimmed
     this.state.manualExternalPort = port ?? undefined
     this.persist()
 
     if (this.state.internetEnabled) await this.acquireInternetRoute()
     return this.status()
+  }
+
+  /**
+   * Change the port the listener binds.
+   *
+   * Settable because a hand-configured router is the only way in on most home
+   * connections, and some of them restrict which ports can be forwarded. The
+   * default (47800) sits above the well-known range and below Windows' ephemeral
+   * range, so it neither needs privileges nor collides with an outgoing connection —
+   * a port chosen here should do the same.
+   *
+   * A paired phone stores the port it last connected on, so changing this while it
+   * is away means re-entering the details there. Deliberately not guarded against:
+   * the alternative is a setting the user cannot change once they have paired.
+   */
+  async setPort(port: number): Promise<RemoteStatus> {
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      throw new Error('A port must be a whole number between 1 and 65535.')
+    }
+    if (port === this.state.port) return this.status()
+
+    this.state.port = port
+    this.persist()
+
+    // Rebound rather than deferred to the next launch: a setting that appears to
+    // take effect and does not is worse than one that asks for a restart.
+    if (this.bridge?.listening) {
+      await this.stop()
+      await this.start()
+      if (this.state.internetEnabled) await this.acquireInternetRoute()
+    }
+
+    return this.status()
+  }
+
+  /**
+   * A phone just connected, and this is where it came from.
+   *
+   * A peer address outside the private ranges means the connection arrived through
+   * the router from the internet — which is the one thing the user cannot otherwise
+   * confirm without asking somebody else's server whether their port is open.
+   */
+  recordPeerAddress(peerAddress: string | undefined): void {
+    if (!peerAddress) return
+    // ::ffff:203.0.113.7 — Node reports an IPv4 peer on a dual-stack socket this way.
+    const address = peerAddress.replace(/^::ffff:/i, '')
+    if (isPrivateAddress(address)) return
+
+    this.internet = { ...this.internet, lastReachedFromOutsideEpochMs: Date.now() }
+    this.onStatusChanged?.(this.status())
   }
 
   private async acquireInternetRoute(): Promise<void> {
@@ -347,8 +417,12 @@ export class RemoteService {
     if (this.bridge?.listening) return
 
     const certificate = await this.ensureCertificate()
-    const bridge = new RemoteBridge(this.pairing, certificate, undefined, () =>
-      this.externalAddress()
+    const bridge = new RemoteBridge(
+      this.pairing,
+      certificate,
+      undefined,
+      () => this.externalAddress(),
+      (address) => this.recordPeerAddress(address)
     )
 
     // Prefer the port we used last time, so a paired phone finds us where it left
