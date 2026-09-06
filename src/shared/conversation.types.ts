@@ -3,6 +3,26 @@ import type { ConversationContext } from './context.types'
 import type { Plan } from './plan.types'
 
 /** A persisted conversation, either inside a project or general (projectId null). */
+/**
+ * A conversation without its messages.
+ *
+ * Exists because `conversations:list` returns the whole store — every conversation,
+ * every message, every tool result — and against a real store that is over a hundred
+ * megabytes of JSON. The desktop renderer gets away with it because it is in the same
+ * process. A phone has to receive it over a socket, and it died trying.
+ *
+ * Everything a list needs and nothing it does not.
+ */
+export interface ConversationSummary {
+  id: string
+  projectId: string | null
+  title: string
+  createdAt: number
+  updatedAt: number
+  messageCount: number
+  archived?: boolean
+}
+
 export interface Conversation {
   id: string
   /** The project this chat belongs to, or null for general chats. */

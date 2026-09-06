@@ -1447,6 +1447,46 @@
       }
     },
     {
+      "channel": "conversations:get",
+      "kind": "invoke",
+      "api": "conversations.get",
+      "args": [
+        {
+          "name": "conversationId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        {
+          "name": "limit",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "null"
+          },
+          {
+            "$ref": "Conversation"
+          }
+        ]
+      }
+    },
+    {
       "channel": "conversations:get-state",
       "kind": "invoke",
       "api": "conversations.getState",
@@ -1521,6 +1561,18 @@
         "kind": "array",
         "of": {
           "$ref": "Conversation"
+        }
+      }
+    },
+    {
+      "channel": "conversations:list-summaries",
+      "kind": "invoke",
+      "api": "conversations.listSummaries",
+      "args": [],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "ConversationSummary"
         }
       }
     },
@@ -12401,6 +12453,72 @@
               },
               {
                 "kind": "string"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "ConversationSummary": {
+      "kind": "object",
+      "properties": {
+        "id": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "projectId": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "title": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "createdAt": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "updatedAt": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "messageCount": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "archived": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "boolean"
+              },
+              {
+                "kind": "boolean"
               }
             ]
           }

@@ -14,7 +14,13 @@ import { decideRemoteChannel } from './channelPolicy'
 import { handlerFor, type IpcHandler } from './handlerRegistry'
 import type { RemoteCertificate } from './certificate'
 import type { PairingService } from './pairing'
-import { MAX_FRAME_BYTES, parseClientFrame, versionsCompatible, type ServerFrame } from './protocol'
+import {
+  MAX_FRAME_BYTES,
+  MAX_RESPONSE_BYTES,
+  parseClientFrame,
+  versionsCompatible,
+  type ServerFrame
+} from './protocol'
 
 const log = createLogger('remote-bridge')
 
@@ -22,6 +28,8 @@ const log = createLogger('remote-bridge')
  * The protocol this build speaks. Must match `protocol/anodex-protocol.json`.
  */
 export const PROTOCOL_VERSION = '1.0.0'
+
+export { MAX_RESPONSE_BYTES }
 
 /** How long an unauthenticated socket may stay open before it is dropped. */
 const HANDSHAKE_TIMEOUT_MS = 10_000
@@ -325,10 +333,38 @@ export class RemoteBridge {
     }
   }
 
+  /**
+   * Send one frame, refusing to send one large enough to kill the phone.
+   *
+   * A WebSocket message is buffered whole by the client before it can be looked at,
+   * so an oversized reply is not slow — it is an `OutOfMemoryError` on a thread
+   * where it cannot be caught, and the app disappears. Refusing here turns the worst
+   * outcome available into an error message.
+   */
   private send(socket: WebSocket, frame: ServerFrame): void {
     if (socket.readyState !== socket.OPEN) return
+
+    const text = JSON.stringify(frame)
+    const size = Buffer.byteLength(text, 'utf8')
+
+    if (size > MAX_RESPONSE_BYTES) {
+      log.warn(`refusing to send a ${Math.round(size / 1024 / 1024)}MB ${frame.type} frame`)
+      // A result can be turned into an error the caller will understand. An event
+      // cannot — there is nobody waiting on it — so it is dropped, which is what
+      // would have happened anyway when the client died.
+      if (frame.type === 'result') {
+        this.fail(
+          socket,
+          frame.id,
+          'response-too-large',
+          `That reply was ${Math.round(size / 1024 / 1024)}MB, too large to send to a phone.`
+        )
+      }
+      return
+    }
+
     try {
-      socket.send(JSON.stringify(frame))
+      socket.send(text)
     } catch (error) {
       log.warn('send failed:', error)
     }

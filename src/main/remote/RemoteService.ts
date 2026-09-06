@@ -380,11 +380,22 @@ export class RemoteService {
       fingerprint: this.certificate.sha256,
       // Rendered from `uri` itself, so what the phone scans and what the desktop
       // believes it showed cannot drift apart.
+      // Dark modules on white, which is the only thing most decoders will read.
+      //
+      // This was inverted — pale modules on near-black — to sit nicely in a dark
+      // settings panel, and it made the code unscannable. A QR decoder locates a
+      // code by its three finder patterns, and it looks for *dark* squares on a
+      // light field; ZXing does not try the image inverted. So the phone's camera
+      // found nothing at all, while every other QR code that phone had ever been
+      // pointed at worked, because every other QR code in the world is this way up.
+      //
+      // Rendered larger than it is displayed, so enlarging it stays sharp rather
+      // than being upscaled from 320px.
       qrDataUrl: await QRCode.toDataURL(uri, {
         errorCorrectionLevel: 'M',
         margin: 2,
-        width: 320,
-        color: { dark: '#f0f0f0', light: '#111111' }
+        width: 640,
+        color: { dark: '#000000', light: '#ffffff' }
       }),
       shortCode: session.shortCode,
       address: primaryHostAddress() ?? '127.0.0.1',

@@ -25,6 +25,7 @@ export function RemoteSettings(): JSX.Element {
   const [manualAddress, setManualAddress] = useState<string | null>(null)
   const [manualPort, setManualPort] = useState<string | null>(null)
   const [listenPort, setListenPort] = useState<string | null>(null)
+  const [qrEnlarged, setQrEnlarged] = useState(false)
 
   const refresh = useCallback(() => {
     void anodex.remote.status().then(setStatus)
@@ -356,6 +357,25 @@ export function RemoteSettings(): JSX.Element {
         when you are not using it.
       </p>
 
+      {qrEnlarged && pairing && (
+        // Deliberately enormous. This code carries a 256-bit secret and a
+        // certificate fingerprint, so it is far denser than the short-URL codes a
+        // phone camera is used to, and the single most effective thing a user can do
+        // is make it bigger on the screen.
+        <div
+          className={styles.qrOverlay}
+          role="button"
+          tabIndex={0}
+          onClick={() => setQrEnlarged(false)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' || event.key === 'Enter') setQrEnlarged(false)
+          }}
+        >
+          <img className={styles.qrLarge} src={pairing.qrDataUrl} alt="Pairing code, enlarged" />
+          <p className={styles.qrOverlayHint}>Click anywhere to close</p>
+        </div>
+      )}
+
       {listening && (
         <>
           <SettingRow
@@ -380,7 +400,14 @@ export function RemoteSettings(): JSX.Element {
 
           {pairing && (
             <div className={styles.pairing}>
-              <img className={styles.qr} src={pairing.qrDataUrl} alt="Pairing code" />
+              <button
+                type="button"
+                className={styles.qrButton}
+                onClick={() => setQrEnlarged(true)}
+                title="Click to enlarge"
+              >
+                <img className={styles.qr} src={pairing.qrDataUrl} alt="Pairing code" />
+              </button>
 
               <div className={styles.details}>
                 <p className={styles.instruction}>
