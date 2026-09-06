@@ -157,3 +157,33 @@
   line-height: 1.5;
   color: var(--text-muted);
 }
+
+/* Away-from-home setup. Folded away when a VPN address already exists, because
+   then there is nothing to do and a wall of instructions would imply otherwise. */
+.meshReady {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-sm);
+  color: var(--success);
+}
+
+.meshSetup {
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.meshSetup summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.meshSteps {
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+  line-height: 1.7;
+}
+
+.meshSteps code {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
