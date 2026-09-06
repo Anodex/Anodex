@@ -406,8 +406,13 @@ describe('runBoundedChatGeneration', () => {
     // prompt phrasing an implicit control channel; the rendered plan block now
     // states its own precedence instead (see `renderCurrentPlan`).
     expect(mockedRunGeneration.mock.calls[0][0].plan).toEqual(plan)
+    // Same invariant, stated directly rather than through the old fixed
+    // nudge: this cycle resumes after an epoch, so the continuation restates
+    // the request *verbatim*. Carrying the words through is not reading them —
+    // nothing here branches on what the prompt says, which is the control
+    // channel these tests exist to keep closed.
     expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain(
-      'Continue exactly where you left off'
+      'Opening index.html only shows a black page.'
     )
     expect(mockedRunGeneration.mock.calls[1][1].enabledTools).toBeUndefined()
   })
@@ -991,6 +996,155 @@ describe('runBoundedChatGeneration', () => {
 
     expect(mockedRunGeneration).toHaveBeenCalledOnce()
     expect(outcome.stopReason).toBe('context-limit')
+  })
+
+  it('continues once when the transport handed over at a proactive checkpoint', async () => {
+    // The driving failure: `read_email` on a bogus id was the cycle's only
+    // activity, so it counted as no progress, and the transport had already
+    // stopped itself with the result complete and room left for a reply. The
+    // model never got the round in which it would have answered, and the user
+    // was shown zero characters. Over the proactive limit by eighteen tokens.
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'bogus-read',
+          name: 'read_email',
+          kind: 'read',
+          title: 'Read message BOGUS-MESSAGE-ID-99999',
+          status: 'error',
+          detail: 'No message with that id'
+        })
+        return Promise.resolve(
+          result({
+            content: '',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive',
+            contextBudget: budget(6_388)
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'There is no email with that id.' }))
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(cycleCallCount()).toBe(2)
+    expect(mockedRunGeneration.mock.calls[1][0].contextEpoch?.epoch).toBe(1)
+    expect(outcome.content).toContain('There is no email with that id.')
+  })
+
+  it('restates the user question when resuming after a context epoch', async () => {
+    // An epoch resets history to the turns before this reply, which does not
+    // contain this turn's prompt. Without restating it the last user message
+    // the model sees is the PREVIOUS turn's question — a live 8K run resumed
+    // answering "delete the oldest email" when asked to read a bogus id.
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io: RunGenerationIo) => {
+        io.onActivity?.({
+          id: 'bogus-read',
+          name: 'read_email',
+          kind: 'read',
+          title: 'Read message BOGUS-MESSAGE-ID-99999',
+          status: 'error',
+          detail: 'No message with that id'
+        })
+        return Promise.resolve(
+          result({
+            content: '',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive',
+            contextBudget: budget(6_388)
+          })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'No such message.' }))
+
+    await runBoundedChatGeneration(
+      baseRequest({
+        prompt: 'read BOGUS-MESSAGE-ID-99999',
+        history: [
+          { role: 'user', content: 'delete the oldest email in my inbox' },
+          { role: 'assistant', content: 'I cannot delete mail.' }
+        ]
+      }),
+      baseIo()
+    )
+
+    const resumed = mockedRunGeneration.mock.calls[1][0]
+    expect(resumed.prompt).toContain('read BOGUS-MESSAGE-ID-99999')
+    // The history it resumes on still ends with the previous turn, so the
+    // restatement is the only thing naming the real question.
+    expect(resumed.history.at(-1)?.content).toBe('I cannot delete mail.')
+  })
+
+  it('keeps an in-turn context stop terminal after a failed call', async () => {
+    // The narrowness that makes the rescue above safe. `'in-turn'` means the
+    // model did get its rounds and filled the window underneath itself, which
+    // is the error/no-op loop the progress gate was built for.
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      io.onActivity?.({
+        id: 'failed-read',
+        name: 'read_file_range',
+        kind: 'read',
+        title: 'Read src/index.ts lines 1-200',
+        status: 'error',
+        detail: 'Already read earlier this task'
+      })
+      return Promise.resolve(
+        result({
+          content: '',
+          stopped: true,
+          stopReason: 'context-limit',
+          contextEpochCause: 'in-turn',
+          contextBudget: budget(6_388)
+        })
+      )
+    })
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(cycleCallCount()).toBe(1)
+    expect(outcome.stopReason).toBe('context-limit')
+  })
+
+  it('spends the proactive checkpoint rescue only once in a turn', async () => {
+    // A second progress-free checkpoint means compaction is not buying the
+    // model anything, so the allowance is one per turn rather than per epoch.
+    mockedRunGeneration.mockReset()
+    const proactiveErrorCycle =
+      (id: string) =>
+      (_request: ChatRequest, io: RunGenerationIo): Promise<RunGenerationResult> => {
+        io.onActivity?.({
+          id,
+          name: 'read_email',
+          kind: 'read',
+          title: `Read message ${id}`,
+          status: 'error',
+          detail: 'No message with that id'
+        })
+        return Promise.resolve(
+          result({
+            content: '',
+            stopped: true,
+            stopReason: 'context-limit',
+            contextEpochCause: 'proactive',
+            contextBudget: budget(6_388)
+          })
+        )
+      }
+    mockedRunGeneration
+      .mockImplementationOnce(proactiveErrorCycle('bogus-1'))
+      .mockImplementationOnce(proactiveErrorCycle('bogus-2'))
+      .mockResolvedValueOnce(result({ content: 'Should never run.' }))
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(cycleCallCount()).toBe(2)
+    expect(outcome.content).not.toContain('Should never run.')
   })
 
   it('starts one compact continuation after a loop guard when real work preceded it', async () => {
@@ -1651,8 +1805,9 @@ describe('runBoundedChatGeneration', () => {
     )
 
     expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    // Restated verbatim after the epoch — carried, never classified.
     expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain(
-      'Continue exactly where you left off'
+      'when opening the folder and running the index.html'
     )
     expect(outcome.stopped).toBe(false)
     expect(outcome.content).toContain('Fixed the renderer')
