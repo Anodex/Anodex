@@ -42,6 +42,15 @@ jobs:
       - name: Prettier check
         run: npm run format:check
 
+      # The compile error, rebuilt across a repository boundary. `Anodex/anodex-mobile` is built
+      # against protocol/anodex-protocol.json and cannot typecheck against this repo, so a wire
+      # change that does not regenerate the artifact breaks the phone at runtime, in another room,
+      # with no stack trace. This regenerates and diffs rather than asking whether ipc.ts changed:
+      # the likeliest breaking change is a renamed field in a sibling *.types.ts module, which
+      # never touches ipc.ts at all.
+      - name: Protocol contract is up to date
+        run: npm run protocol:check
+
   test:
     name: Unit tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
