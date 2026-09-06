@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IpcChannel } from '@shared/ipc'
 import type { ToolConfirmRequest } from '@shared/tools.types'
 import type { ClientChannel } from '../../clients/ClientChannel'
 import { attachRemoteClient, detachAllRemoteClients } from '../../clients/clientRegistry'
 import {
+  CONFIRMATION_TIMEOUT_MS,
+  pendingConfirmationCountForTests,
   requestToolConfirmation,
   resetToolApprovalStateForTests,
   resolvePendingConfirmationForTests
@@ -142,6 +144,51 @@ describe('tool approval handling', () => {
 
     for (const client of [desktop, phone]) {
       expect(client.cancelled).toEqual(['aborted-everywhere'])
+    }
+  })
+
+  it('denies a prompt nobody answers, rather than waiting forever', async () => {
+    // A phone that leaves Wi-Fi mid-prompt takes the answer with it. Without a
+    // deadline the promise never settles, wedging that generation for the rest of
+    // the session on a machine the user may not be near.
+    vi.useFakeTimers()
+    try {
+      const desktop = createSender()
+      const result = requestToolConfirmation(
+        desktop,
+        request('nobody-answers', 'run_command', 'sensitive')
+      )
+
+      await vi.advanceTimersByTimeAsync(CONFIRMATION_TIMEOUT_MS + 1000)
+
+      // Denied, not approved: a denied call is a turn the user can retry, whereas
+      // an approval nobody gave is not something to invent on their behalf.
+      await expect(result).resolves.toMatchObject({ approved: false })
+      expect(desktop.cancelled).toEqual(['nobody-answers'])
+      expect(pendingConfirmationCountForTests()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('an answered prompt does not fire its expiry afterwards', async () => {
+    // The timer has to be cleared when the user answers, or every answered prompt
+    // leaves a five-minute timer behind and the process cannot exit promptly.
+    vi.useFakeTimers()
+    try {
+      const desktop = createSender()
+      const pending = request('answered-in-time', 'edit_file', 'sensitive')
+      const result = requestToolConfirmation(desktop, pending)
+
+      resolvePendingConfirmationForTests(pending.id, { approved: true })
+      await expect(result).resolves.toEqual({ approved: true })
+
+      await vi.advanceTimersByTimeAsync(CONFIRMATION_TIMEOUT_MS + 1000)
+
+      // No cancellation went out, because there was nothing left to cancel.
+      expect(desktop.cancelled).toEqual([])
+    } finally {
+      vi.useRealTimers()
     }
   })
 
