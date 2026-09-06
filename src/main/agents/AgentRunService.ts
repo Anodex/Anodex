@@ -9,7 +9,7 @@ import type { Plan } from '@shared/plan.types'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { appendBackgroundTurn } from '../conversations/backgroundTurn'
-import { notifyUser } from '../notify'
+import { notifyRemoteClients, notifyUser } from '../notify'
 import { runGeneration } from '../chat/runGeneration'
 import { describeTurnOutcome, isDurableChange } from '../chat/turnSummary'
 import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
@@ -562,6 +562,9 @@ class AgentRunService {
       if (run.requirePlan && run.plan && !controller.signal.aborted) {
         agentRunStore.update(run.id, { status: 'needs-review', lastError: message })
         this.broadcastRunsChanged()
+        // Bounced back after the user already approved it, which is the version of
+        // this they are least expecting: they said yes and walked away.
+        this.announcePlanReview(run, conversation.id, message)
         return
       }
       this.finish(run.id, conversation.id, 'error', null, message)
@@ -692,6 +695,8 @@ class AgentRunService {
       agentRunStore.update(run.id, { status: 'needs-review', plan, flaggedTurns })
       this.broadcastRunsChanged()
       autoApprove = settingsStore.get().general.permissionMode === 'untethered'
+
+      if (!autoApprove) this.announcePlanReview(run, conversation.id, null)
     } catch (error) {
       log.error('Plan review phase failed:', run.id, error)
       this.finish(
@@ -936,6 +941,31 @@ class AgentRunService {
       // successful one: one wants attention now, the other can wait until morning.
       lastError ? 'failed' : 'finished'
     )
+  }
+
+  /**
+   * Tell the phone a run has stopped and cannot go on without a person.
+   *
+   * A run parked in `needs-review` is doing nothing at all until somebody looks at
+   * it, and the person who can unblock it is usually not at the desk. That is the
+   * entire argument for carrying the phone (§8) — and it was the one blocked state
+   * that never reached it: both entries into `needs-review` broadcast the change to
+   * the desktop's own windows and stopped there, so a run could sit waiting all
+   * evening with no signal anywhere but a panel nobody was looking at.
+   *
+   * Remote clients only, matching the tool-confirm prompt. The desktop shows the run
+   * in its own panel, and a toast about something already on screen is noise.
+   */
+  private announcePlanReview(run: AgentRun, conversationId: string, failure: string | null): void {
+    notifyRemoteClients({
+      kind: 'needs-approval',
+      title: failure ? 'A run stopped and needs you' : 'A plan needs your approval',
+      // Deliberately thin: this lands on a lock screen, and §2 says the phone does
+      // not hold the user's data. The plan and the error stay in the app.
+      body: truncateTitle(run.goal),
+      conversationId,
+      atEpochMs: Date.now()
+    })
   }
 
   /**
