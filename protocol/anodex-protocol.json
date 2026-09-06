@@ -19554,6 +19554,43 @@
         }
       }
     },
+    "RemoteHostAddress": {
+      "kind": "object",
+      "properties": {
+        "address": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "kind": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "lan"
+              },
+              {
+                "kind": "literal",
+                "value": "mesh"
+              },
+              {
+                "kind": "literal",
+                "value": "virtual"
+              }
+            ]
+          }
+        },
+        "label": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      }
+    },
     "RemotePairedDevice": {
       "kind": "object",
       "properties": {
@@ -19659,6 +19696,15 @@
                 "kind": "string"
               }
             ]
+          }
+        },
+        "addresses": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "$ref": "RemoteHostAddress"
+            }
           }
         },
         "hostName": {

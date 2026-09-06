@@ -1,8 +1,8 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
+import { collectHostAddresses, primaryHostAddress } from './addresses'
 import { join } from 'node:path'
-import { networkInterfaces } from 'node:os'
 import type { RemotePairingCode, RemoteStatus } from '@shared/remote.types'
 import QRCode from 'qrcode'
 import { createLogger } from '../utils/logger'
@@ -100,7 +100,8 @@ export class RemoteService {
     return {
       listening: this.bridge?.listening ?? false,
       port: this.bridge?.port ?? null,
-      address: lanAddress(),
+      address: primaryHostAddress(),
+      addresses: collectHostAddresses(),
       hostName: hostname(),
       certificateSha256: this.certificate?.sha256 ?? '',
       protocolVersion: PROTOCOL_VERSION,
@@ -138,7 +139,7 @@ export class RemoteService {
       v: '1',
       h: this.deviceIdentity(),
       n: hostname(),
-      a: lanAddress() ?? '127.0.0.1',
+      a: primaryHostAddress() ?? '127.0.0.1',
       p: String(this.bridge.port ?? 0),
       f: Buffer.from(this.certificate.sha256, 'hex').toString('base64url'),
       s: session.secret,
@@ -159,7 +160,7 @@ export class RemoteService {
         color: { dark: '#f0f0f0', light: '#111111' }
       }),
       shortCode: session.shortCode,
-      address: lanAddress() ?? '127.0.0.1',
+      address: primaryHostAddress() ?? '127.0.0.1',
       port: this.bridge.port ?? 0,
       expiresAtEpochMs: session.expiresAtEpochMs
     }
@@ -273,51 +274,6 @@ export class RemoteService {
       log.error('could not save remote settings:', error)
     }
   }
-}
-
-/**
- * The address a phone on the same Wi-Fi should actually try.
- *
- * Taking the first non-internal IPv4 is not good enough. A normal Windows machine
- * has several: Hyper-V's virtual switch, a Bluetooth PAN, and any number of
- * 169.254 link-local addresses from adapters with no DHCP. Enumeration order is
- * not defined, so "the first one" is luck, and handing the user 172.21.48.1 or a
- * link-local address produces a pairing screen that looks completely correct and
- * cannot possibly work.
- *
- * So: rank them. A private LAN range beats everything, link-local and known
- * virtual-switch ranges come last, and ties break on interface order.
- */
-function lanAddress(): string | null {
-  const candidates: Array<{ address: string; rank: number }> = []
-
-  for (const [name, addresses] of Object.entries(networkInterfaces())) {
-    for (const entry of addresses ?? []) {
-      if (entry.family !== 'IPv4' || entry.internal) continue
-      candidates.push({ address: entry.address, rank: rankAddress(entry.address, name) })
-    }
-  }
-
-  candidates.sort((a, b) => a.rank - b.rank)
-  return candidates[0]?.address ?? null
-}
-
-function rankAddress(address: string, interfaceName: string): number {
-  // No DHCP ever answered on this adapter. It can reach nothing.
-  if (address.startsWith('169.254.')) return 40
-
-  // Hyper-V, WSL, Docker and VirtualBox all publish host-side addresses that look
-  // like ordinary LAN ones and route only to virtual machines.
-  if (/virtual|vethernet|wsl|docker|vmware|hyper-v|bluetooth|loopback/i.test(interfaceName)) {
-    return 30
-  }
-
-  const isPrivate =
-    address.startsWith('192.168.') ||
-    address.startsWith('10.') ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(address)
-
-  return isPrivate ? 0 : 20
 }
 
 export const remoteService = new RemoteService()
