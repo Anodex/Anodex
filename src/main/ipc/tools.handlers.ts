@@ -3,13 +3,14 @@ import {
   dialog,
   ipcMain,
   type IpcMainInvokeEvent,
-  type OpenDialogOptions,
-  type WebContents
+  type OpenDialogOptions
 } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import { settingsStore } from '../settings/SettingsStore'
+import type { ClientChannel } from '../clients/ClientChannel'
+import { activeRemoteClients } from '../clients/clientRegistry'
 
 /** Approval prompts awaiting a renderer response, keyed by request id. */
 const pendingConfirmations = new Map<string, (response: ToolConfirmResponse) => void>()
@@ -32,12 +33,31 @@ function approvalKey(toolName: string, conversationId: string): string {
 }
 
 /**
- * Ask the renderer to approve a write/command and wait for the user's decision.
- * Resolves to a denial if the window is gone or the generation is aborted while
- * the prompt is open, so a stalled approval never hangs the model.
+ * Every client that should see an approval prompt: whoever asked, plus any paired phone.
+ *
+ * A confirmation is a question to *the user*, not to a window, and the user may
+ * be at either screen. `pendingConfirmations` is already keyed by request id and
+ * `Tools.confirmResponse` already ignores its event, so any client that knows
+ * the id can answer — whichever does settles it, and `confirmCancelled` drops
+ * the other card. Only the fan-out was missing.
+ *
+ * De-duplicated by channel id so the asker is not sent the same prompt twice if
+ * it is also a registered remote client.
+ */
+function confirmationAudience(asker: ClientChannel): ClientChannel[] {
+  const audience = new Map<string, ClientChannel>()
+  audience.set(asker.id, asker)
+  for (const client of activeRemoteClients()) audience.set(client.id, client)
+  return [...audience.values()]
+}
+
+/**
+ * Ask the user to approve a write/command and wait for their decision.
+ * Resolves to a denial if every client is gone or the generation is aborted
+ * while the prompt is open, so a stalled approval never hangs the model.
  */
 export function requestToolConfirmation(
-  sender: WebContents,
+  asker: ClientChannel,
   request: ToolConfirmRequest,
   signal?: AbortSignal
 ): Promise<ToolConfirmResponse> {
@@ -55,7 +75,10 @@ export function requestToolConfirmation(
   }
 
   return new Promise((resolve) => {
-    if (sender.isDestroyed()) {
+    const audience = confirmationAudience(asker).filter((client) => client.isAlive())
+    if (audience.length === 0) {
+      // Nobody is listening, so nobody can answer. Denying is the safe reading:
+      // an unanswerable prompt must not become an implicit approval.
       resolve({ approved: false })
       return
     }
@@ -84,13 +107,15 @@ export function requestToolConfirmation(
         // instead of leaving it sitting there forever. Only when this abort
         // is what actually settled it — if the user already answered before
         // the abort fired, their own click already removed the card client-side.
-        if (settledHere && !sender.isDestroyed()) {
-          sender.send(IpcChannel.Tools.confirmCancelled, request.id)
+        if (settledHere) {
+          for (const client of audience) {
+            client.send(IpcChannel.Tools.confirmCancelled, request.id)
+          }
         }
       },
       { once: true }
     )
-    sender.send(IpcChannel.Tools.confirmRequest, request)
+    for (const client of audience) client.send(IpcChannel.Tools.confirmRequest, request)
   })
 }
 

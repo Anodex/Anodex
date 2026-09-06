@@ -19,6 +19,7 @@ import {
 } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
 import { computerControlService } from '../computerControl/ComputerControlService'
+import { webContentsChannel } from '../clients/clientRegistry'
 
 const log = createLogger('ipc:chat')
 
@@ -38,6 +39,11 @@ export function registerChatHandlers(): void {
     const controller = new AbortController()
     registerGeneration(request.conversationId, controller)
 
+    // Resolved once per generation rather than reaching for `event.sender` at every
+    // callback. The stream belongs to whoever started the turn, and that is no longer
+    // necessarily a window — see `ClientChannel`.
+    const client = webContentsChannel(event.sender)
+
     try {
       const result = await runBoundedChatGeneration(request, {
         // This is the chat surface. It selects the conversational core prompt
@@ -47,31 +53,28 @@ export function registerChatHandlers(): void {
         surface: 'chat',
         signal: controller.signal,
         onToken: (token) => {
-          if (event.sender.isDestroyed()) return
-          event.sender.send(IpcChannel.Chat.stream, {
+          client.send(IpcChannel.Chat.stream, {
             conversationId: request.conversationId,
             messageId: request.messageId,
             token
           })
         },
         onThinkingToken: (token) => {
-          if (event.sender.isDestroyed()) return
-          event.sender.send(IpcChannel.Chat.thinkingStream, {
+          client.send(IpcChannel.Chat.thinkingStream, {
             conversationId: request.conversationId,
             messageId: request.messageId,
             token
           })
         },
         onActivity: (call) => {
-          if (event.sender.isDestroyed()) return
-          event.sender.send(IpcChannel.Tools.activity, {
+          client.send(IpcChannel.Tools.activity, {
             conversationId: request.conversationId,
             messageId: request.messageId,
             call
           })
         },
         confirm: (confirmRequest) =>
-          requestToolConfirmation(event.sender, confirmRequest, controller.signal)
+          requestToolConfirmation(client, confirmRequest, controller.signal)
       })
 
       return ok({
