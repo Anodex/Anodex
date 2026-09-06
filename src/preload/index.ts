@@ -17,6 +17,7 @@ import type {
 } from '@shared/criticalThinking.types'
 import type { McpServerState } from '@shared/mcp.types'
 import type { DiagnosticEntry } from '@shared/settings.types'
+import type { ProjectsState } from '@shared/project.types'
 import type { RemoteStatus } from '@shared/remote.types'
 
 /**
@@ -116,7 +117,8 @@ const api: AnodexApi = {
     restore: (id) => ipcRenderer.invoke(IpcChannel.Projects.restore, id),
     deletePermanent: (id) => ipcRenderer.invoke(IpcChannel.Projects.deletePermanent, id),
     setActive: (id) => ipcRenderer.invoke(IpcChannel.Projects.setActive, id),
-    openFolder: (id) => ipcRenderer.invoke(IpcChannel.Projects.openFolder, id)
+    openFolder: (id) => ipcRenderer.invoke(IpcChannel.Projects.openFolder, id),
+    onChanged: (listener) => subscribe<ProjectsState>(IpcChannel.Projects.changed, listener)
   },
   backup: {
     exportConversation: (conversation, format) =>
