@@ -12,9 +12,21 @@ import { PROTOCOL_VERSION, RemoteBridge } from './RemoteBridge'
 
 const log = createLogger('remote')
 
+/**
+ * The port to try first.
+ *
+ * Fixed rather than ephemeral, and that is the whole point: the phone stores the
+ * address and port it paired on, so a port that changed every launch meant a
+ * paired phone could never reconnect after the desktop restarted. It also meant
+ * the number shown next to a pairing code went stale the moment Anodex reopened.
+ */
+const DEFAULT_PORT = 47800
+
 interface PersistedState {
   /** Off by default, and stays off until the user turns it on (§7.1). */
   enabled: boolean
+  /** The port actually in use, so it survives a restart. */
+  port?: number
   certPem?: string
   /** safeStorage-encrypted, base64. Never written in the clear. */
   encryptedKeyPem?: string
@@ -159,8 +171,26 @@ export class RemoteService {
 
     const certificate = await this.ensureCertificate()
     const bridge = new RemoteBridge(this.pairing, certificate)
-    await bridge.start(0)
+
+    // Prefer the port we used last time, so a paired phone finds us where it left
+    // us. Falling back to an ephemeral one keeps a clash with some other program
+    // from making remote access simply unavailable — the new port is persisted, and
+    // the phone re-pairs, which is worse than seamless but better than broken.
+    const preferred = this.state.port ?? DEFAULT_PORT
+    let bound: number
+    try {
+      bound = await bridge.start(preferred)
+    } catch (error) {
+      log.warn(`port ${preferred} is unavailable, taking any free port:`, error)
+      bound = await bridge.start(0)
+    }
+
+    if (this.state.port !== bound) {
+      this.state.port = bound
+      this.persist()
+    }
     this.bridge = bridge
+    log.info(`remote listener ready on 0.0.0.0:${bound}`)
   }
 
   private async stop(): Promise<void> {
@@ -233,21 +263,48 @@ export class RemoteService {
 }
 
 /**
- * The first non-internal IPv4 address, which is what a phone on the same Wi-Fi
- * should try.
+ * The address a phone on the same Wi-Fi should actually try.
  *
- * Best-effort by nature: a machine with several interfaces has no single right
- * answer, and the phone treats the address as a hint anyway — pairing binds to
- * the host's identity, not to this (§10.1), so a wrong guess costs a retry
- * rather than a broken pairing.
+ * Taking the first non-internal IPv4 is not good enough. A normal Windows machine
+ * has several: Hyper-V's virtual switch, a Bluetooth PAN, and any number of
+ * 169.254 link-local addresses from adapters with no DHCP. Enumeration order is
+ * not defined, so "the first one" is luck, and handing the user 172.21.48.1 or a
+ * link-local address produces a pairing screen that looks completely correct and
+ * cannot possibly work.
+ *
+ * So: rank them. A private LAN range beats everything, link-local and known
+ * virtual-switch ranges come last, and ties break on interface order.
  */
 function lanAddress(): string | null {
-  for (const addresses of Object.values(networkInterfaces())) {
-    for (const address of addresses ?? []) {
-      if (address.family === 'IPv4' && !address.internal) return address.address
+  const candidates: Array<{ address: string; rank: number }> = []
+
+  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+    for (const entry of addresses ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal) continue
+      candidates.push({ address: entry.address, rank: rankAddress(entry.address, name) })
     }
   }
-  return null
+
+  candidates.sort((a, b) => a.rank - b.rank)
+  return candidates[0]?.address ?? null
+}
+
+function rankAddress(address: string, interfaceName: string): number {
+  // No DHCP ever answered on this adapter. It can reach nothing.
+  if (address.startsWith('169.254.')) return 40
+
+  // Hyper-V, WSL, Docker and VirtualBox all publish host-side addresses that look
+  // like ordinary LAN ones and route only to virtual machines.
+  if (/virtual|vethernet|wsl|docker|vmware|hyper-v|bluetooth|loopback/i.test(interfaceName)) {
+    return 30
+  }
+
+  const isPrivate =
+    address.startsWith('192.168.') ||
+    address.startsWith('10.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(address)
+
+  return isPrivate ? 0 : 20
 }
 
 export const remoteService = new RemoteService()
