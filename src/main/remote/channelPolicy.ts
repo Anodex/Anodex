@@ -48,7 +48,13 @@ export const DENIED_CHANNEL_PREFIXES = [
   'mcp:',
   'memory:',
 
-  /** Loading a 30B model is done at the machine, deliberately. */
+  /**
+   * Loading a 30B model is done at the machine, deliberately.
+   *
+   * Note the exception in ALLOWED_CHANNELS: `models:get-state` is a read, and it
+   * is what tells the phone which model is loaded and how full its context is.
+   * Blocking the whole prefix left the connection header permanently blank.
+   */
   'models:',
 
   /**
@@ -79,6 +85,20 @@ export const DENIED_CHANNELS = [
   'diagnostics:reveal-log'
 ] as const
 
+/**
+ * Channels allowed despite matching a denied prefix.
+ *
+ * Checked before the prefixes, so a narrow read can be carved out of a group that
+ * is otherwise off-limits. Kept tiny on purpose: every entry is a hole in a rule
+ * that exists for a reason, so each one is listed individually rather than by
+ * pattern.
+ */
+export const ALLOWED_CHANNELS = [
+  /** Read-only. Feeds the phone's connection header — which model, how full (§8). */
+  'models:get-state',
+  'models:state-changed'
+] as const
+
 export type RemoteChannelDecision =
   { allowed: true } | { allowed: false; reason: string; message: string }
 
@@ -91,6 +111,10 @@ export type RemoteChannelDecision =
  * channels".
  */
 export function decideRemoteChannel(channel: string): RemoteChannelDecision {
+  if ((ALLOWED_CHANNELS as readonly string[]).includes(channel)) {
+    return { allowed: true }
+  }
+
   if ((DENIED_CHANNELS as readonly string[]).includes(channel)) {
     return {
       allowed: false,
