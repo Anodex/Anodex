@@ -5996,6 +5996,59 @@
       }
     },
     {
+      "channel": "remote:set-port",
+      "kind": "invoke",
+      "api": "remote.setPort",
+      "args": [
+        {
+          "name": "port",
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "$ref": "RemoteStatus"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "remote:status",
       "kind": "invoke",
       "api": "remote.status",
@@ -19747,6 +19800,20 @@
     "RemoteInternetAccess": {
       "kind": "object",
       "properties": {
+        "lastReachedFromOutsideEpochMs": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
         "enabled": {
           "optional": false,
           "type": {

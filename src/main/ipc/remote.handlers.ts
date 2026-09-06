@@ -59,6 +59,17 @@ export function registerRemoteHandlers(): void {
     }
   })
 
+  ipcMain.handle(IpcChannel.Remote.setPort, async (_event, port: number) => {
+    try {
+      const status = await remoteService.setPort(port)
+      broadcastToWindows(IpcChannel.Remote.statusChanged, status)
+      return ok(status)
+    } catch (error) {
+      log.error('could not change the remote port:', error)
+      return err('remote.port-failed', toErrorMessage(error))
+    }
+  })
+
   ipcMain.handle(
     IpcChannel.Remote.setManualAddress,
     async (_event, address: string | null, port: number | null) => {
