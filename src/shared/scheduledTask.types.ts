@@ -1,5 +1,5 @@
 /** How often a scheduled task repeats. */
-export type RecurrenceType = 'once' | 'daily' | 'weekly' | 'interval'
+export type RecurrenceType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval'
 
 export type IntervalUnit = 'minutes' | 'hours' | 'days'
 
@@ -16,6 +16,8 @@ export const MIN_INTERVAL_MINUTES = 5
  * `'once'` fires at `runAt` when that's set (a relative reminder like "in 10
  * minutes"), otherwise at the next occurrence of `hour`/`minute` (today if
  * still ahead, otherwise tomorrow); either way the task disables itself after.
+ * `'monthly'` fires once a month, either on `dayOfMonth` or on the
+ * `weekOfMonth`-th `weekdays[0]` of the month.
  * `'interval'` ignores `hour`/`minute`/`weekdays` entirely and instead fires
  * every `every` `intervalUnit`s on a wall-clock grid anchored at `anchorAt`.
  */
@@ -25,8 +27,25 @@ export interface TaskRecurrence {
   hour: number
   /** 0-59, local time. Unused for `'interval'`, and for `'once'` when `runAt` is set. */
   minute: number
-  /** 0=Sunday..6=Saturday. Required for `'weekly'`, ignored otherwise. */
+  /**
+   * 0=Sunday..6=Saturday. Required for `'weekly'`. Also read by `'monthly'`,
+   * but only when `weekOfMonth` is set, where `weekdays[0]` is the day "the
+   * last Friday of the month" names. Ignored otherwise.
+   */
   weekdays?: number[]
+  /**
+   * Only for `'monthly'`, and only when `weekOfMonth` is unset: the day of the
+   * month, 1-31. Months too short for it clamp to their last day, so "the
+   * 31st" fires on Feb 28 rather than skipping February — a monthly reminder
+   * that silently misses a month is worse than one that lands a few days early.
+   */
+  dayOfMonth?: number
+  /**
+   * Only for `'monthly'`: which occurrence of `weekdays[0]` within the month —
+   * 1 through 4, or -1 for "last". Set by "the last Friday of the month";
+   * absent for "the 15th of the month", which uses `dayOfMonth` instead.
+   */
+  weekOfMonth?: number
   /** Only for `'interval'`: how many `intervalUnit`s between runs. */
   every?: number
   /** Only for `'interval'`. */
