@@ -24,6 +24,7 @@ export function RemoteSettings(): JSX.Element {
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [manualAddress, setManualAddress] = useState<string | null>(null)
   const [manualPort, setManualPort] = useState<string | null>(null)
+  const [listenPort, setListenPort] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
     void anodex.remote.status().then(setStatus)
@@ -90,6 +91,35 @@ export function RemoteSettings(): JSX.Element {
   const cancel = async (): Promise<void> => {
     await anodex.remote.cancelPairing()
     setPairing(null)
+  }
+
+  const listenPortField = listenPort ?? (status?.port != null ? String(status.port) : '')
+
+  const saveListenPort = async (): Promise<void> => {
+    const parsed = Number(listenPortField.trim())
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+      notify({
+        kind: 'error',
+        title: 'That is not a port',
+        message: 'Pick a whole number between 1 and 65535.'
+      })
+      return
+    }
+
+    setBusy(true)
+    const result = await anodex.remote.setPort(parsed)
+    setBusy(false)
+    if (!result.ok) {
+      notify({ kind: 'error', title: 'Could not change the port', message: result.error.message })
+      return
+    }
+    setStatus(result.value)
+    setListenPort(null)
+    notify({
+      kind: 'success',
+      title: `Listening on port ${parsed}`,
+      message: 'Forward this port on your router, and pair your phone again.'
+    })
   }
 
   const toggleInternet = async (enabled: boolean): Promise<void> => {
@@ -182,6 +212,30 @@ export function RemoteSettings(): JSX.Element {
       {listening && status && (
         <>
           <SettingRow
+            label="Port"
+            description={
+              'The port your phone connects on. Change it only if your router will not ' +
+              'forward the current one.'
+            }
+            control={
+              <div className={styles.portRow}>
+                <input
+                  type="text"
+                  value={listenPortField}
+                  onChange={(event) => setListenPort(event.target.value)}
+                  aria-label="Port"
+                />
+                <Button
+                  onClick={() => void saveListenPort()}
+                  disabled={busy || listenPortField === String(status.port ?? '')}
+                >
+                  Change
+                </Button>
+              </div>
+            }
+          />
+
+          <SettingRow
             label="Reach this computer from anywhere"
             description={
               status.internet.address
@@ -210,6 +264,21 @@ export function RemoteSettings(): JSX.Element {
                 refused before it can ask for anything. But this is now a door onto the world rather
                 than a door onto your living room, so leave it off unless you actually need it.
               </p>
+
+              {status.internet.lastReachedFromOutsideEpochMs != null ? (
+                // The only confirmation available without asking somebody else's
+                // server whether the port is open: a connection that arrived from a
+                // public address came in through the router.
+                <p className={styles.internetConfirmed}>
+                  Your phone reached this computer from outside your network{' '}
+                  {formatSeen(status.internet.lastReachedFromOutsideEpochMs)}. It is working.
+                </p>
+              ) : (
+                <p className={styles.internetHint}>
+                  Nothing has reached this computer from outside yet. Turn Wi-Fi off on your phone
+                  and open Anodex — if it connects on mobile data, this line will say so.
+                </p>
+              )}
 
               {status.internet.problem && (
                 <p className={styles.internetProblem}>{status.internet.problem}</p>

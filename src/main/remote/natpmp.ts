@@ -222,6 +222,52 @@ export function parseMapResponse(
   }
 }
 
+/**
+ * Why a typed address cannot be reached from the internet, or null if it can.
+ *
+ * The port a router forwards is the user's business — only the router knows what it
+ * was configured to do, and a wrong port costs one failed connection. An address is
+ * different: whether 192.168.1.40 is reachable from the internet is arithmetic, not
+ * a judgement, and accepting one means the phone dials an address that cannot exist
+ * from where it is standing and reports a generic timeout.
+ *
+ * So this refuses exactly what is provably unusable and stays out of the way
+ * otherwise. Anything that parses as a public IPv4 address is accepted on trust.
+ */
+export function explainUnusableExternalAddress(address: string): string | null {
+  const trimmed = address.trim()
+  if (!trimmed) return null
+
+  const octets = trimmed.split('.').map(Number)
+  const malformed =
+    octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)
+  if (malformed) {
+    return (
+      `"${trimmed}" is not an IPv4 address. Search the web for "what is my IP" on this ` +
+      'computer and copy the four numbers it shows.'
+    )
+  }
+
+  const [a, b] = octets
+  if (a === 100 && b >= 64 && b <= 127) {
+    return (
+      `${trimmed} is a carrier-grade NAT address, which means your internet provider is ` +
+      'sharing one public address between customers. Nothing outside can reach it, and no ' +
+      'port forwarding changes that — you would need a public IP address from your provider.'
+    )
+  }
+
+  if (isPrivateAddress(trimmed)) {
+    return (
+      `${trimmed} is an address on your own network, not a public one. It is what your ` +
+      'router calls this computer; the address you need is the one your router shows as its ' +
+      'WAN or Internet address.'
+    )
+  }
+
+  return null
+}
+
 export function isPrivateAddress(address: string): boolean {
   const octets = address.split('.').map(Number)
   if (octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) {

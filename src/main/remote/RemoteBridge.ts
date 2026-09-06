@@ -69,7 +69,15 @@ export class RemoteBridge {
      * user has asked for one. Resolved per handshake rather than captured, because
      * a forwarded port can be turned on and off while the listener keeps running.
      */
-    private readonly externalAddress: () => string | null = () => null
+    private readonly externalAddress: () => string | null = () => null,
+    /**
+     * Where an authenticated client connected from.
+     *
+     * A peer outside the private ranges reached this machine through the router,
+     * which is the only confirmation the user can get that their port forwarding
+     * works without asking somebody else's server to look.
+     */
+    private readonly onPeer: (address: string | undefined) => void = () => {}
   ) {}
 
   /** Whether the listener is currently accepting connections. */
@@ -101,7 +109,9 @@ export class RemoteBridge {
     })
 
     const sockets = new WebSocketServer({ server, maxPayload: MAX_FRAME_BYTES })
-    sockets.on('connection', (socket) => this.onConnection(socket))
+    sockets.on('connection', (socket, request) =>
+      this.onConnection(socket, request.socket.remoteAddress)
+    )
 
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)
@@ -140,7 +150,7 @@ export class RemoteBridge {
     log.info('stopped')
   }
 
-  private onConnection(socket: WebSocket): void {
+  private onConnection(socket: WebSocket, peerAddress: string | undefined): void {
     let client: ClientChannel | null = null
 
     // An unauthenticated socket is a stranger holding a connection open. Give it
@@ -188,7 +198,7 @@ export class RemoteBridge {
             return
           }
           clearTimeout(handshakeTimer)
-          client = this.attach(socket, auth.device.deviceId)
+          client = this.attach(socket, auth.device.deviceId, peerAddress)
           this.send(socket, {
             type: 'welcome',
             deviceId: auth.device.deviceId,
@@ -206,7 +216,7 @@ export class RemoteBridge {
             return
           }
           clearTimeout(handshakeTimer)
-          client = this.attach(socket, outcome.device.deviceId)
+          client = this.attach(socket, outcome.device.deviceId, peerAddress)
           this.send(socket, {
             type: 'paired',
             deviceKey: outcome.deviceKey,
@@ -251,7 +261,12 @@ export class RemoteBridge {
     return external && !local.includes(external) ? [...local, external] : local
   }
 
-  private attach(socket: WebSocket, deviceId: string): ClientChannel {
+  private attach(socket: WebSocket, deviceId: string, peerAddress?: string): ClientChannel {
+    // Reported only for a socket that authenticated. An unauthenticated stranger
+    // arriving from the internet is a port scanner, not proof the user's own phone
+    // can get in — and reporting it would claim the setup works when it may not.
+    this.onPeer(peerAddress)
+
     const client: ClientChannel = {
       id: `remote:${deviceId}`,
       send: (channel, payload) => {
