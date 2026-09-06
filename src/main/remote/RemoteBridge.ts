@@ -83,7 +83,7 @@ export class RemoteBridge {
    * relay — off-network access is the user's own Tailscale or tunnel, and Anodex
    * never carries their traffic (§7.1.3).
    */
-  async start(port = 0): Promise<number> {
+  async start(port = 0, host = '0.0.0.0'): Promise<number> {
     if (this.server) return this.port ?? port
 
     const server = createServer({
@@ -97,7 +97,10 @@ export class RemoteBridge {
 
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)
-      server.listen(port, () => {
+      // Bound explicitly to every IPv4 interface. Node's default binds `::`, and on
+      // a machine with IPv6 disabled or filtered that can end up unreachable from a
+      // phone on the same Wi-Fi — a failure that looks exactly like a wrong port.
+      server.listen(port, host, () => {
         server.off('error', reject)
         resolve()
       })
