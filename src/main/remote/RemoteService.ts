@@ -102,17 +102,24 @@ export class RemoteService {
   /** Load persisted state and, if the user had it on, start listening again. */
   async initialize(): Promise<void> {
     this.load()
-    if (this.state.enabled) {
-      try {
-        await this.start()
-      } catch (error) {
-        // A port already in use must not stop the app from launching. The user is
-        // told through Settings rather than by Anodex failing to open.
-        log.error('could not restore the remote listener:', error)
-        this.state.enabled = false
-        this.persist()
-      }
+    if (!this.state.enabled) return
+
+    try {
+      await this.start()
+    } catch (error) {
+      // A port already in use must not stop the app from launching. The user is
+      // told through Settings rather than by Anodex failing to open.
+      log.error('could not restore the remote listener:', error)
+      this.state.enabled = false
+      this.persist()
+      return
     }
+
+    // Restored too, not just the listener. Without this the setting reads as on
+    // after a restart while the phone is never told the public address again —
+    // away-from-home access that works until the first time Anodex is closed, and
+    // then silently does not.
+    if (this.state.internetEnabled) await this.acquireInternetRoute()
   }
 
   status(): RemoteStatus {
