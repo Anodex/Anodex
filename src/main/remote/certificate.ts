@@ -32,6 +32,7 @@ export interface RemoteCertificate {
 
 /** Anodex's certificates are long-lived because re-pairing is the cost of rotation. */
 const VALIDITY_DAYS = 3650
+const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
  * Create a fresh self-signed certificate.
@@ -40,13 +41,19 @@ const VALIDITY_DAYS = 3650
  * the note above about invalidating pairings.
  */
 export async function generateRemoteCertificate(commonName = 'Anodex'): Promise<RemoteCertificate> {
+  const notBeforeDate = new Date()
+  const notAfterDate = new Date(notBeforeDate.getTime() + VALIDITY_DAYS * DAY_MS)
+
   const pems = await selfsigned.generate([{ name: 'commonName', value: commonName }], {
-    days: VALIDITY_DAYS,
+    notBeforeDate,
+    notAfterDate,
     keySize: 2048,
     algorithm: 'sha256',
     extensions: [
-      // A self-signed leaf that is its own issuer.
-      { name: 'basicConstraints', cA: true },
+      // A leaf, not an authority. It signs nothing but itself, and claiming cA
+      // would assert a power it should not have even though pinning makes the
+      // claim moot.
+      { name: 'basicConstraints', cA: false },
       {
         name: 'keyUsage',
         digitalSignature: true,
