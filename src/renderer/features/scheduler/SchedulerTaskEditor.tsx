@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ScheduledTask, TaskRecurrence } from '@shared/scheduledTask.types'
 import { describeRecurrence } from '@shared/parseWhen'
+import { computeNextRunAt } from '@shared/nextRun'
 import { TOOL_CATALOG, type ToolKind } from '@shared/tools.types'
 import { useProjectStore } from '../../stores/projectStore'
 import { useSchedulerStore } from '../../stores/schedulerStore'
@@ -74,9 +75,12 @@ export function SchedulerTaskEditor({
   const availableTools = TOOL_CATALOG.filter(
     (tool) => (!tool.requiresProject || hasProject) && !tool.requiresHumanApproval
   )
+  // A rule that can never fire must not be saveable. `computeNextRunAt` is the
+  // same function the scheduler uses to decide, so this cannot drift from it
+  // the way a hand-written list of "which types need which fields" would —
+  // `'monthly'` added two more such fields the day it landed.
   const canSave =
-    prompt.trim().length > 0 &&
-    (recurrence.type !== 'weekly' || (recurrence.weekdays ?? []).length > 0)
+    prompt.trim().length > 0 && computeNextRunAt(recurrence, Date.now(), false) !== null
 
   const toggleTool = (toolName: string): void => {
     setEnabledTools((prev) => {

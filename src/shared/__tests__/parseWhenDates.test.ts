@@ -135,4 +135,87 @@ describe('parseWhen with a calendar date', () => {
       expect(parsed?.label).toMatch(/4/)
     })
   })
+
+  describe('a bare ordinal day, with no month beside it', () => {
+    // The last of this family. `matchCalendarDate` only recognised a day
+    // number next to a month name, so "on the 15th at 9am" matched nothing
+    // and became a one-shot today or tomorrow, labelled "Once at 9:00 AM".
+    it('keeps the day from "on the 15th at 9am"', () => {
+      expectLocal('remind me on the 15th at 9am', 2026, 8, 15, 9)
+    })
+
+    it('defaults the time when none is given', () => {
+      expectLocal('on the 20th', 2026, 8, 20, 9)
+    })
+
+    it('rolls to next month when the day has already gone', () => {
+      // NOW is the 2nd, so the 1st is behind us.
+      expectLocal('on the 1st at 9am', 2026, 9, 1, 9)
+    })
+
+    it('rolls by a month, not a year', () => {
+      // The named-month form rolls a year, which is why it compares by date.
+      // A bare day rolls one month, so it compares by instant instead.
+      expectLocal('the 2nd at 9am', 2026, 9, 2, 9)
+    })
+
+    it('keeps today when the time is still ahead', () => {
+      expectLocal('the 2nd at 5pm', 2026, 8, 2, 17)
+    })
+
+    it('passes over months too short for the day', () => {
+      // September has 30 days, so "the 31st" is October's.
+      expectLocal('on the 31st at 9am', 2026, 9, 31, 9)
+    })
+
+    it('says which day it resolved to', () => {
+      // Same reason the named-month form does: a wrong date is only catchable
+      // if the confirmation card names one.
+      const parsed = parseWhen('on the 15th at 9am', NOW)
+      expect(parsed?.label).toMatch(/15/)
+      expect(parsed?.label).toMatch(/Sep/)
+    })
+  })
+
+  describe('what a bare ordinal must not swallow', () => {
+    it('leaves an ordinal weekday alone', () => {
+      // "the 2nd Tuesday" names a position in a month, not the 2nd of it.
+      expect(parseWhen('the 2nd tuesday at 9am', NOW)?.recurrence.type).not.toBe('once')
+    })
+
+    it('leaves "the Nth of the month" a monthly rule', () => {
+      // Caught this one as a real regression. The phrase carries no "every",
+      // no "each" and no whole-word "monthly", so `REPEAT_WORDS` reads it as a
+      // single day — harmless while a bare day number matched nothing, and a
+      // silent downgrade from a rule to a date the moment one did.
+      expect(parseWhen('the 15th of the month at 5pm', NOW)?.recurrence).toEqual({
+        type: 'monthly',
+        hour: 17,
+        minute: 0,
+        dayOfMonth: 15
+      })
+    })
+
+    it('leaves a monthly rule alone', () => {
+      expect(parseWhen('the 1st of every month at 9am', NOW)?.recurrence).toEqual({
+        type: 'monthly',
+        hour: 9,
+        minute: 0,
+        dayOfMonth: 1
+      })
+    })
+
+    it('leaves a relative one-shot alone', () => {
+      const parsed = parseWhen('in 10 minutes', NOW)
+      expect(parsed?.recurrence.runAt).toBe(NOW + 10 * 60_000)
+    })
+
+    it('leaves an interval alone', () => {
+      expect(parseWhen('every 30 minutes', NOW)?.recurrence.type).toBe('interval')
+    })
+
+    it('still prefers a named month when one is present', () => {
+      expectLocal('September 4, 2026 at 9:00 AM', 2026, 8, 4, 9)
+    })
+  })
 })

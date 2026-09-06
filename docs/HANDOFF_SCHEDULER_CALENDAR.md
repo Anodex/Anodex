@@ -75,7 +75,7 @@ Read these before changing anything:
 ### The data model
 
 ```ts
-type RecurrenceType = 'once' | 'daily' | 'weekly' | 'interval'
+type RecurrenceType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval'
 
 interface ScheduledTask {
   id
@@ -185,14 +185,63 @@ Only days with events get chips; automation collapses to one muted line
    entry might reasonably just notify. If events still run prompts, "add the
    safety meeting" produces a model turn at 10am, which may or may not be what
    the user wants.
-2. **Is a monthly recurrence wanted?** There is none today (`once | daily |
-weekly | interval`). The month view earns its space on distant `once` tasks
-   alone, but "1st of the month" / "last Friday" would give it a second reason
-   to exist. Raised with the user; not answered.
+2. ~~**Is a monthly recurrence wanted?**~~ **Answered, and built** — see §9.
+   `'monthly'` exists, so the month view now has a second reason to exist
+   beyond distant `once` tasks.
 3. **Where does the email → calendar flow live?** The user's example is an email
    containing a date. `parseWhen` already handles natural language, and email
    tools already exist, but nothing connects them. Is this a chat flow ("add
    that to my calendar"), or something the email surface offers directly?
+
+---
+
+## 9. Monthly recurrence — answered and built (2026-09-05)
+
+Open question 2 turned out not to be a feature request. `monthly` was already
+in `REPEAT_WORDS`, where it suppressed the calendar-date branch and then had no
+branch of its own, so every monthly phrasing fell through to the bare-time rule:
+
+| typed                                 | stored before                   |
+| ------------------------------------- | ------------------------------- |
+| `monthly at 9am`                      | `{type: once, hour: 9}`         |
+| `on the 1st of every month at 9am`    | `{type: once, hour: 9}`         |
+| `the last Friday of the month at 9am` | `{type: weekly, weekdays: [5]}` |
+
+The first two dropped the repeat and the day and labelled themselves "Once at
+9:00 AM". The third dropped the _month_ — `matchWeekday` claimed "friday" — and
+fired four to five times more often than asked, labelled "Every Fri".
+
+Fixed on branch `fix/monthly-recurrence` (`286fc0a`), with `dayOfMonth` and
+`weekOfMonth` added to `TaskRecurrence`. Three things fell out of it:
+
+- Bare `weekly` was the identical absence one row over, and is fixed too.
+- `computeNextRunAt` ended in a bare weekly fallthrough, so an unrecognised
+  type silently became a weekly rule. Both cases are now stated explicitly.
+  **Anything adding to `RecurrenceType` must add a branch there** — it no
+  longer inherits one.
+- "every 2 months" is rejected rather than rounded down. `IntervalUnit` counts
+  minutes, hours and days, and no run of days is a fixed number of months.
+
+Then the last of the family, on the same branch: a bare ordinal with no month
+word. `matchCalendarDate` only recognised a day number beside a month name, so
+"remind me on the 15th at 9am" matched nothing and became a one-shot today or
+tomorrow. It now resolves to the nearest future 15th, rolling by a month rather
+than the year a named month rolls — passing over months too short for the day,
+because "the 31st" is a date the user named rather than a rule that has to land
+somewhere every month.
+
+Widening that turned up one more instance of the same defect shape, this time
+caused by the fix: `REPEAT_WORDS` misses "the 15th **of the month**", which
+carries no `every`, no `each` and no whole-word `monthly`. It read as a single
+day, which was harmless only while a bare day number matched nothing — the
+moment one did, a monthly rule silently became a date. The calendar-date branch
+now consults `MONTHLY_WORDS` as well. Caught by the existing monthly tests, not
+by review.
+
+Still open, and deliberately not guessed at: "the 2nd Tuesday at 9am" with no
+month word still reads as _every_ Tuesday. The monthly reading is likely but
+not certain — "last Friday at 9am" is as easily a past date as a rule — so the
+ordinal-day branch is guarded to leave it alone rather than claim it.
 
 ---
 
