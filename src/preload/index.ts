@@ -17,6 +17,7 @@ import type {
 } from '@shared/criticalThinking.types'
 import type { McpServerState } from '@shared/mcp.types'
 import type { DiagnosticEntry } from '@shared/settings.types'
+import type { RemoteStatus } from '@shared/remote.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -307,6 +308,15 @@ const api: AnodexApi = {
       ipcRenderer.invoke(IpcChannel.Git.switchBranch, projectId, name),
     commit: (projectId, message) => ipcRenderer.invoke(IpcChannel.Git.commit, projectId, message),
     push: (projectId) => ipcRenderer.invoke(IpcChannel.Git.push, projectId)
+  },
+  remote: {
+    status: () => ipcRenderer.invoke(IpcChannel.Remote.status),
+    setEnabled: (enabled) => ipcRenderer.invoke(IpcChannel.Remote.setEnabled, enabled),
+    beginPairing: () => ipcRenderer.invoke(IpcChannel.Remote.beginPairing),
+    cancelPairing: () => ipcRenderer.invoke(IpcChannel.Remote.cancelPairing),
+    revoke: () => ipcRenderer.invoke(IpcChannel.Remote.revoke),
+    onStatusChanged: (listener) =>
+      subscribe<RemoteStatus>(IpcChannel.Remote.statusChanged, listener)
   },
   mcp: {
     list: () => ipcRenderer.invoke(IpcChannel.Mcp.list),

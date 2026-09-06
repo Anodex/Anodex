@@ -16,6 +16,7 @@ import type {
   ModelSettingsRecommendation
 } from './model.types'
 import type { ModelReliabilityRecord } from './modelReliability.types'
+import type { RemotePairingCode, RemoteStatus } from './remote.types'
 import type { RecommendedModel } from './recommendedModels'
 import type {
   AttachmentContent,
@@ -442,6 +443,20 @@ export const IpcChannel = {
     switchBranch: 'git:switch-branch',
     commit: 'git:commit',
     push: 'git:push'
+  },
+  Remote: {
+    /** Current listener state, paired device and certificate fingerprint. */
+    status: 'remote:status',
+    /** Turn the listener on or off. Off by default and never started implicitly. */
+    setEnabled: 'remote:set-enabled',
+    /** Open a pairing window and get the QR contents. */
+    beginPairing: 'remote:begin-pairing',
+    /** Close the pairing window without pairing. */
+    cancelPairing: 'remote:cancel-pairing',
+    /** Unpair the phone. Its stored key stops working immediately. */
+    revoke: 'remote:revoke',
+    /** main → renderer: the listener or the paired device changed. */
+    statusChanged: 'remote:status-changed'
   },
   Mcp: {
     list: 'mcp:list',
@@ -891,6 +906,15 @@ export interface AnodexApi {
     switchBranch(projectId: string, name: string): Promise<Result<GitWorkspaceStatus>>
     commit(projectId: string, message: string): Promise<Result<GitWorkspaceStatus>>
     push(projectId: string): Promise<Result<void>>
+  }
+  remote: {
+    status(): Promise<RemoteStatus>
+    setEnabled(enabled: boolean): Promise<Result<RemoteStatus>>
+    /** Null when the listener is off — there is nothing for a phone to connect to. */
+    beginPairing(): Promise<RemotePairingCode | null>
+    cancelPairing(): Promise<void>
+    revoke(): Promise<RemoteStatus>
+    onStatusChanged(listener: (status: RemoteStatus) => void): () => void
   }
   mcp: {
     list(): Promise<McpServerConfig[]>
