@@ -464,7 +464,14 @@ export const IpcChannel = {
     /** Unpair the phone. Its stored key stops working immediately. */
     revoke: 'remote:revoke',
     /** main → renderer: the listener or the paired device changed. */
-    statusChanged: 'remote:status-changed'
+    statusChanged: 'remote:status-changed',
+    /**
+     * main → paired phone: something happened worth telling the user about.
+     *
+     * Pushed to remote clients only. The desktop has its own toast for these and
+     * does not need to hear about them twice.
+     */
+    notification: 'remote:notification'
   },
   Mcp: {
     list: 'mcp:list',

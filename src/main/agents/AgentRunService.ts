@@ -9,7 +9,7 @@ import type { Plan } from '@shared/plan.types'
 import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { appendBackgroundTurn } from '../conversations/backgroundTurn'
-import { showToastWindow } from '../toastWindow'
+import { notifyUser } from '../notify'
 import { runGeneration } from '../chat/runGeneration'
 import { describeTurnOutcome, isDurableChange } from '../chat/turnSummary'
 import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
@@ -926,11 +926,16 @@ class AgentRunService {
     agentRunStore.update(runId, { status, summary, lastError })
     this.broadcastRunsChanged()
     const run = agentRunStore.get(runId)
-    showToastWindow({
-      title: run?.goal ? truncateTitle(run.goal) : 'Agent run',
-      body: summary ?? lastError ?? 'Finished.',
-      conversationId
-    })
+    notifyUser(
+      {
+        title: run?.goal ? truncateTitle(run.goal) : 'Agent run',
+        body: summary ?? lastError ?? 'Finished.',
+        conversationId
+      },
+      // A failed run deserves a different notification channel on the phone than a
+      // successful one: one wants attention now, the other can wait until morning.
+      lastError ? 'failed' : 'finished'
+    )
   }
 
   /**
@@ -951,7 +956,7 @@ class AgentRunService {
       ? truncate(latest.content.replace(/\s+/g, ' ').trim(), 140)
       : 'Still working.'
     const turnLabel = run.limitsEnabled ? `${turnsUsed}/${run.maxTurns}` : String(turnsUsed)
-    showToastWindow({
+    notifyUser({
       title: `${truncateTitle(run.goal)} — checking in`,
       body: `Turn ${turnLabel} · ${tokensUsed.toLocaleString()} tokens\n${snippet}`,
       conversationId: conversation.id
