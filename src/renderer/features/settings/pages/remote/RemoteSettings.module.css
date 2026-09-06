@@ -151,13 +151,6 @@
   color: var(--text-faint);
 }
 
-.meshHint {
-  margin: var(--space-4) 0 0;
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  color: var(--text-muted);
-}
-
 /* Away-from-home setup. Folded away when a VPN address already exists, because
    then there is nothing to do and a wall of instructions would imply otherwise. */
 .meshReady {
@@ -166,15 +159,92 @@
   color: var(--success);
 }
 
-.meshSetup {
+/* Reaching the machine from outside the house. Kept visually distinct from the
+   ordinary rows: this is the one switch on the page that changes who can see the
+   port at all, and it should not read as another preference. */
+.internet {
+  margin: 0 0 var(--space-5);
+}
+
+.internetWarning {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius-md);
+}
+
+.internetProblem {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+.forwarding {
   margin-top: var(--space-4);
   font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
-.meshSetup summary {
+.forwarding summary {
   cursor: pointer;
   color: var(--accent);
+}
+
+.forwardingHint {
+  margin: var(--space-3) 0 0;
+  line-height: 1.5;
+}
+
+.forwardingHint code,
+.forwarding code {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+/* The address the user reads off their router, typed back in. Laid out on one
+   line because the two fields are one fact split in half. */
+.manualEntry {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+  margin-top: var(--space-4);
+}
+
+.manualEntry label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.manualEntry label:first-child {
+  flex: 1;
+}
+
+.manualEntry label:nth-child(2) {
+  width: 5.5rem;
+}
+
+.manualEntry input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.manualEntry input:focus {
+  border-color: var(--border-focus);
 }
 
 .meshSteps {

@@ -271,6 +271,14 @@ export const IpcChannel = {
   },
   Conversations: {
     list: 'conversations:list',
+    /**
+     * main → renderer: a conversation was saved by someone other than this window.
+     *
+     * Only fires for a save that came from a paired phone. The renderer that made a
+     * change already knows about it, and echoing it back would fight its own local
+     * state mid-edit — the interesting case is the one it could not have known.
+     */
+    changed: 'conversations:changed',
     listArchived: 'conversations:list-archived',
     save: 'conversations:save',
     delete: 'conversations:delete',
@@ -463,6 +471,16 @@ export const IpcChannel = {
     cancelPairing: 'remote:cancel-pairing',
     /** Unpair the phone. Its stored key stops working immediately. */
     revoke: 'remote:revoke',
+    /**
+     * Ask for, or give up, a way in from the internet.
+     *
+     * Separate from `setEnabled` deliberately: that exposes the listener to the
+     * home network, this exposes it to everyone, and the user should decide the
+     * two independently rather than have one imply the other.
+     */
+    setInternetAccess: 'remote:set-internet-access',
+    /** Record a public address the user forwarded on their router by hand. */
+    setManualAddress: 'remote:set-manual-address',
     /** main → renderer: the listener or the paired device changed. */
     statusChanged: 'remote:status-changed',
     /**
@@ -698,6 +716,8 @@ export interface AnodexApi {
     ): Promise<Result<VisualPreviewContent>>
     getVisualPreviewUsage(): Promise<Result<VisualPreviewStorageUsage>>
     clearVisualPreviews(): Promise<Result<VisualPreviewClearResult>>
+    /** Fires when a paired phone saved a conversation. */
+    onChanged(listener: (conversationId: string) => void): () => void
   }
   windowControls: {
     minimize(): Promise<void>
@@ -931,6 +951,9 @@ export interface AnodexApi {
     beginPairing(): Promise<RemotePairingCode | null>
     cancelPairing(): Promise<void>
     revoke(): Promise<RemoteStatus>
+    setInternetAccess(enabled: boolean): Promise<Result<RemoteStatus>>
+    /** Pass nulls to forget the address and fall back to asking the router. */
+    setManualAddress(address: string | null, port: number | null): Promise<Result<RemoteStatus>>
     onStatusChanged(listener: (status: RemoteStatus) => void): () => void
   }
   mcp: {

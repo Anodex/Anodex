@@ -73,6 +73,16 @@ describe('IPC channel names', () => {
   })
 })
 
+/**
+ * Channels main pushes to the paired phone and nothing else.
+ *
+ * `RemoteBridge` sends these straight down the socket, so they never pass through
+ * preload and never reach the renderer — the desktop has its own path for the same
+ * information. Listing them keeps the guard above honest about the difference
+ * between "unreachable by mistake" and "not addressed to the renderer".
+ */
+const PHONE_ONLY = new Set(['Remote.notification'])
+
 describe('IPC channel wiring', () => {
   it('has a main-process reference for every declared channel', () => {
     // A channel nothing in main handles or broadcasts is dead weight the
@@ -82,12 +92,24 @@ describe('IPC channel wiring', () => {
     expect(orphaned.map((c) => c.path)).toEqual([])
   })
 
-  it('has a preload reference for every declared channel', () => {
+  it('has a preload reference for every declared channel the renderer can use', () => {
     // The renderer only ever reaches main through the preload bridge, so a
-    // channel absent from it cannot be used at all.
-    const unreachable = all.filter(({ path }) => !reference(path).test(preloadSource))
+    // channel absent from it cannot be used at all — unless the renderer is not
+    // its audience, which is the one exception below.
+    const unreachable = all.filter(
+      ({ path }) => !PHONE_ONLY.has(path) && !reference(path).test(preloadSource)
+    )
 
     expect(unreachable.map((c) => c.path)).toEqual([])
+  })
+
+  it('keeps the phone-only exceptions actually phone-only', () => {
+    // The carve-out above is a hole in a drift guard, so it is itself pinned: a
+    // channel listed there that turns up in preload has become a renderer channel
+    // and should be checked like every other one.
+    const misfiled = [...PHONE_ONLY].filter((path) => reference(path).test(preloadSource))
+
+    expect(misfiled).toEqual([])
   })
 
   it('registers an ipcMain handler for every channel the preload invokes', () => {
