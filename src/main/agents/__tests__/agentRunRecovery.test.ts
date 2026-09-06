@@ -20,6 +20,7 @@ const runGeneration = vi.fn<(...args: unknown[]) => Promise<unknown>>()
 const update = vi.fn<(id: string, patch: Partial<AgentRun>) => AgentRun>()
 const get = vi.fn<(id: string) => AgentRun | undefined>()
 const showToastWindow = vi.fn<(...args: unknown[]) => void>()
+const notifyRemoteClients = vi.fn<(...args: unknown[]) => void>()
 
 vi.mock('../../chat/runGeneration', () => ({
   runGeneration: (...args: unknown[]) => runGeneration(...args)
@@ -45,6 +46,10 @@ vi.mock('../../conversations/ConversationStore', () => ({
 }))
 
 vi.mock('../../broadcast', () => ({ broadcastToWindows: vi.fn() }))
+vi.mock('../../notify', () => ({
+  notifyUser: vi.fn(),
+  notifyRemoteClients: (...args: unknown[]) => notifyRemoteClients(...args)
+}))
 vi.mock('../../toastWindow', () => ({
   showToastWindow: (...args: unknown[]) => showToastWindow(...args)
 }))
@@ -127,6 +132,7 @@ beforeEach(() => {
   update.mockReset()
   get.mockReset()
   showToastWindow.mockReset()
+  notifyRemoteClients.mockReset()
 })
 
 afterEach(() => {
@@ -162,5 +168,49 @@ describe('a plan-reviewed run whose execution turn fails', () => {
     await approveAndSettle(makeRun({ requirePlan: false, plan: null }))
 
     expect(finalPatch()).toMatchObject({ status: 'error' })
+  })
+
+  /**
+   * A run sent back for approval has stopped, and will stay stopped until a person
+   * answers. The desktop's own panel says so; a phone in a pocket does not, unless
+   * it is told.
+   *
+   * This is the version of plan review the user is least expecting — they already
+   * approved it and walked away — so it is the one most likely to sit all evening.
+   */
+  it('tells the phone the run has stopped and needs a person', async () => {
+    runGeneration.mockRejectedValue(new Error('llama-server terminated'))
+
+    await approveAndSettle(makeRun())
+
+    expect(notifyRemoteClients).toHaveBeenCalledTimes(1)
+    expect(notifyRemoteClients.mock.calls[0][0]).toMatchObject({
+      // The channel that is allowed to interrupt. A run nobody can see is
+      // blocked is the whole reason this app exists.
+      kind: 'needs-approval',
+      conversationId: 'conv-1'
+    })
+  })
+
+  it('names the run without putting the failure on a lock screen', async () => {
+    // Thin on purpose: this renders where anyone can read it, and the phone does
+    // not hold the user's data. The error stays in the app.
+    runGeneration.mockRejectedValue(new Error('ENOTFOUND api.anthropic.com'))
+
+    await approveAndSettle(makeRun({ goal: 'Fix the orbit panel jitter' }))
+
+    const notification = notifyRemoteClients.mock.calls[0][0] as { body: string }
+    expect(notification.body).toBe('Fix the orbit panel jitter')
+    expect(notification.body).not.toContain('ENOTFOUND')
+  })
+
+  it('says nothing when the run failed terminally rather than bouncing back', async () => {
+    // Nothing is waiting on a person here — the run is over. A notification saying
+    // it needs approval would send the user to a card that cannot be approved.
+    runGeneration.mockRejectedValue(new Error('llama-server terminated'))
+
+    await approveAndSettle(makeRun({ requirePlan: false, plan: null }))
+
+    expect(notifyRemoteClients).not.toHaveBeenCalled()
   })
 })
