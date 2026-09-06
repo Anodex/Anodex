@@ -19598,6 +19598,24 @@
             "kind": "string"
           }
         },
+        "shortCode": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "address": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "port": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
         "expiresAtEpochMs": {
           "optional": false,
           "type": {

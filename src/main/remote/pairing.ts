@@ -32,8 +32,22 @@ export interface PairedDeviceStore {
 }
 
 export interface PairingSession {
-  /** The one-time secret, base64url. Shown in the QR and never reused. */
+  /** The one-time secret, base64url. Carried in the QR and never reused. */
   readonly secret: string
+
+  /**
+   * A short code for the same session, for when the camera cannot be used.
+   *
+   * Deliberately low-entropy — about 40 bits — because it has to be readable off
+   * one screen and typed into another. That is safe *here* and would not be
+   * elsewhere: the session lives two minutes and dies after five wrong guesses,
+   * so an attacker gets five tries at a 40-bit space inside a two-minute window
+   * they cannot extend. Entropy is not the only way to make guessing hopeless.
+   *
+   * Redeems the same session as [secret], and burns it identically.
+   */
+  readonly shortCode: string
+
   readonly expiresAtEpochMs: number
 }
 
@@ -71,6 +85,17 @@ export const AUTH_LOCKOUT_MS = 5 * 60 * 1000
 /** Bytes of entropy in a pairing secret and in a device key. */
 const SECRET_BYTES = 32
 
+/**
+ * Alphabet for the typed code: Crockford base32, which drops I, L, O and U.
+ *
+ * Those four are what turn a typed code into a support problem — I against 1, O
+ * against 0, and U because it is the one letter that shows up in words nobody
+ * wants printed on their screen. Input is normalised on the way in, so a user who
+ * types "l" for "1" still pairs.
+ */
+const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+const CODE_LENGTH = 8
+
 export class PairingService {
   private session: PairingSession | null = null
   private pairingAttempts = 0
@@ -97,6 +122,7 @@ export class PairingService {
   beginPairing(): PairingSession {
     const session: PairingSession = {
       secret: randomBytes(SECRET_BYTES).toString('base64url'),
+      shortCode: generateShortCode(),
       expiresAtEpochMs: this.now() + PAIRING_WINDOW_MS
     }
     this.session = session
@@ -149,7 +175,14 @@ export class PairingService {
       }
     }
 
-    if (!constantTimeEquals(offeredSecret, session.secret)) {
+    // Either credential redeems the session: the QR's secret, or the short code
+    // typed by hand. Both are compared in constant time, and a wrong guess at
+    // either counts against the same attempt budget — otherwise the short code
+    // would hand an attacker a second, fresh set of tries.
+    const matchesSecret = constantTimeEquals(offeredSecret, session.secret)
+    const matchesCode = constantTimeEquals(normalizeShortCode(offeredSecret), session.shortCode)
+
+    if (!matchesSecret && !matchesCode) {
       this.registerPairingFailure(now)
       return {
         ok: false,
@@ -242,6 +275,29 @@ export class PairingService {
       this.session = null
     }
   }
+}
+
+function generateShortCode(): string {
+  const bytes = randomBytes(CODE_LENGTH)
+  let code = ''
+  for (const byte of bytes) code += CODE_ALPHABET[byte % CODE_ALPHABET.length]
+  return code
+}
+
+/**
+ * Fold a typed code into its canonical form.
+ *
+ * Users type what they see, which means lowercase, the separating dash, and the
+ * characters the alphabet deliberately excludes. Refusing those would be blaming
+ * the user for a legibility problem the code's own design created.
+ */
+export function normalizeShortCode(input: string): string {
+  return input
+    .toUpperCase()
+    .replace(/[\s-]/g, '')
+    .replace(/[IL]/g, '1')
+    .replace(/O/g, '0')
+    .replace(/U/g, 'V')
 }
 
 function hashKey(key: string): string {
