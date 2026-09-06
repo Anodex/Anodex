@@ -1330,6 +1330,15 @@
       }
     },
     {
+      "channel": "conversations:changed",
+      "kind": "event",
+      "api": "conversations.onChanged",
+      "args": [],
+      "payload": {
+        "kind": "string"
+      }
+    },
+    {
       "channel": "conversations:clear-visual-previews",
       "kind": "invoke",
       "api": "conversations.clearVisualPreviews",

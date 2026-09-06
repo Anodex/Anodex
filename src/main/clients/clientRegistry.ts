@@ -38,6 +38,11 @@ export function resolveClientChannel(event: unknown): ClientChannel {
   return webContentsChannel(sender)
 }
 
+/** Whether this invoke arrived from the remote bridge rather than a window. */
+export function isRemoteCall(event: unknown): boolean {
+  return Boolean((event as Record<symbol, unknown> | null | undefined)?.[REMOTE_CLIENT])
+}
+
 /**
  * Wrap a renderer's `WebContents`.
  *

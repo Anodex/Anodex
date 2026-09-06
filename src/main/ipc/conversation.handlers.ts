@@ -1,5 +1,7 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { broadcastToWindows } from '../broadcast'
+import { isRemoteCall } from '../clients/clientRegistry'
 import type { Conversation, ConversationState } from '@shared/conversation.types'
 import { err, ok, toErrorMessage } from '@shared/result'
 import { conversationStore } from '../conversations/ConversationStore'
@@ -14,9 +16,18 @@ export function registerConversationHandlers(): void {
 
   ipcMain.handle(IpcChannel.Conversations.listArchived, () => conversationStore.listArchived())
 
-  ipcMain.handle(IpcChannel.Conversations.save, (_event, conversation: Conversation) => {
+  ipcMain.handle(IpcChannel.Conversations.save, (event, conversation: Conversation) => {
     try {
       conversationStore.save(conversation)
+
+      // A phone can now write conversations, and the desktop had no way to hear
+      // about it — a chat started on the phone simply did not exist here until
+      // Anodex was restarted. Only remote saves are announced: a renderer that made
+      // the change already knows, and echoing it back would fight its own local
+      // state in the middle of an edit.
+      if (isRemoteCall(event)) {
+        broadcastToWindows(IpcChannel.Conversations.changed, conversation.id)
+      }
     } catch (error) {
       log.error('Failed to save conversation:', conversation.id, error)
       throw new Error('Could not save conversation.')
