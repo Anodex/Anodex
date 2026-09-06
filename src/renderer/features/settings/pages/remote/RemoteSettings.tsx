@@ -22,8 +22,8 @@ export function RemoteSettings(): JSX.Element {
   const [pairing, setPairing] = useState<RemotePairingCode | null>(null)
   const [busy, setBusy] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(0)
-  const [manualAddress, setManualAddress] = useState('')
-  const [manualPort, setManualPort] = useState('')
+  const [manualAddress, setManualAddress] = useState<string | null>(null)
+  const [manualPort, setManualPort] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
     void anodex.remote.status().then(setStatus)
@@ -47,6 +47,14 @@ export function RemoteSettings(): JSX.Element {
     const timer = setInterval(tick, 1000)
     return () => clearInterval(timer)
   }, [pairing])
+
+  // Seeded from what is saved, so a returning user sees the address they typed
+  // rather than an empty box that reads as "it did not save". Null means untouched
+  // this session; once edited, the typed value wins over anything arriving later.
+  const savedAddress = status?.internet.source === 'manual' ? status.internet.address : null
+  const savedPort = status?.internet.source === 'manual' ? status.internet.port : null
+  const addressField = manualAddress ?? savedAddress ?? ''
+  const portField = manualPort ?? (savedPort != null ? String(savedPort) : '')
 
   const toggle = async (enabled: boolean): Promise<void> => {
     setBusy(true)
@@ -101,11 +109,11 @@ export function RemoteSettings(): JSX.Element {
 
   const saveManualAddress = async (): Promise<void> => {
     setBusy(true)
-    const port = manualPort.trim() ? Number(manualPort.trim()) : null
-    const result = await anodex.remote.setManualAddress(
-      manualAddress.trim() || null,
-      Number.isFinite(port) ? port : null
-    )
+    const typedPort = portField.trim() ? Number(portField.trim()) : null
+    // A port that is not a number is treated as "not given" rather than sent as NaN,
+    // which would persist and then fail to connect with nothing to explain why.
+    const port = typedPort !== null && Number.isFinite(typedPort) ? typedPort : null
+    const result = await anodex.remote.setManualAddress(addressField.trim() || null, port)
     setBusy(false)
     if (!result.ok) {
       notify({ kind: 'error', title: 'Could not save', message: result.error.message })
@@ -243,7 +251,7 @@ export function RemoteSettings(): JSX.Element {
                       <span>Public address</span>
                       <input
                         type="text"
-                        value={manualAddress}
+                        value={addressField}
                         placeholder="203.0.113.7"
                         onChange={(event) => setManualAddress(event.target.value)}
                       />
@@ -252,7 +260,7 @@ export function RemoteSettings(): JSX.Element {
                       <span>Port</span>
                       <input
                         type="text"
-                        value={manualPort}
+                        value={portField}
                         placeholder={String(status.port ?? '')}
                         onChange={(event) => setManualPort(event.target.value)}
                       />
