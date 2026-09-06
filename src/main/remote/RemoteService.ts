@@ -59,12 +59,25 @@ export class RemoteService {
     const store: PairedDeviceStore = {
       read: () => this.state.device ?? null,
       write: (device) => {
+        const changed = device?.deviceId !== this.state.device?.deviceId
         this.state.device = device ?? undefined
         this.persist()
+
+        // A phone pairing is something the user is watching for on this screen, so
+        // Settings has to hear about it. Without this the page only learned a phone
+        // had paired when it was reopened — which looked exactly like pairing having
+        // silently failed.
+        if (changed) this.onStatusChanged?.(this.status())
       }
     }
     this.pairing = new PairingService(store)
   }
+
+  /**
+   * Called whenever the listener or the paired device changes, so Settings can
+   * update live rather than on next open.
+   */
+  onStatusChanged: ((status: RemoteStatus) => void) | null = null
 
   /** Load persisted state and, if the user had it on, start listening again. */
   async initialize(): Promise<void> {

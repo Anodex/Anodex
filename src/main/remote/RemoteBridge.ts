@@ -3,6 +3,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { createLogger } from '../utils/logger'
 import type { ClientChannel } from '../clients/ClientChannel'
 import {
+  REMOTE_CLIENT,
   attachRemoteClient,
   detachAllRemoteClients,
   detachRemoteClient
@@ -213,7 +214,7 @@ export class RemoteBridge {
       }
 
       if (frame.type === 'invoke') {
-        void this.dispatch(socket, frame.id, frame.channel, frame.args)
+        void this.dispatch(socket, client, frame.id, frame.channel, frame.args)
       }
     })
 
@@ -243,14 +244,20 @@ export class RemoteBridge {
   /**
    * Run one call against the handler the renderer would have reached.
    *
-   * The `event` passed to the handler is `undefined`: 118 of Anodex's handlers
-   * take `(_event, …)` and ignore it entirely, which is what makes generic
-   * re-dispatch possible at all. The ones that genuinely use `event.sender` are
-   * exactly the native-dialog and window-bound paths that `channelPolicy` refuses,
-   * so a handler that would dereference it is never reached from here.
+   * The handler is given an event carrying this connection's `ClientChannel` under
+   * `REMOTE_CLIENT`. Most handlers take `(_event, …)` and ignore it, which is what
+   * makes generic re-dispatch possible — but the ones that stream, chat above all,
+   * need somewhere to send tokens back to.
+   *
+   * An earlier version passed `undefined` on the reasoning that every handler
+   * touching `event.sender` was one the policy refused. That was simply wrong:
+   * `chat:send` is allowed and streams through `event.sender`, so the first real
+   * message from a phone failed with a TypeError — after a successful handshake,
+   * so everything looked connected until the moment it was used.
    */
   private async dispatch(
     socket: WebSocket,
+    client: ClientChannel,
     id: string,
     channel: string,
     args: unknown[]
@@ -268,7 +275,7 @@ export class RemoteBridge {
     }
 
     try {
-      const result = await handler(undefined, ...args)
+      const result = await handler({ [REMOTE_CLIENT]: client }, ...args)
       this.send(socket, { type: 'result', id, ok: true, result })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

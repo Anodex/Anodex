@@ -17,6 +17,12 @@ const log = createLogger('ipc:remote')
  * conditions under which it is allowed to talk at all.
  */
 export function registerRemoteHandlers(): void {
+  // Pairing happens on the phone, so the desktop learns about it from the bridge
+  // rather than from a click. Settings is watching this screen when it happens.
+  remoteService.onStatusChanged = (status) => {
+    broadcastToWindows(IpcChannel.Remote.statusChanged, status)
+  }
+
   ipcMain.handle(IpcChannel.Remote.status, () => remoteService.status())
 
   ipcMain.handle(IpcChannel.Remote.setEnabled, async (_event, enabled: boolean) => {

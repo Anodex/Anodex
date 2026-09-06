@@ -19,7 +19,7 @@ import {
 } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
 import { computerControlService } from '../computerControl/ComputerControlService'
-import { webContentsChannel } from '../clients/clientRegistry'
+import { resolveClientChannel } from '../clients/clientRegistry'
 
 const log = createLogger('ipc:chat')
 
@@ -41,8 +41,9 @@ export function registerChatHandlers(): void {
 
     // Resolved once per generation rather than reaching for `event.sender` at every
     // callback. The stream belongs to whoever started the turn, and that is no longer
-    // necessarily a window — see `ClientChannel`.
-    const client = webContentsChannel(event.sender)
+    // necessarily a window: a remote call carries its client on the event instead,
+    // and has no `sender` at all.
+    const client = resolveClientChannel(event)
 
     try {
       const result = await runBoundedChatGeneration(request, {
