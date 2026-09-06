@@ -30,5 +30,7 @@ export interface RemotePairingCode {
   uri: string
   /** Full fingerprint, shown on screen so the user can compare it with the phone. */
   fingerprint: string
+  /** The QR as a data: URL, rendered in the main process from `uri` itself. */
+  qrDataUrl: string
   expiresAtEpochMs: number
 }

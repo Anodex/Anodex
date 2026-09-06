@@ -31,6 +31,7 @@ export type IconName =
   | 'keyboard'
   | 'activity'
   | 'monitor'
+  | 'smartphone'
   | 'chevron-down'
   | 'chevron-right'
   | 'chevron-left'
@@ -245,6 +246,14 @@ const GLYPHS: Record<IconName, ReactNode> = {
     <>
       <path d="M2 12h4l3 6 4-12 2.5 6H19" />
       <circle cx="20.5" cy="12" r="1.8" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Drawn to sit beside `monitor`: the same 2px rounded frame, rotated to portrait
+  // and narrowed, with a speaker slot instead of a stand so the two read as a pair.
+  smartphone: (
+    <>
+      <rect x="7" y="2" width="10" height="20" rx="2" />
+      <line x1="10.5" y1="5.5" x2="13.5" y2="5.5" />
     </>
   ),
   monitor: (

@@ -1,0 +1,67 @@
+/* Tokens only, per the standing theming rule — verified in dark and light. */
+
+.warning {
+  margin: var(--space-2) 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius-md);
+}
+
+.pairing {
+  display: flex;
+  gap: var(--space-6);
+  align-items: flex-start;
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.qr {
+  flex-shrink: 0;
+  width: 200px;
+  height: 200px;
+  border-radius: var(--radius-md);
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.instruction {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text);
+}
+
+.fingerprintLabel {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* The one thing on this page the user is asked to read character by character,
+   so it gets the mono face and room to breathe rather than being tucked away. */
+.fingerprint {
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
