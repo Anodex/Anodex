@@ -47,4 +47,29 @@ export function registerRemoteHandlers(): void {
     broadcastToWindows(IpcChannel.Remote.statusChanged, status)
     return status
   })
+
+  ipcMain.handle(IpcChannel.Remote.setInternetAccess, async (_event, enabled: boolean) => {
+    try {
+      const status = await remoteService.setInternetAccess(enabled)
+      broadcastToWindows(IpcChannel.Remote.statusChanged, status)
+      return ok(status)
+    } catch (error) {
+      log.error('could not change internet access:', error)
+      return err('remote.internet-failed', toErrorMessage(error))
+    }
+  })
+
+  ipcMain.handle(
+    IpcChannel.Remote.setManualAddress,
+    async (_event, address: string | null, port: number | null) => {
+      try {
+        const status = await remoteService.setManualExternalAddress(address, port)
+        broadcastToWindows(IpcChannel.Remote.statusChanged, status)
+        return ok(status)
+      } catch (error) {
+        log.error('could not save the manual address:', error)
+        return err('remote.manual-address-failed', toErrorMessage(error))
+      }
+    }
+  )
 }

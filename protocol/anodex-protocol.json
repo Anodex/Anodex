@@ -1330,6 +1330,15 @@
       }
     },
     {
+      "channel": "conversations:changed",
+      "kind": "event",
+      "api": "conversations.onChanged",
+      "args": [],
+      "payload": {
+        "kind": "string"
+      }
+    },
+    {
       "channel": "conversations:clear-visual-previews",
       "kind": "invoke",
       "api": "conversations.clearVisualPreviews",
@@ -5858,6 +5867,135 @@
       }
     },
     {
+      "channel": "remote:set-internet-access",
+      "kind": "invoke",
+      "api": "remote.setInternetAccess",
+      "args": [
+        {
+          "name": "enabled",
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "$ref": "RemoteStatus"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "remote:set-manual-address",
+      "kind": "invoke",
+      "api": "remote.setManualAddress",
+      "args": [
+        {
+          "name": "address",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        {
+          "name": "port",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "$ref": "RemoteStatus"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "remote:status",
       "kind": "invoke",
       "api": "remote.status",
@@ -7616,7 +7754,9 @@
       }
     }
   ],
-  "unmappedChannels": ["remote:notification"],
+  "unmappedChannels": [
+    "remote:notification"
+  ],
   "definitions": {
     "AgentRun": {
       "kind": "object",
@@ -19587,6 +19727,10 @@
               },
               {
                 "kind": "literal",
+                "value": "internet"
+              },
+              {
+                "kind": "literal",
                 "value": "virtual"
               }
             ]
@@ -19596,6 +19740,79 @@
           "optional": false,
           "type": {
             "kind": "string"
+          }
+        }
+      }
+    },
+    "RemoteInternetAccess": {
+      "kind": "object",
+      "properties": {
+        "enabled": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "address": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "port": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "source": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "manual"
+              },
+              {
+                "kind": "literal",
+                "value": "none"
+              },
+              {
+                "kind": "literal",
+                "value": "automatic"
+              }
+            ]
+          }
+        },
+        "problem": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
           }
         }
       }
@@ -19746,6 +19963,12 @@
                 "$ref": "RemotePairedDevice"
               }
             ]
+          }
+        },
+        "internet": {
+          "optional": false,
+          "type": {
+            "$ref": "RemoteInternetAccess"
           }
         }
       }

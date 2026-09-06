@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { collectHostAddresses, primaryHostAddress } from './addresses'
 import { join } from 'node:path'
-import type { RemotePairingCode, RemoteStatus } from '@shared/remote.types'
+import type { RemoteInternetAccess, RemotePairingCode, RemoteStatus } from '@shared/remote.types'
+import { MAPPING_LIFETIME_SECONDS, releasePortMapping, requestPortMapping } from './natpmp'
 import QRCode from 'qrcode'
 import { createLogger } from '../utils/logger'
 import { fingerprintOf, generateRemoteCertificate, type RemoteCertificate } from './certificate'
@@ -25,6 +26,17 @@ const DEFAULT_PORT = 47800
 interface PersistedState {
   /** Off by default, and stays off until the user turns it on (§7.1). */
   enabled: boolean
+  /**
+   * Whether the user has asked for this machine to be reachable from the internet.
+   *
+   * Separate from `enabled` on purpose. Turning the listener on exposes it to the
+   * home network; this exposes it to everyone, and the two decisions deserve to be
+   * made separately rather than bundled into one switch.
+   */
+  internetEnabled?: boolean
+  /** A public address the user forwarded themselves, when automatic mapping cannot. */
+  manualExternalAddress?: string
+  manualExternalPort?: number
   /** The port actually in use, so it survives a restart. */
   port?: number
   certPem?: string
@@ -48,6 +60,14 @@ interface PersistedState {
  */
 export class RemoteService {
   private certificate: RemoteCertificate | null = null
+  private internet: RemoteInternetAccess = {
+    enabled: false,
+    address: null,
+    port: null,
+    source: 'none',
+    problem: null
+  }
+  private mappingRenewal: ReturnType<typeof setInterval> | null = null
   private bridge: RemoteBridge | null = null
   private state: PersistedState = { enabled: false }
   private readonly filePath: string
@@ -111,13 +131,143 @@ export class RemoteService {
             pairedAtEpochMs: device.pairedAtEpochMs,
             lastSeenEpochMs: device.lastSeenEpochMs
           }
-        : null
+        : null,
+      internet: this.internet
     }
   }
 
+  /**
+   * Ask for, or give up, a route in from the internet.
+   *
+   * Tries the router first. Where that is refused - and it very often is, because
+   * NAT-PMP and UPnP are off by default on a lot of routers - the user can forward
+   * the port themselves and type the address in, which works everywhere and needs
+   * nothing of anyone else's running.
+   */
+  async setInternetAccess(enabled: boolean): Promise<RemoteStatus> {
+    this.state.internetEnabled = enabled
+    this.persist()
+
+    if (!enabled) {
+      await this.releaseMapping()
+      this.internet = { enabled: false, address: null, port: null, source: 'none', problem: null }
+      return this.status()
+    }
+
+    await this.acquireInternetRoute()
+    return this.status()
+  }
+
+  /**
+   * Record a public address the user forwarded by hand.
+   *
+   * Trusted as given: only the router knows what it was configured to do, and a
+   * wrong value costs a failed connection attempt rather than anything unsafe -
+   * the pairing handshake is what decides who may talk, not the address.
+   */
+  async setManualExternalAddress(
+    address: string | null,
+    port: number | null
+  ): Promise<RemoteStatus> {
+    this.state.manualExternalAddress = address?.trim() || undefined
+    this.state.manualExternalPort = port ?? undefined
+    this.persist()
+
+    if (this.state.internetEnabled) await this.acquireInternetRoute()
+    return this.status()
+  }
+
+  private async acquireInternetRoute(): Promise<void> {
+    const port = this.bridge?.port
+    if (!port) {
+      this.internet = {
+        enabled: true,
+        address: null,
+        port: null,
+        source: 'none',
+        problem: 'Turn remote access on first.'
+      }
+      return
+    }
+
+    // A manually forwarded port wins. The user configured their own router, which
+    // is better evidence than anything this can infer.
+    if (this.state.manualExternalAddress) {
+      this.internet = {
+        enabled: true,
+        address: this.state.manualExternalAddress,
+        port: this.state.manualExternalPort ?? port,
+        source: 'manual',
+        problem: null
+      }
+      return
+    }
+
+    const result = await requestPortMapping(port)
+    if (result.ok) {
+      this.internet = {
+        enabled: true,
+        address: result.mapping.externalAddress,
+        port: result.mapping.externalPort,
+        source: 'automatic',
+        problem: null
+      }
+      this.startMappingRenewal(port)
+      log.info(`internet route: ${result.mapping.externalAddress}:${result.mapping.externalPort}`)
+      return
+    }
+
+    this.internet = {
+      enabled: true,
+      address: null,
+      port: null,
+      source: 'none',
+      problem: result.failure.message
+    }
+    log.warn('could not open a port automatically:', result.failure.reason)
+  }
+
+  /**
+   * Keep the mapping alive while the listener runs.
+   *
+   * The lease is deliberately short so a crash leaves the router closing the hole
+   * on its own, which means it has to be renewed - well before it expires, since a
+   * renewal that lands late is a window in which the phone simply cannot connect.
+   */
+  private startMappingRenewal(port: number): void {
+    this.stopMappingRenewal()
+    const interval = setInterval(
+      () => {
+        void requestPortMapping(port)
+      },
+      (MAPPING_LIFETIME_SECONDS / 2) * 1000
+    )
+    interval.unref?.()
+    this.mappingRenewal = interval
+  }
+
+  private stopMappingRenewal(): void {
+    if (this.mappingRenewal) clearInterval(this.mappingRenewal)
+    this.mappingRenewal = null
+  }
+
+  private async releaseMapping(): Promise<void> {
+    this.stopMappingRenewal()
+    const port = this.bridge?.port
+    // Withdrawn rather than left to expire: a hole that outlives the program which
+    // asked for it is what gives automatic port forwarding its bad name.
+    if (port && this.internet.source === 'automatic') await releasePortMapping(port)
+  }
+
   async setEnabled(enabled: boolean): Promise<RemoteStatus> {
-    if (enabled) await this.start()
-    else await this.stop()
+    if (enabled) {
+      await this.start()
+      if (this.state.internetEnabled) await this.acquireInternetRoute()
+    } else {
+      await this.releaseMapping()
+      this.internet = { enabled: false, address: null, port: null, source: 'none', problem: null }
+      await this.stop()
+    }
 
     this.state.enabled = enabled
     this.persist()
@@ -177,14 +327,22 @@ export class RemoteService {
   }
 
   async shutdown(): Promise<void> {
+    await this.releaseMapping()
     await this.stop()
+  }
+
+  /** The public address, if there is one, for the phone's address list. */
+  externalAddress(): string | null {
+    return this.internet.enabled ? this.internet.address : null
   }
 
   private async start(): Promise<void> {
     if (this.bridge?.listening) return
 
     const certificate = await this.ensureCertificate()
-    const bridge = new RemoteBridge(this.pairing, certificate)
+    const bridge = new RemoteBridge(this.pairing, certificate, undefined, () =>
+      this.externalAddress()
+    )
 
     // Prefer the port we used last time, so a paired phone finds us where it left
     // us. Falling back to an ephemeral one keeps a clash with some other program

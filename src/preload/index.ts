@@ -140,7 +140,8 @@ const api: AnodexApi = {
     readVisualPreview: (conversationId, assetId) =>
       ipcRenderer.invoke(IpcChannel.Conversations.readVisualPreview, conversationId, assetId),
     getVisualPreviewUsage: () => ipcRenderer.invoke(IpcChannel.Conversations.getVisualPreviewUsage),
-    clearVisualPreviews: () => ipcRenderer.invoke(IpcChannel.Conversations.clearVisualPreviews)
+    clearVisualPreviews: () => ipcRenderer.invoke(IpcChannel.Conversations.clearVisualPreviews),
+    onChanged: (listener) => subscribe<string>(IpcChannel.Conversations.changed, listener)
   },
   windowControls: {
     minimize: () => ipcRenderer.invoke(IpcChannel.Window.minimize),
@@ -317,6 +318,10 @@ const api: AnodexApi = {
     beginPairing: () => ipcRenderer.invoke(IpcChannel.Remote.beginPairing),
     cancelPairing: () => ipcRenderer.invoke(IpcChannel.Remote.cancelPairing),
     revoke: () => ipcRenderer.invoke(IpcChannel.Remote.revoke),
+    setInternetAccess: (enabled) =>
+      ipcRenderer.invoke(IpcChannel.Remote.setInternetAccess, enabled),
+    setManualAddress: (address, port) =>
+      ipcRenderer.invoke(IpcChannel.Remote.setManualAddress, address, port),
     onStatusChanged: (listener) =>
       subscribe<RemoteStatus>(IpcChannel.Remote.statusChanged, listener)
   },
