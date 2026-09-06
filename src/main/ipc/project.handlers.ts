@@ -1,5 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { broadcastToWindows } from '../broadcast'
+import { hasInflightGeneration } from '../chat/inflightGenerations'
 import type { CreateProjectRequest, UpdateProjectRequest } from '@shared/project.types'
 import { projectStore } from '../projects/ProjectStore'
 import { createLogger } from '../utils/logger'
@@ -61,8 +63,24 @@ export function registerProjectHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.Projects.setActive, (_event, id: string | null) => {
+    // There is one active project and it is global state: `setActive` writes
+    // `settings.workspace.root`. Switching mid-generation pulls the workspace out
+    // from under a live turn, which is breakage rather than a surprise — and it
+    // matters most when the switch came from a phone, because nobody is watching
+    // the machine it happens on (§10.1).
+    if (hasInflightGeneration()) {
+      throw new Error(
+        'Anodex is working on something right now. Wait for it to finish before switching project.'
+      )
+    }
+
     try {
-      return projectStore.setActive(id)
+      const state = projectStore.setActive(id)
+
+      // A switch can now come from a phone, so the desktop has to be told rather
+      // than assuming it was the one that asked. Never swap silently (§10.1).
+      broadcastToWindows(IpcChannel.Projects.changed, state)
+      return state
     } catch (error) {
       log.error('Failed to set active project:', id, error)
       throw new Error('Could not set active project.')
