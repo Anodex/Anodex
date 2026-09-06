@@ -481,6 +481,13 @@ export const IpcChannel = {
     setInternetAccess: 'remote:set-internet-access',
     /** Record a public address the user forwarded on their router by hand. */
     setManualAddress: 'remote:set-manual-address',
+    /**
+     * Choose the port the listener binds.
+     *
+     * Settable because forwarding by hand is the only way in on most home
+     * connections, and some routers restrict which ports may be forwarded.
+     */
+    setPort: 'remote:set-port',
     /** main → renderer: the listener or the paired device changed. */
     statusChanged: 'remote:status-changed',
     /**
@@ -954,6 +961,7 @@ export interface AnodexApi {
     setInternetAccess(enabled: boolean): Promise<Result<RemoteStatus>>
     /** Pass nulls to forget the address and fall back to asking the router. */
     setManualAddress(address: string | null, port: number | null): Promise<Result<RemoteStatus>>
+    setPort(port: number): Promise<Result<RemoteStatus>>
     onStatusChanged(listener: (status: RemoteStatus) => void): () => void
   }
   mcp: {

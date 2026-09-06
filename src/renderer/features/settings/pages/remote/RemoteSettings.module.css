@@ -176,6 +176,44 @@
   border-radius: var(--radius-md);
 }
 
+.internetConfirmed {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--success);
+}
+
+.internetHint {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* The port sits in a SettingRow's control slot, so it has to stay compact. */
+.portRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.portRow input {
+  width: 6rem;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.portRow input:focus {
+  border-color: var(--border-focus);
+}
+
 .internetProblem {
   margin: var(--space-3) 0 0;
   font-size: var(--text-sm);

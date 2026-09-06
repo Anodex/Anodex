@@ -45,6 +45,15 @@ export interface RemoteHostAddress {
 
 /** How the listener is reachable from outside the home network, if at all. */
 export interface RemoteInternetAccess {
+  /**
+   * When a paired phone last connected from outside this network.
+   *
+   * The only confirmation available without asking somebody else's server
+   * whether the port is open. A connection whose peer address is public came in
+   * through the router, which is exactly the thing the user is trying to verify —
+   * so the phone doubles as the outside prober, and no third party is involved.
+   */
+  lastReachedFromOutsideEpochMs?: number
   /** Off by default, and separate from turning the listener on. */
   enabled: boolean
   /**

@@ -322,6 +322,7 @@ const api: AnodexApi = {
       ipcRenderer.invoke(IpcChannel.Remote.setInternetAccess, enabled),
     setManualAddress: (address, port) =>
       ipcRenderer.invoke(IpcChannel.Remote.setManualAddress, address, port),
+    setPort: (port) => ipcRenderer.invoke(IpcChannel.Remote.setPort, port),
     onStatusChanged: (listener) =>
       subscribe<RemoteStatus>(IpcChannel.Remote.statusChanged, listener)
   },
