@@ -21,11 +21,50 @@
   border-radius: var(--radius-lg);
 }
 
-.qr {
+/* A white plate around the code. The QR itself must be dark-on-light to be
+   readable at all, so rather than fight that, it is presented as a card. */
+.qrButton {
   flex-shrink: 0;
+  padding: var(--space-2);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: zoom-in;
+}
+
+.qr {
+  display: block;
   width: 200px;
   height: 200px;
-  border-radius: var(--radius-md);
+}
+
+.qrOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.86);
+  cursor: zoom-out;
+}
+
+/* As large as the window allows. A dense code read across a desk needs every
+   pixel, and this is the one moment the rest of the screen does not matter. */
+.qrLarge {
+  width: min(78vh, 78vw);
+  height: min(78vh, 78vw);
+  padding: var(--space-4);
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+}
+
+.qrOverlayHint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .details {
