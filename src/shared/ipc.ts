@@ -251,6 +251,14 @@ export const IpcChannel = {
     restore: 'projects:restore',
     deletePermanent: 'projects:delete-permanent',
     setActive: 'projects:set-active',
+    /**
+     * main → renderer: the active project changed.
+     *
+     * Broadcast because the change can now originate from a paired phone, and the
+     * desktop must visibly reflect a remotely-initiated switch rather than
+     * swapping the workspace under whoever is sitting at it (§10.1).
+     */
+    changed: 'projects:changed',
     openFolder: 'projects:open-folder'
   },
   Backup: {
@@ -643,6 +651,8 @@ export interface AnodexApi {
     deletePermanent(id: string): Promise<void>
     setActive(id: string | null): Promise<ProjectsState>
     openFolder(id: string): Promise<void>
+    /** Fires when the active project changes, including from a paired phone. */
+    onChanged(listener: (state: ProjectsState) => void): () => void
   }
   backup: {
     /**

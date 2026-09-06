@@ -142,6 +142,23 @@ export function useAnodexBridge(): void {
         scheduleTokenFlush()
       }
     )
+    // The active project can now be changed from a paired phone, so the desktop
+    // has to be told rather than assuming it was the one that asked. Swapping the
+    // workspace under whoever is sitting here without saying so would be the worst
+    // version of this feature (§10.1).
+    const offProjectChanged = anodex.projects.onChanged((state) => {
+      useProjectStore.setState({
+        projects: state.projects,
+        activeProjectId: state.activeProjectId
+      })
+      const project = state.projects.find((p) => p.id === state.activeProjectId)
+      useUiStore.getState().notify({
+        kind: 'info',
+        title: project ? `Switched to ${project.name}` : 'Project closed',
+        message: 'Changed from your phone.'
+      })
+    })
+
     const offEngine = anodex.models.onStateChanged((state) =>
       useModelStore.getState().setEngineState(state)
     )
@@ -255,6 +272,7 @@ export function useAnodexBridge(): void {
       if (tokenFlushHandle !== null) cancelAnimationFrame(tokenFlushHandle)
       offStream()
       offThinkingStream()
+      offProjectChanged()
       offEngine()
       offDownloadProgress()
       offToolActivity()
