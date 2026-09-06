@@ -21,6 +21,7 @@ export type SettingsSection =
   | 'email'
   | 'github'
   | 'mcp'
+  | 'remote'
   | 'ai-models'
   | 'diagnostics'
   | 'about'

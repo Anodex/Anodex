@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { networkInterfaces } from 'node:os'
 import type { RemotePairingCode, RemoteStatus } from '@shared/remote.types'
+import QRCode from 'qrcode'
 import { createLogger } from '../utils/logger'
 import { fingerprintOf, generateRemoteCertificate, type RemoteCertificate } from './certificate'
 import { PairingService, type PairedDevice, type PairedDeviceStore } from './pairing'
@@ -104,7 +105,7 @@ export class RemoteService {
    * the two sides cannot drift on field names without the phone's strict parser
    * rejecting it loudly.
    */
-  beginPairing(): RemotePairingCode | null {
+  async beginPairing(): Promise<RemotePairingCode | null> {
     if (!this.bridge?.listening || !this.certificate) return null
 
     const session = this.pairing.beginPairing()
@@ -119,9 +120,19 @@ export class RemoteService {
       e: String(Math.floor(session.expiresAtEpochMs / 1000))
     })
 
+    const uri = `anodex://pair?${params.toString()}`
+
     return {
-      uri: `anodex://pair?${params.toString()}`,
+      uri,
       fingerprint: this.certificate.sha256,
+      // Rendered from `uri` itself, so what the phone scans and what the desktop
+      // believes it showed cannot drift apart.
+      qrDataUrl: await QRCode.toDataURL(uri, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        width: 320,
+        color: { dark: '#f0f0f0', light: '#111111' }
+      }),
       expiresAtEpochMs: session.expiresAtEpochMs
     }
   }
