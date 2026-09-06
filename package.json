@@ -2,7 +2,7 @@
   "name": "anodex",
   "version": "0.1.0",
   "private": true,
-  "description": "Anodex \u2014 a local-first AI assistant for coding help and general chat.",
+  "description": "Anodex — a local-first AI assistant for coding help and general chat.",
   "author": "Anodex",
   "license": "UNLICENSED",
   "main": "./out/main/index.js",
@@ -52,8 +52,10 @@
     "nodemailer": "^9.0.3",
     "openai": "^6.46.0",
     "pdfjs-dist": "^4.10.38",
+    "selfsigned": "^5.5.0",
     "undici": "^6.27.0",
     "use-sync-external-store": "^1.6.0",
+    "ws": "^8.21.3",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
@@ -67,6 +69,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.6",
