@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron'
+import { activeRemoteClients } from './clients/clientRegistry'
 
 /**
  * Frame-disposal-safe IPC delivery to renderer windows.
@@ -27,7 +28,20 @@ export function sendToWindow(window: BrowserWindow, channel: string, ...args: un
   }
 }
 
-/** Broadcast an IPC message to every open renderer window, frame-disposal safe. */
+/**
+ * Broadcast an IPC message to every attached client, frame-disposal safe.
+ *
+ * "Every client" now includes a paired phone, not only renderer windows. Fanning
+ * out here rather than at each call site means every existing broadcaster gets
+ * remote delivery without changing — one file, and the phone stops being a
+ * second place every future feature has to be remembered in.
+ *
+ * The name is kept for its callers' sake; it is a window-plus-remote broadcast.
+ * Remote clients take a single payload rather than Electron's variadic `args`,
+ * because a wire frame carries one payload — every caller in this codebase
+ * passes exactly one, and the rest are dropped rather than silently mangled.
+ */
 export function broadcastToWindows(channel: string, ...args: unknown[]): void {
   for (const window of BrowserWindow.getAllWindows()) sendToWindow(window, channel, ...args)
+  for (const client of activeRemoteClients()) client.send(channel, args[0])
 }
