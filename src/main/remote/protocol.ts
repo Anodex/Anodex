@@ -62,6 +62,26 @@ export type ServerFrame =
  */
 export const MAX_FRAME_BYTES = 256 * 1024
 
+/**
+ * The most this machine will send in one frame.
+ *
+ * Separate from, and larger than, `MAX_FRAME_BYTES`, because a *reply* legitimately
+ * carries more than a request: a file's contents, a conversation's history. What it
+ * must never carry is everything at once.
+ *
+ * This exists because it did. `conversations:list` returns every conversation with
+ * every message, and against a real store that was 123MB of JSON. The phone has a
+ * 256MB heap, OkHttp buffers a WebSocket message whole, and the process died with
+ * `OutOfMemoryError` inside the socket reader — which is not catchable and takes the
+ * app with it. From the user's side that looked like "it won't connect", because the
+ * connection succeeded and the app vanished a second later.
+ *
+ * The channels that caused it are fixed separately. This is the guard that makes the
+ * *class* of failure impossible: no reply, from any handler added at any point in the
+ * future, can be large enough to kill the client that asked for it.
+ */
+export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+
 export type ParsedFrame =
   { ok: true; frame: ClientFrame } | { ok: false; code: string; message: string }
 

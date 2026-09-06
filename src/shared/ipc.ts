@@ -42,7 +42,7 @@ import type {
   ProjectsState,
   UpdateProjectRequest
 } from './project.types'
-import type { Conversation, ConversationState } from './conversation.types'
+import type { Conversation, ConversationState, ConversationSummary } from './conversation.types'
 import type { BackupResult, ConversationExportFormat } from './backup.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
 import type { SupportBundleExportResult, SupportBundlePreview } from './supportBundle.types'
@@ -271,6 +271,16 @@ export const IpcChannel = {
   },
   Conversations: {
     list: 'conversations:list',
+    /**
+     * Every conversation, without its messages.
+     *
+     * `list` returns the entire store, which is fine in-process and fatal over a
+     * socket — a real store runs to hundreds of megabytes and a phone cannot buffer
+     * that. Anything listing conversations should prefer this.
+     */
+    listSummaries: 'conversations:list-summaries',
+    /** One conversation, with the most recent `limit` messages. */
+    get: 'conversations:get',
     /**
      * main → renderer: a conversation was saved by someone other than this window.
      *
@@ -706,6 +716,14 @@ export interface AnodexApi {
   }
   conversations: {
     list(): Promise<Conversation[]>
+    listSummaries(): Promise<ConversationSummary[]>
+    /**
+     * One conversation, trimmed to its most recent messages.
+     *
+     * `limit` is a cap, not a page: a phone wants the end of the transcript, and the
+     * beginning of a long one is both large and rarely what was asked for.
+     */
+    get(conversationId: string, limit?: number): Promise<Conversation | null>
     listArchived(): Promise<Conversation[]>
     save(conversation: Conversation): Promise<void>
     delete(id: string): Promise<void>
