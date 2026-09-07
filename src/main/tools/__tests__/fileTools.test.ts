@@ -18,6 +18,7 @@ import {
 } from '../fileTools'
 import { previewHtmlTool } from '../previewTools'
 import {
+  BULK_FS_TEST_TIMEOUT_MS,
   captureCalls,
   captureConfirmations,
   createMockContext,
@@ -75,44 +76,52 @@ describe('AI file tools', () => {
       expect(result).toContain('(empty)')
     })
 
-    it('caps a very large directory listing at 300 entries with an overflow note', async () => {
-      // Short directory names (no "(N bytes)" suffix) keep the whole listing
-      // under the shared 4000-char model-result cap in `runReadTool`, so the
-      // entry cap's own overflow note is actually observable here rather than
-      // being sliced away by that separate, lower-level truncation layer.
-      await Promise.all(
-        Array.from({ length: 350 }, (_, i) =>
-          mkdir(join(workspace, `d${String(i).padStart(4, '0')}`))
+    it(
+      'caps a very large directory listing at 300 entries with an overflow note',
+      async () => {
+        // Short directory names (no "(N bytes)" suffix) keep the whole listing
+        // under the shared 4000-char model-result cap in `runReadTool`, so the
+        // entry cap's own overflow note is actually observable here rather than
+        // being sliced away by that separate, lower-level truncation layer.
+        await Promise.all(
+          Array.from({ length: 350 }, (_, i) =>
+            mkdir(join(workspace, `d${String(i).padStart(4, '0')}`))
+          )
         )
-      )
-      const ctx = createMockContext(workspace)
-      const tool = listDirectoryTool(createMockDefine(), ctx) as unknown as {
-        handler: (args: { path?: string }) => Promise<string>
-      }
+        const ctx = createMockContext(workspace)
+        const tool = listDirectoryTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path?: string }) => Promise<string>
+        }
 
-      const result = await tool.handler({})
+        const result = await tool.handler({})
 
-      expect(result).toContain('… 50 more')
-      expect(result.split('\n').filter((l) => l.endsWith('/'))).toHaveLength(300)
-    })
+        expect(result).toContain('… 50 more')
+        expect(result.split('\n').filter((l) => l.endsWith('/'))).toHaveLength(300)
+      },
+      BULK_FS_TEST_TIMEOUT_MS
+    )
 
-    it('reports the true total entry count even when the listing itself is capped', async () => {
-      const capture = captureCalls()
-      await Promise.all(
-        Array.from({ length: 350 }, (_, i) =>
-          mkdir(join(workspace, `d${String(i).padStart(4, '0')}`))
+    it(
+      'reports the true total entry count even when the listing itself is capped',
+      async () => {
+        const capture = captureCalls()
+        await Promise.all(
+          Array.from({ length: 350 }, (_, i) =>
+            mkdir(join(workspace, `d${String(i).padStart(4, '0')}`))
+          )
         )
-      )
-      const ctx = { ...createMockContext(workspace), emit: capture.emit }
-      const tool = listDirectoryTool(createMockDefine(), ctx) as unknown as {
-        handler: (args: { path?: string }) => Promise<string>
-      }
+        const ctx = { ...createMockContext(workspace), emit: capture.emit }
+        const tool = listDirectoryTool(createMockDefine(), ctx) as unknown as {
+          handler: (args: { path?: string }) => Promise<string>
+        }
 
-      await tool.handler({})
+        await tool.handler({})
 
-      const success = capture.calls.find((c) => c.status === 'success')
-      expect(success?.detail).toBe('350 entries')
-    })
+        const success = capture.calls.find((c) => c.status === 'success')
+        expect(success?.detail).toBe('350 entries')
+      },
+      BULK_FS_TEST_TIMEOUT_MS
+    )
   })
 
   describe('read_file', () => {
