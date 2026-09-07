@@ -9421,6 +9421,20 @@
             ]
           }
         },
+        "persona": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "$ref": "MessagePersona"
+              }
+            ]
+          }
+        },
         "memoryUsed": {
           "optional": true,
           "type": {
@@ -18163,6 +18177,59 @@
           "optional": false,
           "type": {
             "kind": "boolean"
+          }
+        }
+      }
+    },
+    "MessagePersona": {
+      "kind": "object",
+      "properties": {
+        "id": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "tint": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "accent"
+              },
+              {
+                "kind": "literal",
+                "value": "violet"
+              },
+              {
+                "kind": "literal",
+                "value": "green"
+              },
+              {
+                "kind": "literal",
+                "value": "series-1"
+              },
+              {
+                "kind": "literal",
+                "value": "series-2"
+              },
+              {
+                "kind": "literal",
+                "value": "series-3"
+              },
+              {
+                "kind": "literal",
+                "value": "series-4"
+              }
+            ]
           }
         }
       }
