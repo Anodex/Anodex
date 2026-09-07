@@ -96,7 +96,31 @@ export const DENIED_CHANNELS = [
 export const ALLOWED_CHANNELS = [
   /** Read-only. Feeds the phone's connection header — which model, how full (§8). */
   'models:get-state',
-  'models:state-changed'
+  'models:state-changed',
+
+  /**
+   * Switching between models that are already on the machine.
+   *
+   * The line is *acquiring* versus *choosing*. Downloading is a multi-gigabyte
+   * write to somebody else's disk, picked from a search of the open internet, and
+   * it stays at the machine — `models:add`, `models:download`, `models:discover`,
+   * `models:fetch-top-models` and `models:add-vision-projector` remain denied by
+   * the prefix, as does `models:delete`, which is destructive and irreversible.
+   *
+   * Choosing among what is already there is the ordinary thing somebody wants from
+   * the sofa, and it is bounded: the set was assembled deliberately at the desk,
+   * and the worst case is the wrong model out of that set being loaded.
+   *
+   * `models:load` does take minutes and does move the machine out from under
+   * anyone sitting at it. That is a real cost, and it is the same cost the desk
+   * pays when it loads a model — a phone is not doing anything here the person
+   * holding it could not do by walking over.
+   *
+   * `models:unload` is deliberately not here. It only takes capability away, and
+   * loading a different model already covers every reason to want it.
+   */
+  'models:list',
+  'models:load'
 ] as const
 
 export type RemoteChannelDecision =

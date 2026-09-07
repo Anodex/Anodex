@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { allChatPersonalities } from '@shared/chatPersonality'
 import type { RemotePersonalityState } from '@shared/personality.types'
 import { broadcastToWindows } from '../broadcast'
 import { isRemoteCall } from '../clients/clientRegistry'
@@ -32,7 +33,7 @@ export function registerPersonalityHandlers(): void {
     // meaningful — it selects the free-text style instead of a named personality —
     // so it cannot simply be rejected as absent.
     if (id !== null) {
-      const known = settingsStore.get().assistantStyle.personalities
+      const known = allChatPersonalities(settingsStore.get().assistantStyle.personalities)
       if (!known.some((personality) => personality.id === id)) {
         throw new Error('No personality with that id.')
       }
@@ -54,12 +55,21 @@ export function registerPersonalityHandlers(): void {
   })
 }
 
-/** What a phone needs to draw the chooser, and nothing it does not. */
+/**
+ * What a phone needs to draw the chooser, and nothing it does not.
+ *
+ * `allChatPersonalities`, not `assistantStyle.personalities`. That field holds only
+ * the user's *own* entries and is empty on a fresh install — the shipped ones live
+ * in code. Reading it directly is why the phone's picker was empty on every machine
+ * where nobody had written a personality by hand, and why selecting the default
+ * would have been refused as an unknown id: it is `builtin:anodex`, which that list
+ * has never contained.
+ */
 function stateOf(): RemotePersonalityState {
   const { assistantStyle } = settingsStore.get()
   return {
     active: assistantStyle.activePersonalityId,
-    personalities: assistantStyle.personalities.map((personality) => ({
+    personalities: allChatPersonalities(assistantStyle.personalities).map((personality) => ({
       id: personality.id,
       name: personality.name,
       // A personality the user made themselves need not have a one-liner. Empty

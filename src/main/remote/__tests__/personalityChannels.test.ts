@@ -34,7 +34,10 @@ describe('the personality channels', () => {
       IpcChannel.Memory.list,
       IpcChannel.Remote.setEnabled,
       IpcChannel.Terminal.create,
-      IpcChannel.Models.load
+      // Was `models:load` until switching models from a phone was allowed
+      // deliberately — see `modelSwitching.test.ts`, which draws that line. Delete
+      // is the one that stayed refused: it destroys a file for good.
+      IpcChannel.Models.delete
     ]) {
       expect(decideRemoteChannel(channel).allowed, channel).toBe(false)
     }
