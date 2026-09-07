@@ -19,7 +19,8 @@ import {
 } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
 import { computerControlService } from '../computerControl/ComputerControlService'
-import { resolveClientChannel } from '../clients/clientRegistry'
+import { isRemoteCall, resolveClientChannel } from '../clients/clientRegistry'
+import { rehydrateUploadedImage } from '../remote/uploadStore'
 
 const log = createLogger('ipc:chat')
 
@@ -35,7 +36,13 @@ export function abortAllChatGenerations(): void {
 
 /** IPC handlers for streaming chat generation and stopping it. */
 export function registerChatHandlers(): void {
-  ipcMain.handle(IpcChannel.Chat.send, async (event, request: ChatRequest) => {
+  ipcMain.handle(IpcChannel.Chat.send, async (event, rawRequest: ChatRequest) => {
+    // A phone refers to an image it uploaded by the path it landed on, rather than
+    // sending the bytes a second time as base64 in this request. Filled in here so
+    // the runner downstream sees an ordinary turn and knows nothing about where the
+    // picture came from.
+    const request = isRemoteCall(event) ? await withUploadedImages(rawRequest) : rawRequest
+
     const controller = new AbortController()
     registerGeneration(request.conversationId, controller)
 
@@ -157,4 +164,24 @@ export function registerChatHandlers(): void {
   ipcMain.handle(IpcChannel.Chat.replaySuggestion, (_event, request: ChatReplaySuggestionRequest) =>
     llamaService.generateReplaySuggestion(request)
   )
+}
+
+/**
+ * Turn a remote turn's uploaded image paths into image inputs.
+ *
+ * Only files the phone actually uploaded, and only ones that still look like the
+ * image they claim to be — `rehydrateUploadedImage` refuses anything outside the
+ * upload directory, so a path in a request is a request rather than a fact.
+ *
+ * Anything that does not resolve is dropped rather than failing the turn. A picture
+ * that cannot be read is a worse reason to lose the question attached to it.
+ */
+async function withUploadedImages(request: ChatRequest): Promise<ChatRequest> {
+  const files = request.userFiles ?? []
+  if (files.length === 0 || (request.images?.length ?? 0) > 0) return request
+
+  const rehydrated = await Promise.all(files.map((file) => rehydrateUploadedImage(file.path)))
+  const images = rehydrated.filter((image) => image !== null)
+
+  return images.length > 0 ? { ...request, images } : request
 }

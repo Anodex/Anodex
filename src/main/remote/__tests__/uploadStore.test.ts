@@ -16,6 +16,7 @@ const {
   beginUpload,
   finishUpload,
   pendingUploadCount,
+  rehydrateUploadedImage,
   safeDisplayName,
   uploadDirectory
 } = await import('../uploadStore')
@@ -145,6 +146,28 @@ describe('uploads from a phone', () => {
     expect(safeDisplayName('a/b\\c.txt')).toBe('a b c.txt')
     expect(safeDisplayName('   ')).toBe('Attachment')
     expect(safeDisplayName('x'.repeat(400)).length).toBe(120)
+  })
+
+  it('rehydrates an uploaded image so its bytes need not travel twice', async () => {
+    const bytes = png()
+    const started = await beginUpload({ name: 'shot.png', sizeBytes: bytes.length })
+    if (!started.ok) throw new Error('setup')
+    await acceptChunk(started.id, bytes.toString('base64'))
+    const done = await finishUpload(started.id)
+    if (!done.ok) throw new Error('setup')
+
+    const image = await rehydrateUploadedImage(done.path)
+    expect(image?.mimeType).toBe('image/png')
+    expect(image?.dataUrl.startsWith('data:image/png;base64,')).toBe(true)
+    expect(image?.sizeBytes).toBe(bytes.length)
+  })
+
+  it('will not rehydrate a path outside the upload directory', async () => {
+    // A path in a chat request is a request, not a fact. This is the check that
+    // stops one naming any readable file on the machine and getting it back as
+    // base64 in the next turn.
+    expect(await rehydrateUploadedImage('/etc/passwd')).toBeNull()
+    expect(await rehydrateUploadedImage(join(userData.path, '..', 'elsewhere.png'))).toBeNull()
   })
 
   it('refuses a chunk for an upload that was never opened', async () => {
