@@ -113,3 +113,30 @@ export function splitEvidenceMarker(result: string): [string, string | null] {
 export async function warmPdfParser(): Promise<void> {
   await import('pdfjs-dist/legacy/build/pdf.mjs')
 }
+
+/**
+ * Per-test budget for a test that creates hundreds of real directories or
+ * files before it asserts anything.
+ *
+ * Vitest's default `testTimeout` is 5000ms. That is a wide margin for the work
+ * itself — the 350-directory `list_directory` tests measure 126-152ms locally
+ * on Windows and 659ms on a `windows-latest` runner — but the runner's tail is
+ * nothing like its median. CI run 34072751546 timed out at 5000ms on
+ * `fileTools.test.ts` "reports the true total entry count even when the listing
+ * itself is capped" while ubuntu and macOS passed, and the very next attempt
+ * ran the whole 60-test file in 946ms. Defender scanning every create on a
+ * shared runner is the difference, and no assertion in these tests depends on
+ * how long the setup took.
+ *
+ * The cheaper lever is already spent. `workspaceContext.test.ts` hit this same
+ * timeout and fixed it by writing its 500 files concurrently instead of in an
+ * awaited loop; the `fileTools` tests were written concurrent from the start
+ * and still blew the budget. What is left to give is the budget itself.
+ *
+ * Applied per test rather than as a global `testTimeout`, for the same reason
+ * `warmPdfParser` exists: four tests need this, and raising the default would
+ * cost the other 4478 their ability to fail fast on a real hang. A hang does
+ * not finish in 30 seconds either, so nothing here hides one — it only stops a
+ * slow runner from being reported as a broken build.
+ */
+export const BULK_FS_TEST_TIMEOUT_MS = 30_000
