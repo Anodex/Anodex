@@ -4,6 +4,7 @@ import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ModelLoadOptions } from '@shared/model.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
+import { resolveModelContextSize } from '@shared/modelContextSize'
 import { llamaService } from '../llama/LlamaService'
 import { clearLoadRecovery, getLoadRecovery } from '../llama/loadSentinel'
 import { describeModel, isVisionProjectorFileName, scanModels } from '../llama/modelScanner'
@@ -99,8 +100,25 @@ export function registerModelHandlers(): void {
     try {
       const info = describeModel(options.path)
       if (!info) return err('models.not-found', 'The selected model file no longer exists.')
+
+      // Filled in when the caller did not say, which today means a phone: it has
+      // no access to `settings:` and could not resolve these if it wanted to. The
+      // renderer always sends both, so this changes nothing for it — the point is
+      // that loading a model from the sofa gives the same engine as loading it at
+      // the desk, rather than silently falling back to the model's own defaults
+      // and quietly ignoring a context size chosen for this machine.
+      const settings = settingsStore.get()
+      const contextSize =
+        options.contextSize ?? resolveModelContextSize(settings, options.path, undefined)
+      const gpuLayers = options.gpuLayers ?? settings.model.gpuLayers
+
       const state = await llamaService.loadModel(
-        { ...options, visionProjectorPath: info.visionProjectorPath },
+        {
+          ...options,
+          contextSize,
+          gpuLayers,
+          visionProjectorPath: info.visionProjectorPath
+        },
         info
       )
       settingsStore.update({ lastModelPath: options.path })
