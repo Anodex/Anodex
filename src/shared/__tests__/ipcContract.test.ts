@@ -74,14 +74,27 @@ describe('IPC channel names', () => {
 })
 
 /**
- * Channels main pushes to the paired phone and nothing else.
+ * Channels whose audience is the paired phone and nothing else.
  *
- * `RemoteBridge` sends these straight down the socket, so they never pass through
- * preload and never reach the renderer — the desktop has its own path for the same
- * information. Listing them keeps the guard above honest about the difference
- * between "unreachable by mistake" and "not addressed to the renderer".
+ * Two kinds. `Remote.notification` is pushed: `RemoteBridge` sends it straight down
+ * the socket, so it never passes through preload and never reaches the renderer.
+ *
+ * The uploads are the other kind — invoked *by* the phone. The desktop renderer
+ * attaches a file by picking it off its own disk, so it has no reason to chunk one
+ * up and send it to itself; every one of these would be a round trip to fetch bytes
+ * it already has.
+ *
+ * Listing them keeps the guard above honest about the difference between
+ * "unreachable by mistake" and "not addressed to the renderer".
  */
-const PHONE_ONLY = new Set(['Remote.notification'])
+const PHONE_ONLY = new Set([
+  'Remote.notification',
+  'Attachments.beginUpload',
+  'Attachments.uploadChunk',
+  'Attachments.completeUpload',
+  'Attachments.abortUpload',
+  'Attachments.discardUpload'
+])
 
 describe('IPC channel wiring', () => {
   it('has a main-process reference for every declared channel', () => {

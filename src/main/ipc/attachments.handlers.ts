@@ -8,6 +8,13 @@ import {
   type OpenDialogOptions
 } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import {
+  abortUpload,
+  acceptChunk,
+  beginUpload,
+  discardUpload,
+  finishUpload
+} from '../remote/uploadStore'
 import { ok, err, toErrorMessage } from '@shared/result'
 import {
   hasExpectedVisionImageSignature,
@@ -155,5 +162,69 @@ export function registerAttachmentHandlers(): void {
     } catch (error) {
       return err('attachments.read-failed', 'Could not read that file.', toErrorMessage(error))
     }
+  })
+
+  registerUploadHandlers()
+}
+
+/**
+ * Taking a file from a paired phone.
+ *
+ * Four steps rather than one call with the bytes in it: a frame is capped at 256KB
+ * and a file worth attaching is bigger than that, so it arrives in pieces. The split
+ * also lets the desktop refuse a file before a single byte is sent — a name and a
+ * size are enough to know that a 40MB `.zip` is not going to be accepted.
+ *
+ * Every rule about what is allowed lives in `uploadStore`, not here. This is the
+ * doorway; the checks are the room.
+ */
+function registerUploadHandlers(): void {
+  ipcMain.handle(
+    IpcChannel.Attachments.beginUpload,
+    async (_event, input: { name: string; sizeBytes: number }) => {
+      const started = await beginUpload({
+        name: String(input?.name ?? ''),
+        sizeBytes: Number(input?.sizeBytes ?? 0)
+      })
+
+      return started.ok ? ok({ id: started.id }) : err('attachments.upload-refused', started.reason)
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannel.Attachments.uploadChunk,
+    async (_event, input: { id: string; data: string }) => {
+      const taken = await acceptChunk(String(input?.id ?? ''), String(input?.data ?? ''))
+
+      return taken.ok
+        ? ok({ received: taken.received })
+        : err('attachments.upload-failed', taken.reason)
+    }
+  )
+
+  ipcMain.handle(IpcChannel.Attachments.completeUpload, async (_event, input: { id: string }) => {
+    const done = await finishUpload(String(input?.id ?? ''))
+    if (!done.ok) return err('attachments.upload-failed', done.reason)
+
+    // Shaped as the renderer's own attachment, so a file from a phone is the same
+    // kind of thing as one dropped on the window and nothing downstream has to
+    // know where it came from.
+    return ok({
+      path: done.path,
+      name: done.name,
+      sizeBytes: done.sizeBytes,
+      kind: done.mimeType ? ('image' as const) : ('text' as const),
+      ...(done.mimeType ? { mimeType: done.mimeType } : {})
+    })
+  })
+
+  ipcMain.handle(IpcChannel.Attachments.abortUpload, async (_event, input: { id: string }) => {
+    await abortUpload(String(input?.id ?? ''))
+    return ok(null)
+  })
+
+  ipcMain.handle(IpcChannel.Attachments.discardUpload, async (_event, path: string) => {
+    await discardUpload(String(path ?? ''))
+    return ok(null)
   })
 }
