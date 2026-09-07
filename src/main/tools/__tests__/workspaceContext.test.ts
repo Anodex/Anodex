@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectMemory } from '@shared/projectMemory.types'
+import { BULK_FS_TEST_TIMEOUT_MS } from './test-helpers'
 
 const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }))
 vi.mock('../../projects/ProjectMemoryStore', () => ({
@@ -96,18 +97,23 @@ describe('buildWorkspaceContext', () => {
     expect(context).not.toContain('.git')
   })
 
-  it('caps the output length', async () => {
-    // Written concurrently, not in an awaited loop. Five hundred sequential
-    // writes fit inside vitest's 5s default on a warm machine and do not on a
-    // cold Windows CI runner, where this timed out and turned the whole build
-    // red on a docs-only commit. Same files, same assertion, no wall clock in
-    // the result.
-    await Promise.all(
-      Array.from({ length: 500 }, (_, i) => writeFile(join(workspace, `file-${i}.txt`), 'x'))
-    )
-    const context = buildWorkspaceContext(workspace, null)
-    expect(context.length).toBeLessThanOrEqual(2002)
-  })
+  it(
+    'caps the output length',
+    async () => {
+      // Written concurrently, not in an awaited loop. Five hundred sequential
+      // writes fit inside vitest's 5s default on a warm machine and do not on a
+      // cold Windows CI runner, where this timed out and turned the whole build
+      // red on a docs-only commit. Same files, same assertion, no wall clock in
+      // the result. Concurrency alone was not enough for the equally bulky
+      // `list_directory` tests, so this also carries `BULK_FS_TEST_TIMEOUT_MS`.
+      await Promise.all(
+        Array.from({ length: 500 }, (_, i) => writeFile(join(workspace, `file-${i}.txt`), 'x'))
+      )
+      const context = buildWorkspaceContext(workspace, null)
+      expect(context.length).toBeLessThanOrEqual(2002)
+    },
+    BULK_FS_TEST_TIMEOUT_MS
+  )
 
   it('returns empty string for a missing workspace', () => {
     expect(buildWorkspaceContext(join(workspace, 'does-not-exist'), null)).toBe('')
@@ -250,22 +256,26 @@ describe('buildWorkspaceContext', () => {
     expect(context).not.toContain('living spec')
   })
 
-  it('keeps SPEC.md even when a large top-level tree would otherwise fill the whole budget', async () => {
-    // Concurrent for the same reason as `caps the output length` above.
-    await Promise.all(
-      Array.from({ length: 500 }, (_, i) => writeFile(join(workspace, `file-${i}.txt`), 'x'))
-    )
-    await mkdir(join(workspace, '.anodex'), { recursive: true })
-    await writeFile(
-      join(workspace, '.anodex', 'SPEC.md'),
-      '# Project spec\n\n## Add dark mode\n\nUsers asked for it.\n'
-    )
+  it(
+    'keeps SPEC.md even when a large top-level tree would otherwise fill the whole budget',
+    async () => {
+      // Concurrent for the same reason as `caps the output length` above.
+      await Promise.all(
+        Array.from({ length: 500 }, (_, i) => writeFile(join(workspace, `file-${i}.txt`), 'x'))
+      )
+      await mkdir(join(workspace, '.anodex'), { recursive: true })
+      await writeFile(
+        join(workspace, '.anodex', 'SPEC.md'),
+        '# Project spec\n\n## Add dark mode\n\nUsers asked for it.\n'
+      )
 
-    const context = buildWorkspaceContext(workspace, null)
+      const context = buildWorkspaceContext(workspace, null)
 
-    expect(context).toContain('living spec')
-    expect(context).toContain('Add dark mode')
-  })
+      expect(context).toContain('living spec')
+      expect(context).toContain('Add dark mode')
+    },
+    BULK_FS_TEST_TIMEOUT_MS
+  )
 
   it('keeps SPEC.md even when a long README would otherwise fill the whole budget', async () => {
     await writeFile(join(workspace, 'README.md'), 'x'.repeat(5000))
