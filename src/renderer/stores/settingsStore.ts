@@ -9,6 +9,15 @@ interface SettingsState {
   loaded: boolean
   load: () => Promise<void>
   update: (patch: SettingsPatch) => Promise<void>
+  /**
+   * Take settings changed somewhere else — currently only a paired phone.
+   *
+   * Not `load()`, because this arrives with the new settings already in hand and a
+   * refetch would race whatever the user is editing here. It also bumps the update
+   * revision, so an in-flight local `update()` does not land afterwards and put the
+   * old value back.
+   */
+  applyExternal: (settings: AppSettings) => void
 }
 
 let updateRevision = 0
@@ -45,6 +54,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const onStartup = !get().loaded
     const settings = await anodex.settings.get()
     configureDiagnostics(settings.diagnostics, onStartup)
+    set({ settings, loaded: true })
+  },
+
+  applyExternal: (settings) => {
+    updateRevision++
+    configureDiagnostics(settings.diagnostics)
     set({ settings, loaded: true })
   },
 

@@ -8,6 +8,7 @@ import { registerModelHandlers } from './model.handlers'
 import { registerConversationHandlers } from './conversation.handlers'
 import { registerBackupHandlers } from './backup.handlers'
 import { registerProjectHandlers } from './project.handlers'
+import { registerPersonalityHandlers } from './personality.handlers'
 import { registerSettingsHandlers } from './settings.handlers'
 import { registerProviderHandlers } from './provider.handlers'
 import { registerSystemHandlers } from './system.handlers'
@@ -50,6 +51,7 @@ export function registerIpcHandlers(): void {
 
   registerModelHandlers()
   registerChatHandlers()
+  registerPersonalityHandlers()
   registerSettingsHandlers()
   registerProviderHandlers()
   registerProjectHandlers()

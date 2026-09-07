@@ -5529,6 +5529,40 @@
       }
     },
     {
+      "channel": "personality:list",
+      "kind": "invoke",
+      "api": "personality.list",
+      "args": [],
+      "result": {
+        "$ref": "RemotePersonalityState"
+      }
+    },
+    {
+      "channel": "personality:set-active",
+      "kind": "invoke",
+      "api": "personality.setActive",
+      "args": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "$ref": "RemotePersonalityState"
+      }
+    },
+    {
       "channel": "projects:archive",
       "kind": "invoke",
       "api": "projects.archive",
@@ -6242,6 +6276,15 @@
       ],
       "result": {
         "$ref": "ScheduledTask"
+      }
+    },
+    {
+      "channel": "settings:changed",
+      "kind": "event",
+      "api": "settings.onChanged",
+      "args": [],
+      "payload": {
+        "$ref": "AppSettings"
       }
     },
     {
@@ -20068,6 +20111,93 @@
           "optional": false,
           "type": {
             "kind": "number"
+          }
+        }
+      }
+    },
+    "RemotePersonality": {
+      "kind": "object",
+      "properties": {
+        "id": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "role": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "tint": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "accent"
+              },
+              {
+                "kind": "literal",
+                "value": "violet"
+              },
+              {
+                "kind": "literal",
+                "value": "green"
+              },
+              {
+                "kind": "literal",
+                "value": "series-1"
+              },
+              {
+                "kind": "literal",
+                "value": "series-2"
+              },
+              {
+                "kind": "literal",
+                "value": "series-3"
+              },
+              {
+                "kind": "literal",
+                "value": "series-4"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "RemotePersonalityState": {
+      "kind": "object",
+      "properties": {
+        "active": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "personalities": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "$ref": "RemotePersonality"
+            }
           }
         }
       }

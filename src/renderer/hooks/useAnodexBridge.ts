@@ -166,6 +166,14 @@ export function useAnodexBridge(): void {
       void useChatStore.getState().load()
     })
 
+    // A phone can change the personality. Without this the desktop keeps showing
+    // whichever one was selected when this window opened, which is the same bug
+    // conversations had — a change made on the phone not existing here until a
+    // restart.
+    const offSettingsChanged = anodex.settings.onChanged((settings) => {
+      useSettingsStore.getState().applyExternal(settings)
+    })
+
     const offEngine = anodex.models.onStateChanged((state) =>
       useModelStore.getState().setEngineState(state)
     )
@@ -281,6 +289,7 @@ export function useAnodexBridge(): void {
       offThinkingStream()
       offProjectChanged()
       offConversationChanged()
+      offSettingsChanged()
       offEngine()
       offDownloadProgress()
       offToolActivity()
