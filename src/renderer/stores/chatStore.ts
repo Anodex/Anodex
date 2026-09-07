@@ -1,7 +1,15 @@
 import { create } from 'zustand'
 import { activeMaxResponseTokens } from '@shared/maxResponseTokens'
 import { immer } from 'zustand/middleware/immer'
-import type { ChatAttachment, ChatMessage, HistoryCompactionEvent } from '@shared/chat.types'
+import type {
+  ChatAttachment,
+  ChatMessage,
+  HistoryCompactionEvent,
+  MessagePersona
+} from '@shared/chat.types'
+import { findChatPersonality } from '@shared/chatPersonality'
+import { personalityDisplayName } from '../components/ui/personalityIdentity'
+import type { AppSettings } from '@shared/settings.types'
 import type {
   CheckpointPreview,
   CheckpointSummary,
@@ -747,7 +755,11 @@ export const useChatStore = create<ChatState>()(
           role: 'assistant',
           content: '',
           createdAt: now,
-          streaming: true
+          streaming: true,
+          // Recorded now, not read at render time. The personality is one global
+          // setting, so labelling an old reply from the current selection relabels
+          // the whole transcript whenever it changes.
+          persona: activePersonaFor(useSettingsStore.getState().settings)
         })
         if (convo.title === DEFAULT_TITLE) convo.title = fallbackTitle
         convo.updatedAt = now
@@ -1574,4 +1586,23 @@ function editedFilesForAssistantMessage(conversation: Conversation, messageId: s
 function deriveTitle(text: string): string {
   const firstLine = text.split('\n')[0].trim()
   return firstLine.length > 44 ? `${firstLine.slice(0, 44)}…` : firstLine || DEFAULT_TITLE
+}
+
+/**
+ * The personality in force right now, as a message should record it.
+ *
+ * Undefined when nothing is selected, which is the free-text style rather than a
+ * character — that renders as the default voice, and recording a name for it would
+ * be inventing one.
+ */
+function activePersonaFor(settings: AppSettings | null): MessagePersona | undefined {
+  const style = settings?.assistantStyle
+  const active = findChatPersonality(style?.personalities, style?.activePersonalityId)
+  if (!active) return undefined
+
+  return {
+    id: active.id,
+    name: personalityDisplayName(active),
+    tint: active.tint ?? 'accent'
+  }
 }

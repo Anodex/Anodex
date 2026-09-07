@@ -1,5 +1,6 @@
 /** Types describing chat messages and the streaming generation protocol. */
 
+import type { PersonalityTint } from './chatPersonality'
 import type { ToolCall } from './tools.types'
 import type { Plan } from './plan.types'
 import type { MemoryEntry } from './memory.types'
@@ -140,6 +141,19 @@ export type MessageBlock =
   | { type: 'thinking'; text: string }
 
 /** A single turn in a conversation, as stored by the renderer. */
+/**
+ * The personality a message was written under.
+ *
+ * A copy rather than a reference. The id alone would break the moment somebody
+ * renamed or deleted a personality, and the point of recording this is to still
+ * know months later who said something.
+ */
+export interface MessagePersona {
+  id: string
+  name: string
+  tint: PersonalityTint
+}
+
 export interface ChatMessage {
   id: string
   role: ChatRole
@@ -175,6 +189,18 @@ export interface ChatMessage {
   blocks?: MessageBlock[]
   /** Files the user dropped into the composer for this turn, for display only. */
   attachments?: ChatAttachment[]
+  /**
+   * Who answered, recorded when the turn was sent.
+   *
+   * Per message, not per view. The active personality is a single global setting,
+   * so reading the *current* one to label an *old* reply relabels the whole
+   * transcript every time it changes — which is worst precisely when somebody is
+   * looking to find out which one said a thing.
+   *
+   * Absent on everything written before this existed, and on a turn sent with no
+   * character selected. Both render as the default voice rather than as a guess.
+   */
+  persona?: MessagePersona
   /** Memory entries that were retrieved and injected into context for this turn, if any. */
   memoryUsed?: MemoryEntry[]
   /** Past-conversation excerpts that were retrieved and injected into context for this turn, if any. */
