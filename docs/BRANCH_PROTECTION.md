@@ -24,12 +24,28 @@ hook below is still the only thing enforcing anything.
 
 ### What to create
 
-A ruleset on `main` requiring a pull request and the `Lint, format & typecheck`
-and `Unit tests` checks, blocking force pushes and deletions.
+`docs/ruleset-main.json` next to this file is the definition, ready to apply:
 
-Required _approvals_ should stay at **0**. `Anodex/Anodex` has one maintainer, a
-solo maintainer cannot approve their own pull request, and a non-zero requirement
-would make `main` unmergeable.
+```bash
+gh api -X POST repos/Anodex/Anodex/rulesets --input docs/ruleset-main.json
+```
+
+It requires a pull request and the `Lint, format & typecheck` and three
+`Unit tests` checks, and blocks force pushes and deletions on the default branch.
+
+Two choices in it worth knowing about:
+
+- Required _approvals_ is **0**. `Anodex/Anodex` has one maintainer, a solo
+  maintainer cannot approve their own pull request, and a non-zero requirement
+  would make `main` unmergeable.
+- Repository **admins can bypass** (`actor_id: 5`). That keeps the rule as a
+  guard against the failure that actually happens — pushing to `main` out of
+  habit — without locking the maintainer out of a hotfix or a version bump. Drop
+  the `bypass_actors` block for hard enforcement, and expect to route every
+  change, including one-line chores, through a pull request afterwards.
+
+The mobile repo takes the same shape with a single required check, `Assemble and
+test`.
 
 Once a ruleset is in place, `.husky/pre-push` becomes redundant and the
 `ANODEX_ALLOW_MAIN_PUSH` escape hatch becomes a lie — the server would refuse the
