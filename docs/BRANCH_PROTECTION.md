@@ -4,23 +4,42 @@ Changes reach `main` through a pull request, so CI (`.github/workflows/ci.yml`)
 runs lint, formatting, typecheck, unit tests, and a build on all three platforms
 before the change lands.
 
-## Why this is a local hook, not a GitHub rule
+## Server-side rules are now available
 
-GitHub's branch protection and repository rulesets are not available for a
-private repository on the free plan. Both REST endpoints answer:
+They were not when this was written. GitHub's branch protection and rulesets are
+free on **public** repositories, and are refused on private ones on the free
+plan:
 
 ```
 403 Upgrade to GitHub Pro or make this repository public to enable this feature.
 ```
 
-`Anodex/Anodex` is private by design, and the `Anodex` org is on the free plan,
-so the server-side rule cannot be created today. `.husky/pre-push` →
-`scripts/guard-main-push.mjs` is what can be enforced at no cost.
+`Anodex/Anodex` became public on 2026-09-06, so the option this document used to
+rule out is the one that is available — at no cost, and without moving the org to
+a paid plan.
 
-## What the hook actually buys
+**This has not been turned on yet.** Enabling it changes how everyone with push
+access works, so it is a decision rather than a cleanup. Until it is, the local
+hook below is still the only thing enforcing anything.
 
-It is a speed bump against pushing to `main` out of habit — the failure that
-actually happens — and not a security control:
+### What to create
+
+A ruleset on `main` requiring a pull request and the `Lint, format & typecheck`
+and `Unit tests` checks, blocking force pushes and deletions.
+
+Required _approvals_ should stay at **0**. `Anodex/Anodex` has one maintainer, a
+solo maintainer cannot approve their own pull request, and a non-zero requirement
+would make `main` unmergeable.
+
+Once a ruleset is in place, `.husky/pre-push` becomes redundant and the
+`ANODEX_ALLOW_MAIN_PUSH` escape hatch becomes a lie — the server would refuse the
+push the hook just waved through. Remove both in the same change.
+
+## The local hook, until then
+
+`.husky/pre-push` → `scripts/guard-main-push.mjs` is a speed bump against pushing
+to `main` out of habit — the failure that actually happens — and not a security
+control:
 
 - it only applies to clones that have run `npm install` (which installs husky);
 - `git push --no-verify` bypasses it;
@@ -37,18 +56,3 @@ For a genuine direct push — a hotfix, a revert of a bad merge:
 ```bash
 ANODEX_ALLOW_MAIN_PUSH=1 git push
 ```
-
-## Getting real enforcement
-
-Server-side rules need one of:
-
-- **GitHub Team** on the `Anodex` org (paid) — keeps the repo private and
-  enables rulesets; or
-- **GitHub Pro** on a user-owned private repo (paid); or
-- making the repository public, which is not appropriate here.
-
-With any of those, create a ruleset on `main` requiring a pull request and the
-`Lint, format & typecheck` and `Unit tests` checks, and blocking force pushes
-and deletions. Note that `Anodex/Anodex` currently has one collaborator, so
-required _approvals_ should stay at 0 — a solo maintainer cannot approve their
-own pull request, and a non-zero requirement would make `main` unmergeable.
