@@ -16,7 +16,7 @@ import type {
   CriticalThinkingStreamChunk
 } from '@shared/criticalThinking.types'
 import type { McpServerState } from '@shared/mcp.types'
-import type { DiagnosticEntry } from '@shared/settings.types'
+import type { DiagnosticEntry, AppSettings } from '@shared/settings.types'
 import type { ProjectsState } from '@shared/project.types'
 import type { RemoteStatus } from '@shared/remote.types'
 
@@ -69,7 +69,12 @@ const api: AnodexApi = {
     onUsageChanged: (listener) =>
       subscribe<ProviderUsageSnapshot>(IpcChannel.Provider.usageChanged, listener)
   },
+  personality: {
+    list: () => ipcRenderer.invoke(IpcChannel.Personality.list),
+    setActive: (id) => ipcRenderer.invoke(IpcChannel.Personality.setActive, id)
+  },
   settings: {
+    onChanged: (listener) => subscribe<AppSettings>(IpcChannel.Settings.changed, listener),
     get: () => ipcRenderer.invoke(IpcChannel.Settings.get),
     update: (patch) => ipcRenderer.invoke(IpcChannel.Settings.update, patch),
     openModelsDir: () => ipcRenderer.invoke(IpcChannel.Settings.openModelsDir),
