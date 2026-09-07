@@ -336,9 +336,7 @@ export async function uploadSizeOnDisk(path: string): Promise<number> {
  * Only ever reads inside the upload directory, and only files that still pass the
  * signature check. A path from a remote caller is a request, not a fact.
  */
-export async function rehydrateUploadedImage(
-  path: string
-): Promise<{
+export async function rehydrateUploadedImage(path: string): Promise<{
   path: string
   name: string
   mimeType: string
