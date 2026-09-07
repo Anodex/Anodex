@@ -367,7 +367,20 @@ export const IpcChannel = {
   Attachments: {
     readFile: 'attachments:read-file',
     pickFiles: 'attachments:pick-files',
-    pickImage: 'attachments:pick-image'
+    pickImage: 'attachments:pick-image',
+    /**
+     * Taking a file from a paired phone, in four steps.
+     *
+     * Separate channels rather than one call with the bytes in it: a frame is
+     * capped at 256KB, and a file worth attaching is bigger than that. The split
+     * also means the desktop can refuse before a byte is sent.
+     */
+    beginUpload: 'attachments:begin-upload',
+    uploadChunk: 'attachments:upload-chunk',
+    completeUpload: 'attachments:complete-upload',
+    abortUpload: 'attachments:abort-upload',
+    /** Delete an accepted upload whose message was never sent. */
+    discardUpload: 'attachments:discard-upload'
   },
   Toast: {
     /** Show a themed desktop toast in its own always-on-top window. */
