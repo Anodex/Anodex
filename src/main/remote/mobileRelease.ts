@@ -3,19 +3,20 @@
  *
  * ## Why the desktop is the one that knows
  *
- * Neither end can ask GitHub. `Anodex/Anodex` is private, so checking its releases
- * from an installed app needs a credential, and a credential shipped inside a
- * distributed binary is not a secret — the app has to be able to unlock it, so
- * anyone holding the app can follow the same path. That was decided for the
- * desktop's own updater and the reasoning applies unchanged to a phone.
+ * Originally because nothing could ask GitHub: both repositories were private, and
+ * a credential shipped inside a distributed binary is not a secret. Both are public
+ * now, and the phone does read its own releases directly — see `update/Releases.kt`
+ * over there. So this is no longer the only signal, and it is worth being clear
+ * about what it is still for.
  *
- * So nothing calls out. The desktop simply knows what it shipped with, and tells
- * the paired phone during the handshake. The phone compares it against its own
- * build and says so if it is behind.
+ * It answers a different question. GitHub knows what *exists*; this knows what *this
+ * computer was tested against*, which is what "up to date" ought to mean between two
+ * halves of one product talking over a versioned protocol — a phone running ahead of
+ * the machine it drives is not obviously a good thing.
  *
- * That makes "up to date" mean *matched to this desktop*, which is the more useful
- * meaning anyway: the two talk over a versioned protocol, and a phone newer than
- * the computer it drives is not obviously a good thing.
+ * It is also the only one that works when the phone can reach the desktop and not
+ * much else, which is a real case rather than a hypothetical: a LAN with the phone's
+ * mobile data off.
  *
  * ## Keeping it honest
  *
