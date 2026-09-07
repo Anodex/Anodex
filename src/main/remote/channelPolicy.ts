@@ -70,9 +70,20 @@ export const DENIED_CHANNEL_PREFIXES = [
 /**
  * Specific channels denied where the whole group is not.
  *
- * These open a native dialog on the *host* — a file picker, a save sheet — which
- * from a phone means a window appearing on a computer in another room, in front
- * of nobody, blocking whatever asked for it.
+ * Three kinds of thing, all of which assume somebody is sitting at the machine.
+ *
+ * The first opens a native dialog on the *host* — a file picker, a save sheet —
+ * which from a phone means a window appearing on a computer in another room, in
+ * front of nobody, blocking whatever asked for it.
+ *
+ * The second opens a window or hands a file to another program. `workspace:open-path`
+ * is the sharp one: it is `shell.openPath`, which launches a file in whatever
+ * application the OS associates with it. Bounded to the workspace, but a workspace
+ * containing a `.bat` or a `.lnk` makes that arbitrary execution triggered from a
+ * phone, and nothing about it is visible to the person holding the phone.
+ *
+ * The third destroys something. `workspace:delete-path` is irreversible and there is
+ * no undo waiting on the other end.
  */
 export const DENIED_CHANNELS = [
   'attachments:pick-files',
@@ -82,7 +93,18 @@ export const DENIED_CHANNELS = [
   'backup:pick-file',
   'backup:pick-directory',
   'critical-thinking:export-pdf',
-  'diagnostics:reveal-log'
+  'diagnostics:reveal-log',
+
+  // Runs a program on the host, chosen by file association.
+  'workspace:open-path',
+
+  // Opens a window on a screen nobody is looking at.
+  'workspace:reveal-in-explorer',
+  'workspace:open-html-preview-window',
+  'workspace:refresh-html-preview-window',
+
+  // Irreversible, from a device that gets left on tables.
+  'workspace:delete-path'
 ] as const
 
 /**
