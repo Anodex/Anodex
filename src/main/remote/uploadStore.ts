@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { open, mkdir, rename, rm, stat, type FileHandle } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { open, mkdir, readFile, rename, rm, stat, type FileHandle } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
 import { app } from 'electron'
 import {
   hasExpectedVisionImageSignature,
@@ -324,4 +324,47 @@ async function sweepStale(): Promise<void> {
 /** For tests: how large an accepted upload actually is on disk. */
 export async function uploadSizeOnDisk(path: string): Promise<number> {
   return (await stat(path)).size
+}
+
+/**
+ * Turn an uploaded image into something a vision model can look at.
+ *
+ * A phone sends the file once and then refers to it by the path it landed on. Without
+ * this, an image attached from away would have to travel a second time as base64 in
+ * the chat request — the same megabytes back up a link that just carried them.
+ *
+ * Only ever reads inside the upload directory, and only files that still pass the
+ * signature check. A path from a remote caller is a request, not a fact.
+ */
+export async function rehydrateUploadedImage(
+  path: string
+): Promise<{
+  path: string
+  name: string
+  mimeType: string
+  dataUrl: string
+  sizeBytes: number
+} | null> {
+  if (!path.startsWith(uploadDirectory())) return null
+
+  const mimeType = visionImageMimeType(path)
+  if (!mimeType) return null
+
+  try {
+    const info = await stat(path)
+    if (!info.isFile() || info.size <= 0) return null
+
+    const bytes = await readFile(path)
+    if (!hasExpectedVisionImageSignature(path, bytes)) return null
+
+    return {
+      path,
+      name: basename(path),
+      mimeType,
+      dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+      sizeBytes: info.size
+    }
+  } catch {
+    return null
+  }
 }
