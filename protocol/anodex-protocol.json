@@ -7903,6 +7903,11 @@
     }
   ],
   "unmappedChannels": [
+    "attachments:abort-upload",
+    "attachments:begin-upload",
+    "attachments:complete-upload",
+    "attachments:discard-upload",
+    "attachments:upload-chunk",
     "remote:notification"
   ],
   "definitions": {
