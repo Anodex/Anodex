@@ -26,7 +26,7 @@
  * date when a newer build exists — but the whole feature is worthless if nobody
  * trusts it, so treat a stale value as a bug rather than a nit.
  */
-export const EXPECTED_MOBILE_VERSION = '0.36.0'
+export const EXPECTED_MOBILE_VERSION = '0.37.0'
 
 /**
  * Whether `candidate` is older than `reference`, by dotted numeric parts.
