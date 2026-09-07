@@ -32,9 +32,13 @@ export type ServerFrame =
       /**
        * The phone build this desktop shipped alongside.
        *
-       * Sent because neither end can ask GitHub: the repository is private, and a
-       * credential inside a distributed app is not a secret. The desktop knows what
-       * it was released with, so it says so and the phone compares.
+       * The desktop knows what it was released with, so it says so and the phone
+       * compares. This makes "up to date" mean *matched to this computer* — the more
+       * useful meaning, since the two talk over a versioned protocol and a phone
+       * running ahead of the machine it drives is not obviously a good thing.
+       *
+       * It also works before the phone has any internet beyond the LAN, which is a
+       * real case: a desktop reachable at home while the phone's data is off.
        */
       mobileVersion: string
     }
