@@ -87,7 +87,16 @@ export class RemoteBridge {
      * which is the only confirmation the user can get that their port forwarding
      * works without asking somebody else's server to look.
      */
-    private readonly onPeer: (address: string | undefined) => void = () => {}
+    private readonly onPeer: (address: string | undefined) => void = () => {},
+    /**
+     * Where the client says it reached this machine.
+     *
+     * Reported only after authentication, for the same reason as `onPeer`: an
+     * unauthenticated stranger is a port scanner, and letting one name the address
+     * this machine hands out to its own phone would be taking directions from
+     * whoever knocked.
+     */
+    private readonly onReachedAt: (address: string | undefined) => void = () => {}
   ) {}
 
   /** Whether the listener is currently accepting connections. */
@@ -209,6 +218,7 @@ export class RemoteBridge {
           }
           clearTimeout(handshakeTimer)
           client = this.attach(socket, auth.device.deviceId, peerAddress)
+          this.onReachedAt(frame.reachedAt)
           this.send(socket, {
             type: 'welcome',
             deviceId: auth.device.deviceId,
@@ -229,6 +239,7 @@ export class RemoteBridge {
           }
           clearTimeout(handshakeTimer)
           client = this.attach(socket, outcome.device.deviceId, peerAddress)
+          this.onReachedAt(frame.reachedAt)
           this.send(socket, {
             type: 'paired',
             deviceKey: outcome.deviceKey,
