@@ -182,12 +182,17 @@ export function MessageBubble({
    */
   const showBubble = !isUser || message.content.trim().length > 0 || Boolean(message.error)
 
-  // The active personality, when one is selected. Free-text guidance is not a
-  // character and keeps the Anodex byline.
-  const persona = useSettingsStore((state) => {
+  // What the message itself recorded, first. The active selection is only the
+  // fallback for turns written before that was kept — reading the current one for
+  // every message relabels the whole transcript whenever it changes, which is worst
+  // exactly when somebody is looking to find out which personality said a thing.
+  //
+  // Free-text guidance is not a character and keeps the Anodex byline.
+  const selected = useSettingsStore((state) => {
     const style = state.settings?.assistantStyle
     return findChatPersonality(style?.personalities, style?.activePersonalityId)
   })
+  const persona = message.persona ?? selected
   const personaName = persona ? personalityDisplayName(persona) : 'Anodex'
   const firstWorkBlockIndex = timeline.findIndex((block) => block.type === 'work')
   // The tail of a streaming message always carries an unobtrusive live status.
