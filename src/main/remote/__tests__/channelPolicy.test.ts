@@ -43,8 +43,12 @@ describe('remote channel policy', () => {
     expect(decideRemoteChannel('models:state-changed').allowed).toBe(true)
   })
 
-  it('still refuses the models: channels that do something', () => {
-    for (const channel of ['models:load', 'models:delete', 'models:download', 'models:add']) {
+  it('still refuses the models: channels that acquire or destroy', () => {
+    // `models:load` used to be in this list. Switching between models already on
+    // the machine was allowed deliberately — see `modelSwitching.test.ts`, which
+    // draws the line and pins both sides of it. What stayed refused is anything
+    // that writes gigabytes to someone else's disk or removes a file for good.
+    for (const channel of ['models:delete', 'models:download', 'models:add']) {
       expect(decideRemoteChannel(channel).allowed).toBe(false)
     }
   })
