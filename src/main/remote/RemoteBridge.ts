@@ -11,6 +11,7 @@ import {
 import { collectHostAddresses } from './addresses'
 import { EXPECTED_MOBILE_VERSION } from './mobileRelease'
 import { decideRemoteChannel } from './channelPolicy'
+import { hostname } from 'node:os'
 import { handlerFor, type IpcHandler } from './handlerRegistry'
 import type { RemoteCertificate } from './certificate'
 import type { PairingService } from './pairing'
@@ -213,7 +214,8 @@ export class RemoteBridge {
             deviceId: auth.device.deviceId,
             protocolVersion: PROTOCOL_VERSION,
             addresses: this.reachableAddresses(),
-            mobileVersion: EXPECTED_MOBILE_VERSION
+            mobileVersion: EXPECTED_MOBILE_VERSION,
+            hostName: hostname()
           })
           return
         }
@@ -235,7 +237,8 @@ export class RemoteBridge {
             // Sent at pairing as well as at every reconnect, so a phone paired on
             // the LAN already knows every other route before it first leaves home.
             addresses: this.reachableAddresses(),
-            mobileVersion: EXPECTED_MOBILE_VERSION
+            mobileVersion: EXPECTED_MOBILE_VERSION,
+            hostName: hostname()
           })
           return
         }

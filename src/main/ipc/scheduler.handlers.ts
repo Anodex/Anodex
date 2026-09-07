@@ -14,7 +14,16 @@ const log = createLogger('ipc:scheduler')
 
 /** IPC handlers for scheduled task management. */
 export function registerSchedulerHandlers(): void {
-  ipcMain.handle(IpcChannel.Scheduler.list, () => schedulerStore.list())
+  ipcMain.handle(IpcChannel.Scheduler.list, () => {
+    const tasks = schedulerStore.list()
+    // Logged because a phone showing an empty scheduler and a computer holding a
+    // task could not be told apart from either end: the handler answers the same
+    // way whether it was never asked or asked and had nothing. One line here names
+    // which, and costs nothing — this is read when somebody opens a screen, not in
+    // any loop.
+    log.info(`scheduler:list answered with ${tasks.length} task(s)`)
+    return tasks
+  })
 
   ipcMain.handle(IpcChannel.Scheduler.create, (_event, request: CreateScheduledTaskRequest) => {
     try {
