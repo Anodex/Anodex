@@ -43,6 +43,7 @@ import type {
   UpdateProjectRequest
 } from './project.types'
 import type { Conversation, ConversationState, ConversationSummary } from './conversation.types'
+import type { RemotePersonalityState } from './personality.types'
 import type { BackupResult, ConversationExportFormat } from './backup.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
 import type { SupportBundleExportResult, SupportBundlePreview } from './supportBundle.types'
@@ -194,9 +195,31 @@ export const IpcChannel = {
     /** main → renderer broadcast whenever a cloud provider's usage snapshot changes. */
     usageChanged: 'provider:usage-changed'
   },
+  /**
+   * Choosing how Anodex answers.
+   *
+   * Its own prefix rather than part of `settings:`, which is denied to a paired
+   * phone as a whole and should stay that way — that one carries the permission
+   * mode, the MCP servers and the model directory. The personality changes the
+   * wording of a system prompt and nothing else, so it gets a door its own size.
+   */
+  Personality: {
+    /** Every personality and which is in force. Read-only, safe to expose. */
+    list: 'personality:list',
+    /** Set the active one. Null selects the free-text style instead. */
+    setActive: 'personality:set-active'
+  },
   Settings: {
     get: 'settings:get',
     update: 'settings:update',
+    /**
+     * main → renderer: settings changed somewhere other than this window.
+     *
+     * Only fires for a change that came from a paired phone. A renderer that made
+     * the change already knows, and echoing it back would fight its own state
+     * mid-edit — the same rule `conversations:changed` follows, for the same reason.
+     */
+    changed: 'settings:changed',
     openModelsDir: 'settings:open-models-dir',
     /** Pick a picture for an assistant personality and copy it into userData. */
     pickPersonalityImage: 'settings:pick-personality-image',
@@ -637,7 +660,13 @@ export interface AnodexApi {
     getUsageSnapshot(): Promise<Partial<Record<CloudProviderId, ProviderUsageSnapshot>>>
     onUsageChanged(listener: (snapshot: ProviderUsageSnapshot) => void): () => void
   }
+  personality: {
+    list(): Promise<RemotePersonalityState>
+    setActive(id: string | null): Promise<RemotePersonalityState>
+  }
   settings: {
+    /** main → renderer: settings were changed by a paired phone. */
+    onChanged(listener: (settings: AppSettings) => void): () => void
     get(): Promise<AppSettings>
     update(patch: SettingsPatch): Promise<AppSettings>
     openModelsDir(): Promise<void>
