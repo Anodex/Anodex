@@ -295,18 +295,63 @@ the bad case is noticing during a release.
 
 `.github/workflows/package.yml` triggers on `tags: ['v*']` and runs
 `npm run dist -- --publish always`. So the tag _is_ the release trigger — push
-it and the three platform builds publish themselves.
+it and the three platform builds package themselves into a **draft** release.
+
+A draft is where they stop. Publishing is a separate, deliberate step that
+happens after the installers are signed; see below.
 
 Two settings exist because their absence produced a release that looked correct
 and did nothing:
 
-- `releaseType: release` in `electron-builder.yml`. electron-builder drafts by
-  default, and **a draft release is invisible to electron-updater** — the whole
-  chain runs against something no client can see, and every install goes on
-  reporting that it is up to date.
+- `releaseType: draft` in `electron-builder.yml`. **A draft release is invisible
+  to electron-updater.** That was once the bug — the whole chain ran against
+  something no client could see, and every install went on reporting it was up
+  to date. It is now the mechanism: invisibility is exactly what you want in the
+  window between "the installers exist" and "the installers are signed".
 - `latest.yml` must be published beside the installer. That file, not the
   installer, is what the updater reads. Builds used to upload as workflow
   artifacts, which only somebody already inside the repository can reach.
+
+### Signing it
+
+Every installer is signed with the Anodex release key, and an install refuses an
+update it cannot verify. This is the step that makes an update trustworthy
+rather than merely intact.
+
+The distinction is worth being precise about. `latest.yml` carries a sha512 for
+each installer, but that hash travels in the same GitHub release as the
+installer — it catches corruption in transit and nothing else. Anyone able to
+write to a release can replace both halves, and before signing existed every
+install would have accepted the result. The Ed25519 signature is what makes that
+substitution fail, because the private key is not in the repository, not in CI,
+and not reachable by any token that can write a release.
+
+After CI finishes and the draft release has all three installers:
+
+```
+gh release download v0.2.2 --dir dist --pattern '*.exe' --pattern '*.dmg' --pattern '*.AppImage'
+npm run release:sign -- --key ~/.anodex/release-signing-key.pem dist/*.exe dist/*.dmg dist/*.AppImage
+gh release upload v0.2.2 dist/*.sig
+gh release edit v0.2.2 --draft=false
+```
+
+Only that last command makes the release visible to anybody's updater.
+
+**The failure mode to know:** publish a release without uploading its `.sig`
+files and every install will refuse the update. That is correct behaviour — the
+check is fail-closed on purpose, because whoever can replace an installer can
+equally delete the signature beside it — but the first time it happens it will
+look exactly like a broken updater. If an install reports "this release carries
+no signature", the release is at fault, not the client.
+
+The key itself is generated once, by `npm run release:keygen`, on the machine
+that cuts releases. Its public half is compiled into the app
+(`src/main/updates/releaseKey.ts`), which is what pins the trust: the copy
+somebody already installed is the thing that judges the update, so reaching the
+release is not enough to forge one. The corollary is that **losing the private
+key cannot be undone by reissuing it** — a new key means shipping a build
+carrying the new public half before anyone can update past it. Back it up
+offline.
 
 ### Release notes are written, not generated
 
