@@ -1,0 +1,87 @@
+/*
+ * Sits where the toasts sit, and deliberately so: the bottom-right corner is
+ * already where this app puts things it wants noticed but not obeyed. Above them
+ * in the stack, because a toast is a report of something that has happened and
+ * this is an offer that is still open.
+ */
+.notice {
+  composes: surface from '../../components/ui/PopoverSurface.module.css';
+  position: fixed;
+  right: var(--space-5);
+  /* Clear of the toast stack, so a toast arriving mid-update does not land on top
+     of the one control here worth clicking. */
+  bottom: calc(var(--space-5) + 64px);
+  z-index: var(--z-popover);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  max-width: 380px;
+}
+
+.icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.body {
+  min-width: 0;
+}
+
+.title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.message {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/*
+ * The one filled control. Everything else in this bar is text or a dismissal, and
+ * the accent is spent on the single thing the notice exists to offer.
+ */
+.action {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--accent-hover);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.close {
+  flex-shrink: 0;
+  display: flex;
+  padding: var(--space-1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.close:hover {
+  color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
