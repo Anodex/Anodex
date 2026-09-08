@@ -17,6 +17,8 @@
     "protocol:check": "node scripts/generate-protocol.mjs --check",
     "dist": "npm run prepare:vision && npm run prepare:desktop-control && electron-vite build && node scripts/package-app.mjs",
     "dist:payload": "electron-builder --win nsis --publish never",
+    "release:keygen": "node scripts/generate-release-key.mjs",
+    "release:sign": "node scripts/sign-release.mjs",
     "prepare:vision": "node scripts/prepare-llama-server.mjs",
     "prepare:desktop-control": "node scripts/prepare-windows-control.mjs",
     "generate-icons": "node scripts/generate-icons.mjs",
