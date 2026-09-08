@@ -167,6 +167,10 @@ function toSummary(conversation: Conversation): ConversationSummary {
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
     messageCount: conversation.messages.length,
-    archived: conversation.archived
+    archived: conversation.archived,
+    // So a caller can tell a chat somebody had from a run the machine did. The
+    // phone's recents list is the reason: without this every scheduled run and
+    // benchmark script sat in it looking exactly like a conversation.
+    origin: conversation.origin
   }
 }
