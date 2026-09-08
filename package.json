@@ -19,6 +19,7 @@
     "dist:payload": "electron-builder --win nsis --publish never",
     "release:keygen": "node scripts/generate-release-key.mjs",
     "release:sign": "node scripts/sign-release.mjs",
+    "release:finish": "node scripts/finish-release.mjs",
     "prepare:vision": "node scripts/prepare-llama-server.mjs",
     "prepare:desktop-control": "node scripts/prepare-windows-control.mjs",
     "generate-icons": "node scripts/generate-icons.mjs",

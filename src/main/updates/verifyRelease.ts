@@ -86,6 +86,7 @@ export interface VerifyUpdateInput {
   /** `files` from the update metadata — the asset names and their hashes. */
   files: UpdateFileInfo[]
   fetchSignature?: (url: string) => Promise<string | null>
+  /** Omit to use the build's key; pass `null` to check as an unkeyed build would. */
   publicKeyPem?: string | null
 }
 
@@ -102,7 +103,11 @@ export interface VerifyUpdateInput {
  * out loud that nothing was verified.
  */
 export async function verifyUpdateFile(input: VerifyUpdateInput): Promise<ReleaseVerdict> {
-  const publicKeyPem = input.publicKeyPem ?? RELEASE_PUBLIC_KEY_PEM
+  // `undefined` means "not supplied, use the build's key"; an explicit `null`
+  // means "there is no key". Collapsing the two with `??` made it impossible to
+  // ask for an unkeyed check once a real key was compiled in.
+  const publicKeyPem =
+    input.publicKeyPem === undefined ? RELEASE_PUBLIC_KEY_PEM : input.publicKeyPem
   if (!publicKeyPem) {
     return {
       verdict: 'unenforced',
