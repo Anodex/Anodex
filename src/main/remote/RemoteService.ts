@@ -44,6 +44,17 @@ interface PersistedState {
   manualExternalAddress?: string
   manualExternalPort?: number
   /**
+   * The identity that was in use before one could not be decrypted.
+   *
+   * Kept rather than discarded because "cannot decrypt" is frequently a fact about
+   * the *process*, not the file — a launch that cannot reach the user's crypto keys
+   * reads exactly like a corrupt key. Overwriting on that reading permanently
+   * invalidates every pairing, and the phone that trusted it has no way back that
+   * does not involve being at the machine.
+   */
+  previousCertPem?: string
+  previousEncryptedKeyPem?: string
+  /**
    * A public address a paired phone reported reaching this machine on.
    *
    * Kept apart from the manual one so the user's own answer is never overwritten by
@@ -532,6 +543,35 @@ export class RemoteService {
         sha256: fingerprintOf(this.state.certPem)
       }
       return this.certificate
+    }
+
+    // An identity that was replaced because it could not be read, and now can be.
+    // That means the earlier failure was about the process rather than the file, so
+    // the original is preferred and every pairing made under it starts working again
+    // without anyone touching a phone.
+    const recovered = this.decrypt(this.state.previousEncryptedKeyPem)
+    if (this.state.previousCertPem && recovered) {
+      log.info('recovered the previous remote identity — earlier pairings work again')
+      this.certificate = {
+        certPem: this.state.previousCertPem,
+        privateKeyPem: recovered,
+        sha256: fingerprintOf(this.state.previousCertPem)
+      }
+      this.state.certPem = this.state.previousCertPem
+      this.state.encryptedKeyPem = this.state.previousEncryptedKeyPem
+      delete this.state.previousCertPem
+      delete this.state.previousEncryptedKeyPem
+      this.persist()
+      return this.certificate
+    }
+
+    // Set aside rather than overwritten, so this is recoverable on a later launch
+    // that can read it. Without this the replacement was final, and a phone away
+    // from home lost its only route back with no way to be told why.
+    if (this.state.certPem && this.state.encryptedKeyPem) {
+      log.warn('keeping the unreadable identity aside in case a later launch can read it')
+      this.state.previousCertPem = this.state.certPem
+      this.state.previousEncryptedKeyPem = this.state.encryptedKeyPem
     }
 
     log.info('generating a new remote identity — any previous pairing is now invalid')
