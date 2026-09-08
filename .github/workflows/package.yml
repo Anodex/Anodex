@@ -22,6 +22,11 @@ on:
   push:
     tags: ['v*']
 
+# Creating the release is a write to the repository, and the default token is
+# read-only for workflows that were not started by a push to a branch.
+permissions:
+  contents: write
+
 jobs:
   # The matrix is computed rather than declared because a job-level `if:`
   # cannot see the `matrix` context — it is evaluated before the matrix
@@ -77,7 +82,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # A tag build publishes; a manual run does not. `--publish always` hands the
+      # installer *and* the `latest*.yml` beside it to a GitHub release, and that
+      # metadata is the part that matters: electron-updater reads it, not the
+      # installer, and without it a release is just a file somebody can download by
+      # hand. Uploading the artifacts to a release afterwards would miss it.
       - name: Package
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm run dist -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package (no publish)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: npm run dist
 
       - name: List what was produced

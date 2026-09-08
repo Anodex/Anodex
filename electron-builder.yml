@@ -11,6 +11,12 @@ publish:
   provider: github
   owner: Anodex
   repo: Anodex
+  # Published outright rather than left as a draft, which is electron-builder's
+  # default. A draft release is invisible to electron-updater, so the whole chain
+  # — check on launch, notice in the app, download, install — would run against a
+  # release nobody could see, and the app would keep reporting no update while one
+  # sat finished on GitHub.
+  releaseType: release
 directories:
   buildResources: build
   output: dist
