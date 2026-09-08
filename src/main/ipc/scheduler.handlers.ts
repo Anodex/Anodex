@@ -4,6 +4,7 @@ import type {
   CreateScheduledTaskRequest,
   UpdateScheduledTaskRequest
 } from '@shared/scheduledTask.types'
+import { parseWhen } from '@shared/parseWhen'
 import { schedulerStore } from '../scheduler/SchedulerStore'
 import { schedulerService } from '../scheduler/SchedulerService'
 import { setKeepAwake } from '../scheduler/keepAwake'
@@ -24,6 +25,13 @@ export function registerSchedulerHandlers(): void {
     log.info(`scheduler:list answered with ${tasks.length} task(s)`)
     return tasks
   })
+
+  // Null for anything it cannot read, rather than an error: the caller previews
+  // this on every keystroke, and half-typed input is the normal state of a field
+  // somebody is still filling in, not a fault to report.
+  ipcMain.handle(IpcChannel.Scheduler.parseWhen, (_event, text: string) =>
+    typeof text === 'string' ? parseWhen(text) : null
+  )
 
   ipcMain.handle(IpcChannel.Scheduler.create, (_event, request: CreateScheduledTaskRequest) => {
     try {
