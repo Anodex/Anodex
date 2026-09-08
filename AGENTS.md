@@ -334,6 +334,35 @@ mistake — but the lesson generalises: **a correct tag on the wrong bytes is
 indistinguishable from success until somebody installs it.** Check the version
 inside the artifact, not just the name on the release.
 
+### Then check the release is whole
+
+A green workflow does not mean a complete release. After publishing, confirm the
+release carries **all three installers and all three metadata files**:
+
+```
+Anodex-Setup-<v>.exe   latest.yml        # Windows
+Anodex-<v>-arm64.dmg   latest-mac.yml    # macOS
+Anodex-<v>.AppImage    latest-linux.yml  # Linux
+```
+
+A platform missing its `latest*.yml` is the failure that looks most like
+success: the release page shows files, the workflow is green, and every install
+on that platform goes on reporting it is up to date for ever.
+
+v0.2.1 shipped as **two releases on the same tag**, created in the same second,
+because the three matrix jobs each asked GitHub for the release and each was
+told to create one. Windows landed on one, macOS and Linux on the other, and
+`/releases/latest` returned whichever it preferred. `max-parallel: 1` in
+`package.yml` is what prevents it; if that is ever removed, this comes back.
+
+```bash
+gh api repos/Anodex/Anodex/releases --jq \
+  '.[] | select(.tag_name=="vX.Y.Z") | "\(.id) \([.assets[].name]|join(","))"'
+```
+
+More than one line means a duplicate; consolidate onto the one
+`/releases/latest` resolves to and delete the other.
+
 ## Security notes
 
 - Never expose Node/Electron APIs directly to the renderer. Use the typed preload
