@@ -7908,7 +7908,8 @@
     "attachments:complete-upload",
     "attachments:discard-upload",
     "attachments:upload-chunk",
-    "remote:notification"
+    "remote:notification",
+    "scheduler:parse-when"
   ],
   "definitions": {
     "AgentRun": {
