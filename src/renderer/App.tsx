@@ -2,6 +2,7 @@ import { useAnodexBridge } from './hooks/useAnodexBridge'
 import { useInterfaceSounds } from './hooks/useInterfaceSounds'
 import { AppShell } from './components/AppShell'
 import { StartupOverlay } from './features/startup/StartupOverlay'
+import { UpdateNotice } from './features/updates/UpdateNotice'
 
 /**
  * Application root: initialise the IPC bridge, then render the shell. The
@@ -15,6 +16,7 @@ export function App(): JSX.Element {
   return (
     <>
       <AppShell />
+      <UpdateNotice />
       <StartupOverlay />
     </>
   )
