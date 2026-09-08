@@ -31,7 +31,11 @@ describe('the personality channels', () => {
   it('still refuses everything the phone was never meant to touch', () => {
     for (const channel of [
       IpcChannel.Mcp.add,
-      IpcChannel.Memory.list,
+      // Was `memory:list` until reading memory from a phone was allowed
+      // deliberately — see `channelPolicy.test.ts`, which draws that line and pins
+      // both halves of it. Create is the one that stayed refused: a memory is fed
+      // into later prompts, so writing one steers every conversation after it.
+      IpcChannel.Memory.create,
       IpcChannel.Remote.setEnabled,
       IpcChannel.Terminal.create,
       // Was `models:load` until switching models from a phone was allowed
