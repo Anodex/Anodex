@@ -104,7 +104,26 @@ export const DENIED_CHANNELS = [
   'workspace:refresh-html-preview-window',
 
   // Irreversible, from a device that gets left on tables.
-  'workspace:delete-path'
+  'workspace:delete-path',
+
+  /**
+   * Putting files back the way they were, from a phone.
+   *
+   * `checkpoints:list` and `checkpoints:inspect` are reads and stay allowed — being
+   * able to see what a run changed is most of what makes trusting one from away
+   * possible at all.
+   *
+   * These three are not reads. They rewrite files in the project to an earlier
+   * state, and the phone has no diff view to justify the decision with: it would be
+   * undoing work on the strength of a filename and a count. On a machine nobody is
+   * sitting at, that is a way to lose an afternoon of an agent's output to one
+   * mistaken tap.
+   *
+   * Worth revisiting the moment the phone can actually show what would be undone.
+   */
+  'checkpoints:restore',
+  'checkpoints:undo',
+  'checkpoints:rollback'
 ] as const
 
 /**
