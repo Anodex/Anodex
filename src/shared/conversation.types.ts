@@ -21,7 +21,26 @@ export interface ConversationSummary {
   updatedAt: number
   messageCount: number
   archived?: boolean
+  /**
+   * What made this conversation, when it was not a person.
+   *
+   * Carried into the summary so a list can tell the two apart. Absent means a
+   * person started it, which is the only kind worth putting in front of one: a
+   * scheduled run and a benchmark script write conversations exactly like a chat
+   * somebody typed in, and a "recent" list ordered by last write shows the
+   * machine's activity rather than the user's.
+   */
+  origin?: ConversationOrigin
 }
+
+/**
+ * What made a conversation.
+ *
+ * Absent on a conversation a person started — the common case, and not worth a
+ * field on every record. Named as a type because three places now decide it and a
+ * fourth reads it across the wire.
+ */
+export type ConversationOrigin = 'scheduled' | 'agent' | 'autorun'
 
 export interface Conversation {
   id: string
@@ -50,7 +69,7 @@ export interface Conversation {
    */
   replaySuggestion?: ConversationReplaySuggestion
   /** Set when every turn in this chat came from an automated scheduled task or agent run, not the user. */
-  origin?: 'scheduled' | 'agent' | 'autorun'
+  origin?: ConversationOrigin
   /**
    * The email conversation this chat was opened for, when it started from the
    * Email page's Reply or Summarize action.
