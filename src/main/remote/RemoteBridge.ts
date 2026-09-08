@@ -11,6 +11,7 @@ import {
 import { collectHostAddresses } from './addresses'
 import { EXPECTED_MOBILE_VERSION } from './mobileRelease'
 import { decideRemoteChannel } from './channelPolicy'
+import { hostname } from 'node:os'
 import { handlerFor, type IpcHandler } from './handlerRegistry'
 import type { RemoteCertificate } from './certificate'
 import type { PairingService } from './pairing'
@@ -86,7 +87,16 @@ export class RemoteBridge {
      * which is the only confirmation the user can get that their port forwarding
      * works without asking somebody else's server to look.
      */
-    private readonly onPeer: (address: string | undefined) => void = () => {}
+    private readonly onPeer: (address: string | undefined) => void = () => {},
+    /**
+     * Where the client says it reached this machine.
+     *
+     * Reported only after authentication, for the same reason as `onPeer`: an
+     * unauthenticated stranger is a port scanner, and letting one name the address
+     * this machine hands out to its own phone would be taking directions from
+     * whoever knocked.
+     */
+    private readonly onReachedAt: (address: string | undefined) => void = () => {}
   ) {}
 
   /** Whether the listener is currently accepting connections. */
@@ -208,12 +218,14 @@ export class RemoteBridge {
           }
           clearTimeout(handshakeTimer)
           client = this.attach(socket, auth.device.deviceId, peerAddress)
+          this.onReachedAt(frame.reachedAt)
           this.send(socket, {
             type: 'welcome',
             deviceId: auth.device.deviceId,
             protocolVersion: PROTOCOL_VERSION,
             addresses: this.reachableAddresses(),
-            mobileVersion: EXPECTED_MOBILE_VERSION
+            mobileVersion: EXPECTED_MOBILE_VERSION,
+            hostName: hostname()
           })
           return
         }
@@ -227,6 +239,7 @@ export class RemoteBridge {
           }
           clearTimeout(handshakeTimer)
           client = this.attach(socket, outcome.device.deviceId, peerAddress)
+          this.onReachedAt(frame.reachedAt)
           this.send(socket, {
             type: 'paired',
             deviceKey: outcome.deviceKey,
@@ -235,7 +248,8 @@ export class RemoteBridge {
             // Sent at pairing as well as at every reconnect, so a phone paired on
             // the LAN already knows every other route before it first leaves home.
             addresses: this.reachableAddresses(),
-            mobileVersion: EXPECTED_MOBILE_VERSION
+            mobileVersion: EXPECTED_MOBILE_VERSION,
+            hostName: hostname()
           })
           return
         }

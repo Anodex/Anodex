@@ -43,6 +43,14 @@ interface PersistedState {
   /** A public address the user forwarded themselves, when automatic mapping cannot. */
   manualExternalAddress?: string
   manualExternalPort?: number
+  /**
+   * A public address a paired phone reported reaching this machine on.
+   *
+   * Kept apart from the manual one so the user's own answer is never overwritten by
+   * an observation, and so clearing theirs does not silently leave a guess behind
+   * wearing the same label.
+   */
+  observedExternalAddress?: string
   /** The port actually in use, so it survives a restart. */
   port?: number
   certPem?: string
@@ -254,6 +262,39 @@ export class RemoteService {
     this.onStatusChanged?.(this.status())
   }
 
+  /**
+   * Learn this machine's public address from a phone that just used it.
+   *
+   * A machine behind a router cannot see its own public address — the router
+   * rewrites the packets and this end only ever sees the private side. The usual
+   * ways out are to ask an outside service how we look from there, or to ask the
+   * router over NAT-PMP/UPnP. The first drags in a third party this app has no
+   * reason to involve, and the second is refused by a great many home routers,
+   * including the one this was written against.
+   *
+   * A phone that reached us from outside already knows the answer, because somebody
+   * typed it. So it tells us, and that is entirely local.
+   *
+   * Believed only from an authenticated client, only when it is a usable public
+   * address, and never over an address the user set themselves — theirs is a
+   * decision, this is an observation, and a decision outranks an observation.
+   */
+  recordReachedAt(address: string | undefined): void {
+    const trimmed = address?.trim()
+    if (!trimmed || this.state.manualExternalAddress) return
+    if (trimmed === this.state.observedExternalAddress) return
+    if (explainUnusableExternalAddress(trimmed)) return
+
+    this.state.observedExternalAddress = trimmed
+    this.persist()
+    log.info(`learned this machine's public address from a phone: ${trimmed}`)
+
+    // Advertised from here on, so every phone that connects — including this one on
+    // its next reconnect — is handed the address that actually works from outside.
+    if (this.state.internetEnabled) void this.acquireInternetRoute()
+    this.onStatusChanged?.(this.status())
+  }
+
   private async acquireInternetRoute(): Promise<void> {
     const port = this.bridge?.port
     if (!port) {
@@ -291,6 +332,23 @@ export class RemoteService {
       }
       this.startMappingRenewal(port)
       log.info(`internet route: ${result.mapping.externalAddress}:${result.mapping.externalPort}`)
+      return
+    }
+
+    // The router would not open one, but a phone has already come in from outside
+    // and said where it knocked. That address demonstrably works, which is better
+    // evidence than anything left to try here.
+    if (this.state.observedExternalAddress) {
+      this.internet = {
+        enabled: true,
+        address: this.state.observedExternalAddress,
+        port: this.state.manualExternalPort ?? port,
+        source: 'manual',
+        problem: null
+      }
+      log.info(
+        `internet route, learned from a phone: ${this.state.observedExternalAddress}:${port}`
+      )
       return
     }
 
@@ -433,7 +491,8 @@ export class RemoteService {
       certificate,
       undefined,
       () => this.externalAddress(),
-      (address) => this.recordPeerAddress(address)
+      (address) => this.recordPeerAddress(address),
+      (address) => this.recordReachedAt(address)
     )
 
     // Prefer the port we used last time, so a paired phone finds us where it left
