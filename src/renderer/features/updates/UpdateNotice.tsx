@@ -36,7 +36,9 @@ export function UpdateNotice(): JSX.Element | null {
   }, [])
 
   const version =
-    status.state === 'available' || status.state === 'downloaded' ? status.version : null
+    status.state === 'available' || status.state === 'downloading' || status.state === 'downloaded'
+      ? status.version
+      : null
 
   // Downloading is shown only once the offer has been accepted — the bar stays put
   // and reports progress rather than vanishing, so the thing you just clicked does
@@ -56,7 +58,13 @@ export function UpdateNotice(): JSX.Element | null {
 
       <div className={styles.body}>
         <div className={styles.title}>
-          {ready ? `Anodex ${version} is ready to install` : `Anodex ${version} is available`}
+          {/* Never interpolate a null version: a state that forgot to carry one used
+              to render the literal "Anodex null is available". */}
+          {version === null
+            ? 'A new version of Anodex is available'
+            : ready
+              ? `Anodex ${version} is ready to install`
+              : `Anodex ${version} is available`}
         </div>
         <div className={styles.message}>
           {downloading !== null
