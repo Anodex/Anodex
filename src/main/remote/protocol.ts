@@ -11,8 +11,33 @@
 
 /** Everything a client may send. */
 export type ClientFrame =
-  | { type: 'hello'; protocolVersion: string; deviceKey: string; deviceName?: string }
-  | { type: 'pair'; protocolVersion: string; secret: string; deviceName?: string }
+  /**
+   * `reachedAt` is the address the phone actually dialled to get here.
+   *
+   * A machine behind a router cannot see its own public address: the router
+   * rewrites the packets, and everything this end observes is the private side. The
+   * usual answers are to ask an outside service what our address looks like, or to
+   * ask the router over NAT-PMP/UPnP — the first is a third party this app has no
+   * reason to involve, and the second is refused by a great many home routers.
+   *
+   * But a phone that connected from outside already knows the answer, because it
+   * typed it. So it says. That is local, needs nobody else, and is only believed
+   * from a client that has authenticated.
+   */
+  | {
+      type: 'hello'
+      protocolVersion: string
+      deviceKey: string
+      deviceName?: string
+      reachedAt?: string
+    }
+  | {
+      type: 'pair'
+      protocolVersion: string
+      secret: string
+      deviceName?: string
+      reachedAt?: string
+    }
   | { type: 'invoke'; id: string; channel: string; args: unknown[] }
   | { type: 'ping' }
 
@@ -41,6 +66,19 @@ export type ServerFrame =
        * real case: a desktop reachable at home while the phone's data is off.
        */
       mobileVersion: string
+      /**
+       * What this machine is called.
+       *
+       * Sent so the phone can show a name rather than an address. A phone paired by
+       * typing an address had nothing else to call the machine, so it showed the
+       * address on every screen — which is a router's public IP sitting in plain
+       * sight on a device that leaves the house.
+       *
+       * Sent on every handshake rather than only at pairing, so a phone that paired
+       * before this existed picks the name up on its next connection instead of
+       * having to pair again.
+       */
+      hostName: string
     }
   | {
       type: 'paired'
@@ -49,6 +87,7 @@ export type ServerFrame =
       protocolVersion: string
       addresses: string[]
       mobileVersion: string
+      hostName: string
     }
   | { type: 'result'; id: string; ok: true; result: unknown }
   | { type: 'result'; id: string; ok: false; error: { code: string; message: string } }
@@ -127,7 +166,13 @@ export function parseClientFrame(raw: string | Buffer): ParsedFrame {
       }
       return {
         ok: true,
-        frame: { type: 'hello', protocolVersion, deviceKey, deviceName: asString(frame.deviceName) }
+        frame: {
+          type: 'hello',
+          protocolVersion,
+          deviceKey,
+          deviceName: asString(frame.deviceName),
+          reachedAt: asString(frame.reachedAt)
+        }
       }
     }
 
@@ -143,7 +188,13 @@ export function parseClientFrame(raw: string | Buffer): ParsedFrame {
       }
       return {
         ok: true,
-        frame: { type: 'pair', protocolVersion, secret, deviceName: asString(frame.deviceName) }
+        frame: {
+          type: 'pair',
+          protocolVersion,
+          secret,
+          deviceName: asString(frame.deviceName),
+          reachedAt: asString(frame.reachedAt)
+        }
       }
     }
 
