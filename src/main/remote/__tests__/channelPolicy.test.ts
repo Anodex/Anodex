@@ -98,3 +98,23 @@ describe('memory from a phone', () => {
     expect(decideRemoteChannel('memory:update').allowed).toBe(false)
   })
 })
+
+/**
+ * Seeing what a run changed, without being able to undo it blind.
+ *
+ * The reads are what make trusting a run from away possible. The writes put files
+ * back to an earlier state, and the phone has no diff view to justify that with —
+ * it would be undoing work on the strength of a filename and a count.
+ */
+describe('checkpoints from a phone', () => {
+  it('can see what changed', () => {
+    expect(decideRemoteChannel('checkpoints:list').allowed).toBe(true)
+    expect(decideRemoteChannel('checkpoints:inspect').allowed).toBe(true)
+  })
+
+  it('cannot put files back', () => {
+    expect(decideRemoteChannel('checkpoints:restore').allowed).toBe(false)
+    expect(decideRemoteChannel('checkpoints:undo').allowed).toBe(false)
+    expect(decideRemoteChannel('checkpoints:rollback').allowed).toBe(false)
+  })
+})
