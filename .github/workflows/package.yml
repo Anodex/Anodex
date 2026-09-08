@@ -63,6 +63,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+      # One at a time, because publishing is not safe to run concurrently.
+      #
+      # Each platform's `--publish always` asks GitHub for the release matching
+      # this tag and creates it if absent. Run in parallel, all three ask before
+      # any has finished creating, and GitHub answers every one of them — v0.2.1
+      # produced *two* releases on the same tag, created in the same second, with
+      # the Windows installer and `latest.yml` on one and the macOS and Linux
+      # builds on the other. Nothing failed and nothing was lost; the release was
+      # simply half of itself, and `/releases/latest` picked one of the two.
+      #
+      # Serialising costs roughly twice the wall clock on a release build, which
+      # happens rarely, and removes the race entirely: the first job creates the
+      # release and the other two find it.
+      max-parallel: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v7
