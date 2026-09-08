@@ -6,6 +6,7 @@ import {
   type OpenDialogOptions
 } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { isRemoteClient } from '../clients/clientRegistry'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import { settingsStore } from '../settings/SettingsStore'
@@ -72,6 +73,48 @@ function confirmationAudience(asker: ClientChannel): ClientChannel[] {
  * Resolves to a denial if every client is gone or the generation is aborted
  * while the prompt is open, so a stalled approval never hangs the model.
  */
+/**
+ * The same prompt, small enough to actually arrive.
+ *
+ * A confirm request carries the whole before and after of the file being written,
+ * so the prompt can show a real diff. On this machine that is free. Over a socket
+ * it is not: the bridge refuses to send a frame past its cap, and an *event* that
+ * gets refused is simply dropped — there is deliberately no error path, on the
+ * reasoning that nobody is waiting on an event.
+ *
+ * Which is true of every event except this one. A dropped confirm request means
+ * the phone never shows the prompt while the turn on this machine sits waiting for
+ * an answer to a question nobody was asked. One large file edit and the run hangs.
+ *
+ * So the diff is bounded before it leaves. A phone cannot read a megabyte of diff
+ * anyway; what it needs is enough to decide with, and to be told plainly when there
+ * is more than that.
+ */
+function forAPhone(request: ToolConfirmRequest): ToolConfirmRequest {
+  const diff = request.diff
+  if (!diff) return request
+
+  const size = diff.before.length + diff.after.length
+  if (size <= MAX_REMOTE_DIFF_CHARS) return request
+
+  // Emptied rather than trimmed at an arbitrary character. Half a diff is worse
+  // than none: it reads as the whole change, and the part that was cut is exactly
+  // the part somebody would have wanted to see before approving.
+  return {
+    ...request,
+    diff: undefined,
+    detail: `${diff.path} — too large to show here (${Math.round(size / 1024)}KB). Approve at the computer if you need to read it first.`
+  }
+}
+
+/**
+ * How much diff a phone gets.
+ *
+ * Comfortably inside the bridge's frame cap with the rest of the prompt beside it,
+ * and far more than anybody reads on a phone screen before deciding.
+ */
+const MAX_REMOTE_DIFF_CHARS = 200_000
+
 export function requestToolConfirmation(
   asker: ClientChannel,
   request: ToolConfirmRequest,
@@ -154,7 +197,12 @@ export function requestToolConfirmation(
       },
       { once: true }
     )
-    for (const client of audience) client.send(IpcChannel.Tools.confirmRequest, request)
+    for (const client of audience) {
+      client.send(
+        IpcChannel.Tools.confirmRequest,
+        isRemoteClient(client) ? forAPhone(request) : request
+      )
+    }
 
     // The fifth notification source, and the most valuable one (§6.2). Everything
     // else the phone reports can wait until the user is back at the desk; a run

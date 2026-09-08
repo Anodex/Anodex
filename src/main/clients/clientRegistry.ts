@@ -87,6 +87,18 @@ export function detachRemoteClient(client: ClientChannel): void {
   remoteClients.delete(client)
 }
 
+/**
+ * Whether this channel is a phone rather than a window on this machine.
+ *
+ * Membership of the set, not the shape of the id. `client.id` happens to start
+ * with `remote:` and reading that would work today — and would keep working right
+ * up until somebody renamed it, at which point every caller quietly starts treating
+ * phones as windows.
+ */
+export function isRemoteClient(client: ClientChannel): boolean {
+  return remoteClients.has(client)
+}
+
 /** Every attached remote client that is still reachable, pruning any that are not. */
 export function activeRemoteClients(): ClientChannel[] {
   for (const client of remoteClients) {
