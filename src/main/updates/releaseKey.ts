@@ -15,10 +15,17 @@
  * it — the trust is pinned at install time, the way the phone pairing pins its
  * trust to the desktop that issued it.
  *
- * `null` means this build was compiled before a key was provisioned. Signature
- * checking is then inert and updates behave exactly as they did before, which
- * is the honest fallback: it does not pretend to a guarantee it cannot make.
- * Run `npm run release:keygen`, paste the printed public key here, and every
- * build from that point on refuses an update it cannot verify.
+ * Set once, for the life of the key — not per release. Signing a release reads
+ * the private half from a file on the release machine; nothing is pasted here
+ * again, and rotating is the only thing that would change this line.
+ *
+ * `null` would mean a build compiled before a key existed: the check inert and
+ * updates behaving exactly as they did before. That is the honest fallback
+ * rather than a guarantee it cannot make, and it is what every build before
+ * this commit did.
  */
-export const RELEASE_PUBLIC_KEY_PEM: string | null = null
+export const RELEASE_PUBLIC_KEY_PEM: string | null = `
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA29uDSdOJPyMRqyuJ1r9k6hkRmgaYNJzzjCmJU+EPM1g=
+-----END PUBLIC KEY-----
+`

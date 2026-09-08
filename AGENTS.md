@@ -326,16 +326,30 @@ install would have accepted the result. The Ed25519 signature is what makes that
 substitution fail, because the private key is not in the repository, not in CI,
 and not reachable by any token that can write a release.
 
-After CI finishes and the draft release has all three installers:
+After CI finishes, one command does the rest:
 
 ```
-gh release download v0.2.2 --dir dist --pattern '*.exe' --pattern '*.dmg' --pattern '*.AppImage'
-npm run release:sign -- --key ~/.anodex/release-signing-key.pem dist/*.exe dist/*.dmg dist/*.AppImage
-gh release upload v0.2.2 dist/*.sig
-gh release edit v0.2.2 --draft=false
+npm run release:finish -- v0.2.2
 ```
 
-Only that last command makes the release visible to anybody's updater.
+Download, sign, upload, verify, publish. It reads the key from
+`~/.anodex/release-signing-key.pem` unless `--key` says otherwise, and it
+refuses rather than half-finishes:
+
+- **the release is already published** — too late; signing has to happen while
+  it is still invisible.
+- **fewer than three installers** — this repo has shipped half a release before.
+  Cheaper to catch here than after somebody cannot install.
+- **the signing key is not the one compiled into `releaseKey.ts`** — checked
+  before anything is uploaded, because publishing a release signed by the wrong
+  key would be refused by every install, with no way back except another
+  release.
+
+Each signature is verified against the _shipped_ public key rather than the one
+that just made it, so what passes here is what an installed copy of Anodex will
+actually conclude.
+
+`npm run release:sign` still exists for signing files by hand.
 
 **The failure mode to know:** publish a release without uploading its `.sig`
 files and every install will refuse the update. That is correct behaviour — the
@@ -345,7 +359,7 @@ look exactly like a broken updater. If an install reports "this release carries
 no signature", the release is at fault, not the client.
 
 The key itself is generated once, by `npm run release:keygen`, on the machine
-that cuts releases. Its public half is compiled into the app
+that cuts releases — once for the life of the key, not once per release. Its public half is compiled into the app
 (`src/main/updates/releaseKey.ts`), which is what pins the trust: the copy
 somebody already installed is the thing that judges the update, so reaching the
 release is not enough to forge one. The corollary is that **losing the private

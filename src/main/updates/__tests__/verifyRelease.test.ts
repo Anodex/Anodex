@@ -1,8 +1,9 @@
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { RELEASE_PUBLIC_KEY_PEM } from '../releaseKey'
 import { sha512OfFile, signatureUrlFor, verifyUpdateFile } from '../verifyRelease'
 
 /**
@@ -130,5 +131,20 @@ describe('signatureUrlFor', () => {
     expect(signatureUrlFor('0.2.2', `https://elsewhere.example/${ASSET}`)).toBe(
       `https://github.com/Anodex/Anodex/releases/download/v0.2.2/${ASSET}.sig`
     )
+  })
+})
+
+describe('the shipped release key', () => {
+  // The whole chain is inert without this, and inert looks exactly like working
+  // — updates download and install, they are simply never checked. Nothing else
+  // in the suite would notice, because every other test supplies its own key.
+  it('is compiled into the build', () => {
+    expect(RELEASE_PUBLIC_KEY_PEM).not.toBeNull()
+  })
+
+  it('is a usable Ed25519 public key', () => {
+    const key = createPublicKey(RELEASE_PUBLIC_KEY_PEM as string)
+    expect(key.asymmetricKeyType).toBe('ed25519')
+    expect(key.type).toBe('public')
   })
 })
