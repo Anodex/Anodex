@@ -21,6 +21,8 @@ const log = createLogger('updater')
 class UpdateService extends EventEmitter {
   private status: UpdateStatus = { state: 'idle' }
   private initialized = false
+  /** Last version `update-available` named. `download-progress` doesn't repeat it. */
+  private pendingVersion: string | null = null
 
   init(): void {
     if (this.initialized) return
@@ -30,16 +32,22 @@ class UpdateService extends EventEmitter {
     autoUpdater.autoInstallOnAppQuit = false
 
     autoUpdater.on('checking-for-update', () => this.setStatus({ state: 'checking' }))
-    autoUpdater.on('update-available', (info) =>
+    autoUpdater.on('update-available', (info) => {
+      this.pendingVersion = info.version
       this.setStatus({ state: 'available', version: info.version })
-    )
+    })
     autoUpdater.on('update-not-available', () => this.setStatus({ state: 'not-available' }))
     autoUpdater.on('download-progress', (progress) =>
-      this.setStatus({ state: 'downloading', percent: Math.round(progress.percent) })
+      this.setStatus({
+        state: 'downloading',
+        version: this.pendingVersion ?? app.getVersion(),
+        percent: Math.round(progress.percent)
+      })
     )
-    autoUpdater.on('update-downloaded', (info) =>
+    autoUpdater.on('update-downloaded', (info) => {
+      this.pendingVersion = info.version
       this.setStatus({ state: 'downloaded', version: info.version })
-    )
+    })
     autoUpdater.on('error', (error) => {
       log.warn('Update check failed:', error)
       this.setStatus({ state: 'error', message: error.message })

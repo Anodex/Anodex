@@ -21,7 +21,9 @@ describe('updateStatusText', () => {
   })
 
   it('describes download progress', () => {
-    expect(updateStatusText({ state: 'downloading', percent: 42 })).toBe('Downloading update… 42%')
+    expect(updateStatusText({ state: 'downloading', version: '0.2.1', percent: 42 })).toBe(
+      'Downloading update… 42%'
+    )
   })
 
   it('describes a downloaded update ready to install', () => {
