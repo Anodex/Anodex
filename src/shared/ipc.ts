@@ -435,6 +435,16 @@ export const IpcChannel = {
     delete: 'scheduler:delete',
     /** Trigger a task immediately, regardless of its schedule. */
     runNow: 'scheduler:run-now',
+    /**
+     * Read a typed phrase — "every weekday at 7am" — into a recurrence.
+     *
+     * Exists so a caller without the parser can still offer the natural-language
+     * field. The phone is the one that needs it: `parseWhen` is TypeScript and the
+     * phone is Kotlin, so the alternative was a second implementation of the same
+     * rules in another language, drifting from this one the first time either
+     * changed. Sending the text here keeps one parser for both surfaces.
+     */
+    parseWhen: 'scheduler:parse-when',
     getKeepAwake: 'scheduler:get-keep-awake',
     setKeepAwake: 'scheduler:set-keep-awake',
     /** main → renderer broadcast whenever tasks change (create/update/delete/run). */
