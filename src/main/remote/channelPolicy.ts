@@ -121,6 +121,26 @@ export const ALLOWED_CHANNELS = [
   'models:state-changed',
 
   /**
+   * Reading what Anodex remembers, and forgetting one entry.
+   *
+   * The `memory:` prefix is denied because it sits with the configuration
+   * surfaces, and a phone that can rewrite configuration can switch off the
+   * protections that let it connect. These two are neither.
+   *
+   * `list` is a read. `delete` removes one remembered line and can do nothing
+   * else — it cannot add a memory, and adding is the direction that matters: a
+   * memory is injected into future prompts, so writing one from a phone is a way
+   * to steer every later conversation from a device that might be in somebody
+   * else's hand. Forgetting only ever narrows what the model is told.
+   *
+   * `create` and `update` stay denied for exactly that reason. A memory that is
+   * wrong is worth being able to remove from wherever you are; one that is
+   * missing can wait until you are at the machine.
+   */
+  'memory:list',
+  'memory:delete',
+
+  /**
    * Switching between models that are already on the machine.
    *
    * The line is *acquiring* versus *choosing*. Downloading is a multi-gigabyte
